@@ -32,8 +32,8 @@ async def test_credential_health_get_without_service(
     workflow_id = workflow_response.json()["id"]
 
     monkeypatch.setitem(backend_app._credential_service_ref, "service", None)
-    api_client.app.dependency_overrides[backend_app.get_credential_service] = (
-        lambda: None
+    api_client.app.dependency_overrides[backend_app.get_credential_service] = lambda: (
+        None
     )
 
     response = api_client.get(f"/api/workflows/{workflow_id}/credentials/health")
@@ -53,8 +53,8 @@ async def test_credential_health_validate_without_service(
     workflow_id = workflow_response.json()["id"]
 
     monkeypatch.setitem(backend_app._credential_service_ref, "service", None)
-    api_client.app.dependency_overrides[backend_app.get_credential_service] = (
-        lambda: None
+    api_client.app.dependency_overrides[backend_app.get_credential_service] = lambda: (
+        None
     )
 
     response = api_client.post(

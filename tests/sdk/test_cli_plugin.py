@@ -328,21 +328,23 @@ def test_plugin_install_human_mode_emits_progress(
         plugin_module,
         "install_plugin_data",
         lambda ref, *, progress=None: (
-            progress("Creating isolated plugin environment")
-            if progress is not None
-            else None
-        )
-        or {
-            "plugin": {"name": "example"},
-            "impact": PluginImpactSummary(
-                change_type="install",
-                affected_component_kinds=[],
-                affected_component_ids=[],
-                activation_mode="silent_hot_reload",
-                prompt_required=False,
-                restart_required=False,
-            ),
-        },
+            (
+                progress("Creating isolated plugin environment")
+                if progress is not None
+                else None
+            )
+            or {
+                "plugin": {"name": "example"},
+                "impact": PluginImpactSummary(
+                    change_type="install",
+                    affected_component_kinds=[],
+                    affected_component_ids=[],
+                    activation_mode="silent_hot_reload",
+                    prompt_required=False,
+                    restart_required=False,
+                ),
+            }
+        ),
     )
 
     plugin_module.install_plugin(None, "example-ref", runtime="auto")

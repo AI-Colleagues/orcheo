@@ -469,14 +469,12 @@ async def test_run_builds_step_callback_when_progress_callback_is_provided(
     monkeypatch.setattr(
         WorkflowExecutor,
         "_build_step_callback",
-        lambda self,
-        *,
-        history_store,
-        execution_id,
-        progress_callback: build_step_callback_calls.append(
-            (history_store, execution_id, progress_callback)
-        )
-        or step_callback,
+        lambda self, *, history_store, execution_id, progress_callback: (
+            build_step_callback_calls.append(
+                (history_store, execution_id, progress_callback)
+            )
+            or step_callback
+        ),
     )
 
     async def fake_execute_graph(self, **kwargs):
