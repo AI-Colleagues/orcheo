@@ -95,4 +95,86 @@ describe("workflow-config-sheet utils", () => {
       },
     });
   });
+
+  it("merges declared schemas with inferred schemas", () => {
+    const configurable = {
+      post_as: "person",
+      max_results: 10,
+      dry_run: false,
+      categories: ["news", "tech"],
+    };
+
+    const schemaDefinitions = {
+      post_as: { enum: ["person", "organization"] },
+      max_results: { type: "integer", minimum: 1, maximum: 100 },
+      dry_run: { type: "boolean" },
+      categories: {
+        type: "array",
+        items: { enum: ["news", "sport", "tech"] },
+      },
+    };
+
+    expect(buildConfigurableSchema(configurable, schemaDefinitions)).toEqual({
+      post_as: { type: "string", enum: ["person", "organization"] },
+      max_results: {
+        type: "integer",
+        minimum: 1,
+        maximum: 100,
+      },
+      dry_run: { type: "boolean" },
+      categories: {
+        type: "array",
+        items: { enum: ["news", "sport", "tech"] },
+      },
+    });
+  });
+
+  it("uses declared schema for enum fields that render as SelectWidget", () => {
+    const configurable = {
+      visibility: "PUBLIC",
+    };
+
+    const schemaDefinitions = {
+      visibility: { enum: ["PUBLIC", "CONNECTIONS", "PRIVATE"] },
+    };
+
+    const result = buildConfigurableSchema(configurable, schemaDefinitions);
+
+    expect(result.visibility).toEqual({
+      type: "string",
+      enum: ["PUBLIC", "CONNECTIONS", "PRIVATE"],
+    });
+  });
+
+  it("preserves inferred schema when no declarations provided", () => {
+    const configurable = {
+      api_key: "secret123",
+      retry_count: 3,
+    };
+
+    expect(buildConfigurableSchema(configurable)).toEqual({
+      api_key: { type: "string" },
+      retry_count: { type: "integer" },
+    });
+  });
+
+  it("handles partial schema declarations", () => {
+    const configurable = {
+      mode: "auto",
+      timeout: 5000,
+      enabled: true,
+    };
+
+    const schemaDefinitions = {
+      mode: { enum: ["auto", "manual"] },
+      // timeout not declared, should use inferred
+      // enabled not declared, should use inferred
+    };
+
+    expect(buildConfigurableSchema(configurable, schemaDefinitions)).toEqual({
+      mode: { type: "string", enum: ["auto", "manual"] },
+      timeout: { type: "integer" },
+      enabled: { type: "boolean" },
+    });
+  });
 });

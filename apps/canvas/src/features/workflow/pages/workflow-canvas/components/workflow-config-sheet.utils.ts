@@ -68,18 +68,47 @@ export const inferSchemaFromValue = (value: unknown): RJSFSchema => {
   return {};
 };
 
+const mergeSchemas = (
+  inferredSchema: RJSFSchema,
+  declaredSchema: RJSFSchema,
+): RJSFSchema => {
+  // Declared schema takes priority over inferred schema
+  const merged = { ...inferredSchema, ...declaredSchema };
+
+  // For objects, merge properties recursively
+  if (
+    inferredSchema.type === "object" &&
+    declaredSchema.type === "object" &&
+    inferredSchema.properties &&
+    declaredSchema.properties
+  ) {
+    merged.properties = {
+      ...inferredSchema.properties,
+      ...declaredSchema.properties,
+    };
+  }
+
+  return merged;
+};
+
 export const buildConfigurableSchema = (
   configurable: unknown,
+  schemaDefinitions?: Record<string, RJSFSchema>,
 ): RJSFSchema["properties"] => {
   if (!isRecord(configurable)) {
     return {};
   }
 
   return Object.fromEntries(
-    Object.entries(configurable).map(([key, value]) => [
-      key,
-      inferSchemaFromValue(value),
-    ]),
+    Object.entries(configurable).map(([key, value]) => {
+      const inferredSchema = inferSchemaFromValue(value);
+      const declaredSchema = schemaDefinitions?.[key];
+      
+      return [
+        key,
+        declaredSchema ? mergeSchemas(inferredSchema, declaredSchema) : inferredSchema,
+      ];
+    }),
   );
 };
 

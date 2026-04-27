@@ -115,6 +115,7 @@ interface WorkflowConfigSheetProps {
   onOpenChange: (open: boolean) => void;
   initialConfig: WorkflowRunnableConfig | null;
   onSave: (nextConfig: WorkflowRunnableConfig | null) => Promise<void>;
+  configurableSchemas?: Record<string, RJSFSchema>;
 }
 
 export function WorkflowConfigSheet({
@@ -122,6 +123,7 @@ export function WorkflowConfigSheet({
   onOpenChange,
   initialConfig,
   onSave,
+  configurableSchemas,
 }: WorkflowConfigSheetProps) {
   const [formData, setFormData] = useState<Record<string, unknown>>(
     toFormData(initialConfig),
@@ -138,7 +140,10 @@ export function WorkflowConfigSheet({
         ...baseWorkflowConfigSchema.properties,
         configurable: {
           ...configurableSchema,
-          properties: buildConfigurableSchema(formData.configurable),
+          properties: buildConfigurableSchema(
+            formData.configurable,
+            configurableSchemas,
+          ),
         },
       },
     };
