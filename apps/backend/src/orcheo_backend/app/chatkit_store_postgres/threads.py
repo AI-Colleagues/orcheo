@@ -18,6 +18,22 @@ from orcheo_backend.app.chatkit_store_postgres.utils import (
 )
 
 
+def _extract_title_from_request(context: ChatKitRequestContext | None) -> str | None:
+    """Return first 20 chars of the first user text content in the request."""
+    if not context:
+        return None
+    request = context.get("chatkit_request")
+    if request is None:
+        return None
+    params = getattr(request, "params", None)
+    user_input = getattr(params, "input", None)
+    for item in getattr(user_input, "content", []):
+        text = getattr(item, "text", None)
+        if text:
+            return text[:20].strip() or None
+    return None
+
+
 class ThreadStoreMixin(BasePostgresStore):
     """CRUD helpers for thread metadata."""
 
@@ -45,6 +61,8 @@ class ThreadStoreMixin(BasePostgresStore):
     ) -> None:
         """Insert or update metadata for ``thread``."""
         await self._ensure_initialized()
+        if not thread.title:
+            thread.title = _extract_title_from_request(context)
         async with self._lock:
             async with self._connection() as conn:
                 metadata_payload = self._merge_metadata_from_context(thread, context)
@@ -85,13 +103,18 @@ class ThreadStoreMixin(BasePostgresStore):
         order: str,
         context: ChatKitRequestContext,
     ) -> Page[ThreadMetadata]:
-        """Return a paginated collection of threads."""
+        """Return a paginated collection of threads scoped to the workflow."""
         await self._ensure_initialized()
+        workflow_id: str | None = context.get("workflow_id") if context else None
         limit = max(limit, 1)
         ordering = "asc" if order.lower() == "asc" else "desc"
         comparator = ">" if ordering == "asc" else "<"
         params: list[Any] = []
-        where_clause = ""
+        conditions: list[str] = []
+
+        if workflow_id:
+            conditions.append("workflow_id = %s")
+            params.append(workflow_id)
 
         async with self._connection() as conn:
             if after:  # pragma: no branch
@@ -102,15 +125,15 @@ class ThreadStoreMixin(BasePostgresStore):
                 marker = await cursor.fetchone()
                 if marker is not None:
                     created_at = marker["created_at"]
-                    where_clause = f" WHERE (created_at, id) {comparator} (%s, %s)"
+                    conditions.append(f"((created_at, id) {comparator} (%s, %s))")
                     params.extend([created_at, marker["id"]])
 
             query = (
                 "SELECT id, title, status_json, metadata_json, created_at "
                 "FROM chat_threads"
             )
-            if where_clause:
-                query += where_clause
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
             query += f" ORDER BY created_at {ordering.upper()}, id {ordering.upper()}"
             query += " LIMIT %s"
             params.append(limit + 1)
