@@ -596,6 +596,71 @@ async def test_stream_workflow_updates_logs_final_state(
 
 
 @pytest.mark.asyncio
+async def test_stream_workflow_updates_forwards_in_node_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """In-node status emissions should be persisted and streamed to clients."""
+
+    safe_send = AsyncMock(return_value=True)
+    emit_update = AsyncMock()
+    history_store = AsyncMock()
+    history_step = SimpleNamespace()
+    history_store.append_step = AsyncMock(return_value=history_step)
+    captured_callback: dict[str, Any] = {}
+
+    from orcheo.nodes.agent_tools.context import get_active_tool_progress_callback
+
+    class CompiledGraph:
+        async def astream(self, state: object, *, config: object, stream_mode: str):
+            captured_callback["callback"] = get_active_tool_progress_callback()
+            assert captured_callback["callback"] is not None
+            await captured_callback["callback"](
+                {
+                    "node": "indexer",
+                    "event": "node_status",
+                    "payload": {"status": "loading"},
+                }
+            )
+            # Sub-graph progress without an event key must not be forwarded.
+            await captured_callback["callback"]({"sub_node": {"value": 1}})
+            yield {"indexer": {"value": "done"}}
+
+        async def aget_state(self, config: object) -> object:
+            return SimpleNamespace(values={"reply": "done"})
+
+    monkeypatch.setattr(workflow_execution, "_safe_send_json", safe_send)
+    monkeypatch.setattr(workflow_execution, "_emit_trace_update", emit_update)
+    monkeypatch.setattr(
+        workflow_execution, "record_workflow_step", lambda tracer, payload: None
+    )
+    monkeypatch.setattr(
+        workflow_execution, "_log_final_state_debug", lambda values: None
+    )
+
+    await workflow_execution._stream_workflow_updates(
+        CompiledGraph(),
+        {"inputs": {}},
+        {"configurable": {"thread_id": "exec"}},
+        history_store,
+        "exec",
+        AsyncMock(),
+        object(),
+    )
+
+    appended = [call.args[1] for call in history_store.append_step.await_args_list]
+    assert {
+        "node": "indexer",
+        "event": "node_status",
+        "payload": {"status": "loading"},
+    } in appended
+    assert {"indexer": {"value": "done"}} in appended
+    # Sub-graph payload without an event key must be filtered out.
+    assert {"sub_node": {"value": 1}} not in appended
+    # Callback must be unbound after the loop completes.
+    assert get_active_tool_progress_callback() is None
+
+
+@pytest.mark.asyncio
 async def test_run_workflow_stream_handles_cancellation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

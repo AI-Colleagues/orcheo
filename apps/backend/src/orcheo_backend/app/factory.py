@@ -197,15 +197,15 @@ def create_app(
     if credential_service is not None:
         set_credential_service(credential_service)
         set_vault(getattr(credential_service, "_vault", None))
-        application.dependency_overrides[get_credential_service] = (
-            lambda: credential_service
+        application.dependency_overrides[get_credential_service] = lambda: (
+            credential_service
         )
     elif repository is not None:
         inferred_service = getattr(repository, "_credential_service", None)
         if inferred_service is not None:
             set_credential_service(inferred_service)
-            application.dependency_overrides[get_credential_service] = (
-                lambda: inferred_service
+            application.dependency_overrides[get_credential_service] = lambda: (
+                inferred_service
             )
 
     application.include_router(api_router)

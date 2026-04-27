@@ -354,6 +354,49 @@ def test_format_node_event_update_unknown_event() -> None:
     assert result == "[on_tool_start] indexer"
 
 
+def test_format_node_event_update_node_status_with_message() -> None:
+    from orcheo_backend.app.chatkit.server import _format_node_event_update
+
+    result = _format_node_event_update(
+        "indexer",
+        "node_status",
+        {"message": "fetching documents"},
+    )
+    assert result == "indexer: fetching documents"
+
+
+def test_format_node_event_update_node_status_with_text_field() -> None:
+    from orcheo_backend.app.chatkit.server import _format_node_event_update
+
+    result = _format_node_event_update(
+        "indexer",
+        "node_status",
+        {"text": "loading"},
+    )
+    assert result == "indexer: loading"
+
+
+def test_format_node_event_update_node_status_with_status_field() -> None:
+    from orcheo_backend.app.chatkit.server import _format_node_event_update
+
+    result = _format_node_event_update("indexer", "node_status", {"status": "ready"})
+    assert result == "indexer: ready"
+
+
+def test_format_node_event_update_node_status_string_payload() -> None:
+    from orcheo_backend.app.chatkit.server import _format_node_event_update
+
+    result = _format_node_event_update("indexer", "node_status", "in flight")
+    assert result == "indexer: in flight"
+
+
+def test_format_node_event_update_node_status_default_label() -> None:
+    from orcheo_backend.app.chatkit.server import _format_node_event_update
+
+    result = _format_node_event_update("indexer", "node_status", {})
+    assert result == "indexer: status update"
+
+
 def test_progress_texts_for_step_skips_none_key() -> None:
     from orcheo_backend.app.chatkit.server import _progress_texts_for_step
 

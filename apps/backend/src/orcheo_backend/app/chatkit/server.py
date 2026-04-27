@@ -247,7 +247,21 @@ def _format_node_event_update(node: str, event: str, payload: Any) -> str:
         if error_message:
             return f"! {node} error: {error_message}"
         return f"! {node} error"
+    if normalized_event == "node_status":
+        return _format_node_status_update(node, payload)
     return f"[{event}] {node}"
+
+
+def _format_node_status_update(node: str, payload: Any) -> str:
+    """Render an in-node ``emit_node_status`` payload as progress text."""
+    if isinstance(payload, Mapping):
+        for key in ("message", "text", "status"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return f"{node}: {value.strip()}"
+    if isinstance(payload, str) and payload.strip():
+        return f"{node}: {payload.strip()}"
+    return f"{node}: status update"
 
 
 def _progress_texts_for_step(step: Mapping[str, Any]) -> list[str]:

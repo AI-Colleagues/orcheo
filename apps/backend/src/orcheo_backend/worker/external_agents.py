@@ -1378,10 +1378,12 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
                 on_output=on_output,
                 consume_input=manage_login_input,
                 auto_input=auto_login_input,
-                is_authenticated=lambda: provider.probe_auth(
-                    runtime,
-                    environ=manager.environment_for_provider(provider_name),
-                ).authenticated,
+                is_authenticated=lambda: (
+                    provider.probe_auth(
+                        runtime,
+                        environ=manager.environment_for_provider(provider_name),
+                    ).authenticated
+                ),
                 on_tick=heartbeat_session,
             )
             if (
