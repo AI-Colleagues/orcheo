@@ -67,16 +67,16 @@ Constructor fields:
 | `default_headers` | `MutableMapping[str, str]` | `{}` | Headers merged into every request |
 | `request_timeout` | `float` | `30.0` | Default request timeout in seconds |
 
-Methods:
+### Methods
 
-- `workflow_trigger_url(workflow_id)` → URL for `POST /api/workflows/{id}/runs`
-- `workflow_collection_url()` → URL for `/api/workflows`
-- `credential_health_url(workflow_id)` → URL for the credential health report
-- `credential_validation_url(workflow_id)` → URL for on-demand validation
-- `websocket_url(workflow_id)` → `ws(s)://…/ws/workflow/{id}` for live streaming
-- `prepare_headers(overrides=None)` → merge default headers with per-request overrides
-- `build_payload(graph_config, inputs, execution_id=None)` → JSON payload for the WebSocket protocol
-- `build_deployment_request(workflow, *, workflow_id=None, metadata=None, headers=None)` → `DeploymentRequest` for `POST` (create) or `PUT` (update)
+- `workflow_trigger_url(workflow_id: str) → str` — URL for `POST /api/workflows/{id}/runs`
+- `workflow_collection_url() → str` — URL for `/api/workflows`
+- `credential_health_url(workflow_id: str) → str` — URL for the credential health report
+- `credential_validation_url(workflow_id: str) → str` — URL for on-demand validation
+- `websocket_url(workflow_id: str) → str` — `ws(s)://…/ws/workflow/{id}` for live streaming
+- `prepare_headers(overrides: Optional[Dict[str, str]] = None) → Dict[str, str]` — merge default headers with per-request overrides
+- `build_payload(graph_config: dict, inputs: dict, execution_id: Optional[str] = None) → dict` — JSON payload for the WebSocket protocol
+- `build_deployment_request(workflow: Workflow, *, workflow_id: Optional[str] = None, metadata: Optional[dict] = None, headers: Optional[Dict[str, str]] = None) → DeploymentRequest` — `DeploymentRequest` for `POST` (create) or `PUT` (update)
 
 ## HttpWorkflowExecutor
 
@@ -106,17 +106,19 @@ result = executor.trigger_run(
 print(result)  # {"run_id": "...", ...} as returned by the backend
 ```
 
-Key methods:
+### Key Methods
 
-- `trigger_run(workflow_id, *, workflow_version_id, triggered_by, inputs=None, headers=None, runnable_config=None)` — `POST /api/workflows/{id}/runs`. Retries on `500/502/503/504` up to `max_retries` with exponential backoff.
-- `get_credential_health(workflow_id, *, headers=None)` — `GET` the credential health report.
-- `validate_credentials(workflow_id, *, actor="system", headers=None)` — trigger a credential validation pass.
+- `trigger_run(workflow_id: str, *, workflow_version_id: str, triggered_by: str, inputs: Optional[dict] = None, headers: Optional[Dict[str, str]] = None, runnable_config: Optional[dict] = None) → dict` — `POST /api/workflows/{id}/runs`. Retries on `500/502/503/504` up to `max_retries` with exponential backoff.
+- `get_credential_health(workflow_id: str, *, headers: Optional[Dict[str, str]] = None) → dict` — `GET` the credential health report.
+- `validate_credentials(workflow_id: str, *, actor: str = "system", headers: Optional[Dict[str, str]] = None) → dict` — trigger a credential validation pass.
 
 When `auth_token` is set, the executor automatically adds
 `Authorization: Bearer <token>` to outgoing requests unless an explicit
 `Authorization` header is provided.
 
-### Errors
+### Error Handling
+
+`HttpWorkflowExecutor` automatically retries transient server errors (500, 502, 503, 504) but raises `WorkflowExecutionError` for client errors and permanent failures:
 
 ```python
 from orcheo_sdk import HttpWorkflowExecutor, WorkflowExecutionError
@@ -129,11 +131,22 @@ try:
         inputs={"query": "test"},
     )
 except WorkflowExecutionError as exc:
-    print(f"Run trigger failed (status={exc.status_code}): {exc}")
+    if exc.status_code == 401:
+        print("Authentication failed - check your service token")
+    elif exc.status_code == 404:
+        print("Workflow or version not found")
+    elif exc.status_code == 422:
+        print(f"Validation error: {exc}")
+    elif exc.status_code is None:
+        print(f"Network error: {exc}")
+    else:
+        print(f"Run trigger failed (status={exc.status_code}): {exc}")
 ```
 
-`WorkflowExecutionError.status_code` is set when the backend returned a
-non-2xx response; for network-level failures it is `None`.
+**Error handling guidance**:
+- **4xx errors**: Don't retry - fix the request (authentication, validation, etc.)
+- **5xx errors**: Automatically retried up to `max_retries` with exponential backoff
+- **Network failures**: `status_code` is `None` - consider implementing application-level retry logic
 
 ## Authoring Workflows
 
@@ -141,8 +154,8 @@ non-2xx response; for network-level failures it is `None`.
 that can be deployed to the backend.
 
 ```python
-from pydantic import BaseModel
 from orcheo_sdk import OrcheoClient, Workflow, WorkflowNode
+from pydantic import BaseModel
 
 
 class EchoConfig(BaseModel):
@@ -180,6 +193,8 @@ so you can mix SDK-driven runs with CLI-driven authoring.
 
 ## Live Telemetry (WebSocket)
 
+**Note**: While the core SDK is synchronous, WebSocket telemetry inherently requires async patterns due to the real-time streaming nature of the connection.
+
 For real-time run telemetry, connect to the WebSocket URL produced by
 `OrcheoClient.websocket_url(workflow_id)` and send the payload returned by
 `build_payload(...)`:
@@ -188,6 +203,7 @@ For real-time run telemetry, connect to the WebSocket URL produced by
 import asyncio
 import json
 import websockets
+
 from orcheo_sdk import OrcheoClient
 
 
@@ -206,16 +222,15 @@ async def stream(workflow_id: str, graph_config: dict, inputs: dict) -> None:
 asyncio.run(stream("my-workflow", graph_config={...}, inputs={"query": "hi"}))
 ```
 
-The WebSocket endpoint is implemented at
-`/ws/workflow/{workflow_id}` on the backend.
+The WebSocket endpoint is implemented at `/ws/workflow/{workflow_id}` on the backend. Authentication is handled via the same token mechanism as HTTP requests - include an `Authorization: Bearer <token>` header during the WebSocket handshake.
 
 ## State Model
 
 Orcheo workflows pass a typed state object between nodes at runtime:
 
 ```python
-from typing import Any
 from langgraph.graph import MessagesState
+from typing import Any
 
 
 class State(MessagesState):
@@ -230,13 +245,14 @@ Downstream nodes reference upstream outputs via variable interpolation, e.g.
 
 ## Environment Variables
 
-The SDK respects the following environment variables when used by helper
-scripts and the CLI:
+The SDK components respect the following environment variables:
 
-| Variable | Description |
-|----------|-------------|
-| `ORCHEO_API_URL` | Backend API URL |
-| `ORCHEO_SERVICE_TOKEN` | Service token for authentication |
+| Variable | Used By | Description |
+|----------|---------|-------------|
+| `ORCHEO_API_URL` | CLI integration | Backend API URL (not directly used by SDK classes) |
+| `ORCHEO_SERVICE_TOKEN` | `HttpWorkflowExecutor` | Service token for authentication when `auth_token` parameter is not explicitly provided |
+
+**Note**: The core SDK classes (`OrcheoClient`, `HttpWorkflowExecutor`) require explicit configuration via constructor parameters. Environment variables are primarily used by the CLI and helper scripts that wrap these SDK components.
 
 See [Environment Variables](environment_variables.md) for the full reference.
 
