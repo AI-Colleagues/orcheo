@@ -91,7 +91,7 @@ jobs:
 
       - name: Run unit tests with coverage
         run: |
-          uv run coverage run -m pytest
+          uv run pytest --cov --cov-context=test -n auto
           uv run coverage html --show-contexts --title "Coverage for ${{ github.sha }}"
           uv run coverage xml
           uv run diff-cover coverage.xml --html-report index.html

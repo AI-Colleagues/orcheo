@@ -30,7 +30,7 @@ def _load_frontmatter_module() -> types.ModuleType:
             "orcheo_sdk",
             "orcheo_sdk.cli",
             "orcheo_sdk.cli.errors",
-            "frontmatter_under_test",
+            "orcheo_sdk.cli.workflow.frontmatter",
         )
         if name in sys.modules
     }
@@ -52,7 +52,7 @@ def _load_frontmatter_module() -> types.ModuleType:
 
     try:
         spec = importlib.util.spec_from_file_location(
-            "frontmatter_under_test",
+            "orcheo_sdk.cli.workflow.frontmatter",
             module_path,
         )
         assert spec is not None and spec.loader is not None
@@ -64,14 +64,14 @@ def _load_frontmatter_module() -> types.ModuleType:
     finally:
         for module_name in ("orcheo_sdk", "orcheo_sdk.cli", "orcheo_sdk.cli.errors"):
             sys.modules.pop(module_name, None)
-        if "frontmatter_under_test" in saved_modules:
-            sys.modules["frontmatter_under_test"] = saved_modules[
-                "frontmatter_under_test"
+        if "orcheo_sdk.cli.workflow.frontmatter" in saved_modules:
+            sys.modules["orcheo_sdk.cli.workflow.frontmatter"] = saved_modules[
+                "orcheo_sdk.cli.workflow.frontmatter"
             ]
         else:
-            sys.modules.pop("frontmatter_under_test", None)
+            sys.modules.pop("orcheo_sdk.cli.workflow.frontmatter", None)
         for module_name, module in saved_modules.items():
-            if module_name == "frontmatter_under_test":
+            if module_name == "orcheo_sdk.cli.workflow.frontmatter":
                 continue
             sys.modules[module_name] = module
 

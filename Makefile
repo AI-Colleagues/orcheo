@@ -31,7 +31,7 @@ format:
 	ruff check . --select F401 --fix
 
 test:
-	$(UV_RUN) pytest --cov --cov-report term-missing tests/
+	$(UV_RUN) pytest --cov --cov-report term-missing -n auto tests/
 
 doc:
 	mkdocs serve --dev-addr=0.0.0.0:8080 --livereload

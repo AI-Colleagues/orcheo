@@ -20,7 +20,7 @@ UPLOAD_PATH = (
     / "upload.py"
 )
 UPLOAD_SPEC = importlib.util.spec_from_file_location(
-    "tests.sdk.upload_module_under_test",
+    "orcheo_sdk.services.workflows.upload",
     UPLOAD_PATH,
 )
 assert UPLOAD_SPEC is not None and UPLOAD_SPEC.loader is not None
