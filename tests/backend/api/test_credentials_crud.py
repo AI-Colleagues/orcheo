@@ -108,7 +108,7 @@ def test_list_credentials_endpoint_returns_vault_entries(
     assert credential["name"] == issued["name"]
     assert credential["provider"] == issued["provider"]
     assert credential["status"] == CredentialHealthStatus.UNKNOWN.value
-    assert credential["access"] in {"private", "shared", "public"}
+    assert credential["access"] in {"scoped", "shared"}
     assert credential["owner"] == "tester"
     assert credential["secret_preview"]
 
@@ -122,7 +122,7 @@ def test_create_credential(api_client: TestClient) -> None:
             "provider": "api",
             "secret": "sk_test_canvas",
             "actor": "tester",
-            "access": "private",
+            "access": "scoped",
             "workflow_id": workflow_id,
         },
     )
@@ -132,7 +132,7 @@ def test_create_credential(api_client: TestClient) -> None:
     assert payload["name"] == "Canvas API"
     assert payload["provider"] == "api"
     assert payload["owner"] == "tester"
-    assert payload["access"] == "private"
+    assert payload["access"] == "scoped"
 
     fetch_response = api_client.get(
         "/api/credentials",
@@ -144,7 +144,7 @@ def test_create_credential(api_client: TestClient) -> None:
     assert any(entry["id"] == payload["id"] for entry in entries)
 
 
-def test_list_credentials_without_workflow_includes_private_entries(
+def test_list_credentials_without_workflow_includes_scoped_entries(
     api_client: TestClient,
 ) -> None:
     workflow_id = _create_workflow(api_client)
@@ -155,7 +155,7 @@ def test_list_credentials_without_workflow_includes_private_entries(
             "provider": "api",
             "secret": "sk_test_scoped",
             "actor": "tester",
-            "access": "private",
+            "access": "scoped",
             "workflow_id": workflow_id,
         },
     )
@@ -167,7 +167,7 @@ def test_list_credentials_without_workflow_includes_private_entries(
     assert list_response.status_code == 200
     entries = list_response.json()
     credential = next(item for item in entries if item["id"] == credential_id)
-    assert credential["access"] == "private"
+    assert credential["access"] == "scoped"
     assert credential["workflow_id"] == workflow_id
 
 
@@ -180,7 +180,7 @@ def test_reveal_credential_secret(api_client: TestClient) -> None:
             "provider": "api",
             "secret": "sk_test_canvas",
             "actor": "tester",
-            "access": "private",
+            "access": "scoped",
             "workflow_id": workflow_id,
         },
     )
@@ -206,7 +206,7 @@ def test_update_credential(api_client: TestClient) -> None:
             "provider": "api",
             "secret": "sk_test_canvas",
             "actor": "tester",
-            "access": "private",
+            "access": "scoped",
             "workflow_id": workflow_id,
         },
     )
@@ -220,7 +220,7 @@ def test_update_credential(api_client: TestClient) -> None:
             "provider": "openai",
             "secret": "sk_test_updated",
             "actor": "tester",
-            "access": "private",
+            "access": "scoped",
             "workflow_id": workflow_id,
         },
     )
@@ -238,7 +238,7 @@ def test_update_credential(api_client: TestClient) -> None:
     assert reveal_response.json()["secret"] == "sk_test_updated"
 
 
-def test_update_credential_rejects_private_access_without_workflow(
+def test_update_credential_rejects_scoped_access_without_workflow(
     api_client: TestClient,
 ) -> None:
     create_response = api_client.post(
@@ -248,7 +248,7 @@ def test_update_credential_rejects_private_access_without_workflow(
             "provider": "api",
             "secret": "sk_test_canvas",
             "actor": "tester",
-            "access": "public",
+            "access": "shared",
         },
     )
     assert create_response.status_code == 201
@@ -258,7 +258,7 @@ def test_update_credential_rejects_private_access_without_workflow(
         f"/api/credentials/{credential_id}",
         json={
             "actor": "tester",
-            "access": "private",
+            "access": "scoped",
         },
     )
 
@@ -308,7 +308,7 @@ def test_create_credential_duplicate_name_returns_409(
         "provider": "api",
         "secret": "sk_test_canvas",
         "actor": "tester",
-        "access": "private",
+        "access": "scoped",
         "workflow_id": workflow_id,
     }
     first = api_client.post("/api/credentials", json=payload)
@@ -328,7 +328,7 @@ def test_delete_credential(api_client: TestClient) -> None:
             "provider": "api",
             "secret": "sk_test_canvas",
             "actor": "tester",
-            "access": "private",
+            "access": "scoped",
             "workflow_id": workflow_id,
         },
     )

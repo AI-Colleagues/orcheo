@@ -43,7 +43,7 @@ export function EditCredentialDialog({
 }: EditCredentialDialogProps) {
   const [name, setName] = useState("");
   const [provider, setProvider] = useState("");
-  const [access, setAccess] = useState<CredentialAccess>("private");
+  const [access, setAccess] = useState<CredentialAccess>("scoped");
   const [secret, setSecret] = useState("");
   const [initialSecret, setInitialSecret] = useState("");
   const [isSecretVisible, setIsSecretVisible] = useState(false);
@@ -187,16 +187,25 @@ export function EditCredentialDialog({
                 <SelectValue placeholder="Select access level" />
               </SelectTrigger>
               <SelectContent>
-                {credential?.access === "shared" ? (
-                  <SelectItem value="shared" disabled>
-                    Shared (legacy)
-                  </SelectItem>
-                ) : null}
-                <SelectItem value="private">Private</SelectItem>
-                <SelectItem value="public">Public</SelectItem>
+                <SelectItem value="scoped">Scoped</SelectItem>
+                <SelectItem value="shared">Shared</SelectItem>
               </SelectContent>
             </Select>
           </div>
+          {access === "scoped" && credential?.workflowId ? (
+            <div className="grid grid-cols-4 items-center gap-4">
+              <span className="text-right text-sm font-medium">
+                Workflow ID
+              </span>
+              <code
+                className="col-span-3 truncate rounded bg-muted px-2 py-1 text-xs font-mono"
+                title={credential.workflowId}
+                data-testid="edit-credential-workflow-id"
+              >
+                {credential.workflowId}
+              </code>
+            </div>
+          ) : null}
           <div className="grid grid-cols-4 items-center gap-4">
             <label
               htmlFor="edit-credential-secret"

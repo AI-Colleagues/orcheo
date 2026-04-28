@@ -38,7 +38,7 @@ def test_credential_to_response_oauth() -> None:
     assert response.provider == "slack"
     assert response.kind == "oauth"
     assert response.secret_preview == "oauth-token"
-    assert response.access == "public"
+    assert response.access == "shared"
 
 
 def test_credential_to_response_secret() -> None:
@@ -66,7 +66,7 @@ def test_credential_to_response_secret() -> None:
     assert response.id == str(cred_id)
     assert response.kind == "secret"
     assert response.secret_preview == "••••••••"
-    assert response.access == "private"
+    assert response.access == "scoped"
     assert response.workflow_id == str(workflow_id)
 
 

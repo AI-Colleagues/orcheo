@@ -31,7 +31,7 @@ def create_credential_data(
     provider: str,
     secret: str,
     actor: str = "api",
-    access: str = "private",
+    access: str = "scoped",
     workflow_id: str | None = None,
     scopes: list[str] | None = None,
     kind: str = "secret",
@@ -44,7 +44,7 @@ def create_credential_data(
         provider: Provider identifier
         secret: Secret value
         actor: Actor creating the credential
-        access: Access level (private/shared/public)
+        access: Access level (scoped/shared)
         workflow_id: Optional workflow association
         scopes: Optional scopes list
         kind: Credential kind

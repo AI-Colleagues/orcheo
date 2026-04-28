@@ -25,7 +25,7 @@ class CredentialCreateRequest(BaseModel):
     secret: str
     actor: str = Field(default="system")
     scopes: list[str] = Field(default_factory=list)
-    access: Literal["private", "shared", "public"] = "private"
+    access: Literal["scoped", "shared"] = "scoped"
     workflow_id: str | None = None
     kind: CredentialKind = CredentialKind.SECRET
 
@@ -37,7 +37,7 @@ class CredentialUpdateRequest(BaseModel):
     provider: str | None = None
     secret: str | None = None
     actor: str = Field(default="system")
-    access: Literal["private", "shared", "public"] | None = None
+    access: Literal["scoped", "shared"] | None = None
     workflow_id: str | None = None
 
 
@@ -180,7 +180,7 @@ class CredentialVaultEntryResponse(BaseModel):
     updated_at: datetime
     last_rotated_at: datetime | None
     owner: str | None
-    access: Literal["private", "shared", "public"]
+    access: Literal["scoped", "shared"]
     workflow_id: str | None = None
     status: CredentialHealthStatus
     secret_preview: str | None = None

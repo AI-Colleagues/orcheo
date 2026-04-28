@@ -130,7 +130,7 @@ async def test_create_credential_success() -> None:
         scopes=["chat:write"],
         secret="test-secret",
         actor="user",
-        access="public",
+        access="shared",
         kind=CredentialKind.SECRET,
     )
 
@@ -156,7 +156,7 @@ async def test_create_credential_validation_error() -> None:
         scopes=[],
         secret="test-secret",
         actor="user",
-        access="public",
+        access="shared",
         kind=CredentialKind.SECRET,
     )
 
@@ -199,13 +199,14 @@ async def test_create_credential_returns_inferred_access() -> None:
         scopes=["chat:write"],
         secret="test-secret",
         actor="user",
-        access="shared",
+        access="scoped",
+        workflow_id=str(workflow_id),
         kind=CredentialKind.SECRET,
     )
 
     result = await create_credential(request, _Repository(), Vault())
 
-    assert result.access == "private"
+    assert result.access == "scoped"
 
 
 @pytest.mark.asyncio()
@@ -331,12 +332,12 @@ async def test_update_credential_validation_error() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_update_credential_shared_access_requires_workflow_id() -> None:
+async def test_update_credential_scoped_access_requires_workflow_id() -> None:
     from orcheo_backend.app import update_credential
     from orcheo_backend.app.schemas.credentials import CredentialUpdateRequest
 
     cred_id = uuid4()
-    request = CredentialUpdateRequest(actor="tester", access="shared")
+    request = CredentialUpdateRequest(actor="tester", access="scoped")
 
     class Vault:
         def update_credential(self, **kwargs):
@@ -347,7 +348,7 @@ async def test_update_credential_shared_access_requires_workflow_id() -> None:
 
     assert exc_info.value.status_code == 422
     assert exc_info.value.detail == (
-        "workflow_id is required when access is set to private or shared"
+        "workflow_id is required when access is set to scoped"
     )
 
 
@@ -377,7 +378,7 @@ async def test_update_credential_returns_inferred_access() -> None:
                 updated_at=datetime.now(tz=UTC),
             )
 
-    request = CredentialUpdateRequest(actor="tester", access="shared")
+    request = CredentialUpdateRequest(actor="tester", access="scoped")
     result = await update_credential(
         cred_id,
         request,
@@ -385,4 +386,4 @@ async def test_update_credential_returns_inferred_access() -> None:
         Vault(),
         workflow_id=str(workflow_id),
     )
-    assert result.access == "private"
+    assert result.access == "scoped"

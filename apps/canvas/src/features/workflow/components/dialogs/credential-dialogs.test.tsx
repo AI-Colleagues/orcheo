@@ -21,7 +21,7 @@ const credential: Credential = {
   provider: "openai",
   createdAt: "2026-03-10T00:00:00Z",
   updatedAt: "2026-03-10T00:00:00Z",
-  access: "public",
+  access: "shared",
   secrets: {
     secret: "super-secret-value",
   },
@@ -75,7 +75,7 @@ describe("Credential dialogs", () => {
     });
   });
 
-  it("limits the add dialog access options to private and public", async () => {
+  it("offers scoped and shared access options in the add dialog", async () => {
     const user = userEvent.setup();
 
     render(<AddCredentialDialog />);
@@ -83,11 +83,8 @@ describe("Credential dialogs", () => {
     await user.click(screen.getByRole("button", { name: "Add Credential" }));
     await user.click(screen.getByRole("combobox", { name: "Access" }));
 
-    expect(screen.getByRole("option", { name: "Private" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Public" })).toBeInTheDocument();
-    expect(
-      screen.queryByRole("option", { name: "Shared" }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Scoped" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Shared" })).toBeInTheDocument();
   });
 
   it("uses a scrollable vault list container", () => {
@@ -121,28 +118,38 @@ describe("Credential dialogs", () => {
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("combobox", { name: "Access" }));
-    expect(screen.getByRole("option", { name: "Private" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Public" })).toBeInTheDocument();
-    expect(
-      screen.queryByRole("option", { name: "Shared" }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Scoped" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Shared" })).toBeInTheDocument();
   });
 
-  it("keeps legacy shared access visible for existing credentials", async () => {
-    const user = userEvent.setup();
-
+  it("shows the scoped workflow id in the edit dialog", () => {
     render(
       <EditCredentialDialog
-        credential={{ ...credential, access: "shared" }}
+        credential={{
+          ...credential,
+          access: "scoped",
+          workflowId: "wf-42",
+        }}
         open
         onOpenChange={() => undefined}
       />,
     );
 
-    await user.click(screen.getByRole("combobox", { name: "Access" }));
+    const workflowIdNode = screen.getByTestId("edit-credential-workflow-id");
+    expect(workflowIdNode).toHaveTextContent("wf-42");
+  });
+
+  it("hides the workflow id when the credential is shared", () => {
+    render(
+      <EditCredentialDialog
+        credential={{ ...credential, access: "shared", workflowId: "wf-42" }}
+        open
+        onOpenChange={() => undefined}
+      />,
+    );
 
     expect(
-      screen.getByRole("option", { name: "Shared (legacy)" }),
-    ).toHaveAttribute("aria-disabled", "true");
+      screen.queryByTestId("edit-credential-workflow-id"),
+    ).not.toBeInTheDocument();
   });
 });

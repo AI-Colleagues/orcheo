@@ -8,43 +8,32 @@ from orcheo.vault.oauth import CredentialHealthReport, CredentialHealthResult
 from orcheo_backend.app.history import RunHistoryRecord
 
 
-def test_scope_from_access_private() -> None:
-    """_scope_from_access returns workflow scope for private access."""
+def test_scope_from_access_scoped() -> None:
+    """_scope_from_access returns workflow scope for scoped access."""
     from orcheo_backend.app import _scope_from_access
 
     workflow_id = uuid4()
-    scope = _scope_from_access("private", workflow_id)
+    scope = _scope_from_access("scoped", workflow_id)
 
     assert scope is not None
     assert workflow_id in scope.workflow_ids
 
 
-def test_scope_from_access_shared_with_workflow() -> None:
-    """_scope_from_access returns workflow scope for shared with workflow."""
+def test_scope_from_access_scoped_without_workflow() -> None:
+    """_scope_from_access returns unrestricted when scoped lacks a workflow."""
     from orcheo_backend.app import _scope_from_access
 
-    workflow_id = uuid4()
-    scope = _scope_from_access("shared", workflow_id)
-
-    assert scope is not None
-    assert workflow_id in scope.workflow_ids
-
-
-def test_scope_from_access_shared_without_workflow() -> None:
-    """_scope_from_access returns unrestricted for shared without workflow."""
-    from orcheo_backend.app import _scope_from_access
-
-    scope = _scope_from_access("shared", None)
+    scope = _scope_from_access("scoped", None)
 
     assert scope is not None
     assert scope.is_unrestricted()
 
 
-def test_scope_from_access_public() -> None:
-    """_scope_from_access returns unrestricted scope for public access."""
+def test_scope_from_access_shared() -> None:
+    """_scope_from_access returns unrestricted scope for shared access."""
     from orcheo_backend.app import _scope_from_access
 
-    scope = _scope_from_access("public", None)
+    scope = _scope_from_access("shared", None)
 
     assert scope is not None
     assert scope.is_unrestricted()

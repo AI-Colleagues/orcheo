@@ -1,4 +1,4 @@
-export type CredentialVaultAccessLevel = "private" | "shared" | "public";
+export type CredentialVaultAccessLevel = "scoped" | "shared";
 
 export type CredentialVaultHealthStatus = "healthy" | "unhealthy" | "unknown";
 

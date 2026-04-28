@@ -12,7 +12,7 @@ const credentials: Credential[] = [
     provider: "WeCom",
     createdAt: "2026-02-20T00:00:00Z",
     updatedAt: "2026-02-20T00:00:00Z",
-    access: "public",
+    access: "shared",
     status: "healthy",
     secrets: {
       token: "super-secret-value",
