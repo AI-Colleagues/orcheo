@@ -119,10 +119,15 @@ class ThreadStoreMixin(BaseSqliteStore):
                 params.append(workflow_id)
 
             if after:
-                cursor = await conn.execute(
-                    "SELECT created_at, id FROM chat_threads WHERE id = ?",
-                    (after,),
-                )
+                # Cursor lookup must be scoped to the same workflow to prevent
+                # information leakage and ensure consistent pagination
+                cursor_query = "SELECT created_at, id FROM chat_threads WHERE id = ?"
+                cursor_params = [after]
+                if workflow_id:
+                    cursor_query += " AND workflow_id = ?"
+                    cursor_params.append(workflow_id)
+                
+                cursor = await conn.execute(cursor_query, tuple(cursor_params))
                 marker = await cursor.fetchone()
                 if marker is not None:
                     created_at = marker["created_at"]
