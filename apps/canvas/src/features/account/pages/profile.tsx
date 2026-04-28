@@ -19,7 +19,7 @@ const LOCAL_DEV_PROFILE: ProfileUser = {
   email: "local@orcheo.dev",
   avatar: "https://avatar.vercel.sh/orcheo-local",
   role: "Local development",
-  joinDate: "Local development session",
+  joinDate: undefined,
   twoFactorEnabled: false,
 };
 
