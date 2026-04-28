@@ -3,6 +3,6 @@ export interface ProfileUser {
   email: string;
   avatar: string;
   role: string;
-  joinDate: string;
+  joinDate?: string;
   twoFactorEnabled: boolean;
 }
