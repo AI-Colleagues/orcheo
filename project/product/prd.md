@@ -21,7 +21,7 @@
 
 ## PROBLEM DEFINITION
 ### Objectives
-Deliver a unified workflow automation platform that bridges low-code visual tooling with code-first extensibility. Validate that an AI-first foundation meaningfully improves automation adoption and execution success compared to incumbent solutions.
+Deliver a unified workflow automation platform that bridges low-code visual tooling with vibe-coding-first extensibility. Validate that an AI-first foundation meaningfully improves automation adoption and execution success compared to incumbent solutions.
 
 ### Target users
 - **Developer-platform engineers** who rely on the Python SDK (full-stack, backend, SaaS founders) to extend workflows with custom nodes, secure integrations, and version-controlled deployments.
@@ -34,9 +34,9 @@ Deliver a unified workflow automation platform that bridges low-code visual tool
 |---------|--------------|------------|----------|---------------------|
 | Full-stack developer (Dev) | Use the Python SDK for complex integrations and custom nodes | I can extend workflows programmatically with tests and version control | P0 | SDK offers typed node authoring, local execution, and deployment hooks that stay in sync with server workflows |
 | Backend developer (Jake) | Orchestrate API calls with secure credential management | I can integrate services safely without exposing secrets | P0 | Credential vault issues scoped tokens, masks secrets in logs, and enforces rotation policies for API-driven workflows |
-| LangGraph developer (Nina) | Submit Python scripts defining graphs directly to the backend | I can reuse the same code-first authoring flow when deploying to Orcheo | P0 | Backend accepts LangGraph-compatible Python scripts, validates them, and returns import status or actionable errors |
+| LangGraph developer (Nina) | Submit Python scripts defining graphs directly to the backend | I can reuse the same vibe-coding-first authoring flow when deploying to Orcheo | P0 | Backend accepts LangGraph-compatible Python scripts, validates them, and returns import status or actionable errors |
 | LangGraph developer (Priya) | Inspect workflows, nodes, and credentials from the terminal | I can manage, debug, and administer LangGraph-first projects without leaving the CLI | P0 | CLI lists nodes and workflows, prints Mermaid diagrams, and supports credential CRUD with status visibility |
-| Data scientist (Lisa) | Chain AI models and analyses via a code-first approach | I can experiment with ML workflows while keeping full control | P0 | SDK supports orchestrating multiple AI nodes with dataset inputs, reproducible runs, and artifact tracking |
+| Data scientist (Lisa) | Chain AI models and analyses via a vibe-coding-first approach | I can experiment with ML workflows while keeping full control | P0 | SDK supports orchestrating multiple AI nodes with dataset inputs, reproducible runs, and artifact tracking |
 | Integration specialist (Chris) | Configure webhook and cron triggers with monitoring and alerts | I can keep cross-system automations reliable | P0 | Trigger setup supports retries, failure notifications, and visibility into recent executions |
 | SaaS founder (Tom) | Combine Canvas-managed workflows with custom Python components | I can prototype quickly while retaining technical flexibility | P1 | A workflow can mix Canvas-configured steps with SDK-authored nodes and deploy as a single versioned flow |
 | Business analyst (Maya) | Build multi-step data workflows on the visual canvas | I can launch data pipelines without writing code | P1 | A data workflow with transforms and conditionals can be created, validated, and executed entirely from the canvas |
@@ -91,7 +91,7 @@ Current automation platforms force teams to choose between ease of use and advan
 
 ### Execution Flows
 - **Visual designer path:** Canvas-built workflows convert to LangGraph format, validate server-side, persist, run via triggers, and emit live updates over WebSocket.
-- **Code-first path:** Developers assemble LangGraph graphs with Orcheo nodes, execute locally, and submit the same Python scripts to the server for persistence, credential reuse, and monitoring without rewriting the graph definition.
+- **Vibe-coding-first path:** Developers assemble LangGraph graphs with Orcheo nodes, execute locally, and submit the same Python scripts to the server for persistence, credential reuse, and monitoring without rewriting the graph definition.
 
 ### Designs (if applicable)
 Figma mocks and copy docs are in progress; link will be attached after initial canvas prototype.
@@ -157,7 +157,7 @@ Secondary hypothesis: Secure credential management and real-time observability w
 | Rev | Date | Author(s) | Notes |
 | --- | ------------ | ------------------- | ------------------------------- |
 | 0.1 | 1 May 2025 | Shaojie Jiang | Initial skeleton |
-| 0.2 | 21 Jul 2025 | Shaojie Jiang, ChatGPT, Kiro | Backend-first approach pivot |
+| 0.2 | 21 Jul 2025 | Shaojie Jiang, ChatGPT, Kiro | CLI-first approach pivot |
 | 1.0 | 6 Sep 2025 | Shaojie Jiang, Claude | Comprehensive workflow automation platform |
 
 ### Future roadmap (post v1.0)

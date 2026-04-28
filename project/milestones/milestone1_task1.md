@@ -3,7 +3,7 @@
 ## Objective
 
 Finalize the LangGraph-centric architecture, persistence layer, and hosting model
-that will power both the code-first SDK and the future canvas experience.
+that will power both the vibe-coding-first SDK and the future canvas experience.
 
 ## Summary of Decisions
 

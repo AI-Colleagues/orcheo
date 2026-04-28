@@ -24,7 +24,7 @@ Enable developers to use their preferred AI coding agents (Claude Code, Codex, C
 
 ### Target users
 - Developers who use Claude Code, Codex, or Cursor locally and want those agents to act on their Orcheo workflows
-- Teams that prefer a code-first workflow authoring experience with an ambient AI assistant
+- Teams that prefer a vibe-coding-first workflow authoring experience with an ambient AI assistant
 - Platform operators who want to offer a CLI-driven interface without owning the agent compute
 
 ### User Stories

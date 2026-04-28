@@ -45,7 +45,7 @@ Table of Contents
 ## 1. Introduction
 
 ### 1.1 Document Purpose
-This Software Design Description (SDD) documents the architectural approach for Orcheo, a hybrid workflow automation platform that merges a low-code visual experience with a code-first SDK. It targets engineering, product, and operations stakeholders who require a shared understanding of system responsibilities prior to implementation.
+This Software Design Description (SDD) documents the architectural approach for Orcheo, a hybrid workflow automation platform that merges a low-code visual experience with a vibe-coding-first SDK. It targets engineering, product, and operations stakeholders who require a shared understanding of system responsibilities prior to implementation.
 
 ### 1.2 Product Scope
 Orcheo delivers a unified automation surface where visual designers can assemble workflows while developers extend capabilities through a Python SDK built atop LangGraph. Core scope includes: dual-mode workflow authoring, secure credential management, real-time observability, robust trigger handling, and an extensible node ecosystem. The initial release focuses on reliable backend execution, governed integrations, and instrumentation that supports AI-native workflows.
@@ -54,7 +54,7 @@ Orcheo delivers a unified automation surface where visual designers can assemble
 - **AI Node**: A workflow node that encapsulates model prompting, inference, and downstream decision logic.
 - **Credential Vault**: Managed service for storing, rotating, and injecting scoped secrets into runtime executions.
 - **Flow Canvas**: Visual designer for assembling automation graphs without writing code.
-- **LangGraph**: Underlying orchestration framework that powers code-first workflow graphs.
+- **LangGraph**: Underlying orchestration framework that powers vibe-coding-first workflow graphs.
 - **Node Library**: Curated catalog of reusable workflow nodes, spanning task automation and AI-powered steps.
 - **Run Artifact**: Persisted execution output (logs, prompts, responses, metrics) available for replay and analysis.
 - **Trigger**: Workflow entry point driven by webhooks, schedules, or API events.
@@ -83,7 +83,7 @@ Section 2 details design considerations across stakeholder concerns, viewpoints,
 This SDD adopts viewpoints that map to PRD priorities for dual authoring modes, secure runtime execution, and AI-centric observability. Less critical viewpoints for the initial milestone are documented with current assumptions and deferred work.
 
 #### 2.2.1 Context
-The platform exposes a backend-first service accessible by SDK users and canvas users. External actors include service providers invoked by workflow nodes, credential issuers, and observability consumers. The primary system boundary wraps API gateway, application services, workflow runtime, data stores, and monitoring plane.
+The platform exposes a CLI-first service accessible by SDK users and canvas users. External actors include service providers invoked by workflow nodes, credential issuers, and observability consumers. The primary system boundary wraps API gateway, application services, workflow runtime, data stores, and monitoring plane.
 
 #### 2.2.2 Composition
 The solution is decomposed into gateway/security edge, application tier (REST & WebSocket APIs), workflow runtime (LangGraph execution, task orchestration), data stores (configuration, runtime history, credentials), and observability services. A frontend canvas consumes backend APIs but is optional for SDK-centric deployments.
@@ -101,7 +101,7 @@ Configuration data (workflow graphs, node metadata) is stored in the Config DB w
 Key patterns include event-driven orchestration (message broker + workers), circuit breaker with retry handling for external calls, and strategy pattern for node execution engines (AI nodes vs. deterministic tasks). Infrastructure follows a layered onion architecture to maintain separation between API, orchestration, and persistence concerns.
 
 #### 2.2.7 Interface
-External interfaces comprise REST APIs for workflow management, credential administration, and execution control; WebSockets for live trace streaming; and SDK abstractions that wrap these endpoints in typed Python clients. Key backend entry points include `POST/GET/PUT/DELETE /workflows` for CRUD operations, a `POST /workflows/import-python` endpoint that accepts LangGraph-compatible Python scripts and registers their graph definitions, `POST /workflows/{id}/execute` plus `GET/DELETE /executions/{id}` for run coordination, and WebSocket streaming on `/ws/executions/{id}` for live telemetry. The SDK now layers an `HttpWorkflowExecutor` helper on top of the REST API, using `httpx` with exponential backoff, retryable status detection, and automatic bearer token headers to simplify triggering runs from code-first clients. Integrations expose connector interfaces that standardize authentication handshakes and payload schemas.
+External interfaces comprise REST APIs for workflow management, credential administration, and execution control; WebSockets for live trace streaming; and SDK abstractions that wrap these endpoints in typed Python clients. Key backend entry points include `POST/GET/PUT/DELETE /workflows` for CRUD operations, a `POST /workflows/import-python` endpoint that accepts LangGraph-compatible Python scripts and registers their graph definitions, `POST /workflows/{id}/execute` plus `GET/DELETE /executions/{id}` for run coordination, and WebSocket streaming on `/ws/executions/{id}` for live telemetry. The SDK now layers an `HttpWorkflowExecutor` helper on top of the REST API, using `httpx` with exponential backoff, retryable status detection, and automatic bearer token headers to simplify triggering runs from vibe-coding-first clients. Integrations expose connector interfaces that standardize authentication handshakes and payload schemas.
 
 #### 2.2.8 Structure
 The system enforces clear separation between presentation (canvas, SDK CLI), application services (FastAPI endpoints), and execution runtime. Shared libraries define graph schemas and node contracts, ensuring parity between visual and code-based authoring. Feature flags gate beta functionality per rollout phase.
@@ -189,7 +189,7 @@ The deployment diagram that follows elaborates on how those responsibilities map
 ```mermaid
 graph TD
     subgraph "Users"
-        Developers["Developers (Code-first)"]
+        Developers["Developers (Vibe-coding-first)"]
         GUIUsers["GUI Users (Low-code)"]
     end
 
