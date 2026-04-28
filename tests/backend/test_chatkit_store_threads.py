@@ -134,6 +134,74 @@ async def test_in_memory_store_merge_metadata_without_request() -> None:
 
 
 @pytest.mark.asyncio
+async def test_in_memory_store_save_thread_updates_existing_thread() -> None:
+    store = InMemoryChatKitStore()
+    context: ChatKitRequestContext = {}
+
+    initial = ThreadMetadata(
+        id="thr_existing",
+        created_at=datetime(2024, 1, 1, tzinfo=UTC),
+        metadata={"version": 1},
+    )
+    await store.save_thread(initial, context)
+
+    updated = ThreadMetadata(
+        id="thr_existing",
+        created_at=datetime(2024, 1, 2, tzinfo=UTC),
+        metadata={"version": 2},
+    )
+    await store.save_thread(updated, context)
+
+    loaded = await store.load_thread("thr_existing", context)
+    assert loaded.metadata["version"] == 2
+
+
+@pytest.mark.asyncio
+async def test_in_memory_extract_title_from_request_branches() -> None:
+    from orcheo_backend.app.chatkit.in_memory_store import (
+        _extract_title_from_request,
+    )
+
+    assert _extract_title_from_request(None) is None
+    assert _extract_title_from_request({"chatkit_request": None}) is None
+
+    class FakeParams:
+        input = UserMessageInput(
+            content=[
+                UserMessageTextContent(text=""),
+                UserMessageTextContent(text="  Title from request should trim  "),
+            ],
+            attachments=[],
+            inference_options=InferenceOptions(),
+        )
+
+    class FakeRequest:
+        metadata: dict = {}
+        params = FakeParams()
+
+    class BlankParams:
+        input = UserMessageInput(
+            content=[UserMessageTextContent(text="   ")],
+            attachments=[],
+            inference_options=InferenceOptions(),
+        )
+
+    class BlankRequest:
+        metadata: dict = {}
+        params = BlankParams()
+
+    context: ChatKitRequestContext = {
+        "chatkit_request": FakeRequest(),  # type: ignore[typeddict-item]
+    }
+    blank_context: ChatKitRequestContext = {
+        "chatkit_request": BlankRequest(),  # type: ignore[typeddict-item]
+    }
+
+    assert _extract_title_from_request(context) == "Title from request"
+    assert _extract_title_from_request(blank_context) is None
+
+
+@pytest.mark.asyncio
 async def test_in_memory_store_load_threads_isolated_by_workflow() -> None:
     """load_threads should only return threads belonging to the requested workflow."""
     store = InMemoryChatKitStore()

@@ -125,7 +125,7 @@ class ThreadStoreMixin(BasePostgresStore):
                 if workflow_id:
                     cursor_query += " AND workflow_id = %s"
                     cursor_params.append(workflow_id)
-                
+
                 cursor = await conn.execute(cursor_query, tuple(cursor_params))
                 marker = await cursor.fetchone()
                 if marker is not None:

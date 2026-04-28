@@ -14,6 +14,7 @@ always take precedence over values declared in the frontmatter.
 """
 
 from __future__ import annotations
+import codecs
 import json
 import re
 import tomllib
@@ -24,18 +25,41 @@ from orcheo_sdk.cli.errors import CLIError
 
 
 _BLOCK_TYPE = "orcheo"
-_FRONTMATTER_RE = re.compile(
-    r"(?m)^# /// (?P<type>[a-zA-Z0-9_-]+)[ \t]*$"
-    r"(?P<content>(?:\r?\n^#(?:[ \t].*)?)*?)"
-    r"\r?\n^# ///[ \t]*$"
-)
+_BLOCK_START_RE = re.compile(r"^# /// (?P<type>[a-zA-Z0-9_-]+)[ \t]*$")
+_BLOCK_END_RE = re.compile(r"^# ///[ \t]*$")
 _ALLOWED_FIELDS = frozenset({"name", "id", "handle", "config", "entrypoint"})
 _ENCODING_RE = re.compile(r"coding[=:]\s*([-\w.]+)")
 
 
+def _encoding_from_cookie(line: bytes) -> str | None:
+    """Return a declared source encoding from a single ASCII line."""
+    try:
+        line_text = line.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+    match = _ENCODING_RE.search(line_text)
+    return match.group(1) if match else None
+
+
+def _encoding_from_bom(path: Path, first_line: bytes) -> str | None:
+    """Return a BOM-backed encoding when the file is actually decodable."""
+    bom_encodings = (
+        ("utf-16", (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)),
+        ("utf-32", (codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)),
+    )
+    for encoding, bom_prefixes in bom_encodings:
+        if any(first_line.startswith(prefix) for prefix in bom_prefixes):
+            try:
+                path.read_text(encoding=encoding)
+            except UnicodeDecodeError:
+                return None
+            return encoding
+    return None
+
+
 def _detect_file_encoding(path: Path) -> str:
     """Detect the encoding of a Python source file following PEP 263.
-    
+
     Returns the encoding name, defaulting to 'utf-8' if none is declared.
     """
     try:
@@ -46,26 +70,24 @@ def _detect_file_encoding(path: Path) -> str:
     except OSError:
         # If we can't read the file, default to utf-8
         return "utf-8"
-    
-    # Check the first line for encoding declaration
-    try:
-        first_str = first_line.decode("ascii", errors="ignore")
-        match = _ENCODING_RE.search(first_str)
-        if match:
-            return match.group(1)
-    except UnicodeDecodeError:
-        pass
-    
-    # Check the second line for encoding declaration
-    try:
-        second_str = second_line.decode("ascii", errors="ignore")
-        match = _ENCODING_RE.search(second_str)
-        if match:
-            return match.group(1)
-    except UnicodeDecodeError:
-        pass
-    
-    return "utf-8"
+
+    encoding: str | None = "utf-8"
+    if first_line.startswith(codecs.BOM_UTF8):
+        encoding = "utf-8-sig"
+    else:
+        bom_encoding = _encoding_from_bom(path, first_line)
+        if bom_encoding is not None:
+            encoding = bom_encoding
+        elif any(byte >= 128 for byte in first_line):
+            encoding = "utf-8"
+        else:
+            encoding = _encoding_from_cookie(first_line) or _encoding_from_cookie(
+                second_line
+            )
+            if encoding is None:
+                encoding = "utf-8"
+
+    return encoding if encoding is not None else "utf-8"
 
 
 @dataclass(frozen=True)
@@ -85,28 +107,16 @@ class WorkflowFrontmatter:
 
 def parse_workflow_frontmatter(source: str) -> WorkflowFrontmatter:
     """Parse the optional ``orcheo`` frontmatter block from Python source."""
-    matches = [
-        match
-        for match in _FRONTMATTER_RE.finditer(source)
-        if match.group("type") == _BLOCK_TYPE
-    ]
-    if not matches:
+    blocks = _collect_frontmatter_blocks(source)
+
+    if not blocks:
         return WorkflowFrontmatter()
-    if len(matches) > 1:
+    if len(blocks) > 1:
         raise CLIError(
             f"Multiple '{_BLOCK_TYPE}' frontmatter blocks found in workflow file."
         )
 
-    content_lines = matches[0].group("content").splitlines()
-    toml_lines: list[str] = []
-    for line in content_lines:
-        if not line or not line.startswith("#"):
-            continue  # Skip malformed lines
-        stripped = line[1:]  # drop leading '#'
-        if stripped.startswith(" "):
-            stripped = stripped[1:]
-        toml_lines.append(stripped)
-    toml_text = "\n".join(toml_lines)
+    toml_text = "\n".join(_frontmatter_content_to_toml_lines(blocks[0]))
 
     try:
         data = tomllib.loads(toml_text)
@@ -127,6 +137,47 @@ def parse_workflow_frontmatter(source: str) -> WorkflowFrontmatter:
         config_path=_string_field(data, "config"),
         entrypoint=_string_field(data, "entrypoint"),
     )
+
+
+def _collect_frontmatter_blocks(source: str) -> list[list[str]]:
+    """Collect all complete frontmatter blocks from a source string."""
+    blocks: list[list[str]] = []
+    current_lines: list[str] = []
+    current_type: str | None = None
+    in_block = False
+
+    for line in source.splitlines():
+        if in_block:
+            if _BLOCK_END_RE.match(line):
+                if current_type == _BLOCK_TYPE:
+                    blocks.append(current_lines)
+                in_block = False
+                current_type = None
+                current_lines = []
+            else:
+                current_lines.append(line)
+            continue
+
+        match = _BLOCK_START_RE.match(line)
+        if match:
+            current_type = match.group("type")
+            current_lines = []
+            in_block = True
+
+    return blocks
+
+
+def _frontmatter_content_to_toml_lines(content_lines: list[str]) -> list[str]:
+    """Convert comment-prefixed block lines into raw TOML lines."""
+    toml_lines: list[str] = []
+    for line in content_lines:
+        if not line or not line.startswith("#"):
+            continue
+        stripped = line[1:]
+        if stripped.startswith((" ", "\t")):
+            stripped = stripped[1:]
+        toml_lines.append(stripped)
+    return toml_lines
 
 
 def _string_field(data: dict[str, Any], key: str) -> str | None:
@@ -172,7 +223,7 @@ def resolve_frontmatter_config(workflow_path: Path, config_path: str) -> dict[st
         raise CLIError(f"Frontmatter config path '{config_path}' is not a file.")
     try:
         data = json.loads(resolved.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CLIError(
             f"Invalid JSON in frontmatter config file '{config_path}': {exc}"
         ) from exc

@@ -26,7 +26,7 @@ def test_scope_from_access_scoped_without_workflow() -> None:
 
     with pytest.raises(ValueError) as exc_info:
         _scope_from_access("scoped", None)
-    
+
     assert "workflow_id is required when access is set to scoped" in str(exc_info.value)
 
 

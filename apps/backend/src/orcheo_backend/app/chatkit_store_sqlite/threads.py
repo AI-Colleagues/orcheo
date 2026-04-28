@@ -126,7 +126,7 @@ class ThreadStoreMixin(BaseSqliteStore):
                 if workflow_id:
                     cursor_query += " AND workflow_id = ?"
                     cursor_params.append(workflow_id)
-                
+
                 cursor = await conn.execute(cursor_query, tuple(cursor_params))
                 marker = await cursor.fetchone()
                 if marker is not None:

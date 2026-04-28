@@ -316,3 +316,67 @@ async def test_sqlite_store_save_thread_preserves_existing_title(
 
     loaded = await store.load_thread("thr_keeptitle", context)
     assert loaded.title == "Existing Title"
+
+
+def test_sqlite_extract_title_from_request_branches() -> None:
+    from orcheo_backend.app.chatkit_store_sqlite.threads import (
+        _extract_title_from_request,
+    )
+
+    assert _extract_title_from_request(None) is None
+    assert _extract_title_from_request({"chatkit_request": None}) is None
+
+    class FakeParams:
+        input = UserMessageInput(
+            content=[
+                UserMessageTextContent(text=""),
+                UserMessageTextContent(text="  Title from request should trim  "),
+            ],
+            attachments=[],
+            inference_options=InferenceOptions(),
+        )
+
+    class FakeRequest:
+        metadata: dict = {}
+        params = FakeParams()
+
+    class BlankParams:
+        input = UserMessageInput(
+            content=[UserMessageTextContent(text="   ")],
+            attachments=[],
+            inference_options=InferenceOptions(),
+        )
+
+    class BlankRequest:
+        metadata: dict = {}
+        params = BlankParams()
+
+    context: dict[str, object] = {"chatkit_request": FakeRequest()}
+    blank_context: dict[str, object] = {"chatkit_request": BlankRequest()}
+
+    assert _extract_title_from_request(context) == "Title from request"
+    assert _extract_title_from_request(blank_context) is None
+
+
+def test_sqlite_merge_metadata_from_context_branches() -> None:
+    from orcheo_backend.app.chatkit_store_sqlite.threads import ThreadStoreMixin
+
+    thread = ThreadMetadata(
+        id="thr_merge",
+        created_at=datetime.now(UTC),
+        metadata={"existing": "value"},
+    )
+
+    assert ThreadStoreMixin._merge_metadata_from_context(thread, None) == {
+        "existing": "value"
+    }
+
+    class FakeRequest:
+        metadata = {"workflow_id": "wf_123", "extra": "data"}
+
+    context = {"chatkit_request": FakeRequest()}
+    assert ThreadStoreMixin._merge_metadata_from_context(thread, context) == {
+        "existing": "value",
+        "workflow_id": "wf_123",
+        "extra": "data",
+    }
