@@ -4,7 +4,7 @@ import logging
 import re
 from abc import abstractmethod
 from collections.abc import Mapping, Sequence
-from typing import Any, ClassVar, Self, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 from orcheo.graph.state import State
@@ -20,6 +20,10 @@ from orcheo.tracing.model_metadata import (
     build_ai_trace_metadata,
     infer_chat_result_model_name,
 )
+
+
+if TYPE_CHECKING:  # pragma: no cover - typing-only import
+    from orcheo.nodes.agent_tools.context import NodeStatusEmitter
 
 
 logger = logging.getLogger(__name__)
@@ -345,6 +349,37 @@ class BaseNode(BaseRunnable):
             metadata["ai"] = ai_trace
         return metadata
 
+    def _build_node_status_emitter(self) -> "NodeStatusEmitter | None":
+        """Return an emitter that streams in-node status to the active sink.
+
+        The emitter wraps the currently bound tool progress callback (if any)
+        so developer ``run()`` code can publish optional intermediate updates
+        via :func:`orcheo.nodes.agent_tools.context.emit_node_status`. Each
+        emitted body is wrapped in an envelope ``{"node": self.name,
+        "event": "node_status", "payload": ...}`` so existing streaming
+        consumers (ChatKit, websocket clients) can recognise it.
+        """
+        from orcheo.nodes.agent_tools.context import (
+            get_active_tool_progress_callback,
+        )
+
+        callback = get_active_tool_progress_callback()
+        if callback is None:
+            return None
+
+        node_name = self.name
+
+        async def _emit(body: Mapping[str, Any]) -> None:
+            await callback(
+                {
+                    "node": node_name,
+                    "event": "node_status",
+                    "payload": dict(body),
+                }
+            )
+
+        return _emit
+
     def _attach_trace_metadata(self, result: Any) -> Any:
         """Attach trace metadata to the emitted node payload."""
         if not isinstance(result, Mapping):
@@ -392,10 +427,14 @@ class AINode(BaseNode):
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a messages key."""
+        from orcheo.nodes.agent_tools.context import node_status_context
+
         runnable = self.resolved_for_run(state, config=config)
         runnable._clear_trace_metadata_for_run()
+        emitter = runnable._build_node_status_emitter()
         try:
-            result = await runnable.run(state, config)
+            with node_status_context(emitter):
+                result = await runnable.run(state, config)
         except Exception:
             runnable._clear_trace_metadata_for_run()
             raise
@@ -413,10 +452,14 @@ class TaskNode(BaseNode):
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a outputs key."""
+        from orcheo.nodes.agent_tools.context import node_status_context
+
         runnable = self.resolved_for_run(state, config=config)
         runnable._clear_trace_metadata_for_run()
+        emitter = runnable._build_node_status_emitter()
         try:
-            result = await runnable.run(state, config)
+            with node_status_context(emitter):
+                result = await runnable.run(state, config)
         except Exception:
             runnable._clear_trace_metadata_for_run()
             raise

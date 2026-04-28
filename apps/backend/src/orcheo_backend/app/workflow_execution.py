@@ -17,6 +17,7 @@ from orcheo.agentensor.training import TrainingRequest
 from orcheo.config import get_settings
 from orcheo.external_agents import scoped_external_agent_environment
 from orcheo.graph.state import State
+from orcheo.nodes.agent_tools.context import tool_progress_context
 from orcheo.nodes.agentensor import AgentensorNode
 from orcheo.nodes.browser import close_browser_sessions_for_scope
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
@@ -174,6 +175,26 @@ async def _emit_trace_update(
         await _safe_send_json(websocket, update.model_dump(mode="json"))
 
 
+async def _forward_node_step(
+    payload: Mapping[str, Any],
+    *,
+    history_store: RunHistoryStore,
+    execution_id: str,
+    websocket: WebSocket,
+    tracer: Tracer,
+) -> None:
+    """Persist and stream a single step payload to the connected client."""
+    record_workflow_step(tracer, payload)
+    history_step = await history_store.append_step(execution_id, payload)
+    await _safe_send_json(websocket, _sanitize_public_step_payload(payload))
+    await _emit_trace_update(
+        history_store,
+        websocket,
+        execution_id,
+        step=history_step,
+    )
+
+
 async def _stream_workflow_updates(
     compiled_graph: Any,
     state: Any,
@@ -184,26 +205,42 @@ async def _stream_workflow_updates(
     tracer: Tracer,
 ) -> None:
     """Stream workflow updates to the client while recording history."""
-    async for step in compiled_graph.astream(
-        state,
-        config=config,  # type: ignore[arg-type]
-        stream_mode="updates",
-    ):  # pragma: no cover
-        _log_step_debug(step)
-        record_workflow_step(tracer, step)
-        history_step = await history_store.append_step(execution_id, step)
-        try:
-            await _safe_send_json(websocket, _sanitize_public_step_payload(step))
-        except Exception as exc:  # pragma: no cover
-            logger.error("Error processing messages: %s", exc)
-            raise
 
-        await _emit_trace_update(
-            history_store,
-            websocket,
-            execution_id,
-            step=history_step,
+    async def in_node_status_callback(payload: Mapping[str, Any]) -> None:
+        if not isinstance(payload, Mapping):
+            return  # pragma: no cover - defensive
+        if payload.get("event") != "node_status":
+            # Sub-graph (tool) updates are surfaced through their own paths.
+            return
+        await _forward_node_step(
+            payload,
+            history_store=history_store,
+            execution_id=execution_id,
+            websocket=websocket,
+            tracer=tracer,
         )
+
+    with tool_progress_context(in_node_status_callback):
+        async for step in compiled_graph.astream(
+            state,
+            config=config,  # type: ignore[arg-type]
+            stream_mode="updates",
+        ):  # pragma: no cover
+            _log_step_debug(step)
+            record_workflow_step(tracer, step)
+            history_step = await history_store.append_step(execution_id, step)
+            try:
+                await _safe_send_json(websocket, _sanitize_public_step_payload(step))
+            except Exception as exc:  # pragma: no cover
+                logger.error("Error processing messages: %s", exc)
+                raise
+
+            await _emit_trace_update(
+                history_store,
+                websocket,
+                execution_id,
+                step=history_step,
+            )
 
     final_state = await compiled_graph.aget_state(cast(RunnableConfig, config))
     _log_final_state_debug(final_state.values)
