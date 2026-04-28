@@ -1,6 +1,16 @@
 # SDK Reference
 
-This guide covers the Orcheo Python SDK for programmatic workflow management and execution.
+This guide covers the Orcheo Python SDK (`orcheo-sdk`) for authoring workflows
+and triggering runs against the Orcheo backend over HTTP.
+
+The SDK is intentionally small and synchronous. Day-to-day workflow and
+credential management is performed with the [`orcheo` CLI](cli_reference.md);
+the Python SDK focuses on:
+
+- Authoring workflows programmatically (`Workflow`, `WorkflowNode`).
+- Composing backend URLs and request payloads (`OrcheoClient`).
+- Triggering runs and inspecting credentials over HTTP
+  (`HttpWorkflowExecutor`).
 
 ## Installation
 
@@ -10,118 +20,218 @@ pip install orcheo-sdk
 uv tool install orcheo-sdk
 ```
 
-## Quick Start
+## Public API
+
+The SDK exports the following symbols from `orcheo_sdk`:
+
+| Symbol | Purpose |
+|--------|---------|
+| `OrcheoClient` | URL/header/payload helper for backend requests |
+| `HttpWorkflowExecutor` | Synchronous HTTP runner for workflow triggers and credential checks |
+| `WorkflowExecutionError` | Raised when triggering a run fails |
+| `Workflow` | Builder for assembling a graph from typed nodes |
+| `WorkflowNode` | Base class for authoring typed nodes |
+| `DeploymentRequest` | Dataclass describing an HTTP deploy request |
 
 ```python
-from orcheo_sdk import OrcheoClient
-
-# Initialize client
-client = OrcheoClient(api_url="http://localhost:8000")
-
-# Execute a workflow
-result = await client.execute_workflow(
-    workflow_id="my-conversational-search-pipeline",
-    inputs={"query": "What is RAG?"}
+from orcheo_sdk import (
+    DeploymentRequest,
+    HttpWorkflowExecutor,
+    OrcheoClient,
+    Workflow,
+    WorkflowExecutionError,
+    WorkflowNode,
 )
 ```
 
-## Authentication
+## OrcheoClient
 
-### Service Token Authentication
+`OrcheoClient` is a lightweight, dataclass-based helper that composes URLs and
+headers for the Orcheo backend. It does not perform any I/O on its own.
 
 ```python
-import os
 from orcheo_sdk import OrcheoClient
 
 client = OrcheoClient(
-    api_url="https://orcheo.example.com",
-    token=os.environ["ORCHEO_SERVICE_TOKEN"]
+    base_url="http://localhost:8000",
+    default_headers={"X-Tenant": "demo"},  # optional
+    request_timeout=30.0,                   # optional, seconds
 )
 ```
 
-### Environment-Based Configuration
+Constructor fields:
 
-The SDK respects the following environment variables:
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `base_url` | `str` | required | Backend base URL (e.g. `http://localhost:8000`) |
+| `default_headers` | `MutableMapping[str, str]` | `{}` | Headers merged into every request |
+| `request_timeout` | `float` | `30.0` | Default request timeout in seconds |
 
-| Variable | Description |
-|----------|-------------|
-| `ORCHEO_API_URL` | Backend API URL |
-| `ORCHEO_SERVICE_TOKEN` | Service token for authentication |
+### Methods
 
-## Client Methods
+- `workflow_trigger_url(workflow_id: str) → str` — URL for `POST /api/workflows/{id}/runs`
+- `workflow_collection_url() → str` — URL for `/api/workflows`
+- `credential_health_url(workflow_id: str) → str` — URL for the credential health report
+- `credential_validation_url(workflow_id: str) → str` — URL for on-demand validation
+- `websocket_url(workflow_id: str) → str` — `ws(s)://…/ws/workflow/{id}` for live streaming
+- `prepare_headers(overrides: Optional[Dict[str, str]] = None) → Dict[str, str]` — merge default headers with per-request overrides
+- `build_payload(graph_config: dict, inputs: dict, execution_id: Optional[str] = None) → dict` — JSON payload for the WebSocket protocol
+- `build_deployment_request(workflow: Workflow, *, workflow_id: Optional[str] = None, metadata: Optional[dict] = None, headers: Optional[Dict[str, str]] = None) → DeploymentRequest` — `DeploymentRequest` for `POST` (create) or `PUT` (update)
 
-### Workflow Execution
+## HttpWorkflowExecutor
+
+`HttpWorkflowExecutor` triggers workflow runs and queries credential health
+over HTTP. It is **synchronous** and uses `httpx` with retry/backoff for
+transient 5xx errors.
 
 ```python
-# Synchronous execution (blocking)
-result = await client.execute_workflow(
+import os
+from orcheo_sdk import HttpWorkflowExecutor, OrcheoClient
+
+client = OrcheoClient(base_url="http://localhost:8000")
+executor = HttpWorkflowExecutor(
+    client=client,
+    auth_token=os.environ.get("ORCHEO_SERVICE_TOKEN"),
+    timeout=30.0,
+    max_retries=3,
+    backoff_factor=0.5,
+)
+
+result = executor.trigger_run(
     workflow_id="my-workflow",
-    inputs={"query": "search query"},
-    config={"temperature": 0.7}  # Optional LangChain config
+    workflow_version_id="v1",
+    triggered_by="sdk-user",
+    inputs={"query": "What is RAG?"},
 )
-
-# Access results
-print(result.outputs)
-print(result.run_id)
+print(result)  # {"run_id": "...", ...} as returned by the backend
 ```
 
-### Workflow Management
+### Key Methods
+
+- `trigger_run(workflow_id: str, *, workflow_version_id: str, triggered_by: str, inputs: Optional[dict] = None, headers: Optional[Dict[str, str]] = None, runnable_config: Optional[dict] = None) → dict` — `POST /api/workflows/{id}/runs`. Retries on `500/502/503/504` up to `max_retries` with exponential backoff.
+- `get_credential_health(workflow_id: str, *, headers: Optional[Dict[str, str]] = None) → dict` — `GET` the credential health report.
+- `validate_credentials(workflow_id: str, *, actor: str = "system", headers: Optional[Dict[str, str]] = None) → dict` — trigger a credential validation pass.
+
+When `auth_token` is set, the executor automatically adds
+`Authorization: Bearer <token>` to outgoing requests unless an explicit
+`Authorization` header is provided.
+
+### Error Handling
+
+`HttpWorkflowExecutor` automatically retries transient server errors (500, 502, 503, 504) but raises `WorkflowExecutionError` for client errors and permanent failures:
 
 ```python
-# List workflows
-workflows = await client.list_workflows()
+from orcheo_sdk import HttpWorkflowExecutor, WorkflowExecutionError
 
-# Get workflow details
-workflow = await client.get_workflow("workflow-id")
-
-# Upload a workflow from Python file
-workflow_id = await client.upload_workflow(
-    file_path="my_pipeline.py",
-    name="My Pipeline"
-)
-
-# Delete a workflow
-await client.delete_workflow("workflow-id")
+try:
+    executor.trigger_run(
+        workflow_id="my-workflow",
+        workflow_version_id="v1",
+        triggered_by="sdk-user",
+        inputs={"query": "test"},
+    )
+except WorkflowExecutionError as exc:
+    if exc.status_code == 401:
+        print("Authentication failed - check your service token")
+    elif exc.status_code == 404:
+        print("Workflow or version not found")
+    elif exc.status_code == 422:
+        print(f"Validation error: {exc}")
+    elif exc.status_code is None:
+        print(f"Network error: {exc}")
+    else:
+        print(f"Run trigger failed (status={exc.status_code}): {exc}")
 ```
 
-### Streaming Execution
+**Error handling guidance**:
+- **4xx errors**: Don't retry - fix the request (authentication, validation, etc.)
+- **5xx errors**: Automatically retried up to `max_retries` with exponential backoff
+- **Network failures**: `status_code` is `None` - consider implementing application-level retry logic
 
-For real-time progress monitoring:
+## Authoring Workflows
+
+`Workflow` and `WorkflowNode` provide a typed builder for assembling graphs
+that can be deployed to the backend.
 
 ```python
-async for event in client.stream_workflow(
-    workflow_id="my-workflow",
-    inputs={"query": "search query"}
-):
-    if event.type == "node_start":
-        print(f"Starting node: {event.node_name}")
-    elif event.type == "node_end":
-        print(f"Completed node: {event.node_name}")
-    elif event.type == "output":
-        print(f"Result: {event.data}")
+from orcheo_sdk import OrcheoClient, Workflow, WorkflowNode
+from pydantic import BaseModel
+
+
+class EchoConfig(BaseModel):
+    message: str
+
+
+class EchoNode(WorkflowNode[EchoConfig]):
+    type_name = "echo"
+
+
+workflow = Workflow(name="hello-world")
+workflow.add_node(EchoNode(name="greet", config=EchoConfig(message="hi")))
+
+graph_config = workflow.to_graph_config()  # nodes + edges (with START/END)
+
+client = OrcheoClient(base_url="http://localhost:8000")
+deploy = client.build_deployment_request(workflow)
+# deploy.method, deploy.url, deploy.json, deploy.headers — send via httpx, etc.
 ```
 
-### Credential Management
+Nodes without explicit `depends_on` are wired from `START`; terminal nodes
+(those with no dependents) are wired to `END` automatically.
+
+## Workflow & Credential Management
+
+The Python SDK does not expose async client methods for listing or mutating
+workflows and credentials. These operations live in the
+[`orcheo` CLI](cli_reference.md):
+
+- Workflows: `orcheo workflow list|show|run|publish|schedule|listen|...`
+- Credentials: `orcheo credential list|create|update|delete`
+
+The CLI reuses the same backend HTTP API that `HttpWorkflowExecutor` calls,
+so you can mix SDK-driven runs with CLI-driven authoring.
+
+## Live Telemetry (WebSocket)
+
+**Note**: While the core SDK is synchronous, WebSocket telemetry inherently requires async patterns due to the real-time streaming nature of the connection.
+
+For real-time run telemetry, connect to the WebSocket URL produced by
+`OrcheoClient.websocket_url(workflow_id)` and send the payload returned by
+`build_payload(...)`:
 
 ```python
-# List credentials
-credentials = await client.list_credentials()
+import asyncio
+import json
+import websockets
 
-# Create a credential
-await client.create_credential(
-    name="openai-key",
-    provider="openai",
-    value={"api_key": "sk-..."}
-)
+from orcheo_sdk import OrcheoClient
+
+
+async def stream(workflow_id: str, graph_config: dict, inputs: dict) -> None:
+    client = OrcheoClient(base_url="http://localhost:8000")
+    url = client.websocket_url(workflow_id)
+    payload = client.build_payload(graph_config, inputs)
+
+    async with websockets.connect(url) as ws:
+        await ws.send(json.dumps(payload))
+        async for raw in ws:
+            event = json.loads(raw)
+            print(event)
+
+
+asyncio.run(stream("my-workflow", graph_config={...}, inputs={"query": "hi"}))
 ```
 
-## State Management
+The WebSocket endpoint is implemented at `/ws/workflow/{workflow_id}` on the backend. Authentication is handled via the same token mechanism as HTTP requests - include an `Authorization: Bearer <token>` header during the WebSocket handshake.
 
-Orcheo workflows maintain a typed state object that flows between nodes:
+## State Model
+
+Orcheo workflows pass a typed state object between nodes at runtime:
 
 ```python
-from typing import Any
 from langgraph.graph import MessagesState
+from typing import Any
+
 
 class State(MessagesState):
     inputs: dict[str, Any]      # Workflow inputs
@@ -130,72 +240,25 @@ class State(MessagesState):
     config: dict[str, Any]      # Runtime config
 ```
 
-The `results` dictionary accumulates outputs from TaskNodes, enabling downstream nodes to access upstream outputs via variable interpolation (e.g., `{{results.retriever.documents}}`).
+Downstream nodes reference upstream outputs via variable interpolation, e.g.
+`{{results.retriever.documents}}`.
 
-## Error Handling
+## Environment Variables
 
-```python
-from orcheo_sdk import OrcheoClient, OrcheoError, AuthenticationError
+The SDK components respect the following environment variables:
 
-try:
-    result = await client.execute_workflow(
-        workflow_id="my-workflow",
-        inputs={"query": "test"}
-    )
-except AuthenticationError:
-    print("Invalid or expired token")
-except OrcheoError as e:
-    print(f"Workflow error: {e}")
-```
+| Variable | Used By | Description |
+|----------|---------|-------------|
+| `ORCHEO_API_URL` | CLI integration | Backend API URL (not directly used by SDK classes) |
+| `ORCHEO_SERVICE_TOKEN` | `HttpWorkflowExecutor` | Service token for authentication when `auth_token` parameter is not explicitly provided |
 
-## Integration Examples
+**Note**: The core SDK classes (`OrcheoClient`, `HttpWorkflowExecutor`) require explicit configuration via constructor parameters. Environment variables are primarily used by the CLI and helper scripts that wrap these SDK components.
 
-### Conversational Search Pipeline
-
-```python
-from orcheo_sdk import OrcheoClient
-
-async def search(query: str, conversation_history: list = None):
-    client = OrcheoClient(api_url="http://localhost:8000")
-
-    result = await client.execute_workflow(
-        workflow_id="conversational-rag",
-        inputs={
-            "query": query,
-            "history": conversation_history or []
-        }
-    )
-
-    return {
-        "answer": result.outputs.get("response"),
-        "sources": result.outputs.get("sources", [])
-    }
-```
-
-### Batch Processing
-
-```python
-import asyncio
-from orcheo_sdk import OrcheoClient
-
-async def batch_process(queries: list[str]):
-    client = OrcheoClient(api_url="http://localhost:8000")
-
-    tasks = [
-        client.execute_workflow(
-            workflow_id="query-processor",
-            inputs={"query": q}
-        )
-        for q in queries
-    ]
-
-    results = await asyncio.gather(*tasks)
-    return [r.outputs for r in results]
-```
+See [Environment Variables](environment_variables.md) for the full reference.
 
 ## See Also
 
-- [CLI Reference](cli_reference.md) - Command-line interface documentation
-- [Plugin Author Guide](custom_nodes_and_tools.md) - Extending Orcheo with managed plugins
-- [Deployment Guide](deployment.md) - Production deployment recipes
-- [Environment Variables](environment_variables.md) - Complete configuration reference
+- [CLI Reference](cli_reference.md) — `orcheo` / `horcheo` command-line tools
+- [Plugin Author Guide](custom_nodes_and_tools.md) — extend Orcheo with managed plugins
+- [Deployment Guide](deployment.md) — production deployment recipes
+- [Environment Variables](environment_variables.md) — complete configuration reference

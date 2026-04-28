@@ -30,7 +30,7 @@ aligned with the shared REST APIs and authentication flows.
 
 - Replacing the canvas UX or providing full workflow editing capabilities in
   the terminal. The CLI focuses on inspection, execution, and reference
-  generation that augment existing code-first workflows.
+  generation that augment existing vibe-coding-first workflows.
 - Shipping a custom authentication mechanism. The CLI consumes the service
   token model defined in `authentication_design.md`.
 
