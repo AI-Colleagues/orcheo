@@ -39,9 +39,11 @@ export function ProfileGeneralTab({ user }: ProfileGeneralTabProps) {
               <h3 className="font-medium">{user.name}</h3>
               <div className="flex items-center space-x-2">
                 <Badge variant="outline">{user.role}</Badge>
-                <span className="text-sm text-muted-foreground">
-                  Member since {user.joinDate}
-                </span>
+                {user.joinDate ? (
+                  <span className="text-sm text-muted-foreground">
+                    Member since {user.joinDate}
+                  </span>
+                ) : null}
               </div>
               <Button size="sm" variant="outline">
                 Change Avatar
