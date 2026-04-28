@@ -25,11 +25,47 @@ from orcheo_sdk.cli.errors import CLIError
 
 _BLOCK_TYPE = "orcheo"
 _FRONTMATTER_RE = re.compile(
-    r"(?m)^# /// (?P<type>[a-zA-Z0-9_-]+)[ \t]*$\n"
-    r"(?P<content>(?:^#(?:[ \t].*)?\n)+?)"
-    r"^# ///[ \t]*$"
+    r"(?m)^# /// (?P<type>[a-zA-Z0-9_-]+)[ \t]*$"
+    r"(?P<content>(?:\r?\n^#(?:[ \t].*)?)*?)"
+    r"\r?\n^# ///[ \t]*$"
 )
 _ALLOWED_FIELDS = frozenset({"name", "id", "handle", "config", "entrypoint"})
+_ENCODING_RE = re.compile(r"coding[=:]\s*([-\w.]+)")
+
+
+def _detect_file_encoding(path: Path) -> str:
+    """Detect the encoding of a Python source file following PEP 263.
+    
+    Returns the encoding name, defaulting to 'utf-8' if none is declared.
+    """
+    try:
+        with path.open("rb") as f:
+            # Read the first two lines as bytes to check for encoding declarations
+            first_line = f.readline()
+            second_line = f.readline()
+    except OSError:
+        # If we can't read the file, default to utf-8
+        return "utf-8"
+    
+    # Check the first line for encoding declaration
+    try:
+        first_str = first_line.decode("ascii", errors="ignore")
+        match = _ENCODING_RE.search(first_str)
+        if match:
+            return match.group(1)
+    except UnicodeDecodeError:
+        pass
+    
+    # Check the second line for encoding declaration
+    try:
+        second_str = second_line.decode("ascii", errors="ignore")
+        match = _ENCODING_RE.search(second_str)
+        if match:
+            return match.group(1)
+    except UnicodeDecodeError:
+        pass
+    
+    return "utf-8"
 
 
 @dataclass(frozen=True)
@@ -107,9 +143,12 @@ def _string_field(data: dict[str, Any], key: str) -> str | None:
 def load_workflow_frontmatter(path: Path) -> WorkflowFrontmatter:
     """Read ``path`` and return its parsed workflow frontmatter."""
     try:
-        source = path.read_text(encoding="utf-8")
+        encoding = _detect_file_encoding(path)
+        source = path.read_text(encoding=encoding)
     except OSError as exc:  # pragma: no cover - filesystem errors
         raise CLIError(f"Failed to read workflow file '{path}': {exc}") from exc
+    except UnicodeDecodeError as exc:  # pragma: no cover - encoding errors
+        raise CLIError(f"Failed to decode workflow file '{path}': {exc}") from exc
     return parse_workflow_frontmatter(source)
 
 

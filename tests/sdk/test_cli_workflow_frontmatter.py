@@ -107,6 +107,34 @@ def test_parse_ignores_other_block_types() -> None:
     assert fm.name == "Real Workflow"
 
 
+def test_parse_handles_crlf_line_endings() -> None:
+    """Frontmatter blocks work with Windows CRLF line endings."""
+    source = (
+        "# /// orcheo\r\n"
+        '# name = "CRLF Workflow"\r\n'
+        '# id = "wf-crlf"\r\n'
+        "# ///\r\n"
+        "print('hello')\r\n"
+    )
+    fm = parse_workflow_frontmatter(source)
+    assert fm.name == "CRLF Workflow"
+    assert fm.workflow_id == "wf-crlf"
+
+
+def test_parse_handles_mixed_line_endings() -> None:
+    """Frontmatter blocks work with mixed LF/CRLF line endings."""
+    source = (
+        "# /// orcheo\n"
+        '# name = "Mixed Endings"\r\n'
+        '# id = "wf-mixed"\n'
+        "# ///\r\n"
+        "print('hello')\n"
+    )
+    fm = parse_workflow_frontmatter(source)
+    assert fm.name == "Mixed Endings"
+    assert fm.workflow_id == "wf-mixed"
+
+
 def test_load_from_file_reads_source(tmp_path: Path) -> None:
     py_file = tmp_path / "wf.py"
     py_file.write_text(
@@ -115,6 +143,55 @@ def test_load_from_file_reads_source(tmp_path: Path) -> None:
     )
     fm = load_workflow_frontmatter(py_file)
     assert fm.name == "From File"
+
+
+def test_load_from_file_with_pep263_encoding(tmp_path: Path) -> None:
+    """Load workflow frontmatter from file with PEP 263 encoding declaration."""
+    py_file = tmp_path / "wf_latin1.py"
+    content = (
+        "# -*- coding: latin-1 -*-\n"
+        "# /// orcheo\n"
+        '# name = "Encoded Workflow"\n'
+        "# ///\n"
+        "# This file uses latin-1 encoding\n"
+        "print('café')\n"  # This will be encoded as latin-1
+    )
+    py_file.write_text(content, encoding="latin-1")
+    
+    fm = load_workflow_frontmatter(py_file)
+    assert fm.name == "Encoded Workflow"
+
+
+def test_load_from_file_with_encoding_on_second_line(tmp_path: Path) -> None:
+    """PEP 263 allows encoding declaration on the second line."""
+    py_file = tmp_path / "wf_second_line.py"
+    content = (
+        "#!/usr/bin/env python3\n"
+        "# coding=utf-16\n"
+        "# /// orcheo\n"
+        '# name = "Second Line Encoding"\n'
+        "# ///\n"
+        "print('hello')\n"
+    )
+    py_file.write_text(content, encoding="utf-16")
+    
+    fm = load_workflow_frontmatter(py_file)
+    assert fm.name == "Second Line Encoding"
+
+
+def test_load_from_file_defaults_to_utf8(tmp_path: Path) -> None:
+    """Files without encoding declaration default to UTF-8."""
+    py_file = tmp_path / "wf_no_encoding.py"
+    content = (
+        "# /// orcheo\n"
+        '# name = "No Encoding Declared"\n'
+        "# ///\n"
+        "print('hello')\n"
+    )
+    py_file.write_text(content, encoding="utf-8")
+    
+    fm = load_workflow_frontmatter(py_file)
+    assert fm.name == "No Encoding Declared"
 
 
 def test_resolve_config_relative_to_workflow(tmp_path: Path) -> None:
