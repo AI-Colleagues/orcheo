@@ -17,6 +17,22 @@ from orcheo_backend.app.chatkit_store_sqlite.utils import (
 )
 
 
+def _extract_title_from_request(context: ChatKitRequestContext | None) -> str | None:
+    """Return first 20 chars of the first user text content in the request."""
+    if not context:
+        return None
+    request = context.get("chatkit_request")
+    if request is None:
+        return None
+    params = getattr(request, "params", None)
+    user_input = getattr(params, "input", None)
+    for item in getattr(user_input, "content", []):
+        text = getattr(item, "text", None)
+        if text:
+            return text[:20].strip() or None
+    return None
+
+
 class ThreadStoreMixin(BaseSqliteStore):
     """CRUD helpers for thread metadata."""
 
@@ -44,6 +60,8 @@ class ThreadStoreMixin(BaseSqliteStore):
     ) -> None:
         """Insert or update metadata for ``thread``."""
         await self._ensure_initialized()
+        if not thread.title:
+            thread.title = _extract_title_from_request(context)
         async with self._lock:
             async with self._connection() as conn:
                 metadata_payload = self._merge_metadata_from_context(thread, context)
@@ -86,25 +104,36 @@ class ThreadStoreMixin(BaseSqliteStore):
         order: str,
         context: ChatKitRequestContext,
     ) -> Page[ThreadMetadata]:
-        """Return a paginated collection of threads."""
+        """Return a paginated collection of threads scoped to the workflow."""
         await self._ensure_initialized()
+        workflow_id: str | None = context.get("workflow_id") if context else None
         limit = max(limit, 1)
         ordering = "asc" if order.lower() == "asc" else "desc"
         comparator = ">" if ordering == "asc" else "<"
         async with self._connection() as conn:
             params: list[Any] = []
-            where_clause = ""
+            conditions: list[str] = []
+
+            if workflow_id:
+                conditions.append("workflow_id = ?")
+                params.append(workflow_id)
+
             if after:
-                cursor = await conn.execute(
-                    "SELECT created_at, id FROM chat_threads WHERE id = ?",
-                    (after,),
-                )
+                # Cursor lookup must be scoped to the same workflow to prevent
+                # information leakage and ensure consistent pagination
+                cursor_query = "SELECT created_at, id FROM chat_threads WHERE id = ?"
+                cursor_params = [after]
+                if workflow_id:
+                    cursor_query += " AND workflow_id = ?"
+                    cursor_params.append(workflow_id)
+                
+                cursor = await conn.execute(cursor_query, tuple(cursor_params))
                 marker = await cursor.fetchone()
                 if marker is not None:
                     created_at = marker["created_at"]
-                    where_clause = (
-                        f" WHERE (created_at {comparator} ?)"
-                        f" OR (created_at = ? AND id {comparator} ?)"
+                    conditions.append(
+                        f"((created_at {comparator} ?)"
+                        f" OR (created_at = ? AND id {comparator} ?))"
                     )
                     params.extend([created_at, created_at, marker["id"]])
 
@@ -112,8 +141,8 @@ class ThreadStoreMixin(BaseSqliteStore):
                 "SELECT id, title, status_json, metadata_json, created_at "
                 "FROM chat_threads"
             )
-            if where_clause:
-                query += where_clause
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
             query += f" ORDER BY created_at {ordering.upper()}, id {ordering.upper()}"
             query += " LIMIT ?"
             params.append(limit + 1)

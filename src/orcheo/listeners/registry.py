@@ -218,13 +218,12 @@ def register_builtin_listeners() -> None:
                 ),
             ),
             compiler=default_listener_compiler,
-            adapter_factory=lambda *,
-            repository,
-            subscription,
-            runtime_id: TelegramPollingAdapter(
-                repository=repository,
-                subscription=subscription,
-                runtime_id=runtime_id,
+            adapter_factory=lambda *, repository, subscription, runtime_id: (
+                TelegramPollingAdapter(
+                    repository=repository,
+                    subscription=subscription,
+                    runtime_id=runtime_id,
+                )
             ),
         )
     if listener_registry.resolve(ListenerPlatform.DISCORD) is None:
@@ -237,13 +236,12 @@ def register_builtin_listeners() -> None:
                 description="Receive Discord bot messages through the Gateway.",
             ),
             compiler=default_listener_compiler,
-            adapter_factory=lambda *,
-            repository,
-            subscription,
-            runtime_id: DiscordGatewayAdapter(
-                repository=repository,
-                subscription=subscription,
-                runtime_id=runtime_id,
+            adapter_factory=lambda *, repository, subscription, runtime_id: (
+                DiscordGatewayAdapter(
+                    repository=repository,
+                    subscription=subscription,
+                    runtime_id=runtime_id,
+                )
             ),
         )
     if listener_registry.resolve(ListenerPlatform.QQ) is None:
@@ -256,13 +254,12 @@ def register_builtin_listeners() -> None:
                 description="Receive QQ bot messages through the managed Gateway.",
             ),
             compiler=default_listener_compiler,
-            adapter_factory=lambda *,
-            repository,
-            subscription,
-            runtime_id: QQGatewayAdapter(
-                repository=repository,
-                subscription=subscription,
-                runtime_id=runtime_id,
+            adapter_factory=lambda *, repository, subscription, runtime_id: (
+                QQGatewayAdapter(
+                    repository=repository,
+                    subscription=subscription,
+                    runtime_id=runtime_id,
+                )
             ),
         )
 
