@@ -81,7 +81,7 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo workflow run <workflow> [--inputs <json> \| --inputs-file <path>] [--config <json> \| --config-file <path>] [--verbose] [--stream/--no-stream]` | Trigger a workflow execution. Streaming is enabled by default. |
 | `orcheo workflow evaluate <workflow> [--inputs <json> \| --inputs-file <path>] [--config <json> \| --config-file <path>] [--evaluation <json> \| --evaluation-file <path>] [--verbose] [--stream/--no-stream]` | Trigger a workflow evaluation run (requires streaming mode). |
 | `orcheo workflow update <workflow> [--name <name>] [--description <text>] [--handle <handle>] [--chatkit-prompts <json> \| --chatkit-prompts-file <path> \| --clear-chatkit-prompts]` | Update workflow metadata, including per-workflow public ChatKit starter prompts. |
-| `orcheo workflow upload <file> [--name <name>] [--config <json> \| --config-file <path>]` | Upload a workflow from a Python LangGraph script (`.py`). |
+| `orcheo workflow upload <file> [--id <ref>] [--name <name>] [--entrypoint <name>] [--config <json> \| --config-file <path>]` | Upload a workflow from a Python LangGraph script (`.py`). The script may declare an optional `# /// orcheo ... # ///` frontmatter block whose values are used as defaults (CLI flags override). |
 | `orcheo workflow save-config <workflow> [--version <num>] (--config <json> \| --config-file <path> \| --clear)` | Save version `runnable_config` without creating a new version. |
 | `orcheo workflow download <workflow> [-o <file>] [--config-out <file>] [--version <num>]` | Download workflow source as Python only. Use `--config-out` to write stored runnable config JSON when present, and `--version` to download a specific version. |
 | `orcheo workflow delete <workflow> [--force]` | Delete a workflow with confirmation safeguards. |
@@ -254,6 +254,33 @@ orcheo workflow unpublish my-workflow
 ### Workflow Configuration
 
 Upload-time defaults can be stored on a workflow version with `orcheo workflow upload ... --config` or `--config-file`. You can update config later without creating a version via `orcheo workflow save-config ...`. Stored config is merged with per-run overrides (run config wins). `orcheo workflow download --config-out <file>` writes that stored runnable config as companion JSON when present. Avoid putting secrets in runnable config; use environment variables or credential vaults instead.
+
+### Workflow Frontmatter
+
+Workflow `.py` files may include an optional PEP 723-style metadata block. When present, the `orcheo workflow upload` command reads it as the source of truth for the workflow's name, target id/handle, companion config file, and entrypoint. Any explicit CLI flag overrides the matching frontmatter field.
+
+```python
+# /// orcheo
+# name = "My Workflow"
+# id = "wf-abc123"
+# config = "./my-workflow.config.json"
+# entrypoint = "build_graph"
+# ///
+
+from langgraph.graph import StateGraph
+
+def build_graph():
+    return StateGraph(dict)
+```
+
+Supported fields (all optional):
+
+- `name` – display name used when creating or renaming the workflow.
+- `id` (or `handle`) – workflow reference; when set, the upload updates this existing workflow instead of creating a new one.
+- `config` – path to a companion JSON runnable config file. Relative paths resolve against the workflow file's directory.
+- `entrypoint` – LangGraph entrypoint function/variable name.
+
+The block is parsed as TOML; only the fields above are accepted. CLI flags (`--name`, `--id`, `--config-file`, `--entrypoint`) always win over the frontmatter values.
 
 ## Offline Mode
 

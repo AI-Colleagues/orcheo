@@ -31,6 +31,12 @@ from .commands.running import evaluate_workflow, run_workflow
 from .commands.scheduling import schedule_workflow, unschedule_workflow
 from .commands.showing import show_workflow
 from .formatting import _format_workflow_as_python
+from .frontmatter import (
+    WorkflowFrontmatter,
+    load_workflow_frontmatter,
+    parse_workflow_frontmatter,
+    resolve_frontmatter_config,
+)
 from .ingest import (
     _generate_slug,
     _load_workflow_from_python,
@@ -105,6 +111,10 @@ __all__ = [
     "_strip_main_block",
     "_load_workflow_from_python",
     "_format_workflow_as_python",
+    "WorkflowFrontmatter",
+    "parse_workflow_frontmatter",
+    "load_workflow_frontmatter",
+    "resolve_frontmatter_config",
     "render_json",
     "render_table",
     "list_workflows",

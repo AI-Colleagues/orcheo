@@ -3,9 +3,13 @@
 from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.http import ApiClient
+
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from orcheo_sdk.cli.workflow.frontmatter import WorkflowFrontmatter
 
 
 def _load_workflow_config_from_path(
@@ -54,6 +58,49 @@ def _upload_langgraph_workflow(
         raise CLIError("Failed to upload LangGraph workflow script via API.") from exc
 
 
+def _apply_frontmatter_defaults(
+    *,
+    path_obj: Path,
+    frontmatter: WorkflowFrontmatter,
+    workflow_id: str | None,
+    workflow_name: str | None,
+    entrypoint: str | None,
+    runnable_config: dict[str, Any] | None,
+    console: Any | None,
+) -> tuple[str | None, str | None, str | None, dict[str, Any] | None]:
+    """Fill missing values from the workflow file's frontmatter.
+
+    CLI-provided arguments always take precedence; frontmatter only fills
+    in fields that were omitted by the caller.
+    """
+    from orcheo_sdk.cli.workflow.frontmatter import resolve_frontmatter_config
+
+    if frontmatter.is_empty:
+        return workflow_id, workflow_name, entrypoint, runnable_config
+
+    used: list[str] = []
+    if workflow_id is None and frontmatter.workflow_id is not None:
+        workflow_id = frontmatter.workflow_id
+        used.append("id")
+    if workflow_name is None and frontmatter.name is not None:
+        workflow_name = frontmatter.name
+        used.append("name")
+    if entrypoint is None and frontmatter.entrypoint is not None:
+        entrypoint = frontmatter.entrypoint
+        used.append("entrypoint")
+    if runnable_config is None and frontmatter.config_path is not None:
+        runnable_config = resolve_frontmatter_config(path_obj, frontmatter.config_path)
+        used.append(f"config ({frontmatter.config_path})")
+
+    if used and console is not None:
+        try:
+            console.print(f"[dim]Loaded workflow frontmatter: {', '.join(used)}.[/dim]")
+        except Exception:  # noqa: BLE001  # pragma: no cover - defensive
+            pass
+
+    return workflow_id, workflow_name, entrypoint, runnable_config
+
+
 def upload_workflow_data(
     client: ApiClient,
     file_path: str | Path,
@@ -70,6 +117,7 @@ def upload_workflow_data(
         _upload_langgraph_script,
         _validate_local_path,
     )
+    from orcheo_sdk.cli.workflow.frontmatter import load_workflow_frontmatter
 
     class MinimalState:
         def __init__(self, client_obj: Any, console_obj: Any | None) -> None:
@@ -81,8 +129,25 @@ def upload_workflow_data(
             pass
 
     state = MinimalState(client, console)
-    requested_name = _normalize_workflow_name(workflow_name)
     path_obj = _validate_local_path(file_path, description="workflow")
+
+    frontmatter = load_workflow_frontmatter(path_obj)
+    (
+        workflow_id,
+        workflow_name,
+        entrypoint,
+        runnable_config,
+    ) = _apply_frontmatter_defaults(
+        path_obj=path_obj,
+        frontmatter=frontmatter,
+        workflow_id=workflow_id,
+        workflow_name=workflow_name,
+        entrypoint=entrypoint,
+        runnable_config=runnable_config,
+        console=console,
+    )
+
+    requested_name = _normalize_workflow_name(workflow_name)
 
     workflow_config = _load_workflow_config_from_path(
         path_obj,
