@@ -2,7 +2,7 @@ import React from "react";
 
 import { getNodeIcon } from "@features/workflow/lib/node-icons";
 
-import type { SidebarNode } from "./sidebar-panel.types";
+import type { SidebarNode } from "./sidebar-node-item.types";
 
 interface NodeItemProps {
   node: SidebarNode;
