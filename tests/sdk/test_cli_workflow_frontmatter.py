@@ -14,6 +14,7 @@ from orcheo_sdk.cli.workflow.frontmatter import (
     load_workflow_frontmatter,
     parse_workflow_frontmatter,
     resolve_frontmatter_config,
+    _detect_file_encoding,
 )
 
 
@@ -416,3 +417,112 @@ def test_upload_uses_frontmatter_entrypoint(
     assert result.exit_code == 0, result.stdout
     request_body = json.loads(ingest_route.calls[0].request.content)
     assert request_body["entrypoint"] == "build_graph"
+
+
+def test_parse_handles_empty_comment_lines() -> None:
+    """Frontmatter parsing skips empty lines and malformed comment lines."""
+    source = (
+        "# /// orcheo\n"
+        "#\n"  # Empty comment line
+        '# name = "Robust Parsing"\n'
+        "\n"   # Empty line (shouldn't happen but should be handled)
+        "# ///\n"
+    )
+    fm = parse_workflow_frontmatter(source)
+    assert fm.name == "Robust Parsing"
+
+
+def test_parse_handles_comment_only_lines() -> None:
+    """Frontmatter parsing handles lines with only '#' character."""
+    source = (
+        "# /// orcheo\n"
+        "#\n" 
+        '# name = "Comment Only Test"\n'
+        "#\n"
+        "# ///\n"
+    )
+    fm = parse_workflow_frontmatter(source)
+    assert fm.name == "Comment Only Test"
+
+
+def test_parse_handles_tabs_in_comment() -> None:
+    """Frontmatter parsing handles tabs after # character."""
+    source = (
+        "# /// orcheo\n"
+        "#\tname = \"Tab Test\"\n"  # Tab instead of space
+        "# ///\n"
+    )
+    fm = parse_workflow_frontmatter(source)
+    assert fm.name == "Tab Test"
+
+
+def test_load_from_file_with_file_not_found_error(tmp_path: Path) -> None:
+    """load_workflow_frontmatter raises CLIError for missing files."""
+    missing_file = tmp_path / "does_not_exist.py"
+    with pytest.raises(CLIError, match="Failed to read workflow file"):
+        load_workflow_frontmatter(missing_file)
+
+
+def test_load_from_file_with_permission_error(tmp_path: Path) -> None:
+    """load_workflow_frontmatter handles permission errors gracefully."""
+    import os
+    import stat
+    
+    py_file = tmp_path / "restricted.py"
+    py_file.write_text("# /// orcheo\n# name = \"test\"\n# ///\n")
+    
+    # Remove read permissions (if on Unix-like system)
+    if hasattr(os, 'chmod'):
+        try:
+            os.chmod(py_file, stat.S_IWRITE)  # Write only
+            with pytest.raises(CLIError, match="Failed to read workflow file"):
+                load_workflow_frontmatter(py_file)
+        finally:
+            # Restore permissions for cleanup
+            os.chmod(py_file, stat.S_IREAD | stat.S_IWRITE)
+
+
+def test_load_from_file_with_invalid_encoding(tmp_path: Path) -> None:
+    """load_workflow_frontmatter handles encoding errors gracefully."""
+    py_file = tmp_path / "bad_encoding.py"
+    
+    # Write a file with declared latin-1 encoding but invalid UTF-8 bytes
+    with py_file.open("wb") as f:
+        f.write(b"# -*- coding: utf-8 -*-\n")
+        f.write(b"# /// orcheo\n")
+        f.write(b"# name = \"\xff\xfe\"  # Invalid UTF-8 bytes\n")  
+        f.write(b"# ///\n")
+    
+    with pytest.raises(CLIError, match="Failed to decode workflow file"):
+        load_workflow_frontmatter(py_file)
+
+
+def test_detect_file_encoding_with_no_file(tmp_path: Path) -> None:
+    """_detect_file_encoding returns utf-8 for non-existent files."""
+    missing_file = tmp_path / "missing.py"
+    assert _detect_file_encoding(missing_file) == "utf-8"
+
+
+def test_detect_file_encoding_with_invalid_first_line(tmp_path: Path) -> None:
+    """_detect_file_encoding handles files that can't be decoded as ASCII."""
+    
+    py_file = tmp_path / "binary_start.py"
+    with py_file.open("wb") as f:
+        f.write(b"\xff\xfe\x00\x00")  # Invalid ASCII/UTF-8 bytes
+        f.write(b"\n# coding: latin-1\n")
+    
+    # Should default to utf-8 when first line can't be decoded
+    assert _detect_file_encoding(py_file) == "utf-8"
+
+
+def test_resolve_config_with_unicode_error_in_json(tmp_path: Path) -> None:
+    """resolve_frontmatter_config handles JSON files that can't be decoded."""
+    workflow = tmp_path / "wf.py"
+    workflow.write_text("# noop", encoding="utf-8")
+    
+    config_file = tmp_path / "bad_unicode.json"
+    with config_file.open("wb") as f:
+        f.write(b'{"name": "\xff\xfe"}')  # Invalid UTF-8 in JSON
+    
+    with pytest.raises(CLIError, match="Invalid JSON"):
+        resolve_frontmatter_config(workflow, "bad_unicode.json")

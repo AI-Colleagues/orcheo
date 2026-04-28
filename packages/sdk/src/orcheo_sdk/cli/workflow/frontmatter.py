@@ -100,6 +100,8 @@ def parse_workflow_frontmatter(source: str) -> WorkflowFrontmatter:
     content_lines = matches[0].group("content").splitlines()
     toml_lines: list[str] = []
     for line in content_lines:
+        if not line or not line.startswith("#"):
+            continue  # Skip malformed lines
         stripped = line[1:]  # drop leading '#'
         if stripped.startswith(" "):
             stripped = stripped[1:]
@@ -186,4 +188,5 @@ __all__ = [
     "parse_workflow_frontmatter",
     "load_workflow_frontmatter",
     "resolve_frontmatter_config",
+    "_detect_file_encoding",  # Export for testing
 ]
