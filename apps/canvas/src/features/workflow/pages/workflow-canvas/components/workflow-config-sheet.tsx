@@ -147,7 +147,7 @@ export function WorkflowConfigSheet({
         },
       },
     };
-  }, [formData.configurable]);
+  }, [formData.configurable, configurableSchemas]);
 
   useEffect(() => {
     if (open) {

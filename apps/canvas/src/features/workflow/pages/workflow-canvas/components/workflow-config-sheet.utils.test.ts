@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildConfigurableSchema,
@@ -175,6 +175,78 @@ describe("workflow-config-sheet utils", () => {
       mode: { type: "string", enum: ["auto", "manual"] },
       timeout: { type: "integer" },
       enabled: { type: "boolean" },
+    });
+  });
+
+  it("throws error for invalid schema definitions", () => {
+    const configurable = { key: "value" };
+    const invalidSchemaDefinitions = {
+      key: "invalid schema" as any,
+    };
+
+    expect(() => 
+      buildConfigurableSchema(configurable, invalidSchemaDefinitions)
+    ).toThrow('Invalid schema definition for key "key": expected object, got string');
+  });
+
+  it("handles schema inference errors gracefully", () => {
+    const configurable = { validKey: "value" };
+    
+    // Mock console.warn to verify it's called
+    const originalWarn = console.warn;
+    const mockWarn = vi.fn();
+    console.warn = mockWarn;
+
+    // This shouldn't normally happen, but test error handling
+    const result = buildConfigurableSchema(configurable);
+    
+    console.warn = originalWarn;
+    
+    expect(result.validKey).toEqual({ type: "string" });
+  });
+
+  it("handles heterogeneous arrays with oneOf schema", () => {
+    const configurable = {
+      mixedArray: ["string", 123, true],
+    };
+
+    const result = buildConfigurableSchema(configurable);
+    
+    expect(result.mixedArray).toEqual({
+      type: "array",
+      items: {
+        oneOf: [
+          { type: "string" },
+          { type: "integer" },
+          { type: "boolean" },
+        ],
+      },
+    });
+  });
+
+  it("handles empty arrays with default string schema", () => {
+    const configurable = {
+      emptyArray: [],
+    };
+
+    const result = buildConfigurableSchema(configurable);
+    
+    expect(result.emptyArray).toEqual({
+      type: "array",
+      items: { type: "string" },
+    });
+  });
+
+  it("handles arrays with duplicate schemas correctly", () => {
+    const configurable = {
+      stringArray: ["hello", "world", "test"],
+    };
+
+    const result = buildConfigurableSchema(configurable);
+    
+    expect(result.stringArray).toEqual({
+      type: "array",
+      items: { type: "string" },
     });
   });
 });
