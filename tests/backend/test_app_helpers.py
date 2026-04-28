@@ -20,13 +20,14 @@ def test_scope_from_access_scoped() -> None:
 
 
 def test_scope_from_access_scoped_without_workflow() -> None:
-    """_scope_from_access returns unrestricted when scoped lacks a workflow."""
+    """_scope_from_access raises error when scoped lacks a workflow."""
+    import pytest
     from orcheo_backend.app import _scope_from_access
 
-    scope = _scope_from_access("scoped", None)
-
-    assert scope is not None
-    assert scope.is_unrestricted()
+    with pytest.raises(ValueError) as exc_info:
+        _scope_from_access("scoped", None)
+    
+    assert "workflow_id is required when access is set to scoped" in str(exc_info.value)
 
 
 def test_scope_from_access_shared() -> None:

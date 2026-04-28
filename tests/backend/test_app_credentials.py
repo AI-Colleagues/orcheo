@@ -387,3 +387,32 @@ async def test_update_credential_returns_inferred_access() -> None:
         workflow_id=str(workflow_id),
     )
     assert result.access == "scoped"
+
+
+@pytest.mark.asyncio()
+async def test_create_credential_scoped_access_requires_workflow_id() -> None:
+    """Create credential validates that scoped access requires workflow_id."""
+    from orcheo_backend.app import create_credential
+    from orcheo_backend.app.schemas.credentials import CredentialCreateRequest
+
+    class Vault:
+        def create_credential(self, **kwargs):
+            raise AssertionError("create_credential should not be called")
+
+    request = CredentialCreateRequest(
+        name="Test Cred",
+        provider="slack",
+        scopes=["chat:write"],
+        secret="test-secret",
+        actor="user",
+        access="scoped",
+        kind=CredentialKind.SECRET,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_credential(request, _Repository(), Vault())
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail == (
+        "workflow_id is required when access is set to scoped"
+    )

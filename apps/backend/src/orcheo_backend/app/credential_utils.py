@@ -27,7 +27,9 @@ def scope_from_access(
     workflow_id: UUID | None,
 ) -> CredentialScope | None:
     """Derive a credential scope from the requested access label."""
-    if access == "scoped" and workflow_id is not None:
+    if access == "scoped":
+        if workflow_id is None:
+            raise ValueError("workflow_id is required when access is set to scoped")
         return CredentialScope.for_workflows(workflow_id)
     return CredentialScope.unrestricted()
 
