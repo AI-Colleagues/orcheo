@@ -56,7 +56,7 @@ export const handleCredentialRequest = async (
       updated_at: now,
       last_rotated_at: null,
       owner: payload?.actor ?? null,
-      access: payload?.access ?? "private",
+      access: payload?.access ?? "scoped",
       status: "healthy",
       secret_preview: payload?.secret ? "••••••" : null,
     };

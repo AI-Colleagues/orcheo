@@ -118,7 +118,7 @@ export default function AccountMenu({
         </DropdownMenuContent>
       </DropdownMenu>
       <Dialog open={isVaultOpen} onOpenChange={handleVaultOpenChange}>
-        <DialogContent className="max-h-[85vh] max-w-4xl overflow-hidden">
+        <DialogContent className="max-h-[85vh] max-w-[67.2rem] overflow-hidden">
           <DialogTitle className="sr-only">Credential Vault</DialogTitle>
           <DialogDescription className="sr-only">
             Manage, search, add, and remove credentials.

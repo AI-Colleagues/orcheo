@@ -92,8 +92,8 @@ def create_credential(
     ] = "cli",
     access: Annotated[
         str,
-        typer.Option("--access", help="Access level: private/shared/public."),
-    ] = "private",
+        typer.Option("--access", help="Access level: scoped/shared."),
+    ] = "scoped",
     workflow_id: WorkflowIdOption = None,
     scopes: ScopeOption = None,
     kind: KindOption = "secret",

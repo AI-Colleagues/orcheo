@@ -84,7 +84,7 @@ def test_delete_credential_scope_violation(api_client: TestClient) -> None:
             "provider": "test",
             "secret": "secret",
             "actor": "tester",
-            "access": "private",
+            "access": "scoped",
             "workflow_id": workflow_id,
         },
     )
@@ -115,7 +115,7 @@ def test_create_credential_with_value_error(
             "provider": "test",
             "secret": "secret",
             "actor": "tester",
-            "access": "public",
+            "access": "shared",
             "kind": "secret",
         },
     )
@@ -228,7 +228,7 @@ def orcheo_workflow() -> StateGraph:
                 "provider": provider,
                 "secret": "secret",
                 "actor": "tester",
-                "access": "private",
+                "access": "scoped",
                 "workflow_id": workflow_id,
             },
         )

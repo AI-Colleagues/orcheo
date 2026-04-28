@@ -23,30 +23,24 @@ from orcheo_backend.app.schemas.governance import GovernanceAlertResponse
 
 
 def scope_from_access(
-    access: Literal["private", "shared", "public"],
+    access: Literal["scoped", "shared"],
     workflow_id: UUID | None,
 ) -> CredentialScope | None:
     """Derive a credential scope from the requested access label."""
-    if access == "private" and workflow_id is not None:
-        return CredentialScope.for_workflows(workflow_id)
-    if access == "shared" and workflow_id is not None:
+    if access == "scoped":
+        if workflow_id is None:
+            raise ValueError("workflow_id is required when access is set to scoped")
         return CredentialScope.for_workflows(workflow_id)
     return CredentialScope.unrestricted()
 
 
 def infer_credential_access(
     scope: CredentialScope,
-) -> Literal["private", "shared", "public"]:
+) -> Literal["scoped", "shared"]:
     """Return a simplified access label derived from the scope."""
     if scope.is_unrestricted():
-        return "public"
-
-    restriction_count = (
-        len(scope.workflow_ids) + len(scope.workspace_ids) + len(scope.roles)
-    )
-    if restriction_count <= 1:
-        return "private"
-    return "shared"
+        return "shared"
+    return "scoped"
 
 
 def credential_to_response(

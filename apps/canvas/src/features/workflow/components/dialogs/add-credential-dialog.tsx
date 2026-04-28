@@ -23,7 +23,7 @@ import type {
   CredentialVaultAccessLevel,
 } from "@features/workflow/types/credential-vault";
 
-type CredentialAccess = Exclude<CredentialVaultAccessLevel, "shared">;
+type CredentialAccess = CredentialVaultAccessLevel;
 
 interface AddCredentialDialogProps {
   onAddCredential?: (credential: CredentialInput) => Promise<void> | void;
@@ -32,7 +32,7 @@ interface AddCredentialDialogProps {
 const DEFAULT_CREDENTIAL: CredentialInput = {
   name: "",
   provider: "custom",
-  access: "private",
+  access: "scoped",
   secrets: { secret: "" },
 };
 
@@ -179,8 +179,8 @@ export function AddCredentialDialog({
                 <SelectValue placeholder="Select access level" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="private">Private</SelectItem>
-                <SelectItem value="public">Public</SelectItem>
+                <SelectItem value="scoped">Scoped</SelectItem>
+                <SelectItem value="shared">Shared</SelectItem>
               </SelectContent>
             </Select>
           </div>
