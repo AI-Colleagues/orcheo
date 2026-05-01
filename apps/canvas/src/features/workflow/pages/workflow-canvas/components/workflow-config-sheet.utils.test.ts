@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { RJSFSchema } from "@rjsf/utils";
 
 import {
   buildConfigurableSchema,
@@ -181,17 +182,19 @@ describe("workflow-config-sheet utils", () => {
   it("throws error for invalid schema definitions", () => {
     const configurable = { key: "value" };
     const invalidSchemaDefinitions = {
-      key: "invalid schema" as any,
+      key: "invalid schema" as unknown as RJSFSchema,
     };
 
-    expect(() => 
-      buildConfigurableSchema(configurable, invalidSchemaDefinitions)
-    ).toThrow('Invalid schema definition for key "key": expected object, got string');
+    expect(() =>
+      buildConfigurableSchema(configurable, invalidSchemaDefinitions),
+    ).toThrow(
+      'Invalid schema definition for key "key": expected object, got string',
+    );
   });
 
   it("handles schema inference errors gracefully", () => {
     const configurable = { validKey: "value" };
-    
+
     // Mock console.warn to verify it's called
     const originalWarn = console.warn;
     const mockWarn = vi.fn();
@@ -199,9 +202,9 @@ describe("workflow-config-sheet utils", () => {
 
     // This shouldn't normally happen, but test error handling
     const result = buildConfigurableSchema(configurable);
-    
+
     console.warn = originalWarn;
-    
+
     expect(result.validKey).toEqual({ type: "string" });
   });
 
@@ -211,15 +214,11 @@ describe("workflow-config-sheet utils", () => {
     };
 
     const result = buildConfigurableSchema(configurable);
-    
+
     expect(result.mixedArray).toEqual({
       type: "array",
       items: {
-        oneOf: [
-          { type: "string" },
-          { type: "integer" },
-          { type: "boolean" },
-        ],
+        oneOf: [{ type: "string" }, { type: "integer" }, { type: "boolean" }],
       },
     });
   });
@@ -230,7 +229,7 @@ describe("workflow-config-sheet utils", () => {
     };
 
     const result = buildConfigurableSchema(configurable);
-    
+
     expect(result.emptyArray).toEqual({
       type: "array",
       items: { type: "string" },
@@ -243,7 +242,7 @@ describe("workflow-config-sheet utils", () => {
     };
 
     const result = buildConfigurableSchema(configurable);
-    
+
     expect(result.stringArray).toEqual({
       type: "array",
       items: { type: "string" },

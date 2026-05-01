@@ -11,7 +11,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  * @returns True if the value is a valid schema object
  */
 const isValidSchema = (schema: unknown): schema is RJSFSchema => {
-  return typeof schema === "object" && schema !== null && !Array.isArray(schema);
+  return (
+    typeof schema === "object" && schema !== null && !Array.isArray(schema)
+  );
 };
 
 const toPositiveInteger = (value: unknown): number | undefined => {
@@ -43,15 +45,15 @@ const inferArrayItemsSchema = (value: unknown[]): RJSFSchema => {
   }
 
   // For heterogeneous arrays, create a union type of all observed schemas
-  const uniqueSchemas = itemSchemas.filter(
-    (schema, index, array) => {
-      const schemaStr = JSON.stringify(schema);
-      return array.findIndex(s => JSON.stringify(s) === schemaStr) === index;
-    }
-  );
+  const uniqueSchemas = itemSchemas.filter((schema, index, array) => {
+    const schemaStr = JSON.stringify(schema);
+    return array.findIndex((s) => JSON.stringify(s) === schemaStr) === index;
+  });
 
   // If we have multiple types, use oneOf for better widget support
-  return uniqueSchemas.length > 1 ? { oneOf: uniqueSchemas } : uniqueSchemas[0] || {};
+  return uniqueSchemas.length > 1
+    ? { oneOf: uniqueSchemas }
+    : uniqueSchemas[0] || {};
 };
 
 /**
@@ -148,7 +150,9 @@ export const buildConfigurableSchema = (
   if (schemaDefinitions) {
     for (const [key, schema] of Object.entries(schemaDefinitions)) {
       if (!isValidSchema(schema)) {
-        throw new Error(`Invalid schema definition for key "${key}": expected object, got ${typeof schema}`);
+        throw new Error(
+          `Invalid schema definition for key "${key}": expected object, got ${typeof schema}`,
+        );
       }
     }
   }
@@ -158,14 +162,18 @@ export const buildConfigurableSchema = (
       try {
         const inferredSchema = inferSchemaFromValue(value);
         const declaredSchema = schemaDefinitions?.[key];
-        
+
         return [
           key,
-          declaredSchema ? mergeSchemas(inferredSchema, declaredSchema) : inferredSchema,
+          declaredSchema
+            ? mergeSchemas(inferredSchema, declaredSchema)
+            : inferredSchema,
         ];
       } catch (error) {
         // If schema inference fails, fall back to a basic string schema
-        console.warn(`Failed to infer schema for key "${key}": ${error instanceof Error ? error.message : String(error)}`);
+        console.warn(
+          `Failed to infer schema for key "${key}": ${error instanceof Error ? error.message : String(error)}`,
+        );
         return [key, { type: "string" }];
       }
     }),

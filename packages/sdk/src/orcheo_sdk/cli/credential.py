@@ -93,7 +93,7 @@ def create_credential(
     access: Annotated[
         str,
         typer.Option("--access", help="Access level: scoped/shared."),
-    ] = "scoped",
+    ] = "shared",
     workflow_id: WorkflowIdOption = None,
     scopes: ScopeOption = None,
     kind: KindOption = "secret",
