@@ -3,9 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 import { WorkflowCanvasLayout } from "./workflow-canvas-layout";
 
-const canvasChatBubbleMock = vi.fn((_props: unknown) => (
-  <div data-testid="chat-bubble" />
-));
+const canvasChatBubbleMock = vi.fn(() => <div data-testid="chat-bubble" />);
 
 vi.mock("@features/shared/components/top-navigation", () => ({
   default: () => <div data-testid="top-navigation" />,
