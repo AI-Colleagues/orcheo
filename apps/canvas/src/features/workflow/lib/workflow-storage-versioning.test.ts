@@ -119,4 +119,79 @@ describe("workflow-storage-versioning", () => {
 
     expect(workflow?.versions[0]?.hasCronTrigger).toBe(true);
   });
+
+  it("hydrates configurable schemas from version metadata", async () => {
+    queueResponses([
+      jsonResponse({
+        workflow: {
+          id: "wf-1",
+          handle: "wf-1",
+          name: "Simple Agent",
+          slug: "simple-agent",
+          description: "Test",
+          tags: ["draft"],
+          is_archived: false,
+          is_public: false,
+          require_login: false,
+          published_at: null,
+          published_by: null,
+          created_at: "2026-03-10T09:00:00Z",
+          updated_at: "2026-03-10T10:00:00Z",
+          share_url: null,
+        },
+        versions: [
+          {
+            id: "v1",
+            workflow_id: "wf-1",
+            version: 1,
+            mermaid: "graph TD; A-->B",
+            metadata: {
+              configurable_schema: {
+                ai_model: {
+                  type: "string",
+                  enum: ["openai:gpt-4.1-mini", "openai:gpt-5.4-mini"],
+                  title: "Model",
+                  default: "openai:gpt-4.1-mini",
+                },
+              },
+              canvas: {
+                snapshot: {
+                  name: "Simple Agent",
+                  description: "Test",
+                  nodes: [],
+                  edges: [],
+                },
+                summary: { added: 0, removed: 0, modified: 0 },
+              },
+            },
+            runnable_config: {
+              configurable: {
+                ai_model: "openai:gpt-4.1-mini",
+              },
+            },
+            notes: null,
+            created_by: "cli",
+            created_at: "2026-03-10T10:00:00Z",
+            updated_at: "2026-03-10T10:00:00Z",
+          },
+        ],
+      }),
+    ]);
+
+    const workflow = await ensureWorkflow("wf-1");
+
+    expect(workflow?.versions[0]?.configurableSchemas).toEqual({
+      ai_model: {
+        type: "string",
+        enum: ["openai:gpt-4.1-mini", "openai:gpt-5.4-mini"],
+        title: "Model",
+        default: "openai:gpt-4.1-mini",
+      },
+    });
+    expect(workflow?.versions[0]?.runnableConfig).toEqual({
+      configurable: {
+        ai_model: "openai:gpt-4.1-mini",
+      },
+    });
+  });
 });

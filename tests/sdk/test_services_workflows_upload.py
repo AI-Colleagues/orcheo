@@ -50,12 +50,16 @@ class _DummyFrontmatter:
         is_empty: bool,
         name: str | None = None,
         workflow_id: str | None = None,
+        workflow_handle: str | None = None,
+        description: str | None = None,
         config_path: str | None = None,
         entrypoint: str | None = None,
     ) -> None:
         self.is_empty = is_empty
         self.name = name
         self.workflow_id = workflow_id
+        self.workflow_handle = workflow_handle
+        self.description = description
         self.config_path = config_path
         self.entrypoint = entrypoint
 
@@ -65,6 +69,8 @@ def _frontmatter(**overrides: object) -> SimpleNamespace:
         "is_empty": False,
         "name": None,
         "workflow_id": None,
+        "workflow_handle": None,
+        "description": None,
         "config_path": None,
         "entrypoint": None,
     }
@@ -90,6 +96,16 @@ def _install_workflow_package(
 
     frontmatter_module = ModuleType("orcheo_sdk.cli.workflow.frontmatter")
     frontmatter_module.load_workflow_frontmatter = load_workflow_frontmatter
+    frontmatter_module.resolve_frontmatter_config = lambda path_obj, config_path: (
+        path_obj,
+        config_path,
+    )
+    frontmatter_module.resolve_frontmatter_config_bundle = (
+        lambda path_obj, config_path: (
+            frontmatter_module.resolve_frontmatter_config(path_obj, config_path),
+            None,
+        )
+    )
 
     workflow_module.frontmatter = frontmatter_module
     monkeypatch.setitem(sys.modules, "orcheo_sdk.cli.workflow", workflow_module)
@@ -106,7 +122,9 @@ def test_apply_frontmatter_defaults_returns_inputs_when_empty() -> None:
         path_obj=Path("/tmp/workflow.py"),
         frontmatter=frontmatter,
         workflow_id="wf-1",
+        workflow_handle=None,
         workflow_name="My Workflow",
+        workflow_description=None,
         entrypoint="build_graph",
         runnable_config={"tags": ["x"]},
         console=console,
@@ -114,9 +132,12 @@ def test_apply_frontmatter_defaults_returns_inputs_when_empty() -> None:
 
     assert result == (
         "wf-1",
+        None,
         "My Workflow",
+        None,
         "build_graph",
         {"tags": ["x"]},
+        None,
     )
     assert console.messages == []
 
@@ -128,6 +149,7 @@ def test_apply_frontmatter_defaults_fills_missing_values_and_logs(
         is_empty=False,
         name="Frontmatter Workflow",
         workflow_id="wf-frontmatter",
+        description="Frontmatter description",
         config_path="./workflow.config.json",
         entrypoint="build_graph",
     )
@@ -157,7 +179,9 @@ def test_apply_frontmatter_defaults_fills_missing_values_and_logs(
         path_obj=Path("/tmp/workflow.py"),
         frontmatter=frontmatter,
         workflow_id=None,
+        workflow_handle=None,
         workflow_name=None,
+        workflow_description=None,
         entrypoint=None,
         runnable_config=None,
         console=console,
@@ -165,14 +189,17 @@ def test_apply_frontmatter_defaults_fills_missing_values_and_logs(
 
     assert result == (
         "wf-frontmatter",
+        None,
         "Frontmatter Workflow",
+        "Frontmatter description",
         "build_graph",
         resolved_config,
+        None,
     )
     assert called_with == [(Path("/tmp/workflow.py"), "./workflow.config.json")]
     assert console.messages == [
         (
-            "[dim]Loaded workflow frontmatter: id, name, entrypoint, "
+            "[dim]Loaded workflow frontmatter: id, name, description, entrypoint, "
             "config (./workflow.config.json).[/dim]"
         )
     ]
@@ -185,6 +212,7 @@ def test_apply_frontmatter_defaults_keeps_cli_overrides(
         is_empty=False,
         name="Frontmatter Workflow",
         workflow_id="wf-frontmatter",
+        description="Frontmatter description",
         config_path="./workflow.config.json",
         entrypoint="build_graph",
     )
@@ -209,7 +237,9 @@ def test_apply_frontmatter_defaults_keeps_cli_overrides(
         path_obj=Path("/tmp/workflow.py"),
         frontmatter=frontmatter,
         workflow_id="wf-cli",
+        workflow_handle="cli-handle",
         workflow_name="CLI Workflow",
+        workflow_description="CLI description",
         entrypoint="cli_entrypoint",
         runnable_config=sentinel_config,
         console=console,
@@ -217,9 +247,12 @@ def test_apply_frontmatter_defaults_keeps_cli_overrides(
 
     assert result == (
         "wf-cli",
+        "cli-handle",
         "CLI Workflow",
+        "CLI description",
         "cli_entrypoint",
         sentinel_config,
+        None,
     )
     assert console.messages == []
 
@@ -231,6 +264,7 @@ def test_apply_frontmatter_defaults_swallows_console_errors(
         is_empty=False,
         name="Frontmatter Workflow",
         workflow_id="wf-frontmatter",
+        description="Frontmatter description",
         config_path="./workflow.config.json",
         entrypoint="build_graph",
     )
@@ -252,7 +286,9 @@ def test_apply_frontmatter_defaults_swallows_console_errors(
         path_obj=Path("/tmp/workflow.py"),
         frontmatter=frontmatter,
         workflow_id=None,
+        workflow_handle=None,
         workflow_name=None,
+        workflow_description=None,
         entrypoint=None,
         runnable_config=None,
         console=_FailingConsole(),
@@ -260,9 +296,12 @@ def test_apply_frontmatter_defaults_swallows_console_errors(
 
     assert result == (
         "wf-frontmatter",
+        None,
         "Frontmatter Workflow",
+        "Frontmatter description",
         "build_graph",
         resolved_config,
+        None,
     )
 
 
@@ -317,6 +356,8 @@ def test_upload_langgraph_workflow_wraps_generic_errors() -> None:
             state=object(),
             workflow_config={},
             workflow_id=None,
+            workflow_handle=None,
+            workflow_description=None,
             path_obj=Path("/tmp/workflow.py"),
             requested_name=None,
             uploader=raise_error,
@@ -333,6 +374,8 @@ def test_upload_langgraph_workflow_propagates_cli_errors() -> None:
             state=object(),
             workflow_config={},
             workflow_id=None,
+            workflow_handle=None,
+            workflow_description=None,
             path_obj=Path("/tmp/workflow.py"),
             requested_name=None,
             uploader=raise_cli_error,
@@ -346,6 +389,8 @@ def test_upload_langgraph_workflow_returns_uploader_result() -> None:
         state={"client": object()},
         workflow_config={"script": "print('hello')"},
         workflow_id="wf-1",
+        workflow_handle=None,
+        workflow_description=None,
         path_obj=Path("/tmp/workflow.py"),
         requested_name="workflow",
         uploader=lambda *args, **kwargs: result_payload,
@@ -378,6 +423,8 @@ def test_upload_workflow_data_success_injects_entrypoint_and_config(
         state: object,
         workflow_config: dict[str, object],
         workflow_id: str | None,
+        workflow_handle: str | None,
+        workflow_description: str | None,
         path_obj: Path,
         requested_name: str | None,
     ) -> dict[str, object]:
@@ -386,6 +433,8 @@ def test_upload_workflow_data_success_injects_entrypoint_and_config(
                 "state": state,
                 "workflow_config": workflow_config,
                 "workflow_id": workflow_id,
+                "workflow_handle": workflow_handle,
+                "workflow_description": workflow_description,
                 "path_obj": path_obj,
                 "requested_name": requested_name,
             }
@@ -409,9 +458,12 @@ def test_upload_workflow_data_success_injects_entrypoint_and_config(
         "_apply_frontmatter_defaults",
         lambda **kwargs: (
             "wf-1",
+            None,
             "My Workflow",
+            None,
             "build_graph",
             {"tags": ["x"]},
+            None,
         ),
     )
 
@@ -461,6 +513,9 @@ def test_upload_workflow_data_rejects_non_langgraph_payload(
             None,
             None,
             None,
+            None,
+            None,
+            None,
         ),
     )
 
@@ -487,6 +542,8 @@ def test_upload_workflow_data_leaves_optional_fields_unset_when_absent(
         state: object,
         workflow_config: dict[str, object],
         workflow_id: str | None,
+        workflow_handle: str | None,
+        workflow_description: str | None,
         path_obj: Path,
         requested_name: str | None,
     ) -> dict[str, object]:
@@ -495,6 +552,8 @@ def test_upload_workflow_data_leaves_optional_fields_unset_when_absent(
                 "state": state,
                 "workflow_config": workflow_config,
                 "workflow_id": workflow_id,
+                "workflow_handle": workflow_handle,
+                "workflow_description": workflow_description,
                 "path_obj": path_obj,
                 "requested_name": requested_name,
             }
@@ -512,7 +571,7 @@ def test_upload_workflow_data_leaves_optional_fields_unset_when_absent(
     monkeypatch.setattr(
         upload,
         "_apply_frontmatter_defaults",
-        lambda **kwargs: (None, None, None, None),
+        lambda **kwargs: (None, None, None, None, None, None, None),
     )
 
     result = upload.upload_workflow_data(

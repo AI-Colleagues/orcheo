@@ -535,6 +535,35 @@ async def test_sqlite_persistence_ensure_handle_available_locked_rejects_conflic
 
 
 @pytest.mark.asyncio()
+async def test_sqlite_persistence_ensure_handle_available_locked_allows_active_reuse_after_archive(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Archived workflows should not block new active workflows from reusing a handle."""
+
+    repository = SqliteWorkflowRepository(tmp_path / "workflow-handle-reuse.sqlite")
+
+    try:
+        archived = await repository.create_workflow(
+            name="Archived",
+            handle="shared-handle",
+            slug=None,
+            description=None,
+            tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="tester",
+        )
+        await repository.archive_workflow(archived.id, actor="tester")
+
+        await repository._ensure_handle_available_locked(  # noqa: SLF001
+            "shared-handle",
+            workflow_id=None,
+            is_archived=False,
+        )
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
 async def test_sqlite_persistence_resolve_workflow_ref_locked_rejects_blank_ref(
     tmp_path: pathlib.Path,
 ) -> None:

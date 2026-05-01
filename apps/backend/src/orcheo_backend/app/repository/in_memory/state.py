@@ -195,7 +195,7 @@ class InMemoryRepositoryState:
         for existing in self._workflows.values():
             if existing.id == workflow_id or existing.handle != handle:
                 continue
-            if not existing.is_archived or not is_archived:
+            if not existing.is_archived:
                 msg = f"Workflow handle '{handle}' is already in use."
                 raise WorkflowHandleConflictError(msg)
 

@@ -5,11 +5,13 @@ The frontmatter follows the PEP 723-inspired comment block convention:
     # /// orcheo
     # name = "My Workflow"
     # id = "wf-abc123"
+    # handle = "my-workflow"
+    # description = "Short human-readable summary."
     # config = "./my-workflow.config.json"
     # entrypoint = "build_graph"
     # ///
 
-The block content is parsed as TOML.  All fields are optional; CLI flags
+The block content is parsed as TOML. All fields are optional; CLI flags
 always take precedence over values declared in the frontmatter.
 """
 
@@ -18,6 +20,7 @@ import codecs
 import json
 import re
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -27,8 +30,31 @@ from orcheo_sdk.cli.errors import CLIError
 _BLOCK_TYPE = "orcheo"
 _BLOCK_START_RE = re.compile(r"^# /// (?P<type>[a-zA-Z0-9_-]+)[ \t]*$")
 _BLOCK_END_RE = re.compile(r"^# ///[ \t]*$")
-_ALLOWED_FIELDS = frozenset({"name", "id", "handle", "config", "entrypoint"})
+_ALLOWED_FIELDS = frozenset(
+    {"name", "id", "handle", "description", "config", "entrypoint"}
+)
 _ENCODING_RE = re.compile(r"coding[=:]\s*([-\w.]+)")
+_SCHEMA_KEYS = frozenset(
+    {
+        "type",
+        "enum",
+        "items",
+        "properties",
+        "oneOf",
+        "anyOf",
+        "allOf",
+        "const",
+        "default",
+        "format",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "pattern",
+        "additionalProperties",
+    }
+)
 
 
 def _encoding_from_cookie(line: bytes) -> str | None:
@@ -96,13 +122,24 @@ class WorkflowFrontmatter:
 
     name: str | None = None
     workflow_id: str | None = None
+    workflow_handle: str | None = None
+    description: str | None = None
     config_path: str | None = None
     entrypoint: str | None = None
 
     @property
     def is_empty(self) -> bool:
         """Return True when no frontmatter values were declared."""
-        return not any((self.name, self.workflow_id, self.config_path, self.entrypoint))
+        return not any(
+            (
+                self.name,
+                self.workflow_id,
+                self.workflow_handle,
+                self.description,
+                self.config_path,
+                self.entrypoint,
+            )
+        )
 
 
 def parse_workflow_frontmatter(source: str) -> WorkflowFrontmatter:
@@ -133,7 +170,9 @@ def parse_workflow_frontmatter(source: str) -> WorkflowFrontmatter:
 
     return WorkflowFrontmatter(
         name=_string_field(data, "name"),
-        workflow_id=_string_field(data, "id") or _string_field(data, "handle"),
+        workflow_id=_string_field(data, "id"),
+        workflow_handle=_string_field(data, "handle"),
+        description=_string_field(data, "description"),
         config_path=_string_field(data, "config"),
         entrypoint=_string_field(data, "entrypoint"),
     )
@@ -216,6 +255,18 @@ def resolve_frontmatter_config(workflow_path: Path, config_path: str) -> dict[st
 
     Relative paths resolve against the workflow file's parent directory.
     """
+    runnable_config, _ = resolve_frontmatter_config_bundle(workflow_path, config_path)
+    return runnable_config
+
+
+def resolve_frontmatter_config_bundle(
+    workflow_path: Path,
+    config_path: str,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Load runnable config and typed schema declarations from frontmatter.
+
+    Relative paths resolve against the workflow file's parent directory.
+    """
     candidate = Path(config_path).expanduser()
     if not candidate.is_absolute():
         candidate = workflow_path.parent / candidate
@@ -227,6 +278,7 @@ def resolve_frontmatter_config(workflow_path: Path, config_path: str) -> dict[st
         )
     if not resolved.is_file():
         raise CLIError(f"Frontmatter config path '{config_path}' is not a file.")
+
     try:
         data = json.loads(resolved.read_text(encoding="utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -237,7 +289,157 @@ def resolve_frontmatter_config(workflow_path: Path, config_path: str) -> dict[st
         raise CLIError(
             f"Frontmatter config file '{config_path}' must contain a JSON object."
         )
-    return data
+
+    sibling_schema = _load_sibling_schema_file(resolved)
+    raw_config, inline_schema = _split_annotated_config(data, config_path=config_path)
+    schema_definitions = _merge_schema_definitions(inline_schema, sibling_schema)
+    return raw_config, schema_definitions or None
+
+
+def _load_sibling_schema_file(resolved_config: Path) -> dict[str, Any] | None:
+    """Load an optional ``*.schema.json`` companion file next to the config."""
+    schema_path = resolved_config.with_name(
+        f"{resolved_config.stem}.schema{resolved_config.suffix}"
+    )
+    if not schema_path.exists():
+        return None
+    if not schema_path.is_file():
+        raise CLIError(f"Frontmatter schema path '{schema_path.name}' is not a file.")
+
+    try:
+        schema_payload = json.loads(schema_path.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CLIError(
+            f"Invalid JSON in frontmatter schema file '{schema_path.name}': {exc}"
+        ) from exc
+    if not isinstance(schema_payload, dict):
+        raise CLIError(
+            f"Frontmatter schema file '{schema_path.name}' must contain a JSON object."
+        )
+    return _normalize_schema_definition_map(schema_payload, schema_path.name)
+
+
+def _split_annotated_config(
+    config: dict[str, Any],
+    *,
+    config_path: str,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Split annotated runnable config values from their schema definitions."""
+    configurable = config.get("configurable")
+    if not isinstance(configurable, dict):
+        return config, None
+
+    raw_config = dict(config)
+    raw_configurable = dict(configurable)
+    schema_definitions: dict[str, Any] = {}
+
+    for key, value in configurable.items():
+        if not _is_schema_declaration(value):
+            continue
+        if not isinstance(value, Mapping):
+            continue
+        schema = _normalize_schema_definition(value, key=key, config_path=config_path)
+        raw_configurable[key] = _resolve_schema_default(
+            schema,
+            key=key,
+            config_path=config_path,
+        )
+        schema_definitions[key] = schema
+
+    if schema_definitions:
+        raw_config["configurable"] = raw_configurable
+        return raw_config, schema_definitions
+
+    return config, None
+
+
+def _normalize_schema_definition_map(
+    payload: dict[str, Any],
+    config_path: str,
+) -> dict[str, Any]:
+    """Normalize a schema JSON payload into configurable field definitions."""
+    configurable = payload.get("configurable")
+    if isinstance(configurable, dict):
+        source = configurable
+    else:
+        source = payload
+
+    normalized: dict[str, Any] = {}
+    for key, value in source.items():
+        if not isinstance(value, Mapping):
+            raise CLIError(
+                f"Frontmatter schema file '{config_path}' field '{key}' "
+                "must be an object."
+            )
+        normalized[key] = dict(value)
+    return normalized
+
+
+def _merge_schema_definitions(
+    *schema_maps: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Merge schema definition maps with later entries taking precedence."""
+    merged: dict[str, Any] = {}
+    for schema_map in schema_maps:
+        if not schema_map:
+            continue
+        for key, value in schema_map.items():
+            merged[key] = value
+    return merged or None
+
+
+def _is_schema_declaration(value: object) -> bool:
+    """Return True when ``value`` looks like a typed schema annotation."""
+    if not isinstance(value, Mapping):
+        return False
+    return any(key in value for key in _SCHEMA_KEYS)
+
+
+def _normalize_schema_definition(
+    value: Mapping[str, Any],
+    *,
+    key: str,
+    config_path: str,
+) -> dict[str, Any]:
+    """Copy a schema declaration into a JSON-serializable mapping."""
+    schema = dict(value)
+    if not _schema_has_runtime_default(schema):
+        raise CLIError(
+            f"Frontmatter config field '{key}' in '{config_path}' declares schema "
+            "metadata but no runtime default. Add a 'default' value or an 'enum'."
+        )
+    return schema
+
+
+def _schema_has_runtime_default(schema: Mapping[str, Any]) -> bool:
+    """Return True when a schema declaration can resolve to a runtime value."""
+    if "default" in schema:
+        return True
+    const_value = schema.get("const")
+    if const_value is not None:
+        return True
+    enum_value = schema.get("enum")
+    return isinstance(enum_value, list) and len(enum_value) > 0
+
+
+def _resolve_schema_default(
+    schema: Mapping[str, Any],
+    *,
+    key: str,
+    config_path: str,
+) -> Any:
+    """Return a runtime value from a schema declaration."""
+    if "default" in schema:
+        return schema["default"]
+    if schema.get("const") is not None:
+        return schema["const"]
+    enum_value = schema.get("enum")
+    if isinstance(enum_value, list) and enum_value:
+        return enum_value[0]
+    raise CLIError(
+        f"Frontmatter config field '{key}' in '{config_path}' declares schema "
+        "metadata but no runtime default. Add a 'default' value or an 'enum'."
+    )
 
 
 __all__ = [
@@ -245,5 +447,6 @@ __all__ = [
     "parse_workflow_frontmatter",
     "load_workflow_frontmatter",
     "resolve_frontmatter_config",
+    "resolve_frontmatter_config_bundle",
     "_detect_file_encoding",  # Export for testing
 ]

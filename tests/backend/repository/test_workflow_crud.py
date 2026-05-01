@@ -483,6 +483,38 @@ async def test_update_workflow_allows_reusing_handle_for_archived_workflows(
 
 
 @pytest.mark.asyncio()
+async def test_create_workflow_allows_reusing_archived_handle(
+    repository: WorkflowRepository,
+) -> None:
+    """Archiving a workflow releases its handle for new active workflows."""
+
+    archived = await repository.create_workflow(
+        name="Archived Original",
+        handle="shared-handle",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+    )
+    await repository.archive_workflow(archived.id, actor="tester")
+
+    replacement = await repository.create_workflow(
+        name="Replacement",
+        handle="shared-handle",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+    )
+
+    assert replacement.handle == "shared-handle"
+    assert replacement.is_archived is False
+    assert await repository.resolve_workflow_ref("shared-handle") == replacement.id
+
+
+@pytest.mark.asyncio()
 async def test_resolve_workflow_ref_rejects_blank_value(
     repository: WorkflowRepository,
 ) -> None:

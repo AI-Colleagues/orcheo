@@ -36,6 +36,7 @@ from .frontmatter import (
     load_workflow_frontmatter,
     parse_workflow_frontmatter,
     resolve_frontmatter_config,
+    resolve_frontmatter_config_bundle,
 )
 from .ingest import (
     _generate_slug,
@@ -115,6 +116,7 @@ __all__ = [
     "parse_workflow_frontmatter",
     "load_workflow_frontmatter",
     "resolve_frontmatter_config",
+    "resolve_frontmatter_config_bundle",
     "render_json",
     "render_table",
     "list_workflows",

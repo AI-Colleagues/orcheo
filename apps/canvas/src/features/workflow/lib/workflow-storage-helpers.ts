@@ -1,4 +1,5 @@
 import type { Edge as CanvasEdge, Node as CanvasNode } from "@xyflow/react";
+import type { RJSFSchema } from "@rjsf/utils";
 import {
   getWorkflowTemplateDefinition,
   type Workflow,
@@ -151,6 +152,9 @@ const parseCanvasMetadata = (
   fallbackName: string,
   fallbackDescription?: string,
 ): CanvasVersionMetadata => {
+  const configurableSchemas = parseConfigurableSchemas(
+    isRecord(metadata) ? metadata.configurable_schema : undefined,
+  );
   const resolveTemplateFallback = (): CanvasVersionMetadata | undefined => {
     if (!metadata || typeof metadata !== "object") {
       return undefined;
@@ -175,6 +179,7 @@ const parseCanvasMetadata = (
       },
       summary: { ...DEFAULT_SUMMARY },
       templateId,
+      configurableSchemas,
     };
   };
 
@@ -183,6 +188,7 @@ const parseCanvasMetadata = (
       snapshot: emptySnapshot(fallbackName, fallbackDescription),
       summary: { ...DEFAULT_SUMMARY },
       templateId: undefined,
+      configurableSchemas: undefined,
     };
   }
 
@@ -192,6 +198,7 @@ const parseCanvasMetadata = (
       resolveTemplateFallback() ?? {
         snapshot: emptySnapshot(fallbackName, fallbackDescription),
         summary: { ...DEFAULT_SUMMARY },
+        configurableSchemas,
       }
     );
   }
@@ -244,7 +251,27 @@ const parseCanvasMetadata = (
     canvasToGraph,
     graphToCanvas,
     templateId,
+    configurableSchemas,
   };
+};
+
+const parseConfigurableSchemas = (
+  value: unknown,
+): Record<string, RJSFSchema> | undefined => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const entries = Object.entries(value).filter(
+    ([, schema]) =>
+      schema !== null && typeof schema === "object" && !Array.isArray(schema),
+  );
+
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  return Object.fromEntries(entries) as Record<string, RJSFSchema>;
 };
 
 const toVersionRecord = (
@@ -278,6 +305,7 @@ const toVersionRecord = (
       version.has_cron_trigger ??
       graphHasCronTrigger((version as ApiWorkflowVersion).graph),
     runnableConfig: version.runnable_config ?? null,
+    configurableSchemas: metadata.configurableSchemas,
     graphToCanvas: metadata.graphToCanvas,
     templateId: metadata.templateId,
   };

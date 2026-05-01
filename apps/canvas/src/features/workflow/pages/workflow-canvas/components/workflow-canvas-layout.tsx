@@ -32,12 +32,16 @@ interface ChatState {
   };
   activeChatNodeId: string | null;
   workflowId: string | null;
+  chatkitWorkflowId: string | null;
   backendBaseUrl: string | null;
   startScreenPrompts: ChatKitStartScreenPrompt[] | null;
   supportedModels: ChatKitSupportedModel[] | null;
   handleChatResponseStart: () => void;
   handleChatResponseEnd: () => void;
-  handleChatClientTool: (tool: unknown) => void;
+  handleChatClientTool: (tool: {
+    name: string;
+    params: Record<string, unknown>;
+  }) => Promise<Record<string, unknown>>;
   getClientSecret: (currentSecret: string | null) => Promise<string>;
   refreshSession: () => Promise<string>;
   sessionStatus: "idle" | "loading" | "ready" | "error";
@@ -125,8 +129,9 @@ export function WorkflowCanvasLayout({
           user={chat.user}
           ai={chat.ai}
           workflowId={chat.workflowId}
+          chatkitWorkflowId={chat.chatkitWorkflowId}
           sessionPayload={{
-            workflowId: chat.workflowId,
+            workflowId: chat.chatkitWorkflowId ?? chat.workflowId,
             workflowLabel: topNavigationProps.currentWorkflow.name,
             chatNodeId: chat.activeChatNodeId,
           }}

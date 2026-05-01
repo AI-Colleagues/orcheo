@@ -642,6 +642,7 @@ export function WorkflowTabContent({
           open={isConfigOpen}
           onOpenChange={setIsConfigOpen}
           initialConfig={latestConfig}
+          configurableSchemas={latestVersion?.configurableSchemas}
           onSave={onSaveConfig}
         />
       </div>

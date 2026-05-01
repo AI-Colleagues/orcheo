@@ -87,6 +87,7 @@ def test_workflow_frontmatter_is_empty_by_default() -> None:
 def test_workflow_frontmatter_is_not_empty_when_populated() -> None:
     """Any populated field should make the dataclass non-empty."""
     assert not frontmatter.WorkflowFrontmatter(name="x").is_empty
+    assert not frontmatter.WorkflowFrontmatter(description="x").is_empty
 
 
 def test_parse_returns_empty_when_no_block() -> None:
@@ -101,6 +102,7 @@ def test_parse_extracts_all_fields() -> None:
         "# /// orcheo\n"
         '# name = "My Workflow"\n'
         '# id = "wf-abc123"\n'
+        '# description = "Human summary"\n'
         '# config = "./wf.config.json"\n'
         '# entrypoint = "build_graph"\n'
         "# ///\n"
@@ -109,6 +111,7 @@ def test_parse_extracts_all_fields() -> None:
     fm = frontmatter.parse_workflow_frontmatter(source)
     assert fm.name == "My Workflow"
     assert fm.workflow_id == "wf-abc123"
+    assert fm.description == "Human summary"
     assert fm.config_path == "./wf.config.json"
     assert fm.entrypoint == "build_graph"
     assert not fm.is_empty
@@ -117,7 +120,8 @@ def test_parse_extracts_all_fields() -> None:
 def test_parse_accepts_handle_alias() -> None:
     source = '# /// orcheo\n# handle = "wf-handle"\n# ///\n'
     fm = frontmatter.parse_workflow_frontmatter(source)
-    assert fm.workflow_id == "wf-handle"
+    assert fm.workflow_id is None
+    assert fm.workflow_handle == "wf-handle"
 
 
 def test_parse_rejects_id_and_handle_together() -> None:

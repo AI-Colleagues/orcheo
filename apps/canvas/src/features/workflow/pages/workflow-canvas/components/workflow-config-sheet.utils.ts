@@ -143,7 +143,12 @@ export const buildConfigurableSchema = (
   schemaDefinitions?: Record<string, RJSFSchema>,
 ): RJSFSchema["properties"] => {
   if (!isRecord(configurable)) {
-    return {};
+    if (!schemaDefinitions) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(schemaDefinitions).map(([key, schema]) => [key, schema]),
+    );
   }
 
   // Validate schema definitions if provided
@@ -157,8 +162,14 @@ export const buildConfigurableSchema = (
     }
   }
 
+  const keys = new Set([
+    ...Object.keys(configurable),
+    ...Object.keys(schemaDefinitions ?? {}),
+  ]);
+
   return Object.fromEntries(
-    Object.entries(configurable).map(([key, value]) => {
+    Array.from(keys).map((key) => {
+      const value = configurable[key];
       try {
         const inferredSchema = inferSchemaFromValue(value);
         const declaredSchema = schemaDefinitions?.[key];
