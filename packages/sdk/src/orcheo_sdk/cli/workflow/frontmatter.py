@@ -164,6 +164,12 @@ def _collect_frontmatter_blocks(source: str) -> list[list[str]]:
             current_lines = []
             in_block = True
 
+    if in_block and current_type == _BLOCK_TYPE:
+        raise CLIError(
+            f"Unterminated '{_BLOCK_TYPE}' frontmatter block. "
+            "Add a closing '# ///' line."
+        )
+
     return blocks
 
 

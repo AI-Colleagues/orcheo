@@ -152,6 +152,12 @@ def test_parse_rejects_invalid_toml() -> None:
         frontmatter.parse_workflow_frontmatter(source)
 
 
+def test_parse_rejects_unterminated_orcheo_block() -> None:
+    source = '# /// orcheo\n# name = "Missing End"\n'
+    with pytest.raises(frontmatter.CLIError, match="Unterminated 'orcheo' frontmatter"):
+        frontmatter.parse_workflow_frontmatter(source)
+
+
 def test_parse_rejects_multiple_blocks() -> None:
     source = (
         "# /// orcheo\n"
