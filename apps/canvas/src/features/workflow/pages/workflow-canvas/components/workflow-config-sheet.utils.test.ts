@@ -147,6 +147,28 @@ describe("workflow-config-sheet utils", () => {
     });
   });
 
+  it("includes declared schema fields even when no runtime value is present", () => {
+    const configurable = {};
+
+    const schemaDefinitions = {
+      ai_model: {
+        type: "string",
+        enum: ["openai:gpt-4.1-mini", "openai:gpt-5.4-mini"],
+        title: "Model",
+        default: "openai:gpt-4.1-mini",
+      },
+    };
+
+    expect(buildConfigurableSchema(configurable, schemaDefinitions)).toEqual({
+      ai_model: {
+        type: "string",
+        enum: ["openai:gpt-4.1-mini", "openai:gpt-5.4-mini"],
+        title: "Model",
+        default: "openai:gpt-4.1-mini",
+      },
+    });
+  });
+
   it("preserves inferred schema when no declarations provided", () => {
     const configurable = {
       api_key: "secret123",

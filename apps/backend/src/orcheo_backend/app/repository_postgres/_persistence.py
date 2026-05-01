@@ -53,21 +53,30 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
         if handle is None:
             return
 
-        workflow_id_str = str(workflow_id) if workflow_id is not None else None
         async with self._connection() as conn:
-            cursor = await conn.execute(
-                """
-                SELECT id, is_archived
-                  FROM workflows
-                 WHERE handle = %s
-                   AND (%s IS NULL OR id != %s)
-                """,
-                (handle, workflow_id_str, workflow_id_str),
-            )
+            if workflow_id is None:
+                cursor = await conn.execute(
+                    """
+                    SELECT id, is_archived
+                      FROM workflows
+                     WHERE handle = %s
+                    """,
+                    (handle,),
+                )
+            else:
+                cursor = await conn.execute(
+                    """
+                    SELECT id, is_archived
+                      FROM workflows
+                     WHERE handle = %s
+                       AND id != %s::uuid
+                    """,
+                    (handle, str(workflow_id)),
+                )
             rows = await cursor.fetchall()
 
         for row in rows:
-            if not row["is_archived"] or not is_archived:
+            if not row["is_archived"]:
                 msg = f"Workflow handle '{handle}' is already in use."
                 raise WorkflowHandleConflictError(msg)
 

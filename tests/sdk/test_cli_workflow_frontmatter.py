@@ -87,6 +87,7 @@ def test_workflow_frontmatter_is_empty_by_default() -> None:
 def test_workflow_frontmatter_is_not_empty_when_populated() -> None:
     """Any populated field should make the dataclass non-empty."""
     assert not frontmatter.WorkflowFrontmatter(name="x").is_empty
+    assert not frontmatter.WorkflowFrontmatter(description="x").is_empty
 
 
 def test_parse_returns_empty_when_no_block() -> None:
@@ -101,6 +102,7 @@ def test_parse_extracts_all_fields() -> None:
         "# /// orcheo\n"
         '# name = "My Workflow"\n'
         '# id = "wf-abc123"\n'
+        '# description = "Human summary"\n'
         '# config = "./wf.config.json"\n'
         '# entrypoint = "build_graph"\n'
         "# ///\n"
@@ -109,6 +111,7 @@ def test_parse_extracts_all_fields() -> None:
     fm = frontmatter.parse_workflow_frontmatter(source)
     assert fm.name == "My Workflow"
     assert fm.workflow_id == "wf-abc123"
+    assert fm.description == "Human summary"
     assert fm.config_path == "./wf.config.json"
     assert fm.entrypoint == "build_graph"
     assert not fm.is_empty
@@ -117,7 +120,8 @@ def test_parse_extracts_all_fields() -> None:
 def test_parse_accepts_handle_alias() -> None:
     source = '# /// orcheo\n# handle = "wf-handle"\n# ///\n'
     fm = frontmatter.parse_workflow_frontmatter(source)
-    assert fm.workflow_id == "wf-handle"
+    assert fm.workflow_id is None
+    assert fm.workflow_handle == "wf-handle"
 
 
 def test_parse_rejects_id_and_handle_together() -> None:
@@ -454,3 +458,284 @@ def test_load_from_file_with_invalid_encoding(tmp_path: Path) -> None:
 
     with pytest.raises(frontmatter.CLIError, match="Failed to decode workflow file"):
         frontmatter.load_workflow_frontmatter(py_file)
+
+
+def test_is_schema_declaration_requires_explicit_schema_keys() -> None:
+    """Objects with ambiguous keys alone should remain runtime config values."""
+    assert frontmatter._is_schema_declaration({"type": "provider"}) is False
+    assert frontmatter._is_schema_declaration({"pattern": "^openai"}) is False
+
+
+def test_is_schema_declaration_accepts_inline_schema_annotation() -> None:
+    """Inline schema annotations with explicit schema keys are detected."""
+    assert (
+        frontmatter._is_schema_declaration(
+            {"type": "string", "enum": ["a", "b"], "default": "a"}
+        )
+        is True
+    )
+
+
+def test_is_schema_declaration_rejects_non_mapping_values() -> None:
+    """Non-mapping values are never treated as schema declarations."""
+    assert frontmatter._is_schema_declaration("nope") is False
+
+
+def test_is_schema_declaration_rejects_mappings_without_schema_keys() -> None:
+    """Plain mappings without schema keys should not be treated as annotations."""
+    assert frontmatter._is_schema_declaration({"value": "plain"}) is False
+
+
+def test_resolve_frontmatter_config_bundle_merges_inline_and_sibling_schema(
+    tmp_path: Path,
+) -> None:
+    """Inline schema defaults are resolved while sibling schema defs override metadata."""
+    workflow = tmp_path / "workflow.py"
+    workflow.write_text("# noop\n", encoding="utf-8")
+    config_path = tmp_path / "workflow.config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "configurable": {
+                    "mode": {
+                        "type": "string",
+                        "default": "inline",
+                    },
+                    "count": {
+                        "type": "integer",
+                        "default": 3,
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    schema_path = tmp_path / "workflow.config.schema.json"
+    schema_path.write_text(
+        json.dumps(
+            {
+                "configurable": {
+                    "mode": {
+                        "type": "string",
+                        "default": "schema",
+                    },
+                    "extra": {
+                        "type": "string",
+                        "default": "from-schema",
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    raw_config, schema_definitions = frontmatter.resolve_frontmatter_config_bundle(
+        workflow,
+        "workflow.config.json",
+    )
+
+    assert raw_config == {
+        "configurable": {
+            "mode": "inline",
+            "count": 3,
+        }
+    }
+    assert schema_definitions == {
+        "mode": {"type": "string", "default": "schema"},
+        "count": {"type": "integer", "default": 3},
+        "extra": {"type": "string", "default": "from-schema"},
+    }
+
+
+def test_resolve_frontmatter_config_bundle_rejects_schema_directory(
+    tmp_path: Path,
+) -> None:
+    """A sibling schema path must be a file, not a directory."""
+    workflow = tmp_path / "workflow.py"
+    workflow.write_text("# noop\n", encoding="utf-8")
+    config_path = tmp_path / "workflow.config.json"
+    config_path.write_text(json.dumps({"configurable": {}}), encoding="utf-8")
+    (tmp_path / "workflow.config.schema.json").mkdir()
+
+    with pytest.raises(frontmatter.CLIError, match="is not a file"):
+        frontmatter.resolve_frontmatter_config_bundle(workflow, "workflow.config.json")
+
+
+def test_resolve_frontmatter_config_bundle_rejects_invalid_schema_json(
+    tmp_path: Path,
+) -> None:
+    """Invalid JSON in the sibling schema file should surface as CLIError."""
+    workflow = tmp_path / "workflow.py"
+    workflow.write_text("# noop\n", encoding="utf-8")
+    config_path = tmp_path / "workflow.config.json"
+    config_path.write_text(json.dumps({"configurable": {}}), encoding="utf-8")
+    schema_path = tmp_path / "workflow.config.schema.json"
+    schema_path.write_text("{ not json", encoding="utf-8")
+
+    with pytest.raises(
+        frontmatter.CLIError, match="Invalid JSON in frontmatter schema file"
+    ):
+        frontmatter.resolve_frontmatter_config_bundle(workflow, "workflow.config.json")
+
+
+def test_resolve_frontmatter_config_bundle_rejects_non_object_schema_payload(
+    tmp_path: Path,
+) -> None:
+    """Schema files must contain JSON objects."""
+    workflow = tmp_path / "workflow.py"
+    workflow.write_text("# noop\n", encoding="utf-8")
+    config_path = tmp_path / "workflow.config.json"
+    config_path.write_text(json.dumps({"configurable": {}}), encoding="utf-8")
+    schema_path = tmp_path / "workflow.config.schema.json"
+    schema_path.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+
+    with pytest.raises(
+        frontmatter.CLIError,
+        match="must contain a JSON object",
+    ):
+        frontmatter.resolve_frontmatter_config_bundle(workflow, "workflow.config.json")
+
+
+def test_split_annotated_config_returns_original_when_unannotated() -> None:
+    """Configs without annotated values should pass through unchanged."""
+    config = {"configurable": {"plain": "value"}}
+
+    raw_config, schema_definitions = frontmatter._split_annotated_config(
+        config,
+        config_path="workflow.config.json",
+    )
+
+    assert raw_config == config
+    assert schema_definitions is None
+
+
+def test_split_annotated_config_can_skip_non_mapping_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The helper should skip values that fail the mapping guard."""
+    monkeypatch.setattr(frontmatter, "_is_schema_declaration", lambda value: True)
+
+    config = {"configurable": {"broken": 1}}
+    raw_config, schema_definitions = frontmatter._split_annotated_config(
+        config,
+        config_path="workflow.config.json",
+    )
+
+    assert raw_config == config
+    assert schema_definitions is None
+
+
+def test_split_annotated_config_resolves_schema_defaults() -> None:
+    """Annotated values should be replaced with their runtime defaults."""
+    config = {
+        "configurable": {
+            "mode": {"type": "string", "default": "draft"},
+            "variant": {"type": "string", "const": "stable"},
+            "choice": {"type": "string", "enum": ["alpha", "beta"]},
+            "plain": "keep",
+        }
+    }
+
+    raw_config, schema_definitions = frontmatter._split_annotated_config(
+        config,
+        config_path="workflow.config.json",
+    )
+
+    assert raw_config == {
+        "configurable": {
+            "mode": "draft",
+            "variant": "stable",
+            "choice": "alpha",
+            "plain": "keep",
+        }
+    }
+    assert schema_definitions == {
+        "mode": {"type": "string", "default": "draft"},
+        "variant": {"type": "string", "const": "stable"},
+        "choice": {"type": "string", "enum": ["alpha", "beta"]},
+    }
+
+
+def test_normalize_schema_definition_map_uses_payload_when_configurable_missing() -> (
+    None
+):
+    """Schema payloads without a configurable wrapper are normalized directly."""
+    payload = {"mode": {"type": "string", "default": "draft"}}
+
+    assert (
+        frontmatter._normalize_schema_definition_map(payload, "schema.json") == payload
+    )
+
+
+def test_normalize_schema_definition_map_rejects_non_object_fields() -> None:
+    """Every schema field must be a JSON object."""
+    with pytest.raises(frontmatter.CLIError, match="must be an object"):
+        frontmatter._normalize_schema_definition_map({"mode": 1}, "schema.json")
+
+
+def test_merge_schema_definitions_prefers_later_entries() -> None:
+    """Later schema maps should overwrite earlier keys."""
+    assert frontmatter._merge_schema_definitions(
+        None,
+        {"mode": {"default": "inline"}},
+        {"mode": {"default": "schema"}, "extra": {"default": "x"}},
+    ) == {
+        "mode": {"default": "schema"},
+        "extra": {"default": "x"},
+    }
+
+
+def test_schema_has_runtime_default_covers_supported_shapes() -> None:
+    """Schema defaults can come from default, const, or enum declarations."""
+    assert frontmatter._schema_has_runtime_default({"default": 1}) is True
+    assert frontmatter._schema_has_runtime_default({"const": "x"}) is True
+    assert frontmatter._schema_has_runtime_default({"enum": ["a"]}) is True
+    assert frontmatter._schema_has_runtime_default({"enum": []}) is False
+
+
+def test_normalize_schema_definition_requires_runtime_default() -> None:
+    """Schema metadata without a runtime default should fail fast."""
+    with pytest.raises(frontmatter.CLIError, match="no runtime default"):
+        frontmatter._normalize_schema_definition(
+            {"type": "string"},
+            key="mode",
+            config_path="workflow.config.json",
+        )
+
+
+def test_resolve_schema_default_covers_all_supported_defaults() -> None:
+    """Runtime defaults resolve from default, const, or enum in that order."""
+    assert (
+        frontmatter._resolve_schema_default(
+            {"default": "draft"},
+            key="mode",
+            config_path="workflow.config.json",
+        )
+        == "draft"
+    )
+    assert (
+        frontmatter._resolve_schema_default(
+            {"const": "stable"},
+            key="mode",
+            config_path="workflow.config.json",
+        )
+        == "stable"
+    )
+    assert (
+        frontmatter._resolve_schema_default(
+            {"enum": ["alpha", "beta"]},
+            key="mode",
+            config_path="workflow.config.json",
+        )
+        == "alpha"
+    )
+
+
+def test_resolve_schema_default_raises_without_runtime_default() -> None:
+    """Missing runtime defaults should raise a CLIError."""
+    with pytest.raises(frontmatter.CLIError, match="no runtime default"):
+        frontmatter._resolve_schema_default(
+            {},
+            key="mode",
+            config_path="workflow.config.json",
+        )

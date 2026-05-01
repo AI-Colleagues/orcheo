@@ -72,7 +72,7 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
             rows = await cursor.fetchall()
 
         for row in rows:
-            if not row["is_archived"] or not is_archived:
+            if not row["is_archived"]:
                 msg = f"Workflow handle '{handle}' is already in use."
                 raise WorkflowHandleConflictError(msg)
 

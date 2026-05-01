@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import pytest
-from orcheo_sdk.cli.errors import CLIError
+from orcheo_sdk.cli.errors import APICallError, CLIError
 from orcheo_sdk.cli.workflow import _upload_langgraph_script, upload_workflow
 from tests.sdk.workflow_cli_test_utils import DummyCtx, StubClient, make_state
 
@@ -24,6 +24,8 @@ def test_upload_langgraph_script_fetch_failure() -> None:
             state,
             workflow_config,
             "wf-1",
+            None,
+            None,
             Path("demo.py"),
             None,
         )
@@ -46,6 +48,8 @@ def test_upload_langgraph_script_create_failure() -> None:
         _upload_langgraph_script(
             state,
             workflow_config,
+            None,
+            None,
             None,
             Path("demo.py"),
             None,
@@ -72,10 +76,176 @@ def test_upload_langgraph_script_rename_failure() -> None:
             state,
             workflow_config,
             "wf-1",
+            None,
+            None,
             Path("demo.py"),
             "New Name",
         )
-    assert "Failed to rename workflow 'wf-1'" in str(excinfo.value)
+    assert "Failed to update workflow 'wf-1'" in str(excinfo.value)
+
+
+def test_upload_langgraph_script_creates_workflow_with_handle() -> None:
+    state = make_state()
+
+    class HandleMissingClient(StubClient):
+        def get(self, url: str) -> Any:  # type: ignore[override]
+            raise APICallError("Workflow not found", status_code=404)
+
+        def post(self, url: str, **payload: Any) -> Any:  # type: ignore[override]
+            self.calls.append(("POST", url, payload))
+            if url.endswith("/api/workflows"):
+                assert payload["json_body"]["handle"] == "simple-agent"
+                return {
+                    "id": "wf-new",
+                    "name": "simple-agent",
+                    "handle": "simple-agent",
+                }
+            if url.endswith("/api/workflows/wf-new/versions/ingest"):
+                return {"version": 1}
+            raise AssertionError(f"Unexpected POST {url}")
+
+    state.client = HandleMissingClient()
+
+    workflow_config = {"script": "print('hello')", "entrypoint": None}
+    result = _upload_langgraph_script(
+        state,
+        workflow_config,
+        None,
+        "simple_agent",
+        "A simple agent workflow",
+        Path("demo.py"),
+        None,
+    )
+
+    assert result["id"] == "wf-new"
+    assert result["latest_version"]["version"] == 1
+    create_call = state.client.calls[0]
+    assert create_call[2]["json_body"]["handle"] == "simple-agent"
+    assert create_call[2]["json_body"]["description"] == "A simple agent workflow"
+
+
+def test_upload_langgraph_script_creates_new_workflow_when_handle_is_archived() -> None:
+    state = make_state()
+
+    class ArchivedHandleClient(StubClient):
+        def get(self, url: str) -> Any:  # type: ignore[override]
+            assert url.endswith("/api/workflows/simple-agent")
+            return {
+                "id": "wf-archived",
+                "name": "simple-agent",
+                "handle": "simple-agent",
+                "is_archived": True,
+            }
+
+        def post(self, url: str, **payload: Any) -> Any:  # type: ignore[override]
+            self.calls.append(("POST", url, payload))
+            if url.endswith("/api/workflows"):
+                assert payload["json_body"]["handle"] == "simple-agent"
+                return {
+                    "id": "wf-new",
+                    "name": "simple-agent",
+                    "handle": "simple-agent",
+                }
+            if url.endswith("/api/workflows/wf-new/versions/ingest"):
+                return {"version": 1}
+            raise AssertionError(f"Unexpected POST {url}")
+
+    state.client = ArchivedHandleClient()
+
+    workflow_config = {"script": "print('hello')", "entrypoint": None}
+    result = _upload_langgraph_script(
+        state,
+        workflow_config,
+        None,
+        "simple_agent",
+        None,
+        Path("demo.py"),
+        None,
+    )
+
+    assert result["id"] == "wf-new"
+    assert result["latest_version"]["version"] == 1
+
+
+def test_upload_langgraph_script_updates_existing_workflow_by_handle() -> None:
+    state = make_state()
+
+    class ExistingHandleClient(StubClient):
+        def get(self, url: str) -> Any:  # type: ignore[override]
+            assert url.endswith("/api/workflows/simple-agent")
+            return {"id": "wf-existing", "name": "demo", "handle": "simple-agent"}
+
+        def put(self, url: str, **payload: Any) -> Any:  # type: ignore[override]
+            raise AssertionError("rename should not be needed")
+
+        def post(self, url: str, **payload: Any) -> Any:  # type: ignore[override]
+            self.calls.append(("POST", url, payload))
+            if url.endswith("/api/workflows/wf-existing/versions/ingest"):
+                return {"version": 2}
+            raise AssertionError(f"Unexpected POST {url}")
+
+    state.client = ExistingHandleClient()
+
+    workflow_config = {"script": "print('hello')", "entrypoint": None}
+    result = _upload_langgraph_script(
+        state,
+        workflow_config,
+        None,
+        "simple_agent",
+        None,
+        Path("demo.py"),
+        None,
+    )
+
+    assert result["id"] == "wf-existing"
+    assert result["latest_version"]["version"] == 2
+
+
+def test_upload_langgraph_script_updates_existing_workflow_description() -> None:
+    state = make_state()
+
+    class ExistingHandleClient(StubClient):
+        def get(self, url: str) -> Any:  # type: ignore[override]
+            assert url.endswith("/api/workflows/simple-agent")
+            return {
+                "id": "wf-existing",
+                "name": "demo",
+                "handle": "simple-agent",
+                "description": "Old description",
+            }
+
+        def put(self, url: str, **payload: Any) -> Any:  # type: ignore[override]
+            self.calls.append(("PUT", url, payload))
+            return {
+                "id": "wf-existing",
+                "name": "demo",
+                "handle": "simple-agent",
+                "description": payload["json_body"]["description"],
+            }
+
+        def post(self, url: str, **payload: Any) -> Any:  # type: ignore[override]
+            self.calls.append(("POST", url, payload))
+            if url.endswith("/api/workflows/wf-existing/versions/ingest"):
+                return {"version": 3}
+            raise AssertionError(f"Unexpected POST {url}")
+
+    state.client = ExistingHandleClient()
+
+    workflow_config = {"script": "print('hello')", "entrypoint": None}
+    result = _upload_langgraph_script(
+        state,
+        workflow_config,
+        None,
+        "simple_agent",
+        "New description",
+        Path("demo.py"),
+        None,
+    )
+
+    assert result["description"] == "New description"
+    assert result["latest_version"]["version"] == 3
+    put_call = state.client.calls[0]
+    assert put_call[2]["json_body"]["description"] == "New description"
 
 
 def test_upload_workflow_overrides_entrypoint(
@@ -101,12 +271,16 @@ def test_upload_workflow_overrides_entrypoint(
         state_arg: Any,
         workflow_config: dict[str, Any],
         workflow_id: str | None,
+        workflow_handle: str | None,
+        workflow_description: str | None,
         path: Path,
         name_override: str | None,
     ) -> dict[str, Any]:
         nonlocal captured_config
         captured_config = workflow_config
         assert workflow_id is None
+        assert workflow_handle is None
+        assert workflow_description is None
         assert path == dummy_path
         assert name_override is None
         return {"id": "wf-123"}

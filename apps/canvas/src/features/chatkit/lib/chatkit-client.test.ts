@@ -42,6 +42,31 @@ describe("buildPublicChatFetch", () => {
     expect(payload.metadata.workflow_name).toBe("LangGraph");
   });
 
+  it("injects workflow id into Request bodies", async () => {
+    const fetchMock = vi.fn(async () => createResponse(200, { ok: true }));
+    window.fetch = fetchMock as unknown as typeof window.fetch;
+
+    const handler = buildPublicChatFetch({
+      workflowId: "wf-456",
+      backendBaseUrl: "http://localhost:8000",
+    });
+
+    await handler(
+      new Request("http://localhost:8000/api/chatkit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ foo: "bar" }),
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [input] = fetchMock.mock.calls[0]!;
+    expect(input).toBeInstanceOf(Request);
+    const payload = JSON.parse(await (input as Request).clone().text());
+    expect(payload.workflow_id).toBe("wf-456");
+    expect(payload.foo).toBe("bar");
+  });
+
   it("emits structured errors when the backend rejects a request", async () => {
     const fetchMock = vi.fn(async () =>
       createResponse(401, {

@@ -37,6 +37,23 @@ async def test_chatkit_gateway_invalid_json_payload(api_client: TestClient) -> N
 
 
 @pytest.mark.asyncio
+async def test_chatkit_gateway_rejects_non_object_payload(
+    api_client: TestClient,
+) -> None:
+    """chatkit_gateway returns 400 when JSON payload is not an object."""
+    response = api_client.post(
+        "/api/chatkit",
+        json=["not", "an", "object"],
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["message"] == "Invalid ChatKit payload."
+    assert "JSON object" in detail["errors"][0]
+
+
+@pytest.mark.asyncio
 async def test_chatkit_gateway_streaming_response(
     api_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -125,6 +142,110 @@ async def test_chatkit_gateway_json_response_with_callable(
 
     assert response.status_code == 200
     assert response.json() == {"result": "success"}
+
+
+@pytest.mark.asyncio
+async def test_chatkit_gateway_accepts_top_level_workflow_id(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ChatKit gateway strips workflow_id before schema validation."""
+
+    workflow_id = uuid4()
+
+    async def mock_process(payload: bytes, context: Any) -> dict[str, str]:
+        assert b"workflow_id" not in payload
+        assert context["workflow_id"] == str(workflow_id)
+        return {"result": "ok"}
+
+    mock_server = AsyncMock()
+    mock_server.process = mock_process
+
+    def mock_validate_python(payload: Any) -> dict[str, Any]:
+        assert "workflow_id" not in payload
+        return {"type": "threads.add_user_message", "params": {}}
+
+    mock_adapter = Mock()
+    mock_adapter.validate_python.side_effect = mock_validate_python
+
+    auth_result = backend_app.routers.chatkit.ChatKitAuthResult(
+        workflow_id=workflow_id,
+        actor="jwt:tester",
+        auth_mode="jwt",
+        subject="tester",
+    )
+
+    monkeypatch.setattr(backend_app, "get_chatkit_server", lambda: mock_server)
+    monkeypatch.setattr(backend_app, "TypeAdapter", lambda x: mock_adapter)
+    monkeypatch.setattr(
+        backend_app.routers.chatkit,
+        "authenticate_chatkit_invocation",
+        AsyncMock(return_value=auth_result),
+    )
+
+    response = api_client.post(
+        "/api/chatkit",
+        json={
+            "workflow_id": str(workflow_id),
+            "type": "threads.add_user_message",
+            "params": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"result": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_chatkit_gateway_accepts_top_level_workflow_id_camel_case(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ChatKit gateway also accepts the camelCase workflowId variant."""
+
+    workflow_id = uuid4()
+
+    async def mock_process(payload: bytes, context: Any) -> dict[str, str]:
+        assert b"workflowId" not in payload
+        assert b"workflow_id" not in payload
+        assert context["workflow_id"] == str(workflow_id)
+        return {"result": "ok"}
+
+    mock_server = AsyncMock()
+    mock_server.process = mock_process
+
+    def mock_validate_python(payload: Any) -> dict[str, Any]:
+        assert "workflowId" not in payload
+        assert "workflow_id" not in payload
+        return {"type": "threads.add_user_message", "params": {}}
+
+    mock_adapter = Mock()
+    mock_adapter.validate_python.side_effect = mock_validate_python
+
+    auth_result = backend_app.routers.chatkit.ChatKitAuthResult(
+        workflow_id=workflow_id,
+        actor="jwt:tester",
+        auth_mode="jwt",
+        subject="tester",
+    )
+
+    monkeypatch.setattr(backend_app, "get_chatkit_server", lambda: mock_server)
+    monkeypatch.setattr(backend_app, "TypeAdapter", lambda x: mock_adapter)
+    monkeypatch.setattr(
+        backend_app.routers.chatkit,
+        "authenticate_chatkit_invocation",
+        AsyncMock(return_value=auth_result),
+    )
+
+    response = api_client.post(
+        "/api/chatkit",
+        json={
+            "workflowId": str(workflow_id),
+            "type": "threads.add_user_message",
+            "params": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"result": "ok"}
 
 
 @pytest.mark.asyncio

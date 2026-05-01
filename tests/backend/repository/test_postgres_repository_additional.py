@@ -314,6 +314,26 @@ async def test_persistence_ensure_handle_available_locked_rejects_conflict(
 
 
 @pytest.mark.asyncio
+async def test_persistence_ensure_handle_available_locked_create_path_avoids_null_uuid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Create-time handle validation should not bind an untyped NULL UUID."""
+
+    responses: list[Any] = [{"rows": []}]
+    repo = make_repository(monkeypatch, responses)
+
+    await repo._ensure_handle_available_locked(
+        "shared-handle",
+        workflow_id=None,
+        is_archived=False,
+    )
+
+    query, params = repo._pool._connection.queries[0]
+    assert "id !=" not in query
+    assert params == ("shared-handle",)
+
+
+@pytest.mark.asyncio
 async def test_persistence_ensure_handle_available_locked_allows_archived_reuse(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -328,6 +348,24 @@ async def test_persistence_ensure_handle_available_locked_allows_archived_reuse(
         "shared-handle",
         workflow_id=None,
         is_archived=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_persistence_ensure_handle_available_locked_allows_active_reuse_after_archive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Archived workflows should not block a new active workflow from reusing a handle."""
+
+    responses: list[Any] = [
+        {"rows": [{"id": str(uuid4()), "is_archived": True}]},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    await repo._ensure_handle_available_locked(
+        "shared-handle",
+        workflow_id=None,
+        is_archived=False,
     )
 
 

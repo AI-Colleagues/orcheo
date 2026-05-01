@@ -4,6 +4,7 @@ import type {
   WorkflowNode,
 } from "@features/workflow/data/workflow-data";
 import type { WorkflowDiffResult, WorkflowSnapshot } from "./workflow-diff";
+import type { RJSFSchema } from "@rjsf/utils";
 
 export interface ApiWorkflow {
   id: string;
@@ -208,6 +209,7 @@ export interface CanvasVersionMetadata {
   canvasToGraph?: Record<string, string>;
   graphToCanvas?: Record<string, string>;
   templateId?: string;
+  configurableSchemas?: Record<string, RJSFSchema>;
 }
 
 export interface RequestOptions extends RequestInit {
@@ -226,6 +228,7 @@ export interface WorkflowVersionRecord {
   mermaid?: string | null;
   hasCronTrigger?: boolean;
   runnableConfig?: WorkflowRunnableConfig | null;
+  configurableSchemas?: Record<string, RJSFSchema>;
   graphToCanvas?: Record<string, string>;
   templateId?: string;
 }

@@ -42,6 +42,7 @@ interface CanvasChatBubbleProps {
   user: ChatParticipant;
   ai: ChatParticipant;
   workflowId: string | null;
+  chatkitWorkflowId?: string | null;
   sessionPayload?: Record<string, unknown>;
   backendBaseUrl?: string | null;
   startScreenPrompts?: ChatKitStartScreenPrompt[] | null;
@@ -55,7 +56,7 @@ interface CanvasChatBubbleProps {
   onClientTool?: (tool: {
     name: string;
     params: Record<string, unknown>;
-  }) => Promise<unknown>;
+  }) => Promise<Record<string, unknown>>;
   onDismiss?: () => void;
   onOpen?: () => void;
   isExternallyOpen: boolean;
@@ -66,6 +67,7 @@ export function CanvasChatBubble({
   user,
   ai,
   workflowId,
+  chatkitWorkflowId,
   sessionPayload,
   backendBaseUrl,
   startScreenPrompts,
@@ -227,10 +229,10 @@ export function CanvasChatBubble({
     backendBaseUrl: backendBaseUrl ?? undefined,
     sessionPayload: {
       ...sessionPayload,
-      workflowId,
+      workflowId: chatkitWorkflowId ?? workflowId,
       workflowLabel: title,
     },
-    workflowId: workflowId ?? null,
+    workflowId: chatkitWorkflowId ?? workflowId,
     title,
     user,
     ai,

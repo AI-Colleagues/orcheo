@@ -3,7 +3,9 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 import { WorkflowCanvasLayout } from "./workflow-canvas-layout";
 
-const canvasChatBubbleMock = vi.fn(() => <div data-testid="chat-bubble" />);
+const canvasChatBubbleMock = vi.fn((_props: unknown) => (
+  <div data-testid="chat-bubble" />
+));
 
 vi.mock("@features/shared/components/top-navigation", () => ({
   default: () => <div data-testid="top-navigation" />,
@@ -75,6 +77,7 @@ describe("WorkflowCanvasLayout", () => {
             ai: { id: "ai-1", name: "AI", avatar: "" },
             activeChatNodeId: "chat-node-1",
             workflowId: "wf-1",
+            chatkitWorkflowId: "wf-uuid-1",
             backendBaseUrl: "http://localhost:8000",
             startScreenPrompts: [
               {
@@ -113,6 +116,7 @@ describe("WorkflowCanvasLayout", () => {
         supportedModels: [
           { id: "openai:gpt-5", label: "GPT-5", default: true },
         ],
+        chatkitWorkflowId: "wf-uuid-1",
       }),
     );
   });
