@@ -372,6 +372,15 @@ async def chatkit_gateway(request: Request, repository: RepositoryDep) -> Respon
             detail={"message": "Invalid JSON payload.", "errors": [str(exc)]},
         ) from exc
 
+    if not isinstance(payload_dict, dict):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": "Invalid ChatKit payload.",
+                "errors": ["Input payload must be a JSON object."],
+            },
+        )
+
     workflow_id_value = payload_dict.pop("workflow_id", None)
     camel_workflow_id_value = payload_dict.pop("workflowId", None)
     if workflow_id_value is None:

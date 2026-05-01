@@ -37,6 +37,23 @@ async def test_chatkit_gateway_invalid_json_payload(api_client: TestClient) -> N
 
 
 @pytest.mark.asyncio
+async def test_chatkit_gateway_rejects_non_object_payload(
+    api_client: TestClient,
+) -> None:
+    """chatkit_gateway returns 400 when JSON payload is not an object."""
+    response = api_client.post(
+        "/api/chatkit",
+        json=["not", "an", "object"],
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["message"] == "Invalid ChatKit payload."
+    assert "JSON object" in detail["errors"][0]
+
+
+@pytest.mark.asyncio
 async def test_chatkit_gateway_streaming_response(
     api_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

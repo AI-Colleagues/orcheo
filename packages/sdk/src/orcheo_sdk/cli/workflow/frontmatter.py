@@ -55,6 +55,19 @@ _SCHEMA_KEYS = frozenset(
         "additionalProperties",
     }
 )
+_SCHEMA_DISCRIMINATOR_KEYS = frozenset(
+    {
+        "enum",
+        "items",
+        "properties",
+        "oneOf",
+        "anyOf",
+        "allOf",
+        "const",
+        "default",
+        "additionalProperties",
+    }
+)
 
 
 def _encoding_from_cookie(line: bytes) -> str | None:
@@ -389,10 +402,12 @@ def _merge_schema_definitions(
 
 
 def _is_schema_declaration(value: object) -> bool:
-    """Return True when ``value`` looks like a typed schema annotation."""
+    """Return True when ``value`` is an explicit typed schema annotation."""
     if not isinstance(value, Mapping):
         return False
-    return any(key in value for key in _SCHEMA_KEYS)
+    if not any(key in value for key in _SCHEMA_KEYS):
+        return False
+    return any(key in value for key in _SCHEMA_DISCRIMINATOR_KEYS)
 
 
 def _normalize_schema_definition(

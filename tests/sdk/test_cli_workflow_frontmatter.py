@@ -458,3 +458,19 @@ def test_load_from_file_with_invalid_encoding(tmp_path: Path) -> None:
 
     with pytest.raises(frontmatter.CLIError, match="Failed to decode workflow file"):
         frontmatter.load_workflow_frontmatter(py_file)
+
+
+def test_is_schema_declaration_requires_explicit_schema_keys() -> None:
+    """Objects with ambiguous keys alone should remain runtime config values."""
+    assert frontmatter._is_schema_declaration({"type": "provider"}) is False
+    assert frontmatter._is_schema_declaration({"pattern": "^openai"}) is False
+
+
+def test_is_schema_declaration_accepts_inline_schema_annotation() -> None:
+    """Inline schema annotations with explicit schema keys are detected."""
+    assert (
+        frontmatter._is_schema_declaration(
+            {"type": "string", "enum": ["a", "b"], "default": "a"}
+        )
+        is True
+    )
