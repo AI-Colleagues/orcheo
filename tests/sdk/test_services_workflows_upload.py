@@ -118,17 +118,27 @@ def test_apply_frontmatter_defaults_returns_inputs_when_empty() -> None:
     frontmatter = _DummyFrontmatter(is_empty=True)
     console = _RecordingConsole()
 
-    result = upload._apply_frontmatter_defaults(
-        path_obj=Path("/tmp/workflow.py"),
-        frontmatter=frontmatter,
-        workflow_id="wf-1",
-        workflow_handle=None,
-        workflow_name="My Workflow",
-        workflow_description=None,
-        entrypoint="build_graph",
-        runnable_config={"tags": ["x"]},
-        console=console,
-    )
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        _install_workflow_package(
+            monkeypatch=monkeypatch,
+            load_workflow_from_python=lambda _path: {},
+            normalize_workflow_name=lambda name: name,
+            upload_langgraph_script=lambda *args, **kwargs: {},
+            validate_local_path=lambda file_path, description: Path(file_path),
+            load_workflow_frontmatter=lambda _path: _DummyFrontmatter(is_empty=True),
+        )
+
+        result = upload._apply_frontmatter_defaults(
+            path_obj=Path("/tmp/workflow.py"),
+            frontmatter=frontmatter,
+            workflow_id="wf-1",
+            workflow_handle=None,
+            workflow_name="My Workflow",
+            workflow_description=None,
+            entrypoint="build_graph",
+            runnable_config={"tags": ["x"]},
+            console=console,
+        )
 
     assert result == (
         "wf-1",
@@ -203,6 +213,49 @@ def test_apply_frontmatter_defaults_fills_missing_values_and_logs(
             "config (./workflow.config.json).[/dim]"
         )
     ]
+
+
+def test_apply_frontmatter_defaults_loads_handle_from_frontmatter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Frontmatter should supply the workflow handle when the CLI omits it."""
+    frontmatter = _DummyFrontmatter(
+        is_empty=False,
+        workflow_handle="frontmatter-handle",
+    )
+    console = _RecordingConsole()
+
+    _install_workflow_package(
+        monkeypatch,
+        load_workflow_from_python=lambda _path: {},
+        normalize_workflow_name=lambda name: name,
+        upload_langgraph_script=lambda *args, **kwargs: {},
+        validate_local_path=lambda file_path, description: Path(file_path),
+        load_workflow_frontmatter=lambda _path: _DummyFrontmatter(is_empty=True),
+    )
+
+    result = upload._apply_frontmatter_defaults(
+        path_obj=Path("/tmp/workflow.py"),
+        frontmatter=frontmatter,
+        workflow_id=None,
+        workflow_handle=None,
+        workflow_name=None,
+        workflow_description=None,
+        entrypoint=None,
+        runnable_config=None,
+        console=console,
+    )
+
+    assert result == (
+        None,
+        "frontmatter-handle",
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    assert console.messages == ["[dim]Loaded workflow frontmatter: handle.[/dim]"]
 
 
 def test_apply_frontmatter_defaults_keeps_cli_overrides(
@@ -588,4 +641,76 @@ def test_upload_workflow_data_leaves_optional_fields_unset_when_absent(
     assert result == {
         "id": None,
         "workflow_config": uploaded_payloads[0]["workflow_config"],
+    }
+
+
+def test_upload_workflow_data_forwards_configurable_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Configurable schema metadata should be forwarded to the LangGraph uploader."""
+    workflow_path = Path("/tmp/workflow.py")
+    uploaded_payloads: list[dict[str, object]] = []
+
+    def load_workflow_from_python(_path: Path) -> dict[str, object]:
+        return {
+            "_type": "langgraph_script",
+            "script": "print('hello')",
+        }
+
+    def upload_langgraph_script(
+        state: object,
+        workflow_config: dict[str, object],
+        workflow_id: str | None,
+        workflow_handle: str | None,
+        workflow_description: str | None,
+        path_obj: Path,
+        requested_name: str | None,
+    ) -> dict[str, object]:
+        uploaded_payloads.append(
+            {
+                "state": state,
+                "workflow_config": workflow_config,
+                "workflow_id": workflow_id,
+                "workflow_handle": workflow_handle,
+                "workflow_description": workflow_description,
+                "path_obj": path_obj,
+                "requested_name": requested_name,
+            }
+        )
+        return {"id": workflow_id, "workflow_config": workflow_config}
+
+    _install_workflow_package(
+        monkeypatch,
+        load_workflow_from_python=load_workflow_from_python,
+        normalize_workflow_name=lambda name: name,
+        upload_langgraph_script=upload_langgraph_script,
+        validate_local_path=lambda file_path, description: workflow_path,
+        load_workflow_frontmatter=lambda _path: _DummyFrontmatter(is_empty=True),
+    )
+    monkeypatch.setattr(
+        upload,
+        "_apply_frontmatter_defaults",
+        lambda **kwargs: (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            {"mode": {"type": "string", "default": "draft"}},
+        ),
+    )
+
+    result = upload.upload_workflow_data(
+        client=object(),
+        file_path=workflow_path,
+        console=_RecordingConsole(),
+    )
+
+    assert len(uploaded_payloads) == 1
+    assert uploaded_payloads[0]["workflow_config"]["configurable_schema"] == {
+        "mode": {"type": "string", "default": "draft"}
+    }
+    assert result["workflow_config"]["configurable_schema"] == {
+        "mode": {"type": "string", "default": "draft"}
     }
