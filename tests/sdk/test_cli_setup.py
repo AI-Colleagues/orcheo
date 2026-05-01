@@ -489,12 +489,20 @@ def test_setup_resolution_helpers_cover_env_branches(
         encoding="utf-8",
     )
 
+    confirm_calls: list[tuple[str, bool]] = []
+
+    def _confirm(prompt: str, default: bool) -> bool:
+        confirm_calls.append((prompt, default))
+        return default
+
+    monkeypatch.setattr(setup.typer, "confirm", _confirm)
     assert (
         setup._resolve_public_ingress_enabled(
             None, yes=False, env_file=env_file, env_exists=True, mode="upgrade"
         )
         is True
     )
+    assert confirm_calls == [("Enable bundled public HTTPS ingress with Caddy?", True)]
     assert (
         setup._resolve_public_host(
             None,
@@ -1045,14 +1053,43 @@ def test_resolve_public_ingress_enabled_upgrade_mode_unparseable_existing(
 def test_resolve_public_ingress_enabled_env_exists_sets_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Covers lines 622-626: existing env value used as confirm default."""
+    """Interactive install uses the stored env value as the confirm default."""
     env_file = tmp_path / ".env"
     env_file.write_text("ORCHEO_PUBLIC_INGRESS_ENABLED=true\n", encoding="utf-8")
-    monkeypatch.setattr(setup.typer, "confirm", lambda *args, **kwargs: True)
+
+    confirm_calls: list[tuple[str, bool]] = []
+
+    def _confirm(prompt: str, default: bool) -> bool:
+        confirm_calls.append((prompt, default))
+        return default
+
+    monkeypatch.setattr(setup.typer, "confirm", _confirm)
     result = setup._resolve_public_ingress_enabled(
         None, yes=False, env_file=env_file, env_exists=True, mode="install"
     )
     assert result is True
+    assert confirm_calls == [("Enable bundled public HTTPS ingress with Caddy?", True)]
+
+
+def test_resolve_public_ingress_enabled_upgrade_mode_prompts_with_env_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Upgrade should still prompt, using the stored env value as the default."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("ORCHEO_PUBLIC_INGRESS_ENABLED=true\n", encoding="utf-8")
+
+    confirm_calls: list[tuple[str, bool]] = []
+
+    def _confirm(prompt: str, default: bool) -> bool:
+        confirm_calls.append((prompt, default))
+        return default
+
+    monkeypatch.setattr(setup.typer, "confirm", _confirm)
+    result = setup._resolve_public_ingress_enabled(
+        None, yes=False, env_file=env_file, env_exists=True, mode="upgrade"
+    )
+    assert result is True
+    assert confirm_calls == [("Enable bundled public HTTPS ingress with Caddy?", True)]
 
 
 def test_resolve_public_ingress_enabled_env_exists_unparseable_uses_false_default(
@@ -1066,3 +1103,15 @@ def test_resolve_public_ingress_enabled_env_exists_unparseable_uses_false_defaul
         None, yes=False, env_file=env_file, env_exists=True, mode="install"
     )
     assert result is False
+
+
+def test_resolve_public_ingress_enabled_yes_uses_env_default(
+    tmp_path: Path,
+) -> None:
+    """--yes should reuse the stored default when one exists."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("ORCHEO_PUBLIC_INGRESS_ENABLED=true\n", encoding="utf-8")
+    result = setup._resolve_public_ingress_enabled(
+        None, yes=True, env_file=env_file, env_exists=True, mode="upgrade"
+    )
+    assert result is True
