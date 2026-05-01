@@ -1318,7 +1318,7 @@ def test_plugin_init_human_mode(
         env=env,
     )
     assert result.exit_code == 0
-    assert "orcheo-plugin-hello" in result.output
+    assert "orcheo-plugin-hello" in result.output.replace("\n", "")
 
 
 def test_plugin_init_creates_files(
