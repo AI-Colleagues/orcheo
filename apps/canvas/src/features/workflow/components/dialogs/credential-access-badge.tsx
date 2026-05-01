@@ -1,6 +1,6 @@
 import React from "react";
 import { Badge } from "@/design-system/ui/badge";
-import { Lock, Shield, Users } from "lucide-react";
+import { Lock, Users } from "lucide-react";
 
 interface CredentialAccessBadgeProps {
   access: string;
@@ -8,14 +8,14 @@ interface CredentialAccessBadgeProps {
 
 export function CredentialAccessBadge({ access }: CredentialAccessBadgeProps) {
   switch (access) {
-    case "private":
+    case "scoped":
       return (
         <Badge
           variant="outline"
           className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800"
         >
           <Lock className="h-3 w-3 mr-1" />
-          Private
+          Scoped
         </Badge>
       );
     case "shared":
@@ -26,16 +26,6 @@ export function CredentialAccessBadge({ access }: CredentialAccessBadgeProps) {
         >
           <Users className="h-3 w-3 mr-1" />
           Shared
-        </Badge>
-      );
-    case "public":
-      return (
-        <Badge
-          variant="outline"
-          className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800"
-        >
-          <Shield className="h-3 w-3 mr-1" />
-          Public
         </Badge>
       );
     default:

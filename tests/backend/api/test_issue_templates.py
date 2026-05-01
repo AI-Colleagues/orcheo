@@ -27,11 +27,11 @@ def test_issue_template_without_service_returns_503(api_client: TestClient) -> N
     )
     template_id = create_response.json()["id"]
 
-    api_client.app.dependency_overrides[backend_app.get_vault] = (
-        lambda: api_client.app.state.vault
+    api_client.app.dependency_overrides[backend_app.get_vault] = lambda: (
+        api_client.app.state.vault
     )
-    api_client.app.dependency_overrides[backend_app.get_credential_service] = (
-        lambda: None
+    api_client.app.dependency_overrides[backend_app.get_credential_service] = lambda: (
+        None
     )
 
     response = api_client.post(
@@ -59,11 +59,11 @@ def test_issue_template_value_error_returns_400(api_client: TestClient) -> None:
         def issue_from_template(self, **_: Any) -> None:
             raise ValueError("invalid")
 
-    api_client.app.dependency_overrides[backend_app.get_vault] = (
-        lambda: api_client.app.state.vault
+    api_client.app.dependency_overrides[backend_app.get_vault] = lambda: (
+        api_client.app.state.vault
     )
-    api_client.app.dependency_overrides[backend_app.get_credential_service] = (
-        lambda: RaisingService()
+    api_client.app.dependency_overrides[backend_app.get_credential_service] = lambda: (
+        RaisingService()
     )
 
     response = api_client.post(
@@ -80,11 +80,11 @@ def test_issue_template_not_found_returns_404(api_client: TestClient) -> None:
         def issue_from_template(self, **_: Any) -> None:
             raise CredentialTemplateNotFoundError("missing")
 
-    api_client.app.dependency_overrides[backend_app.get_vault] = (
-        lambda: api_client.app.state.vault
+    api_client.app.dependency_overrides[backend_app.get_vault] = lambda: (
+        api_client.app.state.vault
     )
-    api_client.app.dependency_overrides[backend_app.get_credential_service] = (
-        lambda: MissingTemplateService()
+    api_client.app.dependency_overrides[backend_app.get_credential_service] = lambda: (
+        MissingTemplateService()
     )
 
     response = api_client.post(
@@ -115,11 +115,11 @@ def test_issue_template_scope_violation_returns_403(api_client: TestClient) -> N
         def issue_from_template(self, **_: Any) -> None:
             raise WorkflowScopeError("denied")
 
-    api_client.app.dependency_overrides[backend_app.get_vault] = (
-        lambda: api_client.app.state.vault
+    api_client.app.dependency_overrides[backend_app.get_vault] = lambda: (
+        api_client.app.state.vault
     )
-    api_client.app.dependency_overrides[backend_app.get_credential_service] = (
-        lambda: ScopeDeniedService()
+    api_client.app.dependency_overrides[backend_app.get_credential_service] = lambda: (
+        ScopeDeniedService()
     )
 
     response = api_client.post(

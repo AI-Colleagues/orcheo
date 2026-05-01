@@ -71,22 +71,26 @@ export interface WorkflowLayoutProps {
   traceProps: TraceTabContentProps;
   readinessProps: ReadinessTabContentProps;
   settingsProps: SettingsTabContentProps;
-  chat: {
-    isChatOpen: boolean;
-    chatTitle: string;
-    user: { id: string; name: string; avatar: string };
-    ai: { id: string; name: string; avatar: string };
-    activeChatNodeId: string | null;
-    workflowId: string | null;
-    backendBaseUrl: string | null;
-    startScreenPrompts: ChatKitStartScreenPrompt[] | null;
-    supportedModels: ChatKitSupportedModel[] | null;
-    handleChatResponseStart: () => void;
-    handleChatResponseEnd: () => void;
-    handleChatClientTool: (tool: unknown) => void;
-    getClientSecret: (currentSecret: string | null) => Promise<string>;
-    refreshSession: () => Promise<string>;
-    sessionStatus: "idle" | "loading" | "ready" | "error";
+    chat: {
+      isChatOpen: boolean;
+      chatTitle: string;
+      user: { id: string; name: string; avatar: string };
+      ai: { id: string; name: string; avatar: string };
+      activeChatNodeId: string | null;
+      workflowId: string | null;
+      chatkitWorkflowId: string | null;
+      backendBaseUrl: string | null;
+      startScreenPrompts: ChatKitStartScreenPrompt[] | null;
+      supportedModels: ChatKitSupportedModel[] | null;
+      handleChatResponseStart: () => void;
+      handleChatResponseEnd: () => void;
+      handleChatClientTool: (tool: {
+        name: string;
+        params: Record<string, unknown>;
+      }) => Promise<Record<string, unknown>>;
+      getClientSecret: (currentSecret: string | null) => Promise<string>;
+      refreshSession: () => Promise<string>;
+      sessionStatus: "idle" | "loading" | "ready" | "error";
     sessionError: string | null;
     handleCloseChat: () => void;
     setIsChatOpen: (open: boolean) => void;
@@ -190,6 +194,7 @@ export function buildWorkflowLayoutProps(
       ai: core.ai,
       activeChatNodeId: core.chat.activeChatNodeId,
       workflowId: core.chat.workflowId,
+      chatkitWorkflowId: core.metadata.currentWorkflowId,
       backendBaseUrl: core.chat.backendBaseUrl,
       startScreenPrompts: core.metadata.chatkitStartScreenPrompts,
       supportedModels: core.metadata.chatkitSupportedModels,

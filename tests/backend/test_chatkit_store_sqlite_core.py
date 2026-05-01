@@ -13,6 +13,7 @@ from chatkit.types import (
     FileAttachment,
     InferenceOptions,
     ThreadMetadata,
+    UserMessageInput,
     UserMessageItem,
     UserMessageTextContent,
 )
@@ -208,3 +209,174 @@ async def test_sqlite_store_concurrent_initialization(tmp_path: Path) -> None:
     assert thread1.id == "thr_concurrent_1"
     assert thread2.id == "thr_concurrent_2"
     assert thread3.id == "thr_concurrent_3"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_load_threads_isolated_by_workflow(
+    tmp_path: Path,
+) -> None:
+    """load_threads should only return threads belonging to the requested workflow."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+
+    ctx_a: dict[str, object] = {"workflow_id": "wf-aaa"}
+    ctx_b: dict[str, object] = {"workflow_id": "wf-bbb"}
+
+    thr_a = ThreadMetadata(
+        id="thr_iso_a",
+        created_at=_timestamp(),
+        metadata={"workflow_id": "wf-aaa"},
+    )
+    thr_b = ThreadMetadata(
+        id="thr_iso_b",
+        created_at=_timestamp(),
+        metadata={"workflow_id": "wf-bbb"},
+    )
+
+    await store.save_thread(thr_a, ctx_a)
+    await store.save_thread(thr_b, ctx_b)
+
+    page_a = await store.load_threads(limit=10, after=None, order="asc", context=ctx_a)
+    assert [t.id for t in page_a.data] == ["thr_iso_a"]
+
+    page_b = await store.load_threads(limit=10, after=None, order="asc", context=ctx_b)
+    assert [t.id for t in page_b.data] == ["thr_iso_b"]
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_load_threads_no_workflow_returns_all(
+    tmp_path: Path,
+) -> None:
+    """load_threads without workflow_id in context should return all threads."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+    context: dict[str, object] = {}
+
+    for i in range(3):
+        thr = ThreadMetadata(id=f"thr_nofilter_{i}", created_at=_timestamp())
+        await store.save_thread(thr, context)
+
+    page = await store.load_threads(limit=10, after=None, order="asc", context=context)
+    assert len(page.data) == 3
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_save_thread_sets_title_from_first_user_message(
+    tmp_path: Path,
+) -> None:
+    """save_thread should derive title from the first user text when unset."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+
+    class FakeParams:
+        input = UserMessageInput(
+            content=[UserMessageTextContent(text="Hello, world! This is long")],
+            attachments=[],
+            inference_options=InferenceOptions(),
+        )
+
+    class FakeRequest:
+        metadata: dict = {}
+        params = FakeParams()
+
+    context: dict[str, object] = {"chatkit_request": FakeRequest()}
+
+    thread = ThreadMetadata(id="thr_autotitle", created_at=_timestamp())
+    await store.save_thread(thread, context)
+
+    loaded = await store.load_thread("thr_autotitle", context)
+    assert loaded.title == "Hello, world! This i"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_save_thread_preserves_existing_title(
+    tmp_path: Path,
+) -> None:
+    """save_thread should not overwrite a title that is already set."""
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+
+    class FakeParams:
+        input = UserMessageInput(
+            content=[UserMessageTextContent(text="New message content")],
+            attachments=[],
+            inference_options=InferenceOptions(),
+        )
+
+    class FakeRequest:
+        metadata: dict = {}
+        params = FakeParams()
+
+    context: dict[str, object] = {"chatkit_request": FakeRequest()}
+
+    thread = ThreadMetadata(
+        id="thr_keeptitle", created_at=_timestamp(), title="Existing Title"
+    )
+    await store.save_thread(thread, context)
+
+    loaded = await store.load_thread("thr_keeptitle", context)
+    assert loaded.title == "Existing Title"
+
+
+def test_sqlite_extract_title_from_request_branches() -> None:
+    from orcheo_backend.app.chatkit_store_sqlite.threads import (
+        _extract_title_from_request,
+    )
+
+    assert _extract_title_from_request(None) is None
+    assert _extract_title_from_request({"chatkit_request": None}) is None
+
+    class FakeParams:
+        input = UserMessageInput(
+            content=[
+                UserMessageTextContent(text=""),
+                UserMessageTextContent(text="  Title from request should trim  "),
+            ],
+            attachments=[],
+            inference_options=InferenceOptions(),
+        )
+
+    class FakeRequest:
+        metadata: dict = {}
+        params = FakeParams()
+
+    class BlankParams:
+        input = UserMessageInput(
+            content=[UserMessageTextContent(text="   ")],
+            attachments=[],
+            inference_options=InferenceOptions(),
+        )
+
+    class BlankRequest:
+        metadata: dict = {}
+        params = BlankParams()
+
+    context: dict[str, object] = {"chatkit_request": FakeRequest()}
+    blank_context: dict[str, object] = {"chatkit_request": BlankRequest()}
+
+    assert _extract_title_from_request(context) == "Title from request"
+    assert _extract_title_from_request(blank_context) is None
+
+
+def test_sqlite_merge_metadata_from_context_branches() -> None:
+    from orcheo_backend.app.chatkit_store_sqlite.threads import ThreadStoreMixin
+
+    thread = ThreadMetadata(
+        id="thr_merge",
+        created_at=datetime.now(UTC),
+        metadata={"existing": "value"},
+    )
+
+    assert ThreadStoreMixin._merge_metadata_from_context(thread, None) == {
+        "existing": "value"
+    }
+
+    class FakeRequest:
+        metadata = {"workflow_id": "wf_123", "extra": "data"}
+
+    context = {"chatkit_request": FakeRequest()}
+    assert ThreadStoreMixin._merge_metadata_from_context(thread, context) == {
+        "existing": "value",
+        "workflow_id": "wf_123",
+        "extra": "data",
+    }

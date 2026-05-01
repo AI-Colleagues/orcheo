@@ -12,7 +12,7 @@ import { Label } from "@/design-system/ui/label";
 import { Separator } from "@/design-system/ui/separator";
 import { Switch } from "@/design-system/ui/switch";
 
-type EditorSettingsState = {
+type VisualizationSettingsState = {
   autoSave: boolean;
   showNodeLabels: boolean;
   confirmBeforeDelete: boolean;
@@ -20,7 +20,7 @@ type EditorSettingsState = {
 };
 
 const ApplicationSettingsTab = () => {
-  const [appSettings, setAppSettings] = useState<EditorSettingsState>({
+  const [appSettings, setAppSettings] = useState<VisualizationSettingsState>({
     autoSave: true,
     showNodeLabels: true,
     confirmBeforeDelete: true,
@@ -31,9 +31,9 @@ const ApplicationSettingsTab = () => {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Workflow Editor Settings</CardTitle>
+          <CardTitle>Workflow Visualization Settings</CardTitle>
           <CardDescription>
-            Configure how the workflow editor behaves.
+            Configure how workflow visualizations are displayed.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -98,7 +98,7 @@ const ApplicationSettingsTab = () => {
             <Label htmlFor="minimap" className="flex flex-col space-y-1">
               <span>Show Minimap</span>
               <span className="font-normal text-xs text-muted-foreground">
-                Display minimap navigation in workflow editor
+                Display minimap navigation in workflow visualization
               </span>
             </Label>
             <Switch
@@ -111,7 +111,7 @@ const ApplicationSettingsTab = () => {
           </div>
         </CardContent>
         <CardFooter>
-          <Button>Save Editor Settings</Button>
+          <Button>Save Visualization Settings</Button>
         </CardFooter>
       </Card>
       <Card>

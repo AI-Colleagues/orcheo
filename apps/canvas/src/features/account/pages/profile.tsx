@@ -14,12 +14,12 @@ import { ProfileGeneralTab } from "./profile/components/profile-general-tab";
 import { ProfileSecurityTab } from "./profile/components/profile-security-tab";
 import { ProfileApiKeysTab } from "./profile/components/profile-api-keys-tab";
 
-const FALLBACK_PROFILE: ProfileUser = {
-  name: "Avery Chen",
-  email: "avery@orcheo.dev",
-  avatar: "https://avatar.vercel.sh/avery",
-  role: "Admin",
-  joinDate: "January 2023",
+const LOCAL_DEV_PROFILE: ProfileUser = {
+  name: "Local Developer",
+  email: "local@orcheo.dev",
+  avatar: "https://avatar.vercel.sh/orcheo-local",
+  role: "Local development",
+  joinDate: undefined,
   twoFactorEnabled: false,
 };
 
@@ -31,18 +31,18 @@ export default function Profile() {
   const authUser = useMemo(() => getAuthenticatedUserProfile(), []);
   const user = useMemo<ProfileUser>(() => {
     if (!authUser) {
-      return FALLBACK_PROFILE;
+      return LOCAL_DEV_PROFILE;
     }
 
     const avatarSeed = authUser.subject ?? authUser.email ?? authUser.name;
     return {
-      ...FALLBACK_PROFILE,
       name: authUser.name,
-      email: authUser.email ?? FALLBACK_PROFILE.email,
+      email: authUser.email ?? "",
       avatar:
         authUser.avatar ??
         `https://avatar.vercel.sh/${encodeURIComponent(avatarSeed)}`,
-      role: authUser.role ?? FALLBACK_PROFILE.role,
+      role: authUser.role ?? "Member",
+      twoFactorEnabled: false,
     };
   }, [authUser]);
 

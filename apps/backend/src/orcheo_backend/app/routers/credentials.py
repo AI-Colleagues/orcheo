@@ -66,6 +66,11 @@ async def create_credential(
     workflow_id = await resolve_optional_workflow_ref_id(
         repository, request.workflow_id
     )
+    if request.access == "scoped" and workflow_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="workflow_id is required when access is set to scoped",
+        )
     scope = scope_from_access(request.access, workflow_id)
     try:
         metadata = vault.create_credential(
@@ -132,10 +137,10 @@ async def update_credential(
         repository, request.workflow_id
     )
     effective_workflow_id = query_workflow_id or body_workflow_id
-    if request.access in {"private", "shared"} and effective_workflow_id is None:
+    if request.access == "scoped" and effective_workflow_id is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="workflow_id is required when access is set to private or shared",
+            detail="workflow_id is required when access is set to scoped",
         )
     context = credential_context_from_workflow(effective_workflow_id)
     scope = (

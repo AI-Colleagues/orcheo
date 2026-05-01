@@ -609,14 +609,6 @@ def _resolve_public_ingress_enabled(
 ) -> bool:
     if public_ingress is not None:
         return public_ingress
-    if env_exists and mode == "upgrade":
-        existing = _parse_bool_value(
-            _read_env_value(env_file, "ORCHEO_PUBLIC_INGRESS_ENABLED")
-        )
-        if existing is not None:
-            return existing
-    if yes:
-        return False
     existing_default = False
     if env_exists:
         parsed = _parse_bool_value(
@@ -624,6 +616,8 @@ def _resolve_public_ingress_enabled(
         )
         if parsed is not None:
             existing_default = parsed
+    if yes:
+        return existing_default
     return typer.confirm(
         "Enable bundled public HTTPS ingress with Caddy?",
         default=existing_default,

@@ -547,8 +547,9 @@ def test_configure_playwright_browser_path_keeps_valid_existing_setting(
     monkeypatch.setattr(
         browser_nodes,
         "_contains_playwright_browser_installation",
-        lambda root, browser_type: root == configured_root
-        and browser_type == "chromium",
+        lambda root, browser_type: (
+            root == configured_root and browser_type == "chromium"
+        ),
     )
 
     browser_nodes._configure_playwright_browser_path("chromium")

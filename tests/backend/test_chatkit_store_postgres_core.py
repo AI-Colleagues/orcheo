@@ -11,6 +11,7 @@ from chatkit.types import (
     FileAttachment,
     InferenceOptions,
     ThreadMetadata,
+    UserMessageInput,
     UserMessageItem,
     UserMessageTextContent,
 )
@@ -181,6 +182,69 @@ async def test_postgres_store_save_thread_merges_metadata(
 
 
 @pytest.mark.asyncio
+async def test_postgres_store_save_thread_preserves_existing_title(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = make_store(monkeypatch, responses=[])
+
+    class FakeRequest:
+        metadata = {"workflow_id": "wf_123"}
+
+    context = {"chatkit_request": FakeRequest()}
+    thread = ThreadMetadata(
+        id="thr_existing_title",
+        created_at=_timestamp(),
+        title="Existing Title",
+    )
+
+    await store.save_thread(thread, context)
+
+    conn = store._pool.connection()
+    assert conn.queries[0][1][1] == "Existing Title"
+    assert thread.title == "Existing Title"
+
+
+@pytest.mark.asyncio
+async def test_postgres_extract_title_from_request_branches() -> None:
+    from orcheo_backend.app.chatkit_store_postgres.threads import (
+        _extract_title_from_request,
+    )
+
+    assert _extract_title_from_request(None) is None
+    assert _extract_title_from_request({"chatkit_request": None}) is None
+
+    class FakeParams:
+        input = UserMessageInput(
+            content=[
+                UserMessageTextContent(text=""),
+                UserMessageTextContent(text="  Title from request should trim  "),
+            ],
+            attachments=[],
+            inference_options=InferenceOptions(),
+        )
+
+    class FakeRequest:
+        metadata: dict = {}
+        params = FakeParams()
+
+    class BlankParams:
+        input = UserMessageInput(
+            content=[UserMessageTextContent(text="   ")],
+            attachments=[],
+            inference_options=InferenceOptions(),
+        )
+
+    class BlankRequest:
+        metadata: dict = {}
+        params = BlankParams()
+
+    context = {"chatkit_request": FakeRequest()}
+    blank_context = {"chatkit_request": BlankRequest()}
+    assert _extract_title_from_request(context) == "Title from request"
+    assert _extract_title_from_request(blank_context) is None
+
+
+@pytest.mark.asyncio
 async def test_postgres_store_load_threads_and_filter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -212,6 +276,36 @@ async def test_postgres_store_load_threads_and_filter(
 
     filtered = await store.filter_threads({"workflow_id": "wf_1"}, limit=10)
     assert filtered.data[0].id == "thr_2"
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_load_threads_scoped_by_workflow_after_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    marker_created_at = datetime(2024, 1, 1, tzinfo=UTC)
+    thread = ThreadMetadata(
+        id="thr_wf",
+        created_at=datetime(2024, 1, 2, tzinfo=UTC),
+        metadata={"workflow_id": "wf_1"},
+    )
+    responses = [
+        {"row": {"created_at": marker_created_at, "id": "thr_marker"}},
+        {"rows": [_thread_row(thread)]},
+    ]
+    store = make_store(monkeypatch, responses=responses)
+    context: dict[str, object] = {"workflow_id": "wf_1"}
+
+    page = await store.load_threads(
+        limit=10, after="thr_marker", order="asc", context=context
+    )
+
+    conn = store._pool.connection()
+    assert conn.queries[0][0].endswith("AND workflow_id = %s")
+    assert conn.queries[0][1] == ("thr_marker", "wf_1")
+    assert (
+        "WHERE workflow_id = %s AND ((created_at, id) > (%s, %s))" in conn.queries[1][0]
+    )
+    assert page.data[0].id == "thr_wf"
 
 
 @pytest.mark.asyncio

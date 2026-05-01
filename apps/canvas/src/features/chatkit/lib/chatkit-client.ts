@@ -118,10 +118,31 @@ export const buildPublicChatFetch = ({
     };
     // Ensure OAuth HttpOnly cookies are sent with every ChatKit request.
 
-    const headers = new Headers(nextInit.headers ?? {});
-    const contentType = headers.get("Content-Type") ?? "";
+    const requestIsRequest = input instanceof Request;
+    const requestHeaders = new Headers(
+      requestIsRequest ? input.headers : undefined,
+    );
+    for (const [key, value] of new Headers(nextInit.headers ?? {})) {
+      requestHeaders.set(key, value);
+    }
+
+    const contentType = requestHeaders.get("Content-Type") ?? "";
     const expectsJson = contentType.includes("application/json");
     const stringBody = typeof nextInit.body === "string";
+
+    const serializedBody = async (): Promise<string | null> => {
+      if (stringBody) {
+        return nextInit.body as string;
+      }
+      if (requestIsRequest) {
+        try {
+          return await input.clone().text();
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    };
 
     const augmentPayload = (serialized: string | null) => {
       if (!serialized) {
@@ -134,38 +155,42 @@ export const buildPublicChatFetch = ({
         });
       }
       try {
-        const payload = JSON.parse(serialized);
-        if (payload && typeof payload === "object") {
-          if (!payload.workflow_id) {
-            payload.workflow_id = workflowId;
-          }
-          const payloadMetadata =
-            payload.metadata && typeof payload.metadata === "object"
-              ? { ...(payload.metadata as Record<string, unknown>) }
-              : {};
-          if (metadata) {
-            Object.assign(payloadMetadata, metadata);
-          }
-          payloadMetadata.workflow_id = workflowId;
-          payload.metadata = payloadMetadata;
+        const payload = JSON.parse(serialized) as Record<string, unknown>;
+        if (payload.workflow_id !== workflowId) {
+          payload.workflow_id = workflowId;
         }
+        const payloadMetadata =
+          payload.metadata && typeof payload.metadata === "object"
+            ? { ...(payload.metadata as Record<string, unknown>) }
+            : {};
+        if (metadata) {
+          Object.assign(payloadMetadata, metadata);
+        }
+        payloadMetadata.workflow_id = workflowId;
+        payload.metadata = payloadMetadata;
         return JSON.stringify(payload);
       } catch {
         return serialized;
       }
     };
 
-    if (expectsJson || stringBody || !nextInit.body) {
-      nextInit.body = augmentPayload(
-        stringBody ? (nextInit.body as string) : null,
-      );
-      headers.set("Content-Type", "application/json");
+    const rawBody = await serializedBody();
+    const shouldInjectWorkflowId =
+      expectsJson ||
+      stringBody ||
+      !nextInit.body ||
+      (requestIsRequest && (rawBody?.trim().startsWith("{") ?? false));
+    if (shouldInjectWorkflowId) {
+      nextInit.body = augmentPayload(rawBody);
+      requestHeaders.set("Content-Type", "application/json");
     }
 
-    nextInit.headers = headers;
+    nextInit.headers = requestHeaders;
 
-    const requestInfo = input ?? resolvedUrl;
-    const response = await baseFetch(requestInfo, nextInit);
+    const requestInfo = requestIsRequest ? input : resolvedUrl;
+    const response = requestIsRequest
+      ? await baseFetch(new Request(requestInfo, nextInit))
+      : await baseFetch(requestInfo, nextInit);
 
     if (!response.ok) {
       await emitError(response.clone());
