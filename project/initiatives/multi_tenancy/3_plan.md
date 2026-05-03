@@ -3,7 +3,7 @@
 ## For Multi-tenancy support for Orcheo
 
 - **Version:** 0.1
-- **Author:** Claude (Opus 4.7)
+- **Author:** Claude (Opus 4.7), Codex
 - **Date:** 2026-05-03
 - **Status:** Draft
 
@@ -11,7 +11,7 @@
 
 ## Overview
 
-Deliver multi-tenancy support so one Orcheo deployment can serve multiple independent teams or individuals with strict logical isolation. Work is sequenced as foundation → persistence sweep → governance → polish, behind the `multi_tenancy.enabled` config flag, with a backwards-compatible default-tenant upgrade path.
+Deliver multi-tenancy support so one Orcheo deployment can serve multiple independent teams or individuals with strict logical isolation. Work is sequenced as foundation → persistence sweep → governance → polish, behind the `multi_tenancy.enabled` config flag, with tenant-aware RBAC and a backwards-compatible default-tenant upgrade path.
 
 **Related Documents:**
 - Requirements: `./1_requirements.md`
@@ -23,7 +23,7 @@ Deliver multi-tenancy support so one Orcheo deployment can serve multiple indepe
 
 ### Milestone 1: Foundation
 
-**Description:** Establish the tenancy core (models, context, resolver), tenant-aware authentication, and the default-tenant migration. After this milestone the codebase carries `tenant_id` end-to-end while behavior remains identical for existing single-tenant deployments.
+**Description:** Establish the tenancy core (models, context, resolver), tenant-aware authentication, baseline role checks, and the default-tenant migration. After this milestone the codebase carries `tenant_id` end-to-end while behavior remains identical for existing single-tenant deployments.
 
 #### Task Checklist
 
@@ -37,16 +37,18 @@ Deliver multi-tenancy support so one Orcheo deployment can serve multiple indepe
   - Dependencies: Task 1.3
 - [ ] Task 1.5: Add `require_tenant()` FastAPI dependency and apply it to all protected routes.
   - Dependencies: Task 1.4
-- [ ] Task 1.6: Add config flag `multi_tenancy.enabled` and `multi_tenancy.default_tenant_slug`.
-  - Dependencies: None
-- [ ] Task 1.7: Write the default-tenant backfill migration (nullable `tenant_id` → backfill → `NOT NULL`) for every affected table.
-  - Dependencies: Task 1.2
-- [ ] Task 1.8: Add admin API for tenant CRUD (`POST /api/admin/tenants`, list, suspend, delete).
+- [ ] Task 1.6: Implement baseline tenant role checks (`owner`, `admin`, `editor`, `viewer`) for protected routes.
   - Dependencies: Task 1.5
-- [ ] Task 1.9: Add `orcheo tenant create|list|deactivate|invite|use` CLI commands.
-  - Dependencies: Task 1.8
-- [ ] Task 1.10: Unit tests for `TenantContext` propagation and resolver cache; integration tests for tenant CRUD.
+- [ ] Task 1.7: Add config flag `multi_tenancy.enabled` and `multi_tenancy.default_tenant_slug`.
+  - Dependencies: None
+- [ ] Task 1.8: Write the default-tenant backfill migration (nullable `tenant_id` → backfill → `NOT NULL`) for every affected table.
+  - Dependencies: Task 1.2
+- [ ] Task 1.9: Add admin API for tenant CRUD (`POST /api/admin/tenants`, list, suspend, delete).
+  - Dependencies: Task 1.6
+- [ ] Task 1.10: Add `orcheo tenant create|list|deactivate|invite|use` CLI commands.
   - Dependencies: Task 1.9
+- [ ] Task 1.11: Unit tests for `TenantContext` propagation and resolver cache; integration tests for tenant CRUD and role enforcement.
+  - Dependencies: Task 1.10
 
 ---
 
@@ -58,15 +60,15 @@ Deliver multi-tenancy support so one Orcheo deployment can serve multiple indepe
 
 - [ ] Task 2.1: Workflow repository — add `tenant_id` argument, queries, indexes, and isolation tests (Postgres + SQLite).
   - Dependencies: Milestone 1
-- [ ] Task 2.2: Run history store — add `tenant_id`, indexes, and isolation tests.
+- [ ] Task 2.2: Execution history store — add `tenant_id`, indexes, parent-step tenancy checks, and isolation tests.
   - Dependencies: Milestone 1
 - [ ] Task 2.3: Service token repository — bind tokens to a tenant at issuance; reject mismatched lookups.
   - Dependencies: Milestone 1
-- [ ] Task 2.4: Vault — key entries by `(tenant_id, name)`; resolve `[[credential]]` placeholders in active tenant only.
+- [ ] Task 2.4: Vault — key credentials by `(tenant_id, name)`; tenant-scope templates/governance alerts; resolve `[[credential]]` placeholders in active tenant only.
   - Dependencies: Milestone 1
 - [ ] Task 2.5: ChatKit store — tenant-scope threads, messages, attachments, and subscriptions.
   - Dependencies: Milestone 1
-- [ ] Task 2.6: Agentensor checkpoints — tenant-scope JSONB metadata; GIN index on `tenant_id`.
+- [ ] Task 2.6: Agentensor checkpoints — add `tenant_id`; index `(tenant_id, workflow_id, config_version)` and tenant-scope best-checkpoint lookups.
   - Dependencies: Milestone 1
 - [ ] Task 2.7: Plugins — per-tenant install/enable state.
   - Dependencies: Milestone 1
@@ -74,9 +76,9 @@ Deliver multi-tenancy support so one Orcheo deployment can serve multiple indepe
   - Dependencies: Milestone 1
 - [ ] Task 2.9: Celery task envelopes — propagate `tenant_id` in headers; worker rejects unscoped tasks.
   - Dependencies: Milestone 1
-- [ ] Task 2.10: WebSocket layer — scope subscriptions to `(tenant_id, run_id)`; reject cross-tenant attempts.
+- [ ] Task 2.10: WebSocket layer — scope workflow sockets and run events to `(tenant_id, workflow_ref, run_id)`; reject cross-tenant attempts.
   - Dependencies: Task 2.2
-- [ ] Task 2.11: LangGraph state — carry `tenant_id`; ensure `decode_variables()` resolves in tenant scope.
+- [ ] Task 2.11: LangGraph state and persistence — carry `tenant_id`; ensure `decode_variables()` resolves in tenant scope; namespace checkpointer and graph-store records by tenant.
   - Dependencies: Task 2.4, Task 2.9
 - [ ] Task 2.12: Add a repository-helper lint/test that fails when a query omits `tenant_id`.
   - Dependencies: Task 2.1
@@ -91,7 +93,7 @@ Deliver multi-tenancy support so one Orcheo deployment can serve multiple indepe
 
 #### Task Checklist
 
-- [ ] Task 3.1: Implement role-based access checks (`owner`, `admin`, `editor`, `viewer`) on every protected route.
+- [ ] Task 3.1: Harden the role policy matrix for sensitive actions and shared resources; verify every protected route has an explicit required role.
   - Dependencies: Milestone 2
 - [ ] Task 3.2: Membership management endpoints (`POST/DELETE /api/tenants/{slug}/members`, role updates).
   - Dependencies: Task 3.1
@@ -116,9 +118,9 @@ Deliver multi-tenancy support so one Orcheo deployment can serve multiple indepe
 
 #### Task Checklist
 
-- [ ] Task 4.1: Update `AGENTS.md`, deployment docs, Docker Compose, and systemd units for multi-tenant config.
+- [ ] Task 4.1: Update `AGENTS.md`, deployment docs, Docker Compose, and systemd units for `ORCHEO_MULTI_TENANCY_ENABLED` and `ORCHEO_DEFAULT_TENANT`.
   - Dependencies: Milestone 3
-- [ ] Task 4.2: Add Canvas read-only tenant indicator in the header; tenant switcher dropdown when the user has multiple memberships.
+- [ ] Task 4.2: Add Canvas read-only active-tenant indicator in the header; defer tenant switching and member management UI to P2.
   - Dependencies: Milestone 3
 - [ ] Task 4.3: SDK ergonomics — `--tenant` flag and `ORCHEO_TENANT` env var on every resource command.
   - Dependencies: Milestone 3
@@ -136,3 +138,4 @@ Deliver multi-tenancy support so one Orcheo deployment can serve multiple indepe
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-05-03 | Claude (Opus 4.7) | Initial draft |
+| 2026-05-03 | Codex | Moved baseline RBAC into foundation, aligned persistence tasks with current stores, and deferred Canvas tenant-management UI to P2 |

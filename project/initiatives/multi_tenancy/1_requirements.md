@@ -1,7 +1,7 @@
 # Requirements Document
 
 ## METADATA
-- **Authors:** Claude (Opus 4.7)
+- **Authors:** Claude (Opus 4.7), Codex
 - **Project/Feature Name:** Multi-tenancy support for Orcheo
 - **Type:** Feature
 - **Summary:** Introduce a tenant-scoped data and execution model so a single Orcheo deployment can serve multiple independent teams or individuals without data leakage, quota interference, or operational coupling.
@@ -17,7 +17,10 @@
 | Repository Guidelines | `../../../AGENTS.md` | ShaojieJiang | Agents Guidelines |
 | Persistence Layer | `src/orcheo/persistence.py` | ShaojieJiang | Persistence Module |
 | Vault | `src/orcheo/vault/` | ShaojieJiang | Credential Vault |
-| Service Tokens | `src/orcheo/runtime/` | ShaojieJiang | Service Token Repository |
+| Workflow Repository | `apps/backend/src/orcheo_backend/app/repository/` | ShaojieJiang | Backend Repository |
+| History Store | `apps/backend/src/orcheo_backend/app/history/` | ShaojieJiang | Execution History Store |
+| Service Tokens | `apps/backend/src/orcheo_backend/app/service_token_repository/` | ShaojieJiang | Service Token Repository |
+| ChatKit Store | `apps/backend/src/orcheo_backend/app/chatkit_store_sqlite/`, `apps/backend/src/orcheo_backend/app/chatkit_store_postgres/` | ShaojieJiang | ChatKit Persistence |
 
 ## PROBLEM DEFINITION
 ### Objectives
@@ -31,13 +34,13 @@ Self-hosted operators running Orcheo for several teams or clients; SaaS-style ho
 |---------|--------------|------------|----------|---------------------|
 | Platform operator | provision tenants on a single deployment | I can serve multiple teams without spinning up separate stacks | P0 | Tenants can be created, listed, and deactivated via CLI/API; tenant data is isolated end-to-end |
 | Tenant admin | invite users into my tenant and assign roles | only authorized members can access my workflows and credentials | P0 | Membership and role assignment APIs exist; access checks enforce roles on every protected route |
-| Developer | author workflows that only see my tenant's credentials and data | another tenant cannot read or modify my work | P0 | Workflow repository, run history, vault, and chat data are partitioned by `tenant_id`; cross-tenant access returns 404 |
+| Developer | author workflows that only see my tenant's credentials and data | another tenant cannot read or modify my work | P0 | Workflow repository, execution history, vault, and chat data are partitioned by `tenant_id`; cross-tenant access returns 404 |
 | Operator | apply per-tenant quotas (workflows, concurrent runs, storage) | a noisy tenant cannot exhaust shared resources | P1 | Quota config is enforced; exceeding limits returns a clear error; metrics are emitted per tenant |
-| Operator | view per-tenant usage and audit logs | I can bill, debug, or investigate abuse | P1 | Telemetry and run history are tagged with `tenant_id`; dashboards filter by tenant |
-| Existing single-tenant user | upgrade my deployment without data loss | I can adopt multi-tenancy when ready | P0 | Migration assigns existing data to a default tenant and is reversible by config |
+| Operator | view per-tenant usage and audit logs | I can bill, debug, or investigate abuse | P1 | Telemetry and execution history are tagged with `tenant_id`; dashboards filter by tenant |
+| Existing single-tenant user | upgrade my deployment without data loss | I can adopt multi-tenancy when ready | P0 | Migration assigns existing data to a default tenant; operators can roll back behavior by disabling multi-tenancy while only the default tenant exists |
 
 ### Context, Problems, Opportunities
-Orcheo today assumes a single-tenant deployment: workflows, credentials, run history, chat threads, listeners, and service tokens share a flat namespace. Operators who want to host more than one team must run separate stacks per team, which increases cost, fragments observability, and prevents shared infrastructure (Postgres, Redis, Celery worker pool). Adding a first-class `tenant_id` to identity, persistence, execution, and telemetry unlocks shared-deployment scenarios while keeping logical isolation strict. This also lays groundwork for a managed/SaaS offering and for fine-grained per-team governance.
+Orcheo today assumes a single-tenant deployment: workflows, credentials, execution history, chat threads, listeners, and service tokens share a flat namespace. Operators who want to host more than one team must run separate stacks per team, which increases cost, fragments observability, and prevents shared infrastructure (Postgres, Redis, Celery worker pool). Adding a first-class `tenant_id` to identity, persistence, execution, and telemetry unlocks shared-deployment scenarios while keeping logical isolation strict. This also lays groundwork for a managed/SaaS offering and for fine-grained per-team governance.
 
 ### Product goals and Non-goals
 Goals:
@@ -58,12 +61,12 @@ Non-goals:
 ### Requirements
 P0:
 - Add `tenants` and `tenant_memberships` tables; introduce a `Tenant` model and a `TenantContext` carried through requests, runtime, and Celery tasks.
-- Propagate `tenant_id` to every stateful subsystem: workflow repository, run history, service tokens, vault, ChatKit store, agentensor checkpoints, plugin install state, listeners, triggers.
+- Propagate `tenant_id` to every stateful subsystem: workflow repository, workflow versions/runs, execution history, service tokens, vault credentials/templates/governance alerts, ChatKit store, Agentensor checkpoints, plugin install state, listeners, triggers, retry policies, and LangGraph checkpoint/store persistence.
 - Add `tenant_id` to every persistence schema (Postgres + SQLite) with composite indexes on `(tenant_id, ...)` for hot lookups.
 - Tenant-aware authentication: bearer tokens and service tokens resolve to a `(user_id, tenant_id)` pair; per-request middleware rejects unscoped traffic.
 - Roles inside a tenant: `owner`, `admin`, `editor`, `viewer`, with route-level checks.
-- Tenant-aware CLI commands (`orcheo tenant create|list|deactivate|invite`).
-- Migration: existing rows are assigned to a `default` tenant; migration is gated by a config flag and is reversible while no second tenant exists.
+- Tenant-aware CLI commands (`orcheo tenant create|list|deactivate|invite|use`).
+- Migration: existing rows are assigned to a `default` tenant; runtime behavior is gated by a config flag and can be rolled back to default-tenant behavior while no second tenant exists. Schema migrations are forward-only unless a dedicated downgrade is added.
 - Test coverage ≥95% project, 100% diff; integration tests cover cross-tenant isolation for every subsystem.
 
 P1:
@@ -86,7 +89,7 @@ Design doc: `./2_design.md`. No Canvas UI for v1; CLI/API only.
 - Backend: every persistence subsystem requires a schema and query change.
 - SDK: `orcheo` and `horcheo` CLIs gain tenant-aware commands and a `--tenant` flag.
 - Canvas: WebSocket and REST clients must send tenant context; minimal UI changes required for v1 (read-only header indicating active tenant).
-- DevOps: deployment docs, Docker Compose, and systemd units gain a `ORCHEO_DEFAULT_TENANT` knob.
+- DevOps: deployment docs, Docker Compose, and systemd units gain `ORCHEO_MULTI_TENANCY_ENABLED` and `ORCHEO_DEFAULT_TENANT` knobs.
 
 ## TECHNICAL CONSIDERATIONS
 ### Architecture Overview
@@ -95,11 +98,11 @@ Introduce a `TenantContext` value object created by auth middleware from the bea
 ### Technical Requirements
 - Required tenancy field on every persisted row touched by tenant-owned data.
 - All queries must filter by `tenant_id`; lint rule or repository helper to make omission a build error.
-- Postgres and SQLite migrations gated by Alembic-style versioned scripts.
+- Postgres and SQLite migrations use idempotent, versioned schema helpers consistent with the existing repository, history, ChatKit, service-token, and vault stores.
 - Service tokens are scoped to one tenant at issuance time; tokens cannot span tenants.
-- Vault entries are keyed by `(tenant_id, name)`; existing `[[credential_name]]` placeholders resolve only within the active tenant.
+- Vault credentials are keyed by `(tenant_id, name)`; existing `[[credential_name]]` placeholders resolve only within the active tenant.
 - Celery tasks must pass `tenant_id` in task headers; workers reject tasks lacking it.
-- WebSocket subscriptions are scoped to `(tenant_id, run_id)`; cross-tenant subscription attempts are rejected.
+- WebSocket subscriptions are scoped to `(tenant_id, workflow_ref, run_id)`; cross-tenant subscription attempts are rejected.
 - ≥95% project coverage and 100% diff coverage; integration tests assert isolation by attempting cross-tenant reads/writes.
 
 ### AI/ML Considerations (if applicable)
@@ -143,11 +146,11 @@ Risks:
 
 Risk Mitigation:
 - Centralize tenant filtering inside repository helpers; add a lint/test that fails when a query omits `tenant_id`.
-- Run schema migrations with online-safe patterns (nullable column → backfill → NOT NULL); document rollback.
+- Run schema migrations with online-safe patterns (nullable column → backfill → `NOT NULL`); document behavioral rollback via the feature flag and call out any unsupported destructive downgrade.
 - Enforce `tenant_id` in Celery task headers and reject tasks without it; cover with integration tests.
 - Default quotas to generous values and emit warning metrics before hard-rejecting; allow per-tenant override.
 
 ## APPENDIX
-- Stateful subsystems requiring tenancy: workflow repository, run history, service tokens, vault, ChatKit store, agentensor checkpoints, plugin install state, listeners, triggers, scheduled tasks.
+- Stateful subsystems requiring tenancy: workflow repository, workflow versions/runs, execution history and steps, service tokens and audit log, vault credentials/templates/governance alerts, ChatKit threads/messages/attachments, Agentensor checkpoints, plugin install state, listeners/cursors/dedupe, webhook/cron triggers, retry policies, scheduled tasks, LangGraph checkpoints, and graph store.
 - Identity surfaces requiring tenancy: bearer token middleware, service tokens, WebSocket auth, CLI auth, Celery task headers.
 - Existing single-tenant data is assigned to a tenant named `default` (slug `default`).
