@@ -4,7 +4,7 @@
 - **Authors:** Codex
 - **Project/Feature Name:** Proactive Workflow Error Remediation with Orcheo Vibe
 - **Type:** Enhancement
-- **Summary:** Enable Orcheo to create remediation candidates for uncaught workflow run failures, then use the Orcheo Vibe agent during idle worker capacity to either create workflow-level fixes or record developer action notes. Workflow-level fixes may replace problematic predefined core/plugin nodes or edges with custom workflow-local nodes or edges, while runtime/platform issues remain note-only for human follow-up.
+- **Summary:** Enable Orcheo to create remediation candidates for uncaught workflow run failures, then use the Orcheo Vibe agent during idle worker capacity to either create workflow-level fixes or record developer action notes. Workflow-level fixes operate on the failed workflow version's script source and may replace problematic predefined core/plugin nodes or edges with custom workflow-local nodes or edges, while runtime/platform issues remain note-only for human follow-up.
 - **Owner (if different than authors):** ShaojieJiang
 - **Date Started:** 2026-05-03
 
@@ -31,12 +31,12 @@ Reduce unattended workflow failure time by allowing Orcheo to opportunistically 
 ### User Stories
 | As a... | I want to... | So that... | Priority | Acceptance Criteria |
 |---------|--------------|------------|----------|---------------------|
-| Workflow author | Have Orcheo notice uncaught workflow run failures | I do not need to manually inspect every failed unattended run | P0 | Failed runs create deduplicated remediation candidates with error, version, input, and history context |
+| Workflow author | Have Orcheo notice uncaught workflow run failures | I do not need to manually inspect every failed unattended run | P0 | Failed runs create deduplicated remediation candidates with error, failed version, input, runnable config, and history context |
 | Workflow author | Let Orcheo fix workflow-local issues when safe | My workflow can recover without waiting for a core platform release | P0 | A validated new workflow version is created only when the fix is limited to workflow source |
 | Workflow author | Work around broken predefined nodes or edges with custom workflow-local code | Core/plugin defects do not block my workflow immediately | P0 | The remediation replaces or wraps suspected predefined nodes/edges using custom nodes/edges inside the workflow script |
 | Human developer | Receive notes for suspected core/plugin defects | I can later decide whether the workaround should become a platform fix | P0 | Remediation notes name the suspected node/edge, evidence, workaround, and follow-up recommendation |
 | Human developer | Receive notes for runtime/platform failures | I can act on issues that an agent cannot safely fix in a workflow | P0 | Runtime, persistence, credential, sandbox, Celery, LangGraph, and infrastructure failures produce note-only remediations |
-| Operator | Run remediation only when the machine is not busy | Normal workflow execution remains the priority | P0 | The scanner skips work when worker queues, active workflow runs, or host load exceed configured thresholds |
+| Operator | Run remediation only when the machine is not busy | Normal workflow execution remains the priority | P0 | The scanner skips work when normal worker queues, active workflow runs, or host load exceed configured thresholds |
 | Platform team | Prevent repeated or unsafe autofix attempts | Failed remediations do not create loops or uncontrolled version churn | P0 | Attempts are deduplicated by fingerprint and capped per workflow version |
 | Reviewer | Audit every automated change | I can inspect what the agent saw and changed | P0 | Each remediation stores prompt metadata, classification, artifacts, validation result, and created version id |
 | Canvas user | See remediation status on failed runs | I can tell whether Orcheo tried to help and what happened | P1 | Run detail surfaces candidate status, fix summary, created version, and developer note |
@@ -75,23 +75,26 @@ The new CLI agent integrations and Orcheo Vibe make it possible to inspect faile
 
 **P0: Failure capture and candidate creation**
 - Extend failed workflow execution handling to create a remediation candidate when a run fails with an uncaught exception.
-- Candidate context must include workflow id, workflow version id, run id, version checksum, exception type, error message, traceback, inputs, runnable config, recent run history, and current workflow source when available.
+- Candidate context must include workflow id, workflow version id, run id, version checksum, graph format, exception type, error message, traceback, inputs, per-run runnable config, stored version runnable config, recent run history, and the failed version's script source when available.
 - Sensitive values must be redacted before persistence or agent prompting.
+- Candidate creation must be best-effort and must not mask or alter the original failed-run persistence path.
 
 **P0: Deduplication and attempt limits**
 - Compute an error fingerprint using workflow version checksum, exception type, normalized message, and likely failing node/edge when known.
 - Do not create duplicate active candidates for the same fingerprint.
 - Cap remediation attempts per fingerprint and per workflow version.
+- Terminal candidates must remain queryable for audit even when a later equivalent failure creates a new candidate after attempt caps or dismissal rules allow it.
 
 **P0: Idle supervisor**
 - Add a backend/worker scanner that claims pending remediation candidates only when the machine is not busy.
-- Idle checks must consider active Celery tasks, reserved tasks, running workflow runs, and host load.
+- Idle checks must consider active workflow execution tasks, reserved workflow execution tasks, running workflow runs, and host load.
+- Idle checks must not treat the remediation scanner task itself as normal workflow load.
 - Remediation execution must be globally constrained, with a default concurrency of one.
 
 **P0: Orcheo Vibe remediation invocation**
 - Invoke Orcheo Vibe as the remediation agent, using the existing CLI agent integrations underneath.
 - The prompt contract must require classification before code changes.
-- The agent works in a temporary workspace containing redacted failure context, current workflow source, instructions, and output artifact paths.
+- The agent works in a temporary workspace containing redacted failure context, the failed version's workflow source, instructions, and output artifact paths.
 
 **P0: Classification**
 - The agent must classify each candidate as one of:
@@ -105,7 +108,8 @@ The new CLI agent integrations and Orcheo Vibe make it possible to inspect faile
 
 **P0: Workflow-level fix path**
 - The agent may edit only the workflow script.
-- The backend must validate the edited script through the existing workflow ingestion/build path before creating a version.
+- The backend must validate the edited script through the existing LangGraph script ingestion/build path before creating a version.
+- Validation must ingest the edited script into a graph payload and create the new version through repository version creation, preserving intended runnable config and attaching remediation metadata.
 - Successful fixes create a new workflow version with notes referencing the failed run, remediation id, classification, agent provider, and summary.
 - The original failed run remains unchanged.
 
@@ -118,11 +122,13 @@ The new CLI agent integrations and Orcheo Vibe make it possible to inspect faile
 - Runtime/platform failures must create developer notes rather than workflow versions.
 - Notes must include reproduction context, suspected owner, evidence, affected workflow/run, and recommended next action.
 - Note-only candidates must be visible from failed run and workflow views.
+- Note-only remediation must not alter the workflow script; if the agent emits a changed script for a note-only action, the backend must ignore or reject that artifact.
 
 **P0: Validation and audit**
 - Every agent result must include structured artifacts: classification, patch summary, developer note, validation report, and optional edited workflow source.
 - Store the agent provider, runtime metadata, prompt hash, artifact hashes, and validation result.
 - Reject artifacts that modify files outside the allowed temporary workflow source.
+- Store backend validation output separately from any agent-side validation report.
 
 **P1: Retry-after-fix**
 - Optionally trigger a retry run against the newly created workflow version after validation succeeds.
@@ -148,9 +154,9 @@ The new CLI agent integrations and Orcheo Vibe make it possible to inspect faile
 This initiative fits behind the existing workflow run failure path. Failed runs create remediation candidates; an idle worker scanner claims candidates; Orcheo Vibe analyzes the context and emits structured artifacts; the backend validates and persists either a new workflow version or a developer note.
 
 ### Technical Requirements
-- Add persistence support for remediation candidates in in-memory, SQLite, and PostgreSQL repositories if all are active in the test matrix.
+- Add persistence support for remediation candidates in in-memory, SQLite, and PostgreSQL repositories to match active workflow repository implementations.
 - Add repository protocol methods for creating, claiming, updating, listing, and dismissing remediation candidates.
-- Use existing workflow source ingestion/build validation for edited workflow scripts.
+- Use existing LangGraph script ingestion/build validation for edited workflow scripts.
 - Redact secrets from all persisted context and agent prompts.
 - Add feature flags for automatic remediation scanning and retry-after-fix.
 - Keep remediation independent from normal workflow graph execution to avoid recursive workflows.
@@ -159,7 +165,7 @@ This initiative fits behind the existing workflow run failure path. Failed runs 
 ### AI/ML Considerations
 
 #### Data Requirements
-The agent receives redacted failed run data: workflow script, error details, traceback, run history, inputs, runnable config, and relevant metadata. No training data collection is required.
+The agent receives redacted failed run data: workflow script, error details, traceback, run history, inputs, stored and per-run runnable config, and relevant metadata. No training data collection is required.
 
 #### Algorithm selection
 Use Orcheo Vibe to route to an available CLI coding agent provider. The backend enforces artifact contracts, validation, and allowed mutation boundaries rather than trusting free-form agent output.

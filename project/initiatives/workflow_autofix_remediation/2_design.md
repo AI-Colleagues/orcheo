@@ -13,7 +13,7 @@
 
 This design adds a conservative remediation loop for failed Orcheo workflow runs. When a worker-executed workflow fails with an uncaught exception, Orcheo stores a structured remediation candidate with redacted context. A background supervisor later claims candidates only when the machine is idle and asks Orcheo Vibe to classify the issue and produce either a workflow-local patch or a developer note.
 
-The central safety boundary is ownership. Automatic remediation can create new workflow versions, because workflow source is the user-owned artifact. It cannot patch Orcheo core code or plugin package code. If the failure appears to come from a predefined core/plugin node or edge, Orcheo Vibe may define a custom workflow-local node or edge that works around the behavior, and it must also record a developer note for human review.
+The central safety boundary is ownership. Automatic remediation can create new workflow versions, because workflow source is the user-owned artifact. It cannot patch Orcheo core code or plugin package code. If the failure appears to come from a predefined core/plugin node or edge, Orcheo Vibe may define a custom workflow-local node or edge that works around the behavior, and it must also record a developer note for human review. All edits are based on the failed workflow version's script source, not whichever version is latest when the remediation attempt runs.
 
 ## Components
 
@@ -23,7 +23,7 @@ The central safety boundary is ownership. Automatic remediation can create new w
 
 - **Failure Capture Hook (`apps/backend/src/orcheo_backend/worker/tasks.py`)**
   - Extends the run failure path after `mark_run_failed`.
-  - Extracts exception metadata, traceback, run context, run history, and workflow source.
+  - Extracts exception metadata, traceback, run context, run history, stored version runnable config, per-run runnable config, graph format, and failed version script source.
   - Redacts sensitive values before candidate persistence.
 
 - **Idle Remediation Supervisor (Celery task)**
@@ -58,14 +58,16 @@ The central safety boundary is ownership. Automatic remediation can create new w
    - workflow version id
    - run id
    - version checksum
+   - graph format
    - exception type
    - normalized error message
    - traceback
    - recent history steps
-   - inputs and runnable config
-   - current script source when available
+   - inputs, stored version runnable config, and per-run runnable config
+   - failed version script source when available
 4. Backend computes an error fingerprint.
 5. Repository creates a pending remediation candidate unless an active candidate already exists for the fingerprint.
+6. Candidate creation errors are logged and never change the original failed-run outcome.
 
 ### Flow 2: Idle supervisor claims work
 
@@ -74,8 +76,8 @@ The central safety boundary is ownership. Automatic remediation can create new w
 3. The scanner checks idle gates:
    - no active remediation attempt
    - active workflow run count below threshold
-   - Celery active/reserved tasks below threshold
-   - host load below threshold when available
+   - Celery active/reserved workflow execution tasks below threshold
+   - host load below threshold when available, or the configured unknown-load policy allows remediation
 4. If idle, scanner claims one pending candidate using an atomic repository transition.
 5. Scanner starts `attempt_workflow_remediation(candidate_id)`.
 
@@ -86,10 +88,10 @@ The central safety boundary is ownership. Automatic remediation can create new w
 3. Classification is `workflow_fixable` or `node_or_edge_bug_workaround`.
 4. Orcheo Vibe edits `workflow.py` and writes:
    - `developer_note.md`
-   - `validation_report.json`
+   - agent-side `validation_report.json`
    - patch summary metadata
-5. Backend validates `workflow.py` through script ingestion/build.
-6. Backend creates a new workflow version with remediation notes.
+5. Backend validates `workflow.py` through LangGraph script ingestion/build.
+6. Backend creates a new workflow version from the ingested graph payload, preserving intended runnable config and adding remediation metadata and notes.
 7. Candidate status becomes `fixed`, with `created_version_id` set.
 
 ### Flow 4: Predefined node or edge workaround
@@ -106,7 +108,8 @@ The central safety boundary is ownership. Automatic remediation can create new w
 1. Classification is `runtime_or_platform`, `external_dependency`, or `unknown`.
 2. Orcheo Vibe does not edit workflow source.
 3. It writes `developer_note.md` with reproduction context, likely owner, impact, and next action.
-4. Backend stores the note and marks the candidate `note_only`.
+4. Backend verifies the workflow source is unchanged or ignores the emitted source artifact.
+5. Backend stores the note and marks the candidate `note_only`.
 
 ## API Contracts
 
@@ -119,6 +122,8 @@ async def create_remediation_candidate(
     workflow_version_id: UUID,
     run_id: UUID,
     fingerprint: str,
+    version_checksum: str,
+    graph_format: str | None,
     context: dict[str, Any],
 ) -> WorkflowRunRemediation: ...
 
@@ -128,6 +133,19 @@ async def claim_next_remediation_candidate(
     now: datetime | None = None,
 ) -> WorkflowRunRemediation | None: ...
 
+async def get_remediation_candidate(
+    remediation_id: UUID,
+) -> WorkflowRunRemediation: ...
+
+async def list_remediation_candidates(
+    *,
+    workflow_id: UUID | None = None,
+    workflow_version_id: UUID | None = None,
+    run_id: UUID | None = None,
+    status: str | None = None,
+    limit: int | None = None,
+) -> list[WorkflowRunRemediation]: ...
+
 async def mark_remediation_fixed(
     remediation_id: UUID,
     *,
@@ -135,6 +153,7 @@ async def mark_remediation_fixed(
     classification: str,
     developer_note: str,
     artifacts: dict[str, Any],
+    validation_result: dict[str, Any],
 ) -> WorkflowRunRemediation: ...
 
 async def mark_remediation_note_only(
@@ -145,11 +164,19 @@ async def mark_remediation_note_only(
     artifacts: dict[str, Any],
 ) -> WorkflowRunRemediation: ...
 
+async def dismiss_remediation_candidate(
+    remediation_id: UUID,
+    *,
+    actor: str,
+    reason: str | None = None,
+) -> WorkflowRunRemediation: ...
+
 async def mark_remediation_failed(
     remediation_id: UUID,
     *,
     error: str,
     artifacts: dict[str, Any] | None = None,
+    validation_result: dict[str, Any] | None = None,
 ) -> WorkflowRunRemediation: ...
 ```
 
@@ -175,7 +202,7 @@ Expected files:
 | File | Required | Description |
 |------|----------|-------------|
 | `classification.json` | Yes | Structured classification and intended action |
-| `workflow.py` | Only for fixes | Edited workflow source |
+| `workflow.py` | Original source for all script candidates; edited output only for fixes | Workflow source scoped to the failed version |
 | `developer_note.md` | Yes | Human-readable explanation and follow-up |
 | `validation_report.json` | Yes | Agent-side validation notes and commands attempted |
 
@@ -208,13 +235,19 @@ Human review:
 | `run_id` | UUID | Source failed run |
 | `status` | string | `pending`, `claimed`, `fixed`, `note_only`, `failed`, `dismissed` |
 | `fingerprint` | string | Deduplication key |
+| `version_checksum` | string | Checksum of the failed workflow version graph payload |
+| `graph_format` | string \| null | Failed version graph format, for script-vs-legacy diagnostics |
 | `attempt_count` | integer | Number of attempts |
 | `classification` | string \| null | Agent classification |
+| `action` | string \| null | `create_workflow_version` or `note_only` |
 | `context` | object | Redacted failure context |
 | `developer_note` | string \| null | Human follow-up note |
 | `created_version_id` | UUID \| null | New workflow version from a successful fix |
 | `artifacts` | object | Prompt hash, output hashes, validation metadata |
+| `validation_result` | object \| null | Backend-side ingestion/build validation result |
+| `last_error` | string \| null | Last remediation runner or validation failure |
 | `claimed_by` | string \| null | Worker or actor that claimed the candidate |
+| `claimed_at` | datetime \| null | Claim timestamp |
 | `created_at` | datetime | Creation timestamp |
 | `updated_at` | datetime | Last update timestamp |
 
@@ -243,7 +276,7 @@ Human review:
 - Candidate creation must be lightweight and should not significantly slow failure handling.
 - The idle scanner should read a small bounded number of pending candidates per cycle.
 - Agent execution is expensive and must be concurrency-limited.
-- Host load checks should fail closed: if load cannot be inspected, rely on queue/run checks and configured defaults.
+- Host load checks should degrade conservatively: if load cannot be inspected, apply the configured unknown-load policy and default to skipping remediation.
 - Temporary workspaces should be cleaned after successful artifact persistence to avoid disk growth.
 
 ## Testing Strategy

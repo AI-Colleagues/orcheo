@@ -11,7 +11,7 @@
 
 ## Overview
 
-Implement a conservative backend remediation loop that captures uncaught workflow run failures, waits for idle worker capacity, invokes Orcheo Vibe to classify the issue, and then either creates a validated workflow version or records a developer note. Automatic edits are limited to workflow source; core, plugin, and runtime issues are routed to human developers through notes.
+Implement a conservative backend remediation loop that captures uncaught workflow run failures, waits for idle worker capacity, invokes Orcheo Vibe to classify the issue, and then either creates a validated workflow version or records a developer note. Automatic edits are limited to the failed workflow version's script source; core, plugin, and runtime issues are routed to human developers through notes.
 
 **Related Documents:**
 - Requirements: `project/initiatives/workflow_autofix_remediation/1_requirements.md`
@@ -27,7 +27,7 @@ Implement a conservative backend remediation loop that captures uncaught workflo
 
 #### Task Checklist
 
-- [ ] Task 1.1: Define `WorkflowRunRemediation` model and status enum
+- [ ] Task 1.1: Define `WorkflowRunRemediation` model, status enum, classification enum, and action enum
   - Dependencies: None
 - [ ] Task 1.2: Extend repository protocol with remediation create, claim, update, list, and dismiss methods
   - Dependencies: Task 1.1
@@ -37,9 +37,9 @@ Implement a conservative backend remediation loop that captures uncaught workflo
   - Dependencies: Task 1.2
 - [ ] Task 1.5: Implement PostgreSQL schema and persistence support if active repository parity requires it
   - Dependencies: Task 1.2
-- [ ] Task 1.6: Add deduplication by fingerprint and attempt-count tracking
+- [ ] Task 1.6: Add active-candidate deduplication by fingerprint, version checksum storage, and attempt-count tracking
   - Dependencies: Tasks 1.3-1.5
-- [ ] Task 1.7: Add repository tests for create, duplicate suppression, atomic claim, terminal updates, and dismiss
+- [ ] Task 1.7: Add repository tests for create, duplicate suppression, atomic claim, terminal updates, list filters, and dismiss
   - Dependencies: Tasks 1.3-1.6
 
 ---
@@ -52,9 +52,9 @@ Implement a conservative backend remediation loop that captures uncaught workflo
 
 - [ ] Task 2.1: Add error fingerprinting helper for workflow version checksum, exception type, normalized message, phase, and failed node/edge when available
   - Dependencies: Milestone 1
-- [ ] Task 2.2: Add redaction utilities for inputs, runnable config, traceback text, history payloads, stdout/stderr, headers, and token-like strings
+- [ ] Task 2.2: Add redaction utilities for inputs, stored and per-run runnable config, traceback text, history payloads, stdout/stderr, headers, vault resolutions, and token-like strings
   - Dependencies: Milestone 1
-- [ ] Task 2.3: Extend worker failure handling to collect workflow source, run metadata, exception details, and recent run history
+- [ ] Task 2.3: Extend worker failure handling to collect failed version script source, graph format, run metadata, exception details, stored and per-run runnable config, and recent run history
   - Dependencies: Tasks 2.1-2.2
 - [ ] Task 2.4: Create remediation candidates after failed-run persistence succeeds
   - Dependencies: Task 2.3
@@ -73,7 +73,7 @@ Implement a conservative backend remediation loop that captures uncaught workflo
 
 - [ ] Task 3.1: Add settings for `ORCHEO_WORKFLOW_AUTOFIX_ENABLED`, max concurrent attempts, idle load threshold, and dry-run mode
   - Dependencies: Milestone 1
-- [ ] Task 3.2: Implement idle checks for active workflow runs, Celery active/reserved tasks, and host load
+- [ ] Task 3.2: Implement idle checks for active workflow runs, Celery active/reserved workflow execution tasks, host load, and unknown-host-load behavior
   - Dependencies: Task 3.1
 - [ ] Task 3.3: Add Celery task `scan_workflow_remediations`
   - Dependencies: Tasks 3.1-3.2
@@ -94,13 +94,13 @@ Implement a conservative backend remediation loop that captures uncaught workflo
 
 - [ ] Task 4.1: Define remediation prompt template and instructions for Orcheo Vibe
   - Dependencies: Milestones 1-3
-- [ ] Task 4.2: Materialize temporary remediation workspace with `workflow.py`, `failure.json`, `run_history.json`, and `instructions.md`
+- [ ] Task 4.2: Materialize temporary remediation workspace with `workflow.py`, `failure.json`, `run_history.json`, runnable-config artifacts, and `instructions.md`
   - Dependencies: Task 4.1
 - [ ] Task 4.3: Invoke Orcheo Vibe through the existing CLI agent integration path
   - Dependencies: Task 4.2
 - [ ] Task 4.4: Parse `classification.json`, `developer_note.md`, `validation_report.json`, and optional edited `workflow.py`
   - Dependencies: Task 4.3
-- [ ] Task 4.5: Validate artifact boundaries so only workflow source can be changed automatically
+- [ ] Task 4.5: Validate artifact boundaries so only workflow source can be changed automatically, and note-only classifications cannot change source
   - Dependencies: Task 4.4
 - [ ] Task 4.6: Store prompt hash, artifact hashes, provider metadata, and raw validation summaries
   - Dependencies: Tasks 4.3-4.5
@@ -115,13 +115,13 @@ Implement a conservative backend remediation loop that captures uncaught workflo
 
 #### Task Checklist
 
-- [ ] Task 5.1: Validate edited workflow source through the existing script ingestion/build path
+- [ ] Task 5.1: Validate edited workflow source through the existing LangGraph script ingestion/build path
   - Dependencies: Milestone 4
-- [ ] Task 5.2: Create new workflow versions for `workflow_fixable` outputs
+- [ ] Task 5.2: Create new workflow versions for `workflow_fixable` outputs from ingested graph payloads, preserving intended runnable config and adding remediation metadata
   - Dependencies: Task 5.1
 - [ ] Task 5.3: Create new workflow versions plus developer notes for `node_or_edge_bug_workaround` outputs
   - Dependencies: Task 5.1
-- [ ] Task 5.4: Store note-only remediations for `runtime_or_platform`, `external_dependency`, and `unknown`
+- [ ] Task 5.4: Store note-only remediations for `runtime_or_platform`, `external_dependency`, and `unknown`, rejecting or ignoring changed source artifacts
   - Dependencies: Milestone 4
 - [ ] Task 5.5: Mark invalid workflow-source outputs as failed remediations without creating versions
   - Dependencies: Task 5.1
@@ -138,13 +138,13 @@ Implement a conservative backend remediation loop that captures uncaught workflo
 
 #### Task Checklist
 
-- [ ] Task 6.1: Add read APIs for remediation candidates by run and workflow
+- [ ] Task 6.1: Add read APIs for remediation candidates by run, workflow, version, status, and candidate id
   - Dependencies: Milestone 5
 - [ ] Task 6.2: Add dismiss API for human-reviewed candidates
   - Dependencies: Task 6.1
 - [ ] Task 6.3: Add Canvas failed-run remediation summary
   - Dependencies: Task 6.1
-- [ ] Task 6.4: Add Canvas developer note and created-version links
+- [ ] Task 6.4: Add Canvas developer note and created version links
   - Dependencies: Task 6.3
 - [ ] Task 6.5: Document feature flags, idle behavior, safety boundaries, and remediation statuses
   - Dependencies: Milestone 5
