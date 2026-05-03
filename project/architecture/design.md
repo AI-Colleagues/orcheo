@@ -83,7 +83,7 @@ Section 2 details design considerations across stakeholder concerns, viewpoints,
 This SDD adopts viewpoints that map to PRD priorities for dual authoring modes, secure runtime execution, and AI-centric observability. Less critical viewpoints for the initial milestone are documented with current assumptions and deferred work.
 
 #### 2.2.1 Context
-The platform exposes a backend-first service accessible by SDK users and canvas users. External actors include service providers invoked by workflow nodes, credential issuers, and observability consumers. The primary system boundary wraps API gateway, application services, workflow runtime, data stores, and monitoring plane.
+The platform exposes a CLI-first service accessible by SDK users and canvas users. External actors include service providers invoked by workflow nodes, credential issuers, and observability consumers. The primary system boundary wraps API gateway, application services, workflow runtime, data stores, and monitoring plane.
 
 #### 2.2.2 Composition
 The solution is decomposed into gateway/security edge, application tier (REST & WebSocket APIs), workflow runtime (LangGraph execution, task orchestration), data stores (configuration, runtime history, credentials), and observability services. A frontend canvas consumes backend APIs but is optional for SDK-centric deployments.

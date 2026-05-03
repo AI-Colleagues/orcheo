@@ -157,7 +157,7 @@ Secondary hypothesis: Secure credential management and real-time observability w
 | Rev | Date | Author(s) | Notes |
 | --- | ------------ | ------------------- | ------------------------------- |
 | 0.1 | 1 May 2025 | Shaojie Jiang | Initial skeleton |
-| 0.2 | 21 Jul 2025 | Shaojie Jiang, ChatGPT, Kiro | Backend-first approach pivot |
+| 0.2 | 21 Jul 2025 | Shaojie Jiang, ChatGPT, Kiro | CLI-first approach pivot |
 | 1.0 | 6 Sep 2025 | Shaojie Jiang, Claude | Comprehensive workflow automation platform |
 
 ### Future roadmap (post v1.0)
