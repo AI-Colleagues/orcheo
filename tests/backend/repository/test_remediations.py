@@ -177,6 +177,12 @@ async def test_remediation_candidate_filters_attempt_cap_and_dismiss(
     )
     assert len(limited) == 1
 
+    claimed_second = await repository.claim_next_remediation_candidate(
+        actor="reviewer",
+    )
+    assert claimed_second is not None
+    assert claimed_second.id == second.id
+
     note_only = await repository.mark_remediation_note_only(
         second.id,
         classification=WorkflowRunRemediationClassification.RUNTIME_OR_PLATFORM,

@@ -280,6 +280,11 @@ async def test_execute_workflow_reports_history_store_failure(
     history_store.mark_completed = AsyncMock()
     monkeypatch.setattr(workflow_execution, "get_history_store", lambda: history_store)
     monkeypatch.setattr(workflow_execution, "get_settings", lambda: {"dummy": True})
+    monkeypatch.setattr(
+        workflow_execution,
+        "_resolve_stored_runnable_config",
+        AsyncMock(return_value={}),
+    )
 
     class DummyVault:
         def list_all_credentials(self) -> list[Any]:

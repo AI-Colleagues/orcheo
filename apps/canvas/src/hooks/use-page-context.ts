@@ -8,6 +8,7 @@ export interface PageContext {
   page:
     | "gallery"
     | "canvas"
+    | "remediations"
     | "execution"
     | "settings"
     | "profile"

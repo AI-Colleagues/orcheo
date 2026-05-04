@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import { Bell } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
 import { cn } from "@/lib/utils";
@@ -41,6 +42,9 @@ export default function TopNavigation({
       <div className="ml-auto flex items-center gap-2">
         <VersionStatus />
         <CommandPaletteButton />
+        <Button variant="outline" size="sm" asChild>
+          <Link to="/workflow-remediations">Remediations</Link>
+        </Button>
         <Button variant="ghost" size="icon">
           <Bell className="h-5 w-5" />
         </Button>
