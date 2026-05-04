@@ -475,6 +475,16 @@ def test_patched_environment_restores_existing_value(
     assert os.environ[key] == "original"
 
 
+def test_patched_environment_removes_missing_values() -> None:
+    key = "ORCHEO_WORKFLOW_EXECUTION_TEST_ENV_MISSING"
+    os.environ.pop(key, None)
+
+    with workflow_execution._patched_environment({key: "override"}):
+        assert os.environ[key] == "override"
+
+    assert key not in os.environ
+
+
 def test_sensitive_debug_helpers_log_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -551,6 +561,29 @@ async def test_emit_trace_update_skips_when_builder_returns_none(
 
     await workflow_execution._emit_trace_update(history_store, websocket, "exec")
 
+    websocket.send_json.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_emit_trace_update_skips_when_history_record_is_unexpected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    history_store = AsyncMock()
+    history_store.get_history = AsyncMock(return_value=object())
+    websocket = AsyncMock()
+
+    called = False
+
+    def _build_trace_update(*args: Any, **kwargs: Any) -> Any:
+        nonlocal called
+        called = True
+        return None
+
+    monkeypatch.setattr(workflow_execution, "build_trace_update", _build_trace_update)
+
+    await workflow_execution._emit_trace_update(history_store, websocket, "exec")
+
+    assert called is False
     websocket.send_json.assert_not_awaited()
 
 

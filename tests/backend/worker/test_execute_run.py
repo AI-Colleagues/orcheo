@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 import pytest
 from orcheo_backend.app.external_agent_runtime_store import ExternalAgentRuntimeStore
 from orcheo_backend.app.schemas.system import ExternalAgentProviderName
@@ -292,6 +292,117 @@ class TestExternalAgentTasks:
                 new=MagicMock(return_value=MagicMock()),
             ):
                 result = disconnect_external_agent("codex")
+
+        assert result == mock_result
+        mock_loop.run_until_complete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_scan_workflow_remediations_async_delegates_to_service(self) -> None:
+        from orcheo_backend.worker.tasks import (
+            _scan_workflow_remediations_async,
+            celery_app,
+        )
+
+        settings = object()
+        repository = object()
+        loaded_settings = object()
+        expected = {"claimed": ["remediation-1"]}
+
+        with patch("orcheo.config.get_settings", return_value=settings):
+            with patch(
+                "orcheo_backend.app.dependencies.get_repository",
+                return_value=repository,
+            ):
+                with patch(
+                    "orcheo_backend.app.workflow_remediation.load_workflow_autofix_settings",
+                    return_value=loaded_settings,
+                ) as mock_load:
+                    with patch(
+                        "orcheo_backend.app.workflow_remediation.scan_workflow_remediations_async",
+                        new=AsyncMock(return_value=expected),
+                    ) as mock_scan:
+                        result = await _scan_workflow_remediations_async()
+
+        assert result == expected
+        mock_load.assert_called_once_with(settings)
+        mock_scan.assert_awaited_once_with(
+            repository=repository,
+            celery_app=celery_app,
+            settings=loaded_settings,
+        )
+
+    @pytest.mark.asyncio
+    async def test_attempt_workflow_remediation_async_delegates_to_service(
+        self,
+    ) -> None:
+        from orcheo_backend.worker.tasks import _attempt_workflow_remediation_async
+
+        settings = object()
+        repository = object()
+        loaded_settings = object()
+        remediation_id = str(uuid4())
+        expected = {"status": "queued"}
+
+        with patch("orcheo.config.get_settings", return_value=settings):
+            with patch(
+                "orcheo_backend.app.dependencies.get_repository",
+                return_value=repository,
+            ):
+                with patch(
+                    "orcheo_backend.app.workflow_remediation.load_workflow_autofix_settings",
+                    return_value=loaded_settings,
+                ) as mock_load:
+                    with patch(
+                        "orcheo_backend.app.workflow_remediation.attempt_workflow_remediation_async",
+                        new=AsyncMock(return_value=expected),
+                    ) as mock_attempt:
+                        result = await _attempt_workflow_remediation_async(
+                            remediation_id
+                        )
+
+        assert result == expected
+        mock_load.assert_called_once_with(settings)
+        mock_attempt.assert_awaited_once_with(
+            repository=repository,
+            remediation_id=UUID(remediation_id),
+            settings=loaded_settings,
+        )
+
+    def test_scan_workflow_remediations_task_runs_async_helper(self) -> None:
+        from orcheo_backend.worker.tasks import scan_workflow_remediations
+
+        mock_result = {"claimed": ["remediation-2"]}
+
+        with patch("orcheo_backend.worker.tasks._get_event_loop") as mock_get_loop:
+            mock_loop = MagicMock()
+            mock_loop.run_until_complete.return_value = mock_result
+            mock_get_loop.return_value = mock_loop
+
+            with patch(
+                "orcheo_backend.worker.tasks._scan_workflow_remediations_async",
+                new=MagicMock(return_value=MagicMock()),
+            ):
+                result = scan_workflow_remediations()
+
+        assert result == mock_result
+        mock_loop.run_until_complete.assert_called_once()
+
+    def test_attempt_workflow_remediation_task_runs_async_helper(self) -> None:
+        from orcheo_backend.worker.tasks import attempt_workflow_remediation
+
+        remediation_id = str(uuid4())
+        mock_result = {"status": "done"}
+
+        with patch("orcheo_backend.worker.tasks._get_event_loop") as mock_get_loop:
+            mock_loop = MagicMock()
+            mock_loop.run_until_complete.return_value = mock_result
+            mock_get_loop.return_value = mock_loop
+
+            with patch(
+                "orcheo_backend.worker.tasks._attempt_workflow_remediation_async",
+                new=MagicMock(return_value=MagicMock()),
+            ):
+                result = attempt_workflow_remediation(remediation_id)
 
         assert result == mock_result
         mock_loop.run_until_complete.assert_called_once()

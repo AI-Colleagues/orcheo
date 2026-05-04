@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+from uuid import uuid4
 from fastapi.testclient import TestClient
 from orcheo.models.workflow import (
     WorkflowDraftAccess,
@@ -106,3 +107,24 @@ def test_workflow_remediation_dismiss_terminal_candidate_returns_conflict(
         response.json()["detail"]
         == "Only active or failed remediations can be dismissed."
     )
+
+
+def test_workflow_remediation_get_missing_returns_not_found(
+    api_client: TestClient,
+) -> None:
+    response = api_client.get(f"/api/workflow-remediations/{uuid4()}")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Workflow remediation not found"
+
+
+def test_workflow_remediation_dismiss_missing_returns_not_found(
+    api_client: TestClient,
+) -> None:
+    response = api_client.post(
+        f"/api/workflow-remediations/{uuid4()}/dismiss",
+        json={"actor": "reviewer"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Workflow remediation not found"
