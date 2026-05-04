@@ -142,7 +142,7 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL | Broker URL for Celery task queue (`celery_app.py`). |
 | `CRON_DISPATCH_INTERVAL` | `60` | Float (seconds) | Interval at which Celery Beat dispatches cron triggers (`celery_app.py`). |
 | `CELERY_BEAT_SCHEDULE_FILE` | `celerybeat-schedule` | Filesystem path | Location of the Celery Beat schedule database; use `-s` flag or this env var to override (`celery_app.py`). |
-| `ORCHEO_WORKFLOW_AUTOFIX_ENABLED` | `false` | Boolean (`1/0`, `true/false`, etc.) | Enables automatic workflow remediation candidate scanning and Orcheo Vibe attempts after failed-run persistence succeeds (`workflow_remediation.py`). |
+| `ORCHEO_WORKFLOW_AUTOFIX_ENABLED` | `true` | Boolean (`1/0`, `true/false`, etc.) | Enables automatic workflow remediation candidate scanning and Orcheo Vibe attempts after failed-run persistence succeeds (`workflow_remediation.py`). |
 | `ORCHEO_WORKFLOW_AUTOFIX_SCAN_INTERVAL_SECONDS` | `60` | Float seconds | Celery Beat interval for `scan_workflow_remediations` (`celery_app.py`). |
 | `ORCHEO_WORKFLOW_AUTOFIX_MAX_CONCURRENT_ATTEMPTS` | `1` | Integer >= 1 | Maximum claimed remediation attempts allowed at once; defaults to one so normal workflow execution keeps priority (`workflow_remediation.py`). |
 | `ORCHEO_WORKFLOW_AUTOFIX_IDLE_LOAD_THRESHOLD` | `1.5` | Float >= 0 | Maximum host load average considered idle enough to start a remediation attempt (`workflow_remediation.py`). |

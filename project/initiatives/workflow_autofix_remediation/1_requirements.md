@@ -188,7 +188,7 @@ This is an internal/self-hosted platform enhancement. External market sizing is 
 | [Guardrail] Worker contention | No measurable increase in normal workflow queue latency while remediation is enabled |
 
 ### Rollout Strategy
-Ship behind `ORCHEO_WORKFLOW_AUTOFIX_ENABLED=false` by default. Start with candidate capture and note-only dry runs, then enable workflow-version creation for selected self-hosted workflows. Keep retry-after-fix disabled until pilot results show stable validation quality.
+Ship with `ORCHEO_WORKFLOW_AUTOFIX_ENABLED=true` by default. Start with candidate capture and note-only dry runs, then enable workflow-version creation for selected self-hosted workflows. Keep retry-after-fix disabled until pilot results show stable validation quality.
 
 ### Estimated Launch Phases
 

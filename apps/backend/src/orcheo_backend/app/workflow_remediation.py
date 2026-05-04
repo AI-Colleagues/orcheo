@@ -84,7 +84,7 @@ WHITESPACE_PATTERN = re.compile(r"\s+")
 class WorkflowAutofixSettings:
     """Settings that gate automatic workflow remediation."""
 
-    enabled: bool = False
+    enabled: bool = True
     max_concurrent_attempts: int = 1
     idle_load_threshold: float = 1.5
     dry_run: bool = True
@@ -143,7 +143,7 @@ def load_workflow_autofix_settings(
             settings,
             "workflow_autofix.enabled",
             "ORCHEO_WORKFLOW_AUTOFIX_ENABLED",
-            False,
+            True,
         ),
         max_concurrent_attempts=max(
             1,

@@ -125,6 +125,12 @@ def test_load_workflow_autofix_settings_uses_scalar_helpers(
     assert settings.retry_after_fix is True
 
 
+def test_workflow_autofix_settings_defaults_enabled() -> None:
+    settings = workflow_remediation.WorkflowAutofixSettings()
+
+    assert settings.enabled is True
+
+
 def test_redact_sensitive_values_handles_awaitables_and_tuples() -> None:
     class AwaitableValue:
         def __await__(self):

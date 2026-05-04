@@ -16,7 +16,7 @@ This guide covers deploying the Orcheo execution worker with Celery and Redis.
 |----------|-------------|---------|
 | `CELERY_CONCURRENCY` | Number of worker processes | `4` |
 | `CELERY_LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR) | `info` |
-| `ORCHEO_WORKFLOW_AUTOFIX_ENABLED` | Enables automatic workflow failure remediation scans | `false` |
+| `ORCHEO_WORKFLOW_AUTOFIX_ENABLED` | Enables automatic workflow failure remediation scans | `true` |
 | `ORCHEO_WORKFLOW_AUTOFIX_DRY_RUN` | Records remediation notes without creating new workflow versions | `true` |
 | `ORCHEO_WORKFLOW_AUTOFIX_SCAN_INTERVAL_SECONDS` | Celery Beat interval for remediation scans | `60` |
 | `ORCHEO_WORKFLOW_AUTOFIX_MAX_CONCURRENT_ATTEMPTS` | Maximum claimed remediation attempts at once | `1` |
@@ -39,8 +39,8 @@ CELERY_LOG_LEVEL=info
 # ORCHEO_AUTH_MODE=jwt
 # ORCHEO_DATABASE_URL=sqlite:///./orcheo.db
 
-# Workflow autofix remediation (off by default)
-ORCHEO_WORKFLOW_AUTOFIX_ENABLED=false
+# Workflow autofix remediation (enabled by default)
+ORCHEO_WORKFLOW_AUTOFIX_ENABLED=true
 ORCHEO_WORKFLOW_AUTOFIX_DRY_RUN=true
 ORCHEO_WORKFLOW_AUTOFIX_MAX_CONCURRENT_ATTEMPTS=1
 ORCHEO_WORKFLOW_AUTOFIX_RETRY_AFTER_FIX=false
