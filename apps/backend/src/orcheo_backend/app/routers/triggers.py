@@ -33,6 +33,7 @@ from orcheo_backend.app.repository import (
     WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.schemas.runs import CronDispatchRequest
+from orcheo_backend.app.tenancy import TenantContextDep
 
 
 logger = logging.getLogger(__name__)
@@ -212,9 +213,12 @@ async def configure_webhook_trigger(
     workflow_ref: str,
     request: WebhookTriggerConfig,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
 ) -> WebhookTriggerConfig:
     """Persist webhook trigger configuration for the workflow."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, tenant_id=str(tenant.tenant_id)
+    )
     try:
         return await repository.configure_webhook_trigger(workflow_uuid, request)
     except WorkflowNotFoundError as exc:
@@ -228,9 +232,12 @@ async def configure_webhook_trigger(
 async def get_webhook_trigger_config(
     workflow_ref: str,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
 ) -> WebhookTriggerConfig:
     """Return the configured webhook trigger definition."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, tenant_id=str(tenant.tenant_id)
+    )
     try:
         return await repository.get_webhook_trigger_config(workflow_uuid)
     except WorkflowNotFoundError as exc:
@@ -376,9 +383,12 @@ async def configure_cron_trigger(
     workflow_ref: str,
     request: CronTriggerConfig,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
 ) -> CronTriggerConfig:
     """Persist cron trigger configuration for the workflow."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, tenant_id=str(tenant.tenant_id)
+    )
     try:
         return await repository.configure_cron_trigger(workflow_uuid, request)
     except WorkflowNotFoundError as exc:
@@ -392,9 +402,12 @@ async def configure_cron_trigger(
 async def get_cron_trigger_config(
     workflow_ref: str,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
 ) -> CronTriggerConfig:
     """Return the configured cron trigger definition."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, tenant_id=str(tenant.tenant_id)
+    )
     try:
         return await repository.get_cron_trigger_config(workflow_uuid)
     except WorkflowNotFoundError as exc:
@@ -412,9 +425,12 @@ async def get_cron_trigger_config(
 async def delete_cron_trigger(
     workflow_ref: str,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
 ) -> Response:
     """Remove the cron trigger configuration for the workflow."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, tenant_id=str(tenant.tenant_id)
+    )
     try:
         await repository.delete_cron_trigger(workflow_uuid)
     except WorkflowNotFoundError as exc:

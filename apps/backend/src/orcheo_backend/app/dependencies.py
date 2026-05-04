@@ -230,12 +230,14 @@ async def resolve_workflow_ref_id(
     workflow_ref: str,
     *,
     include_archived: bool = True,
+    tenant_id: str | None = None,
 ) -> UUID:
     """Resolve a user-facing workflow ref to the canonical UUID."""
     try:
         return await repository.resolve_workflow_ref(
             workflow_ref,
             include_archived=include_archived,
+            tenant_id=tenant_id,
         )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)

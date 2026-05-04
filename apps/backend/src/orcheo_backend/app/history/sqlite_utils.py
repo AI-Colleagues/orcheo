@@ -15,6 +15,7 @@ PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS execution_history (
     execution_id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
+    tenant_id TEXT,
     inputs TEXT NOT NULL,
     runnable_config TEXT NOT NULL DEFAULT '{}',
     tags TEXT NOT NULL DEFAULT '[]',
@@ -63,6 +64,7 @@ INSERT_EXECUTION_SQL = """
 INSERT INTO execution_history (
     execution_id,
     workflow_id,
+    tenant_id,
     inputs,
     runnable_config,
     tags,
@@ -78,7 +80,7 @@ INSERT INTO execution_history (
     trace_completed_at,
     trace_last_span_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)
 """
 
 SELECT_CURRENT_STEP_INDEX_SQL = """
@@ -98,10 +100,11 @@ VALUES (?, ?, ?, ?)
 """
 
 LIST_HISTORIES_SQL = (
-    "SELECT execution_id, workflow_id, inputs, runnable_config, tags, callbacks, "
+    "SELECT execution_id, workflow_id, tenant_id, inputs, runnable_config, "
+    "tags, callbacks, "
     "metadata, run_name, status, started_at, completed_at, "
     "error, trace_id, trace_started_at, trace_completed_at, trace_last_span_at "
-    "FROM execution_history WHERE workflow_id = ? ORDER BY started_at DESC"
+    "FROM execution_history WHERE workflow_id = ?"
 )
 
 UPDATE_HISTORY_STATUS_SQL = """
@@ -142,6 +145,7 @@ _OPTIONAL_COLUMN_ALTERS: dict[str, str] = {
     ),
     "metadata": ("ALTER TABLE execution_history ADD COLUMN metadata TEXT DEFAULT '{}'"),
     "run_name": "ALTER TABLE execution_history ADD COLUMN run_name TEXT",
+    "tenant_id": "ALTER TABLE execution_history ADD COLUMN tenant_id TEXT",
 }
 
 
@@ -173,8 +177,8 @@ async def fetch_record_row(
     """Return the raw execution history row if present."""
     cursor = await conn.execute(
         """
-        SELECT execution_id, workflow_id, inputs, runnable_config, tags, callbacks,
-               metadata, run_name, status, started_at,
+        SELECT execution_id, workflow_id, tenant_id, inputs, runnable_config,
+               tags, callbacks, metadata, run_name, status, started_at,
                completed_at, error, trace_id, trace_started_at,
                trace_completed_at, trace_last_span_at
           FROM execution_history
@@ -228,6 +232,7 @@ def row_to_record(
     return RunHistoryRecord(
         workflow_id=row["workflow_id"],
         execution_id=row["execution_id"],
+        tenant_id=row["tenant_id"],
         inputs=json.loads(row["inputs"]),
         runnable_config=json.loads(row["runnable_config"]),
         tags=json.loads(row["tags"]),

@@ -186,6 +186,7 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
         input_payload: Mapping[str, Any],
         actor: str | None,
         runnable_config: Mapping[str, Any] | None = None,
+        tenant_id: str | None = None,
     ) -> WorkflowRun:
         version = await self._get_version_locked(workflow_version_id)
         if version.workflow_id != workflow_id:
@@ -246,9 +247,10 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
                     triggered_by,
                     payload,
                     created_at,
-                    updated_at
+                    updated_at,
+                    tenant_id
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     str(run.id),
@@ -259,6 +261,7 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
                     self._dump_model(run),
                     run.created_at,
                     run.updated_at,
+                    tenant_id,
                 ),
             )
 

@@ -48,6 +48,7 @@ from orcheo_backend.app.schemas.workflows import (
     WorkflowVersionIngestRequest,
     WorkflowVersionRunnableConfigUpdateRequest,
 )
+from orcheo_backend.app.tenancy import TenantContextDep
 from orcheo_sdk.cli.workflow import _mermaid_from_graph
 
 
@@ -256,11 +257,13 @@ async def _resolve_workflow_id(
     workflow_ref: str,
     *,
     include_archived: bool = True,
+    tenant_id: str | None = None,
 ) -> str:
     try:
         workflow_id = await repository.resolve_workflow_ref(
             workflow_ref,
             include_archived=include_archived,
+            tenant_id=tenant_id,
         )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
@@ -272,11 +275,13 @@ async def _resolve_workflow_uuid(
     workflow_ref: str,
     *,
     include_archived: bool = True,
+    tenant_id: str | None = None,
 ) -> UUID:
     workflow_id = await _resolve_workflow_id(
         repository,
         workflow_ref,
         include_archived=include_archived,
+        tenant_id=tenant_id,
     )
     return UUID(workflow_id)
 
@@ -347,10 +352,14 @@ async def get_public_workflow(
 @router.get("/workflows", response_model=list[WorkflowListItem])
 async def list_workflows(
     repository: RepositoryDep,
+    tenant: TenantContextDep,
     include_archived: bool = False,
 ) -> list[WorkflowListItem]:
     """Return workflows with latest-version and schedule summaries."""
-    workflows = await repository.list_workflows(include_archived=include_archived)
+    workflows = await repository.list_workflows(
+        include_archived=include_archived,
+        tenant_id=str(tenant.tenant_id),
+    )
     public_base_url = _resolve_chatkit_public_base_url()
     return await asyncio.gather(
         *[
@@ -368,6 +377,7 @@ async def list_workflows(
 async def create_workflow(
     request: WorkflowCreateRequest,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> Workflow:
     """Create a new workflow entry."""
@@ -384,6 +394,7 @@ async def create_workflow(
             "tags": tags,
             "draft_access": draft_access,
             "actor": actor,
+            "tenant_id": str(tenant.tenant_id),
         }
         if request.handle is not None:
             create_kwargs["handle"] = request.handle
@@ -402,11 +413,13 @@ async def create_workflow(
 async def get_workflow(
     workflow_ref: str,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
 ) -> Workflow:
     """Fetch a single workflow by its identifier."""
-    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    tid = str(tenant.tenant_id)
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref, tenant_id=tid)
     try:
-        workflow = await repository.get_workflow(workflow_id)
+        workflow = await repository.get_workflow(workflow_id, tenant_id=tid)
         return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
@@ -416,12 +429,14 @@ async def get_workflow(
 async def get_workflow_canvas(
     workflow_ref: str,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
 ) -> WorkflowCanvasPayload:
     """Fetch workflow metadata and compact version summaries for Canvas open."""
-    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    tid = str(tenant.tenant_id)
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref, tenant_id=tid)
     try:
         workflow, versions = await asyncio.gather(
-            repository.get_workflow(workflow_id),
+            repository.get_workflow(workflow_id, tenant_id=tid),
             repository.list_versions(workflow_id),
         )
         return WorkflowCanvasPayload(
@@ -437,17 +452,22 @@ async def update_workflow(
     workflow_ref: str,
     request: WorkflowUpdateRequest,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> Workflow:
     """Update attributes of an existing workflow."""
-    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    tid = str(tenant.tenant_id)
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref, tenant_id=tid)
     context = _resolve_authenticated_context(policy)
     actor = _resolve_actor(request.actor, context)
     tags = _append_workspace_tags(request.tags, context, preserve_none=True)
     draft_access_tags = tags
     if request.draft_access is not None and draft_access_tags is None:
         try:
-            existing_workflow = await repository.get_workflow(workflow_id)
+            existing_workflow = await repository.get_workflow(
+                workflow_id,
+                tenant_id=tid,
+            )
         except WorkflowNotFoundError as exc:
             raise_not_found("Workflow not found", exc)
         draft_access_tags = existing_workflow.tags
@@ -487,11 +507,13 @@ async def update_workflow(
 async def archive_workflow(
     workflow_ref: str,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
     actor: str = Query("system"),
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> Workflow:
     """Archive a workflow via the delete verb."""
-    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    tid = str(tenant.tenant_id)
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref, tenant_id=tid)
     context = _resolve_authenticated_context(policy)
     resolved_actor = _resolve_actor(actor, context)
 
@@ -511,9 +533,11 @@ async def ingest_workflow_version(
     workflow_ref: str,
     request: WorkflowVersionIngestRequest,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
 ) -> WorkflowVersion:
     """Create a workflow version from a LangGraph Python script."""
-    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    tid = str(tenant.tenant_id)
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref, tenant_id=tid)
     required_plugins = _required_plugins_from_metadata(request.metadata)
     missing_plugins = missing_required_plugins(required_plugins)
     if missing_plugins:
@@ -560,9 +584,11 @@ async def update_workflow_version_runnable_config(
     version_number: int,
     request: WorkflowVersionRunnableConfigUpdateRequest,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
 ) -> WorkflowVersion:
     """Update runnable config for an existing workflow version."""
-    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    tid = str(tenant.tenant_id)
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref, tenant_id=tid)
     try:
         version = await repository.update_version_runnable_config(
             workflow_id,
@@ -584,9 +610,11 @@ async def update_workflow_version_runnable_config(
 async def list_workflow_versions(
     workflow_ref: str,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
 ) -> list[WorkflowVersion]:
     """Return the versions associated with a workflow."""
-    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    tid = str(tenant.tenant_id)
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref, tenant_id=tid)
     try:
         versions = await repository.list_versions(workflow_id)
         return _attach_mermaid_many(versions)
@@ -602,9 +630,11 @@ async def get_workflow_version(
     workflow_ref: str,
     version_number: int,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
 ) -> WorkflowVersion:
     """Return a specific workflow version by number."""
-    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    tid = str(tenant.tenant_id)
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref, tenant_id=tid)
     try:
         version = await repository.get_version_by_number(workflow_id, version_number)
         return _attach_mermaid(version)
@@ -623,9 +653,11 @@ async def diff_workflow_versions(
     base_version: int,
     target_version: int,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
 ) -> WorkflowVersionDiffResponse:
     """Generate a diff between two workflow versions."""
-    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    tid = str(tenant.tenant_id)
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref, tenant_id=tid)
     try:
         diff = await repository.diff_versions(workflow_id, base_version, target_version)
         return WorkflowVersionDiffResponse(
@@ -660,10 +692,12 @@ async def publish_workflow(
     workflow_ref: str,
     request: WorkflowPublishRequest,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> WorkflowPublishResponse:
     """Publish a workflow and expose it for ChatKit access."""
-    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    tid = str(tenant.tenant_id)
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref, tenant_id=tid)
     context = _resolve_authenticated_context(policy)
     actor = _resolve_actor(request.actor, context)
 
@@ -704,10 +738,12 @@ async def revoke_workflow_publish(
     workflow_ref: str,
     request: WorkflowPublishRevokeRequest,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
 ) -> Workflow:
     """Revoke public access to the workflow."""
-    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    tid = str(tenant.tenant_id)
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref, tenant_id=tid)
     context = _resolve_authenticated_context(policy)
     actor = _resolve_actor(request.actor, context)
 
@@ -906,11 +942,13 @@ def _append_workspace_tags(
 async def create_workflow_chatkit_session(
     workflow_ref: str,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
     issuer: ChatKitSessionTokenIssuer = Depends(resolve_chatkit_token_issuer),  # noqa: B008
 ) -> ChatKitSessionResponse:
     """Issue a ChatKit JWT scoped to the workflow for authenticated Canvas users."""
-    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    tid = str(tenant.tenant_id)
+    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref, tenant_id=tid)
     auth_enforced = load_auth_settings().enforce
     context = policy.context
     if auth_enforced:
@@ -918,7 +956,7 @@ async def create_workflow_chatkit_session(
         policy.require_scopes("workflows:read", "workflows:execute")
 
     try:
-        workflow = await repository.get_workflow(workflow_id)
+        workflow = await repository.get_workflow(workflow_id, tenant_id=tid)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
     if workflow.is_archived:

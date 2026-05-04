@@ -28,11 +28,13 @@ class InMemoryRepositoryState:
         """Initialize the repository state containers and dependencies."""
         self._lock = asyncio.Lock()
         self._workflows: dict[UUID, Workflow] = {}
+        self._workflow_tenants: dict[UUID, str] = {}
         self._active_workflow_handles: dict[str, UUID] = {}
         self._archived_workflow_handles: dict[str, list[UUID]] = {}
         self._workflow_versions: dict[UUID, list[UUID]] = {}
         self._versions: dict[UUID, WorkflowVersion] = {}
         self._runs: dict[UUID, WorkflowRun] = {}
+        self._run_tenants: dict[UUID, str] = {}
         self._version_runs: dict[UUID, list[UUID]] = {}
         self._listener_subscriptions: dict[UUID, ListenerSubscription] = {}
         self._workflow_listener_subscriptions: dict[UUID, list[UUID]] = {}
@@ -45,11 +47,13 @@ class InMemoryRepositoryState:
         """Clear all stored workflows, versions, and runs."""
         async with self._lock:
             self._workflows.clear()
+            self._workflow_tenants.clear()
             self._active_workflow_handles.clear()
             self._archived_workflow_handles.clear()
             self._workflow_versions.clear()
             self._versions.clear()
             self._runs.clear()
+            self._run_tenants.clear()
             self._version_runs.clear()
             self._listener_subscriptions.clear()
             self._workflow_listener_subscriptions.clear()
@@ -77,6 +81,7 @@ class InMemoryRepositoryState:
         input_payload: Mapping[str, Any],
         actor: str | None = None,
         runnable_config: Mapping[str, Any] | None = None,
+        tenant_id: str | None = None,
     ) -> WorkflowRun:
         """Create and store a workflow run. Caller must hold the lock."""
         if workflow_id not in self._workflows:  # pragma: no cover, defensive
@@ -130,6 +135,8 @@ class InMemoryRepositoryState:
         )
         run.record_event(actor=actor or triggered_by, action="run_created")
         self._runs[run.id] = run
+        if tenant_id is not None:
+            self._run_tenants[run.id] = tenant_id
         self._version_runs.setdefault(workflow_version_id, []).append(run.id)
         self._trigger_layer.track_run(workflow_id, run.id)
         if triggered_by == "cron":
@@ -199,11 +206,12 @@ class InMemoryRepositoryState:
                 msg = f"Workflow handle '{handle}' is already in use."
                 raise WorkflowHandleConflictError(msg)
 
-    async def resolve_workflow_ref(
+    async def resolve_workflow_ref(  # noqa: C901
         self,
         workflow_ref: str,
         *,
         include_archived: bool = True,
+        tenant_id: str | None = None,
     ) -> UUID:
         """Resolve a user-facing workflow ref to a canonical UUID."""
         normalized_ref = workflow_ref.strip().lower()
@@ -211,18 +219,27 @@ class InMemoryRepositoryState:
             raise WorkflowNotFoundError("workflow ref is empty")
 
         async with self._lock:
+
+            def _tenant_matches(wf_id: UUID) -> bool:
+                if tenant_id is None:
+                    return True
+                stored = self._workflow_tenants.get(wf_id)
+                return stored is None or stored == tenant_id
+
             active_match = self._active_workflow_handles.get(normalized_ref)
-            if active_match is not None:
+            if active_match is not None and _tenant_matches(active_match):
                 return active_match
 
             if include_archived:
                 archived_matches = self._archived_workflow_handles.get(normalized_ref)
                 if archived_matches:
-                    return archived_matches[0]
+                    for wf_id in archived_matches:
+                        if _tenant_matches(wf_id):
+                            return wf_id
 
             if workflow_ref_is_uuid(normalized_ref):
                 workflow_uuid = UUID(normalized_ref)
-                if workflow_uuid in self._workflows:
+                if workflow_uuid in self._workflows and _tenant_matches(workflow_uuid):
                     return workflow_uuid
 
         raise WorkflowNotFoundError(normalized_ref)

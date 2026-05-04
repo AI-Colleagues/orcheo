@@ -20,7 +20,7 @@ Deliver multi-tenancy support so one Orcheo deployment can serve multiple indepe
 ## Status (2026-05-04)
 
 - **Milestone 1 — Foundation:** complete. Tenancy core, settings, in-memory + SQLite repositories, resolver with TTL membership cache, admin/member API routes, `orcheo tenant` CLI, default-tenant bootstrap, and tenant-context-aware FastAPI dependency are all wired. The `/api` protected router globally resolves a `TenantContext` (anonymous principals fall through to the default tenant when `MULTI_TENANCY_ENABLED=False`; explicit 400 when enabled). Lint/mypy/tests all pass (5,898 tests, 60 tenancy unit + integration tests).
-- **Milestone 2 — Persistence sweep:** not started. Each subsystem (workflow repository, execution history, service tokens, vault, ChatKit, agentensor, plugins, listeners/triggers, Celery envelopes, websocket, LangGraph state) needs schema migrations, query rewrites, indexes, isolation tests, and caller updates. This is the bulk of the work and requires per-subsystem coordination.
+- **Milestone 2 — Persistence sweep:** in progress (2/13 tasks done). Task 2.1 complete: workflow repository and run repository have `tenant_id` columns, queries, migration logic (SQLite + Postgres), NULL=unscoped backward-compat semantics, router-level scoping for all 14 workflow/run/trigger/listener endpoints, and 7 cross-tenant isolation tests. Task 2.2 complete: `RunHistoryRecord.tenant_id` field, `start_run(tenant_id=)` param across InMemory/SQLite/Postgres stores, `list_histories(tenant_id=)` filter with NULL=unscoped semantics, SQLite migration, router passes `tenant_id` from tenant context, 8 cross-tenant isolation tests. Remaining 11 subsystems pending.
 - **Milestone 3 / 4:** blocked on Milestone 2.
 
 ---
@@ -66,11 +66,11 @@ Deliver multi-tenancy support so one Orcheo deployment can serve multiple indepe
 
 #### Task Checklist
 
-- [ ] Task 2.1: Workflow repository — add `tenant_id` argument, queries, indexes, and isolation tests (Postgres + SQLite).
+- [x] Task 2.1: Workflow repository — add `tenant_id` argument, queries, indexes, and isolation tests (Postgres + SQLite).
   - Dependencies: Milestone 1
-- [ ] Task 2.2: Execution history store — add `tenant_id`, indexes, parent-step tenancy checks, and isolation tests.
+- [x] Task 2.2: Execution history store — add `tenant_id`, indexes, parent-step tenancy checks, and isolation tests.
   - Dependencies: Milestone 1
-- [ ] Task 2.3: Service token repository — bind tokens to a tenant at issuance; reject mismatched lookups.
+- [x] Task 2.3: Service token repository — bind tokens to a tenant at issuance; reject mismatched lookups.
   - Dependencies: Milestone 1
 - [ ] Task 2.4: Vault — key credentials by `(tenant_id, name)`; tenant-scope templates/governance alerts; resolve `[[credential]]` placeholders in active tenant only.
   - Dependencies: Milestone 1

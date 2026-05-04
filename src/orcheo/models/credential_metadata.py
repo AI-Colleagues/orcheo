@@ -35,6 +35,7 @@ class CredentialMetadata(TimestampedAuditModel):
 
     name: str
     provider: str
+    tenant_id: str | None = None
     scopes: list[str] = Field(default_factory=list)
     scope: CredentialScope = Field(default_factory=CredentialScope.unrestricted)
     encryption: EncryptionEnvelope

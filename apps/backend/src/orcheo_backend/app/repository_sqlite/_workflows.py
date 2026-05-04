@@ -12,6 +12,7 @@ from orcheo.models.workflow import (
     WorkflowDraftAccess,
 )
 from orcheo.models.workflow_refs import normalize_workflow_handle
+from orcheo.tenancy.scoping import ensure_tenant_id
 from orcheo_backend.app.repository.chatkit import (
     apply_chatkit_start_screen_prompts_update,
     apply_chatkit_supported_models_update,
@@ -52,13 +53,27 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
         if isawaitable(result):
             await result
 
-    async def list_workflows(self, *, include_archived: bool = False) -> list[Workflow]:
+    async def list_workflows(
+        self,
+        *,
+        include_archived: bool = False,
+        tenant_id: str | None = None,
+    ) -> list[Workflow]:
         await self._ensure_initialized()
         async with self._lock:
             async with self._connection() as conn:
-                cursor = await conn.execute(
-                    "SELECT payload FROM workflows ORDER BY created_at ASC"
-                )
+                if tenant_id is not None:
+                    tid = ensure_tenant_id(tenant_id)
+                    cursor = await conn.execute(
+                        "SELECT payload FROM workflows"
+                        " WHERE (tenant_id = ? OR tenant_id IS NULL)"
+                        " ORDER BY created_at ASC",
+                        (tid,),
+                    )
+                else:
+                    cursor = await conn.execute(
+                        "SELECT payload FROM workflows ORDER BY created_at ASC"
+                    )
                 rows = await cursor.fetchall()
             workflows = [
                 self._deserialize_workflow(row["payload"]).model_copy(deep=True)
@@ -78,6 +93,7 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
         tags: Iterable[str] | None,
         draft_access: WorkflowDraftAccess,
         actor: str,
+        tenant_id: str | None = None,
     ) -> Workflow:
         await self._ensure_initialized()
         normalized_handle = normalize_workflow_handle(handle)
@@ -96,6 +112,7 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
                 draft_access=draft_access,
             )
             workflow.record_event(actor=actor, action="workflow_created")
+            tid = ensure_tenant_id(tenant_id) if tenant_id is not None else None
             async with self._connection() as conn:
                 await conn.execute(
                     """
@@ -105,9 +122,10 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
                         is_archived,
                         payload,
                         created_at,
-                        updated_at
+                        updated_at,
+                        tenant_id
                     )
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         str(workflow.id),
@@ -116,27 +134,62 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
                         self._dump_model(workflow),
                         workflow.created_at.isoformat(),
                         workflow.updated_at.isoformat(),
+                        tid,
                     ),
                 )
             return workflow.model_copy(deep=True)
 
-    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+    async def get_workflow(
+        self,
+        workflow_id: UUID,
+        *,
+        tenant_id: str | None = None,
+    ) -> Workflow:
         await self._ensure_initialized()
         async with self._lock:
-            return await self._get_workflow_locked(workflow_id)
+            workflow = await self._get_workflow_locked(workflow_id)
+            if tenant_id is not None:
+                tid = ensure_tenant_id(tenant_id)
+                row_tid = await self._get_workflow_tenant_id_locked(workflow_id)
+                if row_tid is not None and row_tid != tid:
+                    raise WorkflowNotFoundError(str(workflow_id))
+            return workflow
+
+    async def _get_workflow_tenant_id_locked(self, workflow_id: UUID) -> str | None:
+        """Return the tenant_id column for a workflow row."""
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                "SELECT tenant_id FROM workflows WHERE id = ?",
+                (str(workflow_id),),
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        return row["tenant_id"]
 
     async def resolve_workflow_ref(
         self,
         workflow_ref: str,
         *,
         include_archived: bool = True,
+        tenant_id: str | None = None,
     ) -> UUID:
         await self._ensure_initialized()
         async with self._lock:
-            return await self._resolve_workflow_ref_locked(
+            workflow_id = await self._resolve_workflow_ref_locked(
                 workflow_ref,
                 include_archived=include_archived,
             )
+            if tenant_id is not None:
+                tid = ensure_tenant_id(tenant_id)
+                row_tid = await self._get_workflow_tenant_id_locked(workflow_id)
+                if row_tid is not None and row_tid != tid:
+                    from orcheo_backend.app.repository.errors import (
+                        WorkflowNotFoundError,
+                    )
+
+                    raise WorkflowNotFoundError(workflow_ref)
+            return workflow_id
 
     async def update_workflow(
         self,

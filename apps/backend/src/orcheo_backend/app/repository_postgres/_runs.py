@@ -5,7 +5,10 @@ from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import WorkflowRun
-from orcheo_backend.app.repository import WorkflowNotFoundError
+from orcheo_backend.app.repository import (
+    WorkflowNotFoundError,
+    WorkflowRunNotFoundError,
+)
 from orcheo_backend.app.repository_postgres._persistence import PostgresPersistenceMixin
 
 
@@ -21,6 +24,7 @@ class WorkflowRunMixin(PostgresPersistenceMixin):
         input_payload: dict[str, Any],
         actor: str | None = None,
         runnable_config: dict[str, Any] | None = None,
+        tenant_id: str | None = None,
     ) -> WorkflowRun:
         await self._ensure_initialized()
         async with self._lock:
@@ -35,22 +39,37 @@ class WorkflowRunMixin(PostgresPersistenceMixin):
                 input_payload=input_payload,
                 actor=actor,
                 runnable_config=runnable_config,
+                tenant_id=tenant_id,
             )
             return run.model_copy(deep=True)
 
     async def list_runs_for_workflow(
-        self, workflow_id: UUID, *, limit: int | None = None
+        self,
+        workflow_id: UUID,
+        *,
+        limit: int | None = None,
+        tenant_id: str | None = None,
     ) -> list[WorkflowRun]:
         await self._ensure_initialized()
         async with self._lock:
             await self._get_workflow_locked(workflow_id)
-            query = """
-                SELECT payload
-                  FROM workflow_runs
-                 WHERE workflow_id = %s
-              ORDER BY created_at DESC
-            """
-            params: list[Any] = [str(workflow_id)]
+            if tenant_id is not None:
+                query = """
+                    SELECT payload
+                      FROM workflow_runs
+                     WHERE workflow_id = %s
+                       AND (tenant_id = %s OR tenant_id IS NULL)
+                  ORDER BY created_at DESC
+                """
+                params: list[Any] = [str(workflow_id), tenant_id]
+            else:
+                query = """
+                    SELECT payload
+                      FROM workflow_runs
+                     WHERE workflow_id = %s
+                  ORDER BY created_at DESC
+                """
+                params = [str(workflow_id)]
             if limit is not None:
                 query += " LIMIT %s"
                 params.append(limit)
@@ -67,10 +86,32 @@ class WorkflowRunMixin(PostgresPersistenceMixin):
                 result.append(run.model_copy(deep=True))
             return result
 
-    async def get_run(self, run_id: UUID) -> WorkflowRun:
+    async def get_run(
+        self,
+        run_id: UUID,
+        *,
+        tenant_id: str | None = None,
+    ) -> WorkflowRun:
         await self._ensure_initialized()
         async with self._lock:
-            return await self._get_run_locked(run_id)
+            run = await self._get_run_locked(run_id)
+            if tenant_id is not None:
+                row_tid = await self._get_run_tenant_id_locked(run_id)
+                if row_tid is not None and row_tid != tenant_id:
+                    raise WorkflowRunNotFoundError(str(run_id))
+            return run
+
+    async def _get_run_tenant_id_locked(self, run_id: UUID) -> str | None:
+        """Return the tenant_id column for a workflow_run row (Postgres)."""
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                "SELECT tenant_id FROM workflow_runs WHERE id = %s",
+                (str(run_id),),
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        return row["tenant_id"]
 
     async def mark_run_started(self, run_id: UUID, *, actor: str) -> WorkflowRun:
         return await self._update_run(run_id, lambda run: run.mark_started(actor=actor))

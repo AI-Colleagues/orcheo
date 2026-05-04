@@ -54,7 +54,8 @@ async def test_create_service_token_success(admin_policy):
         mock_manager.mint.return_value = (mock_secret, mock_record)
         mock_get_manager.return_value = mock_manager
 
-        response = await create_service_token(request, admin_policy)
+        tenant = _make_tenant_context()
+        response = await create_service_token(request, admin_policy, tenant)
 
         assert response.identifier == "my-token"
         assert response.secret == mock_secret
@@ -64,6 +65,7 @@ async def test_create_service_token_success(admin_policy):
             scopes=["read", "write"],
             workspace_ids=["ws-1"],
             expires_in=3600,
+            tenant_id=str(tenant.tenant_id),
         )
 
 
@@ -87,7 +89,8 @@ async def test_create_service_token_with_default_values(admin_policy):
         mock_manager.mint.return_value = (mock_secret, mock_record)
         mock_get_manager.return_value = mock_manager
 
-        response = await create_service_token(request, admin_policy)
+        tenant = _make_tenant_context()
+        response = await create_service_token(request, admin_policy, tenant)
 
         assert response.identifier == "auto-generated-id"
         assert response.secret == mock_secret
@@ -96,6 +99,7 @@ async def test_create_service_token_with_default_values(admin_policy):
             scopes=[],
             workspace_ids=[],
             expires_in=None,
+            tenant_id=str(tenant.tenant_id),
         )
 
 
@@ -104,10 +108,11 @@ async def test_create_service_token_without_authentication():
     """Anonymous users should be rejected."""
     anonymous_context = RequestContext.anonymous()
     policy = AuthorizationPolicy(anonymous_context)
+    tenant = _make_tenant_context()
     request = CreateServiceTokenRequest()
 
     with pytest.raises(AuthenticationError):
-        await create_service_token(request, policy)
+        await create_service_token(request, policy, tenant)
 
 
 @pytest.mark.asyncio
@@ -119,7 +124,8 @@ async def test_create_service_token_without_required_scope():
         scopes=frozenset(["read"]),
     )
     policy = AuthorizationPolicy(context)
+    tenant = _make_tenant_context()
     request = CreateServiceTokenRequest()
 
     with pytest.raises(AuthorizationError):
-        await create_service_token(request, policy)
+        await create_service_token(request, policy, tenant)

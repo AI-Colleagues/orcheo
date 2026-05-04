@@ -173,6 +173,7 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
         input_payload: Mapping[str, Any],
         actor: str | None,
         runnable_config: Mapping[str, Any] | None = None,
+        tenant_id: str | None = None,
     ) -> WorkflowRun:
         version = await self._get_version_locked(workflow_version_id)
         if version.workflow_id != workflow_id:
@@ -233,9 +234,10 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
                     triggered_by,
                     payload,
                     created_at,
-                    updated_at
+                    updated_at,
+                    tenant_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(run.id),
@@ -246,6 +248,7 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
                     self._dump_model(run),
                     run.created_at.isoformat(),
                     run.updated_at.isoformat(),
+                    tenant_id,
                 ),
             )
 

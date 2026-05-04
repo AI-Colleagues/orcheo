@@ -1,6 +1,7 @@
 """Tests for workflow router helper utilities."""
 
 from __future__ import annotations
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
@@ -71,10 +72,13 @@ class _MissingWorkflowRepository:
         workflow_ref: str,
         *,
         include_archived: bool = True,
+        tenant_id: str | None = None,
     ) -> UUID:  # pragma: no cover - stub
         return self._workflow_id
 
-    async def get_workflow(self, workflow_id: UUID) -> None:  # pragma: no cover - stub
+    async def get_workflow(
+        self, workflow_id: UUID, *, tenant_id=None
+    ) -> None:  # pragma: no cover - stub
         raise WorkflowNotFoundError(str(workflow_id))
 
     async def list_versions(
@@ -83,12 +87,15 @@ class _MissingWorkflowRepository:
         return []
 
 
+_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+
+
 @pytest.mark.asyncio()
 async def test_get_workflow_canvas_returns_not_found_when_missing() -> None:
     repository = _MissingWorkflowRepository()
 
     with pytest.raises(HTTPException) as exc_info:
-        await get_workflow_canvas("canvas-flow", repository)
+        await get_workflow_canvas("canvas-flow", repository, _MOCK_TENANT)
 
     assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "Workflow not found"

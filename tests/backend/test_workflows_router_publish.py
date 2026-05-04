@@ -1,6 +1,7 @@
 """Additional coverage for workflows publish router helpers."""
 
 from __future__ import annotations
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
@@ -18,7 +19,11 @@ from orcheo_backend.app.schemas.workflows import (
 
 class _MissingPublishRepo:
     async def resolve_workflow_ref(
-        self, workflow_ref: str, *, include_archived: bool = True
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+        tenant_id: str | None = None,
     ) -> UUID:
         del include_archived
         raise WorkflowNotFoundError(str(workflow_ref))
@@ -29,7 +34,11 @@ class _MissingPublishRepo:
 
 class _InvalidPublishRepo:
     async def resolve_workflow_ref(
-        self, workflow_ref: str, *, include_archived: bool = True
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+        tenant_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
@@ -40,7 +49,11 @@ class _InvalidPublishRepo:
 
 class _InvalidRevokeRepo:
     async def resolve_workflow_ref(
-        self, workflow_ref: str, *, include_archived: bool = True
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+        tenant_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
@@ -51,7 +64,11 @@ class _InvalidRevokeRepo:
 
 class _MissingRevokeRepo:
     async def resolve_workflow_ref(
-        self, workflow_ref: str, *, include_archived: bool = True
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+        tenant_id: str | None = None,
     ) -> UUID:
         del include_archived
         raise WorkflowNotFoundError(str(workflow_ref))
@@ -65,13 +82,20 @@ class _RevokeRepo:
         self.workflow = Workflow(name="Audit")
 
     async def resolve_workflow_ref(
-        self, workflow_ref: str, *, include_archived: bool = True
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+        tenant_id: str | None = None,
     ) -> UUID:
         del workflow_ref, include_archived
         return self.workflow.id
 
     async def revoke_publish(self, workflow_id: UUID, **kwargs: object) -> Workflow:
         return self.workflow
+
+
+_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
 
 
 def test_publish_response_uses_message_helper() -> None:
@@ -92,6 +116,7 @@ async def test_publish_workflow_raises_not_found() -> None:
             str(uuid4()),
             request,
             _MissingPublishRepo(),
+            _MOCK_TENANT,
         )
 
     assert excinfo.value.status_code == 404
@@ -106,6 +131,7 @@ async def test_publish_workflow_translates_state_errors() -> None:
             str(uuid4()),
             request,
             _InvalidPublishRepo(),
+            _MOCK_TENANT,
         )
 
     assert excinfo.value.status_code == 409
@@ -120,6 +146,7 @@ async def test_revoke_publish_translates_state_errors() -> None:
             str(uuid4()),
             request,
             _InvalidRevokeRepo(),
+            _MOCK_TENANT,
         )
 
     assert excinfo.value.status_code == 409
@@ -134,6 +161,7 @@ async def test_revoke_publish_not_found() -> None:
             str(uuid4()),
             request,
             _MissingRevokeRepo(),
+            _MOCK_TENANT,
         )
 
     assert excinfo.value.status_code == 404
@@ -156,6 +184,7 @@ async def test_revoke_publish_logs_without_previous_token(
         str(repo.workflow.id),
         request,
         repo,
+        _MOCK_TENANT,
     )
 
     assert result is repo.workflow

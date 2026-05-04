@@ -140,7 +140,8 @@ class SqliteRepositoryBase:
                         is_archived INTEGER NOT NULL DEFAULT 0,
                         payload TEXT NOT NULL,
                         created_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL
+                        updated_at TEXT NOT NULL,
+                        tenant_id TEXT
                     );
                     CREATE TABLE IF NOT EXISTS workflow_versions (
                         id TEXT PRIMARY KEY,
@@ -161,7 +162,8 @@ class SqliteRepositoryBase:
                         triggered_by TEXT NOT NULL,
                         payload TEXT NOT NULL,
                         created_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL
+                        updated_at TEXT NOT NULL,
+                        tenant_id TEXT
                     );
                     CREATE INDEX IF NOT EXISTS idx_runs_workflow
                         ON workflow_runs(workflow_id);
@@ -244,6 +246,8 @@ class SqliteRepositoryBase:
                 "ALTER TABLE workflows "
                 "ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0"
             )
+        if "tenant_id" not in existing_columns:
+            await conn.execute("ALTER TABLE workflows ADD COLUMN tenant_id TEXT")
 
         cursor = await conn.execute("SELECT id, payload FROM workflows")
         workflow_rows = await cursor.fetchall()
@@ -263,6 +267,20 @@ class SqliteRepositoryBase:
                 ),
             )
 
+        # Add tenant_id to workflow_runs if table exists and column is missing
+        cursor = await conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='workflow_runs'"
+        )
+        runs_table_exists = await cursor.fetchone() is not None
+        if runs_table_exists:
+            cursor = await conn.execute("PRAGMA table_info(workflow_runs)")
+            runs_rows = await cursor.fetchall()
+            runs_columns = {row["name"] for row in runs_rows}
+            if "tenant_id" not in runs_columns:
+                await conn.execute(
+                    "ALTER TABLE workflow_runs ADD COLUMN tenant_id TEXT"
+                )
+
         # Create indexes after columns are guaranteed to exist
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_workflows_handle ON workflows(handle)"
@@ -272,6 +290,14 @@ class SqliteRepositoryBase:
             " ON workflows(handle)"
             " WHERE is_archived = 0 AND handle IS NOT NULL"
         )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_workflows_tenant_id ON workflows(tenant_id)"
+        )
+        if runs_table_exists:
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_runs_tenant_id"
+                " ON workflow_runs(tenant_id)"
+            )
 
     async def _hydrate_trigger_state(self) -> None:
         async with self._connection() as conn:

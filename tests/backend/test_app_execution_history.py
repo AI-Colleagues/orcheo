@@ -1,6 +1,7 @@
 """Tests for workflow execution history endpoints."""
 
 from __future__ import annotations
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
@@ -11,12 +12,16 @@ from orcheo_backend.app.history import RunHistoryNotFoundError, RunHistoryRecord
 from orcheo_backend.app.schemas.runs import RunReplayRequest
 
 
+_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+
+
 class _Repository:
     async def resolve_workflow_ref(
         self,
         workflow_ref: str,
         *,
         include_archived: bool = True,
+        tenant_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
@@ -30,7 +35,9 @@ async def test_list_workflow_execution_histories_returns_records() -> None:
     execution_id_2 = str(uuid4())
 
     class HistoryStore:
-        async def list_histories(self, workflow_id: str, limit: int):
+        async def list_histories(
+            self, workflow_id: str, *, limit: int, tenant_id: str | None = None
+        ):
             return [
                 RunHistoryRecord(
                     workflow_id=workflow_id,
@@ -48,6 +55,7 @@ async def test_list_workflow_execution_histories_returns_records() -> None:
         workflow_ref=str(workflow_id),
         history_store=HistoryStore(),
         repository=_Repository(),
+        tenant=_MOCK_TENANT,
         limit=50,
     )
 
@@ -65,7 +73,9 @@ async def test_list_workflow_execution_histories_respects_limit() -> None:
     limit_value = None
 
     class HistoryStore:
-        async def list_histories(self, workflow_id: str, limit: int):
+        async def list_histories(
+            self, workflow_id: str, *, limit: int, tenant_id: str | None = None
+        ):
             nonlocal limit_value
             limit_value = limit
             return []
@@ -74,6 +84,7 @@ async def test_list_workflow_execution_histories_respects_limit() -> None:
         workflow_ref=str(workflow_id),
         history_store=HistoryStore(),
         repository=_Repository(),
+        tenant=_MOCK_TENANT,
         limit=100,
     )
 

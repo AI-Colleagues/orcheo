@@ -39,8 +39,17 @@ class VersionDiff:
 class WorkflowRepository(Protocol):
     """Protocol describing workflow repository behaviour."""
 
-    async def list_workflows(self, *, include_archived: bool = False) -> list[Workflow]:
-        """Return workflows stored within the repository."""
+    async def list_workflows(
+        self,
+        *,
+        include_archived: bool = False,
+        tenant_id: str | None = None,
+    ) -> list[Workflow]:
+        """Return workflows stored within the repository.
+
+        When *tenant_id* is provided only workflows belonging to that tenant
+        are returned; omitting it returns all workflows (single-tenant mode).
+        """
 
     async def create_workflow(
         self,
@@ -52,19 +61,34 @@ class WorkflowRepository(Protocol):
         tags: Iterable[str] | None,
         draft_access: WorkflowDraftAccess,
         actor: str,
+        tenant_id: str | None = None,
     ) -> Workflow:
         """Persist and return a new workflow definition."""
 
-    async def get_workflow(self, workflow_id: UUID) -> Workflow:
-        """Return a single workflow by identifier."""
+    async def get_workflow(
+        self,
+        workflow_id: UUID,
+        *,
+        tenant_id: str | None = None,
+    ) -> Workflow:
+        """Return a single workflow by identifier.
+
+        When *tenant_id* is provided the workflow is only returned when it
+        belongs to that tenant; otherwise WorkflowNotFoundError is raised.
+        """
 
     async def resolve_workflow_ref(
         self,
         workflow_ref: str,
         *,
         include_archived: bool = True,
+        tenant_id: str | None = None,
     ) -> UUID:
-        """Resolve a user-facing workflow ref to the canonical UUID."""
+        """Resolve a user-facing workflow ref to the canonical UUID.
+
+        When *tenant_id* is provided resolution is limited to that tenant's
+        workflows.
+        """
 
     async def update_workflow(
         self,
@@ -149,20 +173,35 @@ class WorkflowRepository(Protocol):
         input_payload: dict[str, Any],
         actor: str | None = None,
         runnable_config: dict[str, Any] | None = None,
+        tenant_id: str | None = None,
     ) -> WorkflowRun:
         """Create a workflow run for the specified version."""
 
     async def list_runs_for_workflow(
-        self, workflow_id: UUID, *, limit: int | None = None
+        self,
+        workflow_id: UUID,
+        *,
+        limit: int | None = None,
+        tenant_id: str | None = None,
     ) -> list[WorkflowRun]:
         """Return runs associated with the given workflow.
 
         Results are ordered most-recent-first.  When *limit* is given only the
-        most recent *limit* runs are returned.
+        most recent *limit* runs are returned.  When *tenant_id* is provided
+        results are limited to that tenant.
         """
 
-    async def get_run(self, run_id: UUID) -> WorkflowRun:
-        """Return a workflow run by identifier."""
+    async def get_run(
+        self,
+        run_id: UUID,
+        *,
+        tenant_id: str | None = None,
+    ) -> WorkflowRun:
+        """Return a workflow run by identifier.
+
+        When *tenant_id* is provided the run is only returned when it belongs
+        to that tenant; otherwise WorkflowRunNotFoundError is raised.
+        """
 
     async def mark_run_started(self, run_id: UUID, *, actor: str) -> WorkflowRun:
         """Transition a run into the running state."""

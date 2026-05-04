@@ -47,6 +47,7 @@ class _Repository:
         workflow_ref: str,
         *,
         include_archived: bool = True,
+        tenant_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))

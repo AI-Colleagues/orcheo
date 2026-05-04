@@ -15,7 +15,11 @@ class _WorkflowRepo:
         self.workflow = workflow
 
     async def resolve_workflow_ref(
-        self, workflow_ref: str, *, include_archived: bool = True
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+        tenant_id: str | None = None,
     ) -> UUID:
         del include_archived
         if UUID(str(workflow_ref)) != self.workflow.id:
@@ -30,7 +34,11 @@ class _WorkflowRepo:
 
 class _MissingWorkflowRepo:
     async def resolve_workflow_ref(
-        self, workflow_ref: str, *, include_archived: bool = True
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+        tenant_id: str | None = None,
     ) -> UUID:
         del include_archived
         raise WorkflowNotFoundError(str(workflow_ref))
@@ -43,7 +51,11 @@ class _MissingWorkflowRepo:
 async def test_get_public_workflow_not_found_after_resolution() -> None:
     class _ResolveThenMissRepo:
         async def resolve_workflow_ref(
-            self, workflow_ref: str, *, include_archived: bool = True
+            self,
+            workflow_ref: str,
+            *,
+            include_archived: bool = True,
+            tenant_id: str | None = None,
         ) -> UUID:
             del include_archived
             return UUID(str(workflow_ref))

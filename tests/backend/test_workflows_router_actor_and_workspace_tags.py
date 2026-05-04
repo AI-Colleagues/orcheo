@@ -15,6 +15,9 @@ from orcheo_backend.app.schemas.workflows import (
 )
 
 
+_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+
+
 class _Repository:
     def __init__(self) -> None:
         self.last_actor: str | None = None
@@ -25,11 +28,13 @@ class _Repository:
         self,
         *,
         name: str,
-        slug: str | None,
-        description: str | None,
-        tags: list[str] | None,
-        draft_access: WorkflowDraftAccess,
+        slug: str | None = None,
+        description: str | None = None,
+        tags: list[str] | None = None,
+        draft_access: WorkflowDraftAccess = WorkflowDraftAccess.PERSONAL,
         actor: str,
+        tenant_id: str | None = None,
+        handle: str | None = None,
     ) -> Workflow:
         self.last_actor = actor
         self.last_tags = list(tags or [])
@@ -46,12 +51,13 @@ class _Repository:
         self,
         workflow_id,
         *,
-        name: str | None,
-        description: str | None,
-        tags: list[str] | None,
-        draft_access: WorkflowDraftAccess | None,
-        is_archived: bool | None,
+        name: str | None = None,
+        description: str | None = None,
+        tags: list[str] | None = None,
+        draft_access: WorkflowDraftAccess | None = None,
+        is_archived: bool | None = None,
         actor: str,
+        **kwargs,
     ) -> Workflow:
         self.last_actor = actor
         self.last_tags = list(tags) if tags is not None else None
@@ -65,7 +71,9 @@ class _Repository:
             is_archived=bool(is_archived),
         )
 
-    async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+    async def resolve_workflow_ref(
+        self, workflow_ref, *, include_archived=True, tenant_id=None
+    ):
         del include_archived
         return UUID(str(workflow_ref))
 
@@ -76,13 +84,13 @@ class _RepositoryWithExistingWorkflow(_Repository):
         self._existing_workflow = workflow
         self.last_get_workflow_id: UUID | None = None
 
-    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+    async def get_workflow(self, workflow_id: UUID, *, tenant_id=None) -> Workflow:
         self.last_get_workflow_id = workflow_id
         return self._existing_workflow
 
 
 class _RepositoryMissingWorkflow(_Repository):
-    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+    async def get_workflow(self, workflow_id: UUID, *, tenant_id=None) -> Workflow:
         raise WorkflowNotFoundError(str(workflow_id))
 
 
@@ -110,7 +118,7 @@ async def test_create_workflow_uses_authenticated_subject_and_workspace_tags(
         )
     )
 
-    await workflows.create_workflow(request, repository, policy=policy)
+    await workflows.create_workflow(request, repository, _MOCK_TENANT, policy=policy)
 
     assert repository.last_actor == "auth0|user-123"
     assert repository.last_tags is not None
@@ -129,7 +137,7 @@ async def test_create_workflow_keeps_request_actor_when_context_unavailable() ->
         actor="cli",
     )
 
-    await workflows.create_workflow(request, repository)
+    await workflows.create_workflow(request, repository, _MOCK_TENANT)
 
     assert repository.last_actor == "cli"
     assert repository.last_tags == ["legacy"]
@@ -159,7 +167,7 @@ async def test_create_workflow_adds_workspace_tags_when_tags_missing(
         )
     )
 
-    await workflows.create_workflow(request, repository, policy=policy)
+    await workflows.create_workflow(request, repository, _MOCK_TENANT, policy=policy)
 
     assert repository.last_actor == "service-token-2"
     assert repository.last_tags == ["workspace:team-x"]
@@ -190,7 +198,7 @@ async def test_create_workflow_defaults_authenticated_users_to_authenticated_sco
         )
     )
 
-    await workflows.create_workflow(request, repository, policy=policy)
+    await workflows.create_workflow(request, repository, _MOCK_TENANT, policy=policy)
 
     assert repository.last_actor == "auth0|user-456"
     assert repository.last_tags == ["shared"]
@@ -220,7 +228,7 @@ async def test_create_workflow_normalizes_workspace_tag_casing(
         )
     )
 
-    await workflows.create_workflow(request, repository, policy=policy)
+    await workflows.create_workflow(request, repository, _MOCK_TENANT, policy=policy)
 
     assert repository.last_actor == "service-token-4"
     assert repository.last_tags == ["workspace:team-x"]
@@ -249,7 +257,7 @@ async def test_update_workflow_appends_workspace_tags_when_auth_enforced(
     )
 
     await workflows.update_workflow(
-        str(workflow.id), request, repository, policy=policy
+        str(workflow.id), request, repository, _MOCK_TENANT, policy=policy
     )
 
     assert repository.last_actor == "service-token-1"
@@ -309,7 +317,7 @@ async def test_update_workflow_preserves_none_tags_when_request_omits_tags(
     )
 
     await workflows.update_workflow(
-        str(workflow.id), request, repository, policy=policy
+        str(workflow.id), request, repository, _MOCK_TENANT, policy=policy
     )
 
     assert repository.last_actor == "service-token-3"
@@ -343,7 +351,9 @@ async def test_create_workflow_rejects_personal_scope_with_workspace_tags(
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await workflows.create_workflow(request, repository, policy=policy)
+        await workflows.create_workflow(
+            request, repository, _MOCK_TENANT, policy=policy
+        )
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail["code"] == "workflow.draft_access.conflict"
@@ -375,7 +385,9 @@ async def test_create_workflow_rejects_workspace_scope_without_workspace_tags(
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await workflows.create_workflow(request, repository, policy=policy)
+        await workflows.create_workflow(
+            request, repository, _MOCK_TENANT, policy=policy
+        )
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail["code"] == "workflow.draft_access.workspace_required"
@@ -406,7 +418,7 @@ async def test_update_workflow_does_not_recompute_draft_access_from_tag_changes(
     )
 
     await workflows.update_workflow(
-        str(workflow.id), request, repository, policy=policy
+        str(workflow.id), request, repository, _MOCK_TENANT, policy=policy
     )
 
     assert repository.last_tags == ["shared"]
@@ -445,6 +457,7 @@ async def test_update_workflow_reuses_existing_tags_for_draft_access_when_tags_m
         str(existing.id),
         request,
         repository,
+        _MOCK_TENANT,
         policy=policy,
     )
 
@@ -480,6 +493,7 @@ async def test_update_workflow_raises_not_found_when_existing_workflow_missing(
             str(uuid4()),
             request,
             repository,
+            _MOCK_TENANT,
             policy=policy,
         )
 

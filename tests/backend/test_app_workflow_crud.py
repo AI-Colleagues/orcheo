@@ -3,6 +3,7 @@
 from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import uuid4
 import pytest
 from fastapi import HTTPException
@@ -28,6 +29,9 @@ from orcheo_backend.app.schemas.workflows import (
 )
 
 
+_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+
+
 @pytest.mark.asyncio()
 async def test_list_workflows_returns_all() -> None:
     """List workflows endpoint returns all workflows."""
@@ -47,7 +51,9 @@ async def test_list_workflows_returns_all() -> None:
     )
 
     class Repository:
-        async def list_workflows(self, *, include_archived: bool = False):
+        async def list_workflows(
+            self, *, include_archived: bool = False, tenant_id=None
+        ):
             del include_archived
             return [workflow1, workflow2]
 
@@ -59,7 +65,7 @@ async def test_list_workflows_returns_all() -> None:
             del workflow_id
             raise CronTriggerNotFoundError("No cron trigger configured")
 
-    result = await list_workflows(Repository(), include_archived=False)
+    result = await list_workflows(Repository(), _MOCK_TENANT, include_archived=False)
 
     assert len(result) == 2
     assert result[0].id == workflow1.id
@@ -91,7 +97,9 @@ async def test_list_workflows_fetches_metadata_concurrently() -> None:
     latest_started = 0
 
     class Repository:
-        async def list_workflows(self, *, include_archived: bool = False):
+        async def list_workflows(
+            self, *, include_archived: bool = False, tenant_id=None
+        ):
             del include_archived
             return [workflow1, workflow2]
 
@@ -108,7 +116,7 @@ async def test_list_workflows_fetches_metadata_concurrently() -> None:
             del workflow_id
             raise CronTriggerNotFoundError("No cron trigger configured")
 
-    result = await list_workflows(Repository(), include_archived=False)
+    result = await list_workflows(Repository(), _MOCK_TENANT, include_archived=False)
 
     assert len(result) == 2
 
@@ -120,7 +128,16 @@ async def test_create_workflow_returns_new_workflow() -> None:
 
     class Repository:
         async def create_workflow(
-            self, name, slug, description, tags, draft_access, actor
+            self,
+            *,
+            name,
+            slug=None,
+            description=None,
+            tags=None,
+            draft_access=None,
+            actor,
+            tenant_id=None,
+            handle=None,
         ):
             return Workflow(
                 id=workflow_id,
@@ -141,7 +158,7 @@ async def test_create_workflow_returns_new_workflow() -> None:
         actor="admin",
     )
 
-    result = await create_workflow(request, Repository())
+    result = await create_workflow(request, Repository(), _MOCK_TENANT)
 
     assert result.id == workflow_id
     assert result.name == "Test Workflow"
@@ -155,15 +172,17 @@ async def test_create_workflow_translates_handle_conflicts() -> None:
     class Repository:
         async def create_workflow(
             self,
+            *,
             name,
-            slug,
-            description,
-            tags,
-            draft_access,
+            slug=None,
+            description=None,
+            tags=None,
+            draft_access=None,
             actor,
             handle=None,
+            tenant_id=None,
         ):
-            del name, slug, description, tags, draft_access, actor, handle
+            del name, slug, description, tags, draft_access, actor, handle, tenant_id
             raise WorkflowHandleConflictError(
                 "Workflow handle 'demo' is already in use."
             )
@@ -175,7 +194,7 @@ async def test_create_workflow_translates_handle_conflicts() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await create_workflow(request, Repository())
+        await create_workflow(request, Repository(), _MOCK_TENANT)
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["code"] == "workflow.handle.conflict"
@@ -187,11 +206,13 @@ async def test_get_workflow_returns_workflow() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, tenant_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
-        async def get_workflow(self, wf_id):
+        async def get_workflow(self, wf_id, *, tenant_id=None):
             return Workflow(
                 id=wf_id,
                 name="Test Workflow",
@@ -200,7 +221,7 @@ async def test_get_workflow_returns_workflow() -> None:
                 updated_at=datetime.now(tz=UTC),
             )
 
-    result = await get_workflow(str(workflow_id), Repository())
+    result = await get_workflow(str(workflow_id), Repository(), _MOCK_TENANT)
 
     assert result.id == workflow_id
     assert result.name == "Test Workflow"
@@ -212,15 +233,17 @@ async def test_get_workflow_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, tenant_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
-        async def get_workflow(self, wf_id):
+        async def get_workflow(self, wf_id, *, tenant_id=None):
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await get_workflow(str(workflow_id), Repository())
+        await get_workflow(str(workflow_id), Repository(), _MOCK_TENANT)
 
     assert exc_info.value.status_code == 404
 
@@ -245,11 +268,13 @@ async def test_get_workflow_canvas_returns_compact_versions() -> None:
             self.updated_at = now
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, tenant_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
-        async def get_workflow(self, wf_id):
+        async def get_workflow(self, wf_id, *, tenant_id=None):
             return Workflow(
                 id=wf_id,
                 name="Test Workflow",
@@ -262,7 +287,7 @@ async def test_get_workflow_canvas_returns_compact_versions() -> None:
             assert wf_id == workflow_id
             return [Version(1), Version(2)]
 
-    result = await get_workflow_canvas(str(workflow_id), Repository())
+    result = await get_workflow_canvas(str(workflow_id), Repository(), _MOCK_TENANT)
 
     assert isinstance(result, WorkflowCanvasPayload)
     assert result.workflow.id == workflow_id
@@ -276,12 +301,23 @@ async def test_update_workflow_returns_updated() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, tenant_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
         async def update_workflow(
-            self, wf_id, name, description, tags, draft_access, is_archived, actor
+            self,
+            wf_id,
+            *,
+            name,
+            description,
+            tags,
+            draft_access,
+            is_archived,
+            actor,
+            **kwargs,
         ):
             return Workflow(
                 id=wf_id,
@@ -303,7 +339,9 @@ async def test_update_workflow_returns_updated() -> None:
         actor="admin",
     )
 
-    result = await update_workflow(str(workflow_id), request, Repository())
+    result = await update_workflow(
+        str(workflow_id), request, Repository(), _MOCK_TENANT
+    )
 
     assert result.id == workflow_id
     assert result.name == "Updated Workflow"
@@ -315,12 +353,23 @@ async def test_update_workflow_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, tenant_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
         async def update_workflow(
-            self, wf_id, name, description, tags, draft_access, is_archived, actor
+            self,
+            wf_id,
+            *,
+            name,
+            description,
+            tags,
+            draft_access,
+            is_archived,
+            actor,
+            **kwargs,
         ):
             del draft_access
             raise WorkflowNotFoundError("not found")
@@ -331,7 +380,7 @@ async def test_update_workflow_not_found() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await update_workflow(str(workflow_id), request, Repository())
+        await update_workflow(str(workflow_id), request, Repository(), _MOCK_TENANT)
 
     assert exc_info.value.status_code == 404
 
@@ -343,13 +392,16 @@ async def test_update_workflow_translates_handle_conflicts() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, tenant_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
         async def update_workflow(
             self,
             wf_id,
+            *,
             name,
             description,
             tags,
@@ -357,6 +409,7 @@ async def test_update_workflow_translates_handle_conflicts() -> None:
             is_archived,
             actor,
             handle=None,
+            **kwargs,
         ):
             del wf_id, name, description, tags, draft_access, is_archived, actor, handle
             raise WorkflowHandleConflictError(
@@ -369,7 +422,7 @@ async def test_update_workflow_translates_handle_conflicts() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await update_workflow(str(workflow_id), request, Repository())
+        await update_workflow(str(workflow_id), request, Repository(), _MOCK_TENANT)
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["code"] == "workflow.handle.conflict"
@@ -381,7 +434,9 @@ async def test_archive_workflow_returns_archived() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, tenant_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
@@ -395,7 +450,9 @@ async def test_archive_workflow_returns_archived() -> None:
                 updated_at=datetime.now(tz=UTC),
             )
 
-    result = await archive_workflow(str(workflow_id), Repository(), actor="admin")
+    result = await archive_workflow(
+        str(workflow_id), Repository(), _MOCK_TENANT, actor="admin"
+    )
 
     assert result.id == workflow_id
     assert result.is_archived is True
@@ -407,7 +464,9 @@ async def test_archive_workflow_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, tenant_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
@@ -415,6 +474,8 @@ async def test_archive_workflow_not_found() -> None:
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await archive_workflow(str(workflow_id), Repository(), actor="admin")
+        await archive_workflow(
+            str(workflow_id), Repository(), _MOCK_TENANT, actor="admin"
+        )
 
     assert exc_info.value.status_code == 404

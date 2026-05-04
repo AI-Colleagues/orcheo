@@ -47,13 +47,23 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
         if isawaitable(result):
             await result
 
-    async def list_workflows(self, *, include_archived: bool = False) -> list[Workflow]:
+    async def list_workflows(
+        self,
+        *,
+        include_archived: bool = False,
+        tenant_id: str | None = None,
+    ) -> list[Workflow]:
         """Return workflows stored within the repository."""
         async with self._lock:
             return [
                 workflow.model_copy(deep=True)
                 for workflow in self._workflows.values()
-                if include_archived or not workflow.is_archived
+                if (include_archived or not workflow.is_archived)
+                and (
+                    tenant_id is None
+                    or self._workflow_tenants.get(workflow.id) is None
+                    or self._workflow_tenants.get(workflow.id) == tenant_id
+                )
             ]
 
     async def create_workflow(
@@ -66,6 +76,7 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
         tags: Iterable[str] | None,
         draft_access: WorkflowDraftAccess,
         actor: str,
+        tenant_id: str | None = None,
     ) -> Workflow:
         """Persist a new workflow and return the created instance."""
         normalized_handle = normalize_workflow_handle(handle)
@@ -85,15 +96,29 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
             )
             workflow.record_event(actor=actor, action="workflow_created")
             self._workflows[workflow.id] = workflow
+            if tenant_id is not None:
+                self._workflow_tenants[workflow.id] = tenant_id
             self._rebuild_handle_indexes_locked()
             self._workflow_versions.setdefault(workflow.id, [])
             return workflow.model_copy(deep=True)
 
-    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+    async def get_workflow(
+        self,
+        workflow_id: UUID,
+        *,
+        tenant_id: str | None = None,
+    ) -> Workflow:
         """Retrieve a workflow by its identifier."""
         async with self._lock:
             workflow = self._workflows.get(workflow_id)
             if workflow is None:
+                raise WorkflowNotFoundError(str(workflow_id))
+            stored_tid = self._workflow_tenants.get(workflow_id)
+            if (
+                tenant_id is not None
+                and stored_tid is not None
+                and stored_tid != tenant_id
+            ):
                 raise WorkflowNotFoundError(str(workflow_id))
             return workflow.model_copy(deep=True)
 
@@ -102,11 +127,13 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
         workflow_ref: str,
         *,
         include_archived: bool = True,
+        tenant_id: str | None = None,
     ) -> UUID:
         """Resolve a workflow ref using handle-first semantics."""
         return await super().resolve_workflow_ref(
             workflow_ref,
             include_archived=include_archived,
+            tenant_id=tenant_id,
         )
 
     async def update_workflow(

@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS workflows (
     is_archived BOOLEAN NOT NULL DEFAULT FALSE,
     payload JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    tenant_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS workflow_versions (
@@ -71,7 +72,8 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
     triggered_by TEXT NOT NULL,
     payload JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    tenant_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_runs_workflow ON workflow_runs(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_runs_version ON workflow_runs(workflow_version_id);
@@ -307,6 +309,8 @@ class PostgresRepositoryBase:
                 "ALTER TABLE workflows "
                 "ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE"
             )
+        if "tenant_id" not in existing_columns:
+            await conn.execute("ALTER TABLE workflows ADD COLUMN tenant_id TEXT")
 
         if missing_handle or missing_is_archived:
             cursor = await conn.execute("SELECT id, payload FROM workflows")
@@ -327,6 +331,19 @@ class PostgresRepositoryBase:
                     ),
                 )
 
+        # Add tenant_id column to workflow_runs if missing
+        cursor = await conn.execute(
+            """
+            SELECT column_name
+              FROM information_schema.columns
+             WHERE table_name = 'workflow_runs'
+            """
+        )
+        runs_rows = await cursor.fetchall()
+        runs_columns = {row["column_name"] for row in runs_rows}
+        if "tenant_id" not in runs_columns:
+            await conn.execute("ALTER TABLE workflow_runs ADD COLUMN tenant_id TEXT")
+
         # Create indexes after columns are guaranteed to exist
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_workflows_handle ON workflows(handle)"
@@ -335,6 +352,12 @@ class PostgresRepositoryBase:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle"
             " ON workflows(handle)"
             " WHERE is_archived = FALSE AND handle IS NOT NULL"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_workflows_tenant_id ON workflows(tenant_id)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_runs_tenant_id ON workflow_runs(tenant_id)"
         )
 
     async def _hydrate_trigger_state(self) -> None:

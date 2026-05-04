@@ -420,13 +420,20 @@ async def test_base_ensure_workflow_schema_migrations_backfills_columns(
         is_archived=True,
     )
     responses: list[Any] = [
-        {"rows": []},
-        {},
-        {},
-        {"rows": [{"id": str(workflow_id), "payload": legacy_payload}]},
-        {},
-        {},
-        {},
+        {"rows": []},  # SELECT columns from workflows (none exist)
+        {},  # ALTER TABLE workflows ADD COLUMN handle
+        {},  # ALTER TABLE workflows ADD COLUMN is_archived
+        {},  # ALTER TABLE workflows ADD COLUMN tenant_id
+        {
+            "rows": [{"id": str(workflow_id), "payload": legacy_payload}]
+        },  # SELECT workflows
+        {},  # UPDATE workflows
+        {"rows": []},  # SELECT columns from workflow_runs (none exist)
+        {},  # ALTER TABLE workflow_runs ADD COLUMN tenant_id
+        {},  # CREATE INDEX idx_workflows_handle
+        {},  # CREATE UNIQUE INDEX idx_workflows_active_handle
+        {},  # CREATE INDEX idx_workflows_tenant_id
+        {},  # CREATE INDEX idx_runs_tenant_id
     ]
     repo = make_repository(monkeypatch, responses)
     connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
@@ -463,11 +470,16 @@ async def test_base_ensure_workflow_schema_migrations_respects_existing_handle(
     """Existing mirrored columns should not be re-added during migration."""
 
     responses: list[Any] = [
-        {"rows": [{"column_name": "handle"}]},
-        {},
-        {"rows": []},
-        {},
-        {},
+        {"rows": [{"column_name": "handle"}]},  # SELECT columns from workflows
+        {},  # ALTER TABLE workflows ADD COLUMN is_archived
+        {},  # ALTER TABLE workflows ADD COLUMN tenant_id
+        {"rows": []},  # SELECT workflows (no rows to backfill)
+        {"rows": []},  # SELECT columns from workflow_runs (none exist)
+        {},  # ALTER TABLE workflow_runs ADD COLUMN tenant_id
+        {},  # CREATE INDEX idx_workflows_handle
+        {},  # CREATE UNIQUE INDEX idx_workflows_active_handle
+        {},  # CREATE INDEX idx_workflows_tenant_id
+        {},  # CREATE INDEX idx_runs_tenant_id
     ]
     repo = make_repository(monkeypatch, responses)
     connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
@@ -491,10 +503,21 @@ async def test_base_ensure_workflow_schema_migrations_skips_existing_columns(
     """Existing mirrored columns should bypass both ALTER statements."""
 
     responses: list[Any] = [
-        {"rows": [{"column_name": "handle"}, {"column_name": "is_archived"}]},
-        {"rows": []},
-        {},
-        {},
+        {
+            "rows": [
+                {"column_name": "handle"},
+                {"column_name": "is_archived"},
+                {"column_name": "tenant_id"},
+            ]
+        },  # SELECT columns from workflows (all exist)
+        {"rows": []},  # SELECT workflows (no rows to backfill)
+        {
+            "rows": [{"column_name": "tenant_id"}]
+        },  # SELECT columns from workflow_runs (tenant_id exists)
+        {},  # CREATE INDEX idx_workflows_handle
+        {},  # CREATE UNIQUE INDEX idx_workflows_active_handle
+        {},  # CREATE INDEX idx_workflows_tenant_id
+        {},  # CREATE INDEX idx_runs_tenant_id
     ]
     repo = make_repository(monkeypatch, responses)
     connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001

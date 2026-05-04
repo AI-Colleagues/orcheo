@@ -28,7 +28,11 @@ from orcheo_backend.app.schemas.credentials import CredentialValidationRequest
 
 class _MissingWorkflowRepository:
     async def resolve_workflow_ref(
-        self, workflow_ref, *, include_archived: bool = True
+        self,
+        workflow_ref,
+        *,
+        include_archived: bool = True,
+        tenant_id: str | None = None,
     ):
         del include_archived
         return (
@@ -62,7 +66,9 @@ async def test_get_workflow_credential_health_returns_unknown_response() -> None
     """A missing cached report results in an UNKNOWN response payload."""
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, tenant_id=None
+        ):
             del include_archived
             return UUID(str(workflow_ref))
 
@@ -84,7 +90,9 @@ async def test_get_workflow_credential_health_returns_unknown_response() -> None
 @pytest.mark.asyncio()
 async def test_get_workflow_credential_health_requires_service() -> None:
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, tenant_id=None
+        ):
             del include_archived
             return UUID(str(workflow_ref))
 
@@ -104,7 +112,9 @@ async def test_validate_workflow_credentials_reports_failures() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, tenant_id=None
+        ):
             del include_archived
             return workflow_id
 
@@ -180,7 +190,9 @@ async def test_validate_workflow_credentials_requires_service() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, tenant_id=None
+        ):
             del include_archived
             return workflow_id
 
@@ -206,7 +218,9 @@ async def test_invoke_webhook_trigger_wraps_health_error(
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, tenant_id=None
+        ):
             del include_archived
             return workflow_id
 

@@ -12,7 +12,9 @@ class _Repository:
     def __init__(self, resolved_workflow_id: str) -> None:
         self._resolved_workflow_id = resolved_workflow_id
 
-    async def resolve_workflow_ref(self, workflow_ref: str, *, include_archived=True):
+    async def resolve_workflow_ref(
+        self, workflow_ref: str, *, include_archived=True, tenant_id=None
+    ):
         del workflow_ref, include_archived
         return self._resolved_workflow_id
 
