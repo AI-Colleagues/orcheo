@@ -238,6 +238,7 @@ def test_workflow_run_remediation_fixed_requires_version_classification() -> Non
     )
 
     with pytest.raises(ValueError, match="workflow-fix classifications"):
+        remediation.claim(actor="worker")
         remediation.mark_fixed(
             actor="worker",
             created_version_id=uuid4(),
@@ -248,6 +249,14 @@ def test_workflow_run_remediation_fixed_requires_version_classification() -> Non
         )
 
     created_version_id = uuid4()
+    remediation = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="checksum:type:message:2",
+        version_checksum="abc124",
+    )
+    remediation.claim(actor="worker")
     remediation.mark_fixed(
         actor="worker",
         created_version_id=created_version_id,
@@ -295,6 +304,28 @@ def test_workflow_run_remediation_dismiss_rules() -> None:
 
     assert failed.status is WorkflowRunRemediationStatus.DISMISSED
     assert failed.audit_log[-1].metadata == {"reason": "tracked elsewhere"}
+
+
+def test_workflow_run_remediation_terminal_transition_requires_claimed() -> None:
+    remediation = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="claimed-transition-guard",
+        version_checksum="abc123",
+    )
+    remediation.claim(actor="worker")
+    remediation.dismiss(actor="reviewer", reason="manual decision")
+
+    with pytest.raises(ValueError, match="claimed remediations can be marked fixed"):
+        remediation.mark_fixed(
+            actor="worker",
+            created_version_id=uuid4(),
+            classification=WorkflowRunRemediationClassification.WORKFLOW_FIXABLE,
+            developer_note="should not override dismissal",
+            artifacts={},
+            validation_result={},
+        )
 
 
 def test_workflow_publish_lifecycle() -> None:

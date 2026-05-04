@@ -86,6 +86,7 @@ def test_workflow_remediation_dismiss_terminal_candidate_returns_conflict(
 ) -> None:
     candidate = asyncio.run(_seed_remediation_candidate())
     repository = get_repository()
+    asyncio.run(repository.claim_next_remediation_candidate(actor="worker"))
     asyncio.run(
         repository.mark_remediation_note_only(
             candidate.id,

@@ -445,7 +445,20 @@ async def scan_workflow_remediations_async(
 
     from orcheo_backend.worker.tasks import attempt_workflow_remediation
 
-    attempt_workflow_remediation.delay(str(candidate.id))
+    try:
+        attempt_workflow_remediation.delay(str(candidate.id))
+    except Exception:
+        logger.exception(
+            "Failed to enqueue remediation attempt remediation_id=%s",
+            candidate.id,
+        )
+        await repository.mark_remediation_failed(
+            candidate.id,
+            error="Failed to enqueue remediation attempt task.",
+            artifacts={"enqueue_failed": True},
+        )
+        return {"status": "failed_to_enqueue", "remediation_id": str(candidate.id)}
+
     logger.info(
         "Workflow remediation candidate claimed remediation_id=%s attempt_count=%s",
         candidate.id,

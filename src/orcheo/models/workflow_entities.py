@@ -527,6 +527,9 @@ class WorkflowRunRemediation(TimestampedAuditModel):
         validation_result: Mapping[str, Any],
     ) -> None:
         """Mark the remediation as having created a new workflow version."""
+        if self.status is not WorkflowRunRemediationStatus.CLAIMED:
+            msg = "Only claimed remediations can be marked fixed."
+            raise ValueError(msg)
         if not classification.creates_workflow_version:
             msg = "Only workflow-fix classifications can create versions."
             raise ValueError(msg)
@@ -549,6 +552,9 @@ class WorkflowRunRemediation(TimestampedAuditModel):
         artifacts: Mapping[str, Any],
     ) -> None:
         """Mark the remediation as note-only for human follow-up."""
+        if self.status is not WorkflowRunRemediationStatus.CLAIMED:
+            msg = "Only claimed remediations can be marked note-only."
+            raise ValueError(msg)
         self.status = WorkflowRunRemediationStatus.NOTE_ONLY
         self.action = WorkflowRunRemediationAction.NOTE_ONLY
         self.classification = classification
@@ -568,6 +574,9 @@ class WorkflowRunRemediation(TimestampedAuditModel):
         validation_result: Mapping[str, Any] | None = None,
     ) -> None:
         """Mark the remediation attempt as failed."""
+        if self.status is not WorkflowRunRemediationStatus.CLAIMED:
+            msg = "Only claimed remediations can be marked failed."
+            raise ValueError(msg)
         self.status = WorkflowRunRemediationStatus.FAILED
         self.last_error = error
         if artifacts is not None:

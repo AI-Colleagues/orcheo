@@ -23,7 +23,7 @@ LimitQuery = Annotated[int | None, Query(ge=1, le=200)]
 class RemediationDismissRequest(BaseModel):
     """Payload for dismissing a remediation candidate."""
 
-    actor: str = Field(default="system")
+    actor: str = Field(default="system", min_length=1, max_length=255)
     reason: str | None = None
 
 

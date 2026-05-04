@@ -309,6 +309,38 @@ async def test_scan_claims_pending_candidate_when_idle() -> None:
     assert claimed.status is WorkflowRunRemediationStatus.CLAIMED
 
 
+@pytest.mark.asyncio()
+async def test_scan_marks_failed_when_enqueue_fails() -> None:
+    repository, version, run = await _seed_repository()
+    candidate = await repository.create_remediation_candidate(
+        workflow_id=version.workflow_id,
+        workflow_version_id=version.id,
+        run_id=run.id,
+        fingerprint="pending-enqueue-fail",
+        version_checksum=version.compute_checksum(),
+        graph_format=LANGGRAPH_SCRIPT_FORMAT,
+        context={"workflow_source": WORKFLOW_SOURCE},
+    )
+
+    with patch(
+        "orcheo_backend.app.workflow_remediation._host_load_average", return_value=0.0
+    ):
+        with patch(
+            "orcheo_backend.worker.tasks.attempt_workflow_remediation.delay",
+            side_effect=RuntimeError("redis unavailable"),
+        ):
+            result = await scan_workflow_remediations_async(
+                repository=repository,
+                celery_app=_FakeCelery(),
+                settings=WorkflowAutofixSettings(enabled=True),
+            )
+
+    assert result == {"status": "failed_to_enqueue", "remediation_id": str(candidate.id)}
+    failed = await repository.get_remediation_candidate(candidate.id)
+    assert failed.status is WorkflowRunRemediationStatus.FAILED
+    assert failed.last_error == "Failed to enqueue remediation attempt task."
+
+
 def test_parse_artifacts_rejects_note_only_version_creation(tmp_path: Path) -> None:
     _write_artifacts(
         tmp_path,
