@@ -335,7 +335,10 @@ async def test_scan_marks_failed_when_enqueue_fails() -> None:
                 settings=WorkflowAutofixSettings(enabled=True),
             )
 
-    assert result == {"status": "failed_to_enqueue", "remediation_id": str(candidate.id)}
+    assert result == {
+        "status": "failed_to_enqueue",
+        "remediation_id": str(candidate.id),
+    }
     failed = await repository.get_remediation_candidate(candidate.id)
     assert failed.status is WorkflowRunRemediationStatus.FAILED
     assert failed.last_error == "Failed to enqueue remediation attempt task."
