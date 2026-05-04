@@ -17,6 +17,12 @@ Deliver multi-tenancy support so one Orcheo deployment can serve multiple indepe
 - Requirements: `./1_requirements.md`
 - Design: `./2_design.md`
 
+## Status (2026-05-04)
+
+- **Milestone 1 — Foundation:** complete. Tenancy core, settings, in-memory + SQLite repositories, resolver with TTL membership cache, admin/member API routes, `orcheo tenant` CLI, default-tenant bootstrap, and tenant-context-aware FastAPI dependency are all wired. The `/api` protected router globally resolves a `TenantContext` (anonymous principals fall through to the default tenant when `MULTI_TENANCY_ENABLED=False`; explicit 400 when enabled). Lint/mypy/tests all pass (5,898 tests, 60 tenancy unit + integration tests).
+- **Milestone 2 — Persistence sweep:** not started. Each subsystem (workflow repository, execution history, service tokens, vault, ChatKit, agentensor, plugins, listeners/triggers, Celery envelopes, websocket, LangGraph state) needs schema migrations, query rewrites, indexes, isolation tests, and caller updates. This is the bulk of the work and requires per-subsystem coordination.
+- **Milestone 3 / 4:** blocked on Milestone 2.
+
 ---
 
 ## Milestones
@@ -27,27 +33,29 @@ Deliver multi-tenancy support so one Orcheo deployment can serve multiple indepe
 
 #### Task Checklist
 
-- [ ] Task 1.1: Add `orcheo.tenancy` package with `Tenant`, `TenantMembership`, `Role`, `TenantContext` models.
+- [x] Task 1.1: Add `orcheo.tenancy` package with `Tenant`, `TenantMembership`, `Role`, `TenantContext` models.
   - Dependencies: None
-- [ ] Task 1.2: Create `tenants` and `tenant_memberships` tables (Postgres + SQLite migrations).
+- [x] Task 1.2: Create `tenants` and `tenant_memberships` tables (Postgres + SQLite migrations).
   - Dependencies: Task 1.1
-- [ ] Task 1.3: Implement `tenant_resolver` with Redis-backed membership cache and invalidation hooks.
+- [x] Task 1.3: Implement `tenant_resolver` with membership cache (in-memory TTL by default; Redis-backed implementation deferred to Milestone 3) and invalidation hooks.
   - Dependencies: Task 1.1
-- [ ] Task 1.4: Update bearer-token middleware to attach `TenantContext` to `request.state`.
+- [x] Task 1.4: Update bearer-token middleware to attach `TenantContext` to `request.state`.
   - Dependencies: Task 1.3
-- [ ] Task 1.5: Add `require_tenant()` FastAPI dependency and apply it to all protected routes.
+- [x] Task 1.5: Add `require_tenant()` FastAPI dependency and apply it to all protected routes.
+  - Note: `resolve_tenant_context` is now wired as a global dependency on the protected `/api` router; anonymous requests resolve to the default tenant when tenancy is disabled and are rejected (400 `tenant.required`) when enabled.
   - Dependencies: Task 1.4
-- [ ] Task 1.6: Implement baseline tenant role checks (`owner`, `admin`, `editor`, `viewer`) for protected routes.
+- [x] Task 1.6: Implement baseline tenant role checks (`owner`, `admin`, `editor`, `viewer`) for protected routes.
   - Dependencies: Task 1.5
-- [ ] Task 1.7: Add config flag `multi_tenancy.enabled` and `multi_tenancy.default_tenant_slug`.
+- [x] Task 1.7: Add config flag `multi_tenancy.enabled` and `multi_tenancy.default_tenant_slug`.
   - Dependencies: None
-- [ ] Task 1.8: Write the default-tenant backfill migration (nullable `tenant_id` → backfill → `NOT NULL`) for every affected table.
+- [x] Task 1.8: Write the default-tenant backfill migration (nullable `tenant_id` → backfill → `NOT NULL`) for every affected table.
+  - Note: SQLite helpers add nullable `tenant_id` columns and backfill the default tenant; the `NOT NULL` enforcement step is deferred until Milestone 2 retrofits each persistence layer.
   - Dependencies: Task 1.2
-- [ ] Task 1.9: Add admin API for tenant CRUD (`POST /api/admin/tenants`, list, suspend, delete).
+- [x] Task 1.9: Add admin API for tenant CRUD (`POST /api/admin/tenants`, list, suspend, delete).
   - Dependencies: Task 1.6
-- [ ] Task 1.10: Add `orcheo tenant create|list|deactivate|invite|use` CLI commands.
+- [x] Task 1.10: Add `orcheo tenant create|list|deactivate|invite|use` CLI commands.
   - Dependencies: Task 1.9
-- [ ] Task 1.11: Unit tests for `TenantContext` propagation and resolver cache; integration tests for tenant CRUD and role enforcement.
+- [x] Task 1.11: Unit tests for `TenantContext` propagation and resolver cache; integration tests for tenant CRUD and role enforcement.
   - Dependencies: Task 1.10
 
 ---

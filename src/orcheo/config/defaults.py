@@ -46,6 +46,9 @@ _DEFAULTS: dict[str, object] = {
     "TRACING_INSECURE": False,
     "TRACING_HIGH_TOKEN_THRESHOLD": 1000,
     "TRACING_PREVIEW_MAX_LENGTH": 512,
+    "MULTI_TENANCY_ENABLED": False,
+    "MULTI_TENANCY_DEFAULT_TENANT_SLUG": "default",
+    "MULTI_TENANCY_TENANT_HEADER": "X-Orcheo-Tenant",
 }
 
 __all__ = ["_DEFAULTS"]

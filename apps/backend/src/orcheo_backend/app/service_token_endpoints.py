@@ -16,6 +16,7 @@ from orcheo_backend.app.schemas.service_tokens import (
     ServiceTokenListResponse,
     ServiceTokenResponse,
 )
+from orcheo_backend.app.tenancy import TenantContextDep
 
 
 router = APIRouter(prefix="/admin/service-tokens", tags=["admin", "tokens"])
@@ -50,6 +51,7 @@ def _record_to_response(
 async def create_service_token(
     request: CreateServiceTokenRequest,
     policy: Annotated[AuthorizationPolicy, Depends(get_authorization_policy)],
+    tenant: TenantContextDep,
 ) -> ServiceTokenResponse:
     """Create a new service token.
 
@@ -66,6 +68,7 @@ async def create_service_token(
         scopes=request.scopes,
         workspace_ids=request.workspace_ids,
         expires_in=request.expires_in_seconds,
+        tenant_id=str(tenant.tenant_id),
     )
 
     return _record_to_response(

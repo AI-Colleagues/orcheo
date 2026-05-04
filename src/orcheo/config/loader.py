@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from orcheo.config.app_settings import AppSettings
 from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
 from orcheo.config.defaults import _DEFAULTS
+from orcheo.config.tenancy_settings import MultiTenancySettings
 from orcheo.config.vault_settings import VaultSettings
 
 
@@ -84,6 +85,19 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
                     "VAULT_TOKEN_TTL_SECONDS", _DEFAULTS["VAULT_TOKEN_TTL_SECONDS"]
                 ),
             ),
+            multi_tenancy=MultiTenancySettings(
+                enabled=source.get(
+                    "MULTI_TENANCY_ENABLED", _DEFAULTS["MULTI_TENANCY_ENABLED"]
+                ),
+                default_tenant_slug=source.get(
+                    "MULTI_TENANCY_DEFAULT_TENANT_SLUG",
+                    _DEFAULTS["MULTI_TENANCY_DEFAULT_TENANT_SLUG"],
+                ),
+                tenant_header=source.get(
+                    "MULTI_TENANCY_TENANT_HEADER",
+                    _DEFAULTS["MULTI_TENANCY_TENANT_HEADER"],
+                ),
+            ),
             chatkit_rate_limits=rate_limits,
             chatkit_widget_types=source.get(
                 "CHATKIT_WIDGET_TYPES", _DEFAULTS["CHATKIT_WIDGET_TYPES"]
@@ -157,6 +171,12 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("VAULT_AWS_REGION", settings.vault.aws_region)
     normalized.set("VAULT_AWS_KMS_KEY_ID", settings.vault.aws_kms_key_id)
     normalized.set("VAULT_TOKEN_TTL_SECONDS", settings.vault.token_ttl_seconds)
+    normalized.set("MULTI_TENANCY_ENABLED", settings.multi_tenancy.enabled)
+    normalized.set(
+        "MULTI_TENANCY_DEFAULT_TENANT_SLUG",
+        settings.multi_tenancy.default_tenant_slug,
+    )
+    normalized.set("MULTI_TENANCY_TENANT_HEADER", settings.multi_tenancy.tenant_header)
     normalized.set("CHATKIT_RATE_LIMITS", settings.chatkit_rate_limits.model_dump())
     normalized.set("TRACING_EXPORTER", settings.tracing_exporter)
     normalized.set("TRACING_ENDPOINT", settings.tracing_endpoint)

@@ -54,6 +54,26 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
             rows = cursor.fetchall()
             return [row_to_record(row) for row in rows]
 
+    async def list_for_tenant(
+        self, tenant_id: str, *, now: datetime | None = None
+    ) -> list[ServiceTokenRecord]:
+        """Return active service token records owned by *tenant_id*."""
+        reference = (now or datetime.now(tz=UTC)).isoformat()
+        with sqlite3.connect(self._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                """
+                SELECT * FROM service_tokens
+                WHERE tenant_id = ?
+                  AND revoked_at IS NULL
+                  AND (expires_at IS NULL OR expires_at > ?)
+                ORDER BY created_at DESC
+                """,
+                (tenant_id, reference),
+            )
+            rows = cursor.fetchall()
+            return [row_to_record(row) for row in rows]
+
     async def find_by_id(self, identifier: str) -> ServiceTokenRecord | None:
         """Look up a service token by identifier."""
         with sqlite3.connect(self._db_path) as conn:
@@ -83,8 +103,8 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
                     identifier, secret_hash, scopes, workspace_ids,
                     created_at, created_by, issued_at, expires_at,
                     rotation_expires_at, rotated_to, revoked_at,
-                    revoked_by, revocation_reason
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    revoked_by, revocation_reason, tenant_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.identifier,
@@ -100,6 +120,7 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
                     serialize_datetime(record.revoked_at),
                     None,
                     record.revocation_reason,
+                    record.tenant_id,
                 ),
             )
             conn.commit()
@@ -119,7 +140,8 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
                     rotation_expires_at = ?,
                     rotated_to = ?,
                     revoked_at = ?,
-                    revocation_reason = ?
+                    revocation_reason = ?,
+                    tenant_id = ?
                 WHERE identifier = ?
                 """,
                 (
@@ -132,6 +154,7 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
                     record.rotated_to,
                     serialize_datetime(record.revoked_at),
                     record.revocation_reason,
+                    record.tenant_id,
                     record.identifier,
                 ),
             )

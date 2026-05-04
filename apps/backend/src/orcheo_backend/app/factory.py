@@ -59,7 +59,11 @@ from orcheo_backend.app.routers import (
 from orcheo_backend.app.routers import (
     chatkit as chatkit_router,
 )
+from orcheo_backend.app.routers import (
+    tenants as tenants_router,
+)
 from orcheo_backend.app.service_token_endpoints import router as service_token_router
+from orcheo_backend.app.tenancy import resolve_tenant_context
 from orcheo_backend.app.workflow_execution import configure_sensitive_logging
 
 
@@ -82,7 +86,12 @@ async def _authentication_error_handler(request: Request, exc: Exception) -> Res
 def _build_api_router() -> APIRouter:
     router = APIRouter(prefix="/api")
 
-    protected_router = APIRouter(dependencies=[Depends(authenticate_request)])
+    protected_router = APIRouter(
+        dependencies=[
+            Depends(authenticate_request),
+            Depends(resolve_tenant_context),
+        ]
+    )
     protected_router.include_router(service_token_router)
     protected_router.include_router(workflows.router)
     protected_router.include_router(credentials.router)
@@ -95,6 +104,8 @@ def _build_api_router() -> APIRouter:
     protected_router.include_router(nodes.router)
     protected_router.include_router(agentensor.router)
     protected_router.include_router(system.router)
+    protected_router.include_router(tenants_router.admin_router)
+    protected_router.include_router(tenants_router.router)
 
     router.include_router(workflows.public_router)
     router.include_router(chatkit_router.router)

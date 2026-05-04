@@ -6,6 +6,7 @@ from typing import cast
 from pydantic import BaseModel, Field, field_validator, model_validator
 from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
 from orcheo.config.defaults import _DEFAULTS
+from orcheo.config.tenancy_settings import MultiTenancySettings
 from orcheo.config.types import (
     ChatKitBackend,
     CheckpointBackend,
@@ -77,6 +78,7 @@ class AppSettings(BaseModel):
     host: str = Field(default=cast(str, _DEFAULTS["HOST"]))
     port: int = Field(default=cast(int, _DEFAULTS["PORT"]))
     vault: VaultSettings = Field(default_factory=VaultSettings)
+    multi_tenancy: MultiTenancySettings = Field(default_factory=MultiTenancySettings)
     tracing_exporter: str = Field(default=cast(str, _DEFAULTS["TRACING_EXPORTER"]))
     tracing_endpoint: str | None = None
     tracing_service_name: str = Field(

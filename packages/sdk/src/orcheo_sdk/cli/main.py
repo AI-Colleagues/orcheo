@@ -38,6 +38,7 @@ from orcheo_sdk.cli.setup import (
     run_setup,
 )
 from orcheo_sdk.cli.state import CLIState
+from orcheo_sdk.cli.tenant import tenant_app
 from orcheo_sdk.cli.update_check import maybe_print_update_notice
 from orcheo_sdk.cli.workflow import workflow_app
 
@@ -108,6 +109,7 @@ app.add_typer(code_app, name="code")
 app.add_typer(config_app, name="config")
 app.add_typer(agent_tool_app, name="agent-tool")
 app.add_typer(service_token_app, name="token")
+app.add_typer(tenant_app, name="tenant")
 app.add_typer(browser_aware_app, name="browser-aware")
 app.add_typer(context_app, name="context")
 install_app = typer.Typer(

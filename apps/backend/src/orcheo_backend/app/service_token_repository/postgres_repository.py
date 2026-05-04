@@ -47,8 +47,11 @@ CREATE TABLE IF NOT EXISTS service_tokens (
     revoked_by TEXT,
     revocation_reason TEXT,
     allowed_ip_ranges JSONB,
-    rate_limit_override INTEGER
+    rate_limit_override INTEGER,
+    tenant_id TEXT
 );
+
+ALTER TABLE service_tokens ADD COLUMN IF NOT EXISTS tenant_id TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_service_tokens_hash
     ON service_tokens(secret_hash);
@@ -56,6 +59,12 @@ CREATE INDEX IF NOT EXISTS idx_service_tokens_expires
     ON service_tokens(expires_at);
 CREATE INDEX IF NOT EXISTS idx_service_tokens_active
     ON service_tokens(revoked_at) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_service_tokens_tenant
+    ON service_tokens(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_service_tokens_tenant_identifier
+    ON service_tokens(tenant_id, identifier);
+CREATE INDEX IF NOT EXISTS idx_service_tokens_tenant_hash
+    ON service_tokens(tenant_id, secret_hash);
 
 CREATE TABLE IF NOT EXISTS service_token_audit_log (
     id SERIAL PRIMARY KEY,
@@ -65,13 +74,18 @@ CREATE TABLE IF NOT EXISTS service_token_audit_log (
     ip_address TEXT,
     user_agent TEXT,
     timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
-    details JSONB
+    details JSONB,
+    tenant_id TEXT
 );
+
+ALTER TABLE service_token_audit_log ADD COLUMN IF NOT EXISTS tenant_id TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_token
     ON service_token_audit_log(token_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp
     ON service_token_audit_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_log_tenant
+    ON service_token_audit_log(tenant_id);
 """
 
 
@@ -105,6 +119,7 @@ def _row_to_record(row: dict[str, Any]) -> ServiceTokenRecord:
         rotated_to=row.get("rotated_to"),
         revoked_at=parse_ts(row.get("revoked_at")),
         revocation_reason=row.get("revocation_reason"),
+        tenant_id=row.get("tenant_id"),
     )
 
 
@@ -219,6 +234,26 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
             rows = await cursor.fetchall()
             return [_row_to_record(row) for row in rows]
 
+    async def list_for_tenant(
+        self, tenant_id: str, *, now: datetime | None = None
+    ) -> list[ServiceTokenRecord]:
+        """Return active service token records owned by *tenant_id*."""
+        await self._ensure_initialized()
+        reference = now or datetime.now(tz=UTC)
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT * FROM service_tokens
+                WHERE tenant_id = %s
+                  AND revoked_at IS NULL
+                  AND (expires_at IS NULL OR expires_at > %s)
+                ORDER BY created_at DESC
+                """,
+                (tenant_id, reference),
+            )
+            rows = await cursor.fetchall()
+            return [_row_to_record(row) for row in rows]
+
     async def find_by_id(self, identifier: str) -> ServiceTokenRecord | None:
         """Look up a service token by identifier."""
         await self._ensure_initialized()
@@ -249,8 +284,8 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
                     identifier, secret_hash, scopes, workspace_ids,
                     created_at, created_by, issued_at, expires_at,
                     rotation_expires_at, rotated_to, revoked_at,
-                    revoked_by, revocation_reason
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    revoked_by, revocation_reason, tenant_id
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     record.identifier,
@@ -266,6 +301,7 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
                     serialize_datetime(record.revoked_at),
                     None,
                     record.revocation_reason,
+                    record.tenant_id,
                 ),
             )
         return record
@@ -285,7 +321,8 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
                     rotation_expires_at = %s,
                     rotated_to = %s,
                     revoked_at = %s,
-                    revocation_reason = %s
+                    revocation_reason = %s,
+                    tenant_id = %s
                 WHERE identifier = %s
                 """,
                 (
@@ -298,6 +335,7 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
                     record.rotated_to,
                     serialize_datetime(record.revoked_at),
                     record.revocation_reason,
+                    record.tenant_id,
                     record.identifier,
                 ),
             )

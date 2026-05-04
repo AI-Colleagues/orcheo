@@ -3,7 +3,9 @@
 from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 import pytest
+from orcheo.tenancy import Role, TenantContext
 from orcheo_backend.app.authentication import (
     AuthenticationError,
     AuthorizationError,
@@ -15,6 +17,15 @@ from orcheo_backend.app.service_token_endpoints import (
     CreateServiceTokenRequest,
     create_service_token,
 )
+
+
+def _make_tenant_context(tenant_id=None, slug="acme") -> TenantContext:
+    return TenantContext(
+        tenant_id=tenant_id or uuid4(),
+        tenant_slug=slug,
+        user_id="user",
+        role=Role.ADMIN,
+    )
 
 
 @pytest.mark.asyncio

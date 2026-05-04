@@ -19,6 +19,17 @@ class ServiceTokenRepository(Protocol):
         """Return all active (non-revoked, non-expired) service token records."""
         ...  # pragma: no cover
 
+    async def list_for_tenant(
+        self, tenant_id: str, *, now: datetime | None = None
+    ) -> list[ServiceTokenRecord]:
+        """Return active records bound to *tenant_id*.
+
+        Default implementations may filter ``list_active`` by tenant; specialised
+        backends can push the predicate into SQL via the
+        ``(tenant_id, identifier)`` index.
+        """
+        ...  # pragma: no cover
+
     async def find_by_id(self, identifier: str) -> ServiceTokenRecord | None:
         """Look up a service token by its identifier."""
         ...  # pragma: no cover
