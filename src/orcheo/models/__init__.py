@@ -21,6 +21,10 @@ from orcheo.models.workflow import (
     Workflow,
     WorkflowDraftAccess,
     WorkflowRun,
+    WorkflowRunRemediation,
+    WorkflowRunRemediationAction,
+    WorkflowRunRemediationClassification,
+    WorkflowRunRemediationStatus,
     WorkflowRunStatus,
     WorkflowVersion,
 )
@@ -47,6 +51,10 @@ __all__ = [
     "Workflow",
     "WorkflowDraftAccess",
     "WorkflowRun",
+    "WorkflowRunRemediation",
+    "WorkflowRunRemediationAction",
+    "WorkflowRunRemediationClassification",
+    "WorkflowRunRemediationStatus",
     "WorkflowRunStatus",
     "WorkflowVersion",
 ]

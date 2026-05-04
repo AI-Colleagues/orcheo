@@ -121,6 +121,7 @@ class WorkflowRunMixin(SqlitePersistenceMixin):
                 await conn.executescript(
                     """
                     DELETE FROM workflow_runs;
+                    DELETE FROM workflow_run_remediations;
                     DELETE FROM workflow_versions;
                     DELETE FROM workflows;
                     DELETE FROM webhook_triggers;

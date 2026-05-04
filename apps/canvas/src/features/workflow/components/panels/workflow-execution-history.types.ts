@@ -1,3 +1,5 @@
+import type { ApiWorkflowRunRemediation } from "@features/workflow/lib/workflow-storage.types";
+
 export interface WorkflowNode {
   id: string;
   type: string;
@@ -39,6 +41,7 @@ export interface WorkflowExecution {
   metadata?: {
     graphToCanvas?: Record<string, string>;
   };
+  remediations?: ApiWorkflowRunRemediation[];
 }
 
 export interface WorkflowExecutionHistoryProps {

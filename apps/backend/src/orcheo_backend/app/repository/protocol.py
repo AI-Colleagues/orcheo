@@ -18,6 +18,9 @@ from orcheo.models.workflow import (
     Workflow,
     WorkflowDraftAccess,
     WorkflowRun,
+    WorkflowRunRemediation,
+    WorkflowRunRemediationClassification,
+    WorkflowRunRemediationStatus,
     WorkflowVersion,
 )
 from orcheo.triggers.cron import CronTriggerConfig
@@ -193,6 +196,86 @@ class WorkflowRepository(Protocol):
         reason: str | None,
     ) -> WorkflowRun:
         """Cancel a run with an optional reason."""
+
+    async def create_remediation_candidate(
+        self,
+        *,
+        workflow_id: UUID,
+        workflow_version_id: UUID,
+        run_id: UUID,
+        fingerprint: str,
+        version_checksum: str,
+        graph_format: str | None,
+        context: dict[str, Any],
+    ) -> WorkflowRunRemediation:
+        """Persist a remediation candidate, suppressing active duplicates."""
+
+    async def claim_next_remediation_candidate(
+        self,
+        *,
+        actor: str,
+        now: datetime | None = None,
+        max_attempts: int | None = None,
+    ) -> WorkflowRunRemediation | None:
+        """Atomically claim the next pending remediation candidate."""
+
+    async def get_remediation_candidate(
+        self,
+        remediation_id: UUID,
+    ) -> WorkflowRunRemediation:
+        """Return a remediation candidate by identifier."""
+
+    async def list_remediation_candidates(
+        self,
+        *,
+        workflow_id: UUID | None = None,
+        workflow_version_id: UUID | None = None,
+        run_id: UUID | None = None,
+        status: WorkflowRunRemediationStatus | str | None = None,
+        limit: int | None = None,
+    ) -> list[WorkflowRunRemediation]:
+        """List remediation candidates using optional filters."""
+
+    async def mark_remediation_fixed(
+        self,
+        remediation_id: UUID,
+        *,
+        created_version_id: UUID,
+        classification: WorkflowRunRemediationClassification | str,
+        developer_note: str,
+        artifacts: dict[str, Any],
+        validation_result: dict[str, Any],
+    ) -> WorkflowRunRemediation:
+        """Mark a remediation as fixed with a created workflow version."""
+
+    async def mark_remediation_note_only(
+        self,
+        remediation_id: UUID,
+        *,
+        classification: WorkflowRunRemediationClassification | str,
+        developer_note: str,
+        artifacts: dict[str, Any],
+    ) -> WorkflowRunRemediation:
+        """Mark a remediation as note-only."""
+
+    async def dismiss_remediation_candidate(
+        self,
+        remediation_id: UUID,
+        *,
+        actor: str,
+        reason: str | None = None,
+    ) -> WorkflowRunRemediation:
+        """Dismiss a remediation candidate."""
+
+    async def mark_remediation_failed(
+        self,
+        remediation_id: UUID,
+        *,
+        error: str,
+        artifacts: dict[str, Any] | None = None,
+        validation_result: dict[str, Any] | None = None,
+    ) -> WorkflowRunRemediation:
+        """Mark a remediation attempt as failed."""
 
     async def reset(self) -> None:
         """Clear all stored workflows, versions, and runs."""

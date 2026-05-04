@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any
-from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
+from orcheo.models.workflow import (
+    Workflow,
+    WorkflowRun,
+    WorkflowRunRemediation,
+    WorkflowVersion,
+)
 from orcheo_backend.app.repository.errors import (
     CronTriggerNotFoundError,
     RepositoryError,
@@ -10,6 +15,7 @@ from orcheo_backend.app.repository.errors import (
     WorkflowNotFoundError,
     WorkflowPublishStateError,
     WorkflowRunNotFoundError,
+    WorkflowRunRemediationNotFoundError,
     WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.repository.in_memory import InMemoryWorkflowRepository
@@ -44,6 +50,8 @@ __all__ = [
     "WorkflowPublishStateError",
     "WorkflowRun",
     "WorkflowRunNotFoundError",
+    "WorkflowRunRemediation",
+    "WorkflowRunRemediationNotFoundError",
     "WorkflowVersion",
     "WorkflowVersionNotFoundError",
 ]

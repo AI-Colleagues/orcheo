@@ -8,6 +8,10 @@ from orcheo.models import (
     Workflow,
     WorkflowDraftAccess,
     WorkflowRun,
+    WorkflowRunRemediation,
+    WorkflowRunRemediationAction,
+    WorkflowRunRemediationClassification,
+    WorkflowRunRemediationStatus,
     WorkflowRunStatus,
     WorkflowVersion,
 )
@@ -186,6 +190,111 @@ def test_workflow_run_cancel_without_reason() -> None:
 
     assert run.error is None
     assert run.audit_log[-1].metadata == {}
+
+
+def test_workflow_run_remediation_lifecycle() -> None:
+    remediation = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="checksum:type:message",
+        version_checksum="abc123",
+        context={"error": "boom"},
+    )
+
+    assert remediation.status is WorkflowRunRemediationStatus.PENDING
+    assert remediation.status.is_active is True
+    remediation.claim(actor="worker-1")
+
+    assert remediation.status is WorkflowRunRemediationStatus.CLAIMED
+    assert remediation.attempt_count == 1
+    assert remediation.claimed_by == "worker-1"
+    assert remediation.claimed_at is not None
+
+    remediation.mark_note_only(
+        actor="worker-1",
+        classification=WorkflowRunRemediationClassification.RUNTIME_OR_PLATFORM,
+        developer_note="Runtime issue needs operator review.",
+        artifacts={"classification_hash": "hash"},
+    )
+
+    assert remediation.status is WorkflowRunRemediationStatus.NOTE_ONLY
+    assert remediation.action is WorkflowRunRemediationAction.NOTE_ONLY
+    assert remediation.classification is (
+        WorkflowRunRemediationClassification.RUNTIME_OR_PLATFORM
+    )
+    assert remediation.developer_note == "Runtime issue needs operator review."
+    assert remediation.created_version_id is None
+    assert remediation.last_error is None
+
+
+def test_workflow_run_remediation_fixed_requires_version_classification() -> None:
+    remediation = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="checksum:type:message",
+        version_checksum="abc123",
+    )
+
+    with pytest.raises(ValueError, match="workflow-fix classifications"):
+        remediation.mark_fixed(
+            actor="worker",
+            created_version_id=uuid4(),
+            classification=WorkflowRunRemediationClassification.UNKNOWN,
+            developer_note="not fixable",
+            artifacts={},
+            validation_result={},
+        )
+
+    created_version_id = uuid4()
+    remediation.mark_fixed(
+        actor="worker",
+        created_version_id=created_version_id,
+        classification=WorkflowRunRemediationClassification.WORKFLOW_FIXABLE,
+        developer_note="Workflow source was repaired.",
+        artifacts={"workflow_hash": "hash"},
+        validation_result={"ok": True},
+    )
+
+    assert remediation.status is WorkflowRunRemediationStatus.FIXED
+    assert remediation.action is WorkflowRunRemediationAction.CREATE_WORKFLOW_VERSION
+    assert remediation.created_version_id == created_version_id
+    assert remediation.validation_result == {"ok": True}
+
+
+def test_workflow_run_remediation_dismiss_rules() -> None:
+    fixed = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="fixed",
+        version_checksum="abc123",
+    )
+    fixed.mark_fixed(
+        actor="worker",
+        created_version_id=uuid4(),
+        classification=WorkflowRunRemediationClassification.WORKFLOW_FIXABLE,
+        developer_note="fixed",
+        artifacts={},
+        validation_result={"ok": True},
+    )
+
+    with pytest.raises(ValueError, match="active or failed"):
+        fixed.dismiss(actor="reviewer")
+
+    failed = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="failed",
+        version_checksum="abc123",
+    )
+    failed.mark_failed(actor="worker", error="agent failed")
+    failed.dismiss(actor="reviewer", reason="tracked elsewhere")
+
+    assert failed.status is WorkflowRunRemediationStatus.DISMISSED
+    assert failed.audit_log[-1].metadata == {"reason": "tracked elsewhere"}
 
 
 def test_workflow_publish_lifecycle() -> None:

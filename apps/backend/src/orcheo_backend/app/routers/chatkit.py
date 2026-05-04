@@ -26,7 +26,7 @@ from fastapi import (
 )
 from pydantic import TypeAdapter, ValidationError
 from starlette.responses import JSONResponse, StreamingResponse
-from orcheo.config import get_settings
+import orcheo.config as orcheo_config
 from orcheo.config.defaults import _DEFAULTS
 from orcheo.models.workflow import WorkflowRun
 from orcheo.vault.oauth import CredentialHealthError
@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 
 
 def _load_rate_limit_config() -> Mapping[str, Any]:
-    settings = get_settings()
+    settings = orcheo_config.get_settings()
     config = settings.get("CHATKIT_RATE_LIMITS")
     return config if isinstance(config, Mapping) else {}
 
@@ -638,7 +638,7 @@ async def upload_chatkit_file(
     - storage_path: path to the stored file (not part of standard ChatKit format)
     """
     try:
-        settings = get_settings()
+        settings = orcheo_config.get_settings()
         max_upload_size = int(
             settings.get(
                 "CHATKIT_MAX_UPLOAD_SIZE_BYTES",

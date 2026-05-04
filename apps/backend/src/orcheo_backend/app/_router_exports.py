@@ -29,6 +29,9 @@ from orcheo_backend.app.routers import (
     nodes as _nodes_routes,
 )
 from orcheo_backend.app.routers import (
+    remediations as _remediations_routes,
+)
+from orcheo_backend.app.routers import (
     runs as _runs_routes,
 )
 from orcheo_backend.app.routers import (
@@ -109,6 +112,10 @@ mark_run_succeeded = _runs_routes.mark_run_succeeded
 mark_run_failed = _runs_routes.mark_run_failed
 mark_run_cancelled = _runs_routes.mark_run_cancelled
 
+list_workflow_remediations = _remediations_routes.list_workflow_remediations
+get_workflow_remediation = _remediations_routes.get_workflow_remediation
+dismiss_workflow_remediation = _remediations_routes.dismiss_workflow_remediation
+
 configure_webhook_trigger = _triggers_routes.configure_webhook_trigger
 get_webhook_trigger_config = _triggers_routes.get_webhook_trigger_config
 invoke_webhook_trigger = _triggers_routes.invoke_webhook_trigger
@@ -142,6 +149,7 @@ __all__ = [
     "dispatch_cron_triggers",
     "dispatch_manual_runs",
     "delete_cron_trigger",
+    "dismiss_workflow_remediation",
     "execute_node_endpoint",
     "get_cron_trigger_config",
     "get_agentensor_checkpoint",
@@ -154,6 +162,7 @@ __all__ = [
     "get_workflow_credential_health",
     "get_workflow_listener_metrics",
     "get_workflow_run",
+    "get_workflow_remediation",
     "get_workflow_version",
     "ingest_workflow_version",
     "invoke_webhook_trigger",
@@ -164,6 +173,7 @@ __all__ = [
     "list_workflow_listeners",
     "list_workflow_execution_histories",
     "list_workflow_runs",
+    "list_workflow_remediations",
     "list_workflow_versions",
     "list_workflows",
     "list_agentensor_checkpoints",

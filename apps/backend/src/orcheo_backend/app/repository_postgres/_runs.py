@@ -124,6 +124,7 @@ class WorkflowRunMixin(PostgresPersistenceMixin):
         async with self._lock:
             async with self._connection() as conn:
                 await conn.execute("DELETE FROM workflow_runs")
+                await conn.execute("DELETE FROM workflow_run_remediations")
                 await conn.execute("DELETE FROM workflow_versions")
                 await conn.execute("DELETE FROM workflows")
                 await conn.execute("DELETE FROM webhook_triggers")

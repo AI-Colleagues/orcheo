@@ -1,7 +1,14 @@
 import type React from "react";
 import { Button } from "@/design-system/ui/button";
 import { Badge } from "@/design-system/ui/badge";
-import { Copy, Maximize2, Minimize2, Trash } from "lucide-react";
+import {
+  Copy,
+  ExternalLink,
+  Maximize2,
+  Minimize2,
+  Trash,
+  Wrench,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import WorkflowFlow from "@features/workflow/components/canvas/workflow-flow";
 import { Node } from "@xyflow/react";
@@ -37,6 +44,8 @@ export const WorkflowExecutionDetails = ({
     );
   }
 
+  const latestRemediation = execution.remediations?.[0] ?? null;
+
   return (
     <>
       <div className="flex items-center justify-between border-b border-border p-2">
@@ -69,6 +78,45 @@ export const WorkflowExecutionDetails = ({
           </Button>
         </div>
       </div>
+
+      {latestRemediation && (
+        <div className="border-b border-border px-3 py-2">
+          <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-border bg-muted/20 p-3">
+            <div className="min-w-0 space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Wrench className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">
+                  Orcheo Vibe remediation
+                </span>
+                <Badge variant="outline">{latestRemediation.status}</Badge>
+                {latestRemediation.classification && (
+                  <Badge variant="secondary">
+                    {latestRemediation.classification}
+                  </Badge>
+                )}
+              </div>
+              {latestRemediation.developer_note && (
+                <p className="max-w-3xl text-sm text-muted-foreground">
+                  {latestRemediation.developer_note}
+                </p>
+              )}
+              {latestRemediation.last_error && (
+                <p className="text-sm text-destructive">
+                  {latestRemediation.last_error}
+                </p>
+              )}
+            </div>
+            {latestRemediation.created_version_id && (
+              <Button variant="outline" size="sm" asChild>
+                <a href={`/workflow-canvas/${latestRemediation.workflow_id}`}>
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Version {latestRemediation.created_version_id.slice(0, 8)}
+                </a>
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-1 flex-col overflow-hidden p-2">
         <div
