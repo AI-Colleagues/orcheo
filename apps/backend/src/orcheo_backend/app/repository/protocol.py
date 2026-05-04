@@ -77,6 +77,9 @@ class WorkflowRepository(Protocol):
         belongs to that tenant; otherwise WorkflowNotFoundError is raised.
         """
 
+    async def get_workflow_tenant_id(self, workflow_id: UUID) -> str | None:
+        """Return the tenant_id stored for the workflow, or None if unscoped."""
+
     async def resolve_workflow_ref(
         self,
         workflow_ref: str,

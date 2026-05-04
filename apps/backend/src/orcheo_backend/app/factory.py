@@ -220,6 +220,10 @@ def create_app(
             )
 
     application.include_router(api_router)
+    # Tenant-slug-prefixed webhook routes at /hooks/{tenant_slug}/{trigger_id}.
+    # Mounted at the application root (not under /api) so external services
+    # can reach them without an /api prefix.
+    application.include_router(triggers.tenant_webhook_router)
     application.include_router(chatkit_assets.router)
     application.include_router(websocket.router)
     application.state.listener_runtime_store = listener_runtime_store

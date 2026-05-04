@@ -44,6 +44,7 @@ class CredentialOperationsMixin:
         kind: CredentialKind | str = CredentialKind.SECRET,
         oauth_tokens: OAuthTokenSecrets | None = None,
         template_id: UUID | None = None,
+        tenant_id: str | None = None,
     ) -> CredentialMetadata:
         """Encrypt and persist a new credential."""
         normalized_kind = kind
@@ -60,6 +61,7 @@ class CredentialOperationsMixin:
             kind=normalized_kind,
             oauth_tokens=oauth_tokens,
             template_id=template_id,
+            tenant_id=tenant_id,
         )
         self._persist_metadata(metadata)
         return metadata.model_copy(deep=True)
@@ -188,7 +190,10 @@ class CredentialOperationsMixin:
         return metadata.reveal(cipher=self._cipher)
 
     def list_credentials(
-        self, *, context: CredentialAccessContext | None = None
+        self,
+        *,
+        context: CredentialAccessContext | None = None,
+        tenant_id: str | None = None,
     ) -> list[CredentialMetadata]:
         """Return credential metadata permitted for the workflow context."""
         access_context = context or CredentialAccessContext()
@@ -196,11 +201,26 @@ class CredentialOperationsMixin:
             item.model_copy(deep=True)
             for item in self._iter_metadata()
             if item.scope.allows(access_context)
+            and (
+                tenant_id is None
+                or item.tenant_id is None
+                or item.tenant_id == tenant_id
+            )
         ]
 
-    def list_all_credentials(self) -> list[CredentialMetadata]:
+    def list_all_credentials(
+        self, *, tenant_id: str | None = None
+    ) -> list[CredentialMetadata]:
         """Return all credential metadata without applying scope filtering."""
-        return [item.model_copy(deep=True) for item in self._iter_metadata()]
+        return [
+            item.model_copy(deep=True)
+            for item in self._iter_metadata()
+            if (
+                tenant_id is None
+                or item.tenant_id is None
+                or item.tenant_id == tenant_id
+            )
+        ]
 
     def describe_credentials(
         self, *, context: CredentialAccessContext | None = None

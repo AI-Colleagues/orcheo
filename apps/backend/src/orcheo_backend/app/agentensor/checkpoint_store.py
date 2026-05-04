@@ -37,6 +37,7 @@ POSTGRES_CHECKPOINT_MIGRATION = """
 CREATE TABLE IF NOT EXISTS agentensor_checkpoints (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
+    tenant_id TEXT,
     config_version INTEGER NOT NULL,
     runnable_config JSONB NOT NULL,
     metrics JSONB NOT NULL,
@@ -49,6 +50,8 @@ CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_workflow
     ON agentensor_checkpoints (workflow_id, config_version);
 CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_best
     ON agentensor_checkpoints (workflow_id, is_best);
+CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_tenant
+    ON agentensor_checkpoints (tenant_id, workflow_id, config_version);
 CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_metrics
     ON agentensor_checkpoints USING GIN (metrics);
 CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_metadata
@@ -75,12 +78,14 @@ class InMemoryAgentensorCheckpointStore(AgentensorCheckpointStore):
         artifact_url: str | None = None,
         is_best: bool = False,
         config_version: int | None = None,
+        tenant_id: str | None = None,
     ) -> AgentensorCheckpoint:
         """Persist a checkpoint and return the stored record."""
         async with self._lock:
             version = config_version or self._next_version(workflow_id)
             checkpoint = AgentensorCheckpoint(
                 workflow_id=workflow_id,
+                tenant_id=tenant_id,
                 config_version=version,
                 runnable_config=dict(runnable_config),
                 metrics=dict(metrics),
@@ -99,13 +104,21 @@ class InMemoryAgentensorCheckpointStore(AgentensorCheckpointStore):
         workflow_id: str,
         *,
         limit: int | None = None,
+        tenant_id: str | None = None,
     ) -> list[AgentensorCheckpoint]:
         """Return checkpoints for the workflow ordered newest-first."""
         async with self._lock:
             identifiers = list(reversed(self._by_workflow.get(workflow_id, [])))
+            checkpoints = [self._checkpoints[i] for i in identifiers]
+            if tenant_id is not None:
+                checkpoints = [
+                    c
+                    for c in checkpoints
+                    if c.tenant_id is None or c.tenant_id == tenant_id
+                ]
             if limit is not None:
-                identifiers = identifiers[:limit]
-            return [self._checkpoints[identifier] for identifier in identifiers]
+                checkpoints = checkpoints[:limit]
+            return checkpoints
 
     async def get_checkpoint(self, checkpoint_id: str) -> AgentensorCheckpoint:
         """Return the checkpoint by identifier or raise when missing."""
@@ -164,6 +177,7 @@ class SqliteAgentensorCheckpointStore(AgentensorCheckpointStore):
         artifact_url: str | None = None,
         is_best: bool = False,
         config_version: int | None = None,
+        tenant_id: str | None = None,
     ) -> AgentensorCheckpoint:
         """Persist a checkpoint row and return the stored domain object."""
         await self._ensure_initialized()
@@ -176,6 +190,7 @@ class SqliteAgentensorCheckpointStore(AgentensorCheckpointStore):
                     )
                     checkpoint = AgentensorCheckpoint(
                         workflow_id=workflow_id,
+                        tenant_id=tenant_id,
                         config_version=version,
                         runnable_config=dict(runnable_config),
                         metrics=dict(metrics),
@@ -188,6 +203,7 @@ class SqliteAgentensorCheckpointStore(AgentensorCheckpointStore):
                         INSERT INTO agentensor_checkpoints (
                             id,
                             workflow_id,
+                            tenant_id,
                             config_version,
                             runnable_config,
                             metrics,
@@ -196,11 +212,12 @@ class SqliteAgentensorCheckpointStore(AgentensorCheckpointStore):
                             is_best,
                             created_at
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             checkpoint.id,
                             checkpoint.workflow_id,
+                            checkpoint.tenant_id,
                             checkpoint.config_version,
                             json.dumps(checkpoint.runnable_config),
                             json.dumps(checkpoint.metrics),
@@ -231,16 +248,20 @@ class SqliteAgentensorCheckpointStore(AgentensorCheckpointStore):
         workflow_id: str,
         *,
         limit: int | None = None,
+        tenant_id: str | None = None,
     ) -> list[AgentensorCheckpoint]:
         """Return persisted checkpoints ordered by config_version."""
         await self._ensure_initialized()
         query = (
-            "SELECT id, workflow_id, config_version, runnable_config, metrics, "
-            "metadata, artifact_url, is_best, created_at "
-            "FROM agentensor_checkpoints WHERE workflow_id = ? "
-            "ORDER BY config_version DESC"
+            "SELECT id, workflow_id, tenant_id, config_version, runnable_config, "
+            "metrics, metadata, artifact_url, is_best, created_at "
+            "FROM agentensor_checkpoints WHERE workflow_id = ?"
         )
         params: list[object] = [workflow_id]
+        if tenant_id is not None:
+            query += " AND (tenant_id = ? OR tenant_id IS NULL)"
+            params.append(tenant_id)
+        query += " ORDER BY config_version DESC"
         if limit is not None:
             query += " LIMIT ?"
             params.append(limit)
@@ -255,8 +276,8 @@ class SqliteAgentensorCheckpointStore(AgentensorCheckpointStore):
         async with connect_sqlite(self._database_path) as conn:
             cursor = await conn.execute(
                 """
-                SELECT id, workflow_id, config_version, runnable_config, metrics,
-                       metadata, artifact_url, is_best, created_at
+                SELECT id, workflow_id, tenant_id, config_version, runnable_config,
+                       metrics, metadata, artifact_url, is_best, created_at
                   FROM agentensor_checkpoints
                  WHERE id = ?
                 """,
@@ -311,6 +332,7 @@ class SqliteAgentensorCheckpointStore(AgentensorCheckpointStore):
         return AgentensorCheckpoint(
             id=row["id"],
             workflow_id=row["workflow_id"],
+            tenant_id=row["tenant_id"],
             config_version=int(row["config_version"]),
             runnable_config=json.loads(row["runnable_config"]),
             metrics=json.loads(row["metrics"]),
@@ -412,6 +434,7 @@ class PostgresAgentensorCheckpointStore(AgentensorCheckpointStore):
         artifact_url: str | None = None,
         is_best: bool = False,
         config_version: int | None = None,
+        tenant_id: str | None = None,
     ) -> AgentensorCheckpoint:
         """Persist a checkpoint and return the stored record."""
         await self._ensure_initialized()
@@ -420,6 +443,7 @@ class PostgresAgentensorCheckpointStore(AgentensorCheckpointStore):
                 version = await self._resolve_version(conn, workflow_id, config_version)
                 checkpoint = AgentensorCheckpoint(
                     workflow_id=workflow_id,
+                    tenant_id=tenant_id,
                     config_version=version,
                     runnable_config=dict(runnable_config),
                     metrics=dict(metrics),
@@ -430,14 +454,15 @@ class PostgresAgentensorCheckpointStore(AgentensorCheckpointStore):
                 await conn.execute(
                     """
                     INSERT INTO agentensor_checkpoints (
-                        id, workflow_id, config_version, runnable_config,
+                        id, workflow_id, tenant_id, config_version, runnable_config,
                         metrics, metadata, artifact_url, is_best, created_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         checkpoint.id,
                         checkpoint.workflow_id,
+                        checkpoint.tenant_id,
                         checkpoint.config_version,
                         json.dumps(checkpoint.runnable_config),
                         json.dumps(checkpoint.metrics),
@@ -464,17 +489,21 @@ class PostgresAgentensorCheckpointStore(AgentensorCheckpointStore):
         workflow_id: str,
         *,
         limit: int | None = None,
+        tenant_id: str | None = None,
     ) -> list[AgentensorCheckpoint]:
         """Return checkpoints for the workflow ordered newest-first."""
         await self._ensure_initialized()
         query = """
-            SELECT id, workflow_id, config_version, runnable_config,
+            SELECT id, workflow_id, tenant_id, config_version, runnable_config,
                    metrics, metadata, artifact_url, is_best, created_at
               FROM agentensor_checkpoints
              WHERE workflow_id = %s
-             ORDER BY config_version DESC
         """
         params: list[object] = [workflow_id]
+        if tenant_id is not None:
+            query += " AND (tenant_id = %s OR tenant_id IS NULL)"
+            params.append(tenant_id)
+        query += " ORDER BY config_version DESC"
         if limit is not None:
             query += " LIMIT %s"
             params.append(limit)
@@ -489,7 +518,7 @@ class PostgresAgentensorCheckpointStore(AgentensorCheckpointStore):
         async with self._connection() as conn:
             cursor = await conn.execute(
                 """
-                SELECT id, workflow_id, config_version, runnable_config,
+                SELECT id, workflow_id, tenant_id, config_version, runnable_config,
                        metrics, metadata, artifact_url, is_best, created_at
                   FROM agentensor_checkpoints
                  WHERE id = %s
@@ -553,6 +582,7 @@ class PostgresAgentensorCheckpointStore(AgentensorCheckpointStore):
         return AgentensorCheckpoint(
             id=row["id"],
             workflow_id=row["workflow_id"],
+            tenant_id=row.get("tenant_id"),
             config_version=int(row["config_version"]),
             runnable_config=runnable_config,
             metrics=metrics,

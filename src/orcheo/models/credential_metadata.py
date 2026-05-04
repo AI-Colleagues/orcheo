@@ -71,12 +71,14 @@ class CredentialMetadata(TimestampedAuditModel):
         kind: CredentialKind = CredentialKind.SECRET,
         oauth_tokens: OAuthTokenSecrets | None = None,
         template_id: UUID | None = None,
+        tenant_id: str | None = None,
     ) -> CredentialMetadata:
         """Construct a credential metadata record with encrypted secret."""
         encryption = cipher.encrypt(secret)
         metadata = cls(
             name=name,
             provider=provider,
+            tenant_id=tenant_id,
             scopes=list(scopes),
             scope=scope or CredentialScope.unrestricted(),
             encryption=encryption,

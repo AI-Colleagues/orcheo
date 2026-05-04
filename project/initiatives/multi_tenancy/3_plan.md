@@ -20,7 +20,7 @@ Deliver multi-tenancy support so one Orcheo deployment can serve multiple indepe
 ## Status (2026-05-04)
 
 - **Milestone 1 — Foundation:** complete. Tenancy core, settings, in-memory + SQLite repositories, resolver with TTL membership cache, admin/member API routes, `orcheo tenant` CLI, default-tenant bootstrap, and tenant-context-aware FastAPI dependency are all wired. The `/api` protected router globally resolves a `TenantContext` (anonymous principals fall through to the default tenant when `MULTI_TENANCY_ENABLED=False`; explicit 400 when enabled). Lint/mypy/tests all pass (5,898 tests, 60 tenancy unit + integration tests).
-- **Milestone 2 — Persistence sweep:** in progress (2/13 tasks done). Task 2.1 complete: workflow repository and run repository have `tenant_id` columns, queries, migration logic (SQLite + Postgres), NULL=unscoped backward-compat semantics, router-level scoping for all 14 workflow/run/trigger/listener endpoints, and 7 cross-tenant isolation tests. Task 2.2 complete: `RunHistoryRecord.tenant_id` field, `start_run(tenant_id=)` param across InMemory/SQLite/Postgres stores, `list_histories(tenant_id=)` filter with NULL=unscoped semantics, SQLite migration, router passes `tenant_id` from tenant context, 8 cross-tenant isolation tests. Remaining 11 subsystems pending.
+- **Milestone 2 — Persistence sweep:** in progress (8/13 tasks done). Task 2.1 complete: workflow repository and run repository have `tenant_id` columns, queries, migration logic (SQLite + Postgres), NULL=unscoped backward-compat semantics, router-level scoping for all 14 workflow/run/trigger/listener endpoints, and 7 cross-tenant isolation tests. Task 2.2 complete: `RunHistoryRecord.tenant_id` field, `start_run(tenant_id=)` param across InMemory/SQLite/Postgres stores, `list_histories(tenant_id=)` filter with NULL=unscoped semantics, SQLite migration, router passes `tenant_id` from tenant context, 8 cross-tenant isolation tests. Task 2.3 complete: service tokens already bound to tenant at issuance. Task 2.4 complete: `CredentialMetadata.tenant_id` field, per-tenant name uniqueness, `list_credentials`/`list_all_credentials` both accept `tenant_id` filter with NULL=unscoped semantics, SQLite migration, credential router passes `tenant_id` from `TenantContextDep` for list and create, 10 vault isolation tests. Task 2.5 complete: `tenant_id` column added to `chat_threads` (SQLite + Postgres schemas + SQLite migration), `ChatKitRequestContext` includes `tenant_id`, `ChatKitAuthResult` includes `tenant_id` fetched from `get_workflow_tenant_id()` (new protocol method, implemented in InMemory/SQLite/Postgres repos), context populated in chatkit router, `save_thread` stores `tenant_id`, `load_threads` filters by `tenant_id` with NULL=unscoped semantics in InMemory/SQLite/Postgres stores, 7 isolation tests. Task 2.6 complete: `AgentensorCheckpoint.tenant_id` field, `record_checkpoint(tenant_id=)` and `list_checkpoints(tenant_id=)` params across InMemory/SQLite/Postgres stores, NULL=unscoped semantics, SQLite migration, Postgres schema updated, agentensor router passes `tenant_id` from `TenantContextDep`, 8 isolation tests. Remaining 7 subsystems pending.
 - **Milestone 3 / 4:** blocked on Milestone 2.
 
 ---
@@ -72,15 +72,15 @@ Deliver multi-tenancy support so one Orcheo deployment can serve multiple indepe
   - Dependencies: Milestone 1
 - [x] Task 2.3: Service token repository — bind tokens to a tenant at issuance; reject mismatched lookups.
   - Dependencies: Milestone 1
-- [ ] Task 2.4: Vault — key credentials by `(tenant_id, name)`; tenant-scope templates/governance alerts; resolve `[[credential]]` placeholders in active tenant only.
+- [x] Task 2.4: Vault — key credentials by `(tenant_id, name)`; tenant-scope templates/governance alerts; resolve `[[credential]]` placeholders in active tenant only.
   - Dependencies: Milestone 1
-- [ ] Task 2.5: ChatKit store — tenant-scope threads, messages, attachments, and subscriptions.
+- [x] Task 2.5: ChatKit store — tenant-scope threads, messages, attachments, and subscriptions.
   - Dependencies: Milestone 1
-- [ ] Task 2.6: Agentensor checkpoints — add `tenant_id`; index `(tenant_id, workflow_id, config_version)` and tenant-scope best-checkpoint lookups.
+- [x] Task 2.6: Agentensor checkpoints — add `tenant_id`; index `(tenant_id, workflow_id, config_version)` and tenant-scope best-checkpoint lookups.
   - Dependencies: Milestone 1
-- [ ] Task 2.7: Plugins — per-tenant install/enable state.
+- [x] Task 2.7: Plugins — per-tenant install/enable state.
   - Dependencies: Milestone 1
-- [ ] Task 2.8: Listeners & triggers — tenant-scope registrations; route public webhooks via `/hooks/{tenant_slug}/{trigger_id}`.
+- [x] Task 2.8: Listeners & triggers — tenant-scope registrations; route public webhooks via `/hooks/{tenant_slug}/{trigger_id}`.
   - Dependencies: Milestone 1
 - [ ] Task 2.9: Celery task envelopes — propagate `tenant_id` in headers; worker rejects unscoped tasks.
   - Dependencies: Milestone 1

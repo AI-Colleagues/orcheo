@@ -139,6 +139,7 @@ class ChatKitAuthResult:
     actor: str
     auth_mode: Literal["jwt", "publish"]
     subject: str | None
+    tenant_id: str | None = None
 
 
 @lru_cache(maxsize=1)
@@ -409,6 +410,7 @@ async def chatkit_gateway(request: Request, repository: RepositoryDep) -> Respon
     context: ChatKitRequestContext = {
         "chatkit_request": parsed_request,
         "workflow_id": str(auth_result.workflow_id),
+        "tenant_id": auth_result.tenant_id,
         "actor": auth_result.actor,
         "auth_mode": auth_result.auth_mode,
     }
@@ -814,11 +816,13 @@ async def _authenticate_jwt_request(
         raise_not_found("Workflow not found", WorkflowNotFoundError(str(workflow_id)))
 
     actor_subject = str(claims.get("sub") or "chatkit")
+    tenant_id = await repository.get_workflow_tenant_id(workflow_id)
     return ChatKitAuthResult(
         workflow_id=workflow_id,
         actor=f"jwt:{actor_subject}",
         auth_mode="jwt",
         subject=actor_subject,
+        tenant_id=tenant_id,
     )
 
 
@@ -860,10 +864,12 @@ async def _authenticate_publish_request(
 
     _rate_limit(_SESSION_RATE_LIMITER, session_subject, now=now)
 
+    tenant_id = await repository.get_workflow_tenant_id(workflow_id)
     actor = f"workflow:{workflow_id}"
     return ChatKitAuthResult(
         workflow_id=workflow_id,
         actor=actor,
         auth_mode="publish",
         subject=session_subject,
+        tenant_id=tenant_id,
     )

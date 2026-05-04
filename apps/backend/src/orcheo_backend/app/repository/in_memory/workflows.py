@@ -122,6 +122,11 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
                 raise WorkflowNotFoundError(str(workflow_id))
             return workflow.model_copy(deep=True)
 
+    async def get_workflow_tenant_id(self, workflow_id: UUID) -> str | None:
+        """Return the tenant_id for the workflow, or None if unscoped."""
+        async with self._lock:
+            return self._workflow_tenants.get(workflow_id)
+
     async def resolve_workflow_ref(
         self,
         workflow_ref: str,

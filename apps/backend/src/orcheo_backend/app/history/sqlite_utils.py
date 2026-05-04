@@ -46,6 +46,7 @@ CREATE INDEX IF NOT EXISTS idx_history_steps_execution
 CREATE TABLE IF NOT EXISTS agentensor_checkpoints (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
+    tenant_id TEXT,
     config_version INTEGER NOT NULL,
     runnable_config TEXT NOT NULL,
     metrics TEXT NOT NULL,
@@ -58,6 +59,16 @@ CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_workflow
     ON agentensor_checkpoints(workflow_id, config_version);
 CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_best
     ON agentensor_checkpoints(workflow_id, is_best);
+CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_tenant
+    ON agentensor_checkpoints(tenant_id, workflow_id, config_version);
+CREATE TABLE IF NOT EXISTS plugin_installations (
+    plugin_name TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (plugin_name, tenant_id)
+);
+CREATE INDEX IF NOT EXISTS idx_plugin_installations_tenant
+    ON plugin_installations(tenant_id);
 """
 
 INSERT_EXECUTION_SQL = """
@@ -165,6 +176,7 @@ async def ensure_sqlite_schema(database_path: Path) -> None:
     """Create the history tables when the database is initialised."""
     database_path.parent.mkdir(parents=True, exist_ok=True)
     async with connect_sqlite(database_path) as conn:
+        await _ensure_agentensor_tenant_column(conn)
         await conn.executescript(SCHEMA_SQL)
         await _ensure_trace_columns(conn)
         await conn.commit()
@@ -260,6 +272,22 @@ async def _ensure_trace_columns(conn: aiosqlite.Connection) -> None:
     for column, statement in alters.items():
         if column not in existing:
             await conn.execute(statement)
+
+
+async def _ensure_agentensor_tenant_column(conn: aiosqlite.Connection) -> None:
+    """Add tenant_id to agentensor_checkpoints when upgrading existing databases."""
+    cursor = await conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='table' AND name='agentensor_checkpoints'"
+    )
+    if await cursor.fetchone() is None:
+        return
+    cursor = await conn.execute("PRAGMA table_info(agentensor_checkpoints)")
+    existing = {row["name"] for row in await cursor.fetchall()}
+    if "tenant_id" not in existing:
+        await conn.execute(
+            "ALTER TABLE agentensor_checkpoints ADD COLUMN tenant_id TEXT"
+        )
 
 
 def _parse_optional_datetime(value: str | None) -> datetime | None:

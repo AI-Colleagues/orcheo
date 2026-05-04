@@ -12,11 +12,14 @@ CREATE TABLE IF NOT EXISTS chat_threads (
     id TEXT PRIMARY KEY,
     title TEXT,
     workflow_id TEXT,
+    tenant_id TEXT,
     status_json TEXT NOT NULL,
     metadata_json TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_chat_threads_tenant
+    ON chat_threads(tenant_id);
 CREATE TABLE IF NOT EXISTS chat_messages (
     id TEXT PRIMARY KEY,
     thread_id TEXT NOT NULL,
@@ -58,6 +61,25 @@ async def ensure_schema(conn: aiosqlite.Connection) -> None:
 async def run_migrations(conn: aiosqlite.Connection) -> None:
     """Apply pending migrations."""
     await _migrate_chat_messages_thread_id(conn)
+    await _migrate_chat_threads_tenant_id(conn)
+
+
+async def _migrate_chat_threads_tenant_id(conn: aiosqlite.Connection) -> None:
+    cursor = await conn.execute(
+        """
+        SELECT name
+          FROM sqlite_master
+         WHERE type = 'table' AND name = 'chat_threads'
+        """
+    )
+    table = await cursor.fetchone()
+    if table is None:
+        return
+    cursor = await conn.execute("PRAGMA table_info(chat_threads)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if "tenant_id" not in columns:
+        await conn.execute("ALTER TABLE chat_threads ADD COLUMN tenant_id TEXT")
+        await conn.commit()
 
 
 async def _migrate_chat_messages_thread_id(conn: aiosqlite.Connection) -> None:

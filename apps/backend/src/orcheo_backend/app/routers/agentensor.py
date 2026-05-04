@@ -10,6 +10,7 @@ from orcheo_backend.app.dependencies import (
 )
 from orcheo_backend.app.errors import raise_not_found
 from orcheo_backend.app.schemas.agentensor import AgentensorCheckpointResponse
+from orcheo_backend.app.tenancy import TenantContextDep
 
 
 router = APIRouter()
@@ -23,11 +24,14 @@ async def list_agentensor_checkpoints(
     workflow_ref: str,
     repository: RepositoryDep,
     store: CheckpointStoreDep,
+    tenant: TenantContextDep,
     limit: int = Query(20, ge=1, le=200),
 ) -> list[AgentensorCheckpointResponse]:
     """List checkpoints for the specified workflow."""
     workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
-    checkpoints = await store.list_checkpoints(str(workflow_uuid), limit=limit)
+    checkpoints = await store.list_checkpoints(
+        str(workflow_uuid), limit=limit, tenant_id=str(tenant.tenant_id)
+    )
     return [AgentensorCheckpointResponse.from_domain(item) for item in checkpoints]
 
 

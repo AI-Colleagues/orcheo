@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS chat_threads (
     id TEXT PRIMARY KEY,
     title TEXT,
     workflow_id TEXT,
+    tenant_id TEXT,
     status_json JSONB NOT NULL,
     metadata_json JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -20,6 +21,8 @@ CREATE INDEX IF NOT EXISTS idx_chat_threads_updated
     ON chat_threads(updated_at);
 CREATE INDEX IF NOT EXISTS idx_chat_threads_workflow
     ON chat_threads(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_chat_threads_tenant
+    ON chat_threads(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_chat_threads_metadata
     ON chat_threads USING GIN (metadata_json);
 CREATE INDEX IF NOT EXISTS idx_chat_threads_status

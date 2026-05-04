@@ -17,6 +17,7 @@ from orcheo.persistence import create_checkpointer, create_graph_store
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import merge_runnable_configs
 from orcheo.runtime.state_builder import build_initial_state
+from orcheo.tenancy import TenantNotFoundError
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookTriggerConfig, WebhookValidationError
@@ -33,7 +34,7 @@ from orcheo_backend.app.repository import (
     WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.schemas.runs import CronDispatchRequest
-from orcheo_backend.app.tenancy import TenantContextDep
+from orcheo_backend.app.tenancy import TenantContextDep, TenantServiceDep
 
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,11 @@ router = APIRouter()
 # services cannot provide Orcheo auth tokens. Security is enforced via webhook-level
 # validation (HMAC signatures, shared secrets, etc.) configured per workflow.
 public_webhook_router = APIRouter()
+
+# Tenant-slug-prefixed webhook router. Routes public webhooks through
+# /hooks/{tenant_slug}/{trigger_id} so callers can address a specific tenant
+# without requiring authentication.
+tenant_webhook_router = APIRouter()
 
 
 def _parse_webhook_body(
@@ -481,4 +487,156 @@ async def dispatch_manual_runs(
         ) from exc
 
 
-__all__ = ["router", "public_webhook_router"]
+async def _invoke_tenant_webhook(  # noqa: C901
+    tenant_slug: str,
+    trigger_id: str,
+    request: Request,
+    repository: RepositoryDep,
+    vault: VaultDep,
+    tenant_service: TenantServiceDep,
+    *,
+    preserve_raw_body: bool = False,
+) -> WorkflowRun | JSONResponse | PlainTextResponse | Response:
+    """Shared implementation for tenant-slug-prefixed webhook invocation."""
+    try:
+        tenant = tenant_service.repository.get_tenant_by_slug(tenant_slug)
+    except TenantNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tenant '{tenant_slug}' not found.",
+        ) from None
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tenant '{tenant_slug}' not found.",
+        ) from None
+
+    tenant_id = str(tenant.id)
+    try:
+        workflow_uuid = await resolve_workflow_ref_id(
+            repository, trigger_id, tenant_id=tenant_id
+        )
+    except HTTPException:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Trigger '{trigger_id}' not found for tenant '{tenant_slug}'.",
+        ) from None
+
+    try:
+        raw_body = await request.body()
+    except Exception as exc:  # pragma: no cover - FastAPI handles body read
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to read request body",
+        ) from exc
+
+    headers = {key: value for key, value in request.headers.items()}
+    query_params = dict(request.query_params)
+
+    payload, parsed_body = _parse_webhook_body(
+        raw_body, preserve_raw_body=preserve_raw_body
+    )
+    slack_response = _maybe_handle_slack_url_verification(parsed_body)
+    if slack_response is not None:
+        return slack_response
+
+    webhook_inputs: dict[str, Any] = {
+        "method": request.method,
+        "headers": headers,
+        "query_params": query_params,
+        "body": payload,
+    }
+
+    immediate_response: PlainTextResponse | JSONResponse | Response | None = None
+    should_queue = True
+    if _should_try_immediate_response(query_params):
+        try:
+            version = await repository.get_latest_version(workflow_uuid)
+            immediate_response, should_queue = await _try_immediate_response(
+                version, webhook_inputs, vault
+            )
+        except WorkflowNotFoundError as exc:
+            raise_not_found("Workflow not found", exc)
+        except WorkflowVersionNotFoundError as exc:
+            raise_not_found("Workflow version not found", exc)
+
+    run: WorkflowRun | None = None
+    if should_queue:
+        source_ip = getattr(request.client, "host", None)
+        run = await _queue_webhook_run(
+            repository,
+            workflow_uuid,
+            request.method,
+            headers,
+            query_params,
+            payload,
+            source_ip,
+        )
+
+    if immediate_response is not None:
+        return immediate_response
+    if run is not None:
+        return run
+    return JSONResponse(content={"status": "accepted"}, status_code=202)
+
+
+@tenant_webhook_router.get(
+    "/hooks/{tenant_slug}/{trigger_id}",
+    response_model=WorkflowRun,
+    status_code=status.HTTP_202_ACCEPTED,
+    operation_id="invoke_tenant_webhook_get",
+)
+@tenant_webhook_router.post(
+    "/hooks/{tenant_slug}/{trigger_id}",
+    response_model=WorkflowRun,
+    status_code=status.HTTP_202_ACCEPTED,
+    operation_id="invoke_tenant_webhook_post",
+)
+@tenant_webhook_router.put(
+    "/hooks/{tenant_slug}/{trigger_id}",
+    response_model=WorkflowRun,
+    status_code=status.HTTP_202_ACCEPTED,
+    operation_id="invoke_tenant_webhook_put",
+)
+@tenant_webhook_router.patch(
+    "/hooks/{tenant_slug}/{trigger_id}",
+    response_model=WorkflowRun,
+    status_code=status.HTTP_202_ACCEPTED,
+    operation_id="invoke_tenant_webhook_patch",
+)
+@tenant_webhook_router.delete(
+    "/hooks/{tenant_slug}/{trigger_id}",
+    response_model=WorkflowRun,
+    status_code=status.HTTP_202_ACCEPTED,
+    operation_id="invoke_tenant_webhook_delete",
+)
+async def invoke_tenant_webhook(
+    tenant_slug: str,
+    trigger_id: str,
+    request: Request,
+    repository: RepositoryDep,
+    vault: VaultDep,
+    tenant_service: TenantServiceDep,
+    preserve_raw_body: bool = Query(
+        default=False,
+        description="Store the raw request body alongside parsed payloads.",
+    ),
+) -> WorkflowRun | JSONResponse | PlainTextResponse | Response:
+    """Route a public webhook via tenant slug and trigger identifier.
+
+    Resolves the tenant from the slug and the workflow from the trigger_id,
+    then validates and enqueues the webhook run. Returns 404 when either the
+    slug or trigger_id is unknown.
+    """
+    return await _invoke_tenant_webhook(
+        tenant_slug,
+        trigger_id,
+        request,
+        repository,
+        vault,
+        tenant_service,
+        preserve_raw_body=preserve_raw_body,
+    )
+
+
+__all__ = ["router", "public_webhook_router", "tenant_webhook_router"]

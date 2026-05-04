@@ -167,6 +167,12 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
             return None
         return row["tenant_id"]
 
+    async def get_workflow_tenant_id(self, workflow_id: UUID) -> str | None:
+        """Return the tenant_id for the workflow, or None if unscoped."""
+        await self._ensure_initialized()
+        async with self._lock:
+            return await self._get_workflow_tenant_id_locked(workflow_id)
+
     async def resolve_workflow_ref(
         self,
         workflow_ref: str,

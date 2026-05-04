@@ -24,13 +24,15 @@ class SQLiteCredentialStoreMixin:
     ) -> None:
         payload = metadata.model_dump_json()
         with self._locked_connection() as conn:
+            # Name uniqueness is scoped per tenant (NULL tenant = global scope).
             cursor = conn.execute(
                 """
                 SELECT id
                   FROM credentials
                  WHERE lower(name) = lower(?)
+                   AND (tenant_id IS ? OR (tenant_id IS NULL AND ? IS NULL))
                 """,
-                (metadata.name,),
+                (metadata.name, metadata.tenant_id, metadata.tenant_id),
             )
             rows = [row[0] for row in cursor.fetchall()]
             duplicates = [row_id for row_id in rows if row_id != str(metadata.id)]
@@ -42,16 +44,18 @@ class SQLiteCredentialStoreMixin:
                 INSERT OR REPLACE INTO credentials (
                     id,
                     workflow_id,
+                    tenant_id,
                     name,
                     provider,
                     created_at,
                     updated_at,
                     payload
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(metadata.id),
                     metadata.scope.scope_hint(),
+                    metadata.tenant_id,
                     metadata.name,
                     metadata.provider,
                     metadata.created_at.isoformat(),

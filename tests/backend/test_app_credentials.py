@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
@@ -11,6 +12,9 @@ from orcheo.vault import (
     DuplicateCredentialNameError,
     WorkflowScopeError,
 )
+
+
+_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
 
 
 class _Repository:
@@ -66,13 +70,13 @@ async def test_list_credentials_success() -> None:
     ]
 
     class Vault:
-        def list_credentials(self, context=None):
+        def list_credentials(self, context=None, *, tenant_id=None):
             return creds
 
-        def list_all_credentials(self):
+        def list_all_credentials(self, *, tenant_id=None):
             return creds
 
-    result = await list_credentials(Vault(), _Repository())
+    result = await list_credentials(Vault(), _Repository(), _MOCK_TENANT)
 
     assert len(result) == 2
     assert result[0].id == str(cred1_id)
@@ -88,12 +92,14 @@ async def test_list_credentials_with_workflow_context() -> None:
     context_received = None
 
     class Vault:
-        def list_credentials(self, context=None):
+        def list_credentials(self, context=None, *, tenant_id=None):
             nonlocal context_received
             context_received = context
             return []
 
-    await list_credentials(Vault(), _Repository(), workflow_id=str(workflow_id))
+    await list_credentials(
+        Vault(), _Repository(), _MOCK_TENANT, workflow_id=str(workflow_id)
+    )
 
     assert context_received is not None
     assert context_received.workflow_id == workflow_id
@@ -109,7 +115,9 @@ async def test_create_credential_success() -> None:
     cred_id = uuid4()
 
     class Vault:
-        def create_credential(self, name, provider, scopes, secret, actor, scope, kind):
+        def create_credential(
+            self, name, provider, scopes, secret, actor, scope, kind, *, tenant_id=None
+        ):
             return CredentialMetadata(
                 id=cred_id,
                 name=name,
@@ -135,7 +143,7 @@ async def test_create_credential_success() -> None:
         kind=CredentialKind.SECRET,
     )
 
-    result = await create_credential(request, _Repository(), Vault())
+    result = await create_credential(request, _Repository(), Vault(), _MOCK_TENANT)
 
     assert result.id == str(cred_id)
     assert result.name == "Test Cred"
@@ -148,7 +156,9 @@ async def test_create_credential_validation_error() -> None:
     from orcheo_backend.app.schemas.credentials import CredentialCreateRequest
 
     class Vault:
-        def create_credential(self, name, provider, scopes, secret, actor, scope, kind):
+        def create_credential(
+            self, name, provider, scopes, secret, actor, scope, kind, *, tenant_id=None
+        ):
             raise ValueError("Invalid credential")
 
     request = CredentialCreateRequest(
@@ -162,7 +172,7 @@ async def test_create_credential_validation_error() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await create_credential(request, _Repository(), Vault())
+        await create_credential(request, _Repository(), Vault(), _MOCK_TENANT)
 
     assert exc_info.value.status_code == 422
 
@@ -178,7 +188,9 @@ async def test_create_credential_returns_inferred_access() -> None:
     workflow_id = uuid4()
 
     class Vault:
-        def create_credential(self, name, provider, scopes, secret, actor, scope, kind):
+        def create_credential(
+            self, name, provider, scopes, secret, actor, scope, kind, *, tenant_id=None
+        ):
             return CredentialMetadata(
                 id=cred_id,
                 name=name,
@@ -205,7 +217,7 @@ async def test_create_credential_returns_inferred_access() -> None:
         kind=CredentialKind.SECRET,
     )
 
-    result = await create_credential(request, _Repository(), Vault())
+    result = await create_credential(request, _Repository(), Vault(), _MOCK_TENANT)
 
     assert result.access == "scoped"
 
@@ -411,7 +423,7 @@ async def test_create_credential_scoped_access_requires_workflow_id() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await create_credential(request, _Repository(), Vault())
+        await create_credential(request, _Repository(), Vault(), _MOCK_TENANT)
 
     assert exc_info.value.status_code == 422
     assert exc_info.value.detail == (

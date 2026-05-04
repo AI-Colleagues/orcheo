@@ -13,6 +13,7 @@ _CREATE_CREDENTIALS_TABLE = """
 CREATE TABLE IF NOT EXISTS credentials (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
+    tenant_id TEXT,
     name TEXT NOT NULL,
     provider TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -25,6 +26,15 @@ _CREATE_CREDENTIALS_INDEX = """
 CREATE INDEX IF NOT EXISTS idx_credentials_workflow
     ON credentials(workflow_id)
 """
+
+_CREATE_CREDENTIALS_TENANT_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_credentials_tenant
+    ON credentials(tenant_id)
+"""
+
+_CREDENTIAL_TENANT_COLUMN_MIGRATION = (
+    "ALTER TABLE credentials ADD COLUMN tenant_id TEXT"
+)
 
 _CREATE_TEMPLATES_TABLE = """
 CREATE TABLE IF NOT EXISTS credential_templates (
@@ -80,9 +90,18 @@ class SQLiteConnectionMixin:
             conn.execute(_CREATE_TEMPLATES_INDEX)
             conn.execute(_CREATE_ALERTS_TABLE)
             conn.execute(_CREATE_ALERTS_INDEX)
+            self._migrate_credentials_tenant_id(conn)
+            conn.execute(_CREATE_CREDENTIALS_TENANT_INDEX)
             conn.commit()
         finally:
             self._release_connection(conn)
+
+    @staticmethod
+    def _migrate_credentials_tenant_id(conn: sqlite3.Connection) -> None:
+        cursor = conn.execute("PRAGMA table_info(credentials)")
+        existing = {row[1] for row in cursor.fetchall()}
+        if "tenant_id" not in existing:
+            conn.execute(_CREDENTIAL_TENANT_COLUMN_MIGRATION)
 
     def _create_connection(self) -> sqlite3.Connection:
         return sqlite3.connect(

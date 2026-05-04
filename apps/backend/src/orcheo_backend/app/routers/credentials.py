@@ -26,6 +26,7 @@ from orcheo_backend.app.schemas.credentials import (
     CredentialUpdateRequest,
     CredentialVaultEntryResponse,
 )
+from orcheo_backend.app.tenancy import TenantContextDep
 
 
 router = APIRouter()
@@ -38,17 +39,19 @@ router = APIRouter()
 async def list_credentials(
     vault: VaultDep,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
     workflow_id: WorkflowRefQuery = None,
 ) -> list[CredentialVaultEntryResponse]:
     """Return credential metadata visible to the caller."""
+    tid = str(tenant.tenant_id)
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
         repository, workflow_id
     )
     if resolved_workflow_id is None:
-        credentials = vault.list_all_credentials()
+        credentials = vault.list_all_credentials(tenant_id=tid)
     else:
         context = credential_context_from_workflow(resolved_workflow_id)
-        credentials = vault.list_credentials(context=context)
+        credentials = vault.list_credentials(context=context, tenant_id=tid)
     return [credential_to_response(metadata) for metadata in credentials]
 
 
@@ -61,6 +64,7 @@ async def create_credential(
     request: CredentialCreateRequest,
     repository: RepositoryDep,
     vault: VaultDep,
+    tenant: TenantContextDep,
 ) -> CredentialVaultEntryResponse:
     """Persist a new credential in the vault."""
     workflow_id = await resolve_optional_workflow_ref_id(
@@ -81,6 +85,7 @@ async def create_credential(
             actor=request.actor,
             scope=scope,
             kind=request.kind,
+            tenant_id=str(tenant.tenant_id),
         )
     except DuplicateCredentialNameError as exc:
         raise HTTPException(

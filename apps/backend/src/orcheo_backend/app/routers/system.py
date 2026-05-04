@@ -4,7 +4,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, status
-from orcheo_backend.app.dependencies import ExternalAgentRuntimeStoreDep
+from orcheo_backend.app.dependencies import (
+    ExternalAgentRuntimeStoreDep,
+    PluginInstallationStoreDep,
+)
 from orcheo_backend.app.external_agent_runtime_store import (
     list_external_agent_providers,
 )
@@ -20,6 +23,7 @@ from orcheo_backend.app.schemas.system import (
     SystemInfoResponse,
     SystemPluginsResponse,
 )
+from orcheo_backend.app.tenancy import TenantContextDep
 from orcheo_backend.app.versioning import get_system_info_payload
 from orcheo_backend.worker.celery_app import celery_app
 
@@ -41,9 +45,23 @@ def get_system_info() -> SystemInfoResponse:
 
 
 @router.get("/system/plugins", response_model=SystemPluginsResponse)
-def get_system_plugins() -> SystemPluginsResponse:
-    """Return plugin availability for the current backend process."""
-    return SystemPluginsResponse.model_validate({"plugins": list_runtime_plugins()})
+async def get_system_plugins(
+    tenant: TenantContextDep,
+    plugin_store: PluginInstallationStoreDep,
+) -> SystemPluginsResponse:
+    """Return plugin availability with per-tenant overrides."""
+    plugins = list_runtime_plugins()
+    tenant_states = {
+        state.plugin_name: state.enabled
+        for state in await plugin_store.list_plugin_states(
+            tenant_id=str(tenant.tenant_id)
+        )
+    }
+    for plugin in plugins:
+        name = str(plugin["name"])
+        if name in tenant_states:
+            plugin["enabled"] = tenant_states[name]
+    return SystemPluginsResponse.model_validate({"plugins": plugins})
 
 
 def _utcnow() -> datetime:

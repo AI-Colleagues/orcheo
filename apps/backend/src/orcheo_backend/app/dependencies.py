@@ -15,6 +15,10 @@ from orcheo_backend.app.errors import raise_not_found
 from orcheo_backend.app.external_agent_runtime_store import ExternalAgentRuntimeStore
 from orcheo_backend.app.history import InMemoryRunHistoryStore, RunHistoryStore
 from orcheo_backend.app.listener_runtime import ListenerRuntimeStore
+from orcheo_backend.app.plugin_installation_store import (
+    InMemoryPluginInstallationStore,
+    PluginInstallationStore,
+)
 from orcheo_backend.app.providers import (
     create_repository,
     create_vault,
@@ -36,6 +40,9 @@ _external_agent_runtime_store_ref: dict[str, ExternalAgentRuntimeStore | None] =
 }
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
 _vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
+_plugin_installation_store_ref: dict[str, PluginInstallationStore] = {
+    "store": InMemoryPluginInstallationStore()
+}
 
 
 def _create_vault(settings: object) -> BaseCredentialVault:
@@ -86,6 +93,7 @@ def _create_repository(settings: object | None = None) -> WorkflowRepository:
         credential_service,
         _history_store_ref,
         _checkpoint_store_ref,
+        _plugin_installation_store_ref,  # type: ignore[arg-type]
     )
     _repository_ref["repository"] = repository
     return repository
@@ -211,6 +219,23 @@ def set_vault(vault: BaseCredentialVault | None) -> None:
     _vault_ref["vault"] = vault
 
 
+def get_plugin_installation_store() -> PluginInstallationStore:
+    """Return the plugin installation store singleton."""
+    return _plugin_installation_store_ref["store"]
+
+
+PluginInstallationStoreDep = Annotated[
+    PluginInstallationStore, Depends(get_plugin_installation_store)
+]
+
+
+def set_plugin_installation_store(store: PluginInstallationStore | None) -> None:
+    """Override the plugin installation store singleton (primarily for testing)."""
+    _plugin_installation_store_ref["store"] = (
+        store if store is not None else InMemoryPluginInstallationStore()
+    )
+
+
 WorkflowIdQuery = Annotated[UUID | None, Query()]
 WorkflowRefQuery = Annotated[str | None, Query(alias="workflow_id")]
 IncludeAcknowledgedQuery = Annotated[bool, Query()]
@@ -254,31 +279,34 @@ async def resolve_optional_workflow_ref_id(
 
 
 __all__ = [
+    "CheckpointStoreDep",
     "CredentialServiceDep",
     "ExternalAgentRuntimeStoreDep",
-    "IncludeAcknowledgedQuery",
     "HistoryStoreDep",
+    "IncludeAcknowledgedQuery",
     "ListenerRuntimeStoreDep",
+    "PluginInstallationStoreDep",
     "RepositoryDep",
     "VaultDep",
-    "CheckpointStoreDep",
+    "WorkflowIdQuery",
+    "WorkflowRefQuery",
     "credential_context_from_workflow",
+    "get_checkpoint_store",
     "get_credential_service",
     "get_external_agent_runtime_store",
-    "get_checkpoint_store",
     "get_history_store",
     "get_listener_runtime_store",
+    "get_plugin_installation_store",
     "get_repository",
     "get_vault",
     "resolve_optional_workflow_ref_id",
     "resolve_workflow_ref_id",
+    "set_checkpoint_store",
     "set_credential_service",
     "set_external_agent_runtime_store",
-    "set_checkpoint_store",
     "set_history_store",
     "set_listener_runtime_store",
+    "set_plugin_installation_store",
     "set_repository",
     "set_vault",
-    "WorkflowIdQuery",
-    "WorkflowRefQuery",
 ]

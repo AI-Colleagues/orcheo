@@ -33,7 +33,12 @@ class InMemoryCredentialVault(BaseCredentialVault):
         for stored_id, stored in self._store.items():
             if stored_id == metadata.id:
                 continue
-            if stored.name.casefold() == normalized:
+            if stored.name.casefold() != normalized:
+                continue
+            # Name uniqueness is scoped per tenant (NULL = global scope).
+            same_tenant = stored.tenant_id is None and metadata.tenant_id is None
+            same_tenant = same_tenant or stored.tenant_id == metadata.tenant_id
+            if same_tenant:
                 msg = f"Credential name '{metadata.name}' is already in use."
                 raise DuplicateCredentialNameError(msg)
         self._store[metadata.id] = metadata.model_copy(deep=True)

@@ -25,6 +25,7 @@ class AgentensorCheckpoint(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     workflow_id: str = Field(max_length=128, min_length=1)
+    tenant_id: str | None = None
     config_version: int = Field(ge=1)
     runnable_config: dict[str, Any] = Field(default_factory=dict)
     metrics: dict[str, Any] = Field(default_factory=dict)
@@ -50,6 +51,7 @@ class AgentensorCheckpointStore(Protocol):
         artifact_url: str | None = None,
         is_best: bool = False,
         config_version: int | None = None,
+        tenant_id: str | None = None,
     ) -> AgentensorCheckpoint:
         """Persist a checkpoint with an auto-incremented config version."""
 
@@ -58,6 +60,7 @@ class AgentensorCheckpointStore(Protocol):
         workflow_id: str,
         *,
         limit: int | None = None,
+        tenant_id: str | None = None,
     ) -> list[AgentensorCheckpoint]:
         """Return checkpoints associated with a workflow ordered by version."""
 
