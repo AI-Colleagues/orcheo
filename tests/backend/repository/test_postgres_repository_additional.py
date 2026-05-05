@@ -1450,6 +1450,21 @@ async def test_runs_create_run_archived_workflow_raises(
 
 
 @pytest.mark.asyncio
+async def test_workflows_list_workflows_tenant_scoped_query_excludes_null_tenant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tenant-scoped list query should not include NULL-tenant rows."""
+    repo = make_repository(monkeypatch, responses=[{"rows": []}])
+
+    await repo.list_workflows(tenant_id="tenant-a")
+
+    query, params = repo._pool._connection.queries[0]
+    assert "tenant_id = %s" in query
+    assert "tenant_id IS NULL" not in query
+    assert params == ("tenant-a",)
+
+
+@pytest.mark.asyncio
 async def test_triggers_enqueue_run_for_execution_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1458,12 +1473,12 @@ async def test_triggers_enqueue_run_for_execution_success(
     from orcheo.models.workflow import WorkflowRun
     from orcheo_backend.app.repository_postgres import _triggers
 
-    enqueued_ids: list[str] = []
+    enqueued_calls: list[tuple[str, Any | None]] = []
 
     class MockTask:
         @staticmethod
-        def delay(run_id: str) -> None:
-            enqueued_ids.append(run_id)
+        def delay(run_id: str, headers: dict[str, Any] | None = None) -> None:
+            enqueued_calls.append((run_id, headers))
 
     # Create a mock run
     run_id = uuid4()
@@ -1484,7 +1499,44 @@ async def test_triggers_enqueue_run_for_execution_success(
 
     _triggers._enqueue_run_for_execution(run)
 
-    assert str(run_id) in enqueued_ids
+    assert (str(run_id), None) in enqueued_calls
+
+
+@pytest.mark.asyncio
+async def test_triggers_enqueue_run_for_execution_fallback_preserves_tenant_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fallback enqueue path passes tenant headers when apply_async is unavailable."""
+    import sys
+    from orcheo.models.workflow import WorkflowRun
+    from orcheo_backend.app.repository_postgres import _triggers
+
+    enqueued_calls: list[tuple[str, Any | None]] = []
+
+    class MockTask:
+        @staticmethod
+        def delay(run_id: str, headers: dict[str, Any] | None = None) -> None:
+            enqueued_calls.append((run_id, headers))
+
+    run_id = uuid4()
+    now = datetime.now(tz=UTC)
+    run = WorkflowRun(
+        id=run_id,
+        workflow_version_id=uuid4(),
+        triggered_by="manual",
+        input_payload={},
+        created_at=now,
+        updated_at=now,
+        tenant_id="tenant-a",
+    )
+
+    mock_module = type(sys)("orcheo_backend.worker.tasks")
+    mock_module.execute_run = MockTask()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "orcheo_backend.worker.tasks", mock_module)
+
+    _triggers._enqueue_run_for_execution(run)
+
+    assert (str(run_id), {"tenant_id": "tenant-a"}) in enqueued_calls
 
 
 @pytest.mark.asyncio

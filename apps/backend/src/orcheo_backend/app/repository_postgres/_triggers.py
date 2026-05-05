@@ -37,8 +37,7 @@ def _enqueue_run_for_execution(run: WorkflowRun) -> None:
         headers = {"tenant_id": run.tenant_id} if run.tenant_id is not None else {}
         enqueue = getattr(execute_run, "apply_async", None)
         if enqueue is None:
-            enqueue = execute_run.delay
-            enqueue(str(run.id))
+            execute_run.delay(str(run.id), headers=headers or None)
         else:
             enqueue(args=(str(run.id),), headers=headers or None)
         logger.info("Enqueued run %s for execution", run.id)

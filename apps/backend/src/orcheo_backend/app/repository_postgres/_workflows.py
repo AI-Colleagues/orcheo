@@ -64,7 +64,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                 if tenant_id is not None:
                     cursor = await conn.execute(
                         "SELECT payload FROM workflows"
-                        " WHERE (tenant_id = %s OR tenant_id IS NULL)"
+                        " WHERE tenant_id = %s"
                         " ORDER BY created_at ASC",
                         (tenant_id,),
                     )
