@@ -39,6 +39,7 @@ from orcheo_backend.app.dependencies import (
 from orcheo_backend.app.history import RunHistoryStore
 from orcheo_backend.app.listener_runtime_service import ListenerRuntimeService
 from orcheo_backend.app.logging_config import configure_logging
+from orcheo_backend.app.managed_workflows import ensure_managed_vibe_workflow
 from orcheo_backend.app.repository import WorkflowRepository
 from orcheo_backend.app.routers import (
     agentensor,
@@ -64,7 +65,11 @@ from orcheo_backend.app.routers import (
 )
 from orcheo_backend.app.service_token_endpoints import router as service_token_router
 from orcheo_backend.app.workflow_execution import configure_sensitive_logging
-from orcheo_backend.app.workspace import resolve_workspace_context
+from orcheo_backend.app.workspace import (
+    bootstrap_default_workspace,
+    get_workspace_repository,
+    resolve_workspace_context,
+)
 
 
 load_dotenv()
@@ -106,6 +111,7 @@ def _build_api_router() -> APIRouter:
     protected_router.include_router(system.router)
     protected_router.include_router(workspaces_router.admin_router)
     protected_router.include_router(workspaces_router.router)
+    protected_router.include_router(workspaces_router.legacy_router)
 
     router.include_router(workflows.public_router)
     router.include_router(chatkit_router.router)
@@ -162,6 +168,10 @@ def create_app(
         """Manage application lifespan with startup and shutdown logic."""
         load_auth_settings(refresh=True)
         load_enabled_plugins(force=True)
+        default_workspace = bootstrap_default_workspace(
+            repository=get_workspace_repository()
+        )
+        await ensure_managed_vibe_workflow(get_repository(), default_workspace)
         listener_runtime = ListenerRuntimeService(
             repository=get_repository(),
             vault=get_vault(),

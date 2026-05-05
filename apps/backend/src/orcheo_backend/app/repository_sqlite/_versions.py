@@ -107,11 +107,9 @@ class WorkflowVersionMixin(SqlitePersistenceMixin):
                     """,
                     (str(workflow_id),),
                 )
-                rows = await cursor.fetchall()
+            rows = await cursor.fetchall()
             return [
-                WorkflowVersion.model_validate_json(row["payload"]).model_copy(
-                    deep=True
-                )
+                self._deserialize_workflow_version(row["payload"]).model_copy(deep=True)
                 for row in rows
             ]
 
@@ -133,7 +131,7 @@ class WorkflowVersionMixin(SqlitePersistenceMixin):
                 row = await cursor.fetchone()
                 if row is None:
                     raise WorkflowVersionNotFoundError(f"v{version_number}")
-            return WorkflowVersion.model_validate_json(row["payload"]).model_copy(
+            return self._deserialize_workflow_version(row["payload"]).model_copy(
                 deep=True
             )
 
@@ -162,7 +160,7 @@ class WorkflowVersionMixin(SqlitePersistenceMixin):
                 if row is None:
                     raise WorkflowVersionNotFoundError(f"v{version_number}")
 
-                version = WorkflowVersion.model_validate_json(row["payload"])
+                version = self._deserialize_workflow_version(row["payload"])
                 version.runnable_config = (
                     dict(runnable_config) if runnable_config is not None else None
                 )
@@ -209,7 +207,7 @@ class WorkflowVersionMixin(SqlitePersistenceMixin):
                 row = await cursor.fetchone()
                 if row is None:
                     raise WorkflowVersionNotFoundError("latest")
-            return WorkflowVersion.model_validate_json(row["payload"]).model_copy(
+            return self._deserialize_workflow_version(row["payload"]).model_copy(
                 deep=True
             )
 

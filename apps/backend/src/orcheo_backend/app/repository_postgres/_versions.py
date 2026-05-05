@@ -113,11 +113,9 @@ class WorkflowVersionMixin(PostgresPersistenceMixin):
             result = []
             for row in rows:
                 payload = row["payload"]
-                if isinstance(payload, str):
-                    version = WorkflowVersion.model_validate_json(payload)
-                else:
-                    version = WorkflowVersion.model_validate(payload)
-                result.append(version.model_copy(deep=True))
+                result.append(
+                    self._deserialize_workflow_version(payload).model_copy(deep=True)
+                )
             return result
 
     async def get_version_by_number(
@@ -139,11 +137,7 @@ class WorkflowVersionMixin(PostgresPersistenceMixin):
                 if row is None:
                     raise WorkflowVersionNotFoundError(f"v{version_number}")
             payload = row["payload"]
-            if isinstance(payload, str):
-                return WorkflowVersion.model_validate_json(payload).model_copy(
-                    deep=True
-                )
-            return WorkflowVersion.model_validate(payload).model_copy(deep=True)
+            return self._deserialize_workflow_version(payload).model_copy(deep=True)
 
     async def update_version_runnable_config(
         self,
@@ -171,11 +165,7 @@ class WorkflowVersionMixin(PostgresPersistenceMixin):
                     raise WorkflowVersionNotFoundError(f"v{version_number}")
 
                 payload = row["payload"]
-                version = (
-                    WorkflowVersion.model_validate_json(payload)
-                    if isinstance(payload, str)
-                    else WorkflowVersion.model_validate(payload)
-                )
+                version = self._deserialize_workflow_version(payload)
                 version.runnable_config = (
                     dict(runnable_config) if runnable_config is not None else None
                 )
@@ -223,11 +213,7 @@ class WorkflowVersionMixin(PostgresPersistenceMixin):
                 if row is None:
                     raise WorkflowVersionNotFoundError("latest")
             payload = row["payload"]
-            if isinstance(payload, str):
-                return WorkflowVersion.model_validate_json(payload).model_copy(
-                    deep=True
-                )
-            return WorkflowVersion.model_validate(payload).model_copy(deep=True)
+            return self._deserialize_workflow_version(payload).model_copy(deep=True)
 
     async def diff_versions(
         self,

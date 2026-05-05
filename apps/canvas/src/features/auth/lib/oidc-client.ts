@@ -345,7 +345,7 @@ export const startOidcLogin = async ({
   const normalizedScreenHint = normalizeOptionalParam(screenHint);
 
   const config = getAuthConfig();
-  // Configured tenant restriction must remain authoritative over URL params.
+  // Configured workspace restriction must remain authoritative over URL params.
   const effectiveOrganization =
     (config.organization ?? normalizedOrganization) || undefined;
   const effectiveOrganizationName = config.organization

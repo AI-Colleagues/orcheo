@@ -70,9 +70,9 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `ORCHEO_VAULT_AWS_REGION` | _none_ | AWS region identifier (e.g. `us-east-1`) | Region targeted when `ORCHEO_VAULT_BACKEND=aws_kms` (`config/loader.py`). |
 | `ORCHEO_VAULT_AWS_KMS_KEY_ID` | _none_ | KMS key identifier | Key ID for AWS KMS vaults (`config/loader.py`). |
 | `ORCHEO_VAULT_TOKEN_TTL_SECONDS` | `3600` | Positive integer | Lifetime (seconds) for vault access tokens (`config/loader.py`). |
-| `ORCHEO_MULTI_TENANCY_ENABLED` | `false` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Enables tenant-aware request resolution, scoped repository lookups, and tenant-aware websocket/runnable execution (`config/loader.py`). |
-| `ORCHEO_DEFAULT_TENANT` | `default` | Slug string | Default tenant slug used when tenancy is disabled or when bootstrapping the shared deployment tenant (`config/loader.py`). |
-| `ORCHEO_MULTI_TENANCY_TENANT_HEADER` | `X-Orcheo-Tenant` | HTTP header name | Header that pins the active tenant for authenticated requests (`config/loader.py`). |
+| `ORCHEO_MULTI_TENANCY_ENABLED` | `false` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Enables workspace-aware request resolution, scoped repository lookups, and workspace-aware websocket/runnable execution (`config/loader.py`). |
+| `ORCHEO_DEFAULT_TENANT` | `default` | Slug string | Default workspace slug used when workspace scoping is disabled or when bootstrapping the shared deployment workspace (`config/loader.py`). |
+| `ORCHEO_MULTI_TENANCY_TENANT_HEADER` | `X-Orcheo-Tenant` | HTTP header name | Header that pins the active workspace for authenticated requests (`config/loader.py`). |
 
 ## ChatKit rate limits
 

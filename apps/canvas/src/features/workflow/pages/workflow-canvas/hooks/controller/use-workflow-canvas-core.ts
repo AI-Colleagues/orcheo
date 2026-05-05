@@ -27,6 +27,7 @@ import type {
 } from "@features/workflow/pages/workflow-canvas/helpers/types";
 
 export interface WorkflowCanvasCore {
+  routeWorkflowId: string | null;
   history: ReturnType<typeof useWorkflowCanvasHistory>;
   metadata: ReturnType<typeof useWorkflowMetadataState>;
   validation: ReturnType<typeof useWorkflowValidationState>;
@@ -166,6 +167,7 @@ export function useWorkflowCanvasCore({
   });
 
   return {
+    routeWorkflowId: workflowId ?? null,
     history,
     metadata,
     validation,

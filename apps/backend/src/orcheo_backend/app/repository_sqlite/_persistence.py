@@ -30,9 +30,25 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
         payload = json.loads(payload_json)
         payload.pop("publish_token_hash", None)
         payload.pop("publish_token_rotated_at", None)
+        tenant_id = payload.pop("tenant_id", None)
         if workspace_id is not None:
             payload["workspace_id"] = workspace_id
+        elif tenant_id is not None and not payload.get("workspace_id"):
+            payload["workspace_id"] = tenant_id
         return Workflow.model_validate(payload)
+
+    @staticmethod
+    def _deserialize_workflow_version(
+        payload_json: str, *, workspace_id: str | None = None
+    ) -> WorkflowVersion:
+        """Return a WorkflowVersion instance while stripping deprecated fields."""
+        payload = json.loads(payload_json)
+        tenant_id = payload.pop("tenant_id", None)
+        if workspace_id is not None:
+            payload["workspace_id"] = workspace_id
+        elif tenant_id is not None and not payload.get("workspace_id"):
+            payload["workspace_id"] = tenant_id
+        return WorkflowVersion.model_validate(payload)
 
     async def _get_workflow_locked(self, workflow_id: UUID) -> Workflow:
         async with self._connection() as conn:
@@ -142,7 +158,7 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
             row = await cursor.fetchone()
         if row is None:
             raise WorkflowVersionNotFoundError(str(version_id))
-        return WorkflowVersion.model_validate_json(row["payload"])
+        return self._deserialize_workflow_version(row["payload"])
 
     async def _get_latest_version_locked(self, workflow_id: UUID) -> WorkflowVersion:
         async with self._connection() as conn:
@@ -159,7 +175,7 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
             row = await cursor.fetchone()
         if row is None:
             raise WorkflowVersionNotFoundError("latest")
-        return WorkflowVersion.model_validate_json(row["payload"])
+        return self._deserialize_workflow_version(row["payload"])
 
     async def _get_run_locked(self, run_id: UUID) -> WorkflowRun:
         async with self._connection() as conn:

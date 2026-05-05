@@ -1,20 +1,21 @@
 import { renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExternalAgentProviderStatus } from "@/lib/api";
 import type { StoredWorkflow } from "@features/workflow/lib/workflow-storage.types";
-import { useVibeWorkflow } from "./use-vibe-workflow";
 import {
-  createWorkflowFromTemplate,
-  listWorkflows,
-} from "@features/workflow/lib/workflow-storage";
+  __setCachedWorkflowIdForTesting,
+  useVibeWorkflow,
+} from "./use-vibe-workflow";
+import { listWorkflows } from "@features/workflow/lib/workflow-storage";
 import {
   fetchWorkflowVersions,
   request,
 } from "@features/workflow/lib/workflow-storage-api";
+import { VIBE_WORKFLOW_HANDLE } from "@features/vibe/constants";
 
 vi.mock("@features/workflow/lib/workflow-storage", () => ({
-  createWorkflowFromTemplate: vi.fn(),
   listWorkflows: vi.fn(),
+  WORKFLOW_STORAGE_EVENT: "orcheo:workflows-updated",
 }));
 
 vi.mock("@features/workflow/lib/workflow-storage-api", () => ({
@@ -39,6 +40,7 @@ const READY_PROVIDER: ExternalAgentProviderStatus = {
 
 const EXISTING_VIBE_WORKFLOW: StoredWorkflow = {
   id: "workflow-1",
+  handle: VIBE_WORKFLOW_HANDLE,
   name: "Orcheo Vibe",
   description: "Managed sidebar workflow.",
   createdAt: "2026-04-13T09:00:00.000Z",
@@ -55,8 +57,12 @@ const EXISTING_VIBE_WORKFLOW: StoredWorkflow = {
 };
 
 describe("useVibeWorkflow", () => {
+  beforeEach(() => {
+    __setCachedWorkflowIdForTesting(null);
+    vi.clearAllMocks();
+  });
+
   it("re-ingests and updates an existing vibe workflow when the stored template version is outdated, without creating a new workflow", async () => {
-    vi.mocked(createWorkflowFromTemplate).mockResolvedValue(undefined);
     vi.mocked(listWorkflows).mockResolvedValue([EXISTING_VIBE_WORKFLOW]);
     vi.mocked(fetchWorkflowVersions).mockResolvedValue([
       {
@@ -103,8 +109,6 @@ describe("useVibeWorkflow", () => {
       expect(result.current.error).toBeNull();
     });
 
-    expect(createWorkflowFromTemplate).not.toHaveBeenCalled();
-
     const ingestCall = vi
       .mocked(request)
       .mock.calls.find(
@@ -140,6 +144,75 @@ describe("useVibeWorkflow", () => {
         }),
       },
     );
+  });
+
+  it("reuses an existing vibe workflow by handle even when its name or tags change", async () => {
+    vi.mocked(listWorkflows).mockResolvedValue([
+      {
+        ...EXISTING_VIBE_WORKFLOW,
+        name: "Renamed Vibe",
+        tags: ["external-agent"],
+      },
+    ]);
+    vi.mocked(fetchWorkflowVersions).mockResolvedValue([]);
+    vi.mocked(request).mockImplementation(async (path, options) => {
+      if (path === "/api/workflows/workflow-1" && options?.method === "PUT") {
+        return { id: "workflow-1" };
+      }
+      if (
+        path === "/api/workflows/workflow-1/versions/ingest" &&
+        options?.method === "POST"
+      ) {
+        return {
+          id: "workflow-1-version-1",
+          workflow_id: "workflow-1",
+          version: 1,
+        };
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    const { result } = renderHook(() => useVibeWorkflow([READY_PROVIDER]));
+
+    await waitFor(() => {
+      expect(result.current.workflowId).toBe("workflow-1");
+      expect(result.current.error).toBeNull();
+      expect(result.current.isProvisioning).toBe(false);
+    });
+  });
+
+  it("reports an error when the managed workflow is missing after a refresh", async () => {
+    __setCachedWorkflowIdForTesting("stale-workflow");
+
+    vi.mocked(listWorkflows).mockImplementation(
+      async (options?: { forceRefresh?: boolean }) =>
+        options?.forceRefresh
+          ? []
+          : [
+              {
+                ...EXISTING_VIBE_WORKFLOW,
+                id: "stale-workflow",
+              },
+            ],
+    );
+    vi.mocked(fetchWorkflowVersions).mockResolvedValue([]);
+    vi.mocked(request).mockImplementation(async (path, options) => {
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    const { result } = renderHook(() => useVibeWorkflow([READY_PROVIDER]));
+
+    await waitFor(() => {
+      expect(result.current.workflowId).toBeNull();
+      expect(result.current.error).toBe(
+        "Managed Orcheo Vibe workflow is unavailable.",
+      );
+      expect(result.current.isProvisioning).toBe(false);
+    });
+
+    expect(listWorkflows).toHaveBeenCalledWith({
+      forceRefresh: true,
+    });
   });
 
   it("clears a stale cached workflow id and falls back to discovering a valid managed workflow", async () => {
@@ -206,6 +279,64 @@ describe("useVibeWorkflow", () => {
       expect(recovered.result.current.workflowId).toBe("workflow-2");
       expect(recovered.result.current.error).toBeNull();
       expect(recovered.result.current.isProvisioning).toBe(false);
+    });
+  });
+
+  it("does not recreate the vibe workflow after a storage update when it is missing", async () => {
+    __setCachedWorkflowIdForTesting("workflow-1");
+
+    vi.mocked(listWorkflows).mockResolvedValue([
+      EXISTING_VIBE_WORKFLOW,
+    ]);
+    vi.mocked(fetchWorkflowVersions).mockResolvedValue([
+      {
+        id: "workflow-1-version-1",
+        workflow_id: "workflow-1",
+        version: 1,
+        metadata: {
+          source: "canvas-template",
+          template_id: "template-vibe-agent",
+          template: {
+            templateVersion: "1.0.1",
+          },
+        },
+        notes: "Seeded from the Orcheo Vibe template.",
+        created_by: "canvas-app",
+        created_at: "2026-04-13T09:00:00.000Z",
+        updated_at: "2026-04-13T09:00:00.000Z",
+        graph: {},
+      },
+    ]);
+    vi.mocked(request).mockImplementation(async (path, options) => {
+      if (path === "/api/workflows/workflow-1" && options?.method === "PUT") {
+        return { id: "workflow-1" };
+      }
+
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    const initial = renderHook(() => useVibeWorkflow([READY_PROVIDER]));
+
+    await waitFor(() => {
+      expect(initial.result.current.workflowId).toBe("workflow-1");
+      expect(initial.result.current.error).toBeNull();
+      expect(initial.result.current.isProvisioning).toBe(false);
+    });
+
+    vi.mocked(listWorkflows).mockResolvedValue([]);
+    vi.mocked(fetchWorkflowVersions).mockResolvedValue([]);
+    vi.mocked(request).mockImplementation(async (path) => {
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    window.dispatchEvent(new Event("orcheo:workflows-updated"));
+
+    await waitFor(() => {
+      expect(initial.result.current.workflowId).toBeNull();
+      expect(initial.result.current.error).toBe(
+        "Managed Orcheo Vibe workflow is unavailable.",
+      );
+      expect(initial.result.current.isProvisioning).toBe(false);
     });
   });
 });

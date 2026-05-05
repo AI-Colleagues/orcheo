@@ -327,7 +327,9 @@ class PostgresRepositoryBase:
             cursor = await conn.execute("SELECT id, payload FROM workflows")
             rows = await cursor.fetchall()
             for row in rows:
-                workflow = Workflow.model_validate(row["payload"])
+                payload = dict(row["payload"])
+                payload.pop("tenant_id", None)
+                workflow = Workflow.model_validate(payload)
                 await conn.execute(
                     """
                     UPDATE workflows
@@ -365,10 +367,12 @@ class PostgresRepositoryBase:
             " WHERE is_archived = FALSE AND handle IS NOT NULL"
         )
         await conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_workflows_workspace_id ON workflows(workspace_id)"
+            "CREATE INDEX IF NOT EXISTS idx_workflows_workspace_id "
+            "ON workflows(workspace_id)"
         )
         await conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_runs_workspace_id ON workflow_runs(workspace_id)"
+            "CREATE INDEX IF NOT EXISTS idx_runs_workspace_id "
+            "ON workflow_runs(workspace_id)"
         )
 
     async def _ensure_workflow_versions_schema_migrations(self, conn: Any) -> None:

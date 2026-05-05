@@ -34,9 +34,29 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
             data = payload
         data.pop("publish_token_hash", None)
         data.pop("publish_token_rotated_at", None)
+        tenant_id = data.pop("tenant_id", None)
         if workspace_id is not None:
             data["workspace_id"] = workspace_id
+        elif tenant_id is not None and not data.get("workspace_id"):
+            data["workspace_id"] = tenant_id
         return Workflow.model_validate(data)
+
+    @staticmethod
+    def _deserialize_workflow_version(
+        payload: dict[str, Any] | str, *, workspace_id: str | None = None
+    ) -> WorkflowVersion:
+        """Return a WorkflowVersion instance while stripping deprecated fields."""
+        data: dict[str, Any]
+        if isinstance(payload, str):
+            data = json.loads(payload)
+        else:
+            data = payload
+        tenant_id = data.pop("tenant_id", None)
+        if workspace_id is not None:
+            data["workspace_id"] = workspace_id
+        elif tenant_id is not None and not data.get("workspace_id"):
+            data["workspace_id"] = tenant_id
+        return WorkflowVersion.model_validate(data)
 
     async def _get_workflow_locked(self, workflow_id: UUID) -> Workflow:
         async with self._connection() as conn:
@@ -147,9 +167,7 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
         if row is None:
             raise WorkflowVersionNotFoundError(str(version_id))
         payload = row["payload"]
-        if isinstance(payload, str):
-            return WorkflowVersion.model_validate_json(payload)
-        return WorkflowVersion.model_validate(payload)
+        return self._deserialize_workflow_version(payload)
 
     async def _get_latest_version_locked(self, workflow_id: UUID) -> WorkflowVersion:
         async with self._connection() as conn:
@@ -167,9 +185,7 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
         if row is None:
             raise WorkflowVersionNotFoundError("latest")
         payload = row["payload"]
-        if isinstance(payload, str):
-            return WorkflowVersion.model_validate_json(payload)
-        return WorkflowVersion.model_validate(payload)
+        return self._deserialize_workflow_version(payload)
 
     async def _get_run_locked(self, run_id: UUID) -> WorkflowRun:
         async with self._connection() as conn:

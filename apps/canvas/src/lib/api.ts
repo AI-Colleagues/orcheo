@@ -29,8 +29,8 @@ export interface SystemInfoResponse {
   checked_at: string;
 }
 
-export interface ActiveTenantResponse {
-  tenant_id: string;
+export interface ActiveWorkspaceResponse {
+  workspace_id?: string;
   slug: string;
   name: string;
   role: "owner" | "admin" | "editor" | "viewer";
@@ -148,10 +148,10 @@ export async function getSystemInfo(
   return response.json();
 }
 
-export async function getActiveTenant(
+export async function getActiveWorkspace(
   baseUrl?: string,
-): Promise<ActiveTenantResponse> {
-  const url = buildBackendHttpUrl("/api/tenants/active", baseUrl);
+): Promise<ActiveWorkspaceResponse> {
+  const url = buildBackendHttpUrl("/api/workspaces/active", baseUrl);
   const response = await authFetch(url, {
     method: "GET",
     headers: {
@@ -161,7 +161,7 @@ export async function getActiveTenant(
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({
-      detail: "Failed to fetch active tenant",
+      detail: "Failed to fetch active workspace",
     }));
     throw new Error(errorData.detail || `HTTP ${response.status}`);
   }

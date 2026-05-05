@@ -14,8 +14,8 @@ This setup mirrors the default configuration that the tests exercise. It is idea
    ```bash
    cp .env.example .env
    ```
-   - For multi-tenant installs, set `ORCHEO_MULTI_TENANCY_ENABLED=true` once the backfill and repo-retrofit release has been verified.
-   - Keep `ORCHEO_DEFAULT_TENANT` aligned with the deployment's default tenant slug so the bootstrap path and any legacy rows resolve consistently.
+   - For multi-workspace installs, set `ORCHEO_MULTI_TENANCY_ENABLED=true` once the backfill and repo-retrofit release has been verified.
+   - Keep `ORCHEO_DEFAULT_TENANT` aligned with the deployment's default workspace slug so the bootstrap path and any legacy rows resolve consistently.
 3. **Start the API server**
    ```bash
    make dev-server
@@ -29,23 +29,23 @@ _Vault note_: The default `.env.example` now stores credentials in an encrypted 
 
 _Repository note_: Local development now defaults to a SQLite-backed workflow repository stored at `~/.orcheo/workflows.sqlite`. Override `ORCHEO_REPOSITORY_BACKEND` to `inmemory` if you prefer ephemeral state or set `ORCHEO_REPOSITORY_SQLITE_PATH` to relocate the database file. The in-memory backend does not enqueue webhook/cron/manual triggers for execution, so runs remain `PENDING` unless you drive execution manually.
 
-### Multi-Tenancy Rollout
+### Workspace Rollout
 
-Use this sequence when enabling tenancy on an existing installation.
+Use this sequence when enabling workspace scoping on an existing installation.
 
 1. **Flag off first**
    - Deploy the code with `ORCHEO_MULTI_TENANCY_ENABLED=false`.
    - Keep `ORCHEO_DEFAULT_TENANT` set to the slug that already owns legacy data.
 2. **Verify the backfill release**
-   - Confirm the default tenant exists.
-   - Confirm existing workflows, runs, credentials, and graph records resolve under that tenant.
-   - Check `/api/tenants/me` and the new Canvas header badge to ensure the resolved tenant matches expectations.
-3. **Turn tenancy on**
+   - Confirm the default workspace exists.
+   - Confirm existing workflows, runs, credentials, and graph records resolve under that workspace.
+   - Check `/api/workspaces/me` and the Canvas workspace badge to ensure the resolved workspace matches expectations.
+3. **Turn workspace scoping on**
    - Flip `ORCHEO_MULTI_TENANCY_ENABLED=true` in the backend, worker, beat, and stack env files together.
-   - Restart the stack so the API, Celery worker, and scheduled jobs pick up the same tenant settings.
+   - Restart the stack so the API, Celery worker, and scheduled jobs pick up the same workspace settings.
 4. **Rollback**
-   - If any cross-tenant regression appears, switch the flag back to `false`, restart the stack, and keep the data in place for inspection.
-   - Because the migration keeps the default tenant slug stable, the deployment can return to single-tenant behavior without data loss.
+   - If any cross-workspace regression appears, switch the flag back to `false`, restart the stack, and keep the data in place for inspection.
+   - Because the migration keeps the default workspace slug stable, the deployment can return to single-workspace behavior without data loss.
 
 ## Docker Compose (SQLite, multi-container)
 

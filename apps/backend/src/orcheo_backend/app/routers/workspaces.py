@@ -40,7 +40,7 @@ from orcheo_backend.app.workspace.dependencies import (
 )
 
 
-__all__ = ["admin_router", "router"]
+__all__ = ["admin_router", "legacy_router", "router"]
 
 
 admin_router = APIRouter(
@@ -49,6 +49,7 @@ admin_router = APIRouter(
     dependencies=[Depends(require_role(Role.ADMIN))],
 )
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
+legacy_router = APIRouter(prefix="/tenants", tags=["workspaces"])
 
 
 def _to_workspace_response(workspace: Workspace) -> WorkspaceResponse:
@@ -235,6 +236,23 @@ def get_active_workspace(
     workspace = service.repository.get_workspace(context.workspace_id)
     return ActiveWorkspaceResponse(
         workspace_id=workspace.id,
+        tenant_id=workspace.id,
+        slug=workspace.slug,
+        name=workspace.name,
+        role=context.role,
+    )
+
+
+@legacy_router.get("/active", response_model=ActiveWorkspaceResponse)
+def get_active_tenant(
+    service: WorkspaceServiceDep,
+    context: WorkspaceContextDep,
+) -> ActiveWorkspaceResponse:
+    """Backward-compatible alias for the active workspace endpoint."""
+    workspace = service.repository.get_workspace(context.workspace_id)
+    return ActiveWorkspaceResponse(
+        workspace_id=workspace.id,
+        tenant_id=workspace.id,
         slug=workspace.slug,
         name=workspace.name,
         role=context.role,

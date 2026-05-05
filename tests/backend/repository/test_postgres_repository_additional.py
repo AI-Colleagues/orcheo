@@ -151,6 +151,22 @@ def _workflow_payload(workflow_id: UUID, **overrides: Any) -> dict[str, Any]:
     return base
 
 
+@pytest.mark.asyncio
+async def test_persistence_deserialize_workflow_ignores_legacy_tenant_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Legacy workflow payloads may still carry tenant_id from the rename."""
+    workflow_id = uuid4()
+    payload = _workflow_payload(workflow_id, tenant_id="workspace-a")
+
+    repo = make_repository(monkeypatch, [])
+    workflow = repo._deserialize_workflow(payload)
+
+    assert workflow.id == workflow_id
+    assert workflow.workspace_id == "workspace-a"
+    assert not hasattr(workflow, "tenant_id")
+
+
 def _version_payload(
     version_id: UUID, workflow_id: UUID, version: int = 1, **overrides: Any
 ) -> dict[str, Any]:
@@ -171,6 +187,26 @@ def _version_payload(
     }
     base.update(overrides)
     return base
+
+
+@pytest.mark.asyncio
+async def test_list_workflows_includes_legacy_unscoped_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace-scoped listing should keep legacy NULL-scoped workflows visible."""
+    workflow_id = uuid4()
+    workflow_payload = _workflow_payload(workflow_id)
+    responses: list[Any] = [
+        {"rows": [{"payload": workflow_payload}]},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    result = await repo.list_workflows(workspace_id="workspace-a")
+
+    assert len(result) == 1
+    query, params = repo._pool._connection.queries[0]  # noqa: SLF001
+    assert "workspace_id = %s OR workspace_id IS NULL" in query
+    assert params == ("workspace-a",)
 
 
 @pytest.mark.asyncio
@@ -1171,6 +1207,30 @@ async def test_versions_get_latest_version_dict_payload(
 
     version = await repo.get_latest_version(workflow_id)
     assert version.id == version_id
+
+
+@pytest.mark.asyncio
+async def test_versions_get_latest_version_ignores_legacy_tenant_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Legacy version payloads may still carry tenant_id from the rename."""
+    workflow_id = uuid4()
+    version_id = uuid4()
+    payload = _version_payload(
+        version_id, workflow_id, version=3, tenant_id="workspace-a"
+    )
+
+    responses = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},  # _get_workflow_locked
+        {"row": {"payload": payload}},  # Legacy dictionary payload
+    ]
+
+    repo = make_repository(monkeypatch, responses)
+
+    version = await repo.get_latest_version(workflow_id)
+    assert version.id == version_id
+    assert version.workspace_id == "workspace-a"
+    assert not hasattr(version, "tenant_id")
 
 
 @pytest.mark.asyncio

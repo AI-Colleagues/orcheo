@@ -42,6 +42,9 @@ def _deserialize_legacy_workflow_payload(payload_json: str) -> Workflow:
     payload = json.loads(payload_json)
     payload.pop("publish_token_hash", None)
     payload.pop("publish_token_rotated_at", None)
+    tenant_id = payload.pop("tenant_id", None)
+    if tenant_id is not None and not payload.get("workspace_id"):
+        payload["workspace_id"] = tenant_id
     return Workflow.model_validate(payload)
 
 
@@ -299,7 +302,8 @@ class SqliteRepositoryBase:
             " WHERE is_archived = 0 AND handle IS NOT NULL"
         )
         await conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_workflows_workspace_id ON workflows(workspace_id)"
+            "CREATE INDEX IF NOT EXISTS idx_workflows_workspace_id "
+            "ON workflows(workspace_id)"
         )
         cursor = await conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='workflow_runs'"

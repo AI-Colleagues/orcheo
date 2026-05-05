@@ -440,6 +440,16 @@ async def test_archive_workflow_returns_archived() -> None:
             del workflow_ref, include_archived
             return workflow_id
 
+        async def get_workflow(self, wf_id, *, workspace_id=None):
+            del workspace_id
+            return Workflow(
+                id=wf_id,
+                name="Test Workflow",
+                slug="test-workflow",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
         async def archive_workflow(self, wf_id, actor):
             return Workflow(
                 id=wf_id,
@@ -470,6 +480,16 @@ async def test_archive_workflow_not_found() -> None:
             del workflow_ref, include_archived
             return workflow_id
 
+        async def get_workflow(self, wf_id, *, workspace_id=None):
+            del workspace_id
+            return Workflow(
+                id=wf_id,
+                name="Test Workflow",
+                slug="test-workflow",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
         async def archive_workflow(self, wf_id, actor):
             raise WorkflowNotFoundError("not found")
 
@@ -479,3 +499,38 @@ async def test_archive_workflow_not_found() -> None:
         )
 
     assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_archive_workflow_blocks_managed_vibe_workflow() -> None:
+    """Archive workflow endpoint rejects the managed Orcheo Vibe workflow."""
+    workflow_id = uuid4()
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def get_workflow(self, wf_id, *, workspace_id=None):
+            return Workflow(
+                id=wf_id,
+                handle="orcheo-vibe-agent",
+                name="Orcheo Vibe",
+                slug="orcheo-vibe-agent",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+        async def archive_workflow(self, wf_id, actor):
+            del wf_id, actor
+            raise AssertionError("archive_workflow should not be called")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await archive_workflow(
+            str(workflow_id), Repository(), _MOCK_TENANT, actor="admin"
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "workflow.delete.protected"

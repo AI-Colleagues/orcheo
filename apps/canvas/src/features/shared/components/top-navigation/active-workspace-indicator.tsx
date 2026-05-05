@@ -1,22 +1,24 @@
 import { useEffect, useState } from "react";
 
 import { Badge } from "@/design-system/ui/badge";
-import { getActiveTenant, type ActiveTenantResponse } from "@/lib/api";
+import { getActiveWorkspace, type ActiveWorkspaceResponse } from "@/lib/api";
 
-export default function ActiveTenantIndicator() {
-  const [tenant, setTenant] = useState<ActiveTenantResponse | null>(null);
+export default function ActiveWorkspaceIndicator() {
+  const [workspace, setWorkspace] = useState<ActiveWorkspaceResponse | null>(
+    null,
+  );
 
   useEffect(() => {
     let active = true;
 
-    void getActiveTenant()
+    void getActiveWorkspace()
       .then((payload) => {
         if (active) {
-          setTenant(payload);
+          setWorkspace(payload);
         }
       })
       .catch(() => {
-        // Leave the header uncluttered when the backend cannot resolve tenant state.
+        // Leave the header uncluttered when the backend cannot resolve workspace state.
       });
 
     return () => {
@@ -24,7 +26,7 @@ export default function ActiveTenantIndicator() {
     };
   }, []);
 
-  if (!tenant) {
+  if (!workspace) {
     return null;
   }
 
@@ -32,12 +34,14 @@ export default function ActiveTenantIndicator() {
     <Badge
       variant="outline"
       className="hidden items-center gap-1 border-dashed bg-background/80 text-foreground sm:inline-flex"
-      data-testid="active-tenant-indicator"
+      data-testid="active-workspace-indicator"
     >
       <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-        Tenant
+        Workspace
       </span>
-      <span className="max-w-[10rem] truncate font-medium">{tenant.slug}</span>
+      <span className="max-w-[10rem] truncate font-medium">
+        {workspace.slug}
+      </span>
     </Badge>
   );
 }

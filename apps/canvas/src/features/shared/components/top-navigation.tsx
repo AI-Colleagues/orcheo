@@ -3,7 +3,7 @@ import { Bell } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
 import { cn } from "@/lib/utils";
 import ProjectSwitcher from "@/features/shared/components/top-navigation/project-switcher";
-import ActiveTenantIndicator from "@/features/shared/components/top-navigation/active-tenant-indicator";
+import ActiveWorkspaceIndicator from "@/features/shared/components/top-navigation/active-workspace-indicator";
 import VersionStatus from "@/features/shared/components/top-navigation/version-status";
 import WorkflowBreadcrumbs from "@/features/shared/components/top-navigation/workflow-breadcrumbs";
 import CommandPaletteButton from "@/features/shared/components/top-navigation/command-palette-button";
@@ -40,7 +40,7 @@ export default function TopNavigation({
       )}
 
       <div className="ml-auto flex items-center gap-2">
-        <ActiveTenantIndicator />
+        <ActiveWorkspaceIndicator />
         <VersionStatus />
         <CommandPaletteButton />
         <Button variant="ghost" size="icon">

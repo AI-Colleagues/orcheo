@@ -10,6 +10,7 @@ import {
   queueResponses,
   setupFetchMock,
 } from "./workflow-storage.test-helpers";
+import { VIBE_WORKFLOW_HANDLE } from "@features/vibe/constants";
 
 setupFetchMock();
 
@@ -106,6 +107,97 @@ describe("workflow-storage API integration - template creation", () => {
       "from orcheo.nodes.ai import AgentNode",
     );
     expect(ingestBody.metadata?.source).toBe("canvas-template");
+  });
+
+  it("creates the vibe workflow with a stable handle", async () => {
+    const mockFetch = getFetchMock();
+    const timestamp = new Date().toISOString();
+
+    queueResponses([
+      jsonResponse([]),
+      jsonResponse({
+        id: "workflow-vibe-1",
+        handle: VIBE_WORKFLOW_HANDLE,
+        name: "Orcheo Vibe",
+        slug: "workflow-vibe-1",
+        description: "Routes ChatKit conversations to external agent runtimes.",
+        tags: ["orcheo-vibe-agent", "external-agent"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-vibe-1-version-1",
+        workflow_id: "workflow-vibe-1",
+        version: 1,
+        graph: {
+          format: "langgraph-script",
+          source:
+            "from langgraph.graph import StateGraph\nfrom orcheo.graph.state import State\n",
+          entrypoint: null,
+          index: { cron: [] },
+        },
+        metadata: {
+          source: "canvas-template",
+          template_id: "template-vibe-agent",
+        },
+        notes: "Template ingest",
+        created_by: "canvas-app",
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse({
+        id: "workflow-vibe-1",
+        handle: VIBE_WORKFLOW_HANDLE,
+        name: "Orcheo Vibe",
+        slug: "workflow-vibe-1",
+        description: "Routes ChatKit conversations to external agent runtimes.",
+        tags: ["orcheo-vibe-agent", "external-agent"],
+        is_archived: false,
+        created_at: timestamp,
+        updated_at: timestamp,
+      }),
+      jsonResponse([
+        {
+          id: "workflow-vibe-1-version-1",
+          workflow_id: "workflow-vibe-1",
+          version: 1,
+          graph: {
+            format: "langgraph-script",
+            source:
+              "from langgraph.graph import StateGraph\nfrom orcheo.graph.state import State\n",
+            entrypoint: null,
+            index: { cron: [] },
+          },
+          metadata: {
+            source: "canvas-template",
+            template_id: "template-vibe-agent",
+          },
+          notes: "Template ingest",
+          created_by: "canvas-app",
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+      ]),
+    ]);
+
+    const created = await createWorkflowFromTemplate("template-vibe-agent", {
+      name: "Orcheo Vibe",
+      handle: VIBE_WORKFLOW_HANDLE,
+      tags: ["orcheo-vibe-agent", "external-agent"],
+    });
+    expect(created).toBeDefined();
+
+    const createCall = mockFetch.mock.calls.find(
+      ([path, options]) =>
+        String(path).includes("/api/workflows") &&
+        options?.method === "POST" &&
+        !String(path).includes("/versions/ingest"),
+    );
+    const createBody = JSON.parse(
+      String(createCall?.[1]?.body ?? "{}"),
+    ) as { handle?: string | null };
+    expect(createBody.handle).toBe(VIBE_WORKFLOW_HANDLE);
   });
 
   it("starts numeric suffixes at 1 and ignores archived workflow names", async () => {

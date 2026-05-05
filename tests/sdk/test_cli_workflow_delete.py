@@ -4,7 +4,7 @@ from __future__ import annotations
 import httpx
 import respx
 from typer.testing import CliRunner
-from orcheo_sdk.cli.errors import CLIError
+from orcheo_sdk.cli.errors import APICallError, CLIError
 from orcheo_sdk.cli.main import app
 
 
@@ -99,6 +99,35 @@ def test_workflow_delete_with_success_message(
         )
     assert result.exit_code == 0
     assert success_message in result.stdout
+
+
+def test_workflow_delete_blocks_managed_vibe_workflow(
+    runner: CliRunner, env: dict[str, str]
+) -> None:
+    """Workflow delete is rejected for the managed Orcheo Vibe workflow."""
+    with respx.mock(assert_all_called=True) as router:
+        router.delete("http://api.test/api/workflows/wf-vibe").mock(
+            return_value=httpx.Response(
+                409,
+                json={
+                    "detail": {
+                        "message": (
+                            "The managed Orcheo Vibe workflow cannot be deleted."
+                        ),
+                        "code": "workflow.delete.protected",
+                    }
+                },
+            )
+        )
+        result = runner.invoke(
+            app,
+            ["workflow", "delete", "wf-vibe", "--force"],
+            env=env,
+        )
+
+    assert result.exit_code != 0
+    assert isinstance(result.exception, APICallError)
+    assert "managed Orcheo Vibe workflow cannot be deleted" in str(result.exception)
 
 
 def test_workflow_delete_machine_mode_without_force(

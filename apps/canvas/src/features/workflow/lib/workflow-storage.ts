@@ -34,6 +34,13 @@ interface ListWorkflowsOptions {
   forceRefresh?: boolean;
 }
 
+interface TemplateWorkflowOverrides {
+  name?: string;
+  description?: string;
+  tags?: string[];
+  handle?: string | null;
+}
+
 interface WorkflowListCacheEntry {
   items: StoredWorkflow[];
   cachedAt: number;
@@ -266,7 +273,7 @@ export const saveWorkflowMetadata = async (
 
 export const createWorkflowFromTemplate = async (
   templateId: string,
-  overrides?: Partial<Omit<SaveWorkflowInput, "nodes" | "edges">>,
+  overrides?: TemplateWorkflowOverrides,
 ): Promise<StoredWorkflow | undefined> => {
   const templateDefinition = getWorkflowTemplateDefinition(templateId);
   if (!templateDefinition) {
@@ -292,6 +299,7 @@ export const createWorkflowFromTemplate = async (
     method: "POST",
     body: JSON.stringify({
       name: workflowName,
+      handle: overrides?.handle ?? templateWorkflow.handle ?? undefined,
       description: workflowDescription,
       tags: workflowTags,
       actor,

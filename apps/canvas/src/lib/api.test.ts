@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
-  getActiveTenant,
+  getActiveWorkspace,
   disconnectExternalAgent,
   executeNode,
   getExternalAgentLoginSession,
@@ -186,9 +186,9 @@ describe("executeNode", () => {
     );
   });
 
-  it("should fetch active tenant summary", async () => {
+  it("should fetch active workspace summary", async () => {
     const mockResponse = {
-      tenant_id: "tenant-1",
+      workspace_id: "workspace-1",
       slug: "acme",
       name: "Acme",
       role: "owner",
@@ -198,10 +198,10 @@ describe("executeNode", () => {
       json: async () => mockResponse,
     });
 
-    const result = await getActiveTenant();
+    const result = await getActiveWorkspace();
     expect(result.slug).toBe("acme");
     expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/api/tenants/active"),
+      expect.stringContaining("/api/workspaces/active"),
       expect.objectContaining({ method: "GET" }),
     );
   });

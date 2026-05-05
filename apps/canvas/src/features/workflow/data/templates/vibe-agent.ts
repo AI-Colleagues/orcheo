@@ -1,6 +1,7 @@
 import type { Workflow } from "../workflow-types";
 import type { WorkflowTemplateDefinition } from "./template-definition";
 import { TEMPLATE_OWNER } from "./template-owner";
+import { VIBE_WORKFLOW_HANDLE } from "@features/vibe/constants";
 import vibeAgentConfig from "./assets/vibe-agent/config.json";
 import vibeAgentScript from "./assets/vibe-agent/workflow.py?raw";
 
@@ -32,6 +33,7 @@ graph TD;
 
 export const VIBE_AGENT_WORKFLOW: Workflow = {
   id: "template-vibe-agent",
+  handle: VIBE_WORKFLOW_HANDLE,
   name: "Orcheo Vibe",
   description:
     "Routes ChatKit conversations to the connected external agent runtime selected in the native ChatKit model picker.",

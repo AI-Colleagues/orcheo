@@ -25,6 +25,10 @@ from orcheo_backend.app.chatkit_runtime import resolve_chatkit_token_issuer
 from orcheo_backend.app.chatkit_tokens import ChatKitSessionTokenIssuer
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import WorkspaceQuotaExceededError, raise_not_found
+from orcheo_backend.app.managed_workflows import (
+    MANAGED_VIBE_WORKFLOW_HANDLE,
+    ensure_managed_vibe_workflow,
+)
 from orcheo_backend.app.plugin_inventory import missing_required_plugins
 from orcheo_backend.app.repository import (
     CronTriggerNotFoundError,
@@ -48,7 +52,7 @@ from orcheo_backend.app.schemas.workflows import (
     WorkflowVersionIngestRequest,
     WorkflowVersionRunnableConfigUpdateRequest,
 )
-from orcheo_backend.app.workspace import WorkspaceContextDep
+from orcheo_backend.app.workspace import WorkspaceContextDep, get_workspace_repository
 from orcheo_backend.app.workspace_governance import ensure_workspace_workflow_quota
 from orcheo_sdk.cli.workflow import _mermaid_from_graph
 
@@ -264,10 +268,19 @@ async def _resolve_workflow_id(
         workflow_id = await repository.resolve_workflow_ref(
             workflow_ref,
             include_archived=include_archived,
-            workspace_id=workspace_id,
         )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
+    if workspace_id is not None and workflow_ref != MANAGED_VIBE_WORKFLOW_HANDLE:
+        try:
+            workflow = await repository.get_workflow(workflow_id)
+        except WorkflowNotFoundError as exc:
+            raise_not_found("Workflow not found", exc)
+        workflow_workspace_id = (
+            str(workflow.workspace_id) if workflow.workspace_id is not None else None
+        )
+        if workflow_workspace_id is not None and workflow_workspace_id != workspace_id:
+            raise_not_found("Workflow not found", WorkflowNotFoundError(workflow_ref))
     return str(workflow_id)
 
 
@@ -285,6 +298,34 @@ async def _resolve_workflow_uuid(
         workspace_id=workspace_id,
     )
     return UUID(workflow_id)
+
+
+async def _load_workflow_for_request(
+    repository: RepositoryDep,
+    workflow_ref: str,
+    *,
+    include_archived: bool = True,
+    workspace_id: str | None = None,
+) -> Workflow:
+    """Resolve and load a workflow, allowing managed workflows to cross workspaces."""
+    workflow_id = await _resolve_workflow_uuid(
+        repository,
+        workflow_ref,
+        include_archived=include_archived,
+    )
+    try:
+        workflow = await repository.get_workflow(workflow_id)
+    except WorkflowNotFoundError as exc:
+        raise_not_found("Workflow not found", exc)
+
+    if workspace_id is not None and workflow.handle != MANAGED_VIBE_WORKFLOW_HANDLE:
+        workflow_workspace_id = (
+            str(workflow.workspace_id) if workflow.workspace_id is not None else None
+        )
+        if workflow_workspace_id is not None and workflow_workspace_id != workspace_id:
+            raise_not_found("Workflow not found", WorkflowNotFoundError(workflow_ref))
+
+    return workflow
 
 
 async def _get_workflow_latest_version_summary(
@@ -357,10 +398,14 @@ async def list_workflows(
     include_archived: bool = False,
 ) -> list[WorkflowListItem]:
     """Return workflows with latest-version and schedule summaries."""
+    workspace_record = get_workspace_repository().get_workspace(workspace.workspace_id)
+    managed_workflow = await ensure_managed_vibe_workflow(repository, workspace_record)
     workflows = await repository.list_workflows(
         include_archived=include_archived,
         workspace_id=str(workspace.workspace_id),
     )
+    if all(workflow.id != managed_workflow.id for workflow in workflows):
+        workflows.append(managed_workflow)
     public_base_url = _resolve_chatkit_public_base_url()
     return await asyncio.gather(
         *[
@@ -421,14 +466,12 @@ async def get_workflow(
 ) -> Workflow:
     """Fetch a single workflow by its identifier."""
     tid = str(workspace.workspace_id)
-    workflow_id = await _resolve_workflow_uuid(
-        repository, workflow_ref, workspace_id=tid
+    workflow = await _load_workflow_for_request(
+        repository,
+        workflow_ref,
+        workspace_id=tid,
     )
-    try:
-        workflow = await repository.get_workflow(workflow_id, workspace_id=tid)
-        return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
-    except WorkflowNotFoundError as exc:
-        raise_not_found("Workflow not found", exc)
+    return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
 
 
 @router.get("/workflows/{workflow_ref}/canvas", response_model=WorkflowCanvasPayload)
@@ -439,20 +482,16 @@ async def get_workflow_canvas(
 ) -> WorkflowCanvasPayload:
     """Fetch workflow metadata and compact version summaries for Canvas open."""
     tid = str(workspace.workspace_id)
-    workflow_id = await _resolve_workflow_uuid(
-        repository, workflow_ref, workspace_id=tid
+    workflow = await _load_workflow_for_request(
+        repository,
+        workflow_ref,
+        workspace_id=tid,
     )
-    try:
-        workflow, versions = await asyncio.gather(
-            repository.get_workflow(workflow_id, workspace_id=tid),
-            repository.list_versions(workflow_id),
-        )
-        return WorkflowCanvasPayload(
-            workflow=_apply_share_url(workflow, _resolve_chatkit_public_base_url()),
-            versions=[_to_canvas_version_summary(version) for version in versions],
-        )
-    except WorkflowNotFoundError as exc:
-        raise_not_found("Workflow not found", exc)
+    versions = await repository.list_versions(workflow.id)
+    return WorkflowCanvasPayload(
+        workflow=_apply_share_url(workflow, _resolve_chatkit_public_base_url()),
+        versions=[_to_canvas_version_summary(version) for version in versions],
+    )
 
 
 @router.put("/workflows/{workflow_ref}", response_model=Workflow)
@@ -465,22 +504,17 @@ async def update_workflow(
 ) -> Workflow:
     """Update attributes of an existing workflow."""
     tid = str(workspace.workspace_id)
-    workflow_id = await _resolve_workflow_uuid(
-        repository, workflow_ref, workspace_id=tid
+    workflow = await _load_workflow_for_request(
+        repository,
+        workflow_ref,
+        workspace_id=tid,
     )
     context = _resolve_authenticated_context(policy)
     actor = _resolve_actor(request.actor, context)
     tags = _append_workspace_tags(request.tags, context, preserve_none=True)
     draft_access_tags = tags
     if request.draft_access is not None and draft_access_tags is None:
-        try:
-            existing_workflow = await repository.get_workflow(
-                workflow_id,
-                workspace_id=tid,
-            )
-        except WorkflowNotFoundError as exc:
-            raise_not_found("Workflow not found", exc)
-        draft_access_tags = existing_workflow.tags
+        draft_access_tags = workflow.tags
     draft_access = (
         _resolve_draft_access(request.draft_access, draft_access_tags, context)
         if request.draft_access is not None
@@ -500,7 +534,7 @@ async def update_workflow(
         if request.handle is not None:
             update_kwargs["handle"] = request.handle
         workflow = await repository.update_workflow(
-            workflow_id,
+            workflow.id,
             **update_kwargs,
         )
         return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
@@ -523,17 +557,23 @@ async def archive_workflow(
 ) -> Workflow:
     """Archive a workflow via the delete verb."""
     tid = str(workspace.workspace_id)
-    workflow_id = await _resolve_workflow_uuid(
-        repository, workflow_ref, workspace_id=tid
-    )
     context = _resolve_authenticated_context(policy)
     resolved_actor = _resolve_actor(actor, context)
-
-    try:
-        workflow = await repository.archive_workflow(workflow_id, actor=resolved_actor)
-        return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
-    except WorkflowNotFoundError as exc:
-        raise_not_found("Workflow not found", exc)
+    workflow = await _load_workflow_for_request(
+        repository,
+        workflow_ref,
+        workspace_id=tid,
+    )
+    if workflow.handle == MANAGED_VIBE_WORKFLOW_HANDLE:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "The managed Orcheo Vibe workflow cannot be deleted.",
+                "code": "workflow.delete.protected",
+            },
+        )
+    workflow = await repository.archive_workflow(workflow.id, actor=resolved_actor)
+    return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
 
 
 @router.post(
@@ -549,8 +589,10 @@ async def ingest_workflow_version(
 ) -> WorkflowVersion:
     """Create a workflow version from a LangGraph Python script."""
     tid = str(workspace.workspace_id)
-    workflow_id = await _resolve_workflow_uuid(
-        repository, workflow_ref, workspace_id=tid
+    workflow = await _load_workflow_for_request(
+        repository,
+        workflow_ref,
+        workspace_id=tid,
     )
     required_plugins = _required_plugins_from_metadata(request.metadata)
     missing_plugins = missing_required_plugins(required_plugins)
@@ -577,7 +619,7 @@ async def ingest_workflow_version(
 
     try:
         version = await repository.create_version(
-            workflow_id,
+            workflow.id,
             graph=graph_payload,
             metadata=request.metadata,
             notes=request.notes,
@@ -602,12 +644,14 @@ async def update_workflow_version_runnable_config(
 ) -> WorkflowVersion:
     """Update runnable config for an existing workflow version."""
     tid = str(workspace.workspace_id)
-    workflow_id = await _resolve_workflow_uuid(
-        repository, workflow_ref, workspace_id=tid
+    workflow = await _load_workflow_for_request(
+        repository,
+        workflow_ref,
+        workspace_id=tid,
     )
     try:
         version = await repository.update_version_runnable_config(
-            workflow_id,
+            workflow.id,
             version_number=version_number,
             runnable_config=_serialize_runnable_config(request.runnable_config),
             actor=request.actor,
@@ -630,14 +674,13 @@ async def list_workflow_versions(
 ) -> list[WorkflowVersion]:
     """Return the versions associated with a workflow."""
     tid = str(workspace.workspace_id)
-    workflow_id = await _resolve_workflow_uuid(
-        repository, workflow_ref, workspace_id=tid
+    workflow = await _load_workflow_for_request(
+        repository,
+        workflow_ref,
+        workspace_id=tid,
     )
-    try:
-        versions = await repository.list_versions(workflow_id)
-        return _attach_mermaid_many(versions)
-    except WorkflowNotFoundError as exc:
-        raise_not_found("Workflow not found", exc)
+    versions = await repository.list_versions(workflow.id)
+    return _attach_mermaid_many(versions)
 
 
 @router.get(
@@ -652,11 +695,13 @@ async def get_workflow_version(
 ) -> WorkflowVersion:
     """Return a specific workflow version by number."""
     tid = str(workspace.workspace_id)
-    workflow_id = await _resolve_workflow_uuid(
-        repository, workflow_ref, workspace_id=tid
+    workflow = await _load_workflow_for_request(
+        repository,
+        workflow_ref,
+        workspace_id=tid,
     )
     try:
-        version = await repository.get_version_by_number(workflow_id, version_number)
+        version = await repository.get_version_by_number(workflow.id, version_number)
         return _attach_mermaid(version)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
@@ -677,11 +722,13 @@ async def diff_workflow_versions(
 ) -> WorkflowVersionDiffResponse:
     """Generate a diff between two workflow versions."""
     tid = str(workspace.workspace_id)
-    workflow_id = await _resolve_workflow_uuid(
-        repository, workflow_ref, workspace_id=tid
+    workflow = await _load_workflow_for_request(
+        repository,
+        workflow_ref,
+        workspace_id=tid,
     )
     try:
-        diff = await repository.diff_versions(workflow_id, base_version, target_version)
+        diff = await repository.diff_versions(workflow.id, base_version, target_version)
         return WorkflowVersionDiffResponse(
             base_version=diff.base_version,
             target_version=diff.target_version,
@@ -719,15 +766,17 @@ async def publish_workflow(
 ) -> WorkflowPublishResponse:
     """Publish a workflow and expose it for ChatKit access."""
     tid = str(workspace.workspace_id)
-    workflow_id = await _resolve_workflow_uuid(
-        repository, workflow_ref, workspace_id=tid
+    workflow = await _load_workflow_for_request(
+        repository,
+        workflow_ref,
+        workspace_id=tid,
     )
     context = _resolve_authenticated_context(policy)
     actor = _resolve_actor(request.actor, context)
 
     try:
         workflow = await repository.publish_workflow(
-            workflow_id,
+            workflow.id,
             require_login=request.require_login,
             actor=actor,
         )
@@ -767,14 +816,16 @@ async def revoke_workflow_publish(
 ) -> Workflow:
     """Revoke public access to the workflow."""
     tid = str(workspace.workspace_id)
-    workflow_id = await _resolve_workflow_uuid(
-        repository, workflow_ref, workspace_id=tid
+    workflow = await _load_workflow_for_request(
+        repository,
+        workflow_ref,
+        workspace_id=tid,
     )
     context = _resolve_authenticated_context(policy)
     actor = _resolve_actor(request.actor, context)
 
     try:
-        workflow = await repository.revoke_publish(workflow_id, actor=actor)
+        workflow = await repository.revoke_publish(workflow.id, actor=actor)
         workflow = _apply_share_url(workflow, _resolve_chatkit_public_base_url())
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
@@ -974,21 +1025,19 @@ async def create_workflow_chatkit_session(
 ) -> ChatKitSessionResponse:
     """Issue a ChatKit JWT scoped to the workflow for authenticated Canvas users."""
     tid = str(workspace.workspace_id)
-    workflow_id = await _resolve_workflow_uuid(
-        repository, workflow_ref, workspace_id=tid
-    )
     auth_enforced = load_auth_settings().enforce
     context = policy.context
     if auth_enforced:
         context = policy.require_authenticated()
         policy.require_scopes("workflows:read", "workflows:execute")
 
-    try:
-        workflow = await repository.get_workflow(workflow_id, workspace_id=tid)
-    except WorkflowNotFoundError as exc:
-        raise_not_found("Workflow not found", exc)
+    workflow = await _load_workflow_for_request(
+        repository,
+        workflow_ref,
+        workspace_id=tid,
+    )
     if workflow.is_archived:
-        raise_not_found("Workflow not found", WorkflowNotFoundError(str(workflow_id)))
+        raise_not_found("Workflow not found", WorkflowNotFoundError(str(workflow.id)))
 
     if auth_enforced:
         _authorize_draft_workflow_access(workflow, context)
