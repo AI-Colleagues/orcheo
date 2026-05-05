@@ -92,6 +92,7 @@ class OAuthCredentialService(CredentialHealthGuard):
             kind=template.kind,
             oauth_tokens=oauth_tokens,
             template_id=template.id,
+            tenant_id=template.tenant_id or access_context.tenant_id,
         )
         self._vault.record_template_issuance(
             template_id=template.id,

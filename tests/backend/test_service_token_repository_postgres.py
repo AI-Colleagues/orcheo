@@ -721,7 +721,8 @@ async def test_postgres_service_token_repository_record_usage_with_details(
 
     # Verify both UPDATE and INSERT were called
     connection = repo._pool._connection
-    assert len(connection.queries) == 2
+    assert len(connection.queries) == 3
+    assert "SELECT tenant_id FROM service_tokens" in connection.queries[0][0]
 
 
 @pytest.mark.asyncio
@@ -739,4 +740,5 @@ async def test_postgres_service_token_repository_record_usage_without_details(
 
     # Verify both UPDATE and INSERT were called
     connection = repo._pool._connection
-    assert len(connection.queries) == 2
+    assert len(connection.queries) == 3
+    assert "SELECT tenant_id FROM service_tokens" in connection.queries[0][0]

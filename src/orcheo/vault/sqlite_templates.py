@@ -29,16 +29,18 @@ class SQLiteTemplateStoreMixin:
                 INSERT OR REPLACE INTO credential_templates (
                     id,
                     scope_hint,
+                    tenant_id,
                     name,
                     provider,
                     created_at,
                     updated_at,
                     payload
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(template.id),
                     template.scope.scope_hint(),
+                    template.tenant_id,
                     template.name,
                     template.provider,
                     template.created_at.isoformat(),
@@ -64,15 +66,28 @@ class SQLiteTemplateStoreMixin:
 
     def _iter_templates(
         self: _SQLiteConnectionSupport,
+        *,
+        tenant_id: str | None = None,
     ) -> Iterable[CredentialTemplate]:
         with self._locked_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT payload
-                  FROM credential_templates
-              ORDER BY created_at ASC
-                """
-            )
+            if tenant_id is None:
+                cursor = conn.execute(
+                    """
+                    SELECT payload
+                      FROM credential_templates
+                  ORDER BY created_at ASC
+                    """
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT payload
+                      FROM credential_templates
+                     WHERE tenant_id IS NULL OR tenant_id = ?
+                  ORDER BY created_at ASC
+                    """,
+                    (tenant_id,),
+                )
             rows = cursor.fetchall()
         for row in rows:
             yield CredentialTemplate.model_validate_json(row[0])

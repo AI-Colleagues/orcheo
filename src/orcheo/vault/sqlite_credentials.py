@@ -81,15 +81,28 @@ class SQLiteCredentialStoreMixin:
 
     def _iter_metadata(
         self: _SQLiteConnectionSupport,
+        *,
+        tenant_id: str | None = None,
     ) -> Iterable[CredentialMetadata]:
         with self._locked_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT payload
-                  FROM credentials
-              ORDER BY created_at ASC
-                """
-            )
+            if tenant_id is None:
+                cursor = conn.execute(
+                    """
+                    SELECT payload
+                      FROM credentials
+                  ORDER BY created_at ASC
+                    """
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT payload
+                      FROM credentials
+                     WHERE tenant_id IS NULL OR tenant_id = ?
+                  ORDER BY created_at ASC
+                    """,
+                    (tenant_id,),
+                )
             rows = cursor.fetchall()
         for row in rows:
             yield CredentialMetadata.model_validate_json(row[0])

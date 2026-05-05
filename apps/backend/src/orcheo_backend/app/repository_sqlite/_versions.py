@@ -30,7 +30,8 @@ class WorkflowVersionMixin(SqlitePersistenceMixin):
     ) -> WorkflowVersion:
         await self._ensure_initialized()
         async with self._lock:
-            await self._get_workflow_locked(workflow_id)
+            workflow = await self._get_workflow_locked(workflow_id)
+            tenant_id = workflow.tenant_id
             async with self._connection() as conn:
                 cursor = await conn.execute(
                     """
@@ -46,6 +47,7 @@ class WorkflowVersionMixin(SqlitePersistenceMixin):
 
                 version = WorkflowVersion(
                     workflow_id=workflow_id,
+                    tenant_id=tenant_id,
                     version=next_version_number,
                     graph=json.loads(json.dumps(graph)),
                     metadata=dict(metadata),
@@ -60,16 +62,18 @@ class WorkflowVersionMixin(SqlitePersistenceMixin):
                     INSERT INTO workflow_versions (
                         id,
                         workflow_id,
+                        tenant_id,
                         version,
                         payload,
                         created_at,
                         updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         str(version.id),
                         str(workflow_id),
+                        version.tenant_id,
                         version.version,
                         self._dump_model(version),
                         version.created_at.isoformat(),

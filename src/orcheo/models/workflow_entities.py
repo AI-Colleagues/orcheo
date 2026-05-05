@@ -131,6 +131,7 @@ class Workflow(TimestampedAuditModel):
 
     name: str = Field(min_length=1, max_length=128)
     handle: str | None = Field(default=None, max_length=64)
+    tenant_id: str | None = None
     slug: str = ""
     description: str | None = Field(default=None, max_length=1024)
     tags: list[str] = Field(default_factory=list)
@@ -330,6 +331,7 @@ class WorkflowVersion(TimestampedAuditModel):
     """Versioned definition of a workflow graph."""
 
     workflow_id: UUID
+    tenant_id: str | None = None
     version: int = Field(gt=0)
     graph: dict[str, Any] = Field(default_factory=dict)
     mermaid: str | None = None

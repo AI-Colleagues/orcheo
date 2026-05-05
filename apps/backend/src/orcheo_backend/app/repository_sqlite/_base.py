@@ -152,6 +152,7 @@ class SqliteRepositoryBase:
                     CREATE TABLE IF NOT EXISTS workflow_versions (
                         id TEXT PRIMARY KEY,
                         workflow_id TEXT NOT NULL,
+                        tenant_id TEXT,
                         version INTEGER NOT NULL,
                         payload TEXT NOT NULL,
                         created_at TEXT NOT NULL,
@@ -160,6 +161,8 @@ class SqliteRepositoryBase:
                     );
                     CREATE INDEX IF NOT EXISTS idx_versions_workflow
                         ON workflow_versions(workflow_id);
+                    CREATE INDEX IF NOT EXISTS idx_versions_tenant
+                        ON workflow_versions(tenant_id);
                     CREATE TABLE IF NOT EXISTS workflow_runs (
                         id TEXT PRIMARY KEY,
                         workflow_id TEXT NOT NULL,
@@ -224,6 +227,7 @@ class SqliteRepositoryBase:
                 )
                 await self._ensure_cron_schema_migrations(conn)
                 await self._ensure_workflow_schema_migrations(conn)
+                await self._ensure_workflow_versions_schema_migrations(conn)
 
             await self._hydrate_trigger_state()
             self._initialized = True
@@ -299,10 +303,20 @@ class SqliteRepositoryBase:
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_workflows_tenant_id ON workflows(tenant_id)"
         )
-        if runs_table_exists:
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_runs_tenant_id ON workflow_runs(tenant_id)"
+        )
+
+    async def _ensure_workflow_versions_schema_migrations(
+        self, conn: aiosqlite.Connection
+    ) -> None:
+        """Add tenant_id to workflow_versions when upgrading existing databases."""
+        cursor = await conn.execute("PRAGMA table_info(workflow_versions)")
+        rows = await cursor.fetchall()
+        existing_columns = {row["name"] for row in rows}
+        if "tenant_id" not in existing_columns:
             await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_runs_tenant_id"
-                " ON workflow_runs(tenant_id)"
+                "ALTER TABLE workflow_versions ADD COLUMN tenant_id TEXT"
             )
 
     async def _hydrate_trigger_state(self) -> None:

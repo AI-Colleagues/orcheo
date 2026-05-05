@@ -23,22 +23,29 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
     """Expose locked fetch helpers shared across mixins."""
 
     @staticmethod
-    def _deserialize_workflow(payload_json: str) -> Workflow:
+    def _deserialize_workflow(
+        payload_json: str, *, tenant_id: str | None = None
+    ) -> Workflow:
         """Return a Workflow instance while stripping deprecated fields."""
         payload = json.loads(payload_json)
         payload.pop("publish_token_hash", None)
         payload.pop("publish_token_rotated_at", None)
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
         return Workflow.model_validate(payload)
 
     async def _get_workflow_locked(self, workflow_id: UUID) -> Workflow:
         async with self._connection() as conn:
             cursor = await conn.execute(
-                "SELECT payload FROM workflows WHERE id = ?", (str(workflow_id),)
+                "SELECT payload, tenant_id FROM workflows WHERE id = ?",
+                (str(workflow_id),),
             )
             row = await cursor.fetchone()
         if row is None:
             raise WorkflowNotFoundError(str(workflow_id))
-        return self._deserialize_workflow(row["payload"])
+        return self._deserialize_workflow(
+            row["payload"], tenant_id=row.get("tenant_id") if row else None
+        )
 
     async def _workflow_exists_locked(self, workflow_id: UUID) -> bool:
         async with self._connection() as conn:

@@ -247,7 +247,7 @@ def credential_context_from_workflow(
     tenant_id: str | None = None,
 ) -> CredentialAccessContext | None:
     """Return a credential context for the provided workflow identifier."""
-    if workflow_id is None:
+    if workflow_id is None and tenant_id is None:
         return None
     return CredentialAccessContext(workflow_id=workflow_id, tenant_id=tenant_id)
 

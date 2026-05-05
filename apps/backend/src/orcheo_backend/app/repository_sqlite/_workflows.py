@@ -103,16 +103,17 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
                 workflow_id=None,
                 is_archived=False,
             )
+            tid = ensure_tenant_id(tenant_id) if tenant_id is not None else None
             workflow = Workflow(
                 name=name,
                 handle=normalized_handle,
+                tenant_id=tid,
                 slug=slug or "",
                 description=description,
                 tags=list(tags or []),
                 draft_access=draft_access,
             )
             workflow.record_event(actor=actor, action="workflow_created")
-            tid = ensure_tenant_id(tenant_id) if tenant_id is not None else None
             async with self._connection() as conn:
                 await conn.execute(
                     """

@@ -40,9 +40,11 @@ class GovernanceAlertOperationsMixin:
         credential_id: UUID | None = None,
         template_id: UUID | None = None,
         context: CredentialAccessContext | None = None,
+        tenant_id: str | None = None,
     ) -> SecretGovernanceAlert:
         """Persist a governance alert tied to a credential or template."""
         access_context = context or CredentialAccessContext()
+        tenant_id = tenant_id if tenant_id is not None else access_context.tenant_id
         scope = CredentialScope.unrestricted()
         resolver = cast("_AlertDependencies", self)
         if credential_id is not None:
@@ -51,14 +53,18 @@ class GovernanceAlertOperationsMixin:
             )
             scope = metadata.scope
             template_id = template_id or metadata.template_id
+            tenant_id = tenant_id or metadata.tenant_id
         elif template_id is not None:
             template = resolver._get_template(
                 template_id=template_id, context=access_context
             )
             scope = template.scope
+            tenant_id = tenant_id or template.tenant_id
 
         existing = None
-        for alert in self._iter_alerts():
+        for alert in self._iter_alerts(tenant_id=tenant_id):
+            if not self._alert_matches_tenant(alert.tenant_id, access_context):
+                continue
             if not alert.scope.allows(access_context):
                 continue
             if alert.is_acknowledged or alert.kind is not kind:
@@ -88,6 +94,7 @@ class GovernanceAlertOperationsMixin:
             actor=actor,
             credential_id=credential_id,
             template_id=template_id,
+            tenant_id=tenant_id,
         )
         self._persist_alert(alert)
         return alert.model_copy(deep=True)
@@ -100,8 +107,11 @@ class GovernanceAlertOperationsMixin:
     ) -> list[SecretGovernanceAlert]:
         """Return governance alerts permitted for the caller."""
         access_context = context or CredentialAccessContext()
+        tenant_id = access_context.tenant_id
         results: list[SecretGovernanceAlert] = []
-        for alert in self._iter_alerts():
+        for alert in self._iter_alerts(tenant_id=tenant_id):
+            if not self._alert_matches_tenant(alert.tenant_id, access_context):
+                continue
             if not alert.scope.allows(access_context):
                 continue
             if not include_acknowledged and alert.is_acknowledged:
@@ -163,11 +173,22 @@ class GovernanceAlertOperationsMixin:
     def _load_alert(self, alert_id: UUID) -> SecretGovernanceAlert:  # pragma: no cover
         raise NotImplementedError
 
-    def _iter_alerts(self) -> Iterable[SecretGovernanceAlert]:  # pragma: no cover
+    def _iter_alerts(
+        self, *, tenant_id: str | None = None
+    ) -> Iterable[SecretGovernanceAlert]:  # pragma: no cover
         raise NotImplementedError
 
     def _remove_alert(self, alert_id: UUID) -> None:  # pragma: no cover
         raise NotImplementedError
+
+    @staticmethod
+    def _alert_matches_tenant(
+        alert_tenant_id: str | None, context: CredentialAccessContext
+    ) -> bool:
+        """Return whether an alert belongs to the active tenant."""
+        if context.tenant_id is None:
+            return True
+        return alert_tenant_id is None or alert_tenant_id == context.tenant_id
 
 
 __all__ = ["GovernanceAlertOperationsMixin"]

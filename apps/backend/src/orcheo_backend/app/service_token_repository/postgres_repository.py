@@ -360,6 +360,12 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
         await self._ensure_initialized()
         now = datetime.now(tz=UTC)
         async with self._connection() as conn:
+            cursor = await conn.execute(
+                "SELECT tenant_id FROM service_tokens WHERE identifier = %s",
+                (token_id,),
+            )
+            row = await cursor.fetchone()
+            tenant_id = row.get("tenant_id") if row is not None else None
             await conn.execute(
                 """
                 UPDATE service_tokens
@@ -377,8 +383,16 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
             await conn.execute(
                 """
                 INSERT INTO service_token_audit_log
-                    (token_id, action, ip_address, user_agent, timestamp, details)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                    (
+                        token_id,
+                        action,
+                        ip_address,
+                        user_agent,
+                        timestamp,
+                        details,
+                        tenant_id
+                    )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     token_id,
@@ -387,6 +401,7 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
                     user_agent,
                     now,
                     json.dumps(details) if details else None,
+                    tenant_id,
                 ),
             )
 
@@ -421,11 +436,17 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
         await self._ensure_initialized()
         now = datetime.now(tz=UTC)
         async with self._connection() as conn:
+            cursor = await conn.execute(
+                "SELECT tenant_id FROM service_tokens WHERE identifier = %s",
+                (token_id,),
+            )
+            row = await cursor.fetchone()
+            tenant_id = row.get("tenant_id") if row is not None else None
             await conn.execute(
                 """
                 INSERT INTO service_token_audit_log
-                    (token_id, action, actor, ip_address, timestamp, details)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                    (token_id, action, actor, ip_address, timestamp, details, tenant_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     token_id,
@@ -434,6 +455,7 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
                     ip,
                     now,
                     json.dumps(details) if details else None,
+                    tenant_id,
                 ),
             )
 

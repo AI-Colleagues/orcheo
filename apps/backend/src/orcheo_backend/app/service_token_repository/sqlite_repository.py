@@ -179,6 +179,13 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
         """Track token usage."""
         now = datetime.now(tz=UTC).isoformat()
         with sqlite3.connect(self._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT tenant_id FROM service_tokens WHERE identifier = ?",
+                (token_id,),
+            )
+            row = cursor.fetchone()
+            tenant_id = row[0] if row is not None else None
             conn.execute(
                 """
                 UPDATE service_tokens
@@ -196,8 +203,16 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
             conn.execute(
                 """
                 INSERT INTO service_token_audit_log
-                    (token_id, action, ip_address, user_agent, timestamp, details)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (
+                        token_id,
+                        action,
+                        ip_address,
+                        user_agent,
+                        timestamp,
+                        details,
+                        tenant_id
+                    )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     token_id,
@@ -206,6 +221,7 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
                     user_agent,
                     now,
                     json.dumps(details) if details else None,
+                    tenant_id,
                 ),
             )
             conn.commit()
@@ -240,11 +256,18 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
         """Record an audit event for a token."""
         now = datetime.now(tz=UTC).isoformat()
         with sqlite3.connect(self._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT tenant_id FROM service_tokens WHERE identifier = ?",
+                (token_id,),
+            )
+            row = cursor.fetchone()
+            tenant_id = row[0] if row is not None else None
             conn.execute(
                 """
                 INSERT INTO service_token_audit_log
-                    (token_id, action, actor, ip_address, timestamp, details)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (token_id, action, actor, ip_address, timestamp, details, tenant_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     token_id,
@@ -253,6 +276,7 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
                     ip,
                     now,
                     json.dumps(details) if details else None,
+                    tenant_id,
                 ),
             )
             conn.commit()

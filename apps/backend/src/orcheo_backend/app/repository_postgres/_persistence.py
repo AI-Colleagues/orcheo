@@ -23,7 +23,9 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
     """Expose fetch helpers shared across mixins."""
 
     @staticmethod
-    def _deserialize_workflow(payload: dict[str, Any] | str) -> Workflow:
+    def _deserialize_workflow(
+        payload: dict[str, Any] | str, *, tenant_id: str | None = None
+    ) -> Workflow:
         """Return a Workflow instance while stripping deprecated fields."""
         data: dict[str, Any]
         if isinstance(payload, str):
@@ -32,17 +34,22 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
             data = payload
         data.pop("publish_token_hash", None)
         data.pop("publish_token_rotated_at", None)
+        if tenant_id is not None:
+            data["tenant_id"] = tenant_id
         return Workflow.model_validate(data)
 
     async def _get_workflow_locked(self, workflow_id: UUID) -> Workflow:
         async with self._connection() as conn:
             cursor = await conn.execute(
-                "SELECT payload FROM workflows WHERE id = %s", (str(workflow_id),)
+                "SELECT payload, tenant_id FROM workflows WHERE id = %s",
+                (str(workflow_id),),
             )
             row = await cursor.fetchone()
         if row is None:
             raise WorkflowNotFoundError(str(workflow_id))
-        return self._deserialize_workflow(row["payload"])
+        return self._deserialize_workflow(
+            row["payload"], tenant_id=row.get("tenant_id") if row else None
+        )
 
     async def _ensure_handle_available_locked(
         self,

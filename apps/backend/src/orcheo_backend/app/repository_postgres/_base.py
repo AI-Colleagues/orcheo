@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS workflows (
 CREATE TABLE IF NOT EXISTS workflow_versions (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
+    tenant_id TEXT,
     version INTEGER NOT NULL,
     payload JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -63,6 +64,7 @@ CREATE TABLE IF NOT EXISTS workflow_versions (
     UNIQUE(workflow_id, version)
 );
 CREATE INDEX IF NOT EXISTS idx_versions_workflow ON workflow_versions(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_versions_tenant ON workflow_versions(tenant_id);
 
 CREATE TABLE IF NOT EXISTS workflow_runs (
     id TEXT PRIMARY KEY,
@@ -275,6 +277,7 @@ class PostgresRepositoryBase:
                         await conn.execute(stmt)
                 await self._ensure_cron_schema_migrations(conn)
                 await self._ensure_workflow_schema_migrations(conn)
+                await self._ensure_workflow_versions_schema_migrations(conn)
 
             await self._hydrate_trigger_state()
             self._initialized = True
@@ -364,6 +367,26 @@ class PostgresRepositoryBase:
         )
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_runs_tenant_id ON workflow_runs(tenant_id)"
+        )
+
+    async def _ensure_workflow_versions_schema_migrations(self, conn: Any) -> None:
+        """Add tenant_id to workflow_versions when upgrading existing databases."""
+        cursor = await conn.execute(
+            """
+            SELECT column_name
+              FROM information_schema.columns
+             WHERE table_name = 'workflow_versions'
+            """
+        )
+        rows = await cursor.fetchall()
+        existing_columns = {row["column_name"] for row in rows}
+        if "tenant_id" not in existing_columns:
+            await conn.execute(
+                "ALTER TABLE workflow_versions ADD COLUMN tenant_id TEXT"
+            )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_versions_tenant "
+            "ON workflow_versions(tenant_id)"
         )
 
     async def _hydrate_trigger_state(self) -> None:

@@ -104,6 +104,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
             workflow = Workflow(
                 name=name,
                 handle=normalized_handle,
+                tenant_id=tenant_id,
                 slug=slug or "",
                 description=description,
                 tags=list(tags or []),

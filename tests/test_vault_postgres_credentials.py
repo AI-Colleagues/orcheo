@@ -196,6 +196,7 @@ def test_postgres_vault_persist_metadata_new_credential() -> None:
     """Test persisting new credential metadata."""
     cipher = AesGcmCredentialCipher(key="test-key")
     workflow_id = uuid4()
+    tenant_id = "tenant-a"
 
     # Mock responses: check for duplicates (empty), then insert
     conn = FakeConnection(responses=[{"rows": []}, {}])
@@ -213,6 +214,7 @@ def test_postgres_vault_persist_metadata_new_credential() -> None:
         secret="test-secret",
         actor="test-actor",
         scope=CredentialScope.for_workflows(workflow_id),
+        tenant_id=tenant_id,
     )
 
     # Verify INSERT was called with correct params
@@ -221,8 +223,9 @@ def test_postgres_vault_persist_metadata_new_credential() -> None:
     params = insert_queries[0][1]
     assert params[0] == str(metadata.id)
     assert params[1] == metadata.scope.scope_hint()
-    assert params[2] == "Test Service"
-    assert params[3] == "test-provider"
+    assert params[2] == tenant_id
+    assert params[3] == "Test Service"
+    assert params[4] == "test-provider"
 
 
 def test_postgres_vault_persist_metadata_duplicate_name() -> None:
@@ -230,6 +233,7 @@ def test_postgres_vault_persist_metadata_duplicate_name() -> None:
     cipher = AesGcmCredentialCipher(key="test-key")
     workflow_id = uuid4()
     other_id = uuid4()
+    tenant_id = "tenant-a"
 
     # Mock response: duplicate found
     conn = FakeConnection(responses=[{"rows": [{"id": str(other_id)}]}])
@@ -247,6 +251,7 @@ def test_postgres_vault_persist_metadata_duplicate_name() -> None:
             secret="secret",
             actor="actor",
             scope=CredentialScope.for_workflows(workflow_id),
+            tenant_id=tenant_id,
         )
 
 
@@ -270,6 +275,7 @@ def test_postgres_vault_persist_metadata_update_existing() -> None:
         secret="secret",
         actor="actor",
         scope=CredentialScope.for_workflows(workflow_id),
+        tenant_id="tenant-a",
     )
 
     # Now update - simulate finding same ID in duplicate check
@@ -416,6 +422,45 @@ def test_postgres_vault_iter_metadata() -> None:
     assert len(results) == 2
     assert results[0].name == "Cred1"
     assert results[1].name == "Cred2"
+
+
+def test_postgres_vault_iter_metadata_filters_by_tenant() -> None:
+    """Test iterating over tenant-scoped credentials."""
+    cipher = AesGcmCredentialCipher(key="test-key")
+    workflow_id = uuid4()
+
+    metadata = {
+        "id": str(uuid4()),
+        "name": "Cred1",
+        "provider": "provider",
+        "scopes": ["read"],
+        "created_at": datetime.now(tz=UTC).isoformat(),
+        "updated_at": datetime.now(tz=UTC).isoformat(),
+        "scope": {"workflow_ids": [str(workflow_id)], "workspace_ids": [], "roles": []},
+        "kind": "secret",
+        "encryption": cipher.encrypt("secret1").model_dump(),
+        "audit_log": [],
+    }
+
+    conn = FakeConnection(
+        responses=[
+            {
+                "rows": [
+                    {"payload": json.dumps(metadata)},
+                ]
+            }
+        ]
+    )
+    pool = FakePool(conn)
+
+    vault = PostgresCredentialVault(dsn="postgresql://test", cipher=cipher)
+    vault._pool = pool
+    vault._initialized = True
+
+    results = list(vault._iter_metadata(tenant_id="tenant-a"))
+    assert len(results) == 1
+    assert results[0].name == "Cred1"
+    assert "tenant_id IS NULL OR tenant_id = %s" in conn.queries[0][0]
 
 
 def test_postgres_vault_remove_credential_success() -> None:

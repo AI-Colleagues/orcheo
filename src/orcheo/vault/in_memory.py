@@ -50,8 +50,12 @@ class InMemoryCredentialVault(BaseCredentialVault):
             msg = "Credential was not found."
             raise CredentialNotFoundError(msg) from exc
 
-    def _iter_metadata(self) -> Iterable[CredentialMetadata]:
+    def _iter_metadata(
+        self, *, tenant_id: str | None = None
+    ) -> Iterable[CredentialMetadata]:
         for metadata in self._store.values():
+            if tenant_id is not None and metadata.tenant_id not in {None, tenant_id}:
+                continue
             yield metadata.model_copy(deep=True)
 
     def _remove_credential(self, credential_id: UUID) -> None:
@@ -71,8 +75,12 @@ class InMemoryCredentialVault(BaseCredentialVault):
             msg = "Credential template was not found."
             raise CredentialTemplateNotFoundError(msg) from exc
 
-    def _iter_templates(self) -> Iterable[CredentialTemplate]:
+    def _iter_templates(
+        self, *, tenant_id: str | None = None
+    ) -> Iterable[CredentialTemplate]:
         for template in self._templates.values():
+            if tenant_id is not None and template.tenant_id not in {None, tenant_id}:
+                continue
             yield template.model_copy(deep=True)
 
     def _remove_template(self, template_id: UUID) -> None:
@@ -92,8 +100,12 @@ class InMemoryCredentialVault(BaseCredentialVault):
             msg = "Governance alert was not found."
             raise GovernanceAlertNotFoundError(msg) from exc
 
-    def _iter_alerts(self) -> Iterable[SecretGovernanceAlert]:
+    def _iter_alerts(
+        self, *, tenant_id: str | None = None
+    ) -> Iterable[SecretGovernanceAlert]:
         for alert in self._alerts.values():
+            if tenant_id is not None and alert.tenant_id not in {None, tenant_id}:
+                continue
             yield alert.model_copy(deep=True)
 
     def _remove_alert(self, alert_id: UUID) -> None:

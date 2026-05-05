@@ -40,6 +40,7 @@ _CREATE_TEMPLATES_TABLE = """
 CREATE TABLE IF NOT EXISTS credential_templates (
     id TEXT PRIMARY KEY,
     scope_hint TEXT NOT NULL,
+    tenant_id TEXT,
     name TEXT NOT NULL,
     provider TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -53,10 +54,16 @@ CREATE INDEX IF NOT EXISTS idx_templates_scope
     ON credential_templates(scope_hint)
 """
 
+_CREATE_TEMPLATES_TENANT_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_templates_tenant
+    ON credential_templates(tenant_id)
+"""
+
 _CREATE_ALERTS_TABLE = """
 CREATE TABLE IF NOT EXISTS governance_alerts (
     id TEXT PRIMARY KEY,
     scope_hint TEXT NOT NULL,
+    tenant_id TEXT,
     acknowledged INTEGER NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -67,6 +74,11 @@ CREATE TABLE IF NOT EXISTS governance_alerts (
 _CREATE_ALERTS_INDEX = """
 CREATE INDEX IF NOT EXISTS idx_alerts_scope
     ON governance_alerts(scope_hint)
+"""
+
+_CREATE_ALERTS_TENANT_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_alerts_tenant
+    ON governance_alerts(tenant_id)
 """
 
 
@@ -88,9 +100,13 @@ class SQLiteConnectionMixin:
             conn.execute(_CREATE_CREDENTIALS_INDEX)
             conn.execute(_CREATE_TEMPLATES_TABLE)
             conn.execute(_CREATE_TEMPLATES_INDEX)
+            conn.execute(_CREATE_TEMPLATES_TENANT_INDEX)
             conn.execute(_CREATE_ALERTS_TABLE)
             conn.execute(_CREATE_ALERTS_INDEX)
+            conn.execute(_CREATE_ALERTS_TENANT_INDEX)
             self._migrate_credentials_tenant_id(conn)
+            self._migrate_tenant_column(conn, "credential_templates")
+            self._migrate_tenant_column(conn, "governance_alerts")
             conn.execute(_CREATE_CREDENTIALS_TENANT_INDEX)
             conn.commit()
         finally:
@@ -102,6 +118,13 @@ class SQLiteConnectionMixin:
         existing = {row[1] for row in cursor.fetchall()}
         if "tenant_id" not in existing:
             conn.execute(_CREDENTIAL_TENANT_COLUMN_MIGRATION)
+
+    @staticmethod
+    def _migrate_tenant_column(conn: sqlite3.Connection, table: str) -> None:
+        cursor = conn.execute(f"PRAGMA table_info({table})")
+        existing = {row[1] for row in cursor.fetchall()}
+        if "tenant_id" not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN tenant_id TEXT")
 
     def _create_connection(self) -> sqlite3.Connection:
         return sqlite3.connect(

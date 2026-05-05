@@ -197,9 +197,10 @@ class CredentialOperationsMixin:
     ) -> list[CredentialMetadata]:
         """Return credential metadata permitted for the workflow context."""
         access_context = context or CredentialAccessContext()
+        tenant_filter = tenant_id if tenant_id is not None else access_context.tenant_id
         return [
             item.model_copy(deep=True)
-            for item in self._iter_metadata()
+            for item in self._iter_metadata(tenant_id=tenant_filter)
             if item.scope.allows(access_context)
             and (
                 tenant_id is None
@@ -214,7 +215,7 @@ class CredentialOperationsMixin:
         """Return all credential metadata without applying scope filtering."""
         return [
             item.model_copy(deep=True)
-            for item in self._iter_metadata()
+            for item in self._iter_metadata(tenant_id=tenant_id)
             if (
                 tenant_id is None
                 or item.tenant_id is None
@@ -227,9 +228,10 @@ class CredentialOperationsMixin:
     ) -> list[MutableMapping[str, object]]:
         """Return masked representations suitable for logging."""
         access_context = context or CredentialAccessContext()
+        tenant_filter = access_context.tenant_id
         return [
             item.redact()
-            for item in self._iter_metadata()
+            for item in self._iter_metadata(tenant_id=tenant_filter)
             if item.scope.allows(access_context)
         ]
 
@@ -255,6 +257,12 @@ class CredentialOperationsMixin:
     ) -> CredentialMetadata:
         metadata = self._load_metadata(credential_id)
         access_context = context or CredentialAccessContext()
+        if access_context.tenant_id is not None and metadata.tenant_id not in {
+            None,
+            access_context.tenant_id,
+        }:
+            msg = "Credential cannot be accessed with the provided context."
+            raise WorkflowScopeError(msg)
         if not metadata.scope.allows(access_context):
             msg = "Credential cannot be accessed with the provided context."
             raise WorkflowScopeError(msg)
@@ -268,7 +276,9 @@ class CredentialOperationsMixin:
         """Load credential metadata from storage."""
         raise NotImplementedError  # pragma: no cover
 
-    def _iter_metadata(self) -> Iterable[CredentialMetadata]:
+    def _iter_metadata(
+        self, *, tenant_id: str | None = None
+    ) -> Iterable[CredentialMetadata]:
         """Iterate over stored credential metadata."""
         raise NotImplementedError  # pragma: no cover
 
