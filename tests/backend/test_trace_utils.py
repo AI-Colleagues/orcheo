@@ -22,7 +22,7 @@ def test_build_trace_response_emits_span_metadata() -> None:
         workflow_id="wf-1",
         execution_id="exec-1",
         status="completed",
-        tenant_id="tenant-1",
+        workspace_id="workspace-1",
         runnable_config={"configurable": {"thread_id": "thread-123"}},
     )
     record.trace_started_at = _timestamp()
@@ -68,7 +68,7 @@ def test_build_trace_response_emits_span_metadata() -> None:
     assert root_span.parent_span_id is None
     assert root_span.attributes["orcheo.execution.id"] == "exec-1"
     assert root_span.attributes["orcheo.execution.thread_id"] == "thread-123"
-    assert root_span.attributes["orcheo.tenant.id"] == "tenant-1"
+    assert root_span.attributes["orcheo.workspace.id"] == "workspace-1"
     assert len(node_span.events) == 4  # prompt, response, two message events
     assert node_span.attributes["orcheo.node.kind"] == "ai_model"
     assert node_span.attributes["orcheo.ai.kind"] == "llm"
@@ -76,7 +76,7 @@ def test_build_trace_response_emits_span_metadata() -> None:
     assert node_span.attributes["orcheo.ai.model.actual"] == "gpt-4o-mini-2024-07-18"
     assert node_span.attributes["orcheo.token.output"] == 7
     assert node_span.attributes["orcheo.artifact.ids"] == ["artifact-1"]
-    assert node_span.attributes["orcheo.tenant.id"] == "tenant-1"
+    assert node_span.attributes["orcheo.workspace.id"] == "workspace-1"
     assert "orcheo.workflow.state.before" in node_span.attributes
     assert "orcheo.workflow.state.after" in node_span.attributes
     assert node_span.attributes["orcheo.workflow.state.before"]["inputs"] == {}

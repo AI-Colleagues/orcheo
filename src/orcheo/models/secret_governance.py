@@ -36,7 +36,7 @@ class SecretGovernanceAlertSeverity(str, Enum):
 class SecretGovernanceAlert(TimestampedAuditModel):
     """Persisted alert describing governance issues for secrets."""
 
-    tenant_id: str | None = None
+    workspace_id: str | None = None
     scope: CredentialScope = Field(default_factory=CredentialScope.unrestricted)
     template_id: UUID | None = None
     credential_id: UUID | None = None
@@ -58,11 +58,11 @@ class SecretGovernanceAlert(TimestampedAuditModel):
         actor: str,
         template_id: UUID | None = None,
         credential_id: UUID | None = None,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> SecretGovernanceAlert:
         """Instantiate a new governance alert with an audit entry."""
         alert = cls(
-            tenant_id=tenant_id,
+            workspace_id=workspace_id,
             scope=scope,
             template_id=template_id,
             credential_id=credential_id,

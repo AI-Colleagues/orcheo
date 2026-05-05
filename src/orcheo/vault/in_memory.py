@@ -35,10 +35,14 @@ class InMemoryCredentialVault(BaseCredentialVault):
                 continue
             if stored.name.casefold() != normalized:
                 continue
-            # Name uniqueness is scoped per tenant (NULL = global scope).
-            same_tenant = stored.tenant_id is None and metadata.tenant_id is None
-            same_tenant = same_tenant or stored.tenant_id == metadata.tenant_id
-            if same_tenant:
+            # Name uniqueness is scoped per workspace (NULL = global scope).
+            same_workspace = (
+                stored.workspace_id is None and metadata.workspace_id is None
+            )
+            same_workspace = (
+                same_workspace or stored.workspace_id == metadata.workspace_id
+            )
+            if same_workspace:
                 msg = f"Credential name '{metadata.name}' is already in use."
                 raise DuplicateCredentialNameError(msg)
         self._store[metadata.id] = metadata.model_copy(deep=True)
@@ -51,10 +55,13 @@ class InMemoryCredentialVault(BaseCredentialVault):
             raise CredentialNotFoundError(msg) from exc
 
     def _iter_metadata(
-        self, *, tenant_id: str | None = None
+        self, *, workspace_id: str | None = None
     ) -> Iterable[CredentialMetadata]:
         for metadata in self._store.values():
-            if tenant_id is not None and metadata.tenant_id not in {None, tenant_id}:
+            if workspace_id is not None and metadata.workspace_id not in {
+                None,
+                workspace_id,
+            }:
                 continue
             yield metadata.model_copy(deep=True)
 
@@ -76,10 +83,13 @@ class InMemoryCredentialVault(BaseCredentialVault):
             raise CredentialTemplateNotFoundError(msg) from exc
 
     def _iter_templates(
-        self, *, tenant_id: str | None = None
+        self, *, workspace_id: str | None = None
     ) -> Iterable[CredentialTemplate]:
         for template in self._templates.values():
-            if tenant_id is not None and template.tenant_id not in {None, tenant_id}:
+            if workspace_id is not None and template.workspace_id not in {
+                None,
+                workspace_id,
+            }:
                 continue
             yield template.model_copy(deep=True)
 
@@ -101,10 +111,13 @@ class InMemoryCredentialVault(BaseCredentialVault):
             raise GovernanceAlertNotFoundError(msg) from exc
 
     def _iter_alerts(
-        self, *, tenant_id: str | None = None
+        self, *, workspace_id: str | None = None
     ) -> Iterable[SecretGovernanceAlert]:
         for alert in self._alerts.values():
-            if tenant_id is not None and alert.tenant_id not in {None, tenant_id}:
+            if workspace_id is not None and alert.workspace_id not in {
+                None,
+                workspace_id,
+            }:
                 continue
             yield alert.model_copy(deep=True)
 

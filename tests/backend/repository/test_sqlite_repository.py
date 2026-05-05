@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import json
 import pathlib
+import sqlite3
 from datetime import UTC, datetime
 from uuid import uuid4
 import aiosqlite
@@ -185,6 +186,43 @@ async def test_sqlite_ensure_workflow_schema_migrations_backfills_columns(
     assert row is not None
     assert row["handle"] == "legacy-flow"
     assert row["is_archived"] == 1
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_ensure_initialized_adds_versions_workspace_index(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Legacy SQLite databases should migrate workflow_versions on startup."""
+
+    db_path = tmp_path / "legacy-versions.sqlite"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE workflow_versions (
+                id TEXT PRIMARY KEY,
+                workflow_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(workflow_id, version)
+            )
+            """
+        )
+        conn.commit()
+
+    repository = SqliteWorkflowRepository(db_path)
+    await repository._ensure_initialized()  # noqa: SLF001
+
+    async with aiosqlite.connect(str(db_path)) as conn:
+        conn.row_factory = aiosqlite.Row
+        cursor = await conn.execute("PRAGMA table_info(workflow_versions)")
+        columns = {row["name"] for row in await cursor.fetchall()}
+        cursor = await conn.execute("PRAGMA index_list(workflow_versions)")
+        indexes = {row["name"] for row in await cursor.fetchall()}
+
+    assert "workspace_id" in columns
+    assert "idx_versions_workspace_id" in indexes
 
 
 @pytest.mark.asyncio()

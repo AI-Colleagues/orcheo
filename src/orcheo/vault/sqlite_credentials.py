@@ -24,15 +24,15 @@ class SQLiteCredentialStoreMixin:
     ) -> None:
         payload = metadata.model_dump_json()
         with self._locked_connection() as conn:
-            # Name uniqueness is scoped per tenant (NULL tenant = global scope).
+            # Name uniqueness is scoped per workspace (NULL workspace = global scope).
             cursor = conn.execute(
                 """
                 SELECT id
                   FROM credentials
                  WHERE lower(name) = lower(?)
-                   AND (tenant_id IS ? OR (tenant_id IS NULL AND ? IS NULL))
+                   AND (workspace_id IS ? OR (workspace_id IS NULL AND ? IS NULL))
                 """,
-                (metadata.name, metadata.tenant_id, metadata.tenant_id),
+                (metadata.name, metadata.workspace_id, metadata.workspace_id),
             )
             rows = [row[0] for row in cursor.fetchall()]
             duplicates = [row_id for row_id in rows if row_id != str(metadata.id)]
@@ -44,7 +44,7 @@ class SQLiteCredentialStoreMixin:
                 INSERT OR REPLACE INTO credentials (
                     id,
                     workflow_id,
-                    tenant_id,
+                    workspace_id,
                     name,
                     provider,
                     created_at,
@@ -55,7 +55,7 @@ class SQLiteCredentialStoreMixin:
                 (
                     str(metadata.id),
                     metadata.scope.scope_hint(),
-                    metadata.tenant_id,
+                    metadata.workspace_id,
                     metadata.name,
                     metadata.provider,
                     metadata.created_at.isoformat(),
@@ -82,10 +82,10 @@ class SQLiteCredentialStoreMixin:
     def _iter_metadata(
         self: _SQLiteConnectionSupport,
         *,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> Iterable[CredentialMetadata]:
         with self._locked_connection() as conn:
-            if tenant_id is None:
+            if workspace_id is None:
                 cursor = conn.execute(
                     """
                     SELECT payload
@@ -98,10 +98,10 @@ class SQLiteCredentialStoreMixin:
                     """
                     SELECT payload
                       FROM credentials
-                     WHERE tenant_id IS NULL OR tenant_id = ?
+                     WHERE workspace_id IS NULL OR workspace_id = ?
                   ORDER BY created_at ASC
                     """,
-                    (tenant_id,),
+                    (workspace_id,),
                 )
             rows = cursor.fetchall()
         for row in rows:

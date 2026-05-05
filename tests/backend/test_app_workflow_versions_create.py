@@ -22,7 +22,7 @@ from orcheo_backend.app.schemas.workflows import (
 )
 
 
-_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
 
 
 @pytest.mark.asyncio()
@@ -35,7 +35,7 @@ async def test_ingest_workflow_version_success() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -89,7 +89,7 @@ async def test_ingest_workflow_version_script_error() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -137,7 +137,7 @@ async def test_ingest_workflow_version_rejects_missing_required_plugins(
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -188,7 +188,7 @@ async def test_ingest_workflow_version_not_found() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -235,7 +235,7 @@ async def test_update_workflow_version_runnable_config_success() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -295,7 +295,7 @@ async def test_update_workflow_version_runnable_config_missing_version() -> None
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -335,7 +335,7 @@ async def test_update_workflow_version_runnable_config_missing_workflow() -> Non
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id

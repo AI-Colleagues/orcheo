@@ -23,7 +23,7 @@ class WorkflowRunMixin(InMemoryRepositoryState):
         input_payload: dict[str, Any],
         actor: str | None = None,
         runnable_config: dict[str, Any] | None = None,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> WorkflowRun:
         """Create a workflow run tied to a version."""
         async with self._lock:
@@ -34,7 +34,7 @@ class WorkflowRunMixin(InMemoryRepositoryState):
             await self._ensure_workflow_health(
                 workflow_id,
                 actor=actor or triggered_by,
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
             )
 
             run = self._create_run_locked(
@@ -44,7 +44,7 @@ class WorkflowRunMixin(InMemoryRepositoryState):
                 input_payload=input_payload,
                 actor=actor,
                 runnable_config=runnable_config,
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
             )
             return run.model_copy(deep=True)
 
@@ -53,7 +53,7 @@ class WorkflowRunMixin(InMemoryRepositoryState):
         workflow_id: UUID,
         *,
         limit: int | None = None,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> list[WorkflowRun]:
         """Return runs associated with the provided workflow (most recent first)."""
         async with self._lock:
@@ -69,9 +69,9 @@ class WorkflowRunMixin(InMemoryRepositoryState):
                 (
                     self._runs[run_id].model_copy(deep=True)
                     for run_id in run_ids
-                    if tenant_id is None
-                    or self._run_tenants.get(run_id) is None
-                    or self._run_tenants.get(run_id) == tenant_id
+                    if workspace_id is None
+                    or self._run_workspaces.get(run_id) is None
+                    or self._run_workspaces.get(run_id) == workspace_id
                 ),
                 key=lambda r: r.created_at,
                 reverse=True,
@@ -84,18 +84,18 @@ class WorkflowRunMixin(InMemoryRepositoryState):
         self,
         run_id: UUID,
         *,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> WorkflowRun:
         """Fetch a run by its identifier."""
         async with self._lock:
             run = self._runs.get(run_id)
             if run is None:
                 raise WorkflowRunNotFoundError(str(run_id))
-            stored_tid = self._run_tenants.get(run_id)
+            stored_workspace_id = self._run_workspaces.get(run_id)
             if (
-                tenant_id is not None
-                and stored_tid is not None
-                and stored_tid != tenant_id
+                workspace_id is not None
+                and stored_workspace_id is not None
+                and stored_workspace_id != workspace_id
             ):
                 raise WorkflowRunNotFoundError(str(run_id))
             return run.model_copy(deep=True)

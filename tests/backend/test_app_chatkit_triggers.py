@@ -58,7 +58,7 @@ async def test_trigger_chatkit_workflow_creates_run() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -111,7 +111,7 @@ async def test_trigger_chatkit_workflow_missing_workflow() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -144,7 +144,7 @@ async def test_trigger_chatkit_workflow_credential_health_error() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -200,7 +200,7 @@ async def test_trigger_chatkit_workflow_handles_missing_run_workflow() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -248,7 +248,7 @@ async def test_trigger_chatkit_workflow_handles_missing_run_version() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -292,7 +292,7 @@ async def test_trigger_chatkit_workflow_requires_authentication(
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id

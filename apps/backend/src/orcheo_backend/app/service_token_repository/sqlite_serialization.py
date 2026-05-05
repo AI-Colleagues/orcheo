@@ -22,7 +22,7 @@ def serialize_datetime(value: datetime | None) -> str | None:
 def row_to_record(row: sqlite3.Row) -> ServiceTokenRecord:
     """Convert a sqlite3.Row into a ServiceTokenRecord."""
     keys = row.keys() if hasattr(row, "keys") else ()
-    tenant_id = row["tenant_id"] if "tenant_id" in keys else None
+    workspace_id = row["workspace_id"] if "workspace_id" in keys else None
     return ServiceTokenRecord(
         identifier=row["identifier"],
         secret_hash=row["secret_hash"],
@@ -36,7 +36,7 @@ def row_to_record(row: sqlite3.Row) -> ServiceTokenRecord:
         rotated_to=row["rotated_to"],
         last_used_at=_parse_timestamp(row["last_used_at"]),
         use_count=int(row["use_count"]) if row["use_count"] is not None else 0,
-        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
 
 

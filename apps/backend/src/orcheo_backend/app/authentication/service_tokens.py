@@ -27,7 +27,7 @@ class ServiceTokenRecord:
     rotated_to: str | None = None
     last_used_at: datetime | None = None
     use_count: int = 0
-    tenant_id: str | None = None
+    workspace_id: str | None = None
 
     def matches(self, token: str) -> bool:
         """Return True when the provided token matches the stored hash."""
@@ -128,7 +128,7 @@ class ServiceTokenManager:
         scopes: Iterable[str] = (),
         workspace_ids: Iterable[str] = (),
         expires_in: timedelta | int | None = None,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> tuple[str, ServiceTokenRecord]:
         """Mint a new service token and return the raw secret and record."""
         secret = secrets.token_urlsafe(32)
@@ -148,7 +148,7 @@ class ServiceTokenManager:
             workspace_ids=frozenset(workspace_ids),
             issued_at=now,
             expires_at=expires_at,
-            tenant_id=tenant_id,
+            workspace_id=workspace_id,
         )
         await self._repository.create(record)
         await self._repository.record_audit_event(record.identifier, "created")
@@ -174,7 +174,7 @@ class ServiceTokenManager:
             scopes=record.scopes,
             workspace_ids=record.workspace_ids,
             expires_in=expires_in,
-            tenant_id=record.tenant_id,
+            workspace_id=record.workspace_id,
         )
         rotation_expires_at = (
             now + timedelta(seconds=overlap) if overlap else record.rotation_expires_at

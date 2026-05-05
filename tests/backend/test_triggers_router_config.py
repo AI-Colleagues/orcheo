@@ -20,7 +20,7 @@ class _WebhookConfigMissingRepo:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del workflow_ref, include_archived
         return self._workflow_id
@@ -47,7 +47,7 @@ class _CronConfigMissingRepo:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del workflow_ref, include_archived
         return self._workflow_id
@@ -67,7 +67,7 @@ class _CronConfigMissingRepo:
         raise WorkflowNotFoundError("missing")
 
 
-_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
 
 
 @pytest.mark.asyncio()

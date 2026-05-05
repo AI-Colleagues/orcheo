@@ -48,10 +48,10 @@ CREATE TABLE IF NOT EXISTS service_tokens (
     revocation_reason TEXT,
     allowed_ip_ranges JSONB,
     rate_limit_override INTEGER,
-    tenant_id TEXT
+    workspace_id TEXT
 );
 
-ALTER TABLE service_tokens ADD COLUMN IF NOT EXISTS tenant_id TEXT;
+ALTER TABLE service_tokens ADD COLUMN IF NOT EXISTS workspace_id TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_service_tokens_hash
     ON service_tokens(secret_hash);
@@ -59,12 +59,12 @@ CREATE INDEX IF NOT EXISTS idx_service_tokens_expires
     ON service_tokens(expires_at);
 CREATE INDEX IF NOT EXISTS idx_service_tokens_active
     ON service_tokens(revoked_at) WHERE revoked_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_service_tokens_tenant
-    ON service_tokens(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_service_tokens_tenant_identifier
-    ON service_tokens(tenant_id, identifier);
-CREATE INDEX IF NOT EXISTS idx_service_tokens_tenant_hash
-    ON service_tokens(tenant_id, secret_hash);
+CREATE INDEX IF NOT EXISTS idx_service_tokens_workspace_id
+    ON service_tokens(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_service_tokens_workspace_identifier
+    ON service_tokens(workspace_id, identifier);
+CREATE INDEX IF NOT EXISTS idx_service_tokens_workspace_hash
+    ON service_tokens(workspace_id, secret_hash);
 
 CREATE TABLE IF NOT EXISTS service_token_audit_log (
     id SERIAL PRIMARY KEY,
@@ -75,17 +75,17 @@ CREATE TABLE IF NOT EXISTS service_token_audit_log (
     user_agent TEXT,
     timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
     details JSONB,
-    tenant_id TEXT
+    workspace_id TEXT
 );
 
-ALTER TABLE service_token_audit_log ADD COLUMN IF NOT EXISTS tenant_id TEXT;
+ALTER TABLE service_token_audit_log ADD COLUMN IF NOT EXISTS workspace_id TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_token
     ON service_token_audit_log(token_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp
     ON service_token_audit_log(timestamp);
-CREATE INDEX IF NOT EXISTS idx_audit_log_tenant
-    ON service_token_audit_log(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_workspace_id
+    ON service_token_audit_log(workspace_id);
 """
 
 
@@ -119,7 +119,7 @@ def _row_to_record(row: dict[str, Any]) -> ServiceTokenRecord:
         rotated_to=row.get("rotated_to"),
         revoked_at=parse_ts(row.get("revoked_at")),
         revocation_reason=row.get("revocation_reason"),
-        tenant_id=row.get("tenant_id"),
+        workspace_id=row.get("workspace_id"),
     )
 
 
@@ -234,22 +234,22 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
             rows = await cursor.fetchall()
             return [_row_to_record(row) for row in rows]
 
-    async def list_for_tenant(
-        self, tenant_id: str, *, now: datetime | None = None
+    async def list_for_workspace(
+        self, workspace_id: str, *, now: datetime | None = None
     ) -> list[ServiceTokenRecord]:
-        """Return active service token records owned by *tenant_id*."""
+        """Return active service token records owned by *workspace_id*."""
         await self._ensure_initialized()
         reference = now or datetime.now(tz=UTC)
         async with self._connection() as conn:
             cursor = await conn.execute(
                 """
                 SELECT * FROM service_tokens
-                WHERE tenant_id = %s
+                WHERE workspace_id = %s
                   AND revoked_at IS NULL
                   AND (expires_at IS NULL OR expires_at > %s)
                 ORDER BY created_at DESC
                 """,
-                (tenant_id, reference),
+                (workspace_id, reference),
             )
             rows = await cursor.fetchall()
             return [_row_to_record(row) for row in rows]
@@ -284,7 +284,7 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
                     identifier, secret_hash, scopes, workspace_ids,
                     created_at, created_by, issued_at, expires_at,
                     rotation_expires_at, rotated_to, revoked_at,
-                    revoked_by, revocation_reason, tenant_id
+                    revoked_by, revocation_reason, workspace_id
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
@@ -301,7 +301,7 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
                     serialize_datetime(record.revoked_at),
                     None,
                     record.revocation_reason,
-                    record.tenant_id,
+                    record.workspace_id,
                 ),
             )
         return record
@@ -322,7 +322,7 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
                     rotated_to = %s,
                     revoked_at = %s,
                     revocation_reason = %s,
-                    tenant_id = %s
+                    workspace_id = %s
                 WHERE identifier = %s
                 """,
                 (
@@ -335,7 +335,7 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
                     record.rotated_to,
                     serialize_datetime(record.revoked_at),
                     record.revocation_reason,
-                    record.tenant_id,
+                    record.workspace_id,
                     record.identifier,
                 ),
             )
@@ -361,11 +361,11 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
         now = datetime.now(tz=UTC)
         async with self._connection() as conn:
             cursor = await conn.execute(
-                "SELECT tenant_id FROM service_tokens WHERE identifier = %s",
+                "SELECT workspace_id FROM service_tokens WHERE identifier = %s",
                 (token_id,),
             )
             row = await cursor.fetchone()
-            tenant_id = row.get("tenant_id") if row is not None else None
+            workspace_id = row.get("workspace_id") if row is not None else None
             await conn.execute(
                 """
                 UPDATE service_tokens
@@ -390,7 +390,7 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
                         user_agent,
                         timestamp,
                         details,
-                        tenant_id
+                        workspace_id
                     )
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
@@ -401,7 +401,7 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
                     user_agent,
                     now,
                     json.dumps(details) if details else None,
-                    tenant_id,
+                    workspace_id,
                 ),
             )
 
@@ -437,15 +437,15 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
         now = datetime.now(tz=UTC)
         async with self._connection() as conn:
             cursor = await conn.execute(
-                "SELECT tenant_id FROM service_tokens WHERE identifier = %s",
+                "SELECT workspace_id FROM service_tokens WHERE identifier = %s",
                 (token_id,),
             )
             row = await cursor.fetchone()
-            tenant_id = row.get("tenant_id") if row is not None else None
+            workspace_id = row.get("workspace_id") if row is not None else None
             await conn.execute(
                 """
                 INSERT INTO service_token_audit_log
-                    (token_id, action, actor, ip_address, timestamp, details, tenant_id)
+                    (token_id, action, actor, ip_address, timestamp, details, workspace_id)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
@@ -455,7 +455,7 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
                     ip,
                     now,
                     json.dumps(details) if details else None,
-                    tenant_id,
+                    workspace_id,
                 ),
             )
 

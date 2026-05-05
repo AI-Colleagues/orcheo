@@ -15,7 +15,7 @@ from orcheo_backend.app.routers.agentensor import (
 )
 
 
-_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
 
 
 class DummyStore:
@@ -23,7 +23,7 @@ class DummyStore:
         self.checkpoint = checkpoint
 
     async def list_checkpoints(
-        self, workflow_id: str, *, limit: int, tenant_id: str | None = None
+        self, workflow_id: str, *, limit: int, workspace_id: str | None = None
     ) -> list[AgentensorCheckpoint]:
         return [self.checkpoint]
 
@@ -51,7 +51,7 @@ class _Repository:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
@@ -67,7 +67,7 @@ async def test_list_agentensor_checkpoints_returns_payloads() -> None:
         workflow_ref=str(workflow_uuid),
         repository=_Repository(),
         store=store,  # type: ignore[arg-type]
-        tenant=_MOCK_TENANT,
+        workspace=_MOCK_TENANT,
         limit=1,
     )
 

@@ -30,13 +30,13 @@ class _Repository:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
 
 
-_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
 
 
 def test_create_credential_template_success() -> None:
@@ -55,9 +55,9 @@ def test_create_credential_template_success() -> None:
             scope,
             kind,
             issuance_policy,
-            tenant_id=None,
+            workspace_id=None,
         ):
-            assert tenant_id == str(_MOCK_TENANT.tenant_id)
+            assert workspace_id == str(_MOCK_TENANT.workspace_id)
             return CredentialTemplate(
                 id=template_id,
                 name=name,

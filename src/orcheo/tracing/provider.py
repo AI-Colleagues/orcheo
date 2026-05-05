@@ -44,9 +44,9 @@ def configure_tracing(*, force: bool = False) -> None:
         resource_attributes = {
             "service.name": settings.get("TRACING_SERVICE_NAME", "orcheo-backend"),
         }
-        tenant_id = os.environ.get("ORCHEO_TENANT")
-        if tenant_id and tenant_id.strip():
-            resource_attributes["orcheo.tenant"] = tenant_id.strip()
+        workspace_id = os.environ.get("ORCHEO_WORKSPACE")
+        if workspace_id and workspace_id.strip():
+            resource_attributes["orcheo.workspace"] = workspace_id.strip()
         resource = Resource.create(resource_attributes)
 
         provider = TracerProvider(

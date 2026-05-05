@@ -38,9 +38,9 @@ from orcheo_sdk.cli.setup import (
     run_setup,
 )
 from orcheo_sdk.cli.state import CLIState
-from orcheo_sdk.cli.tenant import tenant_app
 from orcheo_sdk.cli.update_check import maybe_print_update_notice
 from orcheo_sdk.cli.workflow import workflow_app
+from orcheo_sdk.cli.workspace import workspace_app
 
 
 PACKAGE_NAME = "orcheo-sdk"
@@ -98,12 +98,12 @@ def _parse_auth_mode(value: str | None) -> str | None:
     return normalized
 
 
-def _extract_tenant_from_argv(argv: list[str]) -> str | None:
-    """Return the tenant slug passed on the command line, if present."""
+def _extract_workspace_from_argv(argv: list[str]) -> str | None:
+    """Return the workspace slug passed on the command line, if present."""
     for index, arg in enumerate(argv):
-        if arg == "--tenant" and index + 1 < len(argv):
+        if arg == "--workspace" and index + 1 < len(argv):
             return argv[index + 1].strip() or None
-        if arg.startswith("--tenant="):
+        if arg.startswith("--workspace="):
             return arg.split("=", 1)[1].strip() or None
     return None
 
@@ -119,7 +119,7 @@ app.add_typer(code_app, name="code")
 app.add_typer(config_app, name="config")
 app.add_typer(agent_tool_app, name="agent-tool")
 app.add_typer(service_token_app, name="token")
-app.add_typer(tenant_app, name="tenant")
+app.add_typer(workspace_app, name="workspace")
 app.add_typer(browser_aware_app, name="browser-aware")
 app.add_typer(context_app, name="context")
 install_app = typer.Typer(
@@ -165,11 +165,11 @@ def main(
         str | None,
         typer.Option("--service-token", help="Override the service token."),
     ] = None,
-    tenant: Annotated[
+    workspace: Annotated[
         str | None,
         typer.Option(
-            "--tenant",
-            help="Active tenant slug to send on API requests for this invocation.",
+            "--workspace",
+            help="Active workspace slug to send on API requests for this invocation.",
         ),
     ] = None,
     offline: Annotated[
@@ -200,12 +200,12 @@ def main(
     if _is_completion_mode():
         return  # pragma: no cover
 
-    if tenant is not None:
-        normalized_tenant = tenant.strip()
-        if normalized_tenant:
-            os.environ["ORCHEO_TENANT"] = normalized_tenant
+    if workspace is not None:
+        normalized_workspace = workspace.strip()
+        if normalized_workspace:
+            os.environ["ORCHEO_WORKSPACE"] = normalized_workspace
         else:
-            os.environ.pop("ORCHEO_TENANT", None)
+            os.environ.pop("ORCHEO_WORKSPACE", None)
 
     resolved_human = human or _env_bool("ORCHEO_HUMAN")
     console = Console() if resolved_human else Console(no_color=True, highlight=False)
@@ -762,11 +762,13 @@ def _print_cli_error_machine(exc: CLIError) -> None:
 def run() -> None:  # noqa: C901,PLR0912
     """Entry point used by console scripts."""
     human_mode = _env_bool("ORCHEO_HUMAN") or "--human" in sys.argv
-    tenant = _extract_tenant_from_argv(sys.argv[1:])
-    if tenant is not None:
-        os.environ["ORCHEO_TENANT"] = tenant
-    elif any(arg == "--tenant" or arg.startswith("--tenant=") for arg in sys.argv[1:]):
-        os.environ.pop("ORCHEO_TENANT", None)
+    workspace = _extract_workspace_from_argv(sys.argv[1:])
+    if workspace is not None:
+        os.environ["ORCHEO_WORKSPACE"] = workspace
+    elif any(
+        arg == "--workspace" or arg.startswith("--workspace=") for arg in sys.argv[1:]
+    ):
+        os.environ.pop("ORCHEO_WORKSPACE", None)
     original_rich_markup = getattr(app, "rich_markup_mode", None)
     if not human_mode and hasattr(app, "rich_markup_mode"):
         app.rich_markup_mode = None

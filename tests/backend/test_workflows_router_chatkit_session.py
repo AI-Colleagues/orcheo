@@ -30,14 +30,14 @@ class _WorkflowRepo:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         if UUID(str(workflow_ref)) != self._workflow.id:
             raise WorkflowNotFoundError(str(workflow_ref))
         return self._workflow.id
 
-    async def get_workflow(self, workflow_id: UUID, *, tenant_id=None) -> Workflow:
+    async def get_workflow(self, workflow_id: UUID, *, workspace_id=None) -> Workflow:
         if workflow_id != self._workflow.id:
             raise WorkflowNotFoundError(str(workflow_id))
         return self._workflow
@@ -49,12 +49,12 @@ class _MissingWorkflowRepo:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         raise WorkflowNotFoundError(str(workflow_ref))
 
-    async def get_workflow(self, workflow_id: UUID, *, tenant_id=None) -> Workflow:
+    async def get_workflow(self, workflow_id: UUID, *, workspace_id=None) -> Workflow:
         raise WorkflowNotFoundError(str(workflow_id))
 
 
@@ -64,16 +64,16 @@ class _ResolveThenMissingWorkflowRepo:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
 
-    async def get_workflow(self, workflow_id: UUID, *, tenant_id=None) -> Workflow:
+    async def get_workflow(self, workflow_id: UUID, *, workspace_id=None) -> Workflow:
         raise WorkflowNotFoundError(str(workflow_id))
 
 
-_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
 
 
 def _issuer() -> ChatKitSessionTokenIssuer:
@@ -147,14 +147,14 @@ class _ArchivedWorkflowRepo:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         if UUID(str(workflow_ref)) != self._workflow.id:
             raise WorkflowNotFoundError(str(workflow_ref))
         return self._workflow.id
 
-    async def get_workflow(self, workflow_id: UUID, *, tenant_id=None) -> Workflow:
+    async def get_workflow(self, workflow_id: UUID, *, workspace_id=None) -> Workflow:
         if workflow_id != self._workflow.id:
             raise WorkflowNotFoundError(str(workflow_id))
         return self._workflow

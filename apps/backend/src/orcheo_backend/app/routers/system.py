@@ -23,8 +23,8 @@ from orcheo_backend.app.schemas.system import (
     SystemInfoResponse,
     SystemPluginsResponse,
 )
-from orcheo_backend.app.tenancy import TenantContextDep
 from orcheo_backend.app.versioning import get_system_info_payload
+from orcheo_backend.app.workspace import WorkspaceContextDep
 from orcheo_backend.worker.celery_app import celery_app
 
 
@@ -46,21 +46,21 @@ def get_system_info() -> SystemInfoResponse:
 
 @router.get("/system/plugins", response_model=SystemPluginsResponse)
 async def get_system_plugins(
-    tenant: TenantContextDep,
+    workspace: WorkspaceContextDep,
     plugin_store: PluginInstallationStoreDep,
 ) -> SystemPluginsResponse:
-    """Return plugin availability with per-tenant overrides."""
+    """Return plugin availability with per-workspace overrides."""
     plugins = list_runtime_plugins()
-    tenant_states = {
+    workspace_states = {
         state.plugin_name: state.enabled
         for state in await plugin_store.list_plugin_states(
-            tenant_id=str(tenant.tenant_id)
+            workspace_id=str(workspace.workspace_id)
         )
     }
     for plugin in plugins:
         name = str(plugin["name"])
-        if name in tenant_states:
-            plugin["enabled"] = tenant_states[name]
+        if name in workspace_states:
+            plugin["enabled"] = workspace_states[name]
     return SystemPluginsResponse.model_validate({"plugins": plugins})
 
 

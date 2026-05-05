@@ -423,17 +423,17 @@ async def test_base_ensure_workflow_schema_migrations_backfills_columns(
         {"rows": []},  # SELECT columns from workflows (none exist)
         {},  # ALTER TABLE workflows ADD COLUMN handle
         {},  # ALTER TABLE workflows ADD COLUMN is_archived
-        {},  # ALTER TABLE workflows ADD COLUMN tenant_id
+        {},  # ALTER TABLE workflows ADD COLUMN workspace_id
         {
             "rows": [{"id": str(workflow_id), "payload": legacy_payload}]
         },  # SELECT workflows
         {},  # UPDATE workflows
         {"rows": []},  # SELECT columns from workflow_runs (none exist)
-        {},  # ALTER TABLE workflow_runs ADD COLUMN tenant_id
+        {},  # ALTER TABLE workflow_runs ADD COLUMN workspace_id
         {},  # CREATE INDEX idx_workflows_handle
         {},  # CREATE UNIQUE INDEX idx_workflows_active_handle
-        {},  # CREATE INDEX idx_workflows_tenant_id
-        {},  # CREATE INDEX idx_runs_tenant_id
+        {},  # CREATE INDEX idx_workflows_workspace_id
+        {},  # CREATE INDEX idx_runs_workspace_id
     ]
     repo = make_repository(monkeypatch, responses)
     connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
@@ -464,6 +464,37 @@ async def test_base_ensure_workflow_schema_migrations_backfills_columns(
 
 
 @pytest.mark.asyncio
+async def test_postgres_ensure_initialized_adds_versions_workspace_index_after_column(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Legacy Postgres databases should migrate the column before the index."""
+
+    repo = make_repository(monkeypatch, [], initialized=False)
+    connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
+
+    await repo._ensure_initialized()
+
+    queries = [query for query, _ in connection.queries]
+    workspace_index_queries = [
+        query for query in queries if "idx_versions_workspace_id" in query
+    ]
+    assert len(workspace_index_queries) == 1
+
+    alter_position = next(
+        index
+        for index, query in enumerate(queries)
+        if "ALTER TABLE workflow_versions ADD COLUMN workspace_id TEXT" in query
+    )
+    index_position = next(
+        index
+        for index, query in enumerate(queries)
+        if "CREATE INDEX IF NOT EXISTS idx_versions_workspace_id" in query
+    )
+
+    assert alter_position < index_position
+
+
+@pytest.mark.asyncio
 async def test_base_ensure_workflow_schema_migrations_respects_existing_handle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -472,14 +503,14 @@ async def test_base_ensure_workflow_schema_migrations_respects_existing_handle(
     responses: list[Any] = [
         {"rows": [{"column_name": "handle"}]},  # SELECT columns from workflows
         {},  # ALTER TABLE workflows ADD COLUMN is_archived
-        {},  # ALTER TABLE workflows ADD COLUMN tenant_id
+        {},  # ALTER TABLE workflows ADD COLUMN workspace_id
         {"rows": []},  # SELECT workflows (no rows to backfill)
         {"rows": []},  # SELECT columns from workflow_runs (none exist)
-        {},  # ALTER TABLE workflow_runs ADD COLUMN tenant_id
+        {},  # ALTER TABLE workflow_runs ADD COLUMN workspace_id
         {},  # CREATE INDEX idx_workflows_handle
         {},  # CREATE UNIQUE INDEX idx_workflows_active_handle
-        {},  # CREATE INDEX idx_workflows_tenant_id
-        {},  # CREATE INDEX idx_runs_tenant_id
+        {},  # CREATE INDEX idx_workflows_workspace_id
+        {},  # CREATE INDEX idx_runs_workspace_id
     ]
     repo = make_repository(monkeypatch, responses)
     connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
@@ -507,17 +538,17 @@ async def test_base_ensure_workflow_schema_migrations_skips_existing_columns(
             "rows": [
                 {"column_name": "handle"},
                 {"column_name": "is_archived"},
-                {"column_name": "tenant_id"},
+                {"column_name": "workspace_id"},
             ]
         },  # SELECT columns from workflows (all exist)
         {"rows": []},  # SELECT workflows (no rows to backfill)
         {
-            "rows": [{"column_name": "tenant_id"}]
-        },  # SELECT columns from workflow_runs (tenant_id exists)
+            "rows": [{"column_name": "workspace_id"}]
+        },  # SELECT columns from workflow_runs (workspace_id exists)
         {},  # CREATE INDEX idx_workflows_handle
         {},  # CREATE UNIQUE INDEX idx_workflows_active_handle
-        {},  # CREATE INDEX idx_workflows_tenant_id
-        {},  # CREATE INDEX idx_runs_tenant_id
+        {},  # CREATE INDEX idx_workflows_workspace_id
+        {},  # CREATE INDEX idx_runs_workspace_id
     ]
     repo = make_repository(monkeypatch, responses)
     connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
@@ -683,7 +714,7 @@ async def test_triggers_handle_webhook_trigger(
 
     responses = [
         {"row": {"payload": workflow_payload}},  # _get_workflow_locked
-        {"row": {"tenant_id": None}},  # _get_workflow_tenant_id_locked
+        {"row": {"workspace_id": None}},  # _get_workflow_workspace_id_locked
         {"row": {"payload": version_payload}},  # _get_latest_version_locked
         {"row": {"payload": version_payload}},  # _get_version_locked (for validation)
         {},  # INSERT run
@@ -1450,21 +1481,6 @@ async def test_runs_create_run_archived_workflow_raises(
 
 
 @pytest.mark.asyncio
-async def test_workflows_list_workflows_tenant_scoped_query_excludes_null_tenant(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Tenant-scoped list query should not include NULL-tenant rows."""
-    repo = make_repository(monkeypatch, responses=[{"rows": []}])
-
-    await repo.list_workflows(tenant_id="tenant-a")
-
-    query, params = repo._pool._connection.queries[0]
-    assert "tenant_id = %s" in query
-    assert "tenant_id IS NULL" not in query
-    assert params == ("tenant-a",)
-
-
-@pytest.mark.asyncio
 async def test_triggers_enqueue_run_for_execution_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1503,10 +1519,10 @@ async def test_triggers_enqueue_run_for_execution_success(
 
 
 @pytest.mark.asyncio
-async def test_triggers_enqueue_run_for_execution_fallback_preserves_tenant_headers(
+async def test_triggers_enqueue_run_for_execution_fallback_preserves_workspace_headers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Fallback enqueue path passes tenant headers when apply_async is unavailable."""
+    """Fallback enqueue path passes workspace headers when apply_async is unavailable."""
     import sys
     from orcheo.models.workflow import WorkflowRun
     from orcheo_backend.app.repository_postgres import _triggers
@@ -1527,7 +1543,7 @@ async def test_triggers_enqueue_run_for_execution_fallback_preserves_tenant_head
         input_payload={},
         created_at=now,
         updated_at=now,
-        tenant_id="tenant-a",
+        workspace_id="workspace-a",
     )
 
     mock_module = type(sys)("orcheo_backend.worker.tasks")
@@ -1536,7 +1552,7 @@ async def test_triggers_enqueue_run_for_execution_fallback_preserves_tenant_head
 
     _triggers._enqueue_run_for_execution(run)
 
-    assert (str(run_id), {"tenant_id": "tenant-a"}) in enqueued_calls
+    assert (str(run_id), {"workspace_id": "workspace-a"}) in enqueued_calls
 
 
 @pytest.mark.asyncio

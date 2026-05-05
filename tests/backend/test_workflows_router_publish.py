@@ -23,7 +23,7 @@ class _MissingPublishRepo:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         raise WorkflowNotFoundError(str(workflow_ref))
@@ -38,7 +38,7 @@ class _InvalidPublishRepo:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
@@ -53,7 +53,7 @@ class _InvalidRevokeRepo:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
@@ -68,7 +68,7 @@ class _MissingRevokeRepo:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         raise WorkflowNotFoundError(str(workflow_ref))
@@ -86,7 +86,7 @@ class _RevokeRepo:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del workflow_ref, include_archived
         return self.workflow.id
@@ -95,7 +95,7 @@ class _RevokeRepo:
         return self.workflow
 
 
-_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
 
 
 def test_publish_response_uses_message_helper() -> None:

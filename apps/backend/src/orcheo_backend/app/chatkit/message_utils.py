@@ -78,10 +78,10 @@ def build_initial_state(
     graph_config: Mapping[str, Any],
     inputs: Mapping[str, Any],
     runtime_config: Mapping[str, Any] | None = None,
-    tenant_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> Mapping[str, Any]:
     """Create the initial workflow state for the configured format."""
-    return build_runtime_state(graph_config, inputs, runtime_config, tenant_id)
+    return build_runtime_state(graph_config, inputs, runtime_config, workspace_id)
 
 
 def extract_reply_from_state(state: Mapping[str, Any]) -> str | None:

@@ -1,4 +1,4 @@
-"""Per-tenant plugin install/enable state stores."""
+"""Per-workspace plugin install/enable state stores."""
 
 from __future__ import annotations
 import asyncio
@@ -26,44 +26,44 @@ except Exception:  # pragma: no cover
 POSTGRES_PLUGIN_INSTALLATION_MIGRATION = """
 CREATE TABLE IF NOT EXISTS plugin_installations (
     plugin_name TEXT NOT NULL,
-    tenant_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    PRIMARY KEY (plugin_name, tenant_id)
+    PRIMARY KEY (plugin_name, workspace_id)
 );
-CREATE INDEX IF NOT EXISTS idx_plugin_installations_tenant
-    ON plugin_installations (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_plugin_installations_workspace_id
+    ON plugin_installations (workspace_id);
 """
 
 
 @dataclass(slots=True)
-class TenantPluginState:
-    """Per-tenant enable/disable override for an installed plugin."""
+class WorkspacePluginState:
+    """Per-workspace enable/disable override for an installed plugin."""
 
     plugin_name: str
-    tenant_id: str
+    workspace_id: str
     enabled: bool
 
 
 @runtime_checkable
 class PluginInstallationStore(Protocol):
-    """Protocol for per-tenant plugin installation state."""
+    """Protocol for per-workspace plugin installation state."""
 
     async def set_plugin_enabled(
-        self, plugin_name: str, *, tenant_id: str, enabled: bool
+        self, plugin_name: str, *, workspace_id: str, enabled: bool
     ) -> None:
-        """Persist whether one plugin is enabled for one tenant."""
+        """Persist whether one plugin is enabled for one workspace."""
         ...
 
     async def get_plugin_enabled(
-        self, plugin_name: str, *, tenant_id: str
+        self, plugin_name: str, *, workspace_id: str
     ) -> bool | None:
-        """Return the tenant-scoped enabled flag for one plugin."""
+        """Return the workspace-scoped enabled flag for one plugin."""
         ...
 
     async def list_plugin_states(
-        self, *, tenant_id: str | None = None
-    ) -> list[TenantPluginState]:
-        """Return tenant plugin states, optionally filtered by tenant."""
+        self, *, workspace_id: str | None = None
+    ) -> list[WorkspacePluginState]:
+        """Return workspace plugin states, optionally filtered by workspace."""
         ...
 
 
@@ -76,39 +76,39 @@ class InMemoryPluginInstallationStore:
         self._lock = asyncio.Lock()
 
     async def set_plugin_enabled(
-        self, plugin_name: str, *, tenant_id: str, enabled: bool
+        self, plugin_name: str, *, workspace_id: str, enabled: bool
     ) -> None:
-        """Store a tenant-scoped enabled flag for one plugin."""
+        """Store a workspace-scoped enabled flag for one plugin."""
         async with self._lock:
-            self._states[(plugin_name, tenant_id)] = enabled
+            self._states[(plugin_name, workspace_id)] = enabled
 
     async def get_plugin_enabled(
-        self, plugin_name: str, *, tenant_id: str
+        self, plugin_name: str, *, workspace_id: str
     ) -> bool | None:
-        """Return the tenant-scoped enabled flag for one plugin."""
+        """Return the workspace-scoped enabled flag for one plugin."""
         async with self._lock:
-            return self._states.get((plugin_name, tenant_id))
+            return self._states.get((plugin_name, workspace_id))
 
     async def list_plugin_states(
-        self, *, tenant_id: str | None = None
-    ) -> list[TenantPluginState]:
-        """List all tenant plugin states, optionally filtered."""
+        self, *, workspace_id: str | None = None
+    ) -> list[WorkspacePluginState]:
+        """List all workspace plugin states, optionally filtered."""
         async with self._lock:
             items = self._states.items()
-            if tenant_id is not None:
+            if workspace_id is not None:
                 return [
-                    TenantPluginState(plugin_name=k[0], tenant_id=k[1], enabled=v)
+                    WorkspacePluginState(plugin_name=k[0], workspace_id=k[1], enabled=v)
                     for k, v in items
-                    if k[1] == tenant_id
+                    if k[1] == workspace_id
                 ]
             return [
-                TenantPluginState(plugin_name=k[0], tenant_id=k[1], enabled=v)
+                WorkspacePluginState(plugin_name=k[0], workspace_id=k[1], enabled=v)
                 for k, v in items
             ]
 
 
 class SqlitePluginInstallationStore:
-    """SQLite-backed per-tenant plugin installation store."""
+    """SQLite-backed per-workspace plugin installation store."""
 
     def __init__(self, database_path: str | Path) -> None:
         """Initialise the SQLite-backed store for the configured database."""
@@ -127,32 +127,32 @@ class SqlitePluginInstallationStore:
             self._initialized = True
 
     async def set_plugin_enabled(
-        self, plugin_name: str, *, tenant_id: str, enabled: bool
+        self, plugin_name: str, *, workspace_id: str, enabled: bool
     ) -> None:
-        """Store a tenant-scoped enabled flag in SQLite."""
+        """Store a workspace-scoped enabled flag in SQLite."""
         await self._ensure_initialized()
         async with self._lock:
             async with connect_sqlite(self._database_path) as conn:
                 await conn.execute(
                     "INSERT INTO plugin_installations "
-                    "(plugin_name, tenant_id, enabled) "
+                    "(plugin_name, workspace_id, enabled) "
                     "VALUES (?, ?, ?) "
-                    "ON CONFLICT(plugin_name, tenant_id) "
+                    "ON CONFLICT(plugin_name, workspace_id) "
                     "DO UPDATE SET enabled = excluded.enabled",
-                    (plugin_name, tenant_id, 1 if enabled else 0),
+                    (plugin_name, workspace_id, 1 if enabled else 0),
                 )
                 await conn.commit()
 
     async def get_plugin_enabled(
-        self, plugin_name: str, *, tenant_id: str
+        self, plugin_name: str, *, workspace_id: str
     ) -> bool | None:
         """Return the SQLite-stored enabled flag for one plugin."""
         await self._ensure_initialized()
         async with connect_sqlite(self._database_path) as conn:
             async with conn.execute(
                 "SELECT enabled FROM plugin_installations "
-                "WHERE plugin_name = ? AND tenant_id = ?",
-                (plugin_name, tenant_id),
+                "WHERE plugin_name = ? AND workspace_id = ?",
+                (plugin_name, workspace_id),
             ) as cursor:
                 row = await cursor.fetchone()
                 if row is None:
@@ -160,26 +160,26 @@ class SqlitePluginInstallationStore:
                 return bool(row["enabled"])
 
     async def list_plugin_states(
-        self, *, tenant_id: str | None = None
-    ) -> list[TenantPluginState]:
-        """List all SQLite tenant plugin states, optionally filtered."""
+        self, *, workspace_id: str | None = None
+    ) -> list[WorkspacePluginState]:
+        """List all SQLite workspace plugin states, optionally filtered."""
         await self._ensure_initialized()
-        if tenant_id is not None:
+        if workspace_id is not None:
             sql = (
-                "SELECT plugin_name, tenant_id, enabled "
-                "FROM plugin_installations WHERE tenant_id = ?"
+                "SELECT plugin_name, workspace_id, enabled "
+                "FROM plugin_installations WHERE workspace_id = ?"
             )
-            params: tuple[str, ...] = (tenant_id,)
+            params: tuple[str, ...] = (workspace_id,)
         else:
-            sql = "SELECT plugin_name, tenant_id, enabled FROM plugin_installations"
+            sql = "SELECT plugin_name, workspace_id, enabled FROM plugin_installations"
             params = ()
         async with connect_sqlite(self._database_path) as conn:
             async with conn.execute(sql, params) as cursor:
                 rows = await cursor.fetchall()
         return [
-            TenantPluginState(
+            WorkspacePluginState(
                 plugin_name=str(row["plugin_name"]),
-                tenant_id=str(row["tenant_id"]),
+                workspace_id=str(row["workspace_id"]),
                 enabled=bool(row["enabled"]),
             )
             for row in rows
@@ -187,7 +187,7 @@ class SqlitePluginInstallationStore:
 
 
 class PostgresPluginInstallationStore:
-    """PostgreSQL-backed per-tenant plugin installation store."""
+    """PostgreSQL-backed per-workspace plugin installation store."""
 
     def __init__(
         self,
@@ -253,24 +253,24 @@ class PostgresPluginInstallationStore:
             self._initialized = True
 
     async def set_plugin_enabled(
-        self, plugin_name: str, *, tenant_id: str, enabled: bool
+        self, plugin_name: str, *, workspace_id: str, enabled: bool
     ) -> None:
-        """Store a tenant-scoped enabled flag in PostgreSQL."""
+        """Store a workspace-scoped enabled flag in PostgreSQL."""
         await self._ensure_initialized()
         pool = await self._get_pool()
         async with pool.connection() as conn:
             await conn.execute(
                 "INSERT INTO plugin_installations "
-                "(plugin_name, tenant_id, enabled) "
+                "(plugin_name, workspace_id, enabled) "
                 "VALUES (%s, %s, %s) "
-                "ON CONFLICT(plugin_name, tenant_id) "
+                "ON CONFLICT(plugin_name, workspace_id) "
                 "DO UPDATE SET enabled = EXCLUDED.enabled",
-                (plugin_name, tenant_id, enabled),
+                (plugin_name, workspace_id, enabled),
             )
             await conn.commit()
 
     async def get_plugin_enabled(
-        self, plugin_name: str, *, tenant_id: str
+        self, plugin_name: str, *, workspace_id: str
     ) -> bool | None:
         """Return the PostgreSQL-stored enabled flag for one plugin."""
         await self._ensure_initialized()
@@ -279,8 +279,8 @@ class PostgresPluginInstallationStore:
             async with conn.cursor() as cursor:
                 await cursor.execute(
                     "SELECT enabled FROM plugin_installations "
-                    "WHERE plugin_name = %s AND tenant_id = %s",
-                    (plugin_name, tenant_id),
+                    "WHERE plugin_name = %s AND workspace_id = %s",
+                    (plugin_name, workspace_id),
                 )
                 row = await cursor.fetchone()
                 if row is None:
@@ -288,18 +288,18 @@ class PostgresPluginInstallationStore:
                 return bool(row["enabled"])
 
     async def list_plugin_states(
-        self, *, tenant_id: str | None = None
-    ) -> list[TenantPluginState]:
-        """List all PostgreSQL tenant plugin states, optionally filtered."""
+        self, *, workspace_id: str | None = None
+    ) -> list[WorkspacePluginState]:
+        """List all PostgreSQL workspace plugin states, optionally filtered."""
         await self._ensure_initialized()
-        if tenant_id is not None:
+        if workspace_id is not None:
             sql = (
-                "SELECT plugin_name, tenant_id, enabled "
-                "FROM plugin_installations WHERE tenant_id = %s"
+                "SELECT plugin_name, workspace_id, enabled "
+                "FROM plugin_installations WHERE workspace_id = %s"
             )
-            params: tuple[Any, ...] = (tenant_id,)
+            params: tuple[Any, ...] = (workspace_id,)
         else:
-            sql = "SELECT plugin_name, tenant_id, enabled FROM plugin_installations"
+            sql = "SELECT plugin_name, workspace_id, enabled FROM plugin_installations"
             params = ()
         pool = await self._get_pool()
         async with pool.connection() as conn:
@@ -307,9 +307,9 @@ class PostgresPluginInstallationStore:
                 await cursor.execute(sql, params)
                 rows = await cursor.fetchall()
         return [
-            TenantPluginState(
+            WorkspacePluginState(
                 plugin_name=str(row["plugin_name"]),
-                tenant_id=str(row["tenant_id"]),
+                workspace_id=str(row["workspace_id"]),
                 enabled=bool(row["enabled"]),
             )
             for row in rows
@@ -322,5 +322,5 @@ __all__ = [
     "PluginInstallationStore",
     "PostgresPluginInstallationStore",
     "SqlitePluginInstallationStore",
-    "TenantPluginState",
+    "WorkspacePluginState",
 ]

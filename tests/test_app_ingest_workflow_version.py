@@ -185,7 +185,7 @@ async def test_ingest_workflow_version_raises_not_found_error() -> None:
             workflow_ref: str,
             *,
             include_archived: bool = True,
-            tenant_id: str | None = None,
+            workspace_id: str | None = None,
         ) -> UUID:
             del include_archived
             return UUID(str(workflow_ref))
@@ -205,10 +205,10 @@ async def test_ingest_workflow_version_raises_not_found_error() -> None:
     repository = FailingRepository()
     workflow_id = uuid4()
 
-    _mock_tenant = SimpleNamespace(tenant_id=uuid4())
+    _mock_workspace = SimpleNamespace(workspace_id=uuid4())
     with pytest.raises(HTTPException) as exc_info:
         await ingest_workflow_version(
-            str(workflow_id), request, repository, _mock_tenant
+            str(workflow_id), request, repository, _mock_workspace
         )
 
     assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND

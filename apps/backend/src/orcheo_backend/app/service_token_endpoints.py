@@ -3,7 +3,7 @@
 from __future__ import annotations
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
-from orcheo.tenancy import TenantAuditEvent
+from orcheo.workspace import WorkspaceAuditEvent
 from orcheo_backend.app.authentication import (
     AuthorizationPolicy,
     ServiceTokenRecord,
@@ -17,7 +17,7 @@ from orcheo_backend.app.schemas.service_tokens import (
     ServiceTokenListResponse,
     ServiceTokenResponse,
 )
-from orcheo_backend.app.tenancy import TenantContextDep, get_tenant_repository
+from orcheo_backend.app.workspace import WorkspaceContextDep, get_workspace_repository
 
 
 router = APIRouter(prefix="/admin/service-tokens", tags=["admin", "tokens"])
@@ -52,7 +52,7 @@ def _record_to_response(
 async def create_service_token(
     request: CreateServiceTokenRequest,
     policy: Annotated[AuthorizationPolicy, Depends(get_authorization_policy)],
-    tenant: TenantContextDep,
+    workspace: WorkspaceContextDep,
 ) -> ServiceTokenResponse:
     """Create a new service token.
 
@@ -69,12 +69,12 @@ async def create_service_token(
         scopes=request.scopes,
         workspace_ids=request.workspace_ids,
         expires_in=request.expires_in_seconds,
-        tenant_id=str(tenant.tenant_id),
+        workspace_id=str(workspace.workspace_id),
     )
     try:
-        get_tenant_repository().record_audit_event(
-            TenantAuditEvent(
-                tenant_id=tenant.tenant_id,
+        get_workspace_repository().record_audit_event(
+            WorkspaceAuditEvent(
+                workspace_id=workspace.workspace_id,
                 action="service_token.created",
                 actor=policy.context.subject if policy.context else None,
                 subject=record.identifier,
@@ -144,7 +144,7 @@ async def rotate_service_token(
     token_id: str,
     request: RotateServiceTokenRequest,
     policy: Annotated[AuthorizationPolicy, Depends(get_authorization_policy)],
-    tenant: TenantContextDep,
+    workspace: WorkspaceContextDep,
 ) -> ServiceTokenResponse:
     """Rotate a service token, generating a new secret.
 
@@ -177,9 +177,9 @@ async def rotate_service_token(
         f"valid for {request.overlap_seconds}s."
     )
     try:
-        get_tenant_repository().record_audit_event(
-            TenantAuditEvent(
-                tenant_id=tenant.tenant_id,
+        get_workspace_repository().record_audit_event(
+            WorkspaceAuditEvent(
+                workspace_id=workspace.workspace_id,
                 action="service_token.rotated",
                 actor=policy.context.subject if policy.context else None,
                 subject=token_id,
@@ -198,7 +198,7 @@ async def revoke_service_token(
     token_id: str,
     request: RevokeServiceTokenRequest,
     policy: Annotated[AuthorizationPolicy, Depends(get_authorization_policy)],
-    tenant: TenantContextDep,
+    workspace: WorkspaceContextDep,
 ) -> None:
     """Revoke a service token immediately.
 
@@ -221,9 +221,9 @@ async def revoke_service_token(
             },
         ) from None
     try:
-        get_tenant_repository().record_audit_event(
-            TenantAuditEvent(
-                tenant_id=tenant.tenant_id,
+        get_workspace_repository().record_audit_event(
+            WorkspaceAuditEvent(
+                workspace_id=workspace.workspace_id,
                 action="service_token.revoked",
                 actor=policy.context.subject if policy.context else None,
                 subject=token_id,

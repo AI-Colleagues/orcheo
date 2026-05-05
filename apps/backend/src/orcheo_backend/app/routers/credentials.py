@@ -20,7 +20,7 @@ from orcheo_backend.app.dependencies import (
     resolve_optional_workflow_ref_id,
 )
 from orcheo_backend.app.errors import (
-    TenantQuotaExceededError,
+    WorkspaceQuotaExceededError,
     raise_not_found,
     raise_scope_error,
 )
@@ -30,8 +30,8 @@ from orcheo_backend.app.schemas.credentials import (
     CredentialUpdateRequest,
     CredentialVaultEntryResponse,
 )
-from orcheo_backend.app.tenancy import TenantContextDep
-from orcheo_backend.app.tenant_governance import ensure_tenant_credential_quota
+from orcheo_backend.app.workspace import WorkspaceContextDep
+from orcheo_backend.app.workspace_governance import ensure_workspace_credential_quota
 
 
 router = APIRouter()
@@ -44,19 +44,19 @@ router = APIRouter()
 async def list_credentials(
     vault: VaultDep,
     repository: RepositoryDep,
-    tenant: TenantContextDep,
+    workspace: WorkspaceContextDep,
     workflow_id: WorkflowRefQuery = None,
 ) -> list[CredentialVaultEntryResponse]:
     """Return credential metadata visible to the caller."""
-    tid = str(tenant.tenant_id)
+    tid = str(workspace.workspace_id)
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
         repository, workflow_id
     )
     if resolved_workflow_id is None:
-        credentials = vault.list_all_credentials(tenant_id=tid)
+        credentials = vault.list_all_credentials(workspace_id=tid)
     else:
         context = credential_context_from_workflow(resolved_workflow_id)
-        credentials = vault.list_credentials(context=context, tenant_id=tid)
+        credentials = vault.list_credentials(context=context, workspace_id=tid)
     return [credential_to_response(metadata) for metadata in credentials]
 
 
@@ -69,7 +69,7 @@ async def create_credential(
     request: CredentialCreateRequest,
     repository: RepositoryDep,
     vault: VaultDep,
-    tenant: TenantContextDep,
+    workspace: WorkspaceContextDep,
 ) -> CredentialVaultEntryResponse:
     """Persist a new credential in the vault."""
     workflow_id = await resolve_optional_workflow_ref_id(
@@ -82,7 +82,7 @@ async def create_credential(
         )
     scope = scope_from_access(request.access, workflow_id)
     try:
-        await ensure_tenant_credential_quota(vault, tenant)
+        await ensure_workspace_credential_quota(vault, workspace)
         metadata = vault.create_credential(
             name=request.name,
             provider=request.provider,
@@ -91,14 +91,14 @@ async def create_credential(
             actor=request.actor,
             scope=scope,
             kind=request.kind,
-            tenant_id=str(tenant.tenant_id),
+            workspace_id=str(workspace.workspace_id),
         )
     except DuplicateCredentialNameError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from exc
-    except TenantQuotaExceededError as exc:
+    except WorkspaceQuotaExceededError as exc:
         raise exc.as_http_exception() from exc
     except ValueError as exc:
         raise HTTPException(
@@ -117,7 +117,7 @@ async def reveal_credential_secret(
     credential_id: UUID,
     vault: VaultDep,
     repository: RepositoryDep,
-    tenant: TenantContextDep,
+    workspace: WorkspaceContextDep,
     workflow_id: WorkflowRefQuery = None,
 ) -> CredentialSecretResponse:
     """Reveal and return the decrypted credential secret."""
@@ -131,15 +131,15 @@ async def reveal_credential_secret(
         raise_not_found("Credential not found", exc)
     except WorkflowScopeError as exc:
         raise_scope_error(exc)
-    from orcheo.tenancy import TenantAuditEvent
-    from orcheo_backend.app.tenancy import get_tenant_repository
+    from orcheo.workspace import WorkspaceAuditEvent
+    from orcheo_backend.app.workspace import get_workspace_repository
 
     try:
-        get_tenant_repository().record_audit_event(
-            TenantAuditEvent(
-                tenant_id=tenant.tenant_id,
+        get_workspace_repository().record_audit_event(
+            WorkspaceAuditEvent(
+                workspace_id=workspace.workspace_id,
                 action="vault.read",
-                actor=tenant.user_id,
+                actor=workspace.user_id,
                 subject=str(credential_id),
                 resource_type="credential",
                 resource_id=str(credential_id),

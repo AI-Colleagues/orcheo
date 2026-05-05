@@ -32,7 +32,7 @@ class _MissingWorkflowRepository:
         workflow_ref,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ):
         del include_archived
         return (
@@ -67,7 +67,7 @@ async def test_get_workflow_credential_health_returns_unknown_response() -> None
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del include_archived
             return UUID(str(workflow_ref))
@@ -91,7 +91,7 @@ async def test_get_workflow_credential_health_returns_unknown_response() -> None
 async def test_get_workflow_credential_health_requires_service() -> None:
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del include_archived
             return UUID(str(workflow_ref))
@@ -113,7 +113,7 @@ async def test_validate_workflow_credentials_reports_failures() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del include_archived
             return workflow_id
@@ -191,7 +191,7 @@ async def test_validate_workflow_credentials_requires_service() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del include_archived
             return workflow_id
@@ -219,7 +219,7 @@ async def test_invoke_webhook_trigger_wraps_health_error(
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del include_archived
             return workflow_id

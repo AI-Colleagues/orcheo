@@ -10,7 +10,7 @@ from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookRequest, WebhookTriggerConfig
 from orcheo.vault.oauth import CredentialHealthError
-from orcheo_backend.app.errors import TenantQuotaExceededError
+from orcheo_backend.app.errors import WorkspaceQuotaExceededError
 from orcheo_backend.app.repository import (
     CronTriggerNotFoundError,
     WorkflowVersionNotFoundError,
@@ -19,8 +19,10 @@ from orcheo_backend.app.repository_sqlite._base import logger
 from orcheo_backend.app.repository_sqlite._persistence import SqlitePersistenceMixin
 
 
-class _WorkflowTenantLookup(Protocol):
-    async def _get_workflow_tenant_id_locked(self, workflow_id: UUID) -> str | None: ...
+class _WorkflowWorkspaceLookup(Protocol):
+    async def _get_workflow_workspace_id_locked(
+        self, workflow_id: UUID
+    ) -> str | None: ...
 
 
 def _enqueue_run_for_execution(run: WorkflowRun) -> None:
@@ -34,7 +36,9 @@ def _enqueue_run_for_execution(run: WorkflowRun) -> None:
     try:
         from orcheo_backend.worker.tasks import execute_run
 
-        headers = {"tenant_id": run.tenant_id} if run.tenant_id is not None else {}
+        headers = (
+            {"workspace_id": run.workspace_id} if run.workspace_id is not None else {}
+        )
         execute_run.apply_async(args=(str(run.id),), headers=headers or None)
         logger.info("Enqueued run %s for execution", run.id)
     except Exception as exc:
@@ -90,13 +94,15 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
         await self._ensure_initialized()
         async with self._lock:
             await self._get_workflow_locked(workflow_id)
-            tenant_repo = cast(_WorkflowTenantLookup, self)
-            tenant_id = await tenant_repo._get_workflow_tenant_id_locked(workflow_id)
+            workspace_repo = cast(_WorkflowWorkspaceLookup, self)
+            workspace_id = await workspace_repo._get_workflow_workspace_id_locked(
+                workflow_id
+            )
             version = await self._get_latest_version_locked(workflow_id)
             await self._ensure_workflow_health(
                 workflow_id,
                 actor="webhook",
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
             )
             request = WebhookRequest(
                 method=method,
@@ -114,7 +120,7 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
                 triggered_by=dispatch.triggered_by,
                 input_payload=dispatch.input_payload,
                 actor=dispatch.actor,
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
             )
             run_copy = run.model_copy(deep=True)
         # Enqueue AFTER lock is released to ensure commit is fully visible
@@ -185,8 +191,8 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
                     version = await self._get_latest_version_locked(plan.workflow_id)
                 except WorkflowVersionNotFoundError:
                     continue
-                tenant_repo = cast(_WorkflowTenantLookup, self)
-                tenant_id = await tenant_repo._get_workflow_tenant_id_locked(
+                workspace_repo = cast(_WorkflowWorkspaceLookup, self)
+                workspace_id = await workspace_repo._get_workflow_workspace_id_locked(
                     plan.workflow_id
                 )
 
@@ -194,7 +200,7 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
                     await self._ensure_workflow_health(
                         plan.workflow_id,
                         actor="cron",
-                        tenant_id=tenant_id,
+                        workspace_id=workspace_id,
                     )
                 except CredentialHealthError as exc:
                     logger.warning(
@@ -215,11 +221,11 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
                             "timezone": plan.timezone,
                         },
                         actor="cron",
-                        tenant_id=tenant_id,
+                        workspace_id=workspace_id,
                     )
-                except TenantQuotaExceededError:
+                except WorkspaceQuotaExceededError:
                     logger.warning(
-                        "Skipping cron dispatch for workflow %s because tenant "
+                        "Skipping cron dispatch for workflow %s because workspace "
                         "quota was exceeded",
                         plan.workflow_id,
                     )
@@ -261,15 +267,15 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
             plan = self._trigger_layer.prepare_manual_dispatch(
                 request, default_workflow_version_id=default_version_id
             )
-            tenant_repo = cast(_WorkflowTenantLookup, self)
-            tenant_id = await tenant_repo._get_workflow_tenant_id_locked(
+            workspace_repo = cast(_WorkflowWorkspaceLookup, self)
+            workspace_id = await workspace_repo._get_workflow_workspace_id_locked(
                 request.workflow_id
             )
 
             await self._ensure_workflow_health(
                 request.workflow_id,
                 actor=plan.actor or plan.triggered_by,
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
             )
 
             runs: list[WorkflowRun] = []
@@ -288,11 +294,11 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
                         triggered_by=plan.triggered_by,
                         input_payload=resolved.input_payload,
                         actor=plan.actor,
-                        tenant_id=tenant_id,
+                        workspace_id=workspace_id,
                     )
-                except TenantQuotaExceededError:
+                except WorkspaceQuotaExceededError:
                     logger.warning(
-                        "Skipping manual dispatch for workflow %s because tenant "
+                        "Skipping manual dispatch for workflow %s because workspace "
                         "quota was exceeded",
                         request.workflow_id,
                     )

@@ -42,7 +42,7 @@ from orcheo_backend.app.dependencies import (
     get_history_store,
     get_repository,
     get_vault,
-    resolve_workflow_tenant_id,
+    resolve_workflow_workspace_id,
 )
 from orcheo_backend.app.external_agent_auth import (
     load_external_agent_vault_environment,
@@ -348,10 +348,10 @@ def _build_initial_state(
     graph_config: Mapping[str, Any],
     inputs: dict[str, Any],
     runtime_config: Mapping[str, Any] | None,
-    tenant_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> Any:
     """Return the starting runtime state for a workflow execution."""
-    return build_initial_state(graph_config, inputs, runtime_config, tenant_id)
+    return build_initial_state(graph_config, inputs, runtime_config, workspace_id)
 
 
 def _prepare_runnable_config(
@@ -401,7 +401,7 @@ async def execute_workflow(
     inputs: dict[str, Any],
     execution_id: str,
     websocket: WebSocket,
-    tenant_id: str | None = None,
+    workspace_id: str | None = None,
     runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
     stored_runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
 ) -> None:
@@ -419,14 +419,14 @@ async def execute_workflow(
         workflow_uuid = UUID(workflow_id)
     except ValueError:
         pass
-    tenant_id = await resolve_workflow_tenant_id(
+    workspace_id = await resolve_workflow_workspace_id(
         get_repository(),
         workflow_uuid,
-        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
     credential_context = credential_context_from_workflow(
         workflow_uuid,
-        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
     resolver = CredentialResolver(vault, context=credential_context)
     tracer = get_tracer(__name__)
@@ -461,7 +461,7 @@ async def execute_workflow(
                 callbacks=parsed_config.callbacks,
                 metadata=parsed_config.metadata,
                 run_name=parsed_config.run_name,
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
             )
             await _emit_trace_update(
                 history_store,
@@ -485,7 +485,7 @@ async def execute_workflow(
                                 graph_config,
                                 inputs,
                                 state_config,
-                                tenant_id,
+                                workspace_id,
                             )
                             _log_sensitive_debug("Initial state: %s", state)
 
@@ -532,7 +532,7 @@ async def _run_evaluation_node(
     resolver: CredentialResolver,
     settings: Any,
     span: Span,
-    tenant_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> None:
     """Compile the graph and execute evaluation cases."""
     from orcheo_backend.app import build_graph, create_checkpointer, create_graph_store
@@ -574,7 +574,7 @@ async def _run_evaluation_node(
                         graph_config,
                         inputs,
                         state_config,
-                        tenant_id,
+                        workspace_id,
                     )
                     _log_sensitive_debug("Initial state: %s", state)
 
@@ -659,7 +659,7 @@ async def _run_training_node(
     settings: Any,
     span: Span,
     checkpoint_store: Any,
-    tenant_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> None:
     """Compile the graph and execute training with checkpoints."""
     from orcheo_backend.app import build_graph, create_checkpointer, create_graph_store
@@ -704,7 +704,7 @@ async def _run_training_node(
                         graph_config,
                         inputs,
                         state_config,
-                        tenant_id,
+                        workspace_id,
                     )
                     _log_sensitive_debug("Initial state: %s", state)
 
@@ -779,7 +779,7 @@ async def execute_workflow_evaluation(
     execution_id: str,
     websocket: WebSocket,
     evaluation: Mapping[str, Any] | EvaluationRequest | None,
-    tenant_id: str | None = None,
+    workspace_id: str | None = None,
     runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
     stored_runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
 ) -> None:  # noqa: PLR0915
@@ -808,14 +808,14 @@ async def execute_workflow_evaluation(
         workflow_uuid = UUID(workflow_id)
     except ValueError:
         pass
-    tenant_id = await resolve_workflow_tenant_id(
+    workspace_id = await resolve_workflow_workspace_id(
         get_repository(),
         workflow_uuid,
-        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
     credential_context = credential_context_from_workflow(
         workflow_uuid,
-        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
     resolver = CredentialResolver(vault, context=credential_context)
     tracer = get_tracer(__name__)
@@ -850,7 +850,7 @@ async def execute_workflow_evaluation(
                 callbacks=parsed_config.callbacks,
                 metadata=parsed_config.metadata,
                 run_name=parsed_config.run_name,
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
             )
             await _emit_trace_update(
                 history_store,
@@ -873,7 +873,7 @@ async def execute_workflow_evaluation(
                 resolver=resolver,
                 settings=settings,
                 span=span_context.span,
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
             )
 
             completion_payload = {"status": "completed"}
@@ -900,7 +900,7 @@ async def execute_workflow_training(
     execution_id: str,
     websocket: WebSocket,
     training: Mapping[str, Any] | TrainingRequest | None,
-    tenant_id: str | None = None,
+    workspace_id: str | None = None,
     runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
     stored_runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
 ) -> None:  # noqa: PLR0915
@@ -928,14 +928,14 @@ async def execute_workflow_training(
         workflow_uuid = UUID(workflow_id)
     except ValueError:
         pass
-    tenant_id = await resolve_workflow_tenant_id(
+    workspace_id = await resolve_workflow_workspace_id(
         get_repository(),
         workflow_uuid,
-        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
     credential_context = credential_context_from_workflow(
         workflow_uuid,
-        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
     resolver = CredentialResolver(vault, context=credential_context)
     tracer = get_tracer(__name__)
@@ -970,7 +970,7 @@ async def execute_workflow_training(
                 callbacks=parsed_config.callbacks,
                 metadata=parsed_config.metadata,
                 run_name=parsed_config.run_name,
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
             )
             await _emit_trace_update(
                 history_store,
@@ -995,7 +995,7 @@ async def execute_workflow_training(
                 settings=settings,
                 span=span_context.span,
                 checkpoint_store=checkpoint_store,
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
             )
 
             completion_payload = {"status": "completed"}
@@ -1020,16 +1020,16 @@ async def execute_node(
     node_params: dict[str, Any],
     inputs: dict[str, Any],
     workflow_id: UUID | None = None,
-    tenant_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> Any:
     """Execute a single node instance with credential resolution."""
     vault = get_vault()
-    tenant_id = await resolve_workflow_tenant_id(
+    workspace_id = await resolve_workflow_workspace_id(
         get_repository(),
         workflow_id,
-        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
-    context = credential_context_from_workflow(workflow_id, tenant_id=tenant_id)
+    context = credential_context_from_workflow(workflow_id, workspace_id=workspace_id)
     resolver = CredentialResolver(vault, context=context)
 
     external_agent_environ = _external_agent_provider_environment()
@@ -1045,7 +1045,7 @@ async def execute_node(
                 "results": {},
                 "inputs": inputs,
                 "structured_response": None,
-                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
                 "config": state_config,
             }
             return await node_instance(state, runtime_config)

@@ -9,18 +9,18 @@ import httpx
 from orcheo_sdk.cli.errors import APICallError
 
 
-_TENANT_CONFIG_FILE = Path.home() / ".orcheo" / "tenant"
+_WORKSPACE_CONFIG_FILE = Path.home() / ".orcheo" / "workspace"
 
 
-def _resolve_active_tenant() -> str | None:
-    """Return the active tenant slug from env var or `~/.orcheo/tenant`."""
-    env = os.environ.get("ORCHEO_TENANT")
+def _resolve_active_workspace() -> str | None:
+    """Return the active workspace slug from env var or `~/.orcheo/workspace`."""
+    env = os.environ.get("ORCHEO_WORKSPACE")
     if env and env.strip():
         return env.strip()
-    if not _TENANT_CONFIG_FILE.exists():
+    if not _WORKSPACE_CONFIG_FILE.exists():
         return None
     try:
-        candidate = _TENANT_CONFIG_FILE.read_text(encoding="utf-8").strip()
+        candidate = _WORKSPACE_CONFIG_FILE.read_text(encoding="utf-8").strip()
     except OSError:  # pragma: no cover - defensive
         return None
     return candidate or None
@@ -84,9 +84,9 @@ class ApiClient:
         token = self._get_active_token()
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        tenant = _resolve_active_tenant()
-        if tenant:
-            headers["X-Orcheo-Tenant"] = tenant
+        workspace = _resolve_active_workspace()
+        if workspace:
+            headers["X-Orcheo-Workspace"] = workspace
         return headers
 
     def get(self, path: str, *, params: Mapping[str, Any] | None = None) -> Any:

@@ -171,10 +171,10 @@ class TestNamespaceTuple:
         node = GraphStoreAppendMessageNode(name="t", key="k", content="c", namespace=[])
         assert node._namespace_tuple() == ("agent_chat_history",)
 
-    def test_tenant_prefixes_namespace(self) -> None:
+    def test_workspace_prefixes_namespace(self) -> None:
         node = GraphStoreAppendMessageNode(name="t", key="k", content="c")
-        assert node._namespace_tuple("tenant-1") == (
-            "tenant-1",
+        assert node._namespace_tuple("workspace-1") == (
+            "workspace-1",
             "agent_chat_history",
         )
 
@@ -272,15 +272,15 @@ async def test_creates_new_entry() -> None:
 
 
 @pytest.mark.asyncio
-async def test_creates_tenant_namespaced_entry() -> None:
+async def test_creates_workspace_namespaced_entry() -> None:
     store = MockStore(existing_item=None)
     node = GraphStoreAppendMessageNode(name="t", key="telegram:123", content="digest")
-    state = State({"results": {}, "tenant_id": "tenant-1"})
+    state = State({"results": {}, "workspace_id": "workspace-1"})
     result = await node.run(state, _config_with_store(store))
 
     assert result == {"history_written": True}
     ns, key, payload = store.put_calls[0]
-    assert ns == ("tenant-1", "agent_chat_history")
+    assert ns == ("workspace-1", "agent_chat_history")
     assert key == "telegram:123"
     assert payload["version"] == 1
 

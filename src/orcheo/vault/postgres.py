@@ -31,7 +31,7 @@ POSTGRES_VAULT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS credentials (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
-    tenant_id TEXT,
+    workspace_id TEXT,
     name TEXT NOT NULL,
     provider TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -39,14 +39,11 @@ CREATE TABLE IF NOT EXISTS credentials (
     payload JSONB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_credentials_workflow ON credentials(workflow_id);
-CREATE INDEX IF NOT EXISTS idx_credentials_tenant ON credentials(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_credentials_tenant_name_lower
-    ON credentials(tenant_id, lower(name));
 
 CREATE TABLE IF NOT EXISTS credential_templates (
     id TEXT PRIMARY KEY,
     scope_hint TEXT NOT NULL,
-    tenant_id TEXT,
+    workspace_id TEXT,
     name TEXT NOT NULL,
     provider TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -54,19 +51,17 @@ CREATE TABLE IF NOT EXISTS credential_templates (
     payload JSONB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_templates_scope ON credential_templates(scope_hint);
-CREATE INDEX IF NOT EXISTS idx_templates_tenant ON credential_templates(tenant_id);
 
 CREATE TABLE IF NOT EXISTS governance_alerts (
     id TEXT PRIMARY KEY,
     scope_hint TEXT NOT NULL,
-    tenant_id TEXT,
+    workspace_id TEXT,
     acknowledged BOOLEAN NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     payload JSONB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_scope ON governance_alerts(scope_hint);
-CREATE INDEX IF NOT EXISTS idx_alerts_tenant ON governance_alerts(tenant_id);
 """
 
 
@@ -105,31 +100,31 @@ class PostgresCredentialVault(BaseCredentialVault):
                     if stmt.strip():
                         conn.execute(stmt)
                 conn.execute(
-                    "ALTER TABLE credentials ADD COLUMN IF NOT EXISTS tenant_id TEXT"
+                    "ALTER TABLE credentials ADD COLUMN IF NOT EXISTS workspace_id TEXT"
                 )
                 conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_credentials_tenant "
-                    "ON credentials(tenant_id)"
+                    "CREATE INDEX IF NOT EXISTS idx_credentials_workspace_id "
+                    "ON credentials(workspace_id)"
                 )
                 conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_credentials_tenant_name_lower "
-                    "ON credentials(tenant_id, lower(name))"
+                    "CREATE INDEX IF NOT EXISTS idx_credentials_workspace_name_lower "
+                    "ON credentials(workspace_id, lower(name))"
                 )
                 conn.execute(
                     "ALTER TABLE credential_templates ADD COLUMN "
-                    "IF NOT EXISTS tenant_id TEXT"
+                    "IF NOT EXISTS workspace_id TEXT"
                 )
                 conn.execute(
                     "ALTER TABLE governance_alerts ADD COLUMN "
-                    "IF NOT EXISTS tenant_id TEXT"
+                    "IF NOT EXISTS workspace_id TEXT"
                 )
                 conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_templates_tenant "
-                    "ON credential_templates(tenant_id)"
+                    "CREATE INDEX IF NOT EXISTS idx_templates_workspace_id "
+                    "ON credential_templates(workspace_id)"
                 )
                 conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_alerts_tenant "
-                    "ON governance_alerts(tenant_id)"
+                    "CREATE INDEX IF NOT EXISTS idx_alerts_workspace_id "
+                    "ON governance_alerts(workspace_id)"
                 )
             self._initialized = True
 
@@ -149,9 +144,9 @@ class PostgresCredentialVault(BaseCredentialVault):
                 SELECT id
                   FROM credentials
                  WHERE lower(name) = lower(%s)
-                   AND (tenant_id IS NOT DISTINCT FROM %s)
+                   AND (workspace_id IS NOT DISTINCT FROM %s)
                 """,
-                (metadata.name, metadata.tenant_id),
+                (metadata.name, metadata.workspace_id),
             )
             rows = cursor.fetchall()
             duplicates = [row["id"] for row in rows if row["id"] != str(metadata.id)]
@@ -164,7 +159,7 @@ class PostgresCredentialVault(BaseCredentialVault):
                 INSERT INTO credentials (
                     id,
                     workflow_id,
-                    tenant_id,
+                    workspace_id,
                     name,
                     provider,
                     created_at,
@@ -173,7 +168,7 @@ class PostgresCredentialVault(BaseCredentialVault):
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     workflow_id = EXCLUDED.workflow_id,
-                    tenant_id = EXCLUDED.tenant_id,
+                    workspace_id = EXCLUDED.workspace_id,
                     name = EXCLUDED.name,
                     provider = EXCLUDED.provider,
                     created_at = EXCLUDED.created_at,
@@ -183,7 +178,7 @@ class PostgresCredentialVault(BaseCredentialVault):
                 (
                     str(metadata.id),
                     metadata.scope.scope_hint(),
-                    metadata.tenant_id,
+                    metadata.workspace_id,
                     metadata.name,
                     metadata.provider,
                     metadata.created_at,
@@ -207,10 +202,10 @@ class PostgresCredentialVault(BaseCredentialVault):
         return CredentialMetadata.model_validate_json(p)
 
     def _iter_metadata(
-        self, *, tenant_id: str | None = None
+        self, *, workspace_id: str | None = None
     ) -> Iterable[CredentialMetadata]:
         with self._connection() as conn:
-            if tenant_id is None:
+            if workspace_id is None:
                 cursor = conn.execute(
                     "SELECT payload FROM credentials ORDER BY created_at ASC"
                 )
@@ -219,10 +214,10 @@ class PostgresCredentialVault(BaseCredentialVault):
                     """
                     SELECT payload
                       FROM credentials
-                     WHERE tenant_id IS NULL OR tenant_id = %s
+                     WHERE workspace_id IS NULL OR workspace_id = %s
                   ORDER BY created_at ASC
                     """,
-                    (tenant_id,),
+                    (workspace_id,),
                 )
             rows = cursor.fetchall()
         for row in rows:
@@ -249,7 +244,7 @@ class PostgresCredentialVault(BaseCredentialVault):
                 INSERT INTO credential_templates (
                     id,
                     scope_hint,
-                    tenant_id,
+                    workspace_id,
                     name,
                     provider,
                     created_at,
@@ -258,7 +253,7 @@ class PostgresCredentialVault(BaseCredentialVault):
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     scope_hint = EXCLUDED.scope_hint,
-                    tenant_id = EXCLUDED.tenant_id,
+                    workspace_id = EXCLUDED.workspace_id,
                     name = EXCLUDED.name,
                     provider = EXCLUDED.provider,
                     created_at = EXCLUDED.created_at,
@@ -268,7 +263,7 @@ class PostgresCredentialVault(BaseCredentialVault):
                 (
                     str(template.id),
                     template.scope.scope_hint(),
-                    template.tenant_id,
+                    template.workspace_id,
                     template.name,
                     template.provider,
                     template.created_at,
@@ -292,10 +287,10 @@ class PostgresCredentialVault(BaseCredentialVault):
         return CredentialTemplate.model_validate_json(p)
 
     def _iter_templates(
-        self, *, tenant_id: str | None = None
+        self, *, workspace_id: str | None = None
     ) -> Iterable[CredentialTemplate]:
         with self._connection() as conn:
-            if tenant_id is None:
+            if workspace_id is None:
                 cursor = conn.execute(
                     "SELECT payload FROM credential_templates ORDER BY created_at ASC"
                 )
@@ -304,10 +299,10 @@ class PostgresCredentialVault(BaseCredentialVault):
                     """
                     SELECT payload
                       FROM credential_templates
-                     WHERE tenant_id IS NULL OR tenant_id = %s
+                     WHERE workspace_id IS NULL OR workspace_id = %s
                   ORDER BY created_at ASC
                     """,
-                    (tenant_id,),
+                    (workspace_id,),
                 )
             rows = cursor.fetchall()
         for row in rows:
@@ -336,7 +331,7 @@ class PostgresCredentialVault(BaseCredentialVault):
                 INSERT INTO governance_alerts (
                     id,
                     scope_hint,
-                    tenant_id,
+                    workspace_id,
                     acknowledged,
                     created_at,
                     updated_at,
@@ -344,7 +339,7 @@ class PostgresCredentialVault(BaseCredentialVault):
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     scope_hint = EXCLUDED.scope_hint,
-                    tenant_id = EXCLUDED.tenant_id,
+                    workspace_id = EXCLUDED.workspace_id,
                     acknowledged = EXCLUDED.acknowledged,
                     created_at = EXCLUDED.created_at,
                     updated_at = EXCLUDED.updated_at,
@@ -353,7 +348,7 @@ class PostgresCredentialVault(BaseCredentialVault):
                 (
                     str(alert.id),
                     alert.scope.scope_hint(),
-                    alert.tenant_id,
+                    alert.workspace_id,
                     alert.is_acknowledged,
                     alert.created_at,
                     alert.updated_at,
@@ -376,10 +371,10 @@ class PostgresCredentialVault(BaseCredentialVault):
         return SecretGovernanceAlert.model_validate_json(p)
 
     def _iter_alerts(
-        self, *, tenant_id: str | None = None
+        self, *, workspace_id: str | None = None
     ) -> Iterable[SecretGovernanceAlert]:
         with self._connection() as conn:
-            if tenant_id is None:
+            if workspace_id is None:
                 cursor = conn.execute(
                     "SELECT payload FROM governance_alerts ORDER BY created_at ASC"
                 )
@@ -388,10 +383,10 @@ class PostgresCredentialVault(BaseCredentialVault):
                     """
                     SELECT payload
                       FROM governance_alerts
-                     WHERE tenant_id IS NULL OR tenant_id = %s
+                     WHERE workspace_id IS NULL OR workspace_id = %s
                   ORDER BY created_at ASC
                     """,
-                    (tenant_id,),
+                    (workspace_id,),
                 )
             rows = cursor.fetchall()
         for row in rows:

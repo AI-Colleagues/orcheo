@@ -60,7 +60,7 @@ async def test_invoke_webhook_trigger_returns_immediate_response(
             self.handle_webhook_trigger = AsyncMock()
 
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -105,7 +105,7 @@ async def test_invoke_webhook_trigger_queues_run(
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -147,7 +147,7 @@ async def test_invoke_webhook_trigger_returns_accepted_when_no_run(
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -184,7 +184,7 @@ async def test_invoke_webhook_trigger_reports_missing_workflow() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -211,7 +211,7 @@ async def test_invoke_webhook_trigger_reports_missing_version() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id

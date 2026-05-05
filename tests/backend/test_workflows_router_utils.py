@@ -72,12 +72,12 @@ class _MissingWorkflowRepository:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:  # pragma: no cover - stub
         return self._workflow_id
 
     async def get_workflow(
-        self, workflow_id: UUID, *, tenant_id=None
+        self, workflow_id: UUID, *, workspace_id=None
     ) -> None:  # pragma: no cover - stub
         raise WorkflowNotFoundError(str(workflow_id))
 
@@ -87,7 +87,7 @@ class _MissingWorkflowRepository:
         return []
 
 
-_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
 
 
 @pytest.mark.asyncio()

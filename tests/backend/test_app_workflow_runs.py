@@ -26,7 +26,7 @@ from orcheo_backend.app.repository import (
 from orcheo_backend.app.schemas.workflows import WorkflowRunCreateRequest
 
 
-_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
 
 
 def _health_error(workflow_id: UUID) -> CredentialHealthError:
@@ -57,7 +57,7 @@ async def test_create_workflow_run_success() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -70,7 +70,7 @@ async def test_create_workflow_run_success() -> None:
             input_payload=None,
             actor=None,
             runnable_config=None,
-            tenant_id=None,
+            workspace_id=None,
         ):
             return WorkflowRun(
                 id=run_id,
@@ -104,7 +104,7 @@ async def test_create_workflow_run_workflow_not_found() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -117,7 +117,7 @@ async def test_create_workflow_run_workflow_not_found() -> None:
             input_payload=None,
             actor=None,
             runnable_config=None,
-            tenant_id=None,
+            workspace_id=None,
         ):
             raise WorkflowNotFoundError("not found")
 
@@ -144,7 +144,7 @@ async def test_create_workflow_run_version_not_found() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -157,7 +157,7 @@ async def test_create_workflow_run_version_not_found() -> None:
             input_payload=None,
             actor=None,
             runnable_config=None,
-            tenant_id=None,
+            workspace_id=None,
         ):
             raise WorkflowVersionNotFoundError("not found")
 
@@ -184,7 +184,7 @@ async def test_create_workflow_run_credential_health_error() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -197,7 +197,7 @@ async def test_create_workflow_run_credential_health_error() -> None:
             input_payload=None,
             actor=None,
             runnable_config=None,
-            tenant_id=None,
+            workspace_id=None,
         ):
             raise _health_error(wf_id)
 
@@ -226,12 +226,12 @@ async def test_list_workflow_runs_success() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
 
-        async def list_runs_for_workflow(self, wf_id, *, limit=None, tenant_id=None):
+        async def list_runs_for_workflow(self, wf_id, *, limit=None, workspace_id=None):
             return [
                 WorkflowRun(
                     id=run1_id,
@@ -268,12 +268,12 @@ async def test_list_workflow_runs_not_found() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
 
-        async def list_runs_for_workflow(self, wf_id, *, limit=None, tenant_id=None):
+        async def list_runs_for_workflow(self, wf_id, *, limit=None, workspace_id=None):
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
@@ -290,7 +290,7 @@ async def test_get_workflow_run_success() -> None:
     version_id = uuid4()
 
     class Repository:
-        async def get_run(self, run_id, *, tenant_id=None):
+        async def get_run(self, run_id, *, workspace_id=None):
             return WorkflowRun(
                 id=run_id,
                 workflow_version_id=version_id,
@@ -312,7 +312,7 @@ async def test_get_workflow_run_not_found() -> None:
     run_id = uuid4()
 
     class Repository:
-        async def get_run(self, run_id, *, tenant_id=None):
+        async def get_run(self, run_id, *, workspace_id=None):
             raise WorkflowRunNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:

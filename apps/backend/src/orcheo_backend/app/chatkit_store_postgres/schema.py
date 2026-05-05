@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS chat_threads (
     id TEXT PRIMARY KEY,
     title TEXT,
     workflow_id TEXT,
-    tenant_id TEXT,
+    workspace_id TEXT,
     status_json JSONB NOT NULL,
     metadata_json JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -21,8 +21,6 @@ CREATE INDEX IF NOT EXISTS idx_chat_threads_updated
     ON chat_threads(updated_at);
 CREATE INDEX IF NOT EXISTS idx_chat_threads_workflow
     ON chat_threads(workflow_id);
-CREATE INDEX IF NOT EXISTS idx_chat_threads_tenant
-    ON chat_threads(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_chat_threads_metadata
     ON chat_threads USING GIN (metadata_json);
 CREATE INDEX IF NOT EXISTS idx_chat_threads_status
@@ -70,12 +68,33 @@ CREATE INDEX IF NOT EXISTS idx_chat_attachments_details
 """
 
 
+async def _ensure_chat_threads_workspace_column(conn: Any) -> None:
+    """Add the legacy-compatible `workspace_id` column when missing."""
+    cursor = await conn.execute(
+        """
+        SELECT column_name
+          FROM information_schema.columns
+         WHERE table_schema = current_schema()
+           AND table_name = 'chat_threads'
+        """
+    )
+    rows = await cursor.fetchall()
+    existing_columns = {row["column_name"] for row in rows}
+    if "workspace_id" not in existing_columns:
+        await conn.execute("ALTER TABLE chat_threads ADD COLUMN workspace_id TEXT")
+
+
 async def ensure_schema(conn: Any) -> None:
     """Ensure tables and indexes exist."""
     for raw_stmt in POSTGRES_CHATKIT_SCHEMA.strip().split(";"):
         stmt = raw_stmt.strip()
         if stmt:
             await conn.execute(stmt)
+    await _ensure_chat_threads_workspace_column(conn)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace_id "
+        "ON chat_threads(workspace_id)"
+    )
 
 
 __all__ = ["POSTGRES_CHATKIT_SCHEMA", "ensure_schema"]

@@ -37,7 +37,7 @@ class TestEnqueueRunFunction:
 
         run = WorkflowRun(
             id=uuid4(),
-            tenant_id="tenant-1",
+            workspace_id="workspace-1",
             workflow_version_id=uuid4(),
             status=WorkflowRunStatus.PENDING,
             triggered_by="test",
@@ -76,7 +76,7 @@ class TestEnqueueRunFunction:
                 # Check that delay was called (indicating successful execution)
                 mock_execute_run.apply_async.assert_called_once_with(
                     args=(str(run.id),),
-                    headers={"tenant_id": "tenant-1"},
+                    headers={"workspace_id": "workspace-1"},
                 )
                 # Check that info log was called
                 mock_logger.info.assert_called_once()
@@ -93,7 +93,7 @@ class TestEnqueueRunFunction:
 
         run = WorkflowRun(
             id=uuid4(),
-            tenant_id="tenant-1",
+            workspace_id="workspace-1",
             workflow_version_id=uuid4(),
             status=WorkflowRunStatus.PENDING,
             triggered_by="test",

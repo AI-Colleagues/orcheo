@@ -20,7 +20,7 @@ def mock_run() -> MagicMock:
     run.status = "pending"
     run.input_payload = {"test": "data"}
     run.runnable_config = None
-    run.tenant_id = "tenant-1"
+    run.workspace_id = "workspace-1"
     return run
 
 
@@ -50,7 +50,7 @@ class TestLoadAndValidateRun:
         with patch(
             "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
         ):
-            run, error = await _load_and_validate_run(str(uuid4()), "tenant-1")
+            run, error = await _load_and_validate_run(str(uuid4()), "workspace-1")
 
         assert run is None
         assert error is not None
@@ -69,7 +69,7 @@ class TestLoadAndValidateRun:
         with patch(
             "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
         ):
-            run, error = await _load_and_validate_run(str(mock_run.id), "tenant-1")
+            run, error = await _load_and_validate_run(str(mock_run.id), "workspace-1")
 
         assert run is None
         assert error is not None
@@ -88,7 +88,7 @@ class TestLoadAndValidateRun:
         with patch(
             "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
         ):
-            run, error = await _load_and_validate_run(str(mock_run.id), "tenant-1")
+            run, error = await _load_and_validate_run(str(mock_run.id), "workspace-1")
 
         assert run is None
         assert error is not None
@@ -105,15 +105,19 @@ class TestLoadAndValidateRun:
         with patch(
             "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
         ):
-            run, error = await _load_and_validate_run(str(mock_run.id), "tenant-1")
+            run, error = await _load_and_validate_run(str(mock_run.id), "workspace-1")
 
         assert run is mock_run
         assert error is None
-        mock_repo.get_run.assert_awaited_once_with(mock_run.id, tenant_id="tenant-1")
+        mock_repo.get_run.assert_awaited_once_with(
+            mock_run.id, workspace_id="workspace-1"
+        )
 
     @pytest.mark.asyncio
-    async def test_missing_tenant_header_is_rejected(self, mock_run: MagicMock) -> None:
-        """Runs without tenant context should be rejected."""
+    async def test_missing_workspace_header_is_rejected(
+        self, mock_run: MagicMock
+    ) -> None:
+        """Runs without workspace context should be rejected."""
         from orcheo_backend.worker.tasks import _load_and_validate_run
 
         mock_repo = MagicMock()
@@ -124,7 +128,7 @@ class TestLoadAndValidateRun:
             run, error = await _load_and_validate_run(str(mock_run.id), None)
 
         assert run is None
-        assert error == {"status": "failed", "error": "Missing tenant_id header"}
+        assert error == {"status": "failed", "error": "Missing workspace_id header"}
         mock_repo.get_run.assert_not_called()
 
 
@@ -190,13 +194,13 @@ class TestExecuteRunTask:
                 new=MagicMock(return_value=MagicMock()),
             ) as mock_execute_async:
                 fake_self = SimpleNamespace(
-                    request=SimpleNamespace(headers={"tenant_id": "tenant-1"})
+                    request=SimpleNamespace(headers={"workspace_id": "workspace-1"})
                 )
                 result = execute_run.__wrapped__.__func__(fake_self, run_id)
 
         assert result == mock_result
         mock_loop.run_until_complete.assert_called_once()
-        mock_execute_async.assert_called_once_with(run_id, "tenant-1")
+        mock_execute_async.assert_called_once_with(run_id, "workspace-1")
 
 
 class TestDispatchCronTriggers:

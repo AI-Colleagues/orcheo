@@ -36,8 +36,8 @@ def raise_scope_error(exc: WorkflowScopeError) -> NoReturn:
     ) from exc
 
 
-class TenantLimitError(RuntimeError):
-    """Base error for tenant quota and rate-limit violations."""
+class WorkspaceLimitError(RuntimeError):
+    """Base error for workspace quota and rate-limit violations."""
 
     def __init__(
         self,
@@ -73,12 +73,12 @@ class TenantLimitError(RuntimeError):
         )
 
 
-class TenantQuotaExceededError(TenantLimitError):
-    """Raised when a tenant exceeds a configured quota."""
+class WorkspaceQuotaExceededError(WorkspaceLimitError):
+    """Raised when a workspace exceeds a configured quota."""
 
 
-class TenantRateLimitError(TenantLimitError):
-    """Raised when a tenant exceeds a configured rate limit."""
+class WorkspaceRateLimitError(WorkspaceLimitError):
+    """Raised when a workspace exceeds a configured rate limit."""
 
 
 __all__ = [
@@ -86,7 +86,7 @@ __all__ = [
     "raise_not_found",
     "raise_scope_error",
     "raise_webhook_error",
-    "TenantLimitError",
-    "TenantQuotaExceededError",
-    "TenantRateLimitError",
+    "WorkspaceLimitError",
+    "WorkspaceQuotaExceededError",
+    "WorkspaceRateLimitError",
 ]

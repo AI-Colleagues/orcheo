@@ -10,7 +10,7 @@ class ChatKitRequestContext(TypedDict, total=False):
 
     chatkit_request: BaseModel
     workflow_id: str
-    tenant_id: str | None
+    workspace_id: str | None
     actor: str
     auth_mode: Literal["jwt", "publish"]
     subject: str | None

@@ -79,7 +79,7 @@ class FakePool:
 def test_postgres_vault_persist_template() -> None:
     """Test persisting template metadata."""
     cipher = AesGcmCredentialCipher(key="test-key")
-    tenant_id = "tenant-a"
+    workspace_id = "workspace-a"
 
     conn = FakeConnection(responses=[{}])
     pool = FakePool(conn)
@@ -93,7 +93,7 @@ def test_postgres_vault_persist_template() -> None:
         provider="test-provider",
         scopes=["read", "write"],
         actor="test-actor",
-        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
 
     # Verify INSERT was called
@@ -104,7 +104,7 @@ def test_postgres_vault_persist_template() -> None:
     params = insert_queries[0][1]
     assert params[0] == str(template.id)
     assert params[1] == template.scope.scope_hint()
-    assert params[2] == tenant_id
+    assert params[2] == workspace_id
     assert params[3] == "Test Template"
     assert params[4] == "test-provider"
 
@@ -236,8 +236,8 @@ def test_postgres_vault_iter_templates() -> None:
     assert results[1].name == "Template2"
 
 
-def test_postgres_vault_iter_templates_filters_by_tenant() -> None:
-    """Test iterating over tenant-scoped templates."""
+def test_postgres_vault_iter_templates_filters_by_workspace() -> None:
+    """Test iterating over workspace-scoped templates."""
     cipher = AesGcmCredentialCipher(key="test-key")
 
     template = {
@@ -267,10 +267,10 @@ def test_postgres_vault_iter_templates_filters_by_tenant() -> None:
     vault._pool = pool
     vault._initialized = True
 
-    results = list(vault._iter_templates(tenant_id="tenant-a"))
+    results = list(vault._iter_templates(workspace_id="workspace-a"))
     assert len(results) == 1
     assert results[0].name == "Template1"
-    assert "tenant_id IS NULL OR tenant_id = %s" in conn.queries[0][0]
+    assert "workspace_id IS NULL OR workspace_id = %s" in conn.queries[0][0]
 
 
 def test_postgres_vault_remove_template_success() -> None:

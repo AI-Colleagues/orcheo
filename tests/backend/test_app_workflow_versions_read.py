@@ -19,7 +19,7 @@ from orcheo_backend.app.repository import (
 from orcheo_backend.app.routers import workflows as workflow_router
 
 
-_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
 
 
 @pytest.mark.asyncio()
@@ -32,7 +32,7 @@ async def test_list_workflow_versions_success() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -76,7 +76,7 @@ async def test_list_workflow_versions_not_found() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -99,7 +99,7 @@ async def test_get_workflow_version_success() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -130,7 +130,7 @@ async def test_get_workflow_version_workflow_not_found() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -152,7 +152,7 @@ async def test_get_workflow_version_version_not_found() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -179,7 +179,7 @@ async def test_diff_workflow_versions_success() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -207,7 +207,7 @@ async def test_list_workflow_versions_handles_mermaid_render_failure(
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -244,7 +244,7 @@ async def test_diff_workflow_versions_workflow_not_found() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -266,7 +266,7 @@ async def test_diff_workflow_versions_version_not_found() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id

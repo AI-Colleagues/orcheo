@@ -8,9 +8,9 @@ from orcheo_backend.app.credential_utils import alert_to_response
 from orcheo_backend.app.dependencies import (
     IncludeAcknowledgedQuery,
     RepositoryDep,
-    TenantContextDep,
     VaultDep,
     WorkflowRefQuery,
+    WorkspaceContextDep,
     credential_context_from_workflow,
     resolve_optional_workflow_ref_id,
 )
@@ -31,7 +31,7 @@ router = APIRouter()
 async def list_governance_alerts(
     vault: VaultDep,
     repository: RepositoryDep,
-    tenant: TenantContextDep,
+    workspace: WorkspaceContextDep,
     workflow_id: WorkflowRefQuery = None,
     include_acknowledged: IncludeAcknowledgedQuery = False,
 ) -> list[GovernanceAlertResponse]:
@@ -40,7 +40,7 @@ async def list_governance_alerts(
         repository, workflow_id
     )
     context = credential_context_from_workflow(
-        resolved_workflow_id, tenant_id=str(tenant.tenant_id)
+        resolved_workflow_id, workspace_id=str(workspace.workspace_id)
     )
     alerts = vault.list_alerts(
         context=context,
@@ -58,7 +58,7 @@ async def acknowledge_governance_alert(
     request: AlertAcknowledgeRequest,
     vault: VaultDep,
     repository: RepositoryDep,
-    tenant: TenantContextDep,
+    workspace: WorkspaceContextDep,
     workflow_id: WorkflowRefQuery = None,
 ) -> GovernanceAlertResponse:
     """Acknowledge an outstanding governance alert."""
@@ -66,7 +66,7 @@ async def acknowledge_governance_alert(
         repository, workflow_id
     )
     context = credential_context_from_workflow(
-        resolved_workflow_id, tenant_id=str(tenant.tenant_id)
+        resolved_workflow_id, workspace_id=str(workspace.workspace_id)
     )
     try:
         alert = vault.acknowledge_alert(alert_id, actor=request.actor, context=context)

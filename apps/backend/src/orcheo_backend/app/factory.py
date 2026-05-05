@@ -60,11 +60,11 @@ from orcheo_backend.app.routers import (
     chatkit as chatkit_router,
 )
 from orcheo_backend.app.routers import (
-    tenants as tenants_router,
+    workspaces as workspaces_router,
 )
 from orcheo_backend.app.service_token_endpoints import router as service_token_router
-from orcheo_backend.app.tenancy import resolve_tenant_context
 from orcheo_backend.app.workflow_execution import configure_sensitive_logging
+from orcheo_backend.app.workspace import resolve_workspace_context
 
 
 load_dotenv()
@@ -89,7 +89,7 @@ def _build_api_router() -> APIRouter:
     protected_router = APIRouter(
         dependencies=[
             Depends(authenticate_request),
-            Depends(resolve_tenant_context),
+            Depends(resolve_workspace_context),
         ]
     )
     protected_router.include_router(service_token_router)
@@ -104,8 +104,8 @@ def _build_api_router() -> APIRouter:
     protected_router.include_router(nodes.router)
     protected_router.include_router(agentensor.router)
     protected_router.include_router(system.router)
-    protected_router.include_router(tenants_router.admin_router)
-    protected_router.include_router(tenants_router.router)
+    protected_router.include_router(workspaces_router.admin_router)
+    protected_router.include_router(workspaces_router.router)
 
     router.include_router(workflows.public_router)
     router.include_router(chatkit_router.router)
@@ -220,10 +220,10 @@ def create_app(
             )
 
     application.include_router(api_router)
-    # Tenant-slug-prefixed webhook routes at /hooks/{tenant_slug}/{trigger_id}.
+    # Workspace-slug-prefixed webhook routes at /hooks/{workspace_slug}/{trigger_id}.
     # Mounted at the application root (not under /api) so external services
     # can reach them without an /api prefix.
-    application.include_router(triggers.tenant_webhook_router)
+    application.include_router(triggers.workspace_webhook_router)
     application.include_router(chatkit_assets.router)
     application.include_router(websocket.router)
     application.state.listener_runtime_store = listener_runtime_store

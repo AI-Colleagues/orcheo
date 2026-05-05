@@ -12,7 +12,7 @@ from orcheo.models.workflow import (
     WorkflowDraftAccess,
 )
 from orcheo.models.workflow_refs import normalize_workflow_handle
-from orcheo.tenancy.scoping import ensure_tenant_id
+from orcheo.workspace.scoping import ensure_workspace_id
 from orcheo_backend.app.repository.chatkit import (
     apply_chatkit_start_screen_prompts_update,
     apply_chatkit_supported_models_update,
@@ -57,16 +57,16 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
         self,
         *,
         include_archived: bool = False,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> list[Workflow]:
         await self._ensure_initialized()
         async with self._lock:
             async with self._connection() as conn:
-                if tenant_id is not None:
-                    tid = ensure_tenant_id(tenant_id)
+                if workspace_id is not None:
+                    tid = ensure_workspace_id(workspace_id)
                     cursor = await conn.execute(
                         "SELECT payload FROM workflows"
-                        " WHERE (tenant_id = ? OR tenant_id IS NULL)"
+                        " WHERE (workspace_id = ? OR workspace_id IS NULL)"
                         " ORDER BY created_at ASC",
                         (tid,),
                     )
@@ -93,7 +93,7 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
         tags: Iterable[str] | None,
         draft_access: WorkflowDraftAccess,
         actor: str,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> Workflow:
         await self._ensure_initialized()
         normalized_handle = normalize_workflow_handle(handle)
@@ -103,11 +103,13 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
                 workflow_id=None,
                 is_archived=False,
             )
-            tid = ensure_tenant_id(tenant_id) if tenant_id is not None else None
+            tid = (
+                ensure_workspace_id(workspace_id) if workspace_id is not None else None
+            )
             workflow = Workflow(
                 name=name,
                 handle=normalized_handle,
-                tenant_id=tid,
+                workspace_id=tid,
                 slug=slug or "",
                 description=description,
                 tags=list(tags or []),
@@ -124,7 +126,7 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
                         payload,
                         created_at,
                         updated_at,
-                        tenant_id
+                        workspace_id
                     )
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
@@ -144,45 +146,45 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
         self,
         workflow_id: UUID,
         *,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> Workflow:
         await self._ensure_initialized()
         async with self._lock:
             workflow = await self._get_workflow_locked(workflow_id)
-            if tenant_id is not None:
-                tid = ensure_tenant_id(tenant_id)
-                row_tid = await self._get_workflow_tenant_id_locked(workflow_id)
+            if workspace_id is not None:
+                tid = ensure_workspace_id(workspace_id)
+                row_tid = await self._get_workflow_workspace_id_locked(workflow_id)
                 if row_tid is not None and row_tid != tid:
                     raise WorkflowNotFoundError(str(workflow_id))
             return workflow
 
-    async def _get_workflow_tenant_id_locked(self, workflow_id: UUID) -> str | None:
-        """Return the tenant_id column for a workflow row."""
+    async def _get_workflow_workspace_id_locked(self, workflow_id: UUID) -> str | None:
+        """Return the workspace_id column for a workflow row."""
         async with self._connection() as conn:
             cursor = await conn.execute(
-                "SELECT tenant_id FROM workflows WHERE id = ?",
+                "SELECT workspace_id FROM workflows WHERE id = ?",
                 (str(workflow_id),),
             )
             row = await cursor.fetchone()
         if row is None:
             return None
         try:
-            return row["tenant_id"]
+            return row["workspace_id"]
         except (KeyError, IndexError, TypeError):
             return None
 
-    async def get_workflow_tenant_id(self, workflow_id: UUID) -> str | None:
-        """Return the tenant_id for the workflow, or None if unscoped."""
+    async def get_workflow_workspace_id(self, workflow_id: UUID) -> str | None:
+        """Return the workspace_id for the workflow, or None if unscoped."""
         await self._ensure_initialized()
         async with self._lock:
-            return await self._get_workflow_tenant_id_locked(workflow_id)
+            return await self._get_workflow_workspace_id_locked(workflow_id)
 
     async def resolve_workflow_ref(
         self,
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         await self._ensure_initialized()
         async with self._lock:
@@ -190,9 +192,9 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
                 workflow_ref,
                 include_archived=include_archived,
             )
-            if tenant_id is not None:
-                tid = ensure_tenant_id(tenant_id)
-                row_tid = await self._get_workflow_tenant_id_locked(workflow_id)
+            if workspace_id is not None:
+                tid = ensure_workspace_id(workspace_id)
+                row_tid = await self._get_workflow_workspace_id_locked(workflow_id)
                 if row_tid is not None and row_tid != tid:
                     from orcheo_backend.app.repository.errors import (
                         WorkflowNotFoundError,

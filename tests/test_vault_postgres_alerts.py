@@ -81,7 +81,7 @@ class FakePool:
 def test_postgres_vault_persist_alert() -> None:
     """Test persisting alert metadata."""
     cipher = AesGcmCredentialCipher(key="test-key")
-    tenant_id = "tenant-a"
+    workspace_id = "workspace-a"
 
     conn = FakeConnection(responses=[{}])
     pool = FakePool(conn)
@@ -95,7 +95,7 @@ def test_postgres_vault_persist_alert() -> None:
         severity=SecretGovernanceAlertSeverity.WARNING,
         message="Token expiring soon",
         actor="test-actor",
-        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
 
     # Verify INSERT was called
@@ -106,7 +106,7 @@ def test_postgres_vault_persist_alert() -> None:
     params = insert_queries[0][1]
     assert params[0] == str(alert.id)
     assert params[1] == alert.scope.scope_hint()
-    assert params[2] == tenant_id
+    assert params[2] == workspace_id
     assert params[3] is False  # acknowledged
     assert params[6] is not None  # payload
 
@@ -238,8 +238,8 @@ def test_postgres_vault_iter_alerts() -> None:
     assert results[1].message == "Alert 2"
 
 
-def test_postgres_vault_iter_alerts_filters_by_tenant() -> None:
-    """Test iterating over tenant-scoped alerts."""
+def test_postgres_vault_iter_alerts_filters_by_workspace() -> None:
+    """Test iterating over workspace-scoped alerts."""
     cipher = AesGcmCredentialCipher(key="test-key")
 
     alert = {
@@ -269,10 +269,10 @@ def test_postgres_vault_iter_alerts_filters_by_tenant() -> None:
     vault._pool = pool
     vault._initialized = True
 
-    results = list(vault._iter_alerts(tenant_id="tenant-a"))
+    results = list(vault._iter_alerts(workspace_id="workspace-a"))
     assert len(results) == 1
     assert results[0].message == "Alert 1"
-    assert "tenant_id IS NULL OR tenant_id = %s" in conn.queries[0][0]
+    assert "workspace_id IS NULL OR workspace_id = %s" in conn.queries[0][0]
 
 
 def test_postgres_vault_remove_alert() -> None:

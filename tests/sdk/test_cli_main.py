@@ -224,18 +224,18 @@ def test_env_bool_falsey(monkeypatch: pytest.MonkeyPatch) -> None:
     assert main_mod._env_bool("ORCHEO_TEST_BOOL") is False
 
 
-def test_main_tenant_option_sets_process_env(
+def test_main_workspace_option_sets_process_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """--tenant should populate ORCHEO_TENANT for downstream API calls."""
+    """--workspace should populate ORCHEO_WORKSPACE for downstream API calls."""
 
-    monkeypatch.delenv("ORCHEO_TENANT", raising=False)
+    monkeypatch.delenv("ORCHEO_WORKSPACE", raising=False)
 
     def mock_app(*args: object, **kwargs: object) -> None:
-        assert os.environ["ORCHEO_TENANT"] == "tenant-1"
+        assert os.environ["ORCHEO_WORKSPACE"] == "workspace-1"
 
     monkeypatch.setattr(main_mod, "app", mock_app)
-    monkeypatch.setattr(main_mod.sys, "argv", ["orcheo", "--tenant", "tenant-1"])
+    monkeypatch.setattr(main_mod.sys, "argv", ["orcheo", "--workspace", "workspace-1"])
 
     run()
 

@@ -176,7 +176,7 @@ def orcheo_workflow() -> StateGraph:
 async def test_get_workflow_credential_readiness_handles_missing_workflow() -> None:
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del include_archived
             return UUID(str(workflow_ref))
@@ -205,7 +205,7 @@ async def test_get_workflow_credential_readiness_without_versions() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -289,7 +289,7 @@ def orcheo_workflow() -> StateGraph:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -390,7 +390,7 @@ async def test_get_workflow_credential_readiness_reports_ready_when_all_credenti
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -432,7 +432,7 @@ async def test_get_workflow_credential_readiness_reports_not_required_when_graph
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id

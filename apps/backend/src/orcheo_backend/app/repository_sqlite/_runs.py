@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 from orcheo.models.workflow import WorkflowRun
-from orcheo.tenancy.scoping import ensure_tenant_id
+from orcheo.workspace.scoping import ensure_workspace_id
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowRunNotFoundError,
@@ -25,7 +25,7 @@ class WorkflowRunMixin(SqlitePersistenceMixin):
         input_payload: dict[str, Any],
         actor: str | None = None,
         runnable_config: dict[str, Any] | None = None,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> WorkflowRun:
         await self._ensure_initialized()
         async with self._lock:
@@ -35,7 +35,7 @@ class WorkflowRunMixin(SqlitePersistenceMixin):
             await self._ensure_workflow_health(
                 workflow_id,
                 actor=actor or triggered_by,
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
             )
             run = await self._create_run_locked(
                 workflow_id=workflow_id,
@@ -44,7 +44,7 @@ class WorkflowRunMixin(SqlitePersistenceMixin):
                 input_payload=input_payload,
                 actor=actor,
                 runnable_config=runnable_config,
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
             )
             return run.model_copy(deep=True)
 
@@ -53,18 +53,18 @@ class WorkflowRunMixin(SqlitePersistenceMixin):
         workflow_id: UUID,
         *,
         limit: int | None = None,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> list[WorkflowRun]:
         await self._ensure_initialized()
         async with self._lock:
             await self._get_workflow_locked(workflow_id)
-            if tenant_id is not None:
-                tid = ensure_tenant_id(tenant_id)
+            if workspace_id is not None:
+                tid = ensure_workspace_id(workspace_id)
                 query = """
                     SELECT payload
                       FROM workflow_runs
                      WHERE workflow_id = ?
-                       AND (tenant_id = ? OR tenant_id IS NULL)
+                       AND (workspace_id = ? OR workspace_id IS NULL)
                   ORDER BY created_at DESC
                 """
                 params: list[Any] = [str(workflow_id), tid]
@@ -91,30 +91,30 @@ class WorkflowRunMixin(SqlitePersistenceMixin):
         self,
         run_id: UUID,
         *,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> WorkflowRun:
         await self._ensure_initialized()
         async with self._lock:
             run = await self._get_run_locked(run_id)
-            if tenant_id is not None:
-                tid = ensure_tenant_id(tenant_id)
-                row_tid = await self._get_run_tenant_id_locked(run_id)
+            if workspace_id is not None:
+                tid = ensure_workspace_id(workspace_id)
+                row_tid = await self._get_run_workspace_id_locked(run_id)
                 if row_tid is not None and row_tid != tid:
                     raise WorkflowRunNotFoundError(str(run_id))
             return run
 
-    async def _get_run_tenant_id_locked(self, run_id: UUID) -> str | None:
-        """Return the tenant_id column for a workflow_run row."""
+    async def _get_run_workspace_id_locked(self, run_id: UUID) -> str | None:
+        """Return the workspace_id column for a workflow_run row."""
         async with self._connection() as conn:
             cursor = await conn.execute(
-                "SELECT tenant_id FROM workflow_runs WHERE id = ?",
+                "SELECT workspace_id FROM workflow_runs WHERE id = ?",
                 (str(run_id),),
             )
             row = await cursor.fetchone()
         if row is None:
             return None
         try:
-            return row["tenant_id"]
+            return row["workspace_id"]
         except (KeyError, IndexError, TypeError):
             return None
 

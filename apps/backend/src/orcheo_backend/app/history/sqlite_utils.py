@@ -15,7 +15,7 @@ PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS execution_history (
     execution_id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
-    tenant_id TEXT,
+    workspace_id TEXT,
     inputs TEXT NOT NULL,
     runnable_config TEXT NOT NULL DEFAULT '{}',
     tags TEXT NOT NULL DEFAULT '[]',
@@ -46,7 +46,7 @@ CREATE INDEX IF NOT EXISTS idx_history_steps_execution
 CREATE TABLE IF NOT EXISTS agentensor_checkpoints (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
-    tenant_id TEXT,
+    workspace_id TEXT,
     config_version INTEGER NOT NULL,
     runnable_config TEXT NOT NULL,
     metrics TEXT NOT NULL,
@@ -59,23 +59,23 @@ CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_workflow
     ON agentensor_checkpoints(workflow_id, config_version);
 CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_best
     ON agentensor_checkpoints(workflow_id, is_best);
-CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_tenant
-    ON agentensor_checkpoints(tenant_id, workflow_id, config_version);
+CREATE INDEX IF NOT EXISTS idx_agentensor_checkpoints_workspace_id
+    ON agentensor_checkpoints(workspace_id, workflow_id, config_version);
 CREATE TABLE IF NOT EXISTS plugin_installations (
     plugin_name TEXT NOT NULL,
-    tenant_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
-    PRIMARY KEY (plugin_name, tenant_id)
+    PRIMARY KEY (plugin_name, workspace_id)
 );
-CREATE INDEX IF NOT EXISTS idx_plugin_installations_tenant
-    ON plugin_installations(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_plugin_installations_workspace_id
+    ON plugin_installations(workspace_id);
 """
 
 INSERT_EXECUTION_SQL = """
 INSERT INTO execution_history (
     execution_id,
     workflow_id,
-    tenant_id,
+    workspace_id,
     inputs,
     runnable_config,
     tags,
@@ -111,7 +111,7 @@ VALUES (?, ?, ?, ?)
 """
 
 LIST_HISTORIES_SQL = (
-    "SELECT execution_id, workflow_id, tenant_id, inputs, runnable_config, "
+    "SELECT execution_id, workflow_id, workspace_id, inputs, runnable_config, "
     "tags, callbacks, "
     "metadata, run_name, status, started_at, completed_at, "
     "error, trace_id, trace_started_at, trace_completed_at, trace_last_span_at "
@@ -156,7 +156,7 @@ _OPTIONAL_COLUMN_ALTERS: dict[str, str] = {
     ),
     "metadata": ("ALTER TABLE execution_history ADD COLUMN metadata TEXT DEFAULT '{}'"),
     "run_name": "ALTER TABLE execution_history ADD COLUMN run_name TEXT",
-    "tenant_id": "ALTER TABLE execution_history ADD COLUMN tenant_id TEXT",
+    "workspace_id": "ALTER TABLE execution_history ADD COLUMN workspace_id TEXT",
 }
 
 
@@ -176,7 +176,7 @@ async def ensure_sqlite_schema(database_path: Path) -> None:
     """Create the history tables when the database is initialised."""
     database_path.parent.mkdir(parents=True, exist_ok=True)
     async with connect_sqlite(database_path) as conn:
-        await _ensure_agentensor_tenant_column(conn)
+        await _ensure_agentensor_workspace_column(conn)
         await conn.executescript(SCHEMA_SQL)
         await _ensure_trace_columns(conn)
         await conn.commit()
@@ -189,7 +189,7 @@ async def fetch_record_row(
     """Return the raw execution history row if present."""
     cursor = await conn.execute(
         """
-        SELECT execution_id, workflow_id, tenant_id, inputs, runnable_config,
+        SELECT execution_id, workflow_id, workspace_id, inputs, runnable_config,
                tags, callbacks, metadata, run_name, status, started_at,
                completed_at, error, trace_id, trace_started_at,
                trace_completed_at, trace_last_span_at
@@ -244,7 +244,7 @@ def row_to_record(
     return RunHistoryRecord(
         workflow_id=row["workflow_id"],
         execution_id=row["execution_id"],
-        tenant_id=row["tenant_id"],
+        workspace_id=row["workspace_id"],
         inputs=json.loads(row["inputs"]),
         runnable_config=json.loads(row["runnable_config"]),
         tags=json.loads(row["tags"]),
@@ -274,8 +274,8 @@ async def _ensure_trace_columns(conn: aiosqlite.Connection) -> None:
             await conn.execute(statement)
 
 
-async def _ensure_agentensor_tenant_column(conn: aiosqlite.Connection) -> None:
-    """Add tenant_id to agentensor_checkpoints when upgrading existing databases."""
+async def _ensure_agentensor_workspace_column(conn: aiosqlite.Connection) -> None:
+    """Add workspace_id to agentensor_checkpoints when upgrading existing databases."""
     cursor = await conn.execute(
         "SELECT name FROM sqlite_master "
         "WHERE type='table' AND name='agentensor_checkpoints'"
@@ -284,9 +284,9 @@ async def _ensure_agentensor_tenant_column(conn: aiosqlite.Connection) -> None:
         return
     cursor = await conn.execute("PRAGMA table_info(agentensor_checkpoints)")
     existing = {row["name"] for row in await cursor.fetchall()}
-    if "tenant_id" not in existing:
+    if "workspace_id" not in existing:
         await conn.execute(
-            "ALTER TABLE agentensor_checkpoints ADD COLUMN tenant_id TEXT"
+            "ALTER TABLE agentensor_checkpoints ADD COLUMN workspace_id TEXT"
         )
 
 

@@ -15,8 +15,8 @@ from orcheo_backend.app.repository import (
     WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.repository_sqlite._base import SqliteRepositoryBase
-from orcheo_backend.app.tenancy import get_tenant_repository
-from orcheo_backend.app.tenant_governance import get_tenant_governance
+from orcheo_backend.app.workspace import get_workspace_repository
+from orcheo_backend.app.workspace_governance import get_workspace_governance
 
 
 class SqlitePersistenceMixin(SqliteRepositoryBase):
@@ -24,30 +24,30 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
 
     @staticmethod
     def _deserialize_workflow(
-        payload_json: str, *, tenant_id: str | None = None
+        payload_json: str, *, workspace_id: str | None = None
     ) -> Workflow:
         """Return a Workflow instance while stripping deprecated fields."""
         payload = json.loads(payload_json)
         payload.pop("publish_token_hash", None)
         payload.pop("publish_token_rotated_at", None)
-        if tenant_id is not None:
-            payload["tenant_id"] = tenant_id
+        if workspace_id is not None:
+            payload["workspace_id"] = workspace_id
         return Workflow.model_validate(payload)
 
     async def _get_workflow_locked(self, workflow_id: UUID) -> Workflow:
         async with self._connection() as conn:
             cursor = await conn.execute(
-                "SELECT payload, tenant_id FROM workflows WHERE id = ?",
+                "SELECT payload, workspace_id FROM workflows WHERE id = ?",
                 (str(workflow_id),),
             )
             row = await cursor.fetchone()
         if row is None:
             raise WorkflowNotFoundError(str(workflow_id))
         try:
-            tenant_id = row["tenant_id"]
+            workspace_id = row["workspace_id"]
         except (KeyError, IndexError, TypeError):
-            tenant_id = None
-        return self._deserialize_workflow(row["payload"], tenant_id=tenant_id)
+            workspace_id = None
+        return self._deserialize_workflow(row["payload"], workspace_id=workspace_id)
 
     async def _workflow_exists_locked(self, workflow_id: UUID) -> bool:
         async with self._connection() as conn:
@@ -184,17 +184,19 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
         input_payload: Mapping[str, Any],
         actor: str | None,
         runnable_config: Mapping[str, Any] | None = None,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> WorkflowRun:
         version = await self._get_version_locked(workflow_version_id)
         if version.workflow_id != workflow_id:
             raise WorkflowVersionNotFoundError(str(workflow_version_id))
-        tenant_record = None
-        if tenant_id is not None:
-            tenant_record = get_tenant_repository().get_tenant(UUID(tenant_id))
-            get_tenant_governance().reserve_run_slot(
-                tenant_id,
-                limit=tenant_record.quotas.max_concurrent_runs,
+        workspace_record = None
+        if workspace_id is not None:
+            workspace_record = get_workspace_repository().get_workspace(
+                UUID(workspace_id)
+            )
+            get_workspace_governance().reserve_run_slot(
+                workspace_id,
+                limit=workspace_record.quotas.max_concurrent_runs,
             )
 
         try:
@@ -233,7 +235,7 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
                 else None
             )
             run = WorkflowRun(
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
                 workflow_version_id=workflow_version_id,
                 triggered_by=triggered_by,
                 input_payload=dict(input_payload),
@@ -259,7 +261,7 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
                         payload,
                         created_at,
                         updated_at,
-                        tenant_id
+                        workspace_id
                     )
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
@@ -272,7 +274,7 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
                         self._dump_model(run),
                         run.created_at.isoformat(),
                         run.updated_at.isoformat(),
-                        tenant_id,
+                        workspace_id,
                     ),
                 )
 
@@ -281,8 +283,8 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
                 self._trigger_layer.register_cron_run(run.id)
             return run
         except Exception:
-            if tenant_id is not None:
-                get_tenant_governance().release_run_slot(tenant_id)
+            if workspace_id is not None:
+                get_workspace_governance().release_run_slot(workspace_id)
             raise
 
 

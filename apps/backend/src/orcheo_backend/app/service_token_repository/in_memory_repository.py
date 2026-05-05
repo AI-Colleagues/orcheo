@@ -31,12 +31,12 @@ class InMemoryServiceTokenRepository(ServiceTokenRepository):
             if not record.is_revoked() and not record.is_expired(now=reference)
         ]
 
-    async def list_for_tenant(
-        self, tenant_id: str, *, now: datetime | None = None
+    async def list_for_workspace(
+        self, workspace_id: str, *, now: datetime | None = None
     ) -> list[ServiceTokenRecord]:
-        """Return active service token records owned by *tenant_id*."""
+        """Return active service token records owned by *workspace_id*."""
         active = await self.list_active(now=now)
-        return [record for record in active if record.tenant_id == tenant_id]
+        return [record for record in active if record.workspace_id == workspace_id]
 
     async def find_by_id(self, identifier: str) -> ServiceTokenRecord | None:
         """Look up a service token by identifier."""

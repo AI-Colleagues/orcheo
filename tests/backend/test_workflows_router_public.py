@@ -19,7 +19,7 @@ class _WorkflowRepo:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         if UUID(str(workflow_ref)) != self.workflow.id:
@@ -38,7 +38,7 @@ class _MissingWorkflowRepo:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         raise WorkflowNotFoundError(str(workflow_ref))
@@ -55,7 +55,7 @@ async def test_get_public_workflow_not_found_after_resolution() -> None:
             workflow_ref: str,
             *,
             include_archived: bool = True,
-            tenant_id: str | None = None,
+            workspace_id: str | None = None,
         ) -> UUID:
             del include_archived
             return UUID(str(workflow_ref))

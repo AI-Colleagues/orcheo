@@ -8,7 +8,7 @@ from langgraph.graph import MessagesState
 class State(MessagesState, total=False):
     """State for the graph."""
 
-    tenant_id: str | None
+    workspace_id: str | None
     inputs: dict[str, Any]
     results: Annotated[dict[str, Any], dict_reducer]
     structured_response: Any

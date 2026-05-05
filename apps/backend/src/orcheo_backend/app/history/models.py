@@ -37,7 +37,7 @@ class RunHistoryRecord(BaseModel):
 
     workflow_id: str
     execution_id: str
-    tenant_id: str | None = None
+    workspace_id: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     runnable_config: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
@@ -110,7 +110,7 @@ class RunHistoryStore(Protocol):
         run_name: str | None = None,
         trace_id: str | None = None,
         trace_started_at: datetime | None = None,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> RunHistoryRecord:
         """Initialise a history record for the provided execution."""
 
@@ -150,7 +150,7 @@ class RunHistoryStore(Protocol):
         workflow_id: str,
         *,
         limit: int | None = None,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> list[RunHistoryRecord]:
         """Return histories associated with the provided workflow."""
 

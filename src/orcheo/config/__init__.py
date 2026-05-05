@@ -9,7 +9,6 @@ from orcheo.config.loader import (
     _normalize_settings,
     get_settings,
 )
-from orcheo.config.tenancy_settings import MultiTenancySettings
 from orcheo.config.types import (
     ChatKitBackend,
     CheckpointBackend,
@@ -18,12 +17,13 @@ from orcheo.config.types import (
     VaultBackend,
 )
 from orcheo.config.vault_settings import VaultSettings
+from orcheo.config.workspace_settings import MultiWorkspaceSettings
 
 
 __all__ = [
     "AppSettings",
     "ChatKitRateLimitSettings",
-    "MultiTenancySettings",
+    "MultiWorkspaceSettings",
     "VaultSettings",
     "ChatKitBackend",
     "CheckpointBackend",

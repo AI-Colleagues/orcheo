@@ -25,7 +25,7 @@ from orcheo_backend.app.providers import (
     ensure_credential_service,
 )
 from orcheo_backend.app.repository import WorkflowNotFoundError, WorkflowRepository
-from orcheo_backend.app.tenancy import TenantContextDep, TenantServiceDep
+from orcheo_backend.app.workspace import WorkspaceContextDep, WorkspaceServiceDep
 
 
 _repository_ref: dict[str, WorkflowRepository] = {}
@@ -245,26 +245,26 @@ IncludeAcknowledgedQuery = Annotated[bool, Query()]
 def credential_context_from_workflow(
     workflow_id: UUID | None,
     *,
-    tenant_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> CredentialAccessContext | None:
     """Return a credential context for the provided workflow identifier."""
-    if workflow_id is None and tenant_id is None:
+    if workflow_id is None and workspace_id is None:
         return None
-    return CredentialAccessContext(workflow_id=workflow_id, tenant_id=tenant_id)
+    return CredentialAccessContext(workflow_id=workflow_id, workspace_id=workspace_id)
 
 
-async def resolve_workflow_tenant_id(
+async def resolve_workflow_workspace_id(
     repository: WorkflowRepository,
     workflow_id: UUID | None,
     *,
-    tenant_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> str | None:
-    """Return the workflow tenant id, preferring the provided tenant hint."""
-    if tenant_id is not None:
-        return tenant_id
+    """Return the workflow workspace id, preferring the provided workspace hint."""
+    if workspace_id is not None:
+        return workspace_id
     if workflow_id is None:
         return None
-    return await repository.get_workflow_tenant_id(workflow_id)
+    return await repository.get_workflow_workspace_id(workflow_id)
 
 
 async def resolve_workflow_ref_id(
@@ -272,14 +272,14 @@ async def resolve_workflow_ref_id(
     workflow_ref: str,
     *,
     include_archived: bool = True,
-    tenant_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> UUID:
     """Resolve a user-facing workflow ref to the canonical UUID."""
     try:
         return await repository.resolve_workflow_ref(
             workflow_ref,
             include_archived=include_archived,
-            tenant_id=tenant_id,
+            workspace_id=workspace_id,
         )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
@@ -304,8 +304,8 @@ __all__ = [
     "ListenerRuntimeStoreDep",
     "PluginInstallationStoreDep",
     "RepositoryDep",
-    "TenantContextDep",
-    "TenantServiceDep",
+    "WorkspaceContextDep",
+    "WorkspaceServiceDep",
     "VaultDep",
     "WorkflowIdQuery",
     "WorkflowRefQuery",
@@ -320,7 +320,7 @@ __all__ = [
     "get_vault",
     "resolve_optional_workflow_ref_id",
     "resolve_workflow_ref_id",
-    "resolve_workflow_tenant_id",
+    "resolve_workflow_workspace_id",
     "set_checkpoint_store",
     "set_credential_service",
     "set_external_agent_runtime_store",

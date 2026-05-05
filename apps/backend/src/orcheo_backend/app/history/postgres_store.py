@@ -37,7 +37,7 @@ POSTGRES_HISTORY_SCHEMA = """
 CREATE TABLE IF NOT EXISTS execution_history (
     execution_id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
-    tenant_id TEXT,
+    workspace_id TEXT,
     inputs JSONB NOT NULL,
     runnable_config JSONB NOT NULL DEFAULT '{}'::jsonb,
     tags JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -55,8 +55,8 @@ CREATE TABLE IF NOT EXISTS execution_history (
 );
 CREATE INDEX IF NOT EXISTS idx_execution_history_workflow
     ON execution_history(workflow_id);
-CREATE INDEX IF NOT EXISTS idx_execution_history_tenant
-    ON execution_history(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_execution_history_workspace_id
+    ON execution_history(workspace_id);
 
 CREATE TABLE IF NOT EXISTS execution_history_steps (
     execution_id TEXT NOT NULL,
@@ -174,7 +174,7 @@ class PostgresRunHistoryStore:
         run_name: str | None = None,
         trace_id: str | None = None,
         trace_started_at: datetime | None = None,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> RunHistoryRecord:
         """Initialise a history record for the provided execution."""
         await self._ensure_initialized()
@@ -227,7 +227,7 @@ class PostgresRunHistoryStore:
                         INSERT INTO execution_history (
                             execution_id,
                             workflow_id,
-                            tenant_id,
+                            workspace_id,
                             inputs,
                             runnable_config,
                             tags,
@@ -247,7 +247,7 @@ class PostgresRunHistoryStore:
                         (
                             execution_id,
                             workflow_id,
-                            tenant_id,
+                            workspace_id,
                             json.dumps(inputs_data),
                             json.dumps(config_dict),
                             json.dumps(tag_values),
@@ -269,7 +269,7 @@ class PostgresRunHistoryStore:
             return RunHistoryRecord(
                 workflow_id=workflow_id,
                 execution_id=execution_id,
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
                 inputs=inputs_data,
                 runnable_config=config_dict,
                 tags=tag_values,
@@ -383,12 +383,12 @@ class PostgresRunHistoryStore:
         workflow_id: str,
         *,
         limit: int | None = None,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> list[RunHistoryRecord]:
         """Return histories associated with the provided workflow."""
         await self._ensure_initialized()
         query = """
-            SELECT execution_id, workflow_id, tenant_id, inputs, runnable_config, tags,
+            SELECT execution_id, workflow_id, workspace_id, inputs, runnable_config, tags,
                    callbacks, metadata, run_name, status, started_at,
                    completed_at, error, trace_id, trace_started_at,
                    trace_completed_at, trace_last_span_at
@@ -396,9 +396,9 @@ class PostgresRunHistoryStore:
              WHERE workflow_id = %s
         """
         params: list[object] = [workflow_id]
-        if tenant_id is not None:
-            query += " AND (tenant_id = %s OR tenant_id IS NULL)"
-            params.append(tenant_id)
+        if workspace_id is not None:
+            query += " AND (workspace_id = %s OR workspace_id IS NULL)"
+            params.append(workspace_id)
         query += " ORDER BY started_at DESC"
         if limit is not None:
             query += " LIMIT %s"
@@ -468,7 +468,7 @@ class PostgresRunHistoryStore:
         """Return the raw execution history row if present."""
         cursor = await conn.execute(
             """
-            SELECT execution_id, workflow_id, tenant_id, inputs, runnable_config, tags,
+            SELECT execution_id, workflow_id, workspace_id, inputs, runnable_config, tags,
                    callbacks, metadata, run_name, status, started_at,
                    completed_at, error, trace_id, trace_started_at,
                    trace_completed_at, trace_last_span_at
@@ -537,7 +537,7 @@ class PostgresRunHistoryStore:
         return RunHistoryRecord(
             workflow_id=row["workflow_id"],
             execution_id=row["execution_id"],
-            tenant_id=row.get("tenant_id"),
+            workspace_id=row.get("workspace_id"),
             inputs=parse_json(row["inputs"]),
             runnable_config=parse_json(row["runnable_config"]),
             tags=parse_json(row["tags"]),

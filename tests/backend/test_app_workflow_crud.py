@@ -29,7 +29,7 @@ from orcheo_backend.app.schemas.workflows import (
 )
 
 
-_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
 
 
 @pytest.mark.asyncio()
@@ -52,7 +52,7 @@ async def test_list_workflows_returns_all() -> None:
 
     class Repository:
         async def list_workflows(
-            self, *, include_archived: bool = False, tenant_id=None
+            self, *, include_archived: bool = False, workspace_id=None
         ):
             del include_archived
             return [workflow1, workflow2]
@@ -98,7 +98,7 @@ async def test_list_workflows_fetches_metadata_concurrently() -> None:
 
     class Repository:
         async def list_workflows(
-            self, *, include_archived: bool = False, tenant_id=None
+            self, *, include_archived: bool = False, workspace_id=None
         ):
             del include_archived
             return [workflow1, workflow2]
@@ -136,7 +136,7 @@ async def test_create_workflow_returns_new_workflow() -> None:
             tags=None,
             draft_access=None,
             actor,
-            tenant_id=None,
+            workspace_id=None,
             handle=None,
         ):
             return Workflow(
@@ -180,9 +180,9 @@ async def test_create_workflow_translates_handle_conflicts() -> None:
             draft_access=None,
             actor,
             handle=None,
-            tenant_id=None,
+            workspace_id=None,
         ):
-            del name, slug, description, tags, draft_access, actor, handle, tenant_id
+            del name, slug, description, tags, draft_access, actor, handle, workspace_id
             raise WorkflowHandleConflictError(
                 "Workflow handle 'demo' is already in use."
             )
@@ -207,12 +207,12 @@ async def test_get_workflow_returns_workflow() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
 
-        async def get_workflow(self, wf_id, *, tenant_id=None):
+        async def get_workflow(self, wf_id, *, workspace_id=None):
             return Workflow(
                 id=wf_id,
                 name="Test Workflow",
@@ -234,12 +234,12 @@ async def test_get_workflow_not_found() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
 
-        async def get_workflow(self, wf_id, *, tenant_id=None):
+        async def get_workflow(self, wf_id, *, workspace_id=None):
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
@@ -269,12 +269,12 @@ async def test_get_workflow_canvas_returns_compact_versions() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
 
-        async def get_workflow(self, wf_id, *, tenant_id=None):
+        async def get_workflow(self, wf_id, *, workspace_id=None):
             return Workflow(
                 id=wf_id,
                 name="Test Workflow",
@@ -302,7 +302,7 @@ async def test_update_workflow_returns_updated() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -354,7 +354,7 @@ async def test_update_workflow_not_found() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -393,7 +393,7 @@ async def test_update_workflow_translates_handle_conflicts() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -435,7 +435,7 @@ async def test_archive_workflow_returns_archived() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -465,7 +465,7 @@ async def test_archive_workflow_not_found() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, tenant_id=None
+            self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
             return workflow_id

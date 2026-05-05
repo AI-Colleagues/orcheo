@@ -24,7 +24,11 @@ def _utcnow() -> datetime:
 class OrcheoBaseModel(BaseModel):
     """Base model that enforces Orcheo validation defaults."""
 
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        validate_assignment=True,
+        populate_by_name=True,
+    )
 
 
 class AuditRecord(OrcheoBaseModel):

@@ -28,13 +28,13 @@ class InMemoryRepositoryState:
         """Initialize the repository state containers and dependencies."""
         self._lock = asyncio.Lock()
         self._workflows: dict[UUID, Workflow] = {}
-        self._workflow_tenants: dict[UUID, str] = {}
+        self._workflow_workspaces: dict[UUID, str] = {}
         self._active_workflow_handles: dict[str, UUID] = {}
         self._archived_workflow_handles: dict[str, list[UUID]] = {}
         self._workflow_versions: dict[UUID, list[UUID]] = {}
         self._versions: dict[UUID, WorkflowVersion] = {}
         self._runs: dict[UUID, WorkflowRun] = {}
-        self._run_tenants: dict[UUID, str] = {}
+        self._run_workspaces: dict[UUID, str] = {}
         self._version_runs: dict[UUID, list[UUID]] = {}
         self._listener_subscriptions: dict[UUID, ListenerSubscription] = {}
         self._workflow_listener_subscriptions: dict[UUID, list[UUID]] = {}
@@ -47,13 +47,13 @@ class InMemoryRepositoryState:
         """Clear all stored workflows, versions, and runs."""
         async with self._lock:
             self._workflows.clear()
-            self._workflow_tenants.clear()
+            self._workflow_workspaces.clear()
             self._active_workflow_handles.clear()
             self._archived_workflow_handles.clear()
             self._workflow_versions.clear()
             self._versions.clear()
             self._runs.clear()
-            self._run_tenants.clear()
+            self._run_workspaces.clear()
             self._version_runs.clear()
             self._listener_subscriptions.clear()
             self._workflow_listener_subscriptions.clear()
@@ -81,7 +81,7 @@ class InMemoryRepositoryState:
         input_payload: Mapping[str, Any],
         actor: str | None = None,
         runnable_config: Mapping[str, Any] | None = None,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> WorkflowRun:
         """Create and store a workflow run. Caller must hold the lock."""
         if workflow_id not in self._workflows:  # pragma: no cover, defensive
@@ -91,15 +91,17 @@ class InMemoryRepositoryState:
         if version is None or version.workflow_id != workflow_id:
             raise WorkflowVersionNotFoundError(str(workflow_version_id))
 
-        from orcheo_backend.app.tenancy import get_tenant_repository
-        from orcheo_backend.app.tenant_governance import get_tenant_governance
+        from orcheo_backend.app.workspace import get_workspace_repository
+        from orcheo_backend.app.workspace_governance import get_workspace_governance
 
-        tenant_record = None
-        if tenant_id is not None:
-            tenant_record = get_tenant_repository().get_tenant(UUID(tenant_id))
-            get_tenant_governance().reserve_run_slot(
-                tenant_id,
-                limit=tenant_record.quotas.max_concurrent_runs,
+        workspace_record = None
+        if workspace_id is not None:
+            workspace_record = get_workspace_repository().get_workspace(
+                UUID(workspace_id)
+            )
+            get_workspace_governance().reserve_run_slot(
+                workspace_id,
+                limit=workspace_record.quotas.max_concurrent_runs,
             )
 
         try:
@@ -138,7 +140,7 @@ class InMemoryRepositoryState:
                 else None
             )
             run = WorkflowRun(
-                tenant_id=tenant_id,
+                workspace_id=workspace_id,
                 workflow_version_id=workflow_version_id,
                 triggered_by=triggered_by,
                 input_payload=dict(input_payload),
@@ -152,18 +154,20 @@ class InMemoryRepositoryState:
             )
             run.record_event(actor=actor or triggered_by, action="run_created")
             self._runs[run.id] = run
-            if tenant_id is not None:
-                self._run_tenants[run.id] = tenant_id
+            if workspace_id is not None:
+                self._run_workspaces[run.id] = workspace_id
             self._version_runs.setdefault(workflow_version_id, []).append(run.id)
             self._trigger_layer.track_run(workflow_id, run.id)
             if triggered_by == "cron":
                 self._trigger_layer.register_cron_run(run.id)
             return run
         except Exception:
-            if tenant_id is not None:
-                from orcheo_backend.app.tenant_governance import get_tenant_governance
+            if workspace_id is not None:
+                from orcheo_backend.app.workspace_governance import (
+                    get_workspace_governance,
+                )
 
-                get_tenant_governance().release_run_slot(tenant_id)
+                get_workspace_governance().release_run_slot(workspace_id)
             raise
 
     async def _update_run(
@@ -186,7 +190,7 @@ class InMemoryRepositoryState:
         workflow_id: UUID,
         *,
         actor: str | None = None,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> None:
         service = self._credential_service
         if service is None:
@@ -194,7 +198,7 @@ class InMemoryRepositoryState:
         report = await service.ensure_workflow_health(
             workflow_id,
             actor=actor,
-            tenant_id=tenant_id,
+            workspace_id=workspace_id,
         )
         if not report.is_healthy:
             raise CredentialHealthError(report)
@@ -242,7 +246,7 @@ class InMemoryRepositoryState:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         """Resolve a user-facing workflow ref to a canonical UUID."""
         normalized_ref = workflow_ref.strip().lower()
@@ -251,26 +255,28 @@ class InMemoryRepositoryState:
 
         async with self._lock:
 
-            def _tenant_matches(wf_id: UUID) -> bool:
-                if tenant_id is None:
+            def _workspace_matches(wf_id: UUID) -> bool:
+                if workspace_id is None:
                     return True
-                stored = self._workflow_tenants.get(wf_id)
-                return stored is None or stored == tenant_id
+                stored = self._workflow_workspaces.get(wf_id)
+                return stored is None or stored == workspace_id
 
             active_match = self._active_workflow_handles.get(normalized_ref)
-            if active_match is not None and _tenant_matches(active_match):
+            if active_match is not None and _workspace_matches(active_match):
                 return active_match
 
             if include_archived:
                 archived_matches = self._archived_workflow_handles.get(normalized_ref)
                 if archived_matches:
                     for wf_id in archived_matches:
-                        if _tenant_matches(wf_id):
+                        if _workspace_matches(wf_id):
                             return wf_id
 
             if workflow_ref_is_uuid(normalized_ref):
                 workflow_uuid = UUID(normalized_ref)
-                if workflow_uuid in self._workflows and _tenant_matches(workflow_uuid):
+                if workflow_uuid in self._workflows and _workspace_matches(
+                    workflow_uuid
+                ):
                     return workflow_uuid
 
         raise WorkflowNotFoundError(normalized_ref)

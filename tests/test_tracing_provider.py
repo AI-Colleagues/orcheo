@@ -56,13 +56,13 @@ def test_configure_tracing_installs_console_exporter(
     assert span_processors == ["console-exporter"]
 
 
-def test_configure_tracing_includes_tenant_resource_attribute(
+def test_configure_tracing_includes_workspace_resource_attribute(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """configure_tracing should surface the active tenant in resource metadata."""
+    """configure_tracing should surface the active workspace in resource metadata."""
 
     monkeypatch.setattr(provider, "_configured", False)
-    monkeypatch.setenv("ORCHEO_TENANT", "tenant-1")
+    monkeypatch.setenv("ORCHEO_WORKSPACE", "workspace-1")
     settings = {
         "TRACING_EXPORTER": "none",
         "TRACING_SAMPLE_RATIO": "1.0",
@@ -85,7 +85,7 @@ def test_configure_tracing_includes_tenant_resource_attribute(
 
     provider.configure_tracing(force=True)
 
-    assert captured["orcheo.tenant"] == "tenant-1"
+    assert captured["orcheo.workspace"] == "workspace-1"
 
 
 def test_get_tracer_invokes_configure_when_needed(

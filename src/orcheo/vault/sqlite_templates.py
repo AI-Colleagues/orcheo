@@ -29,7 +29,7 @@ class SQLiteTemplateStoreMixin:
                 INSERT OR REPLACE INTO credential_templates (
                     id,
                     scope_hint,
-                    tenant_id,
+                    workspace_id,
                     name,
                     provider,
                     created_at,
@@ -40,7 +40,7 @@ class SQLiteTemplateStoreMixin:
                 (
                     str(template.id),
                     template.scope.scope_hint(),
-                    template.tenant_id,
+                    template.workspace_id,
                     template.name,
                     template.provider,
                     template.created_at.isoformat(),
@@ -67,10 +67,10 @@ class SQLiteTemplateStoreMixin:
     def _iter_templates(
         self: _SQLiteConnectionSupport,
         *,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> Iterable[CredentialTemplate]:
         with self._locked_connection() as conn:
-            if tenant_id is None:
+            if workspace_id is None:
                 cursor = conn.execute(
                     """
                     SELECT payload
@@ -83,10 +83,10 @@ class SQLiteTemplateStoreMixin:
                     """
                     SELECT payload
                       FROM credential_templates
-                     WHERE tenant_id IS NULL OR tenant_id = ?
+                     WHERE workspace_id IS NULL OR workspace_id = ?
                   ORDER BY created_at ASC
                     """,
-                    (tenant_id,),
+                    (workspace_id,),
                 )
             rows = cursor.fetchall()
         for row in rows:

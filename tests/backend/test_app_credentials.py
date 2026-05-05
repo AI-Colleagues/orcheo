@@ -14,7 +14,7 @@ from orcheo.vault import (
 )
 
 
-_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
 
 
 class _Repository:
@@ -23,7 +23,7 @@ class _Repository:
         workflow_ref: str,
         *,
         include_archived: bool = True,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
@@ -70,10 +70,10 @@ async def test_list_credentials_success() -> None:
     ]
 
     class Vault:
-        def list_credentials(self, context=None, *, tenant_id=None):
+        def list_credentials(self, context=None, *, workspace_id=None):
             return creds
 
-        def list_all_credentials(self, *, tenant_id=None):
+        def list_all_credentials(self, *, workspace_id=None):
             return creds
 
     result = await list_credentials(Vault(), _Repository(), _MOCK_TENANT)
@@ -92,7 +92,7 @@ async def test_list_credentials_with_workflow_context() -> None:
     context_received = None
 
     class Vault:
-        def list_credentials(self, context=None, *, tenant_id=None):
+        def list_credentials(self, context=None, *, workspace_id=None):
             nonlocal context_received
             context_received = context
             return []
@@ -116,7 +116,16 @@ async def test_create_credential_success() -> None:
 
     class Vault:
         def create_credential(
-            self, name, provider, scopes, secret, actor, scope, kind, *, tenant_id=None
+            self,
+            name,
+            provider,
+            scopes,
+            secret,
+            actor,
+            scope,
+            kind,
+            *,
+            workspace_id=None,
         ):
             return CredentialMetadata(
                 id=cred_id,
@@ -157,7 +166,16 @@ async def test_create_credential_validation_error() -> None:
 
     class Vault:
         def create_credential(
-            self, name, provider, scopes, secret, actor, scope, kind, *, tenant_id=None
+            self,
+            name,
+            provider,
+            scopes,
+            secret,
+            actor,
+            scope,
+            kind,
+            *,
+            workspace_id=None,
         ):
             raise ValueError("Invalid credential")
 
@@ -189,7 +207,16 @@ async def test_create_credential_returns_inferred_access() -> None:
 
     class Vault:
         def create_credential(
-            self, name, provider, scopes, secret, actor, scope, kind, *, tenant_id=None
+            self,
+            name,
+            provider,
+            scopes,
+            secret,
+            actor,
+            scope,
+            kind,
+            *,
+            workspace_id=None,
         ):
             return CredentialMetadata(
                 id=cred_id,

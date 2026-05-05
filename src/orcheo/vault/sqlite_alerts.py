@@ -29,7 +29,7 @@ class SQLiteAlertStoreMixin:
                 INSERT OR REPLACE INTO governance_alerts (
                     id,
                     scope_hint,
-                    tenant_id,
+                    workspace_id,
                     acknowledged,
                     created_at,
                     updated_at,
@@ -39,7 +39,7 @@ class SQLiteAlertStoreMixin:
                 (
                     str(alert.id),
                     alert.scope.scope_hint(),
-                    alert.tenant_id,
+                    alert.workspace_id,
                     1 if alert.is_acknowledged else 0,
                     alert.created_at.isoformat(),
                     alert.updated_at.isoformat(),
@@ -65,10 +65,10 @@ class SQLiteAlertStoreMixin:
     def _iter_alerts(
         self: _SQLiteConnectionSupport,
         *,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> Iterable[SecretGovernanceAlert]:
         with self._locked_connection() as conn:
-            if tenant_id is None:
+            if workspace_id is None:
                 cursor = conn.execute(
                     """
                     SELECT payload
@@ -81,10 +81,10 @@ class SQLiteAlertStoreMixin:
                     """
                     SELECT payload
                       FROM governance_alerts
-                     WHERE tenant_id IS NULL OR tenant_id = ?
+                     WHERE workspace_id IS NULL OR workspace_id = ?
                   ORDER BY created_at ASC
                     """,
-                    (tenant_id,),
+                    (workspace_id,),
                 )
             rows = cursor.fetchall()
         for row in rows:

@@ -6,8 +6,11 @@ import uuid
 from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from orcheo_backend.app.authentication import AuthenticationError
-from orcheo_backend.app.errors import TenantQuotaExceededError, TenantRateLimitError
-from orcheo_backend.app.tenant_governance import get_tenant_governance
+from orcheo_backend.app.errors import (
+    WorkspaceQuotaExceededError,
+    WorkspaceRateLimitError,
+)
+from orcheo_backend.app.workspace_governance import get_workspace_governance
 
 
 router = APIRouter()
@@ -42,7 +45,7 @@ async def workflow_websocket(websocket: WebSocket, workflow_ref: str) -> None:  
         repository = get_repository()
         resolved_workflow_uuid = await repository.resolve_workflow_ref(workflow_ref)
         resolved_workflow_id = str(resolved_workflow_uuid)
-        workflow_tenant_id = await repository.get_workflow_tenant_id(
+        workflow_workspace_id = await repository.get_workflow_workspace_id(
             resolved_workflow_uuid
         )
         while True:
@@ -51,8 +54,10 @@ async def workflow_websocket(websocket: WebSocket, workflow_ref: str) -> None:  
             message_type = data.get("type")
             if message_type == "run_workflow":
                 execution_id = data.get("execution_id", str(uuid.uuid4()))
-                if workflow_tenant_id is not None:
-                    get_tenant_governance().check_api_rate_limit(workflow_tenant_id)
+                if workflow_workspace_id is not None:
+                    get_workspace_governance().check_api_rate_limit(
+                        workflow_workspace_id
+                    )
                 task = asyncio.create_task(
                     execute_workflow(
                         resolved_workflow_id,
@@ -60,7 +65,7 @@ async def workflow_websocket(websocket: WebSocket, workflow_ref: str) -> None:  
                         data["inputs"],
                         execution_id,
                         websocket,
-                        tenant_id=workflow_tenant_id,
+                        workspace_id=workflow_workspace_id,
                         runnable_config=data.get("runnable_config"),
                         stored_runnable_config=data.get("stored_runnable_config"),
                     )
@@ -70,8 +75,10 @@ async def workflow_websocket(websocket: WebSocket, workflow_ref: str) -> None:  
                 break
             if message_type == "evaluate_workflow":
                 execution_id = data.get("execution_id", str(uuid.uuid4()))
-                if workflow_tenant_id is not None:
-                    get_tenant_governance().check_api_rate_limit(workflow_tenant_id)
+                if workflow_workspace_id is not None:
+                    get_workspace_governance().check_api_rate_limit(
+                        workflow_workspace_id
+                    )
                 task = asyncio.create_task(
                     execute_workflow_evaluation(
                         resolved_workflow_id,
@@ -80,7 +87,7 @@ async def workflow_websocket(websocket: WebSocket, workflow_ref: str) -> None:  
                         execution_id,
                         websocket,
                         evaluation=data.get("evaluation"),
-                        tenant_id=workflow_tenant_id,
+                        workspace_id=workflow_workspace_id,
                         runnable_config=data.get("runnable_config"),
                         stored_runnable_config=data.get("stored_runnable_config"),
                     )
@@ -89,8 +96,10 @@ async def workflow_websocket(websocket: WebSocket, workflow_ref: str) -> None:  
                 break
             if message_type == "train_workflow":
                 execution_id = data.get("execution_id", str(uuid.uuid4()))
-                if workflow_tenant_id is not None:
-                    get_tenant_governance().check_api_rate_limit(workflow_tenant_id)
+                if workflow_workspace_id is not None:
+                    get_workspace_governance().check_api_rate_limit(
+                        workflow_workspace_id
+                    )
                 task = asyncio.create_task(
                     execute_workflow_training(
                         resolved_workflow_id,
@@ -99,7 +108,7 @@ async def workflow_websocket(websocket: WebSocket, workflow_ref: str) -> None:  
                         execution_id,
                         websocket,
                         training=data.get("training"),
-                        tenant_id=workflow_tenant_id,
+                        workspace_id=workflow_workspace_id,
                         runnable_config=data.get("runnable_config"),
                         stored_runnable_config=data.get("stored_runnable_config"),
                     )
@@ -113,12 +122,12 @@ async def workflow_websocket(websocket: WebSocket, workflow_ref: str) -> None:  
 
     except WebSocketDisconnect:
         return
-    except TenantRateLimitError as exc:
+    except WorkspaceRateLimitError as exc:
         await _safe_send_error_payload(
             websocket,
             {"status": "error", "error": exc.message, "code": exc.code},
         )
-    except TenantQuotaExceededError as exc:
+    except WorkspaceQuotaExceededError as exc:
         await _safe_send_error_payload(
             websocket,
             {"status": "error", "error": exc.message, "code": exc.code},

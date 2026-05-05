@@ -15,7 +15,7 @@ from orcheo_backend.app.schemas.workflows import (
 )
 
 
-_MOCK_TENANT = SimpleNamespace(tenant_id=uuid4())
+_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
 
 
 class _Repository:
@@ -33,7 +33,7 @@ class _Repository:
         tags: list[str] | None = None,
         draft_access: WorkflowDraftAccess = WorkflowDraftAccess.PERSONAL,
         actor: str,
-        tenant_id: str | None = None,
+        workspace_id: str | None = None,
         handle: str | None = None,
     ) -> Workflow:
         self.last_actor = actor
@@ -72,7 +72,7 @@ class _Repository:
         )
 
     async def resolve_workflow_ref(
-        self, workflow_ref, *, include_archived=True, tenant_id=None
+        self, workflow_ref, *, include_archived=True, workspace_id=None
     ):
         del include_archived
         return UUID(str(workflow_ref))
@@ -84,13 +84,13 @@ class _RepositoryWithExistingWorkflow(_Repository):
         self._existing_workflow = workflow
         self.last_get_workflow_id: UUID | None = None
 
-    async def get_workflow(self, workflow_id: UUID, *, tenant_id=None) -> Workflow:
+    async def get_workflow(self, workflow_id: UUID, *, workspace_id=None) -> Workflow:
         self.last_get_workflow_id = workflow_id
         return self._existing_workflow
 
 
 class _RepositoryMissingWorkflow(_Repository):
-    async def get_workflow(self, workflow_id: UUID, *, tenant_id=None) -> Workflow:
+    async def get_workflow(self, workflow_id: UUID, *, workspace_id=None) -> Workflow:
         raise WorkflowNotFoundError(str(workflow_id))
 
 

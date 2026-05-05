@@ -17,11 +17,11 @@ from orcheo.persistence import create_checkpointer, create_graph_store
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import merge_runnable_configs
 from orcheo.runtime.state_builder import build_initial_state
-from orcheo.tenancy import TenantNotFoundError
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookTriggerConfig, WebhookValidationError
 from orcheo.vault.oauth import CredentialHealthError
+from orcheo.workspace import WorkspaceNotFoundError
 from orcheo_backend.app.dependencies import (
     RepositoryDep,
     VaultDep,
@@ -29,8 +29,8 @@ from orcheo_backend.app.dependencies import (
     resolve_workflow_ref_id,
 )
 from orcheo_backend.app.errors import (
-    TenantQuotaExceededError,
-    TenantRateLimitError,
+    WorkspaceQuotaExceededError,
+    WorkspaceRateLimitError,
     raise_not_found,
     raise_webhook_error,
 )
@@ -40,8 +40,8 @@ from orcheo_backend.app.repository import (
     WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.schemas.runs import CronDispatchRequest
-from orcheo_backend.app.tenancy import TenantContextDep, TenantServiceDep
-from orcheo_backend.app.tenant_governance import get_tenant_governance
+from orcheo_backend.app.workspace import WorkspaceContextDep, WorkspaceServiceDep
+from orcheo_backend.app.workspace_governance import get_workspace_governance
 
 
 logger = logging.getLogger(__name__)
@@ -54,10 +54,10 @@ router = APIRouter()
 # validation (HMAC signatures, shared secrets, etc.) configured per workflow.
 public_webhook_router = APIRouter()
 
-# Tenant-slug-prefixed webhook router. Routes public webhooks through
-# /hooks/{tenant_slug}/{trigger_id} so callers can address a specific tenant
+# Workspace-slug-prefixed webhook router. Routes public webhooks through
+# /hooks/{workspace_slug}/{trigger_id} so callers can address a specific workspace
 # without requiring authentication.
-tenant_webhook_router = APIRouter()
+workspace_webhook_router = APIRouter()
 
 
 def _parse_webhook_body(
@@ -102,10 +102,10 @@ def _build_webhook_state(
     graph_config: Mapping[str, Any],
     inputs: dict[str, Any],
     runtime_config: Mapping[str, Any] | None,
-    tenant_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> Any:
     """Build initial state for webhook execution."""
-    return build_initial_state(graph_config, inputs, runtime_config, tenant_id)
+    return build_initial_state(graph_config, inputs, runtime_config, workspace_id)
 
 
 def _extract_immediate_response(
@@ -158,10 +158,10 @@ async def _try_immediate_response(
     settings = get_settings()
 
     repository = get_repository()
-    tenant_id = await repository.get_workflow_tenant_id(version.workflow_id)
+    workspace_id = await repository.get_workflow_workspace_id(version.workflow_id)
     credential_context = CredentialAccessContext(
         workflow_id=version.workflow_id,
-        tenant_id=tenant_id,
+        workspace_id=workspace_id,
     )
     resolver = CredentialResolver(vault, context=credential_context)
 
@@ -181,7 +181,7 @@ async def _try_immediate_response(
                         store=graph_store,
                     )
                     state = _build_webhook_state(
-                        graph_config, inputs, state_config, tenant_id
+                        graph_config, inputs, state_config, workspace_id
                     )
                     final_state = await compiled.ainvoke(state, config=runtime_config)
     except Exception:
@@ -234,11 +234,11 @@ async def configure_webhook_trigger(
     workflow_ref: str,
     request: WebhookTriggerConfig,
     repository: RepositoryDep,
-    tenant: TenantContextDep,
+    workspace: WorkspaceContextDep,
 ) -> WebhookTriggerConfig:
     """Persist webhook trigger configuration for the workflow."""
     workflow_uuid = await resolve_workflow_ref_id(
-        repository, workflow_ref, tenant_id=str(tenant.tenant_id)
+        repository, workflow_ref, workspace_id=str(workspace.workspace_id)
     )
     try:
         return await repository.configure_webhook_trigger(workflow_uuid, request)
@@ -253,11 +253,11 @@ async def configure_webhook_trigger(
 async def get_webhook_trigger_config(
     workflow_ref: str,
     repository: RepositoryDep,
-    tenant: TenantContextDep,
+    workspace: WorkspaceContextDep,
 ) -> WebhookTriggerConfig:
     """Return the configured webhook trigger definition."""
     workflow_uuid = await resolve_workflow_ref_id(
-        repository, workflow_ref, tenant_id=str(tenant.tenant_id)
+        repository, workflow_ref, workspace_id=str(workspace.workspace_id)
     )
     try:
         return await repository.get_webhook_trigger_config(workflow_uuid)
@@ -284,7 +284,7 @@ async def _queue_webhook_run(
             payload=payload,
             source_ip=source_ip,
         )
-    except TenantQuotaExceededError as exc:
+    except WorkspaceQuotaExceededError as exc:
         raise exc.as_http_exception() from exc
     except WebhookValidationError as exc:
         raise_webhook_error(exc)
@@ -338,11 +338,11 @@ async def invoke_webhook_trigger(  # noqa: C901
     """Validate inbound webhook data and enqueue a workflow run."""
     workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
-        tenant_id = await repository.get_workflow_tenant_id(workflow_uuid)
-        if tenant_id is not None:
-            get_tenant_governance().check_api_rate_limit(tenant_id)
+        workspace_id = await repository.get_workflow_workspace_id(workflow_uuid)
+        if workspace_id is not None:
+            get_workspace_governance().check_api_rate_limit(workspace_id)
         raw_body = await request.body()
-    except TenantRateLimitError as exc:
+    except WorkspaceRateLimitError as exc:
         raise exc.as_http_exception() from exc
     except Exception as exc:  # pragma: no cover - FastAPI handles body read
         raise HTTPException(
@@ -411,11 +411,11 @@ async def configure_cron_trigger(
     workflow_ref: str,
     request: CronTriggerConfig,
     repository: RepositoryDep,
-    tenant: TenantContextDep,
+    workspace: WorkspaceContextDep,
 ) -> CronTriggerConfig:
     """Persist cron trigger configuration for the workflow."""
     workflow_uuid = await resolve_workflow_ref_id(
-        repository, workflow_ref, tenant_id=str(tenant.tenant_id)
+        repository, workflow_ref, workspace_id=str(workspace.workspace_id)
     )
     try:
         return await repository.configure_cron_trigger(workflow_uuid, request)
@@ -430,11 +430,11 @@ async def configure_cron_trigger(
 async def get_cron_trigger_config(
     workflow_ref: str,
     repository: RepositoryDep,
-    tenant: TenantContextDep,
+    workspace: WorkspaceContextDep,
 ) -> CronTriggerConfig:
     """Return the configured cron trigger definition."""
     workflow_uuid = await resolve_workflow_ref_id(
-        repository, workflow_ref, tenant_id=str(tenant.tenant_id)
+        repository, workflow_ref, workspace_id=str(workspace.workspace_id)
     )
     try:
         return await repository.get_cron_trigger_config(workflow_uuid)
@@ -453,11 +453,11 @@ async def get_cron_trigger_config(
 async def delete_cron_trigger(
     workflow_ref: str,
     repository: RepositoryDep,
-    tenant: TenantContextDep,
+    workspace: WorkspaceContextDep,
 ) -> Response:
     """Remove the cron trigger configuration for the workflow."""
     workflow_uuid = await resolve_workflow_ref_id(
-        repository, workflow_ref, tenant_id=str(tenant.tenant_id)
+        repository, workflow_ref, workspace_id=str(workspace.workspace_id)
     )
     try:
         await repository.delete_cron_trigger(workflow_uuid)
@@ -484,7 +484,7 @@ async def dispatch_cron_triggers(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
-    except TenantQuotaExceededError as exc:
+    except WorkspaceQuotaExceededError as exc:
         raise exc.as_http_exception() from exc
 
 
@@ -509,47 +509,47 @@ async def dispatch_manual_runs(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
-    except TenantQuotaExceededError as exc:
+    except WorkspaceQuotaExceededError as exc:
         raise exc.as_http_exception() from exc
 
 
-async def _invoke_tenant_webhook(  # noqa: C901
-    tenant_slug: str,
+async def _invoke_workspace_webhook(  # noqa: C901
+    workspace_slug: str,
     trigger_id: str,
     request: Request,
     repository: RepositoryDep,
     vault: VaultDep,
-    tenant_service: TenantServiceDep,
+    workspace_service: WorkspaceServiceDep,
     *,
     preserve_raw_body: bool = False,
 ) -> WorkflowRun | JSONResponse | PlainTextResponse | Response:
-    """Shared implementation for tenant-slug-prefixed webhook invocation."""
+    """Shared implementation for workspace-slug-prefixed webhook invocation."""
     try:
-        tenant = tenant_service.repository.get_tenant_by_slug(tenant_slug)
-    except TenantNotFoundError:
+        workspace = workspace_service.repository.get_workspace_by_slug(workspace_slug)
+    except WorkspaceNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tenant '{tenant_slug}' not found.",
+            detail=f"Workspace '{workspace_slug}' not found.",
         ) from None
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tenant '{tenant_slug}' not found.",
+            detail=f"Workspace '{workspace_slug}' not found.",
         ) from None
 
-    tenant_id = str(tenant.id)
+    workspace_id = str(workspace.id)
     try:
-        get_tenant_governance().check_api_rate_limit(tenant_id)
-    except TenantRateLimitError as exc:
+        get_workspace_governance().check_api_rate_limit(workspace_id)
+    except WorkspaceRateLimitError as exc:
         raise exc.as_http_exception() from exc
     try:
         workflow_uuid = await resolve_workflow_ref_id(
-            repository, trigger_id, tenant_id=tenant_id
+            repository, trigger_id, workspace_id=workspace_id
         )
     except HTTPException:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Trigger '{trigger_id}' not found for tenant '{tenant_slug}'.",
+            detail=f"Trigger '{trigger_id}' not found for workspace '{workspace_slug}'.",
         ) from None
 
     try:
@@ -610,63 +610,63 @@ async def _invoke_tenant_webhook(  # noqa: C901
     return JSONResponse(content={"status": "accepted"}, status_code=202)
 
 
-@tenant_webhook_router.get(
-    "/hooks/{tenant_slug}/{trigger_id}",
+@workspace_webhook_router.get(
+    "/hooks/{workspace_slug}/{trigger_id}",
     response_model=WorkflowRun,
     status_code=status.HTTP_202_ACCEPTED,
-    operation_id="invoke_tenant_webhook_get",
+    operation_id="invoke_workspace_webhook_get",
 )
-@tenant_webhook_router.post(
-    "/hooks/{tenant_slug}/{trigger_id}",
+@workspace_webhook_router.post(
+    "/hooks/{workspace_slug}/{trigger_id}",
     response_model=WorkflowRun,
     status_code=status.HTTP_202_ACCEPTED,
-    operation_id="invoke_tenant_webhook_post",
+    operation_id="invoke_workspace_webhook_post",
 )
-@tenant_webhook_router.put(
-    "/hooks/{tenant_slug}/{trigger_id}",
+@workspace_webhook_router.put(
+    "/hooks/{workspace_slug}/{trigger_id}",
     response_model=WorkflowRun,
     status_code=status.HTTP_202_ACCEPTED,
-    operation_id="invoke_tenant_webhook_put",
+    operation_id="invoke_workspace_webhook_put",
 )
-@tenant_webhook_router.patch(
-    "/hooks/{tenant_slug}/{trigger_id}",
+@workspace_webhook_router.patch(
+    "/hooks/{workspace_slug}/{trigger_id}",
     response_model=WorkflowRun,
     status_code=status.HTTP_202_ACCEPTED,
-    operation_id="invoke_tenant_webhook_patch",
+    operation_id="invoke_workspace_webhook_patch",
 )
-@tenant_webhook_router.delete(
-    "/hooks/{tenant_slug}/{trigger_id}",
+@workspace_webhook_router.delete(
+    "/hooks/{workspace_slug}/{trigger_id}",
     response_model=WorkflowRun,
     status_code=status.HTTP_202_ACCEPTED,
-    operation_id="invoke_tenant_webhook_delete",
+    operation_id="invoke_workspace_webhook_delete",
 )
-async def invoke_tenant_webhook(
-    tenant_slug: str,
+async def invoke_workspace_webhook(
+    workspace_slug: str,
     trigger_id: str,
     request: Request,
     repository: RepositoryDep,
     vault: VaultDep,
-    tenant_service: TenantServiceDep,
+    workspace_service: WorkspaceServiceDep,
     preserve_raw_body: bool = Query(
         default=False,
         description="Store the raw request body alongside parsed payloads.",
     ),
 ) -> WorkflowRun | JSONResponse | PlainTextResponse | Response:
-    """Route a public webhook via tenant slug and trigger identifier.
+    """Route a public webhook via workspace slug and trigger identifier.
 
-    Resolves the tenant from the slug and the workflow from the trigger_id,
+    Resolves the workspace from the slug and the workflow from the trigger_id,
     then validates and enqueues the webhook run. Returns 404 when either the
     slug or trigger_id is unknown.
     """
-    return await _invoke_tenant_webhook(
-        tenant_slug,
+    return await _invoke_workspace_webhook(
+        workspace_slug,
         trigger_id,
         request,
         repository,
         vault,
-        tenant_service,
+        workspace_service,
         preserve_raw_body=preserve_raw_body,
     )
 
 
-__all__ = ["router", "public_webhook_router", "tenant_webhook_router"]
+__all__ = ["router", "public_webhook_router", "workspace_webhook_router"]
