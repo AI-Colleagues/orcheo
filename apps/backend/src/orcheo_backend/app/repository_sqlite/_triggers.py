@@ -3,7 +3,7 @@
 from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol, cast
 from uuid import UUID
 from orcheo.models.workflow import WorkflowRun
 from orcheo.triggers.cron import CronTriggerConfig
@@ -17,6 +17,10 @@ from orcheo_backend.app.repository import (
 )
 from orcheo_backend.app.repository_sqlite._base import logger
 from orcheo_backend.app.repository_sqlite._persistence import SqlitePersistenceMixin
+
+
+class _WorkflowTenantLookup(Protocol):
+    async def _get_workflow_tenant_id_locked(self, workflow_id: UUID) -> str | None: ...
 
 
 def _enqueue_run_for_execution(run: WorkflowRun) -> None:
@@ -86,7 +90,8 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
         await self._ensure_initialized()
         async with self._lock:
             await self._get_workflow_locked(workflow_id)
-            tenant_id = await self._get_workflow_tenant_id_locked(workflow_id)
+            tenant_repo = cast(_WorkflowTenantLookup, self)
+            tenant_id = await tenant_repo._get_workflow_tenant_id_locked(workflow_id)
             version = await self._get_latest_version_locked(workflow_id)
             await self._ensure_workflow_health(
                 workflow_id,
@@ -180,7 +185,10 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
                     version = await self._get_latest_version_locked(plan.workflow_id)
                 except WorkflowVersionNotFoundError:
                     continue
-                tenant_id = await self._get_workflow_tenant_id_locked(plan.workflow_id)
+                tenant_repo = cast(_WorkflowTenantLookup, self)
+                tenant_id = await tenant_repo._get_workflow_tenant_id_locked(
+                    plan.workflow_id
+                )
 
                 try:
                     await self._ensure_workflow_health(
@@ -253,7 +261,10 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
             plan = self._trigger_layer.prepare_manual_dispatch(
                 request, default_workflow_version_id=default_version_id
             )
-            tenant_id = await self._get_workflow_tenant_id_locked(request.workflow_id)
+            tenant_repo = cast(_WorkflowTenantLookup, self)
+            tenant_id = await tenant_repo._get_workflow_tenant_id_locked(
+                request.workflow_id
+            )
 
             await self._ensure_workflow_health(
                 request.workflow_id,

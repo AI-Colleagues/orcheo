@@ -43,9 +43,11 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
             row = await cursor.fetchone()
         if row is None:
             raise WorkflowNotFoundError(str(workflow_id))
-        return self._deserialize_workflow(
-            row["payload"], tenant_id=row.get("tenant_id") if row else None
-        )
+        try:
+            tenant_id = row["tenant_id"]
+        except (KeyError, IndexError, TypeError):
+            tenant_id = None
+        return self._deserialize_workflow(row["payload"], tenant_id=tenant_id)
 
     async def _workflow_exists_locked(self, workflow_id: UUID) -> bool:
         async with self._connection() as conn:

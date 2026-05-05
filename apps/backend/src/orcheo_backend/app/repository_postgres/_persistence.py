@@ -47,9 +47,11 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
             row = await cursor.fetchone()
         if row is None:
             raise WorkflowNotFoundError(str(workflow_id))
-        return self._deserialize_workflow(
-            row["payload"], tenant_id=row.get("tenant_id") if row else None
-        )
+        try:
+            tenant_id = row["tenant_id"]
+        except (KeyError, IndexError, TypeError):
+            tenant_id = None
+        return self._deserialize_workflow(row["payload"], tenant_id=tenant_id)
 
     async def _ensure_handle_available_locked(
         self,

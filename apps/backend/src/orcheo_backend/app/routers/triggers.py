@@ -537,7 +537,7 @@ async def _invoke_tenant_webhook(  # noqa: C901
             detail=f"Tenant '{tenant_slug}' not found.",
         ) from None
 
-    tenant_id = str(tenant.tenant_id)
+    tenant_id = str(tenant.id)
     try:
         get_tenant_governance().check_api_rate_limit(tenant_id)
     except TenantRateLimitError as exc:

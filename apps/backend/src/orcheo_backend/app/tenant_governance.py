@@ -5,10 +5,10 @@ import secrets
 from collections import deque
 from datetime import UTC, datetime, timedelta
 from threading import RLock
-from typing import Any
+from typing import Any, cast
 import redis
 from orcheo.config import get_settings
-from orcheo.tenancy import Tenant, TenantQuotas
+from orcheo.tenancy import TenantQuotas
 from orcheo_backend.app.errors import (
     TenantQuotaExceededError,
     TenantRateLimitError,
@@ -125,7 +125,7 @@ class TenantGovernance:
         if self._redis is not None:
             try:
                 key = self._run_key(tenant_id)
-                current = int(self._redis.incr(key))
+                current = cast(int, self._redis.incr(key))
                 if current == 1:
                     self._redis.expire(key, 24 * 60 * 60)
                 if current > limit:
@@ -157,7 +157,7 @@ class TenantGovernance:
         if self._redis is not None:
             try:
                 key = self._run_key(tenant_id)
-                current = int(self._redis.decr(key))
+                current = cast(int, self._redis.decr(key))
                 if current <= 0:
                     self._redis.delete(key)
                 return
@@ -205,7 +205,7 @@ def get_tenant_governance(*, refresh: bool = False) -> TenantGovernance:
 
 async def ensure_tenant_workflow_quota(
     repository: Any,
-    tenant: Tenant,
+    tenant: Any,
 ) -> None:
     """Validate workflow, storage, and credential-related tenant quotas."""
     tenant_id = _tenant_context_id(tenant)
@@ -247,7 +247,7 @@ async def ensure_tenant_workflow_quota(
 
 async def ensure_tenant_credential_quota(
     vault: Any,
-    tenant: Tenant,
+    tenant: Any,
 ) -> None:
     """Validate the credential quota for a tenant."""
     tenant_id = _tenant_context_id(tenant)

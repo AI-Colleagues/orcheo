@@ -25,6 +25,7 @@ from orcheo_backend.app.providers import (
     ensure_credential_service,
 )
 from orcheo_backend.app.repository import WorkflowNotFoundError, WorkflowRepository
+from orcheo_backend.app.tenancy import TenantContextDep, TenantServiceDep
 
 
 _repository_ref: dict[str, WorkflowRepository] = {}
@@ -303,6 +304,8 @@ __all__ = [
     "ListenerRuntimeStoreDep",
     "PluginInstallationStoreDep",
     "RepositoryDep",
+    "TenantContextDep",
+    "TenantServiceDep",
     "VaultDep",
     "WorkflowIdQuery",
     "WorkflowRefQuery",
