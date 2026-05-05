@@ -11,9 +11,12 @@ from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.services.tenants import (
     create_tenant_data,
     deactivate_tenant_data,
+    delete_tenant_data,
     invite_tenant_member_data,
     list_my_tenants_data,
+    list_tenant_audit_events_data,
     list_tenants_data,
+    purge_deleted_tenants_data,
     reactivate_tenant_data,
 )
 
@@ -108,6 +111,64 @@ def reactivate_tenant(
     success(f"Tenant {data['slug']} reactivated")
 
 
+@tenant_app.command("delete")
+def delete_tenant(
+    ctx: typer.Context,
+    tenant_id: Annotated[str, typer.Argument(help="Tenant identifier (UUID).")],
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Delete without prompting for confirmation.",
+        ),
+    ] = False,
+) -> None:
+    """Hard-delete a tenant."""
+    state = _state(ctx)
+    if not force and state.human:
+        confirmed = typer.confirm(
+            f"Hard-delete tenant {tenant_id} and all memberships?"
+        )
+        if not confirmed:
+            return
+    data = delete_tenant_data(state.client, tenant_id)
+    if not state.human:
+        if data is None:
+            print_machine_success(f"Tenant {tenant_id} deleted")
+        else:
+            print_json(data)
+        return
+    success(f"Tenant {tenant_id} deleted")
+
+
+@tenant_app.command("purge-deleted")
+def purge_deleted_tenants(
+    ctx: typer.Context,
+    retention_days: Annotated[
+        int,
+        typer.Option(
+            "--retention-days",
+            help="Only purge tenants deleted at least this many days ago.",
+        ),
+    ] = 30,
+) -> None:
+    """Purge deleted tenants whose retention window has expired."""
+    state = _state(ctx)
+    data = purge_deleted_tenants_data(
+        state.client,
+        retention_days=retention_days,
+    )
+    if not state.human:
+        if data is None:
+            print_machine_success(
+                f"Purged deleted tenants older than {retention_days} day(s)"
+            )
+        else:
+            print_json(data)
+        return
+    success(f"Purged deleted tenants older than {retention_days} day(s)")
+
+
 @tenant_app.command("invite")
 def invite_member(
     ctx: typer.Context,
@@ -129,6 +190,41 @@ def invite_member(
         print_json(data)
         return
     success(f"Added {user_id} as {role} in {slug}")
+
+
+@tenant_app.command("audit-log")
+def audit_log(
+    ctx: typer.Context,
+    tenant_id: Annotated[str, typer.Argument(help="Tenant identifier (UUID).")],
+    limit: Annotated[
+        int,
+        typer.Option("--limit", help="Maximum events to show."),
+    ] = 100,
+) -> None:
+    """Show the most recent audit events for a tenant."""
+    state = _state(ctx)
+    data = list_tenant_audit_events_data(state.client, tenant_id, limit=limit)
+    events = data.get("audit_events", [])
+    if not state.human:
+        print_json(data)
+        return
+    table = Table(title=f"Tenant audit events ({len(events)})")
+    table.add_column("Action", style="cyan")
+    table.add_column("Actor")
+    table.add_column("Subject")
+    table.add_column("Resource")
+    table.add_column("Created At")
+    for event in events:
+        resource = event.get("resource_type") or ""
+        resource_id = event.get("resource_id") or ""
+        table.add_row(
+            event.get("action", ""),
+            event.get("actor") or "",
+            event.get("subject") or "",
+            f"{resource}:{resource_id}" if resource_id else resource,
+            event.get("created_at", ""),
+        )
+    state.console.print(table)
 
 
 @tenant_app.command("use")

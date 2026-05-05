@@ -31,6 +31,27 @@ def _tenant_quota_value(quotas: TenantQuotas, name: str, default: int) -> int:
     return _coerce_int(value, default)
 
 
+def _tenant_context_id(tenant: Any) -> str:
+    """Return a stable tenant identifier from either tenant or request context."""
+    tenant_id = getattr(tenant, "tenant_id", None)
+    if tenant_id is None:
+        tenant_id = getattr(tenant, "id", None)
+    if tenant_id is None:
+        msg = "Tenant context is missing an identifier."
+        raise AttributeError(msg)
+    return str(tenant_id)
+
+
+def _tenant_context_slug(tenant: Any) -> str:
+    """Return a human-readable tenant slug from tenant records or context."""
+    slug = getattr(tenant, "slug", None)
+    if slug is None:
+        slug = getattr(tenant, "tenant_slug", None)
+    if slug is None:
+        return "tenant"
+    return str(slug)
+
+
 class TenantGovernance:
     """Best-effort tenant quota and rate-limit enforcement."""
 
@@ -187,7 +208,8 @@ async def ensure_tenant_workflow_quota(
     tenant: Tenant,
 ) -> None:
     """Validate workflow, storage, and credential-related tenant quotas."""
-    tenant_id = str(tenant.id)
+    tenant_id = _tenant_context_id(tenant)
+    tenant_slug = _tenant_context_slug(tenant)
     workflows = await repository.list_workflows(
         include_archived=True,
         tenant_id=tenant_id,
@@ -205,7 +227,7 @@ async def ensure_tenant_workflow_quota(
 
     if len(workflows) >= tenant.quotas.max_workflows:
         raise TenantQuotaExceededError(
-            f"Tenant {tenant.slug} reached its workflow quota",
+            f"Tenant {tenant_slug} reached its workflow quota",
             code="tenant.quota.workflows",
             details={
                 "limit": tenant.quotas.max_workflows,
@@ -214,7 +236,7 @@ async def ensure_tenant_workflow_quota(
         )
     if storage_rows >= tenant.quotas.max_storage_rows:
         raise TenantQuotaExceededError(
-            f"Tenant {tenant.slug} reached its storage quota",
+            f"Tenant {tenant_slug} reached its storage quota",
             code="tenant.quota.storage",
             details={
                 "limit": tenant.quotas.max_storage_rows,
@@ -228,11 +250,12 @@ async def ensure_tenant_credential_quota(
     tenant: Tenant,
 ) -> None:
     """Validate the credential quota for a tenant."""
-    tenant_id = str(tenant.id)
+    tenant_id = _tenant_context_id(tenant)
+    tenant_slug = _tenant_context_slug(tenant)
     credentials = vault.list_all_credentials(tenant_id=tenant_id)
     if len(credentials) >= tenant.quotas.max_credentials:
         raise TenantQuotaExceededError(
-            f"Tenant {tenant.slug} reached its credential quota",
+            f"Tenant {tenant_slug} reached its credential quota",
             code="tenant.quota.credentials",
             details={
                 "limit": tenant.quotas.max_credentials,

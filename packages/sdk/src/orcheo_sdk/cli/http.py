@@ -111,6 +111,7 @@ class ApiClient:
         self,
         path: str,
         *,
+        params: Mapping[str, Any] | None = None,
         json_body: Mapping[str, Any] | None = None,
     ) -> Any:
         """Issue a POST request and return parsed JSON when available."""
@@ -118,6 +119,7 @@ class ApiClient:
         try:
             response = httpx.post(
                 url,
+                params=params,
                 json=json_body,
                 headers=self._headers(),
                 timeout=self._timeout,

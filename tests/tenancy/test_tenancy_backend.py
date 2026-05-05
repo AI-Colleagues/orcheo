@@ -128,12 +128,30 @@ def test_admin_soft_delete_tenant_records_deleted_at(
     assert body["deleted_at"] is not None
 
 
+def test_admin_tenant_audit_events_route_lists_events(
+    tenancy_app: tuple[FastAPI, InMemoryTenantRepository],
+) -> None:
+    app, repo = tenancy_app
+    svc = TenantService(repo)
+    tenant, _ = svc.create_tenant(slug="acme", name="Acme", owner_user_id="alice")
+    client = TestClient(app)
+    response = client.get(
+        f"/api/admin/tenants/{tenant.id}/audit-events",
+        headers={"X-Orcheo-Tenant": "acme"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    actions = [event["action"] for event in payload["audit_events"]]
+    assert "tenant.created" in actions
+
+
 def test_tenant_management_routes_require_explicit_admin_role() -> None:
     """Sensitive tenant management routes should carry an explicit admin gate."""
     admin_paths = {
         "/admin/tenants",
         "/admin/tenants/{tenant_id}",
         "/admin/tenants/{tenant_id}/status",
+        "/admin/tenants/{tenant_id}/audit-events",
         "/tenants/{slug}/members",
         "/tenants/{slug}/members/{user_id}",
     }

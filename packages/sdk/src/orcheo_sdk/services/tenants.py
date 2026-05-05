@@ -51,6 +51,36 @@ def reactivate_tenant_data(client: ApiClient, tenant_id: str) -> dict[str, Any]:
     )
 
 
+def delete_tenant_data(client: ApiClient, tenant_id: str) -> dict[str, Any] | None:
+    """Hard-delete a tenant."""
+    return client.delete(f"/api/admin/tenants/{tenant_id}")
+
+
+def purge_deleted_tenants_data(
+    client: ApiClient,
+    *,
+    retention_days: int = 30,
+) -> dict[str, Any] | None:
+    """Purge soft-deleted tenants whose retention window expired."""
+    return client.post(
+        "/api/admin/tenants/purge-deleted",
+        params={"retention_days": retention_days},
+    )
+
+
+def list_tenant_audit_events_data(
+    client: ApiClient,
+    tenant_id: str,
+    *,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Return the audit events recorded for a tenant."""
+    return client.get(
+        f"/api/admin/tenants/{tenant_id}/audit-events",
+        params={"limit": str(limit)},
+    )
+
+
 def invite_tenant_member_data(
     client: ApiClient,
     *,

@@ -75,7 +75,7 @@ async def _start_chatkit_history(
     runtime_thread_id: str,
     inputs: Mapping[str, Any],
     merged_config: Any,
-    tenant_id: str | None,
+    tenant_id: str | None = None,
 ) -> None:
     """Persist run metadata in execution history for ChatKit executions."""
     try:
@@ -174,17 +174,32 @@ class WorkflowExecutor:
             self._repository.get_workflow(workflow_id),
             self._repository.get_latest_version(workflow_id),
         )
-        tenant_id = await self._repository.get_workflow_tenant_id(workflow_id)
+        get_workflow_tenant_id = getattr(
+            self._repository, "get_workflow_tenant_id", None
+        )
+        tenant_id = (
+            await get_workflow_tenant_id(workflow_id)
+            if callable(get_workflow_tenant_id)
+            else None
+        )
         normalized_inputs = dict(inputs)
         selected_model = apply_chatkit_selected_model(normalized_inputs, workflow)
         history_store = get_history_store()
-        run = await self._create_run_record(
-            workflow_id,
-            version.id,
-            actor,
-            normalized_inputs,
-            tenant_id=tenant_id,
-        )
+        if tenant_id is None:
+            run = await self._create_run_record(
+                workflow_id,
+                version.id,
+                actor,
+                normalized_inputs,
+            )
+        else:
+            run = await self._create_run_record(
+                workflow_id,
+                version.id,
+                actor,
+                normalized_inputs,
+                tenant_id=tenant_id,
+            )
         execution_id = self._resolve_execution_id(run)
         runtime_thread_id = _resolve_runtime_thread_id(inputs, execution_id)
         merged_config = merge_runnable_configs(version.runnable_config, None)
@@ -340,12 +355,19 @@ class WorkflowExecutor:
                     checkpointer=checkpointer,
                     store=graph_store,
                 )
-                payload: Any = build_initial_state(
-                    graph_config,
-                    inputs,
-                    runtime_config=state_config,
-                    tenant_id=tenant_id,
-                )
+                if tenant_id is None:
+                    payload: Any = build_initial_state(
+                        graph_config,
+                        inputs,
+                        runtime_config=state_config,
+                    )
+                else:
+                    payload = build_initial_state(
+                        graph_config,
+                        inputs,
+                        runtime_config=state_config,
+                        tenant_id=tenant_id,
+                    )
 
                 with (
                     _patched_environment(external_agent_environ),

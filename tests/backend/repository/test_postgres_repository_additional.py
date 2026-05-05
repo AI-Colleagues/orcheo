@@ -683,6 +683,7 @@ async def test_triggers_handle_webhook_trigger(
 
     responses = [
         {"row": {"payload": workflow_payload}},  # _get_workflow_locked
+        {"row": {"tenant_id": None}},  # _get_workflow_tenant_id_locked
         {"row": {"payload": version_payload}},  # _get_latest_version_locked
         {"row": {"payload": version_payload}},  # _get_version_locked (for validation)
         {},  # INSERT run

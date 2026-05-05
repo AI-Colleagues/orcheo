@@ -113,7 +113,10 @@ class WorkflowRunMixin(SqlitePersistenceMixin):
             row = await cursor.fetchone()
         if row is None:
             return None
-        return row["tenant_id"]
+        try:
+            return row["tenant_id"]
+        except (KeyError, IndexError, TypeError):
+            return None
 
     async def mark_run_started(self, run_id: UUID, *, actor: str) -> WorkflowRun:
         return await self._update_run(run_id, lambda run: run.mark_started(actor=actor))

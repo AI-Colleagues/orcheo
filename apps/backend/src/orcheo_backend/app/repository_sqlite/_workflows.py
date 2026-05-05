@@ -165,7 +165,10 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
             row = await cursor.fetchone()
         if row is None:
             return None
-        return row["tenant_id"]
+        try:
+            return row["tenant_id"]
+        except (KeyError, IndexError, TypeError):
+            return None
 
     async def get_workflow_tenant_id(self, workflow_id: UUID) -> str | None:
         """Return the tenant_id for the workflow, or None if unscoped."""

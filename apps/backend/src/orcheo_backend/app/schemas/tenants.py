@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 from orcheo.tenancy import Role, TenantQuotas, TenantStatus
@@ -13,6 +14,8 @@ __all__ = [
     "MembershipResponse",
     "MembershipRoleUpdateRequest",
     "MeMembershipsResponse",
+    "TenantAuditEventListResponse",
+    "TenantAuditEventResponse",
     "TenantCreateRequest",
     "TenantListResponse",
     "TenantResponse",
@@ -52,6 +55,30 @@ class TenantStatusUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: TenantStatus
+
+
+class TenantAuditEventResponse(BaseModel):
+    """Tenant audit event payload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    tenant_id: UUID
+    action: str
+    actor: str | None
+    subject: str | None
+    resource_type: str | None
+    resource_id: str | None
+    details: dict[str, Any]
+    created_at: datetime
+
+
+class TenantAuditEventListResponse(BaseModel):
+    """List wrapper for tenant audit events."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    audit_events: list[TenantAuditEventResponse]
 
 
 class TenantListResponse(BaseModel):

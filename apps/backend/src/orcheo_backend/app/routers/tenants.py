@@ -3,10 +3,11 @@
 from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from orcheo.tenancy import (
     Role,
     Tenant,
+    TenantAuditEvent,
     TenantMembership,
     TenantMembershipError,
     TenantNotFoundError,
@@ -20,6 +21,8 @@ from orcheo_backend.app.schemas.tenants import (
     MembershipResponse,
     MembershipRoleUpdateRequest,
     MeMembershipsResponse,
+    TenantAuditEventListResponse,
+    TenantAuditEventResponse,
     TenantCreateRequest,
     TenantListResponse,
     TenantResponse,
@@ -68,6 +71,21 @@ def _to_membership_response(membership: TenantMembership) -> MembershipResponse:
         user_id=membership.user_id,
         role=membership.role,
         created_at=membership.created_at,
+    )
+
+
+def _to_audit_event_response(event: TenantAuditEvent) -> TenantAuditEventResponse:
+    """Serialize a tenant audit event for API responses."""
+    return TenantAuditEventResponse(
+        id=event.id,
+        tenant_id=event.tenant_id,
+        action=event.action,
+        actor=event.actor,
+        subject=event.subject,
+        resource_type=event.resource_type,
+        resource_id=event.resource_id,
+        details=event.details,
+        created_at=event.created_at,
     )
 
 
@@ -153,6 +171,27 @@ def delete_tenant(
         service.hard_delete_tenant(tenant_id)
     except TenantNotFoundError:
         raise_tenant_not_found()
+
+
+@admin_router.get(
+    "/{tenant_id}/audit-events",
+    response_model=TenantAuditEventListResponse,
+)
+def list_tenant_audit_events(
+    tenant_id: UUID,
+    service: TenantServiceDep,
+    limit: int = Query(100, ge=1, le=500),
+) -> TenantAuditEventListResponse:
+    """Return the audit events recorded for a tenant."""
+    try:
+        service.repository.get_tenant(tenant_id)
+    except TenantNotFoundError:
+        raise_tenant_not_found()
+
+    events = service.repository.list_audit_events(tenant_id, limit=limit)
+    return TenantAuditEventListResponse(
+        audit_events=[_to_audit_event_response(event) for event in events]
+    )
 
 
 @admin_router.post(
