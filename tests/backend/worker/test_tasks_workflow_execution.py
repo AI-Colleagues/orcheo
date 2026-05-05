@@ -18,6 +18,7 @@ def mock_run() -> MagicMock:
     run.status.value = "pending"
     run.input_payload = {"test": "data"}
     run.runnable_config = None
+    run.tenant_id = "tenant-1"
     return run
 
 
@@ -394,7 +395,7 @@ class TestExecuteRunAsync:
             "orcheo_backend.worker.tasks._load_and_validate_run",
             return_value=(None, {"status": "failed", "error": "Not found"}),
         ):
-            result = await _execute_run_async(str(uuid4()))
+            result = await _execute_run_async(str(uuid4()), "tenant-1")
 
         assert result["status"] == "failed"
 
@@ -413,7 +414,7 @@ class TestExecuteRunAsync:
                 "orcheo_backend.worker.tasks._mark_run_started",
                 return_value={"status": "skipped", "reason": "Already started"},
             ):
-                result = await _execute_run_async(str(mock_run.id))
+                result = await _execute_run_async(str(mock_run.id), "tenant-1")
 
         assert result["status"] == "skipped"
 
@@ -434,7 +435,7 @@ class TestExecuteRunAsync:
                     "orcheo_backend.worker.tasks._execute_workflow",
                     return_value={"status": "succeeded"},
                 ) as mock_execute:
-                    result = await _execute_run_async(str(mock_run.id))
+                    result = await _execute_run_async(str(mock_run.id), "tenant-1")
 
         assert result["status"] == "succeeded"
         mock_execute.assert_called_once_with(mock_run)

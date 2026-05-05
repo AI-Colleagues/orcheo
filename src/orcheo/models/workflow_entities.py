@@ -366,6 +366,7 @@ class WorkflowRunStatus(str, Enum):
 class WorkflowRun(TimestampedAuditModel):
     """Runtime record for a workflow execution."""
 
+    tenant_id: str | None = None
     workflow_version_id: UUID
     status: WorkflowRunStatus = Field(default=WorkflowRunStatus.PENDING)
     triggered_by: str

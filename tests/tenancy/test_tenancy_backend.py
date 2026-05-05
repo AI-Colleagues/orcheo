@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 import pytest
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from orcheo.config import get_settings
 from orcheo.tenancy import (
@@ -104,7 +105,55 @@ def test_admin_update_tenant_status(
         headers={"X-Orcheo-Tenant": "acme"},
     )
     assert response.status_code == 200
-    assert response.json()["status"] == "suspended"
+    body = response.json()
+    assert body["status"] == "suspended"
+    assert body["deleted_at"] is None
+
+
+def test_admin_soft_delete_tenant_records_deleted_at(
+    tenancy_app: tuple[FastAPI, InMemoryTenantRepository],
+) -> None:
+    app, repo = tenancy_app
+    svc = TenantService(repo)
+    tenant, _ = svc.create_tenant(slug="acme", name="Acme", owner_user_id="alice")
+    client = TestClient(app)
+    response = client.patch(
+        f"/api/admin/tenants/{tenant.id}/status",
+        json={"status": "deleted"},
+        headers={"X-Orcheo-Tenant": "acme"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "deleted"
+    assert body["deleted_at"] is not None
+
+
+def test_tenant_management_routes_require_explicit_admin_role() -> None:
+    """Sensitive tenant management routes should carry an explicit admin gate."""
+    admin_paths = {
+        "/admin/tenants",
+        "/admin/tenants/{tenant_id}",
+        "/admin/tenants/{tenant_id}/status",
+        "/tenants/{slug}/members",
+        "/tenants/{slug}/members/{user_id}",
+    }
+    for route in (r for r in app_routes() if r.path in admin_paths):
+        dependency_names = {
+            getattr(dependency.call, "__name__", repr(dependency.call))
+            for dependency in route.dependant.dependencies
+        }
+        assert "_checker" in dependency_names, route.path
+
+
+def app_routes() -> list[APIRoute]:
+    """Return the tenant router routes for dependency inspection."""
+    from orcheo_backend.app.routers.tenants import admin_router, router
+
+    routes: list[APIRoute] = []
+    for candidate in [*admin_router.routes, *router.routes]:
+        if isinstance(candidate, APIRoute):
+            routes.append(candidate)
+    return routes
 
 
 def test_resolve_tenant_context_uses_only_membership(
@@ -121,6 +170,21 @@ def test_resolve_tenant_context_uses_only_membership(
     payload = response.json()
     assert payload["memberships"][0]["slug"] == "acme"
     assert payload["memberships"][0]["role"] == "owner"
+
+
+def test_active_tenant_endpoint_returns_resolved_context(
+    tenancy_app: tuple[FastAPI, InMemoryTenantRepository],
+) -> None:
+    app, repo = tenancy_app
+    svc = TenantService(repo)
+    tenant, _ = svc.create_tenant(slug="acme", name="Acme", owner_user_id="alice")
+    client = TestClient(app)
+    response = client.get("/api/tenants/active")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["tenant_id"] == str(tenant.id)
+    assert payload["slug"] == "acme"
+    assert payload["role"] == "owner"
 
 
 def test_resolve_tenant_context_requires_header_for_multi_membership(

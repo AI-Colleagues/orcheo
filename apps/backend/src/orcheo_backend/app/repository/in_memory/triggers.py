@@ -11,6 +11,7 @@ from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookRequest, WebhookTriggerConfig
 from orcheo.vault.oauth import CredentialHealthError
+from orcheo_backend.app.errors import TenantQuotaExceededError
 from orcheo_backend.app.repository.errors import (
     CronTriggerNotFoundError,
     WorkflowNotFoundError,
@@ -58,6 +59,7 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
             workflow = self._workflows.get(workflow_id)
             if workflow is None:
                 raise WorkflowNotFoundError(str(workflow_id))
+            tenant_id = self._workflow_tenants.get(workflow_id)
 
             version_ids = self._workflow_versions.get(workflow_id)
             if not version_ids:
@@ -67,7 +69,11 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
             if version is None:
                 raise WorkflowVersionNotFoundError(str(latest_version_id))
 
-            await self._ensure_workflow_health(workflow_id, actor="webhook")
+            await self._ensure_workflow_health(
+                workflow_id,
+                actor="webhook",
+                tenant_id=tenant_id,
+            )
 
             request = WebhookRequest(
                 method=method,
@@ -85,6 +91,7 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
                 triggered_by=dispatch.triggered_by,
                 input_payload=dispatch.input_payload,
                 actor=dispatch.actor,
+                tenant_id=tenant_id,
             )
             return run.model_copy(deep=True)
 
@@ -131,8 +138,13 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
                 workflow_id = plan.workflow_id
                 if workflow_id not in self._workflows:
                     continue
+                tenant_id = self._workflow_tenants.get(workflow_id)
                 try:
-                    await self._ensure_workflow_health(workflow_id, actor="cron")
+                    await self._ensure_workflow_health(
+                        workflow_id,
+                        actor="cron",
+                        tenant_id=tenant_id,
+                    )
                 except CredentialHealthError as exc:  # pragma: no cover - logging only
                     logger.warning(
                         "Skipping cron dispatch for workflow %s due to credential "
@@ -149,16 +161,25 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
                 if version is None:
                     continue
 
-                run = self._create_run_locked(
-                    workflow_id=workflow_id,
-                    workflow_version_id=version.id,
-                    triggered_by="cron",
-                    input_payload={
-                        "scheduled_for": plan.scheduled_for.isoformat(),
-                        "timezone": plan.timezone,
-                    },
-                    actor="cron",
-                )
+                try:
+                    run = self._create_run_locked(
+                        workflow_id=workflow_id,
+                        workflow_version_id=version.id,
+                        triggered_by="cron",
+                        input_payload={
+                            "scheduled_for": plan.scheduled_for.isoformat(),
+                            "timezone": plan.timezone,
+                        },
+                        actor="cron",
+                        tenant_id=tenant_id,
+                    )
+                except TenantQuotaExceededError:
+                    logger.warning(
+                        "Skipping cron dispatch for workflow %s because tenant "
+                        "quota was exceeded",
+                        workflow_id,
+                    )
+                    continue
                 self._trigger_layer.commit_cron_dispatch(workflow_id)
                 runs.append(run.model_copy(deep=True))
             return runs
@@ -183,8 +204,11 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
             triggered_by = plan.triggered_by
             resolved_runs = plan.runs
 
+            tenant_id = self._workflow_tenants.get(request.workflow_id)
             await self._ensure_workflow_health(
-                request.workflow_id, actor=plan.actor or triggered_by
+                request.workflow_id,
+                actor=plan.actor or triggered_by,
+                tenant_id=tenant_id,
             )
 
             for resolved in resolved_runs:
@@ -195,13 +219,22 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
                     )
 
             for resolved in resolved_runs:
-                run = self._create_run_locked(
-                    workflow_id=request.workflow_id,
-                    workflow_version_id=resolved.workflow_version_id,
-                    triggered_by=triggered_by,
-                    input_payload=resolved.input_payload,
-                    actor=plan.actor,
-                )
+                try:
+                    run = self._create_run_locked(
+                        workflow_id=request.workflow_id,
+                        workflow_version_id=resolved.workflow_version_id,
+                        triggered_by=triggered_by,
+                        input_payload=resolved.input_payload,
+                        actor=plan.actor,
+                        tenant_id=tenant_id,
+                    )
+                except TenantQuotaExceededError:
+                    logger.warning(
+                        "Skipping manual dispatch for workflow %s because tenant "
+                        "quota was exceeded",
+                        request.workflow_id,
+                    )
+                    continue
                 runs.append(run.model_copy(deep=True))
             return runs
 

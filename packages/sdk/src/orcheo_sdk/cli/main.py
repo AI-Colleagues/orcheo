@@ -98,6 +98,16 @@ def _parse_auth_mode(value: str | None) -> str | None:
     return normalized
 
 
+def _extract_tenant_from_argv(argv: list[str]) -> str | None:
+    """Return the tenant slug passed on the command line, if present."""
+    for index, arg in enumerate(argv):
+        if arg == "--tenant" and index + 1 < len(argv):
+            return argv[index + 1].strip() or None
+        if arg.startswith("--tenant="):
+            return arg.split("=", 1)[1].strip() or None
+    return None
+
+
 app = typer.Typer(help="Command line interface for Orcheo workflows.")
 app.add_typer(auth_app, name="auth")
 app.add_typer(node_app, name="node")
@@ -155,6 +165,13 @@ def main(
         str | None,
         typer.Option("--service-token", help="Override the service token."),
     ] = None,
+    tenant: Annotated[
+        str | None,
+        typer.Option(
+            "--tenant",
+            help="Active tenant slug to send on API requests for this invocation.",
+        ),
+    ] = None,
     offline: Annotated[
         bool,
         typer.Option("--offline", help="Use cached data when network calls fail."),
@@ -182,6 +199,13 @@ def main(
     # Skip expensive initialization during shell completion
     if _is_completion_mode():
         return  # pragma: no cover
+
+    if tenant is not None:
+        normalized_tenant = tenant.strip()
+        if normalized_tenant:
+            os.environ["ORCHEO_TENANT"] = normalized_tenant
+        else:
+            os.environ.pop("ORCHEO_TENANT", None)
 
     resolved_human = human or _env_bool("ORCHEO_HUMAN")
     console = Console() if resolved_human else Console(no_color=True, highlight=False)
@@ -735,9 +759,14 @@ def _print_cli_error_machine(exc: CLIError) -> None:
     print_json(error_data)
 
 
-def run() -> None:
+def run() -> None:  # noqa: C901,PLR0912
     """Entry point used by console scripts."""
     human_mode = _env_bool("ORCHEO_HUMAN") or "--human" in sys.argv
+    tenant = _extract_tenant_from_argv(sys.argv[1:])
+    if tenant is not None:
+        os.environ["ORCHEO_TENANT"] = tenant
+    elif any(arg == "--tenant" or arg.startswith("--tenant=") for arg in sys.argv[1:]):
+        os.environ.pop("ORCHEO_TENANT", None)
     original_rich_markup = getattr(app, "rich_markup_mode", None)
     if not human_mode and hasattr(app, "rich_markup_mode"):
         app.rich_markup_mode = None

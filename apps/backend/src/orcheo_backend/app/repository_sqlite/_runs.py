@@ -32,7 +32,11 @@ class WorkflowRunMixin(SqlitePersistenceMixin):
             workflow = await self._get_workflow_locked(workflow_id)
             if workflow.is_archived:
                 raise WorkflowNotFoundError(str(workflow_id))
-            await self._ensure_workflow_health(workflow_id, actor=actor or triggered_by)
+            await self._ensure_workflow_health(
+                workflow_id,
+                actor=actor or triggered_by,
+                tenant_id=tenant_id,
+            )
             run = await self._create_run_locked(
                 workflow_id=workflow_id,
                 workflow_version_id=workflow_version_id,

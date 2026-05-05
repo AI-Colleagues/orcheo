@@ -92,7 +92,11 @@ def test_deactivate_and_hard_delete_tenant() -> None:
     assert fetched.status is TenantStatus.SUSPENDED
     svc.reactivate_tenant(tenant.id)
     assert svc.repository.get_tenant(tenant.id).status is TenantStatus.ACTIVE
-    svc.hard_delete_tenant(tenant.id)
+    soft_deleted = svc.soft_delete_tenant(tenant.id)
+    assert soft_deleted.status is TenantStatus.DELETED
+    assert soft_deleted.deleted_at is not None
+    purged = svc.purge_deleted_tenants(retention_days=0)
+    assert purged and purged[0].id == tenant.id
     assert svc.resolver.list_memberships("alice") == []
 
 

@@ -90,8 +90,11 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
                     "MULTI_TENANCY_ENABLED", _DEFAULTS["MULTI_TENANCY_ENABLED"]
                 ),
                 default_tenant_slug=source.get(
-                    "MULTI_TENANCY_DEFAULT_TENANT_SLUG",
-                    _DEFAULTS["MULTI_TENANCY_DEFAULT_TENANT_SLUG"],
+                    "DEFAULT_TENANT",
+                    source.get(
+                        "MULTI_TENANCY_DEFAULT_TENANT_SLUG",
+                        _DEFAULTS["MULTI_TENANCY_DEFAULT_TENANT_SLUG"],
+                    ),
                 ),
                 tenant_header=source.get(
                     "MULTI_TENANCY_TENANT_HEADER",
@@ -176,6 +179,7 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
         "MULTI_TENANCY_DEFAULT_TENANT_SLUG",
         settings.multi_tenancy.default_tenant_slug,
     )
+    normalized.set("DEFAULT_TENANT", settings.multi_tenancy.default_tenant_slug)
     normalized.set("MULTI_TENANCY_TENANT_HEADER", settings.multi_tenancy.tenant_header)
     normalized.set("CHATKIT_RATE_LIMITS", settings.chatkit_rate_limits.model_dump())
     normalized.set("TRACING_EXPORTER", settings.tracing_exporter)

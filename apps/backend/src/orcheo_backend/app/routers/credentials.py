@@ -19,7 +19,11 @@ from orcheo_backend.app.dependencies import (
     credential_context_from_workflow,
     resolve_optional_workflow_ref_id,
 )
-from orcheo_backend.app.errors import raise_not_found, raise_scope_error
+from orcheo_backend.app.errors import (
+    TenantQuotaExceededError,
+    raise_not_found,
+    raise_scope_error,
+)
 from orcheo_backend.app.schemas.credentials import (
     CredentialCreateRequest,
     CredentialSecretResponse,
@@ -27,6 +31,7 @@ from orcheo_backend.app.schemas.credentials import (
     CredentialVaultEntryResponse,
 )
 from orcheo_backend.app.tenancy import TenantContextDep
+from orcheo_backend.app.tenant_governance import ensure_tenant_credential_quota
 
 
 router = APIRouter()
@@ -77,6 +82,7 @@ async def create_credential(
         )
     scope = scope_from_access(request.access, workflow_id)
     try:
+        await ensure_tenant_credential_quota(vault, tenant)
         metadata = vault.create_credential(
             name=request.name,
             provider=request.provider,
@@ -92,6 +98,8 @@ async def create_credential(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from exc
+    except TenantQuotaExceededError as exc:
+        raise exc.as_http_exception() from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -109,6 +117,7 @@ async def reveal_credential_secret(
     credential_id: UUID,
     vault: VaultDep,
     repository: RepositoryDep,
+    tenant: TenantContextDep,
     workflow_id: WorkflowRefQuery = None,
 ) -> CredentialSecretResponse:
     """Reveal and return the decrypted credential secret."""
@@ -122,6 +131,22 @@ async def reveal_credential_secret(
         raise_not_found("Credential not found", exc)
     except WorkflowScopeError as exc:
         raise_scope_error(exc)
+    from orcheo.tenancy import TenantAuditEvent
+    from orcheo_backend.app.tenancy import get_tenant_repository
+
+    try:
+        get_tenant_repository().record_audit_event(
+            TenantAuditEvent(
+                tenant_id=tenant.tenant_id,
+                action="vault.read",
+                actor=tenant.user_id,
+                subject=str(credential_id),
+                resource_type="credential",
+                resource_id=str(credential_id),
+            )
+        )
+    except Exception:  # pragma: no cover - audit is best effort
+        pass
     return CredentialSecretResponse(id=str(credential_id), secret=secret)
 
 

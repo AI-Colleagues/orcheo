@@ -10,6 +10,7 @@ def build_initial_state(
     graph_config: Mapping[str, Any],
     inputs: Any,
     runtime_config: Mapping[str, Any] | None = None,
+    tenant_id: str | None = None,
 ) -> Any:
     """Return the initial workflow state used by runtime entrypoints."""
     runtime_state_config = (
@@ -23,11 +24,13 @@ def build_initial_state(
         state.setdefault("inputs", dict(inputs))
         state.setdefault("results", {})
         state.setdefault("messages", [])
+        state.setdefault("tenant_id", tenant_id)
         state["config"] = runtime_state_config
         return state
 
     normalized_inputs = dict(inputs) if isinstance(inputs, Mapping) else inputs
     return {
+        "tenant_id": tenant_id,
         "messages": [],
         "results": {},
         "inputs": normalized_inputs,

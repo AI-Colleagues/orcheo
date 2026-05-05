@@ -3,6 +3,7 @@
 from __future__ import annotations
 from typing import Protocol
 from uuid import UUID
+from orcheo.models.base import _utcnow
 from orcheo.tenancy.errors import (
     TenantMembershipError,
     TenantNotFoundError,
@@ -11,6 +12,7 @@ from orcheo.tenancy.errors import (
 from orcheo.tenancy.models import (
     Role,
     Tenant,
+    TenantAuditEvent,
     TenantMembership,
     TenantStatus,
     normalize_slug,
@@ -64,6 +66,14 @@ class TenantRepository(Protocol):
     def list_memberships_for_tenant(self, tenant_id: UUID) -> list[TenantMembership]:
         """Return every membership inside a tenant."""
 
+    def record_audit_event(self, event: TenantAuditEvent) -> TenantAuditEvent:
+        """Persist a tenant audit event."""
+
+    def list_audit_events(
+        self, tenant_id: UUID, *, limit: int = 100
+    ) -> list[TenantAuditEvent]:
+        """Return the most recent tenant audit events."""
+
 
 class InMemoryTenantRepository:
     """In-memory tenant repository used for tests and embedded deployments."""
@@ -73,6 +83,7 @@ class InMemoryTenantRepository:
         self._tenants: dict[UUID, Tenant] = {}
         self._slug_index: dict[str, UUID] = {}
         self._memberships: dict[tuple[UUID, str], TenantMembership] = {}
+        self._audit_events: list[TenantAuditEvent] = []
 
     def create_tenant(self, tenant: Tenant) -> Tenant:
         """Persist a new tenant; raises on slug conflict."""
@@ -113,6 +124,7 @@ class InMemoryTenantRepository:
         """Mutate the tenant's status and return the updated record."""
         tenant = self.get_tenant(tenant_id)
         tenant.status = status
+        tenant.deleted_at = _utcnow() if status is TenantStatus.DELETED else None
         return tenant
 
     def delete_tenant(self, tenant_id: UUID) -> None:
@@ -123,6 +135,9 @@ class InMemoryTenantRepository:
         for key in list(self._memberships):
             if key[0] == tenant.id:
                 self._memberships.pop(key, None)
+        self._audit_events = [
+            event for event in self._audit_events if event.tenant_id != tenant.id
+        ]
 
     def add_membership(self, membership: TenantMembership) -> TenantMembership:
         """Persist a new membership; raises on duplicates."""
@@ -173,3 +188,15 @@ class InMemoryTenantRepository:
     def list_memberships_for_tenant(self, tenant_id: UUID) -> list[TenantMembership]:
         """Return every membership inside a tenant."""
         return [m for m in self._memberships.values() if m.tenant_id == tenant_id]
+
+    def record_audit_event(self, event: TenantAuditEvent) -> TenantAuditEvent:
+        """Persist a tenant audit event."""
+        self._audit_events.append(event)
+        return event
+
+    def list_audit_events(
+        self, tenant_id: UUID, *, limit: int = 100
+    ) -> list[TenantAuditEvent]:
+        """Return the most recent tenant audit events."""
+        events = [event for event in self._audit_events if event.tenant_id == tenant_id]
+        return list(reversed(events[-limit:]))

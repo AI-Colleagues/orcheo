@@ -72,7 +72,7 @@ class InMemoryRepositoryState:
         """Synchronize listener subscriptions for the workflow version."""
         del workflow_id, workflow_version_id, graph, actor
 
-    def _create_run_locked(
+    def _create_run_locked(  # noqa: C901
         self,
         *,
         workflow_id: UUID,
@@ -91,57 +91,80 @@ class InMemoryRepositoryState:
         if version is None or version.workflow_id != workflow_id:
             raise WorkflowVersionNotFoundError(str(workflow_version_id))
 
-        config_payload: dict[str, Any] | None = None
-        if runnable_config:
-            if hasattr(runnable_config, "model_dump"):
-                config_payload = runnable_config.model_dump(mode="json")  # type: ignore[arg-type]
-            elif isinstance(runnable_config, Mapping):  # pragma: no branch
-                config_payload = dict(runnable_config)
-        merged_config = merge_runnable_configs(version.runnable_config, config_payload)
-        config_payload = merged_config.model_dump(
-            mode="json",
-            exclude_defaults=True,
-            exclude_none=True,
-        )
-        tags = (
-            list(config_payload.get("tags", []))
-            if isinstance(config_payload, dict)
-            else []
-        )
-        callbacks = (
-            list(config_payload.get("callbacks", []))
-            if isinstance(config_payload, dict)
-            else []
-        )
-        metadata = (
-            dict(config_payload.get("metadata", {}))
-            if isinstance(config_payload, Mapping)
-            else {}
-        )
-        run_name = (
-            config_payload.get("run_name")
-            if isinstance(config_payload, Mapping)
-            else None
-        )
-        run = WorkflowRun(
-            workflow_version_id=workflow_version_id,
-            triggered_by=triggered_by,
-            input_payload=dict(input_payload),
-            runnable_config=config_payload if isinstance(config_payload, dict) else {},
-            tags=tags,
-            callbacks=callbacks,
-            metadata=metadata,
-            run_name=run_name,
-        )
-        run.record_event(actor=actor or triggered_by, action="run_created")
-        self._runs[run.id] = run
+        from orcheo_backend.app.tenancy import get_tenant_repository
+        from orcheo_backend.app.tenant_governance import get_tenant_governance
+
+        tenant_record = None
         if tenant_id is not None:
-            self._run_tenants[run.id] = tenant_id
-        self._version_runs.setdefault(workflow_version_id, []).append(run.id)
-        self._trigger_layer.track_run(workflow_id, run.id)
-        if triggered_by == "cron":
-            self._trigger_layer.register_cron_run(run.id)
-        return run
+            tenant_record = get_tenant_repository().get_tenant(UUID(tenant_id))
+            get_tenant_governance().reserve_run_slot(
+                tenant_id,
+                limit=tenant_record.quotas.max_concurrent_runs,
+            )
+
+        try:
+            config_payload: dict[str, Any] | None = None
+            if runnable_config:
+                if hasattr(runnable_config, "model_dump"):
+                    config_payload = runnable_config.model_dump(mode="json")  # type: ignore[arg-type]
+                elif isinstance(runnable_config, Mapping):  # pragma: no branch
+                    config_payload = dict(runnable_config)
+            merged_config = merge_runnable_configs(
+                version.runnable_config, config_payload
+            )
+            config_payload = merged_config.model_dump(
+                mode="json",
+                exclude_defaults=True,
+                exclude_none=True,
+            )
+            tags = (
+                list(config_payload.get("tags", []))
+                if isinstance(config_payload, dict)
+                else []
+            )
+            callbacks = (
+                list(config_payload.get("callbacks", []))
+                if isinstance(config_payload, dict)
+                else []
+            )
+            metadata = (
+                dict(config_payload.get("metadata", {}))
+                if isinstance(config_payload, Mapping)
+                else {}
+            )
+            run_name = (
+                config_payload.get("run_name")
+                if isinstance(config_payload, Mapping)
+                else None
+            )
+            run = WorkflowRun(
+                tenant_id=tenant_id,
+                workflow_version_id=workflow_version_id,
+                triggered_by=triggered_by,
+                input_payload=dict(input_payload),
+                runnable_config=config_payload
+                if isinstance(config_payload, dict)
+                else {},
+                tags=tags,
+                callbacks=callbacks,
+                metadata=metadata,
+                run_name=run_name,
+            )
+            run.record_event(actor=actor or triggered_by, action="run_created")
+            self._runs[run.id] = run
+            if tenant_id is not None:
+                self._run_tenants[run.id] = tenant_id
+            self._version_runs.setdefault(workflow_version_id, []).append(run.id)
+            self._trigger_layer.track_run(workflow_id, run.id)
+            if triggered_by == "cron":
+                self._trigger_layer.register_cron_run(run.id)
+            return run
+        except Exception:
+            if tenant_id is not None:
+                from orcheo_backend.app.tenant_governance import get_tenant_governance
+
+                get_tenant_governance().release_run_slot(tenant_id)
+            raise
 
     async def _update_run(
         self, run_id: UUID, updater: Callable[[WorkflowRun], None]
@@ -159,12 +182,20 @@ class InMemoryRepositoryState:
         self._trigger_layer.release_cron_run(run_id)
 
     async def _ensure_workflow_health(
-        self, workflow_id: UUID, *, actor: str | None = None
+        self,
+        workflow_id: UUID,
+        *,
+        actor: str | None = None,
+        tenant_id: str | None = None,
     ) -> None:
         service = self._credential_service
         if service is None:
             return
-        report = await service.ensure_workflow_health(workflow_id, actor=actor)
+        report = await service.ensure_workflow_health(
+            workflow_id,
+            actor=actor,
+            tenant_id=tenant_id,
+        )
         if not report.is_healthy:
             raise CredentialHealthError(report)
 

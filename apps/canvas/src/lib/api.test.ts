@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  getActiveTenant,
   disconnectExternalAgent,
   executeNode,
   getExternalAgentLoginSession,
@@ -181,6 +182,26 @@ describe("executeNode", () => {
     expect(result.backend.package).toBe("orcheo-backend");
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining("/api/system/info"),
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("should fetch active tenant summary", async () => {
+    const mockResponse = {
+      tenant_id: "tenant-1",
+      slug: "acme",
+      name: "Acme",
+      role: "owner",
+    };
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockResponse,
+    });
+
+    const result = await getActiveTenant();
+    expect(result.slug).toBe("acme");
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/tenants/active"),
       expect.objectContaining({ method: "GET" }),
     );
   });

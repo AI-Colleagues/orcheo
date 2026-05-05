@@ -42,6 +42,13 @@ from orcheo_backend.app.workflow_execution import (
 backend_app_module = importlib.import_module("orcheo_backend.app")
 
 
+async def _echo_tenant_id(
+    repository: Any, workflow_id: UUID | None, tenant_id: str | None = None
+) -> str | None:
+    del repository, workflow_id
+    return tenant_id
+
+
 def test_report_history_error_logs_and_updates_tracing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -110,15 +117,16 @@ def test_build_initial_state_langgraph_formats() -> None:
     inputs = {"foo": "bar"}
     runtime_config = {"configurable": {"thread_id": "thread"}}
     state = workflow_execution._build_initial_state(
-        {"format": LANGGRAPH_SCRIPT_FORMAT}, inputs, None
+        {"format": LANGGRAPH_SCRIPT_FORMAT}, inputs, None, "tenant-1"
     )
     assert state["inputs"] == inputs
     assert state["results"] == {}
     assert state["messages"] == []
+    assert state["tenant_id"] == "tenant-1"
     assert state["config"] == {}
 
     state_with_config = workflow_execution._build_initial_state(
-        {"format": LANGGRAPH_SCRIPT_FORMAT}, inputs, runtime_config
+        {"format": LANGGRAPH_SCRIPT_FORMAT}, inputs, runtime_config, "tenant-1"
     )
     assert state_with_config["config"] == runtime_config
     assert state_with_config["foo"] == "bar"
@@ -128,17 +136,18 @@ def test_build_initial_state_langgraph_non_mapping_returns_inputs() -> None:
     data = ["value"]
     runtime_config = {"config": "value"}
     state = workflow_execution._build_initial_state(
-        {"format": LANGGRAPH_SCRIPT_FORMAT}, data, runtime_config
+        {"format": LANGGRAPH_SCRIPT_FORMAT}, data, runtime_config, "tenant-1"
     )
     assert state is data
 
 
 def test_build_initial_state_default_structure() -> None:
     state = workflow_execution._build_initial_state(
-        {"format": "graph"}, {"foo": "bar"}, {"config": "value"}
+        {"format": "graph"}, {"foo": "bar"}, {"config": "value"}, "tenant-1"
     )
     assert state["messages"] == []
     assert state["inputs"]["foo"] == "bar"
+    assert state["tenant_id"] == "tenant-1"
 
 
 def test_prepare_runnable_config_accepts_model() -> None:
@@ -286,8 +295,14 @@ async def test_execute_workflow_reports_history_store_failure(
             return []
 
     monkeypatch.setattr(workflow_execution, "get_vault", lambda: DummyVault())
+    monkeypatch.setattr(workflow_execution, "get_repository", lambda: object())
     monkeypatch.setattr(
-        workflow_execution, "credential_context_from_workflow", lambda _: {}
+        workflow_execution, "resolve_workflow_tenant_id", _echo_tenant_id
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "credential_context_from_workflow",
+        lambda workflow_id, tenant_id=None: {"workflow_id": workflow_id},
     )
     monkeypatch.setattr(
         workflow_execution, "CredentialResolver", lambda *args, **kwargs: object()
@@ -824,6 +839,10 @@ async def test_execute_workflow_completes_for_invalid_workflow_id(
 
     monkeypatch.setattr(workflow_execution, "get_settings", lambda: {})
     monkeypatch.setattr(workflow_execution, "get_history_store", lambda: history_store)
+    monkeypatch.setattr(workflow_execution, "get_repository", lambda: object())
+    monkeypatch.setattr(
+        workflow_execution, "resolve_workflow_tenant_id", _echo_tenant_id
+    )
 
     class DummyVault:
         def list_all_credentials(self) -> list[Any]:
@@ -833,7 +852,7 @@ async def test_execute_workflow_completes_for_invalid_workflow_id(
     monkeypatch.setattr(
         workflow_execution,
         "credential_context_from_workflow",
-        lambda workflow_id: {"workflow_id": workflow_id},
+        lambda workflow_id, tenant_id=None: {"workflow_id": workflow_id},
     )
     monkeypatch.setattr(
         workflow_execution,
@@ -951,10 +970,14 @@ async def test_execute_node_runs_node_with_prepared_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(workflow_execution, "get_vault", lambda: object())
+    monkeypatch.setattr(workflow_execution, "get_repository", lambda: object())
+    monkeypatch.setattr(
+        workflow_execution, "resolve_workflow_tenant_id", _echo_tenant_id
+    )
     monkeypatch.setattr(
         workflow_execution,
         "credential_context_from_workflow",
-        lambda workflow_id: {"workflow_id": workflow_id},
+        lambda workflow_id, tenant_id=None: {"workflow_id": workflow_id},
     )
     monkeypatch.setattr(
         workflow_execution,
@@ -1663,11 +1686,15 @@ async def test_execute_workflow_evaluation_completes(
     history_store.mark_completed = AsyncMock()
     monkeypatch.setattr(workflow_execution, "get_history_store", lambda: history_store)
     monkeypatch.setattr(workflow_execution, "get_settings", lambda: {})
+    monkeypatch.setattr(workflow_execution, "get_repository", lambda: object())
+    monkeypatch.setattr(
+        workflow_execution, "resolve_workflow_tenant_id", _echo_tenant_id
+    )
     monkeypatch.setattr(workflow_execution, "get_vault", lambda: object())
     monkeypatch.setattr(
         workflow_execution,
         "credential_context_from_workflow",
-        lambda _: {},
+        lambda workflow_id, tenant_id=None: {"workflow_id": workflow_id},
     )
     monkeypatch.setattr(
         workflow_execution,
@@ -1717,11 +1744,15 @@ async def test_execute_workflow_training_completes(
     monkeypatch.setattr(workflow_execution, "get_history_store", lambda: history_store)
     monkeypatch.setattr(workflow_execution, "get_settings", lambda: {})
     monkeypatch.setattr(workflow_execution, "get_checkpoint_store", lambda: object())
+    monkeypatch.setattr(workflow_execution, "get_repository", lambda: object())
+    monkeypatch.setattr(
+        workflow_execution, "resolve_workflow_tenant_id", _echo_tenant_id
+    )
     monkeypatch.setattr(workflow_execution, "get_vault", lambda: object())
     monkeypatch.setattr(
         workflow_execution,
         "credential_context_from_workflow",
-        lambda _: {},
+        lambda workflow_id, tenant_id=None: {"workflow_id": workflow_id},
     )
     monkeypatch.setattr(
         workflow_execution,

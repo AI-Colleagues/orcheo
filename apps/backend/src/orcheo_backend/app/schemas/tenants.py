@@ -8,6 +8,7 @@ from orcheo.tenancy import Role, TenantQuotas, TenantStatus
 
 
 __all__ = [
+    "ActiveTenantResponse",
     "MembershipCreateRequest",
     "MembershipResponse",
     "MembershipRoleUpdateRequest",
@@ -40,6 +41,7 @@ class TenantResponse(BaseModel):
     name: str
     status: TenantStatus
     quotas: TenantQuotas
+    deleted_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -58,6 +60,17 @@ class TenantListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tenants: list[TenantResponse]
+
+
+class ActiveTenantResponse(BaseModel):
+    """Read-only current tenant summary for UI indicators."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: UUID
+    slug: str
+    name: str
+    role: Role
 
 
 class MembershipResponse(BaseModel):

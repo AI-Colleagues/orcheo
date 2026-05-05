@@ -12,6 +12,7 @@ from orcheo.models.base import OrcheoBaseModel, _utcnow
 __all__ = [
     "DEFAULT_TENANT_SLUG",
     "Role",
+    "TenantAuditEvent",
     "Tenant",
     "TenantContext",
     "TenantMembership",
@@ -81,6 +82,20 @@ class TenantQuotas(OrcheoBaseModel):
     max_storage_rows: int = Field(default=1_000_000, ge=1)
 
 
+class TenantAuditEvent(OrcheoBaseModel):
+    """Single tenant audit event describing sensitive activity."""
+
+    id: UUID = Field(default_factory=uuid4)
+    tenant_id: UUID
+    action: str
+    actor: str | None = None
+    subject: str | None = None
+    resource_type: str | None = None
+    resource_id: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
 class Tenant(OrcheoBaseModel):
     """Tenant record describing an isolated workspace."""
 
@@ -89,6 +104,7 @@ class Tenant(OrcheoBaseModel):
     name: str
     status: TenantStatus = TenantStatus.ACTIVE
     quotas: TenantQuotas = Field(default_factory=TenantQuotas)
+    deleted_at: datetime | None = None
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
 

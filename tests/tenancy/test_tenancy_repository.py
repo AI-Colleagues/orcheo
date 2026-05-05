@@ -9,6 +9,7 @@ from orcheo.tenancy import (
     Role,
     SqliteTenantRepository,
     Tenant,
+    TenantAuditEvent,
     TenantMembership,
     TenantMembershipError,
     TenantNotFoundError,
@@ -97,6 +98,34 @@ def test_delete_tenant_cascades_memberships(repository: object) -> None:
     with pytest.raises(TenantNotFoundError):
         repo.get_tenant(tenant.id)  # type: ignore[attr-defined]
     assert repo.list_memberships_for_user("alice") == []  # type: ignore[attr-defined]
+
+
+def test_soft_delete_sets_deleted_at(repository: object) -> None:
+    repo = repository  # type: ignore[assignment]
+    tenant = _make_tenant()
+    repo.create_tenant(tenant)  # type: ignore[attr-defined]
+    updated = repo.update_status(tenant.id, TenantStatus.DELETED)  # type: ignore[attr-defined]
+    assert updated.deleted_at is not None
+    assert updated.status is TenantStatus.DELETED
+
+
+def test_audit_events_round_trip(repository: object) -> None:
+    repo = repository  # type: ignore[assignment]
+    tenant = _make_tenant()
+    repo.create_tenant(tenant)  # type: ignore[attr-defined]
+    event = TenantAuditEvent(
+        tenant_id=tenant.id,
+        action="tenant.suspended",
+        actor="admin",
+        subject="alice",
+        resource_type="tenant",
+        resource_id=str(tenant.id),
+        details={"reason": "maintenance"},
+    )
+    stored = repo.record_audit_event(event)  # type: ignore[attr-defined]
+    assert stored.action == "tenant.suspended"
+    events = repo.list_audit_events(tenant.id)  # type: ignore[attr-defined]
+    assert events[-1].action == "tenant.suspended"
 
 
 def test_add_membership_requires_existing_tenant(repository: object) -> None:

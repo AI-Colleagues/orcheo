@@ -8,6 +8,7 @@ from orcheo.tenancy.models import (
     DEFAULT_TENANT_SLUG,
     Role,
     Tenant,
+    TenantAuditEvent,
     TenantMembership,
     TenantQuotas,
     TenantStatus,
@@ -87,6 +88,19 @@ class TenantService:
             role=Role.OWNER,
         )
         self._repository.add_membership(membership)
+        try:
+            self._repository.record_audit_event(
+                TenantAuditEvent(
+                    tenant_id=created.id,
+                    action="tenant.created",
+                    actor=owner_user_id,
+                    subject=owner_user_id,
+                    resource_type="tenant",
+                    resource_id=str(created.id),
+                )
+            )
+        except Exception:  # pragma: no cover - audit is best effort
+            pass
         self._resolver.invalidate(owner_user_id)
         return created, membership
 
@@ -96,19 +110,70 @@ class TenantService:
 
     def deactivate_tenant(self, tenant_id: UUID) -> Tenant:
         """Mark a tenant as suspended; runs and APIs reject requests."""
-        return self._repository.update_status(tenant_id, TenantStatus.SUSPENDED)
+        tenant = self._repository.update_status(tenant_id, TenantStatus.SUSPENDED)
+        try:
+            self._repository.record_audit_event(
+                TenantAuditEvent(
+                    tenant_id=tenant.id,
+                    action="tenant.suspended",
+                    actor="system",
+                    resource_type="tenant",
+                    resource_id=str(tenant.id),
+                )
+            )
+        except Exception:  # pragma: no cover - audit is best effort
+            pass
+        return tenant
 
     def reactivate_tenant(self, tenant_id: UUID) -> Tenant:
         """Move a suspended tenant back to active."""
-        return self._repository.update_status(tenant_id, TenantStatus.ACTIVE)
+        tenant = self._repository.update_status(tenant_id, TenantStatus.ACTIVE)
+        try:
+            self._repository.record_audit_event(
+                TenantAuditEvent(
+                    tenant_id=tenant.id,
+                    action="tenant.reactivated",
+                    actor="system",
+                    resource_type="tenant",
+                    resource_id=str(tenant.id),
+                )
+            )
+        except Exception:  # pragma: no cover - audit is best effort
+            pass
+        return tenant
 
     def soft_delete_tenant(self, tenant_id: UUID) -> Tenant:
         """Mark a tenant as deleted while preserving the row."""
-        return self._repository.update_status(tenant_id, TenantStatus.DELETED)
+        tenant = self._repository.update_status(tenant_id, TenantStatus.DELETED)
+        try:
+            self._repository.record_audit_event(
+                TenantAuditEvent(
+                    tenant_id=tenant.id,
+                    action="tenant.deleted",
+                    actor="system",
+                    resource_type="tenant",
+                    resource_id=str(tenant.id),
+                )
+            )
+        except Exception:  # pragma: no cover - audit is best effort
+            pass
+        return tenant
 
     def hard_delete_tenant(self, tenant_id: UUID) -> None:
         """Remove a tenant and its memberships entirely."""
         memberships = self._repository.list_memberships_for_tenant(tenant_id)
+        try:
+            self._repository.record_audit_event(
+                TenantAuditEvent(
+                    tenant_id=tenant_id,
+                    action="tenant.purged",
+                    actor="system",
+                    resource_type="tenant",
+                    resource_id=str(tenant_id),
+                )
+            )
+        except Exception:  # pragma: no cover - audit is best effort
+            pass
         self._repository.delete_tenant(tenant_id)
         for membership in memberships:
             self._resolver.invalidate(membership.user_id)
@@ -144,6 +209,19 @@ class TenantService:
         if actor_role is not None and not actor_role.includes(Role.ADMIN):
             raise TenantPermissionError("Only admins or owners can remove members")
         self._repository.remove_membership(tenant_id, user_id)
+        try:
+            self._repository.record_audit_event(
+                TenantAuditEvent(
+                    tenant_id=tenant_id,
+                    action="tenant.membership.removed",
+                    actor=actor_role.value if actor_role is not None else "system",
+                    subject=user_id,
+                    resource_type="membership",
+                    resource_id=user_id,
+                )
+            )
+        except Exception:  # pragma: no cover - audit is best effort
+            pass
         self._resolver.invalidate(user_id)
 
     def update_member_role(
@@ -158,6 +236,20 @@ class TenantService:
         if actor_role is not None and not actor_role.includes(Role.ADMIN):
             raise TenantPermissionError("Only admins or owners can change member roles")
         updated = self._repository.update_membership_role(tenant_id, user_id, role)
+        try:
+            self._repository.record_audit_event(
+                TenantAuditEvent(
+                    tenant_id=tenant_id,
+                    action="tenant.membership.updated",
+                    actor=actor_role.value if actor_role is not None else "system",
+                    subject=user_id,
+                    resource_type="membership",
+                    resource_id=user_id,
+                    details={"role": role.value},
+                )
+            )
+        except Exception:  # pragma: no cover - audit is best effort
+            pass
         self._resolver.invalidate(user_id)
         return updated
 
@@ -180,3 +272,18 @@ class TenantService:
                 tenant = self._repository.get_tenant(membership.tenant_id)
             result.append((tenant, membership))
         return result
+
+    def purge_deleted_tenants(self, *, retention_days: int) -> list[Tenant]:
+        """Hard-delete deleted tenants older than the retention window."""
+        from datetime import UTC, datetime, timedelta
+
+        cutoff = datetime.now(tz=UTC) - timedelta(days=retention_days)
+        purged: list[Tenant] = []
+        for tenant in self._repository.list_tenants(include_inactive=True):
+            if tenant.status is not TenantStatus.DELETED:
+                continue
+            if tenant.deleted_at is None or tenant.deleted_at > cutoff:
+                continue
+            self.hard_delete_tenant(tenant.id)
+            purged.append(tenant)
+        return purged

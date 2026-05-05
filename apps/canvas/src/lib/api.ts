@@ -29,6 +29,13 @@ export interface SystemInfoResponse {
   checked_at: string;
 }
 
+export interface ActiveTenantResponse {
+  tenant_id: string;
+  slug: string;
+  name: string;
+  role: "owner" | "admin" | "editor" | "viewer";
+}
+
 export type ExternalAgentProviderName = "claude_code" | "codex" | "gemini";
 
 export type ExternalAgentProviderState =
@@ -134,6 +141,27 @@ export async function getSystemInfo(
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({
       detail: "Failed to fetch system info",
+    }));
+    throw new Error(errorData.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function getActiveTenant(
+  baseUrl?: string,
+): Promise<ActiveTenantResponse> {
+  const url = buildBackendHttpUrl("/api/tenants/active", baseUrl);
+  const response = await authFetch(url, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({
+      detail: "Failed to fetch active tenant",
     }));
     throw new Error(errorData.detail || `HTTP ${response.status}`);
   }

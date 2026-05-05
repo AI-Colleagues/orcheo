@@ -163,12 +163,18 @@ class PostgresRepositoryBase:
         self._trigger_layer = TriggerLayer(health_guard=credential_service)
 
     async def _ensure_workflow_health(
-        self, workflow_id: UUID, *, actor: str | None = None
+        self,
+        workflow_id: UUID,
+        *,
+        actor: str | None = None,
+        tenant_id: str | None = None,
     ) -> None:
         if self._credential_service is None:
             return
         report = await self._credential_service.ensure_workflow_health(
-            workflow_id, actor=actor
+            workflow_id,
+            actor=actor,
+            tenant_id=tenant_id,
         )
         if not report.is_healthy:  # pragma: no branch
             raise CredentialHealthError(report)

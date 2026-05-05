@@ -31,7 +31,11 @@ class WorkflowRunMixin(InMemoryRepositoryState):
             if workflow is None or workflow.is_archived:
                 raise WorkflowNotFoundError(str(workflow_id))
 
-            await self._ensure_workflow_health(workflow_id, actor=actor or triggered_by)
+            await self._ensure_workflow_health(
+                workflow_id,
+                actor=actor or triggered_by,
+                tenant_id=tenant_id,
+            )
 
             run = self._create_run_locked(
                 workflow_id=workflow_id,

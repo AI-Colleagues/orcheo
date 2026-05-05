@@ -15,6 +15,7 @@ __all__ = [
 class CredentialAccessContext(OrcheoBaseModel):
     """Describes the caller attempting to access a credential."""
 
+    tenant_id: str | None = None
     workflow_id: UUID | None = None
     workspace_id: UUID | None = None
     roles: list[str] = Field(default_factory=list)

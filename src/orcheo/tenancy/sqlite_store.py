@@ -14,6 +14,7 @@ from orcheo.tenancy.errors import (
 from orcheo.tenancy.models import (
     Role,
     Tenant,
+    TenantAuditEvent,
     TenantMembership,
     TenantQuotas,
     TenantStatus,
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
     quotas TEXT NOT NULL DEFAULT '{}',
+    deleted_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -50,6 +52,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_memberships_tenant_user
     ON tenant_memberships(tenant_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_tenant_memberships_user
     ON tenant_memberships(user_id);
+
+CREATE TABLE IF NOT EXISTS tenant_audit_events (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    actor TEXT,
+    subject TEXT,
+    resource_type TEXT,
+    resource_id TEXT,
+    details TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_audit_events_tenant
+    ON tenant_audit_events(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_tenant_audit_events_created_at
+    ON tenant_audit_events(created_at);
 """
 
 
@@ -59,6 +78,10 @@ def ensure_tenant_schema(db_path: str | Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as conn:
         conn.executescript(SQLITE_TENANT_SCHEMA_SQL)
+        cursor = conn.execute("PRAGMA table_info(tenants)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        if "deleted_at" not in existing_columns:
+            conn.execute("ALTER TABLE tenants ADD COLUMN deleted_at TEXT")
 
 
 def _utc_iso() -> str:
@@ -95,9 +118,9 @@ class SqliteTenantRepository:
             conn.execute(
                 """
                 INSERT INTO tenants (
-                    id, slug, name, status, quotas, created_at, updated_at
+                    id, slug, name, status, quotas, deleted_at, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(tenant.id),
@@ -105,6 +128,7 @@ class SqliteTenantRepository:
                     tenant.name,
                     tenant.status.value,
                     json.dumps(tenant.quotas.model_dump()),
+                    tenant.deleted_at.isoformat() if tenant.deleted_at else None,
                     tenant.created_at.isoformat(),
                     tenant.updated_at.isoformat(),
                 ),
@@ -148,8 +172,13 @@ class SqliteTenantRepository:
         timestamp = _utc_iso()
         with self._connect() as conn:
             cursor = conn.execute(
-                "UPDATE tenants SET status = ?, updated_at = ? WHERE id = ?",
-                (status.value, timestamp, str(tenant_id)),
+                "UPDATE tenants SET status = ?, deleted_at = ?, updated_at = ? WHERE id = ?",  # noqa: E501
+                (
+                    status.value,
+                    timestamp if status is TenantStatus.DELETED else None,
+                    timestamp,
+                    str(tenant_id),
+                ),
             )
             if cursor.rowcount == 0:
                 raise TenantNotFoundError(str(tenant_id))
@@ -161,6 +190,10 @@ class SqliteTenantRepository:
             cursor = conn.execute("DELETE FROM tenants WHERE id = ?", (str(tenant_id),))
             if cursor.rowcount == 0:
                 raise TenantNotFoundError(str(tenant_id))
+            conn.execute(
+                "DELETE FROM tenant_audit_events WHERE tenant_id = ?",
+                (str(tenant_id),),
+            )
 
     def add_membership(self, membership: TenantMembership) -> TenantMembership:
         """Persist a new membership; raises on duplicates."""
@@ -267,6 +300,47 @@ class SqliteTenantRepository:
             ).fetchall()
         return [self._row_to_membership(row) for row in rows]
 
+    def record_audit_event(self, event: TenantAuditEvent) -> TenantAuditEvent:
+        """Persist a tenant audit event."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO tenant_audit_events (
+                    id, tenant_id, action, actor, subject, resource_type,
+                    resource_id, details, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(event.id),
+                    str(event.tenant_id),
+                    event.action,
+                    event.actor,
+                    event.subject,
+                    event.resource_type,
+                    event.resource_id,
+                    json.dumps(event.details or {}),
+                    event.created_at.isoformat(),
+                ),
+            )
+        return event
+
+    def list_audit_events(
+        self, tenant_id: UUID, *, limit: int = 100
+    ) -> list[TenantAuditEvent]:
+        """Return the most recent tenant audit events."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM tenant_audit_events
+                WHERE tenant_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (str(tenant_id), limit),
+            ).fetchall()
+        return [self._row_to_audit_event(row) for row in rows]
+
     @staticmethod
     def _row_to_tenant(row: sqlite3.Row) -> Tenant:
         quotas_payload = json.loads(row["quotas"]) if row["quotas"] else {}
@@ -276,6 +350,7 @@ class SqliteTenantRepository:
             name=row["name"],
             status=TenantStatus(row["status"]),
             quotas=TenantQuotas(**quotas_payload),
+            deleted_at=_to_dt(row["deleted_at"]) if row["deleted_at"] else None,
             created_at=_to_dt(row["created_at"]),
             updated_at=_to_dt(row["updated_at"]),
         )
@@ -287,5 +362,20 @@ class SqliteTenantRepository:
             tenant_id=UUID(row["tenant_id"]),
             user_id=row["user_id"],
             role=Role(row["role"]),
+            created_at=_to_dt(row["created_at"]),
+        )
+
+    @staticmethod
+    def _row_to_audit_event(row: sqlite3.Row) -> TenantAuditEvent:
+        details = json.loads(row["details"]) if row["details"] else {}
+        return TenantAuditEvent(
+            id=UUID(row["id"]),
+            tenant_id=UUID(row["tenant_id"]),
+            action=row["action"],
+            actor=row["actor"],
+            subject=row["subject"],
+            resource_type=row["resource_type"],
+            resource_id=row["resource_id"],
+            details=details,
             created_at=_to_dt(row["created_at"]),
         )

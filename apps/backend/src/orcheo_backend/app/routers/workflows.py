@@ -24,7 +24,7 @@ from orcheo_backend.app.authentication.settings import load_auth_settings
 from orcheo_backend.app.chatkit_runtime import resolve_chatkit_token_issuer
 from orcheo_backend.app.chatkit_tokens import ChatKitSessionTokenIssuer
 from orcheo_backend.app.dependencies import RepositoryDep
-from orcheo_backend.app.errors import raise_not_found
+from orcheo_backend.app.errors import TenantQuotaExceededError, raise_not_found
 from orcheo_backend.app.plugin_inventory import missing_required_plugins
 from orcheo_backend.app.repository import (
     CronTriggerNotFoundError,
@@ -49,6 +49,7 @@ from orcheo_backend.app.schemas.workflows import (
     WorkflowVersionRunnableConfigUpdateRequest,
 )
 from orcheo_backend.app.tenancy import TenantContextDep
+from orcheo_backend.app.tenant_governance import ensure_tenant_workflow_quota
 from orcheo_sdk.cli.workflow import _mermaid_from_graph
 
 
@@ -387,6 +388,7 @@ async def create_workflow(
     draft_access = _resolve_draft_access(request.draft_access, tags, context)
 
     try:
+        await ensure_tenant_workflow_quota(repository, tenant)
         create_kwargs: dict[str, Any] = {
             "name": request.name,
             "slug": request.slug,
@@ -407,6 +409,8 @@ async def create_workflow(
             status_code=status.HTTP_409_CONFLICT,
             detail={"message": str(exc), "code": "workflow.handle.conflict"},
         ) from exc
+    except TenantQuotaExceededError as exc:
+        raise exc.as_http_exception() from exc
 
 
 @router.get("/workflows/{workflow_ref}", response_model=Workflow)

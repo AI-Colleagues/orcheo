@@ -243,11 +243,27 @@ IncludeAcknowledgedQuery = Annotated[bool, Query()]
 
 def credential_context_from_workflow(
     workflow_id: UUID | None,
+    *,
+    tenant_id: str | None = None,
 ) -> CredentialAccessContext | None:
     """Return a credential context for the provided workflow identifier."""
     if workflow_id is None:
         return None
-    return CredentialAccessContext(workflow_id=workflow_id)
+    return CredentialAccessContext(workflow_id=workflow_id, tenant_id=tenant_id)
+
+
+async def resolve_workflow_tenant_id(
+    repository: WorkflowRepository,
+    workflow_id: UUID | None,
+    *,
+    tenant_id: str | None = None,
+) -> str | None:
+    """Return the workflow tenant id, preferring the provided tenant hint."""
+    if tenant_id is not None:
+        return tenant_id
+    if workflow_id is None:
+        return None
+    return await repository.get_workflow_tenant_id(workflow_id)
 
 
 async def resolve_workflow_ref_id(
@@ -301,6 +317,7 @@ __all__ = [
     "get_vault",
     "resolve_optional_workflow_ref_id",
     "resolve_workflow_ref_id",
+    "resolve_workflow_tenant_id",
     "set_checkpoint_store",
     "set_credential_service",
     "set_external_agent_runtime_store",

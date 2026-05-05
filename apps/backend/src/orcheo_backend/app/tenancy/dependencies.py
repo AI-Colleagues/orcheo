@@ -21,11 +21,13 @@ from orcheo.tenancy import (
     ensure_default_tenant,
 )
 from orcheo_backend.app.authentication import RequestContext, authenticate_request
+from orcheo_backend.app.errors import TenantRateLimitError
 from orcheo_backend.app.tenancy.errors import (
     TenantContextRequiredError,
     raise_tenant_forbidden,
     raise_tenant_not_found,
 )
+from orcheo_backend.app.tenant_governance import get_tenant_governance
 
 
 __all__ = [
@@ -66,6 +68,9 @@ def reset_tenancy_state() -> None:
     _tenant_repository_ref["repository"] = None
     _tenant_service_ref["service"] = None
     get_settings(refresh=True)
+    from orcheo_backend.app.tenant_governance import get_tenant_governance
+
+    get_tenant_governance(refresh=True)
 
 
 def get_tenant_repository() -> TenantRepository:
@@ -175,6 +180,10 @@ async def resolve_tenant_context(
     except TenantMembershipError as exc:
         raise_tenant_forbidden(str(exc), error_code="tenant.membership_required")
 
+    try:
+        get_tenant_governance().check_api_rate_limit(str(context.tenant_id))
+    except TenantRateLimitError as exc:
+        raise exc.as_http_exception() from exc
     request.state.tenant = context
     return context
 

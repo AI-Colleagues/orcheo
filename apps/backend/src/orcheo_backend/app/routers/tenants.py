@@ -12,8 +12,10 @@ from orcheo.tenancy import (
     TenantNotFoundError,
     TenantPermissionError,
     TenantSlugConflictError,
+    TenantStatus,
 )
 from orcheo_backend.app.schemas.tenants import (
+    ActiveTenantResponse,
     MembershipCreateRequest,
     MembershipResponse,
     MembershipRoleUpdateRequest,
@@ -38,7 +40,11 @@ from orcheo_backend.app.tenancy.dependencies import (
 __all__ = ["admin_router", "router"]
 
 
-admin_router = APIRouter(prefix="/admin/tenants", tags=["admin", "tenants"])
+admin_router = APIRouter(
+    prefix="/admin/tenants",
+    tags=["admin", "tenants"],
+    dependencies=[Depends(require_role(Role.ADMIN))],
+)
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
 
@@ -49,6 +55,7 @@ def _to_tenant_response(tenant: Tenant) -> TenantResponse:
         name=tenant.name,
         status=tenant.status,
         quotas=tenant.quotas,
+        deleted_at=tenant.deleted_at,
         created_at=tenant.created_at,
         updated_at=tenant.updated_at,
     )
@@ -123,7 +130,14 @@ def update_tenant_status(
 ) -> TenantResponse:
     """Change a tenant's lifecycle status."""
     try:
-        tenant = service.repository.update_status(tenant_id, payload.status)
+        if payload.status is TenantStatus.SUSPENDED:
+            tenant = service.deactivate_tenant(tenant_id)
+        elif payload.status is TenantStatus.ACTIVE:
+            tenant = service.reactivate_tenant(tenant_id)
+        elif payload.status is TenantStatus.DELETED:
+            tenant = service.soft_delete_tenant(tenant_id)
+        else:
+            tenant = service.repository.update_status(tenant_id, payload.status)
     except TenantNotFoundError:
         raise_tenant_not_found()
     return _to_tenant_response(tenant)
@@ -139,6 +153,18 @@ def delete_tenant(
         service.hard_delete_tenant(tenant_id)
     except TenantNotFoundError:
         raise_tenant_not_found()
+
+
+@admin_router.post(
+    "/purge-deleted",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def purge_deleted_tenants(
+    service: TenantServiceDep,
+    retention_days: int = 30,
+) -> None:
+    """Hard-delete tenants whose soft-delete retention window has expired."""
+    service.purge_deleted_tenants(retention_days=retention_days)
 
 
 @router.get("/me", response_model=MeMembershipsResponse)
@@ -159,6 +185,21 @@ def list_my_memberships(
         for tenant, membership in pairs
     ]
     return MeMembershipsResponse.model_validate({"memberships": entries})
+
+
+@router.get("/active", response_model=ActiveTenantResponse)
+def get_active_tenant(
+    service: TenantServiceDep,
+    context: TenantContextDep,
+) -> ActiveTenantResponse:
+    """Return the active tenant currently resolved for the request."""
+    tenant = service.repository.get_tenant(context.tenant_id)
+    return ActiveTenantResponse(
+        tenant_id=tenant.id,
+        slug=tenant.slug,
+        name=tenant.name,
+        role=context.role,
+    )
 
 
 @router.post(

@@ -25,9 +25,15 @@ from orcheo.vault.oauth import CredentialHealthError
 from orcheo_backend.app.dependencies import (
     RepositoryDep,
     VaultDep,
+    get_repository,
     resolve_workflow_ref_id,
 )
-from orcheo_backend.app.errors import raise_not_found, raise_webhook_error
+from orcheo_backend.app.errors import (
+    TenantQuotaExceededError,
+    TenantRateLimitError,
+    raise_not_found,
+    raise_webhook_error,
+)
 from orcheo_backend.app.repository import (
     CronTriggerNotFoundError,
     WorkflowNotFoundError,
@@ -35,6 +41,7 @@ from orcheo_backend.app.repository import (
 )
 from orcheo_backend.app.schemas.runs import CronDispatchRequest
 from orcheo_backend.app.tenancy import TenantContextDep, TenantServiceDep
+from orcheo_backend.app.tenant_governance import get_tenant_governance
 
 
 logger = logging.getLogger(__name__)
@@ -95,9 +102,10 @@ def _build_webhook_state(
     graph_config: Mapping[str, Any],
     inputs: dict[str, Any],
     runtime_config: Mapping[str, Any] | None,
+    tenant_id: str | None = None,
 ) -> Any:
     """Build initial state for webhook execution."""
-    return build_initial_state(graph_config, inputs, runtime_config)
+    return build_initial_state(graph_config, inputs, runtime_config, tenant_id)
 
 
 def _extract_immediate_response(
@@ -149,7 +157,12 @@ async def _try_immediate_response(
     graph_config = version.graph
     settings = get_settings()
 
-    credential_context = CredentialAccessContext(workflow_id=version.workflow_id)
+    repository = get_repository()
+    tenant_id = await repository.get_workflow_tenant_id(version.workflow_id)
+    credential_context = CredentialAccessContext(
+        workflow_id=version.workflow_id,
+        tenant_id=tenant_id,
+    )
     resolver = CredentialResolver(vault, context=credential_context)
 
     execution_id = f"immediate-response-check-{uuid4()}"
@@ -167,7 +180,9 @@ async def _try_immediate_response(
                         checkpointer=checkpointer,
                         store=graph_store,
                     )
-                    state = _build_webhook_state(graph_config, inputs, state_config)
+                    state = _build_webhook_state(
+                        graph_config, inputs, state_config, tenant_id
+                    )
                     final_state = await compiled.ainvoke(state, config=runtime_config)
     except Exception:
         # If workflow build or execution fails, fall back to normal async processing
@@ -269,6 +284,8 @@ async def _queue_webhook_run(
             payload=payload,
             source_ip=source_ip,
         )
+    except TenantQuotaExceededError as exc:
+        raise exc.as_http_exception() from exc
     except WebhookValidationError as exc:
         raise_webhook_error(exc)
     except CredentialHealthError as exc:
@@ -308,7 +325,7 @@ async def _queue_webhook_run(
     status_code=status.HTTP_202_ACCEPTED,
     operation_id="invoke_webhook_trigger_delete",
 )
-async def invoke_webhook_trigger(
+async def invoke_webhook_trigger(  # noqa: C901
     workflow_ref: str,
     request: Request,
     repository: RepositoryDep,
@@ -321,7 +338,12 @@ async def invoke_webhook_trigger(
     """Validate inbound webhook data and enqueue a workflow run."""
     workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
     try:
+        tenant_id = await repository.get_workflow_tenant_id(workflow_uuid)
+        if tenant_id is not None:
+            get_tenant_governance().check_api_rate_limit(tenant_id)
         raw_body = await request.body()
+    except TenantRateLimitError as exc:
+        raise exc.as_http_exception() from exc
     except Exception as exc:  # pragma: no cover - FastAPI handles body read
         raise HTTPException(
             status_code=400,
@@ -462,6 +484,8 @@ async def dispatch_cron_triggers(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
+    except TenantQuotaExceededError as exc:
+        raise exc.as_http_exception() from exc
 
 
 @router.post(
@@ -485,6 +509,8 @@ async def dispatch_manual_runs(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
+    except TenantQuotaExceededError as exc:
+        raise exc.as_http_exception() from exc
 
 
 async def _invoke_tenant_webhook(  # noqa: C901
@@ -512,6 +538,10 @@ async def _invoke_tenant_webhook(  # noqa: C901
         ) from None
 
     tenant_id = str(tenant.id)
+    try:
+        get_tenant_governance().check_api_rate_limit(tenant_id)
+    except TenantRateLimitError as exc:
+        raise exc.as_http_exception() from exc
     try:
         workflow_uuid = await resolve_workflow_ref_id(
             repository, trigger_id, tenant_id=tenant_id

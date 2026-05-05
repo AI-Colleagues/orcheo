@@ -11,7 +11,11 @@ from orcheo_backend.app.dependencies import (
     RepositoryDep,
     resolve_workflow_ref_id,
 )
-from orcheo_backend.app.errors import raise_conflict, raise_not_found
+from orcheo_backend.app.errors import (
+    TenantQuotaExceededError,
+    raise_conflict,
+    raise_not_found,
+)
 from orcheo_backend.app.history import RunHistoryNotFoundError
 from orcheo_backend.app.history_utils import history_to_response
 from orcheo_backend.app.repository import (
@@ -76,6 +80,8 @@ async def create_workflow_run(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
+    except TenantQuotaExceededError as exc:
+        raise exc.as_http_exception() from exc
 
 
 _DEFAULT_RUNS_LIMIT = 50

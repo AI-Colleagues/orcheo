@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import logging
+import os
 import threading
 from typing import Any
 from opentelemetry import trace
@@ -40,11 +41,13 @@ def configure_tracing(*, force: bool = False) -> None:
         settings = get_settings()
         exporter_name = str(settings.get("TRACING_EXPORTER", "none")).lower()
         sample_ratio = float(settings.get("TRACING_SAMPLE_RATIO", 1.0))
-        resource = Resource.create(
-            {
-                "service.name": settings.get("TRACING_SERVICE_NAME", "orcheo-backend"),
-            }
-        )
+        resource_attributes = {
+            "service.name": settings.get("TRACING_SERVICE_NAME", "orcheo-backend"),
+        }
+        tenant_id = os.environ.get("ORCHEO_TENANT")
+        if tenant_id and tenant_id.strip():
+            resource_attributes["orcheo.tenant"] = tenant_id.strip()
+        resource = Resource.create(resource_attributes)
 
         provider = TracerProvider(
             sampler=TraceIdRatioBased(sample_ratio),

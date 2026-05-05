@@ -10,6 +10,7 @@ from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookRequest, WebhookTriggerConfig
 from orcheo.vault.oauth import CredentialHealthError
+from orcheo_backend.app.errors import TenantQuotaExceededError
 from orcheo_backend.app.repository import (
     CronTriggerNotFoundError,
     WorkflowVersionNotFoundError,
@@ -29,7 +30,8 @@ def _enqueue_run_for_execution(run: WorkflowRun) -> None:
     try:
         from orcheo_backend.worker.tasks import execute_run
 
-        execute_run.delay(str(run.id))
+        headers = {"tenant_id": run.tenant_id} if run.tenant_id is not None else {}
+        execute_run.apply_async(args=(str(run.id),), headers=headers or None)
         logger.info("Enqueued run %s for execution", run.id)
     except Exception as exc:
         logger.warning(
@@ -84,8 +86,13 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
         await self._ensure_initialized()
         async with self._lock:
             await self._get_workflow_locked(workflow_id)
+            tenant_id = await self._get_workflow_tenant_id_locked(workflow_id)
             version = await self._get_latest_version_locked(workflow_id)
-            await self._ensure_workflow_health(workflow_id, actor="webhook")
+            await self._ensure_workflow_health(
+                workflow_id,
+                actor="webhook",
+                tenant_id=tenant_id,
+            )
             request = WebhookRequest(
                 method=method,
                 headers=headers,
@@ -102,6 +109,7 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
                 triggered_by=dispatch.triggered_by,
                 input_payload=dispatch.input_payload,
                 actor=dispatch.actor,
+                tenant_id=tenant_id,
             )
             run_copy = run.model_copy(deep=True)
         # Enqueue AFTER lock is released to ensure commit is fully visible
@@ -172,9 +180,14 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
                     version = await self._get_latest_version_locked(plan.workflow_id)
                 except WorkflowVersionNotFoundError:
                     continue
+                tenant_id = await self._get_workflow_tenant_id_locked(plan.workflow_id)
 
                 try:
-                    await self._ensure_workflow_health(plan.workflow_id, actor="cron")
+                    await self._ensure_workflow_health(
+                        plan.workflow_id,
+                        actor="cron",
+                        tenant_id=tenant_id,
+                    )
                 except CredentialHealthError as exc:
                     logger.warning(
                         "Skipping cron dispatch for workflow %s due to credential "
@@ -184,16 +197,25 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
                     )
                     continue
 
-                run = await self._create_run_locked(
-                    workflow_id=plan.workflow_id,
-                    workflow_version_id=version.id,
-                    triggered_by="cron",
-                    input_payload={
-                        "scheduled_for": plan.scheduled_for.isoformat(),
-                        "timezone": plan.timezone,
-                    },
-                    actor="cron",
-                )
+                try:
+                    run = await self._create_run_locked(
+                        workflow_id=plan.workflow_id,
+                        workflow_version_id=version.id,
+                        triggered_by="cron",
+                        input_payload={
+                            "scheduled_for": plan.scheduled_for.isoformat(),
+                            "timezone": plan.timezone,
+                        },
+                        actor="cron",
+                        tenant_id=tenant_id,
+                    )
+                except TenantQuotaExceededError:
+                    logger.warning(
+                        "Skipping cron dispatch for workflow %s because tenant "
+                        "quota was exceeded",
+                        plan.workflow_id,
+                    )
+                    continue
                 self._trigger_layer.commit_cron_dispatch(plan.workflow_id)
                 # Persist the last_dispatched_at to survive worker restarts
                 last_dispatched = self._trigger_layer.get_cron_last_dispatched_at(
@@ -231,9 +253,12 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
             plan = self._trigger_layer.prepare_manual_dispatch(
                 request, default_workflow_version_id=default_version_id
             )
+            tenant_id = await self._get_workflow_tenant_id_locked(request.workflow_id)
 
             await self._ensure_workflow_health(
-                request.workflow_id, actor=plan.actor or plan.triggered_by
+                request.workflow_id,
+                actor=plan.actor or plan.triggered_by,
+                tenant_id=tenant_id,
             )
 
             runs: list[WorkflowRun] = []
@@ -245,13 +270,22 @@ class TriggerRepositoryMixin(SqlitePersistenceMixin):
                     )
 
             for resolved in plan.runs:
-                run = await self._create_run_locked(
-                    workflow_id=request.workflow_id,
-                    workflow_version_id=resolved.workflow_version_id,
-                    triggered_by=plan.triggered_by,
-                    input_payload=resolved.input_payload,
-                    actor=plan.actor,
-                )
+                try:
+                    run = await self._create_run_locked(
+                        workflow_id=request.workflow_id,
+                        workflow_version_id=resolved.workflow_version_id,
+                        triggered_by=plan.triggered_by,
+                        input_payload=resolved.input_payload,
+                        actor=plan.actor,
+                        tenant_id=tenant_id,
+                    )
+                except TenantQuotaExceededError:
+                    logger.warning(
+                        "Skipping manual dispatch for workflow %s because tenant "
+                        "quota was exceeded",
+                        request.workflow_id,
+                    )
+                    continue
                 runs.append(run.model_copy(deep=True))
         # Enqueue AFTER lock is released to ensure commits are fully visible
         for run in runs:

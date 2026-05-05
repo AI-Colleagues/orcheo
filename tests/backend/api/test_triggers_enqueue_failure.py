@@ -37,13 +37,14 @@ class TestEnqueueRunFunction:
 
         run = WorkflowRun(
             id=uuid4(),
+            tenant_id="tenant-1",
             workflow_version_id=uuid4(),
             status=WorkflowRunStatus.PENDING,
             triggered_by="test",
         )
 
         mock_execute_run = MagicMock()
-        mock_execute_run.delay = MagicMock()
+        mock_execute_run.apply_async = MagicMock()
 
         # Mock the worker.tasks module at the point of import
         mock_tasks_module = MagicMock()
@@ -73,7 +74,10 @@ class TestEnqueueRunFunction:
                     _enqueue_run_for_execution(run)
 
                 # Check that delay was called (indicating successful execution)
-                mock_execute_run.delay.assert_called_once_with(str(run.id))
+                mock_execute_run.apply_async.assert_called_once_with(
+                    args=(str(run.id),),
+                    headers={"tenant_id": "tenant-1"},
+                )
                 # Check that info log was called
                 mock_logger.info.assert_called_once()
                 call_args = mock_logger.info.call_args[0]
@@ -89,13 +93,14 @@ class TestEnqueueRunFunction:
 
         run = WorkflowRun(
             id=uuid4(),
+            tenant_id="tenant-1",
             workflow_version_id=uuid4(),
             status=WorkflowRunStatus.PENDING,
             triggered_by="test",
         )
 
         mock_execute_run = MagicMock()
-        mock_execute_run.delay = MagicMock(
+        mock_execute_run.apply_async = MagicMock(
             side_effect=ConnectionError("Redis unavailable")
         )
 
@@ -151,7 +156,9 @@ def test_enqueue_run_logs_warning_on_celery_failure(
 
     # Mock the execute_run task at the worker.tasks level
     mock_execute_run = MagicMock()
-    mock_execute_run.delay = MagicMock(side_effect=ConnectionError("Redis unavailable"))
+    mock_execute_run.apply_async = MagicMock(
+        side_effect=ConnectionError("Redis unavailable")
+    )
 
     with patch.dict(
         "sys.modules",
@@ -193,7 +200,7 @@ def test_cron_dispatch_enqueue_failure_does_not_block_response(
     )
 
     mock_execute_run = MagicMock()
-    mock_execute_run.delay = MagicMock(side_effect=Exception("Broker down"))
+    mock_execute_run.apply_async = MagicMock(side_effect=Exception("Broker down"))
 
     with patch.dict(
         "sys.modules",
@@ -231,7 +238,7 @@ def test_manual_dispatch_enqueue_failure_does_not_block_response(
     )
 
     mock_execute_run = MagicMock()
-    mock_execute_run.delay = MagicMock(side_effect=RuntimeError("Worker offline"))
+    mock_execute_run.apply_async = MagicMock(side_effect=RuntimeError("Worker offline"))
 
     with patch.dict(
         "sys.modules",

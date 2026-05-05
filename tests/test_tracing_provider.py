@@ -56,6 +56,38 @@ def test_configure_tracing_installs_console_exporter(
     assert span_processors == ["console-exporter"]
 
 
+def test_configure_tracing_includes_tenant_resource_attribute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """configure_tracing should surface the active tenant in resource metadata."""
+
+    monkeypatch.setattr(provider, "_configured", False)
+    monkeypatch.setenv("ORCHEO_TENANT", "tenant-1")
+    settings = {
+        "TRACING_EXPORTER": "none",
+        "TRACING_SAMPLE_RATIO": "1.0",
+        "TRACING_SERVICE_NAME": "custom",
+    }
+    monkeypatch.setattr(provider, "get_settings", lambda: settings)
+    captured: dict[str, Any] = {}
+
+    class FakeResource:
+        @staticmethod
+        def create(attrs: dict[str, Any]) -> object:
+            captured.update(attrs)
+            return object()
+
+    monkeypatch.setattr(provider, "Resource", FakeResource)
+    monkeypatch.setattr(provider, "TracerProvider", lambda **_: object())
+    monkeypatch.setattr(
+        provider.trace, "set_tracer_provider", lambda provider_obj: None
+    )
+
+    provider.configure_tracing(force=True)
+
+    assert captured["orcheo.tenant"] == "tenant-1"
+
+
 def test_get_tracer_invokes_configure_when_needed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

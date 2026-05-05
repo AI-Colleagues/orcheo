@@ -75,6 +75,7 @@ async def _start_chatkit_history(
     runtime_thread_id: str,
     inputs: Mapping[str, Any],
     merged_config: Any,
+    tenant_id: str | None,
 ) -> None:
     """Persist run metadata in execution history for ChatKit executions."""
     try:
@@ -90,6 +91,7 @@ async def _start_chatkit_history(
             callbacks=merged_config.callbacks,
             metadata=merged_config.metadata,
             run_name=merged_config.run_name,
+            tenant_id=tenant_id,
         )
     except RunHistoryError:
         logger.exception(
@@ -172,6 +174,7 @@ class WorkflowExecutor:
             self._repository.get_workflow(workflow_id),
             self._repository.get_latest_version(workflow_id),
         )
+        tenant_id = await self._repository.get_workflow_tenant_id(workflow_id)
         normalized_inputs = dict(inputs)
         selected_model = apply_chatkit_selected_model(normalized_inputs, workflow)
         history_store = get_history_store()
@@ -180,6 +183,7 @@ class WorkflowExecutor:
             version.id,
             actor,
             normalized_inputs,
+            tenant_id=tenant_id,
         )
         execution_id = self._resolve_execution_id(run)
         runtime_thread_id = _resolve_runtime_thread_id(inputs, execution_id)
@@ -207,6 +211,7 @@ class WorkflowExecutor:
             runtime_thread_id=runtime_thread_id,
             inputs=normalized_inputs,
             merged_config=merged_config,
+            tenant_id=tenant_id,
         )
 
         try:
@@ -224,6 +229,7 @@ class WorkflowExecutor:
                 config=config,
                 state_config=state_config,
                 step_callback=step_callback,
+                tenant_id=tenant_id,
             )
             reply, state_view = _build_reply_state(final_state)
         except Exception as exc:
@@ -272,6 +278,8 @@ class WorkflowExecutor:
         workflow_version_id: UUID,
         actor: str,
         inputs: Mapping[str, Any],
+        *,
+        tenant_id: str | None = None,
     ) -> WorkflowRun | None:
         """Create and start a repository run record when possible."""
         try:
@@ -280,6 +288,7 @@ class WorkflowExecutor:
                 workflow_version_id=workflow_version_id,
                 triggered_by=actor,
                 input_payload=dict(inputs),
+                tenant_id=tenant_id,
             )
             await self._repository.mark_run_started(run.id, actor=actor)
             return run
@@ -312,11 +321,15 @@ class WorkflowExecutor:
         config: RunnableConfig,
         state_config: Mapping[str, Any],
         step_callback: Callable[[Mapping[str, Any]], Awaitable[None]] | None,
+        tenant_id: str | None = None,
     ) -> Any:
         """Execute the compiled graph and return the final state payload."""
         settings = get_settings()
         vault = self._vault_provider()
-        credential_context = CredentialAccessContext(workflow_id=workflow_id)
+        credential_context = CredentialAccessContext(
+            workflow_id=workflow_id,
+            tenant_id=tenant_id,
+        )
         credential_resolver = CredentialResolver(vault, context=credential_context)
         external_agent_environ = _external_agent_provider_environment()
 
@@ -328,7 +341,10 @@ class WorkflowExecutor:
                     store=graph_store,
                 )
                 payload: Any = build_initial_state(
-                    graph_config, inputs, runtime_config=state_config
+                    graph_config,
+                    inputs,
+                    runtime_config=state_config,
+                    tenant_id=tenant_id,
                 )
 
                 with (
