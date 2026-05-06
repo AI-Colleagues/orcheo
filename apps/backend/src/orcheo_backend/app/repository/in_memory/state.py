@@ -6,7 +6,12 @@ from collections.abc import Callable, Mapping
 from typing import Any
 from uuid import UUID
 from orcheo.listeners import ListenerCursor, ListenerDedupeRecord, ListenerSubscription
-from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
+from orcheo.models.workflow import (
+    Workflow,
+    WorkflowRun,
+    WorkflowRunRemediation,
+    WorkflowVersion,
+)
 from orcheo.models.workflow_refs import workflow_ref_is_uuid
 from orcheo.runtime.runnable_config import merge_runnable_configs
 from orcheo.triggers.layer import TriggerLayer
@@ -34,6 +39,7 @@ class InMemoryRepositoryState:
         self._versions: dict[UUID, WorkflowVersion] = {}
         self._runs: dict[UUID, WorkflowRun] = {}
         self._version_runs: dict[UUID, list[UUID]] = {}
+        self._remediations: dict[UUID, WorkflowRunRemediation] = {}
         self._listener_subscriptions: dict[UUID, ListenerSubscription] = {}
         self._workflow_listener_subscriptions: dict[UUID, list[UUID]] = {}
         self._listener_cursors: dict[UUID, ListenerCursor] = {}
@@ -51,6 +57,7 @@ class InMemoryRepositoryState:
             self._versions.clear()
             self._runs.clear()
             self._version_runs.clear()
+            self._remediations.clear()
             self._listener_subscriptions.clear()
             self._workflow_listener_subscriptions.clear()
             self._listener_cursors.clear()

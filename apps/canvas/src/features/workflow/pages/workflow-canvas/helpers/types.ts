@@ -5,6 +5,12 @@ import type {
   WorkflowEdge as PersistedWorkflowEdge,
   WorkflowNode as PersistedWorkflowNode,
 } from "@features/workflow/data/workflow-data";
+import type {
+  WorkflowExecution as SharedWorkflowExecution,
+  WorkflowExecutionNode as SharedWorkflowExecutionNode,
+  WorkflowExecutionNodeStatus as SharedWorkflowExecutionNodeStatus,
+  WorkflowExecutionStatus as SharedWorkflowExecutionStatus,
+} from "@features/workflow/lib/workflow-execution.types";
 
 export interface NodeRuntimeData {
   inputs?: unknown;
@@ -56,43 +62,10 @@ export type CopyClipboardResult = {
   usedFallback: boolean;
 };
 
-export type WorkflowExecutionStatus =
-  | "running"
-  | "success"
-  | "failed"
-  | "partial";
-
-export type NodeStatus = "idle" | "running" | "success" | "error" | "warning";
-
-export interface WorkflowExecutionNode {
-  id: string;
-  type: string;
-  name: string;
-  position: { x: number; y: number };
-  status: NodeStatus;
-  iconKey?: string;
-  details?: Record<string, unknown>;
-}
-
-export interface WorkflowExecution {
-  id: string;
-  runId: string;
-  status: WorkflowExecutionStatus;
-  startTime: string;
-  endTime?: string;
-  duration: number;
-  issues: number;
-  nodes: WorkflowExecutionNode[];
-  edges: WorkflowEdge[];
-  logs: {
-    timestamp: string;
-    level: "INFO" | "DEBUG" | "ERROR" | "WARNING";
-    message: string;
-  }[];
-  metadata?: {
-    graphToCanvas?: Record<string, string>;
-  };
-}
+export type WorkflowExecutionStatus = SharedWorkflowExecutionStatus;
+export type NodeStatus = SharedWorkflowExecutionNodeStatus;
+export type WorkflowExecutionNode = SharedWorkflowExecutionNode;
+export type WorkflowExecution = SharedWorkflowExecution;
 
 export interface RunHistoryStep {
   index: number;

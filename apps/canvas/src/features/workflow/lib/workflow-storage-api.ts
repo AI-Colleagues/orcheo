@@ -4,6 +4,7 @@ import type {
   ApiWorkflow,
   ApiWorkflowCanvasPayload,
   ApiWorkflowRun,
+  ApiWorkflowRunRemediation,
   ApiWorkflowVersion,
   CronTriggerConfig,
   PublicWorkflowMetadata,
@@ -252,6 +253,37 @@ export const triggerWorkflowRun = async (
         : {}),
     }),
   });
+};
+
+export const fetchWorkflowRemediations = async (
+  filters: {
+    workflowId?: string;
+    workflowVersionId?: string;
+    runId?: string;
+    status?: string;
+    limit?: number;
+  } = {},
+): Promise<ApiWorkflowRunRemediation[]> => {
+  const params = new URLSearchParams();
+  if (filters.workflowId) {
+    params.set("workflow_id", filters.workflowId);
+  }
+  if (filters.workflowVersionId) {
+    params.set("workflow_version_id", filters.workflowVersionId);
+  }
+  if (filters.runId) {
+    params.set("run_id", filters.runId);
+  }
+  if (filters.status) {
+    params.set("status", filters.status);
+  }
+  if (filters.limit) {
+    params.set("limit", String(filters.limit));
+  }
+  const query = params.toString();
+  return request<ApiWorkflowRunRemediation[]>(
+    `/api/workflow-remediations${query ? `?${query}` : ""}`,
+  );
 };
 
 export const selectLatestWorkflowVersion = (

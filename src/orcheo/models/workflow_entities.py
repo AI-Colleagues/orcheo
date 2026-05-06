@@ -22,6 +22,10 @@ __all__ = [
     "Workflow",
     "WorkflowRun",
     "WorkflowRunStatus",
+    "WorkflowRunRemediation",
+    "WorkflowRunRemediationAction",
+    "WorkflowRunRemediationClassification",
+    "WorkflowRunRemediationStatus",
     "WorkflowVersion",
 ]
 
@@ -428,3 +432,171 @@ class WorkflowRun(TimestampedAuditModel):
         if reason:
             metadata["reason"] = reason
         self.record_event(actor=actor, action="run_cancelled", metadata=metadata)
+
+
+class WorkflowRunRemediationStatus(str, Enum):
+    """Lifecycle states for automated workflow run remediation."""
+
+    PENDING = "pending"
+    CLAIMED = "claimed"
+    FIXED = "fixed"
+    NOTE_ONLY = "note_only"
+    FAILED = "failed"
+    DISMISSED = "dismissed"
+
+    @property
+    def is_active(self) -> bool:
+        """Return whether the candidate may still be worked by automation."""
+        return self in {
+            WorkflowRunRemediationStatus.PENDING,
+            WorkflowRunRemediationStatus.CLAIMED,
+        }
+
+    @property
+    def is_terminal(self) -> bool:
+        """Return whether no further automatic processing is expected."""
+        return not self.is_active
+
+
+class WorkflowRunRemediationClassification(str, Enum):
+    """Agent classification for a remediation candidate."""
+
+    WORKFLOW_FIXABLE = "workflow_fixable"
+    NODE_OR_EDGE_BUG_WORKAROUND = "node_or_edge_bug_workaround"
+    RUNTIME_OR_PLATFORM = "runtime_or_platform"
+    EXTERNAL_DEPENDENCY = "external_dependency"
+    UNKNOWN = "unknown"
+
+    @property
+    def creates_workflow_version(self) -> bool:
+        """Return whether this classification can create a workflow version."""
+        return self in {
+            WorkflowRunRemediationClassification.WORKFLOW_FIXABLE,
+            WorkflowRunRemediationClassification.NODE_OR_EDGE_BUG_WORKAROUND,
+        }
+
+
+class WorkflowRunRemediationAction(str, Enum):
+    """Durable action chosen for a remediation candidate."""
+
+    CREATE_WORKFLOW_VERSION = "create_workflow_version"
+    NOTE_ONLY = "note_only"
+
+
+class WorkflowRunRemediation(TimestampedAuditModel):
+    """Audit record for an automated remediation candidate."""
+
+    workflow_id: UUID
+    workflow_version_id: UUID
+    run_id: UUID
+    status: WorkflowRunRemediationStatus = WorkflowRunRemediationStatus.PENDING
+    fingerprint: str = Field(min_length=1)
+    version_checksum: str = Field(min_length=1)
+    graph_format: str | None = None
+    attempt_count: int = Field(default=0, ge=0)
+    classification: WorkflowRunRemediationClassification | None = None
+    action: WorkflowRunRemediationAction | None = None
+    context: dict[str, Any] = Field(default_factory=dict)
+    developer_note: str | None = None
+    created_version_id: UUID | None = None
+    artifacts: dict[str, Any] = Field(default_factory=dict)
+    validation_result: dict[str, Any] | None = None
+    last_error: str | None = None
+    claimed_by: str | None = None
+    claimed_at: datetime | None = None
+
+    def claim(self, *, actor: str, claimed_at: datetime | None = None) -> None:
+        """Claim a pending candidate for one remediation attempt."""
+        if self.status is not WorkflowRunRemediationStatus.PENDING:
+            msg = "Only pending remediations can be claimed."
+            raise ValueError(msg)
+        self.status = WorkflowRunRemediationStatus.CLAIMED
+        self.claimed_by = actor
+        self.claimed_at = claimed_at or _utcnow()
+        self.attempt_count += 1
+        self.record_event(actor=actor, action="remediation_claimed")
+
+    def mark_fixed(
+        self,
+        *,
+        actor: str,
+        created_version_id: UUID,
+        classification: WorkflowRunRemediationClassification,
+        developer_note: str,
+        artifacts: Mapping[str, Any],
+        validation_result: Mapping[str, Any],
+    ) -> None:
+        """Mark the remediation as having created a new workflow version."""
+        if self.status is not WorkflowRunRemediationStatus.CLAIMED:
+            msg = "Only claimed remediations can be marked fixed."
+            raise ValueError(msg)
+        if not classification.creates_workflow_version:
+            msg = "Only workflow-fix classifications can create versions."
+            raise ValueError(msg)
+        self.status = WorkflowRunRemediationStatus.FIXED
+        self.action = WorkflowRunRemediationAction.CREATE_WORKFLOW_VERSION
+        self.classification = classification
+        self.created_version_id = created_version_id
+        self.developer_note = developer_note
+        self.artifacts = dict(artifacts)
+        self.validation_result = dict(validation_result)
+        self.last_error = None
+        self.record_event(actor=actor, action="remediation_fixed")
+
+    def mark_note_only(
+        self,
+        *,
+        actor: str,
+        classification: WorkflowRunRemediationClassification,
+        developer_note: str,
+        artifacts: Mapping[str, Any],
+    ) -> None:
+        """Mark the remediation as note-only for human follow-up."""
+        if self.status is not WorkflowRunRemediationStatus.CLAIMED:
+            msg = "Only claimed remediations can be marked note-only."
+            raise ValueError(msg)
+        self.status = WorkflowRunRemediationStatus.NOTE_ONLY
+        self.action = WorkflowRunRemediationAction.NOTE_ONLY
+        self.classification = classification
+        self.created_version_id = None
+        self.developer_note = developer_note
+        self.artifacts = dict(artifacts)
+        self.validation_result = None
+        self.last_error = None
+        self.record_event(actor=actor, action="remediation_note_only")
+
+    def mark_failed(
+        self,
+        *,
+        actor: str,
+        error: str,
+        artifacts: Mapping[str, Any] | None = None,
+        validation_result: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Mark the remediation attempt as failed."""
+        if self.status is not WorkflowRunRemediationStatus.CLAIMED:
+            msg = "Only claimed remediations can be marked failed."
+            raise ValueError(msg)
+        self.status = WorkflowRunRemediationStatus.FAILED
+        self.last_error = error
+        if artifacts is not None:
+            self.artifacts = dict(artifacts)
+        self.validation_result = (
+            dict(validation_result) if validation_result is not None else None
+        )
+        self.record_event(actor=actor, action="remediation_failed")
+
+    def dismiss(self, *, actor: str, reason: str | None = None) -> None:
+        """Dismiss the candidate after human review."""
+        if (
+            self.status.is_terminal
+            and self.status is not WorkflowRunRemediationStatus.FAILED
+        ):
+            msg = "Only active or failed remediations can be dismissed."
+            raise ValueError(msg)
+        self.status = WorkflowRunRemediationStatus.DISMISSED
+        self.record_event(
+            actor=actor,
+            action="remediation_dismissed",
+            metadata={"reason": reason} if reason else None,
+        )

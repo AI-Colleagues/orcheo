@@ -19,7 +19,6 @@ import { usePauseWorkflow } from "@features/workflow/pages/workflow-canvas/hooks
 import { useNodeCreation } from "@features/workflow/pages/workflow-canvas/hooks/use-node-creation";
 import { useWorkflowKeybindings } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-keybindings";
 import { useNodeInspectorHandlers } from "@features/workflow/pages/workflow-canvas/hooks/use-node-inspector-handlers";
-import { useExecutionHistoryHandlers } from "@features/workflow/pages/workflow-canvas/hooks/use-execution-history-handlers";
 import { useExecutionTrace } from "@features/workflow/pages/workflow-canvas/hooks/use-execution-trace";
 import {
   createHandleCreateSubworkflow,
@@ -48,7 +47,6 @@ export interface WorkflowCanvasExecution {
   isRunPending: boolean;
   nodeCreation: ReturnType<typeof useNodeCreation>;
   inspectorHandlers: ReturnType<typeof useNodeInspectorHandlers>;
-  executionHistoryHandlers: ReturnType<typeof useExecutionHistoryHandlers>;
   trace: ReturnType<typeof useExecutionTrace>;
   runPublishValidation: ReturnType<typeof createRunPublishValidation>;
   handleDismissValidation: ReturnType<typeof createHandleDismissValidation>;
@@ -257,17 +255,6 @@ export function useWorkflowCanvasExecution(
     activeChatNodeId: core.chat.activeChatNodeId,
   });
 
-  const executionHistoryHandlers = useExecutionHistoryHandlers({
-    setNodes: core.history.setNodes,
-    setExecutions: core.execution.setExecutions,
-    setActiveExecutionId: core.execution.setActiveExecutionId,
-    activeExecutionId: core.execution.activeExecutionId,
-    executions: core.execution.executions,
-    determineLogLevel: executionUpdates.determineLogLevel,
-    describePayload: executionUpdates.describePayload,
-    setActiveTab: core.ui.setActiveTab,
-  });
-
   const handleCreateSubworkflow = useMemo(
     () =>
       createHandleCreateSubworkflow({
@@ -383,7 +370,6 @@ export function useWorkflowCanvasExecution(
     isRunPending,
     nodeCreation,
     inspectorHandlers,
-    executionHistoryHandlers,
     trace,
     runPublishValidation,
     handleDismissValidation,

@@ -8,6 +8,10 @@ from orcheo.models import (
     Workflow,
     WorkflowDraftAccess,
     WorkflowRun,
+    WorkflowRunRemediation,
+    WorkflowRunRemediationAction,
+    WorkflowRunRemediationClassification,
+    WorkflowRunRemediationStatus,
     WorkflowRunStatus,
     WorkflowVersion,
 )
@@ -186,6 +190,217 @@ def test_workflow_run_cancel_without_reason() -> None:
 
     assert run.error is None
     assert run.audit_log[-1].metadata == {}
+
+
+def test_workflow_run_remediation_lifecycle() -> None:
+    remediation = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="checksum:type:message",
+        version_checksum="abc123",
+        context={"error": "boom"},
+    )
+
+    assert remediation.status is WorkflowRunRemediationStatus.PENDING
+    assert remediation.status.is_active is True
+    remediation.claim(actor="worker-1")
+
+    assert remediation.status is WorkflowRunRemediationStatus.CLAIMED
+    assert remediation.attempt_count == 1
+    assert remediation.claimed_by == "worker-1"
+    assert remediation.claimed_at is not None
+
+    remediation.mark_note_only(
+        actor="worker-1",
+        classification=WorkflowRunRemediationClassification.RUNTIME_OR_PLATFORM,
+        developer_note="Runtime issue needs operator review.",
+        artifacts={"classification_hash": "hash"},
+    )
+
+    assert remediation.status is WorkflowRunRemediationStatus.NOTE_ONLY
+    assert remediation.action is WorkflowRunRemediationAction.NOTE_ONLY
+    assert remediation.classification is (
+        WorkflowRunRemediationClassification.RUNTIME_OR_PLATFORM
+    )
+    assert remediation.developer_note == "Runtime issue needs operator review."
+    assert remediation.created_version_id is None
+    assert remediation.last_error is None
+
+
+def test_workflow_run_remediation_claim_rejects_non_pending_state() -> None:
+    remediation = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="checksum:type:message",
+        version_checksum="abc123",
+    )
+
+    remediation.claim(actor="worker")
+
+    with pytest.raises(ValueError, match="Only pending remediations can be claimed"):
+        remediation.claim(actor="worker")
+
+
+def test_workflow_run_remediation_fixed_requires_version_classification() -> None:
+    remediation = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="checksum:type:message",
+        version_checksum="abc123",
+    )
+
+    with pytest.raises(ValueError, match="workflow-fix classifications"):
+        remediation.claim(actor="worker")
+        remediation.mark_fixed(
+            actor="worker",
+            created_version_id=uuid4(),
+            classification=WorkflowRunRemediationClassification.UNKNOWN,
+            developer_note="not fixable",
+            artifacts={},
+            validation_result={},
+        )
+
+    created_version_id = uuid4()
+    remediation = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="checksum:type:message:2",
+        version_checksum="abc124",
+    )
+    remediation.claim(actor="worker")
+    remediation.mark_fixed(
+        actor="worker",
+        created_version_id=created_version_id,
+        classification=WorkflowRunRemediationClassification.WORKFLOW_FIXABLE,
+        developer_note="Workflow source was repaired.",
+        artifacts={"workflow_hash": "hash"},
+        validation_result={"ok": True},
+    )
+
+    assert remediation.status is WorkflowRunRemediationStatus.FIXED
+    assert remediation.action is WorkflowRunRemediationAction.CREATE_WORKFLOW_VERSION
+    assert remediation.created_version_id == created_version_id
+    assert remediation.validation_result == {"ok": True}
+
+
+def test_workflow_run_remediation_mark_failed_requires_claimed_state() -> None:
+    remediation = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="failed-guard",
+        version_checksum="abc125",
+    )
+
+    with pytest.raises(
+        ValueError, match="Only claimed remediations can be marked failed"
+    ):
+        remediation.mark_failed(actor="worker", error="boom")
+
+
+def test_workflow_run_remediation_mark_note_only_requires_claimed_state() -> None:
+    remediation = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="note-only-guard",
+        version_checksum="abc126",
+    )
+
+    with pytest.raises(
+        ValueError, match="Only claimed remediations can be marked note-only"
+    ):
+        remediation.mark_note_only(
+            actor="worker",
+            classification=WorkflowRunRemediationClassification.RUNTIME_OR_PLATFORM,
+            developer_note="note",
+            artifacts={},
+        )
+
+
+def test_workflow_run_remediation_mark_failed_persists_optional_artifacts() -> None:
+    remediation = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="failed-artifacts",
+        version_checksum="abc126",
+    )
+
+    remediation.claim(actor="worker")
+    remediation.mark_failed(
+        actor="worker",
+        error="boom",
+        artifacts={"trace": "payload"},
+        validation_result={"ok": False},
+    )
+
+    assert remediation.status is WorkflowRunRemediationStatus.FAILED
+    assert remediation.last_error == "boom"
+    assert remediation.artifacts == {"trace": "payload"}
+    assert remediation.validation_result == {"ok": False}
+
+
+def test_workflow_run_remediation_dismiss_rules() -> None:
+    fixed = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="fixed",
+        version_checksum="abc123",
+    )
+    fixed.claim(actor="worker")
+    fixed.mark_fixed(
+        actor="worker",
+        created_version_id=uuid4(),
+        classification=WorkflowRunRemediationClassification.WORKFLOW_FIXABLE,
+        developer_note="fixed",
+        artifacts={},
+        validation_result={"ok": True},
+    )
+
+    with pytest.raises(ValueError, match="active or failed"):
+        fixed.dismiss(actor="reviewer")
+
+    failed = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="failed",
+        version_checksum="abc123",
+    )
+    failed.claim(actor="worker")
+    failed.mark_failed(actor="worker", error="agent failed")
+    failed.dismiss(actor="reviewer", reason="tracked elsewhere")
+
+    assert failed.status is WorkflowRunRemediationStatus.DISMISSED
+    assert failed.audit_log[-1].metadata == {"reason": "tracked elsewhere"}
+
+
+def test_workflow_run_remediation_terminal_transition_requires_claimed() -> None:
+    remediation = WorkflowRunRemediation(
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        run_id=uuid4(),
+        fingerprint="claimed-transition-guard",
+        version_checksum="abc123",
+    )
+    remediation.claim(actor="worker")
+    remediation.dismiss(actor="reviewer", reason="manual decision")
+
+    with pytest.raises(ValueError, match="claimed remediations can be marked fixed"):
+        remediation.mark_fixed(
+            actor="worker",
+            created_version_id=uuid4(),
+            classification=WorkflowRunRemediationClassification.WORKFLOW_FIXABLE,
+            developer_note="should not override dismissal",
+            artifacts={},
+            validation_result={},
+        )
 
 
 def test_workflow_publish_lifecycle() -> None:

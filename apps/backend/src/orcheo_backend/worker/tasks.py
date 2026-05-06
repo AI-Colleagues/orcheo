@@ -382,10 +382,12 @@ async def _handle_execution_failure(
         Error result dict
     """
     from orcheo_backend.app.dependencies import get_repository
+    from orcheo_backend.app.workflow_remediation import create_candidate_for_failed_run
 
     repository = get_repository()
     run_id = str(run.id)
     error_message = str(exc)
+    run_failure_persisted = False
 
     logger.exception("Run %s failed: %s", run_id, error_message)
 
@@ -395,6 +397,7 @@ async def _handle_execution_failure(
             actor=WORKER_ACTOR,
             error=error_message,
         )
+        run_failure_persisted = True
     except Exception as mark_exc:
         logger.exception(
             "Failed to mark run %s as failed: %s",
@@ -413,6 +416,14 @@ async def _handle_execution_failure(
                 run_id,
                 history_exc,
             )
+
+    if run_failure_persisted:
+        await create_candidate_for_failed_run(
+            repository=repository,
+            history_store=history_store,
+            run=run,
+            exc=exc,
+        )
 
     return {"status": "failed", "error": error_message}
 
@@ -511,6 +522,57 @@ def dispatch_cron_triggers(self: Task) -> dict[str, Any]:  # noqa: ARG001
     run_ids = loop.run_until_complete(_dispatch_cron_triggers_async())
     logger.info("Dispatched %d cron runs", len(run_ids))
     return {"dispatched_runs": run_ids}
+
+
+async def _scan_workflow_remediations_async() -> dict[str, Any]:
+    """Scan and claim pending workflow remediation candidates when idle."""
+    from orcheo.config import get_settings
+    from orcheo_backend.app.dependencies import get_repository
+    from orcheo_backend.app.workflow_remediation import (
+        load_workflow_autofix_settings,
+        scan_workflow_remediations_async,
+    )
+
+    return await scan_workflow_remediations_async(
+        repository=get_repository(),
+        celery_app=celery_app,
+        settings=load_workflow_autofix_settings(get_settings()),
+    )
+
+
+async def _attempt_workflow_remediation_async(remediation_id: str) -> dict[str, Any]:
+    """Attempt one claimed workflow remediation candidate."""
+    from orcheo.config import get_settings
+    from orcheo_backend.app.dependencies import get_repository
+    from orcheo_backend.app.workflow_remediation import (
+        attempt_workflow_remediation_async,
+        load_workflow_autofix_settings,
+    )
+
+    return await attempt_workflow_remediation_async(
+        repository=get_repository(),
+        remediation_id=UUID(remediation_id),
+        settings=load_workflow_autofix_settings(get_settings()),
+    )
+
+
+@celery_app.task(bind=True)
+def scan_workflow_remediations(self: Task) -> dict[str, Any]:  # noqa: ARG001
+    """Claim and enqueue one workflow autofix candidate when the worker is idle."""
+    logger.info("Scanning workflow remediation candidates")
+    loop = _get_event_loop()
+    return loop.run_until_complete(_scan_workflow_remediations_async())
+
+
+@celery_app.task(bind=True, max_retries=0)
+def attempt_workflow_remediation(
+    self: Task,  # noqa: ARG001
+    remediation_id: str,
+) -> dict[str, Any]:
+    """Run one workflow autofix remediation attempt by candidate id."""
+    logger.info("Attempting workflow remediation %s", remediation_id)
+    loop = _get_event_loop()
+    return loop.run_until_complete(_attempt_workflow_remediation_async(remediation_id))
 
 
 @celery_app.task(bind=True)

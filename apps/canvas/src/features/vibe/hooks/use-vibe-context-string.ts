@@ -50,6 +50,10 @@ export function buildVibeContextString(ctx: PageContext): string {
       break;
     }
 
+    case "remediations":
+      parts.push("The user is viewing remediation records.");
+      break;
+
     case "execution":
       if (ctx.executionId) {
         parts.push(

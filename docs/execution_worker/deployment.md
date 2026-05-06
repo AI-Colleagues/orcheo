@@ -16,6 +16,12 @@ This guide covers deploying the Orcheo execution worker with Celery and Redis.
 |----------|-------------|---------|
 | `CELERY_CONCURRENCY` | Number of worker processes | `4` |
 | `CELERY_LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR) | `info` |
+| `ORCHEO_WORKFLOW_AUTOFIX_ENABLED` | Enables automatic workflow failure remediation scans | `true` |
+| `ORCHEO_WORKFLOW_AUTOFIX_DRY_RUN` | Records remediation notes without creating new workflow versions | `true` |
+| `ORCHEO_WORKFLOW_AUTOFIX_SCAN_INTERVAL_SECONDS` | Celery Beat interval for remediation scans | `60` |
+| `ORCHEO_WORKFLOW_AUTOFIX_MAX_CONCURRENT_ATTEMPTS` | Maximum claimed remediation attempts at once | `1` |
+| `ORCHEO_WORKFLOW_AUTOFIX_IDLE_LOAD_THRESHOLD` | Host load threshold for idle remediation attempts | `1.5` |
+| `ORCHEO_WORKFLOW_AUTOFIX_RETRY_AFTER_FIX` | Best-effort retry run after a validated workflow fix | `false` |
 
 ### Example Environment File
 
@@ -32,7 +38,75 @@ CELERY_LOG_LEVEL=info
 # Application settings (inherited from existing Orcheo config)
 # ORCHEO_AUTH_MODE=jwt
 # ORCHEO_DATABASE_URL=sqlite:///./orcheo.db
+
+# Workflow autofix remediation (enabled by default)
+ORCHEO_WORKFLOW_AUTOFIX_ENABLED=true
+ORCHEO_WORKFLOW_AUTOFIX_DRY_RUN=true
+ORCHEO_WORKFLOW_AUTOFIX_MAX_CONCURRENT_ATTEMPTS=1
+ORCHEO_WORKFLOW_AUTOFIX_RETRY_AFTER_FIX=false
 ```
+
+## Workflow Autofix Remediation
+
+Workflow autofix captures failed workflow runs as remediation candidates after
+the run has already been persisted as failed. The remediation scanner runs from
+Celery Beat, waits until normal workflow execution is idle, then claims one
+pending candidate and invokes Orcheo Vibe in a temporary workspace.
+
+Keep `ORCHEO_WORKFLOW_AUTOFIX_DRY_RUN=true` while validating a deployment. In
+dry-run mode the agent classification, developer note, and artifact hashes are
+stored, but no replacement workflow version is created. To allow validated
+workflow-source fixes to create versions, set both:
+
+```bash
+ORCHEO_WORKFLOW_AUTOFIX_ENABLED=true
+ORCHEO_WORKFLOW_AUTOFIX_DRY_RUN=false
+```
+
+Leave `ORCHEO_WORKFLOW_AUTOFIX_RETRY_AFTER_FIX=false` until operators are ready
+for an automated retry after a validated workflow-source fix. When enabled, the
+worker creates a new run for the remediation-created version using the failed
+run's original input payload and runnable config, then enqueues it through the
+normal `execute_run` Celery task. Enqueue failures are logged and recorded in
+the remediation artifacts; the created workflow version remains valid.
+
+Idle behavior is intentionally conservative. A scan is skipped when remediation
+is disabled, another remediation is already claimed up to the configured
+concurrency limit, any workflow run is active, Celery reports active or reserved
+workflow execution tasks, host load is above
+`ORCHEO_WORKFLOW_AUTOFIX_IDLE_LOAD_THRESHOLD`, or host load cannot be inspected
+and `ORCHEO_WORKFLOW_AUTOFIX_UNKNOWN_LOAD_ALLOWS_REMEDIATION=false`.
+
+Safety boundaries:
+
+- Candidate context is redacted before persistence, including secret-like keys,
+  token-like strings, tracebacks, inputs, runnable config, and run history.
+- Vault placeholders such as `[[credential_name]]` are preserved as references,
+  not treated as leaked secrets.
+- Orcheo Vibe may only change the failed workflow version source. Runtime,
+  platform, external dependency, and unknown classifications are recorded as
+  developer notes only.
+- Edited source must pass the existing LangGraph script ingestion path before a
+  new workflow version is created.
+- Created versions are attributed to `orcheo-vibe-remediation` and include
+  remediation metadata plus audit notes.
+
+Remediation statuses:
+
+| Status | Meaning |
+|--------|---------|
+| `pending` | Failed-run candidate was captured and is waiting for an idle scan. |
+| `claimed` | A scan claimed the candidate and enqueued an attempt. |
+| `fixed` | A validated workflow-source fix created a new workflow version. |
+| `note_only` | Orcheo Vibe classified the issue as non-editable or dry-run mode prevented version creation. |
+| `failed` | The attempt failed, emitted invalid artifacts, or produced source that could not be ingested. |
+| `dismissed` | A human dismissed the candidate after review. |
+
+Operational logs include event-style messages for recorded candidates, skipped
+scans, empty scans, claimed candidates, note-only results, dry-run results,
+validation failures, fixed versions, and unexpected attempt failures. With
+`LOG_FORMAT=json`, these events can be counted by searching for the
+`Workflow remediation ...` message prefixes.
 
 ## Local Development
 
