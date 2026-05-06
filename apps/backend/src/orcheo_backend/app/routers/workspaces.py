@@ -100,13 +100,14 @@ def _to_audit_event_response(event: WorkspaceAuditEvent) -> WorkspaceAuditEventR
 def create_workspace(
     payload: WorkspaceCreateRequest,
     service: WorkspaceServiceDep,
+    context: WorkspaceContextDep,
 ) -> WorkspaceResponse:
     """Create a workspace and assign the owner membership."""
     try:
         workspace, _ = service.create_workspace(
             slug=payload.slug,
             name=payload.name,
-            owner_user_id=payload.owner_user_id,
+            owner_user_id=payload.owner_user_id or context.user_id,
             quotas=payload.quotas,
         )
     except WorkspaceSlugConflictError as exc:

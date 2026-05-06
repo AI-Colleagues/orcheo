@@ -30,7 +30,7 @@ class WorkspaceCreateRequest(BaseModel):
 
     slug: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=255)
-    owner_user_id: str = Field(min_length=1)
+    owner_user_id: str | None = Field(default=None, min_length=1)
     quotas: WorkspaceQuotas | None = None
 
 

@@ -2,15 +2,12 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ActiveWorkspaceIndicator from "@/features/shared/components/top-navigation/active-workspace-indicator";
-import { getActiveWorkspace } from "@/lib/api";
-
-vi.mock("@/lib/api", () => ({
-  getActiveWorkspace: vi.fn(),
-}));
 
 describe("ActiveWorkspaceIndicator", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.fetch = vi.fn();
+    window.localStorage.clear();
   });
 
   afterEach(() => {
@@ -18,11 +15,36 @@ describe("ActiveWorkspaceIndicator", () => {
   });
 
   it("renders the active workspace slug when available", async () => {
-    vi.mocked(getActiveWorkspace).mockResolvedValueOnce({
-      workspace_id: "workspace-1",
-      slug: "acme",
-      name: "Acme",
-      role: "owner",
+    vi.mocked(global.fetch).mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/api/workspaces/active")) {
+        return {
+          ok: true,
+          json: async () => ({
+            workspace_id: "workspace-1",
+            slug: "acme",
+            name: "Acme",
+            role: "owner",
+          }),
+        } as Response;
+      }
+      if (url.includes("/api/workspaces/me")) {
+        return {
+          ok: true,
+          json: async () => ({
+            memberships: [
+              {
+                workspace_id: "workspace-1",
+                slug: "acme",
+                name: "Acme",
+                role: "owner",
+                status: "active",
+              },
+            ],
+          }),
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
     });
 
     render(<ActiveWorkspaceIndicator />);
@@ -33,18 +55,14 @@ describe("ActiveWorkspaceIndicator", () => {
     });
   });
 
-  it("stays hidden when the workspace cannot be resolved", async () => {
-    vi.mocked(getActiveWorkspace).mockRejectedValueOnce(
-      new Error("unavailable"),
-    );
+  it("stays visible while the workspace cannot be resolved", async () => {
+    vi.mocked(global.fetch).mockRejectedValue(new Error("unavailable"));
 
     render(<ActiveWorkspaceIndicator />);
 
     await waitFor(() => {
-      expect(getActiveWorkspace).toHaveBeenCalledTimes(1);
+      expect(screen.getByText("Workspace")).toBeInTheDocument();
+      expect(screen.getByText("Loading…")).toBeInTheDocument();
     });
-    expect(
-      screen.queryByTestId("active-workspace-indicator"),
-    ).not.toBeInTheDocument();
   });
 });

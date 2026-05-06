@@ -16,9 +16,12 @@ describe("AuthPage", () => {
   beforeEach(() => {
     startOidcLoginMock.mockReset();
     startOidcLoginMock.mockResolvedValue(undefined);
+    vi.stubEnv("VITE_ORCHEO_AUTH_ISSUER", "https://auth.example.com");
+    vi.stubEnv("VITE_ORCHEO_AUTH_CLIENT_ID", "client-id");
   });
   afterEach(() => {
     cleanup();
+    vi.unstubAllEnvs();
   });
 
   it("uses invite params from redirect state when login search is empty", async () => {

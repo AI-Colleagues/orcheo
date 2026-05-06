@@ -34,6 +34,7 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
             data = payload
         data.pop("publish_token_hash", None)
         data.pop("publish_token_rotated_at", None)
+        data.pop("tenant_id", None)
         if workspace_id is not None:
             data["workspace_id"] = workspace_id
         return Workflow.model_validate(data)
@@ -48,6 +49,7 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
             data = json.loads(payload)
         else:
             data = payload
+        data.pop("tenant_id", None)
         if workspace_id is not None:
             data["workspace_id"] = workspace_id
         return WorkflowVersion.model_validate(data)
