@@ -213,14 +213,14 @@ def test_get_provider_status_falls_back_when_redis_payload_missing(
     runtime_store: ExternalAgentRuntimeStore,
 ) -> None:
     runtime_store._redis = DummyRedis()
-    runtime_store._provider_statuses[ExternalAgentProviderName.CLAUDE_CODE.value] = (
-        ExternalAgentProviderStatus(
-            provider=ExternalAgentProviderName.CLAUDE_CODE,
-            display_name="Claude",
-            state=ExternalAgentProviderState.CHECKING,
-            installed=False,
-            authenticated=False,
-        )
+    runtime_store._provider_statuses[
+        runtime_store._provider_key(ExternalAgentProviderName.CLAUDE_CODE)
+    ] = ExternalAgentProviderStatus(
+        provider=ExternalAgentProviderName.CLAUDE_CODE,
+        display_name="Claude",
+        state=ExternalAgentProviderState.CHECKING,
+        installed=False,
+        authenticated=False,
     )
 
     loaded = runtime_store.get_provider_status(ExternalAgentProviderName.CLAUDE_CODE)
@@ -267,16 +267,19 @@ def test_store_initialization_falls_back_when_redis_unavailable(
 def test_runtime_store_key_helpers(runtime_store: ExternalAgentRuntimeStore) -> None:
     assert (
         runtime_store._provider_key(ExternalAgentProviderName.CLAUDE_CODE)
-        == "orcheo:external_agents:provider:claude_code"
+        == "orcheo:external_agents:workspace:global:provider:claude_code"
     )
-    assert runtime_store._session_key("abc") == "orcheo:external_agents:session:abc"
+    assert (
+        runtime_store._session_key("abc")
+        == "orcheo:external_agents:workspace:global:session:abc"
+    )
     assert (
         runtime_store._provider_environment_key(ExternalAgentProviderName.CODEX)
-        == "orcheo:external_agents:provider-env:codex"
+        == "orcheo:external_agents:workspace:global:provider-env:codex"
     )
     assert (
         runtime_store._session_input_key("abc")
-        == "orcheo:external_agents:session-input:abc"
+        == "orcheo:external_agents:workspace:global:session-input:abc"
     )
 
 
@@ -290,7 +293,9 @@ def test_get_provider_status_falls_back_when_redis_read_fails(
         installed=True,
         authenticated=True,
     )
-    runtime_store._provider_statuses[status.provider.value] = status
+    runtime_store._provider_statuses[runtime_store._provider_key(status.provider)] = (
+        status
+    )
     runtime_store._redis = ErrorRedis(get_error=redis.RedisError("boom"))
 
     loaded = runtime_store.get_provider_status(ExternalAgentProviderName.CLAUDE_CODE)
@@ -313,7 +318,9 @@ def test_save_provider_status_keeps_memory_copy_when_redis_write_fails(
     runtime_store.save_provider_status(status)
 
     assert (
-        runtime_store._provider_statuses[status.provider.value].state
+        runtime_store._provider_statuses[
+            runtime_store._provider_key(status.provider)
+        ].state
         == ExternalAgentProviderState.CHECKING
     )
 
@@ -322,7 +329,7 @@ def test_get_provider_environment_falls_back_for_non_dict_redis_payload(
     runtime_store: ExternalAgentRuntimeStore,
 ) -> None:
     runtime_store._provider_environments[
-        ExternalAgentProviderName.CLAUDE_CODE.value
+        runtime_store._provider_environment_key(ExternalAgentProviderName.CLAUDE_CODE)
     ] = {"CLAUDE_TOKEN": "memory"}
     runtime_store._redis = ErrorRedis(payload='["not-a-dict"]')
 
@@ -335,7 +342,7 @@ def test_get_provider_environment_falls_back_for_invalid_redis_json(
     runtime_store: ExternalAgentRuntimeStore,
 ) -> None:
     runtime_store._provider_environments[
-        ExternalAgentProviderName.CLAUDE_CODE.value
+        runtime_store._provider_environment_key(ExternalAgentProviderName.CLAUDE_CODE)
     ] = {"CLAUDE_TOKEN": "memory"}
     runtime_store._redis = ErrorRedis(payload="{invalid")
 
@@ -355,7 +362,7 @@ def test_save_provider_environment_keeps_memory_copy_when_redis_write_fails(
     )
 
     assert runtime_store._provider_environments[
-        ExternalAgentProviderName.CLAUDE_CODE.value
+        runtime_store._provider_environment_key(ExternalAgentProviderName.CLAUDE_CODE)
     ] == {"CLAUDE_TOKEN": "abc"}
 
 
@@ -371,7 +378,7 @@ def test_get_login_session_falls_back_when_redis_payload_is_blank(
         created_at=now,
         updated_at=now,
     )
-    runtime_store._sessions[session.session_id] = session
+    runtime_store._sessions[runtime_store._session_key(session.session_id)] = session
     runtime_store._redis = ErrorRedis(payload="")
 
     loaded = runtime_store.get_login_session(session.session_id)
@@ -392,7 +399,7 @@ def test_get_login_session_falls_back_when_redis_read_fails(
         created_at=now,
         updated_at=now,
     )
-    runtime_store._sessions[session.session_id] = session
+    runtime_store._sessions[runtime_store._session_key(session.session_id)] = session
     runtime_store._redis = ErrorRedis(get_error=redis.RedisError("boom"))
 
     loaded = runtime_store.get_login_session(session.session_id)
@@ -418,7 +425,7 @@ def test_save_login_session_keeps_memory_copy_when_redis_write_fails(
     runtime_store.save_login_session(session)
 
     assert (
-        runtime_store._sessions["save-error"].provider
+        runtime_store._sessions[runtime_store._session_key("save-error")].provider
         == ExternalAgentProviderName.CODEX
     )
 

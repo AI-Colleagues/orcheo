@@ -31,23 +31,44 @@ from orcheo_backend.app.chatkit.model_selection import (
 from orcheo_backend.app.dependencies import (
     get_external_agent_runtime_store,
     get_history_store,
+    get_vault,
+)
+from orcheo_backend.app.external_agent_auth import (
+    load_external_agent_vault_environment,
 )
 from orcheo_backend.app.external_agent_runtime_store import (
     list_external_agent_providers,
 )
 from orcheo_backend.app.history import RunHistoryError, RunHistoryStore
-from orcheo_backend.app.repository import WorkflowRepository, WorkflowRun
+from orcheo_backend.app.repository import (
+    WorkflowNotFoundError,
+    WorkflowRepository,
+    WorkflowRun,
+)
 
 
 logger = logging.getLogger(__name__)
 
 
-def _external_agent_provider_environment() -> dict[str, str]:
+def _external_agent_provider_environment(
+    workspace_id: str | None = None,
+) -> dict[str, str]:
     """Return shared external-agent auth env from the runtime store."""
     runtime_store = get_external_agent_runtime_store()
+    vault = get_vault()
     merged: dict[str, str] = {}
     for provider_name in list_external_agent_providers():
-        merged.update(runtime_store.get_provider_environment(provider_name))
+        provider_env = runtime_store.get_provider_environment(
+            provider_name,
+            workspace_id=workspace_id,
+        )
+        provider_env.update(
+            load_external_agent_vault_environment(
+                vault,
+                workspace_id=workspace_id,
+            )
+        )
+        merged.update(provider_env)
     return merged
 
 
@@ -168,6 +189,7 @@ class WorkflowExecutor:
         *,
         actor: str = "chatkit",
         progress_callback: Callable[[Mapping[str, Any]], Awaitable[None]] | None = None,
+        workspace_id: str | None = None,
     ) -> tuple[str, Mapping[str, Any], WorkflowRun | None]:
         """Execute the workflow and return the reply, state view, and run."""
         workflow, version = await asyncio.gather(
@@ -177,15 +199,23 @@ class WorkflowExecutor:
         get_workflow_workspace_id = getattr(
             self._repository, "get_workflow_workspace_id", None
         )
-        workspace_id = (
+        repository_workspace_id = (
             await get_workflow_workspace_id(workflow_id)
             if callable(get_workflow_workspace_id)
             else None
         )
+        resolved_workspace_id = workspace_id
+        if resolved_workspace_id is None:
+            resolved_workspace_id = repository_workspace_id
+        elif (
+            repository_workspace_id is not None
+            and repository_workspace_id != resolved_workspace_id
+        ):
+            raise WorkflowNotFoundError(str(workflow_id))
         normalized_inputs = dict(inputs)
         selected_model = apply_chatkit_selected_model(normalized_inputs, workflow)
         history_store = get_history_store()
-        if workspace_id is None:
+        if resolved_workspace_id is None:
             run = await self._create_run_record(
                 workflow_id,
                 version.id,
@@ -198,7 +228,7 @@ class WorkflowExecutor:
                 version.id,
                 actor,
                 normalized_inputs,
-                workspace_id=workspace_id,
+                workspace_id=resolved_workspace_id,
             )
         execution_id = self._resolve_execution_id(run)
         runtime_thread_id = _resolve_runtime_thread_id(inputs, execution_id)
@@ -226,7 +256,7 @@ class WorkflowExecutor:
             runtime_thread_id=runtime_thread_id,
             inputs=normalized_inputs,
             merged_config=merged_config,
-            workspace_id=workspace_id,
+            workspace_id=resolved_workspace_id,
         )
 
         try:
@@ -244,7 +274,7 @@ class WorkflowExecutor:
                 config=config,
                 state_config=state_config,
                 step_callback=step_callback,
-                workspace_id=workspace_id,
+                workspace_id=resolved_workspace_id,
             )
             reply, state_view = _build_reply_state(final_state)
         except Exception as exc:
@@ -346,7 +376,7 @@ class WorkflowExecutor:
             workspace_id=workspace_id,
         )
         credential_resolver = CredentialResolver(vault, context=credential_context)
-        external_agent_environ = _external_agent_provider_environment()
+        external_agent_environ = _external_agent_provider_environment(workspace_id)
 
         async with create_checkpointer(settings) as checkpointer:
             async with create_graph_store(settings) as graph_store:

@@ -22,11 +22,13 @@ The design favors logical isolation in shared databases over physical separation
   - `WorkspaceContext` value object (`workspace_id`, `user_id`, `role`, `quotas`).
   - `workspace_resolver` service: resolves principals to memberships, caches in Redis (TTL 60s).
   - Centralized `require_workspace()` FastAPI dependency.
+  - SaaS onboarding is invite- or signup-driven: users can switch among memberships they already hold, but they do not get a free-form "join/create workspace" action in the product shell.
 
 - **Identity & Auth (`orcheo_backend.app.authentication`)**
   - Updates bearer token middleware to attach a `WorkspaceContext` per request.
   - Service tokens carry `workspace_id` at issuance; validation rejects token-workspace mismatch.
   - WebSocket handshake requires a workspace-scoped token.
+  - Registration and invite acceptance set the initial workspace; the active workspace is then switchable only among memberships.
 
 - **Workflow Repository (`orcheo_backend.app.repository`)**
   - `WorkflowRepository` methods gain an explicit `workspace_id` argument.
@@ -72,6 +74,12 @@ The design favors logical isolation in shared databases over physical separation
 - **CLI (`packages/sdk/src/orcheo_sdk/cli`)**
   - `orcheo workspace create|list|deactivate`, `orcheo workspace invite`, `orcheo workspace use <slug>`.
   - All resource commands accept `--workspace <slug>` and read `ORCHEO_WORKSPACE` env var.
+  - CLI examples should always make the target workspace explicit; no command should rely on hidden workspace selection when multiple memberships exist.
+
+- **Orcheo Vibe (`orcheo_backend.app.chatkit`, `orcheo.external_agents`)**
+  - Each workspace binds its own external-agent credentials, login sessions, and runtime state.
+  - Working directories must resolve inside the active workspace's connected filesystem root; the default Vibe path is workspace-scoped, not shared across tenants.
+  - External CLI agents only receive workspace-scoped auth material and workspace-scoped path access.
 
 ## Request Flows
 
@@ -100,7 +108,13 @@ The design favors logical isolation in shared databases over physical separation
 3. Admin API creates the workspace row, default quotas, and an `owner` membership for the named user.
 4. CLI prints the new workspace slug and an initial bootstrap service token.
 
-### Flow 5: Single-workspace upgrade
+### Flow 5: SaaS registration / invite acceptance
+1. New users register or accept an invite.
+2. The identity layer binds the account to the invited workspace or provisions the first workspace only if the deployment policy allows self-serve creation.
+3. Canvas opens in that workspace with the active workspace switcher set to one of the user's existing memberships.
+4. Users can switch workspaces only within that membership set; they cannot browse the entire tenant graph to join or create arbitrary workspaces.
+
+### Flow 6: Single-workspace upgrade
 1. Operator deploys release with `multi_workspace.enabled=false` and `multi_workspace.default_workspace_slug=default`.
 2. Schema migration adds nullable `workspace_id` columns, backfills with the `default` workspace id, then sets `NOT NULL`.
 3. After verification, operator flips `multi_workspace.enabled=true`.
@@ -248,6 +262,7 @@ Composite indexes:
 - Cross-workspace access attempts are logged with actor and target workspace for forensics.
 - Default-workspace migration runs before a second workspace exists; behavioral rollback is only supported in that window.
 - Super-admin (deployment-level) operations require a separate role; super-admin tokens never carry `workspace_id`.
+- Orcheo Vibe requests must refuse to execute if the selected working directory falls outside the workspace's connected filesystem root.
 
 ## Performance Considerations
 

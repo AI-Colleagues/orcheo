@@ -27,7 +27,7 @@
 Allow one Orcheo deployment to host multiple independent teams or individuals on shared infrastructure with strict logical isolation. Provide workspace-aware authentication, authorization, persistence, execution, and observability.
 
 ### Target users
-Self-hosted operators running Orcheo for several teams or clients; SaaS-style hosts exposing Orcheo to multiple end-users; individual users who want isolated workspaces within a shared deployment.
+Self-hosted operators running Orcheo for several teams or clients; SaaS-style hosts exposing Orcheo to multiple end-users; individual users who want isolated workspaces within a shared deployment. SaaS users should be able to switch among workspaces they already belong to, but workspace creation/joining should happen through signup, invite acceptance, or admin-approved onboarding rather than a free-form workspace picker.
 
 ### User Stories
 | As a... | I want to... | So that... | Priority | Acceptance Criteria |
@@ -35,6 +35,7 @@ Self-hosted operators running Orcheo for several teams or clients; SaaS-style ho
 | Platform operator | provision workspaces on a single deployment | I can serve multiple teams without spinning up separate stacks | P0 | Workspaces can be created, listed, and deactivated via CLI/API; workspace data is isolated end-to-end |
 | Workspace admin | invite users into my workspace and assign roles | only authorized members can access my workflows and credentials | P0 | Membership and role assignment APIs exist; access checks enforce roles on every protected route |
 | Developer | author workflows that only see my workspace's credentials and data | another workspace cannot read or modify my work | P0 | Workflow repository, execution history, vault, and chat data are partitioned by `workspace_id`; cross-workspace access returns 404 |
+| SaaS user | connect external agents and file-system paths to my workspace only | the Orcheo Vibe path cannot read or mutate another workspace | P0 | External agent auth, runtime state, and working directories are scoped by workspace; shared secrets or shared paths are rejected |
 | Operator | apply per-workspace quotas (workflows, concurrent runs, storage) | a noisy workspace cannot exhaust shared resources | P1 | Quota config is enforced; exceeding limits returns a clear error; metrics are emitted per workspace |
 | Operator | view per-workspace usage and audit logs | I can bill, debug, or investigate abuse | P1 | Telemetry and execution history are tagged with `workspace_id`; dashboards filter by workspace |
 | Existing single-workspace user | upgrade my deployment without data loss | I can adopt multi-workspace when ready | P0 | Migration assigns existing data to a default workspace; operators can roll back behavior by disabling multi-workspace while only the default workspace exists |
@@ -54,7 +55,7 @@ Non-goals:
 - Hard physical isolation (separate databases, separate worker pools per workspace). Out of scope for v1.
 - Cross-workspace sharing of workflows or credentials.
 - Billing, invoicing, or payment integration.
-- A new workspace-management UI in Canvas (CLI/API only for v1).
+- Free-form workspace creation/joining in Canvas; membership changes should flow through onboarding, invites, or admin APIs instead.
 - Replacing the existing auth model with a full IdP/SSO product.
 
 ## PRODUCT DEFINITION
@@ -68,6 +69,7 @@ P0:
 - Workspace-aware CLI commands (`orcheo workspace create|list|deactivate|invite|use`).
 - Migration: existing rows are assigned to a `default` workspace; runtime behavior is gated by a config flag and can be rolled back to default-workspace behavior while no second workspace exists. Schema migrations are forward-only unless a dedicated downgrade is added.
 - Test coverage ≥95% project, 100% diff; integration tests cover cross-workspace isolation for every subsystem.
+- SaaS onboarding: a user may only create or join a workspace during registration, invite acceptance, or an admin-approved onboarding flow. The product should not expose a casual "join any workspace" action to already signed-in users.
 
 P1:
 - Per-workspace quotas: max workflows, max concurrent runs, max storage rows, max credentials.
@@ -75,6 +77,7 @@ P1:
 - Telemetry: every span, log, and metric is tagged with `workspace_id`; OTEL resource attribute `orcheo.workspace`.
 - Workspace-scoped audit log for sensitive actions (membership change, vault read, token issuance).
 - Soft-delete of workspaces with retention window; hard-delete tooling for GDPR-style requests.
+- Orcheo Vibe isolation: every workspace gets its own external-agent boundary, its own file-system/path boundary, and its own CLI-agent authorization boundary.
 
 P2:
 - Canvas UI for workspace switching and member management.
@@ -88,7 +91,7 @@ Design doc: `./2_design.md`. No Canvas UI for v1; CLI/API only.
 ### [Optional] Other Teams Impacted
 - Backend: every persistence subsystem requires a schema and query change.
 - SDK: `orcheo` and `horcheo` CLIs gain workspace-aware commands and a `--workspace` flag.
-- Canvas: WebSocket and REST clients must send workspace context; minimal UI changes required for v1 (read-only header indicating active workspace).
+- Canvas: WebSocket and REST clients must send workspace context; minimal UI changes required for v1 (active-workspace indicator and switcher limited to memberships).
 - DevOps: deployment docs, Docker Compose, and systemd units gain `ORCHEO_MULTI_WORKSPACE_ENABLED` and `ORCHEO_DEFAULT_WORKSPACE` knobs.
 
 ## TECHNICAL CONSIDERATIONS
@@ -154,3 +157,4 @@ Risk Mitigation:
 - Stateful subsystems requiring workspace: workflow repository, workflow versions/runs, execution history and steps, service tokens and audit log, vault credentials/templates/governance alerts, ChatKit threads/messages/attachments, Agentensor checkpoints, plugin install state, listeners/cursors/dedupe, webhook/cron triggers, retry policies, scheduled tasks, LangGraph checkpoints, and graph store.
 - Identity surfaces requiring workspace: bearer token middleware, service tokens, WebSocket auth, CLI auth, Celery task headers.
 - Existing single-workspace data is assigned to a workspace named `default` (slug `default`).
+- SaaS onboarding and invite acceptance are the only supported paths for creating or joining a workspace; once admitted, the user can switch only among memberships they already hold.

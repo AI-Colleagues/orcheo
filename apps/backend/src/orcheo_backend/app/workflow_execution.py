@@ -122,13 +122,25 @@ def _log_final_state_debug(state_values: Mapping[str, Any] | Any) -> None:
 _CANNOT_SEND_AFTER_CLOSE = 'Cannot call "send" once a close message has been sent.'
 
 
-def _external_agent_provider_environment() -> dict[str, str]:
+def _external_agent_provider_environment(
+    workspace_id: str | None = None,
+) -> dict[str, str]:
     """Return shared external-agent auth env from the runtime store."""
     runtime_store = get_external_agent_runtime_store()
+    vault = get_vault()
     merged: dict[str, str] = {}
     for provider_name in list_external_agent_providers():
-        merged.update(runtime_store.get_provider_environment(provider_name))
-    merged.update(load_external_agent_vault_environment(get_vault()))
+        provider_env = runtime_store.get_provider_environment(
+            provider_name,
+            workspace_id=workspace_id,
+        )
+        provider_env.update(
+            load_external_agent_vault_environment(
+                vault,
+                workspace_id=workspace_id,
+            )
+        )
+        merged.update(provider_env)
     return merged
 
 
@@ -470,7 +482,7 @@ async def execute_workflow(
                 include_root=True,
             )
 
-            external_agent_environ = _external_agent_provider_environment()
+            external_agent_environ = _external_agent_provider_environment(workspace_id)
             with scoped_external_agent_environment(external_agent_environ):
                 with credential_resolution(resolver):
                     async with create_checkpointer(settings) as checkpointer:
@@ -548,7 +560,7 @@ async def _run_evaluation_node(
             step=history_step,
         )
 
-    external_agent_environ = _external_agent_provider_environment()
+    external_agent_environ = _external_agent_provider_environment(workspace_id)
     with scoped_external_agent_environment(external_agent_environ):
         with credential_resolution(resolver):
             async with create_checkpointer(settings) as checkpointer:
@@ -675,7 +687,7 @@ async def _run_training_node(
             step=history_step,
         )
 
-    external_agent_environ = _external_agent_provider_environment()
+    external_agent_environ = _external_agent_provider_environment(workspace_id)
     with scoped_external_agent_environment(external_agent_environ):
         with credential_resolution(resolver):
             async with create_checkpointer(settings) as checkpointer:
@@ -1032,7 +1044,7 @@ async def execute_node(
     context = credential_context_from_workflow(workflow_id, workspace_id=workspace_id)
     resolver = CredentialResolver(vault, context=context)
 
-    external_agent_environ = _external_agent_provider_environment()
+    external_agent_environ = _external_agent_provider_environment(workspace_id)
     with scoped_external_agent_environment(external_agent_environ):
         with credential_resolution(resolver):
             node_instance = node_class(**node_params)

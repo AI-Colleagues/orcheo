@@ -1051,8 +1051,8 @@ async def create_workflow_chatkit_session(
         _normalize_workspace_id(workspace_id)
         for workspace_id in context.workspace_ids
         if workspace_id
-    )
-    primary_workspace = _select_primary_workspace(normalized_workspace_ids)
+    ) | {_normalize_workspace_id(str(workspace.workspace_id))}
+    primary_workspace = _normalize_workspace_id(str(workspace.workspace_id))
     token, expires_at = issuer.mint_session(
         subject=context.subject,
         identity_type=context.identity_type,

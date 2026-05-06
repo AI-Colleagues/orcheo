@@ -140,6 +140,146 @@ async def test_authenticate_jwt_request_detects_workflow_mismatch(
 
 
 @pytest.mark.asyncio()
+async def test_authenticate_jwt_request_uses_verified_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = make_chatkit_request(headers={"Authorization": "Bearer token"})
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Claims",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+    )
+    monkeypatch.setattr(
+        chatkit,
+        "_decode_chatkit_jwt",
+        lambda token: {
+            "chatkit": {
+                "workspace_id": "workspace-a",
+                "workspace_ids": ["workspace-a", "workspace-b"],
+            }
+        },
+    )  # type: ignore[attr-defined]
+
+    result = await chatkit._authenticate_jwt_request(
+        request=request,
+        workflow_id=workflow.id,
+        now=datetime.now(tz=UTC),
+        repository=repository,
+    )
+
+    assert result.workspace_id == "workspace-a"
+
+
+@pytest.mark.asyncio()
+async def test_authenticate_jwt_request_requires_selected_workspace_for_unscoped_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = make_chatkit_request(headers={"Authorization": "Bearer token"})
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Claims",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+    )
+    monkeypatch.setattr(
+        chatkit,
+        "_decode_chatkit_jwt",
+        lambda token: {
+            "chatkit": {
+                "workspace_ids": ["workspace-a", "workspace-b"],
+            }
+        },
+    )  # type: ignore[attr-defined]
+
+    with pytest.raises(HTTPException) as excinfo:
+        await chatkit._authenticate_jwt_request(
+            request=request,
+            workflow_id=workflow.id,
+            now=datetime.now(tz=UTC),
+            repository=repository,
+        )
+    assert excinfo.value.detail["code"] == "chatkit.auth.workspace_required"
+
+
+@pytest.mark.asyncio()
+async def test_authenticate_jwt_request_requires_authorized_workflow_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = make_chatkit_request(headers={"Authorization": "Bearer token"})
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Claims",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+        workspace_id="workspace-b",
+    )
+    monkeypatch.setattr(
+        chatkit,
+        "_decode_chatkit_jwt",
+        lambda token: {
+            "chatkit": {
+                "workspace_id": "workspace-a",
+                "workspace_ids": ["workspace-a"],
+            }
+        },
+    )  # type: ignore[attr-defined]
+
+    with pytest.raises(HTTPException) as excinfo:
+        await chatkit._authenticate_jwt_request(
+            request=request,
+            workflow_id=workflow.id,
+            now=datetime.now(tz=UTC),
+            repository=repository,
+        )
+    assert excinfo.value.detail["code"] == "chatkit.auth.workspace_mismatch"
+
+
+@pytest.mark.asyncio()
+async def test_authenticate_jwt_request_rejects_unauthorized_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = make_chatkit_request(headers={"Authorization": "Bearer token"})
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Claims",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+    )
+    monkeypatch.setattr(
+        chatkit,
+        "_decode_chatkit_jwt",
+        lambda token: {
+            "chatkit": {
+                "workspace_id": "workspace-a",
+                "workspace_ids": ["workspace-b"],
+            }
+        },
+    )  # type: ignore[attr-defined]
+
+    with pytest.raises(HTTPException) as excinfo:
+        await chatkit._authenticate_jwt_request(
+            request=request,
+            workflow_id=workflow.id,
+            now=datetime.now(tz=UTC),
+            repository=repository,
+        )
+    assert excinfo.value.detail["code"] == "chatkit.auth.workspace_mismatch"
+
+
+@pytest.mark.asyncio()
 async def test_authenticate_jwt_request_raises_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

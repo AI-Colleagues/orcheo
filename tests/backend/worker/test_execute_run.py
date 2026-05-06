@@ -244,14 +244,26 @@ class TestExternalAgentTasks:
             ExternalAgentProviderName.CLAUDE_CODE,
             {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-shared"},
         )
+        vault = object()
 
-        with patch(
-            "orcheo_backend.app.dependencies.get_external_agent_runtime_store",
-            return_value=store,
+        with (
+            patch(
+                "orcheo_backend.app.dependencies.get_external_agent_runtime_store",
+                return_value=store,
+            ),
+            patch(
+                "orcheo_backend.app.dependencies.get_vault",
+                return_value=vault,
+            ),
+            patch(
+                "orcheo_backend.app.external_agent_auth.load_external_agent_vault_environment",
+                return_value={"GEMINI_API_KEY": "vault-key"},
+            ),
         ):
             environ = _external_agent_provider_environment()
 
         assert environ["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-shared"
+        assert environ["GEMINI_API_KEY"] == "vault-key"
 
     def test_patched_environment_temporarily_sets_provider_env(self) -> None:
         """Patched env should expose shared auth during a run and restore after."""

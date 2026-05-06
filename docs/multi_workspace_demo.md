@@ -1,11 +1,13 @@
 # Multi-Workspace Demo Walkthrough
 
-This walkthrough exercises the multi-workspace stack end to end:
+This walkthrough exercises the multi-workspace stack end to end for operators and internal validation:
 
 - two workspaces with distinct memberships
 - concurrent workflow runs with quota enforcement
 - workspace-scoped audit visibility
 - soft-delete and hard-delete tooling for workspace cleanup
+
+It is not the SaaS customer flow. In the SaaS product, workspace creation/joining happens during registration, invite acceptance, or admin-approved onboarding, and users only switch among workspaces they already belong to.
 
 It should be read alongside the feature docs in
 [`../project/initiatives/multi_workspace/1_requirements.md`](../project/initiatives/multi_workspace/1_requirements.md)

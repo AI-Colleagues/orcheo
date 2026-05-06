@@ -92,17 +92,36 @@ def _get_event_loop() -> asyncio.AbstractEventLoop:
         return loop
 
 
-def _external_agent_provider_environment() -> dict[str, str]:
+def _external_agent_provider_environment(
+    workspace_id: str | None = None,
+) -> dict[str, str]:
     """Return shared external-agent auth env from the runtime store."""
-    from orcheo_backend.app.dependencies import get_external_agent_runtime_store
+    from orcheo_backend.app.dependencies import (
+        get_external_agent_runtime_store,
+        get_vault,
+    )
+    from orcheo_backend.app.external_agent_auth import (
+        load_external_agent_vault_environment,
+    )
     from orcheo_backend.app.external_agent_runtime_store import (
         list_external_agent_providers,
     )
 
     runtime_store = get_external_agent_runtime_store()
+    vault = get_vault()
     merged: dict[str, str] = {}
     for provider_name in list_external_agent_providers():
-        merged.update(runtime_store.get_provider_environment(provider_name))
+        provider_env = runtime_store.get_provider_environment(
+            provider_name,
+            workspace_id=workspace_id,
+        )
+        provider_env.update(
+            load_external_agent_vault_environment(
+                vault,
+                workspace_id=workspace_id,
+            )
+        )
+        merged.update(provider_env)
     return merged
 
 
@@ -245,7 +264,7 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:
             workspace_id=workspace_id,
         )
 
-        external_agent_environ = _external_agent_provider_environment()
+        external_agent_environ = _external_agent_provider_environment(workspace_id)
         with _patched_environment(external_agent_environ):
             with credential_resolution(resolver):
                 async with create_checkpointer(settings) as checkpointer:
@@ -496,32 +515,55 @@ async def _dispatch_cron_triggers_async() -> list[str]:
     return [str(run.id) for run in runs]
 
 
-async def _refresh_external_agent_status_async(provider_name: str) -> dict[str, str]:
+async def _refresh_external_agent_status_async(
+    provider_name: str,
+    workspace_id: str | None = None,
+) -> dict[str, str]:
     """Refresh worker-scoped status for one external agent provider."""
     from orcheo_backend.worker.external_agents import (
         refresh_external_agent_status_async,
     )
 
-    return await refresh_external_agent_status_async(provider_name)
+    if workspace_id is None:
+        return await refresh_external_agent_status_async(provider_name)
+    return await refresh_external_agent_status_async(
+        provider_name,
+        workspace_id=workspace_id,
+    )
 
 
 async def _start_external_agent_login_async(
     provider_name: str,
     session_id: str,
+    workspace_id: str | None = None,
 ) -> dict[str, str]:
     """Run a worker-side external agent OAuth session."""
     from orcheo_backend.worker.external_agents import (
         start_external_agent_login_async,
     )
 
-    return await start_external_agent_login_async(provider_name, session_id)
+    if workspace_id is None:
+        return await start_external_agent_login_async(provider_name, session_id)
+    return await start_external_agent_login_async(
+        provider_name,
+        session_id,
+        workspace_id=workspace_id,
+    )
 
 
-async def _disconnect_external_agent_async(provider_name: str) -> dict[str, str]:
+async def _disconnect_external_agent_async(
+    provider_name: str,
+    workspace_id: str | None = None,
+) -> dict[str, str]:
     """Clear worker-side auth state for one external agent provider."""
     from orcheo_backend.worker.external_agents import disconnect_external_agent_async
 
-    return await disconnect_external_agent_async(provider_name)
+    if workspace_id is None:
+        return await disconnect_external_agent_async(provider_name)
+    return await disconnect_external_agent_async(
+        provider_name,
+        workspace_id=workspace_id,
+    )
 
 
 @celery_app.task(bind=True)
@@ -547,11 +589,18 @@ def dispatch_cron_triggers(self: Task) -> dict[str, Any]:  # noqa: ARG001
 def refresh_external_agent_status(
     self: Task,  # noqa: ARG001
     provider_name: str,
+    workspace_id: str | None = None,
 ) -> dict[str, str]:
     """Refresh worker-scoped status for one external agent provider."""
     logger.info("Refreshing external agent status for %s", provider_name)
     loop = _get_event_loop()
-    return loop.run_until_complete(_refresh_external_agent_status_async(provider_name))
+    if workspace_id is None:
+        return loop.run_until_complete(
+            _refresh_external_agent_status_async(provider_name)
+        )
+    return loop.run_until_complete(
+        _refresh_external_agent_status_async(provider_name, workspace_id)
+    )
 
 
 @celery_app.task(bind=True)
@@ -559,6 +608,7 @@ def start_external_agent_login(
     self: Task,  # noqa: ARG001
     provider_name: str,
     session_id: str,
+    workspace_id: str | None = None,
 ) -> dict[str, str]:
     """Run a worker-side external agent OAuth login session."""
     logger.info(
@@ -567,8 +617,12 @@ def start_external_agent_login(
         session_id,
     )
     loop = _get_event_loop()
+    if workspace_id is None:
+        return loop.run_until_complete(
+            _start_external_agent_login_async(provider_name, session_id)
+        )
     return loop.run_until_complete(
-        _start_external_agent_login_async(provider_name, session_id)
+        _start_external_agent_login_async(provider_name, session_id, workspace_id)
     )
 
 
@@ -576,11 +630,16 @@ def start_external_agent_login(
 def disconnect_external_agent(
     self: Task,  # noqa: ARG001
     provider_name: str,
+    workspace_id: str | None = None,
 ) -> dict[str, str]:
     """Clear worker-side auth state for one external agent provider."""
     logger.info("Disconnecting external agent auth for %s", provider_name)
     loop = _get_event_loop()
-    return loop.run_until_complete(_disconnect_external_agent_async(provider_name))
+    if workspace_id is None:
+        return loop.run_until_complete(_disconnect_external_agent_async(provider_name))
+    return loop.run_until_complete(
+        _disconnect_external_agent_async(provider_name, workspace_id)
+    )
 
 
 __all__ = [

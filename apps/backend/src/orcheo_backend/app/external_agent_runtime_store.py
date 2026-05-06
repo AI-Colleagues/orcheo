@@ -37,6 +37,8 @@ def list_external_agent_providers() -> list[ExternalAgentProviderName]:
 
 def default_external_agent_status(
     provider_name: ExternalAgentProviderName,
+    *,
+    workspace_id: str | None = None,
 ) -> ExternalAgentProviderStatus:
     """Build the default status payload for a provider."""
     provider = DEFAULT_PROVIDERS[provider_name.value]
@@ -46,6 +48,7 @@ def default_external_agent_status(
         state=ExternalAgentProviderState.UNKNOWN,
         installed=False,
         authenticated=False,
+        workspace_id=workspace_id,
     )
 
 
@@ -74,10 +77,13 @@ class ExternalAgentRuntimeStore:
         except redis.RedisError:
             self._redis = None
 
-    def list_provider_statuses(self) -> list[ExternalAgentProviderStatus]:
+    def list_provider_statuses(
+        self,
+        workspace_id: str | None = None,
+    ) -> list[ExternalAgentProviderStatus]:
         """Return the current status for all supported providers."""
         statuses = [
-            self.get_provider_status(provider_name)
+            self.get_provider_status(provider_name, workspace_id=workspace_id)
             for provider_name in list_external_agent_providers()
         ]
         return [status.model_copy(deep=True) for status in statuses]
@@ -85,84 +91,154 @@ class ExternalAgentRuntimeStore:
     def get_provider_status(
         self,
         provider_name: ExternalAgentProviderName,
+        workspace_id: str | None = None,
     ) -> ExternalAgentProviderStatus:
         """Return one provider status or the default unknown payload."""
-        payload = self._read_provider_payload(provider_name)
+        payload = self._read_provider_payload(
+            provider_name,
+            workspace_id=workspace_id,
+        )
         if payload is None:
-            return default_external_agent_status(provider_name)
+            return default_external_agent_status(
+                provider_name,
+                workspace_id=workspace_id,
+            )
         return payload.model_copy(deep=True)
 
     def save_provider_status(self, status: ExternalAgentProviderStatus) -> None:
         """Persist the latest status for one provider."""
-        self._write_provider_payload(status)
+        self._write_provider_payload(status, workspace_id=status.workspace_id)
 
     def get_provider_environment(
         self,
         provider_name: ExternalAgentProviderName,
+        workspace_id: str | None = None,
     ) -> dict[str, str]:
         """Return persisted provider environment variables."""
-        return dict(self._read_provider_environment_payload(provider_name))
+        return dict(
+            self._read_provider_environment_payload(
+                provider_name,
+                workspace_id=workspace_id,
+            )
+        )
 
     def save_provider_environment(
         self,
         provider_name: ExternalAgentProviderName,
         environ: Mapping[str, str],
+        workspace_id: str | None = None,
     ) -> None:
         """Persist provider environment variables."""
-        self._write_provider_environment_payload(provider_name, environ)
+        self._write_provider_environment_payload(
+            provider_name,
+            environ,
+            workspace_id=workspace_id,
+        )
 
-    def get_login_session(self, session_id: str) -> ExternalAgentLoginSession | None:
+    def get_login_session(
+        self,
+        session_id: str,
+        workspace_id: str | None = None,
+    ) -> ExternalAgentLoginSession | None:
         """Return one stored login session if present."""
-        payload = self._read_session_payload(session_id)
+        payload = self._read_session_payload(session_id, workspace_id=workspace_id)
         return payload.model_copy(deep=True) if payload is not None else None
 
     def save_login_session(self, session: ExternalAgentLoginSession) -> None:
         """Persist one worker-side login session snapshot."""
-        self._write_session_payload(session)
+        self._write_session_payload(session, workspace_id=session.workspace_id)
 
     def clear_provider_session(
         self,
         provider_name: ExternalAgentProviderName,
+        workspace_id: str | None = None,
     ) -> ExternalAgentProviderStatus:
         """Clear the active session reference for one provider."""
-        current = self.get_provider_status(provider_name)
+        current = self.get_provider_status(provider_name, workspace_id=workspace_id)
         updated = current.model_copy(update={"active_session_id": None})
         self.save_provider_status(updated)
         return updated
 
-    def save_login_input(self, session_id: str, input_text: str) -> None:
+    def save_login_input(
+        self,
+        session_id: str,
+        input_text: str,
+        workspace_id: str | None = None,
+    ) -> None:
         """Persist one queued operator input for a login session."""
-        self._write_session_input(session_id, input_text)
+        self._write_session_input(
+            session_id,
+            input_text,
+            workspace_id=workspace_id,
+        )
 
-    def get_login_input(self, session_id: str) -> str | None:
+    def get_login_input(
+        self,
+        session_id: str,
+        workspace_id: str | None = None,
+    ) -> str | None:
         """Return the current queued operator input for a login session."""
-        return self._read_session_input(session_id)
+        return self._read_session_input(session_id, workspace_id=workspace_id)
 
-    def clear_login_input(self, session_id: str) -> None:
+    def clear_login_input(
+        self,
+        session_id: str,
+        workspace_id: str | None = None,
+    ) -> None:
         """Clear any queued operator input for a login session."""
-        self._delete_session_input(session_id)
+        self._delete_session_input(session_id, workspace_id=workspace_id)
 
-    def _provider_key(self, provider_name: ExternalAgentProviderName) -> str:
-        return f"orcheo:external_agents:provider:{provider_name.value}"
+    def _workspace_key(self, workspace_id: str | None) -> str:
+        if workspace_id and workspace_id.strip():
+            return workspace_id.strip()
+        return "global"
 
-    def _session_key(self, session_id: str) -> str:
-        return f"orcheo:external_agents:session:{session_id}"
+    def _provider_key(
+        self,
+        provider_name: ExternalAgentProviderName,
+        workspace_id: str | None = None,
+    ) -> str:
+        return (
+            f"orcheo:external_agents:workspace:{self._workspace_key(workspace_id)}"
+            f":provider:{provider_name.value}"
+        )
+
+    def _session_key(self, session_id: str, workspace_id: str | None = None) -> str:
+        return (
+            f"orcheo:external_agents:workspace:{self._workspace_key(workspace_id)}"
+            f":session:{session_id}"
+        )
 
     def _provider_environment_key(
-        self, provider_name: ExternalAgentProviderName
+        self,
+        provider_name: ExternalAgentProviderName,
+        workspace_id: str | None = None,
     ) -> str:
-        return f"orcheo:external_agents:provider-env:{provider_name.value}"
+        return (
+            f"orcheo:external_agents:workspace:{self._workspace_key(workspace_id)}"
+            f":provider-env:{provider_name.value}"
+        )
 
-    def _session_input_key(self, session_id: str) -> str:
-        return f"orcheo:external_agents:session-input:{session_id}"
+    def _session_input_key(
+        self,
+        session_id: str,
+        workspace_id: str | None = None,
+    ) -> str:
+        return (
+            f"orcheo:external_agents:workspace:{self._workspace_key(workspace_id)}"
+            f":session-input:{session_id}"
+        )
 
     def _read_provider_payload(
         self,
         provider_name: ExternalAgentProviderName,
+        workspace_id: str | None = None,
     ) -> ExternalAgentProviderStatus | None:
         if self._redis is not None:
             try:
-                payload = self._redis.get(self._provider_key(provider_name))
+                payload = self._redis.get(
+                    self._provider_key(provider_name, workspace_id=workspace_id)
+                )
                 if payload:
                     return ExternalAgentProviderStatus.model_validate_json(
                         cast(str, payload)
@@ -170,29 +246,42 @@ class ExternalAgentRuntimeStore:
             except redis.RedisError:
                 pass
         with self._lock:
-            payload = self._provider_statuses.get(provider_name.value)
+            payload = self._provider_statuses.get(
+                self._provider_key(provider_name, workspace_id=workspace_id)
+            )
             return payload.model_copy(deep=True) if payload is not None else None
 
-    def _write_provider_payload(self, status: ExternalAgentProviderStatus) -> None:
+    def _write_provider_payload(
+        self,
+        status: ExternalAgentProviderStatus,
+        workspace_id: str | None = None,
+    ) -> None:
         if self._redis is not None:
             try:
                 self._redis.set(
-                    self._provider_key(status.provider), status.model_dump_json()
+                    self._provider_key(status.provider, workspace_id=workspace_id),
+                    status.model_dump_json(),
                 )
             except redis.RedisError:
                 pass
         with self._lock:
-            self._provider_statuses[status.provider.value] = status.model_copy(
-                deep=True
-            )
+            self._provider_statuses[
+                self._provider_key(status.provider, workspace_id=workspace_id)
+            ] = status.model_copy(deep=True)
 
     def _read_provider_environment_payload(
         self,
         provider_name: ExternalAgentProviderName,
+        workspace_id: str | None = None,
     ) -> dict[str, str]:
         if self._redis is not None:
             try:
-                payload = self._redis.get(self._provider_environment_key(provider_name))
+                payload = self._redis.get(
+                    self._provider_environment_key(
+                        provider_name,
+                        workspace_id=workspace_id,
+                    )
+                )
                 if payload:  # pragma: no branch
                     decoded = json.loads(cast(str, payload))
                     if isinstance(decoded, dict):
@@ -204,32 +293,51 @@ class ExternalAgentRuntimeStore:
             except (redis.RedisError, json.JSONDecodeError):
                 pass
         with self._lock:
-            payload = self._provider_environments.get(provider_name.value, {})
+            payload = self._provider_environments.get(
+                self._provider_environment_key(
+                    provider_name,
+                    workspace_id=workspace_id,
+                ),
+                {},
+            )
             return dict(payload)
 
     def _write_provider_environment_payload(
         self,
         provider_name: ExternalAgentProviderName,
         environ: Mapping[str, str],
+        workspace_id: str | None = None,
     ) -> None:
         payload = {key: value for key, value in environ.items() if value.strip()}
         if self._redis is not None:
             try:
                 self._redis.set(
-                    self._provider_environment_key(provider_name),
+                    self._provider_environment_key(
+                        provider_name,
+                        workspace_id=workspace_id,
+                    ),
                     json.dumps(payload, sort_keys=True),
                 )
             except redis.RedisError:
                 pass
         with self._lock:
-            self._provider_environments[provider_name.value] = dict(payload)
+            self._provider_environments[
+                self._provider_environment_key(
+                    provider_name,
+                    workspace_id=workspace_id,
+                )
+            ] = dict(payload)
 
     def _read_session_payload(
-        self, session_id: str
+        self,
+        session_id: str,
+        workspace_id: str | None = None,
     ) -> ExternalAgentLoginSession | None:
         if self._redis is not None:
             try:
-                payload = self._redis.get(self._session_key(session_id))
+                payload = self._redis.get(
+                    self._session_key(session_id, workspace_id=workspace_id)
+                )
                 if payload:
                     return ExternalAgentLoginSession.model_validate_json(
                         cast(str, payload)
@@ -237,54 +345,89 @@ class ExternalAgentRuntimeStore:
             except redis.RedisError:
                 pass
         with self._lock:
-            payload = self._sessions.get(session_id)
+            payload = self._sessions.get(
+                self._session_key(session_id, workspace_id=workspace_id)
+            )
             return payload.model_copy(deep=True) if payload is not None else None
 
-    def _write_session_payload(self, session: ExternalAgentLoginSession) -> None:
+    def _write_session_payload(
+        self,
+        session: ExternalAgentLoginSession,
+        workspace_id: str | None = None,
+    ) -> None:
         if self._redis is not None:
             try:
                 self._redis.set(
-                    self._session_key(session.session_id),
+                    self._session_key(
+                        session.session_id,
+                        workspace_id=workspace_id,
+                    ),
                     session.model_dump_json(),
                     ex=SESSION_TTL_SECONDS,
                 )
             except redis.RedisError:
                 pass
         with self._lock:
-            self._sessions[session.session_id] = session.model_copy(deep=True)
+            self._sessions[
+                self._session_key(session.session_id, workspace_id=workspace_id)
+            ] = session.model_copy(deep=True)
 
-    def _write_session_input(self, session_id: str, input_text: str) -> None:
+    def _write_session_input(
+        self,
+        session_id: str,
+        input_text: str,
+        workspace_id: str | None = None,
+    ) -> None:
         if self._redis is not None:
             try:
                 self._redis.set(
-                    self._session_input_key(session_id),
+                    self._session_input_key(session_id, workspace_id=workspace_id),
                     input_text,
                     ex=SESSION_TTL_SECONDS,
                 )
             except redis.RedisError:
                 pass
         with self._lock:
-            self._session_inputs[session_id] = input_text
+            self._session_inputs[
+                self._session_input_key(session_id, workspace_id=workspace_id)
+            ] = input_text
 
-    def _read_session_input(self, session_id: str) -> str | None:
+    def _read_session_input(
+        self,
+        session_id: str,
+        workspace_id: str | None = None,
+    ) -> str | None:
         if self._redis is not None:
             try:
-                payload = self._redis.get(self._session_input_key(session_id))
+                payload = self._redis.get(
+                    self._session_input_key(session_id, workspace_id=workspace_id)
+                )
                 if payload is not None:
                     return cast(str, payload)
             except redis.RedisError:
                 pass
         with self._lock:
-            return self._session_inputs.get(session_id)
+            return self._session_inputs.get(
+                self._session_input_key(session_id, workspace_id=workspace_id)
+            )
 
-    def _delete_session_input(self, session_id: str) -> None:
+    def _delete_session_input(
+        self,
+        session_id: str,
+        workspace_id: str | None = None,
+    ) -> None:
         if self._redis is not None:
             try:
-                self._redis.delete(self._session_input_key(session_id))
+                self._redis.delete(
+                    self._session_input_key(session_id, workspace_id=workspace_id)
+                )
             except redis.RedisError:
                 pass
         with self._lock:
-            self._session_inputs.pop(session_id, None)
+            self._session_inputs.pop(
+                self._session_input_key(session_id, workspace_id=workspace_id),
+                None,
+            )
 
 
 def list_active_login_sessions(

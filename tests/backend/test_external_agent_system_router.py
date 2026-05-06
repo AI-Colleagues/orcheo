@@ -7,6 +7,7 @@ from orcheo_backend.app import dependencies
 from orcheo_backend.app.external_agent_runtime_store import ExternalAgentRuntimeStore
 from orcheo_backend.app.routers import system as system_router
 from orcheo_backend.app.schemas.system import ExternalAgentLoginSessionState
+from orcheo_backend.app.workspace.dependencies import bootstrap_default_workspace
 from tests.backend.authentication_test_utils import create_test_client, reset_auth_state
 
 
@@ -21,6 +22,10 @@ def _stub_celery_send(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent Celery from connecting to Redis during router tests."""
     monkeypatch.setattr(system_router.celery_app, "send_task", Mock())
     yield
+
+
+def _default_workspace_id() -> str:
+    return str(bootstrap_default_workspace(user_id="anonymous").id)
 
 
 @pytest.fixture
@@ -43,6 +48,7 @@ def test_list_external_agents_returns_known_providers(
     """Listing external agents returns both worker-scoped provider entries."""
     assert runtime_store._redis is None
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    workspace_id = _default_workspace_id()
 
     client = create_test_client()
     response = client.get("/api/system/external-agents")
@@ -54,6 +60,7 @@ def test_list_external_agents_returns_known_providers(
         "codex",
         "gemini",
     ]
+    assert all(item["workspace_id"] == workspace_id for item in payload["providers"])
     assert payload["providers"][0]["state"] == "unknown"
 
 
@@ -64,6 +71,7 @@ def test_refresh_external_agents_queues_worker_tasks(
     """Refreshing external agents queues a worker status probe for each provider."""
     assert runtime_store._redis is None
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    workspace_id = _default_workspace_id()
 
     send_task = Mock()
     monkeypatch.setattr(system_router.celery_app, "send_task", send_task)
@@ -77,15 +85,15 @@ def test_refresh_external_agents_queues_worker_tasks(
     assert send_task.call_count == 3
     send_task.assert_any_call(
         "orcheo_backend.worker.tasks.refresh_external_agent_status",
-        args=["claude_code"],
+        args=["claude_code", workspace_id],
     )
     send_task.assert_any_call(
         "orcheo_backend.worker.tasks.refresh_external_agent_status",
-        args=["codex"],
+        args=["codex", workspace_id],
     )
     send_task.assert_any_call(
         "orcheo_backend.worker.tasks.refresh_external_agent_status",
-        args=["gemini"],
+        args=["gemini", workspace_id],
     )
 
 
@@ -96,6 +104,7 @@ def test_start_external_agent_login_creates_session_and_queues_worker_task(
     """Starting a login flow returns the session and marks the provider active."""
     assert runtime_store._redis is None
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    workspace_id = _default_workspace_id()
 
     send_task = Mock()
     monkeypatch.setattr(system_router.celery_app, "send_task", send_task)
@@ -110,7 +119,7 @@ def test_start_external_agent_login_creates_session_and_queues_worker_task(
     assert payload["session_id"]
     send_task.assert_called_once_with(
         "orcheo_backend.worker.tasks.start_external_agent_login",
-        args=["codex", payload["session_id"]],
+        args=["codex", payload["session_id"], workspace_id],
     )
 
     status_response = client.get("/api/system/external-agents")
@@ -150,12 +159,14 @@ def test_disconnect_external_agent_queues_worker_task(
     """Disconnecting a provider should queue worker-side auth cleanup."""
     assert runtime_store._redis is None
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    workspace_id = _default_workspace_id()
 
     send_task = Mock()
     monkeypatch.setattr(system_router.celery_app, "send_task", send_task)
 
     current = runtime_store.get_provider_status(
-        system_router.ExternalAgentProviderName.CODEX
+        system_router.ExternalAgentProviderName.CODEX,
+        workspace_id=workspace_id,
     )
     runtime_store.save_provider_status(
         current.model_copy(
@@ -178,7 +189,7 @@ def test_disconnect_external_agent_queues_worker_task(
     assert payload["active_session_id"] == "session-1"
     send_task.assert_called_once_with(
         "orcheo_backend.worker.tasks.disconnect_external_agent",
-        args=["codex"],
+        args=["codex", workspace_id],
     )
 
 
@@ -225,10 +236,11 @@ def test_submit_external_agent_login_input_rejects_terminal_state(
     runtime_store: ExternalAgentRuntimeStore,
 ) -> None:
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    workspace_id = _default_workspace_id()
     client = create_test_client()
     start = client.post("/api/system/external-agents/claude_code/login")
     session_id = start.json()["session_id"]
-    session = runtime_store.get_login_session(session_id)
+    session = runtime_store.get_login_session(session_id, workspace_id=workspace_id)
     assert session is not None
     session.state = ExternalAgentLoginSessionState.AUTHENTICATED
     runtime_store.save_login_session(session)
@@ -275,7 +287,10 @@ def test_submit_external_agent_login_input_updates_session(
     )
 
     assert response.status_code == 200
-    assert runtime_store.get_login_input(session_id) == "ABCD-1234"
+    assert (
+        runtime_store.get_login_input(session_id, workspace_id=_default_workspace_id())
+        == "ABCD-1234"
+    )
 
 
 def test_submit_external_agent_login_input_passes_bare_code_through(
@@ -291,7 +306,9 @@ def test_submit_external_agent_login_input_passes_bare_code_through(
 
     assert start.status_code == 200
     session_id = start.json()["session_id"]
-    session = runtime_store.get_login_session(session_id)
+    session = runtime_store.get_login_session(
+        session_id, workspace_id=_default_workspace_id()
+    )
     assert session is not None
     session.auth_url = (
         "https://claude.com/cai/oauth/authorize?code=true&state=test-state"
@@ -304,7 +321,13 @@ def test_submit_external_agent_login_input_passes_bare_code_through(
     )
 
     assert response.status_code == 200
-    assert runtime_store.get_login_input(session_id) == "ABCD-1234"
+    assert (
+        runtime_store.get_login_input(
+            session_id,
+            workspace_id=_default_workspace_id(),
+        )
+        == "ABCD-1234"
+    )
 
 
 def test_submit_external_agent_login_input_passes_callback_url_through(
@@ -331,7 +354,10 @@ def test_submit_external_agent_login_input_passes_callback_url_through(
     )
 
     assert response.status_code == 200
-    assert runtime_store.get_login_input(session_id) == callback_url
+    assert (
+        runtime_store.get_login_input(session_id, workspace_id=_default_workspace_id())
+        == callback_url
+    )
 
 
 def test_submit_external_agent_login_input_rejects_missing_session(

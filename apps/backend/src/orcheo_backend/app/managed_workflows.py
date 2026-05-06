@@ -33,6 +33,7 @@ MANAGED_VIBE_TEMPLATE_METADATA: dict[str, Any] = {
     "acceptanceCriteria": [
         "Routes Vibe ChatKit requests to the selected external agent provider.",
         "Includes Canvas page context in the generated external-agent prompt.",
+        "Keeps each workspace on its own external-agent auth and filesystem boundary.",
     ],
     "revalidationTriggers": [
         "ChatKit metadata payload shape changes.",
@@ -306,7 +307,7 @@ async def ensure_managed_vibe_workflow(
         },
         runnable_config={
             "configurable": {
-                "working_directory": "/workspace/agents",
+                "working_directory": "/workspace/agents/{{workspace_id}}",
             }
         },
         notes=MANAGED_VIBE_WORKFLOW_NOTES,

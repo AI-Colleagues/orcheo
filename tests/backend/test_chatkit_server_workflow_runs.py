@@ -60,13 +60,17 @@ async def test_chatkit_server_records_run_metadata() -> None:
     )
 
     thread = _build_thread(workflow_id)
-    context: ChatKitRequestContext = {}
+    context: ChatKitRequestContext = {"workspace_id": "workspace-1"}
     await server.store.save_thread(thread, context)
 
     user_item = _build_user_item(thread.id)
     await server.store.add_thread_item(thread.id, user_item, context)
 
     _ = [event async for event in server.respond(thread, user_item, context)]
+
+    server._run_workflow.assert_awaited_once()  # type: ignore[attr-defined]
+    _, kwargs = server._run_workflow.await_args  # type: ignore[attr-defined]
+    assert kwargs["workspace_id"] == "workspace-1"
 
     loaded = await server.store.load_thread(thread.id, context)
     assert "last_run_at" in loaded.metadata

@@ -77,13 +77,14 @@ class ExternalAgentLoginSessionState(StrEnum):
 
 
 class ExternalAgentProviderStatus(BaseModel):
-    """Current worker-scoped readiness for one external agent provider."""
+    """Current workspace-scoped readiness for one external agent provider."""
 
     provider: ExternalAgentProviderName
     display_name: str
     state: ExternalAgentProviderState
     installed: bool
     authenticated: bool
+    workspace_id: str | None = None
     supports_oauth: bool = True
     resolved_version: str | None = None
     executable_path: str | None = None
@@ -94,12 +95,13 @@ class ExternalAgentProviderStatus(BaseModel):
 
 
 class ExternalAgentLoginSession(BaseModel):
-    """Worker-side OAuth login session surfaced to Canvas."""
+    """Workspace-scoped OAuth login session surfaced to Canvas."""
 
     session_id: str
     provider: ExternalAgentProviderName
     display_name: str
     state: ExternalAgentLoginSessionState
+    workspace_id: str | None = None
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None = None

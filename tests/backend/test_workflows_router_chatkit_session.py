@@ -1,6 +1,7 @@
 """Coverage for the workflow-scoped ChatKit session endpoint."""
 
 from __future__ import annotations
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 import jwt
@@ -18,7 +19,8 @@ from orcheo_backend.app.chatkit_tokens import (
     ChatKitTokenSettings,
 )
 from orcheo_backend.app.repository import WorkflowNotFoundError
-from orcheo_backend.app.routers import workflows
+from orcheo_backend.app.routers import chatkit, workflows
+from tests.backend.chatkit_router_helpers_support import make_chatkit_request
 
 
 class _WorkflowRepo:
@@ -41,6 +43,12 @@ class _WorkflowRepo:
         if workflow_id != self._workflow.id:
             raise WorkflowNotFoundError(str(workflow_id))
         return self._workflow
+
+    async def get_workflow_workspace_id(self, workflow_id: UUID) -> str | None:
+        if workflow_id != self._workflow.id:
+            raise WorkflowNotFoundError(str(workflow_id))
+        workspace_id = self._workflow.workspace_id
+        return str(workspace_id) if workspace_id is not None else None
 
 
 class _MissingWorkflowRepo:
@@ -216,9 +224,19 @@ async def test_create_workflow_chatkit_session_rejects_archived_workflow() -> No
 
 @pytest.mark.asyncio()
 async def test_create_workflow_chatkit_session_mints_scoped_token() -> None:
-    workflow = Workflow(name="Canvas Workflow", tags=["workspace:ws-1"])
+    active_workspace_id = str(_MOCK_WORKSPACE.workspace_id)
+    workflow = Workflow(
+        name="Canvas Workflow", tags=[f"workspace:{active_workspace_id}"]
+    )
     repo = _WorkflowRepo(workflow)
-    policy = _policy({"workflows:read", "workflows:execute"})
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="canvas-user",
+            identity_type="user",
+            scopes=frozenset({"workflows:read", "workflows:execute"}),
+            workspace_ids=frozenset({active_workspace_id}),
+        )
+    )
     issuer = _issuer()
 
     response = await workflows.create_workflow_chatkit_session(
@@ -239,16 +257,51 @@ async def test_create_workflow_chatkit_session_mints_scoped_token() -> None:
 
     assert decoded["sub"] == "canvas-user"
     assert decoded["chatkit"]["workflow_id"] == str(workflow.id)
-    assert decoded["chatkit"]["workspace_id"] == "ws-1"
+    assert decoded["chatkit"]["workspace_id"] == active_workspace_id
+    assert decoded["chatkit"]["workspace_ids"] == [active_workspace_id]
     assert decoded["chatkit"]["metadata"]["workflow_name"] == "Canvas Workflow"
     assert decoded["chatkit"]["metadata"]["source"] == "canvas"
     assert decoded["chatkit"]["interface"] == "canvas_modal"
 
 
-def test_select_primary_workspace_handles_multiple_workspaces() -> None:
-    workspace_ids = frozenset({"ws-1", "ws-2"})
+@pytest.mark.asyncio()
+async def test_create_workflow_chatkit_session_uses_active_workspace_when_ambiguous() -> (
+    None
+):
+    active_workspace_id = str(_MOCK_WORKSPACE.workspace_id)
+    workflow = Workflow(
+        name="Canvas Workflow", tags=[f"workspace:{active_workspace_id}"]
+    )
+    repo = _WorkflowRepo(workflow)
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="canvas-user",
+            identity_type="user",
+            scopes=frozenset({"workflows:read", "workflows:execute"}),
+            workspace_ids=frozenset({active_workspace_id, "ws-other"}),
+        )
+    )
 
-    assert workflows._select_primary_workspace(workspace_ids) is None
+    response = await workflows.create_workflow_chatkit_session(
+        str(workflow.id),
+        repo,
+        _MOCK_WORKSPACE,
+        policy=policy,
+        issuer=_issuer(),
+    )
+
+    decoded = jwt.decode(
+        response.client_secret,
+        "canvas-chatkit-key",
+        algorithms=["HS256"],
+        audience="chatkit-client",
+        issuer="canvas-backend",
+    )
+
+    assert decoded["chatkit"]["workspace_id"] == active_workspace_id
+    assert decoded["chatkit"]["workspace_ids"] == sorted(
+        {active_workspace_id, "ws-other"}
+    )
 
 
 @pytest.mark.asyncio()
@@ -303,8 +356,54 @@ async def test_chatkit_session_matches_workspace_case_insensitively() -> None:
         issuer="canvas-backend",
     )
 
-    assert decoded["chatkit"]["workspace_id"] == "team-a"
-    assert decoded["chatkit"]["workspace_ids"] == ["team-a"]
+    assert decoded["chatkit"]["workspace_id"] == str(_MOCK_WORKSPACE.workspace_id)
+    assert decoded["chatkit"]["workspace_ids"] == sorted(
+        {str(_MOCK_WORKSPACE.workspace_id), "team-a"}
+    )
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_chatkit_session_round_trips_through_jwt_verifier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active_workspace_id = str(_MOCK_WORKSPACE.workspace_id)
+    issuer = _issuer()
+    monkeypatch.setattr(
+        chatkit,
+        "load_chatkit_token_settings",
+        lambda refresh=False: issuer.settings,
+    )
+    workflow = Workflow(name="Canvas Workflow")
+    repo = _WorkflowRepo(workflow)
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="canvas-user",
+            identity_type="user",
+            scopes=frozenset({"workflows:read", "workflows:execute"}),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    response = await workflows.create_workflow_chatkit_session(
+        str(workflow.id),
+        repo,
+        _MOCK_WORKSPACE,
+        policy=policy,
+        issuer=issuer,
+    )
+
+    request = make_chatkit_request(
+        headers={"Authorization": f"Bearer {response.client_secret}"}
+    )
+    result = await chatkit._authenticate_jwt_request(
+        request=request,
+        workflow_id=workflow.id,
+        now=datetime.now(tz=UTC),
+        repository=repo,
+    )
+
+    assert result is not None
+    assert result.workspace_id == active_workspace_id
 
 
 @pytest.mark.asyncio()

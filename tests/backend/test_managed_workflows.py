@@ -33,6 +33,9 @@ async def test_ensure_managed_vibe_workflow_creates_seed() -> None:
     assert len(versions) == 1
     assert versions[0].version == 1
     assert versions[0].created_by == "system"
+    assert versions[0].runnable_config["configurable"]["working_directory"] == (
+        "/workspace/agents/{{workspace_id}}"
+    )
 
 
 @pytest.mark.asyncio

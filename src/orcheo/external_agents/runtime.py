@@ -26,6 +26,7 @@ from orcheo.external_agents.paths import (
     provider_runtimes_dir,
     provider_staging_dir,
     validate_working_directory,
+    workspace_provider_environment_overrides,
 )
 from orcheo.external_agents.process import execute_process
 from orcheo.external_agents.providers import DEFAULT_PROVIDERS, ExternalAgentProvider
@@ -83,20 +84,37 @@ class ExternalAgentRuntimeManager:
             msg = f"Unknown external agent provider '{provider_name}'."
             raise ValueError(msg) from exc
 
-    def environment_for_provider(self, provider_name: str) -> dict[str, str]:
+    def environment_for_provider(
+        self,
+        provider_name: str,
+        workspace_id: str | None = None,
+    ) -> dict[str, str]:
         """Return the effective environment for one provider."""
-        merged = self._load_provider_environment(provider_name)
+        merged = self._load_provider_environment(
+            provider_name,
+            workspace_id=workspace_id,
+        )
         merged.update(self.environ)
+        merged.update(
+            workspace_provider_environment_overrides(
+                provider_name,
+                workspace_id=workspace_id,
+            )
+        )
         return merged
 
     def save_provider_environment(
         self,
         provider_name: str,
         updates: Mapping[str, str],
+        workspace_id: str | None = None,
     ) -> dict[str, str]:
         """Persist provider-specific environment variables."""
         with provider_lock(self.runtime_root, provider_name):
-            current = self._load_provider_environment(provider_name)
+            current = self._load_provider_environment(
+                provider_name,
+                workspace_id=workspace_id,
+            )
             for key, value in updates.items():
                 stripped = value.strip()
                 if stripped:
@@ -105,7 +123,11 @@ class ExternalAgentRuntimeManager:
                 else:
                     current.pop(key, None)
                     self.environ.pop(key, None)
-            self._write_provider_environment(provider_name, current)
+            self._write_provider_environment(
+                provider_name,
+                current,
+                workspace_id=workspace_id,
+            )
             return current
 
     def maintenance_due(
@@ -127,12 +149,16 @@ class ExternalAgentRuntimeManager:
         self,
         candidate: str | Path,
         *,
+        workspace_id: str | None = None,
+        workspace_root: str | Path | None = None,
         auto_init_git_worktree: bool = False,
     ) -> Path:
         """Validate a requested execution directory against runtime safety rules."""
         return validate_working_directory(
             candidate,
             runtime_root=self.runtime_root,
+            workspace_id=workspace_id,
+            workspace_root=workspace_root,
             auto_init_git_worktree=auto_init_git_worktree,
         )
 
@@ -373,9 +399,17 @@ class ExternalAgentRuntimeManager:
             if child.is_dir():
                 shutil.rmtree(child, ignore_errors=True)
 
-    def _load_provider_environment(self, provider_name: str) -> dict[str, str]:
+    def _load_provider_environment(
+        self,
+        provider_name: str,
+        workspace_id: str | None = None,
+    ) -> dict[str, str]:
         """Load persisted provider-specific environment variables."""
-        env_path = provider_environment_path(self.runtime_root, provider_name)
+        env_path = provider_environment_path(
+            self.runtime_root,
+            provider_name,
+            workspace_id=workspace_id,
+        )
         if not env_path.exists():
             return {}
         payload = json.loads(env_path.read_text(encoding="utf-8"))
@@ -395,11 +429,17 @@ class ExternalAgentRuntimeManager:
         self,
         provider_name: str,
         payload: Mapping[str, str],
+        workspace_id: str | None = None,
     ) -> None:
         """Persist provider-specific environment variables atomically."""
         provider_dir = provider_root(self.runtime_root, provider_name)
         provider_dir.mkdir(parents=True, exist_ok=True)
-        env_path = provider_environment_path(self.runtime_root, provider_name)
+        env_path = provider_environment_path(
+            self.runtime_root,
+            provider_name,
+            workspace_id=workspace_id,
+        )
+        env_path.parent.mkdir(parents=True, exist_ok=True)
 
         with tempfile.NamedTemporaryFile(
             "w",

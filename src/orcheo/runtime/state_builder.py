@@ -24,7 +24,7 @@ def build_initial_state(
         state.setdefault("inputs", dict(inputs))
         state.setdefault("results", {})
         state.setdefault("messages", [])
-        state.setdefault("workspace_id", workspace_id)
+        state["workspace_id"] = workspace_id
         state["config"] = runtime_state_config
         return state
 
