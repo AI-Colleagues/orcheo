@@ -242,7 +242,8 @@ def use_workspace(
         str | None,
         typer.Argument(
             help=(
-                "Workspace slug to use as the active workspace for subsequent CLI calls. "
+                "Workspace slug to use as the active workspace for "
+                "subsequent CLI calls. "
                 "Pass `--clear` to remove the override."
             )
         ),
@@ -310,10 +311,10 @@ def list_my_memberships(ctx: typer.Context) -> None:
 
 
 def _read_active_workspace() -> str | None:
-    if not _TENANT_CONFIG_FILE.exists():
+    if not _WORKSPACE_CONFIG_FILE.exists():
         return None
     try:
-        candidate = _TENANT_CONFIG_FILE.read_text(encoding="utf-8").strip()
+        candidate = _WORKSPACE_CONFIG_FILE.read_text(encoding="utf-8").strip()
     except OSError:  # pragma: no cover - defensive
         return None
     return candidate or None

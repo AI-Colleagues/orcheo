@@ -95,7 +95,6 @@ class ActiveWorkspaceResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: UUID
-    tenant_id: UUID
     slug: str
     name: str
     role: Role

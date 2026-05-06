@@ -15,7 +15,7 @@ from orcheo_backend.app.routers.agentensor import (
 )
 
 
-_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 
 
 class DummyStore:
@@ -67,7 +67,7 @@ async def test_list_agentensor_checkpoints_returns_payloads() -> None:
         workflow_ref=str(workflow_uuid),
         repository=_Repository(),
         store=store,  # type: ignore[arg-type]
-        workspace=_MOCK_TENANT,
+        workspace=_MOCK_WORKSPACE,
         limit=1,
     )
 

@@ -203,23 +203,8 @@ def test_active_workspace_endpoint_returns_resolved_context(
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["workspace_id"] == str(workspace.id)
-    assert payload["tenant_id"] == str(workspace.id)
     assert payload["slug"] == "acme"
     assert payload["role"] == "owner"
-
-
-def test_legacy_active_tenant_endpoint_alias(
-    workspace_app: tuple[FastAPI, InMemoryWorkspaceRepository],
-) -> None:
-    app, repo = workspace_app
-    svc = WorkspaceService(repo)
-    workspace, _ = svc.create_workspace(slug="acme", name="Acme", owner_user_id="alice")
-    client = TestClient(app)
-    response = client.get("/api/tenants/active")
-    assert response.status_code == 200, response.text
-    payload = response.json()
-    assert payload["workspace_id"] == str(workspace.id)
-    assert payload["tenant_id"] == str(workspace.id)
 
 
 def test_resolve_workspace_context_requires_header_for_multi_membership(

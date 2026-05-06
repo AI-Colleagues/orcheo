@@ -95,7 +95,7 @@ class _RevokeRepo:
         return self.workflow
 
 
-_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 
 
 def test_publish_response_uses_message_helper() -> None:
@@ -116,7 +116,7 @@ async def test_publish_workflow_raises_not_found() -> None:
             str(uuid4()),
             request,
             _MissingPublishRepo(),
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
         )
 
     assert excinfo.value.status_code == 404
@@ -131,7 +131,7 @@ async def test_publish_workflow_translates_state_errors() -> None:
             str(uuid4()),
             request,
             _InvalidPublishRepo(),
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
         )
 
     assert excinfo.value.status_code == 409
@@ -146,7 +146,7 @@ async def test_revoke_publish_translates_state_errors() -> None:
             str(uuid4()),
             request,
             _InvalidRevokeRepo(),
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
         )
 
     assert excinfo.value.status_code == 409
@@ -161,7 +161,7 @@ async def test_revoke_publish_not_found() -> None:
             str(uuid4()),
             request,
             _MissingRevokeRepo(),
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
         )
 
     assert excinfo.value.status_code == 404
@@ -184,7 +184,7 @@ async def test_revoke_publish_logs_without_previous_token(
         str(repo.workflow.id),
         request,
         repo,
-        _MOCK_TENANT,
+        _MOCK_WORKSPACE,
     )
 
     assert result is repo.workflow

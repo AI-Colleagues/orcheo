@@ -73,7 +73,7 @@ class _ResolveThenMissingWorkflowRepo:
         raise WorkflowNotFoundError(str(workflow_id))
 
 
-_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 
 
 def _issuer() -> ChatKitSessionTokenIssuer:
@@ -116,7 +116,7 @@ async def test_create_workflow_chatkit_session_requires_authentication() -> None
         await workflows.create_workflow_chatkit_session(
             str(workflow.id),
             repo,
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
             policy=policy,
             issuer=_issuer(),
         )
@@ -132,7 +132,7 @@ async def test_create_workflow_chatkit_session_requires_permissions() -> None:
         await workflows.create_workflow_chatkit_session(
             str(workflow.id),
             repo,
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
             policy=policy,
             issuer=_issuer(),
         )
@@ -169,7 +169,7 @@ async def test_create_workflow_chatkit_session_validates_workflow_exists() -> No
         await workflows.create_workflow_chatkit_session(
             str(uuid4()),
             repo,
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
             policy=policy,
             issuer=_issuer(),
         )
@@ -185,7 +185,7 @@ async def test_create_workflow_chatkit_session_missing_after_resolution() -> Non
         await workflows.create_workflow_chatkit_session(
             str(uuid4()),
             _ResolveThenMissingWorkflowRepo(),
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
             policy=policy,
             issuer=_issuer(),
         )
@@ -206,7 +206,7 @@ async def test_create_workflow_chatkit_session_rejects_archived_workflow() -> No
         await workflows.create_workflow_chatkit_session(
             str(workflow.id),
             repo,
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
             policy=policy,
             issuer=_issuer(),
         )
@@ -224,7 +224,7 @@ async def test_create_workflow_chatkit_session_mints_scoped_token() -> None:
     response = await workflows.create_workflow_chatkit_session(
         str(workflow.id),
         repo,
-        _MOCK_TENANT,
+        _MOCK_WORKSPACE,
         policy=policy,
         issuer=issuer,
     )
@@ -268,7 +268,7 @@ async def test_create_workflow_chatkit_session_requires_workspace_match() -> Non
         await workflows.create_workflow_chatkit_session(
             str(workflow.id),
             repo,
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
             policy=policy,
             issuer=_issuer(),
         )
@@ -290,7 +290,7 @@ async def test_chatkit_session_matches_workspace_case_insensitively() -> None:
     response = await workflows.create_workflow_chatkit_session(
         str(workflow.id),
         repo,
-        _MOCK_TENANT,
+        _MOCK_WORKSPACE,
         policy=policy,
         issuer=_issuer(),
     )
@@ -324,7 +324,7 @@ async def test_create_workflow_chatkit_session_falls_back_to_owner() -> None:
     response = await workflows.create_workflow_chatkit_session(
         str(workflow.id),
         repo,
-        _MOCK_TENANT,
+        _MOCK_WORKSPACE,
         policy=policy,
         issuer=_issuer(),
     )
@@ -363,7 +363,7 @@ async def test_create_workflow_chatkit_session_requires_workspace_access_for_tag
         await workflows.create_workflow_chatkit_session(
             str(workflow.id),
             repo,
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
             policy=policy,
             issuer=_issuer(),
         )
@@ -393,7 +393,7 @@ async def test_create_workflow_chatkit_session_allows_authenticated_scope_withou
     response = await workflows.create_workflow_chatkit_session(
         str(workflow.id),
         repo,
-        _MOCK_TENANT,
+        _MOCK_WORKSPACE,
         policy=policy,
         issuer=_issuer(),
     )
@@ -432,7 +432,7 @@ async def test_create_workflow_chatkit_session_rejects_workspace_scope_without_t
         await workflows.create_workflow_chatkit_session(
             str(workflow.id),
             repo,
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
             policy=policy,
             issuer=_issuer(),
         )
@@ -461,7 +461,7 @@ async def test_create_workflow_chatkit_session_denies_when_owner_mismatch() -> N
         await workflows.create_workflow_chatkit_session(
             str(workflow.id),
             repo,
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
             policy=policy,
             issuer=_issuer(),
         )
@@ -491,7 +491,7 @@ async def test_create_workflow_chatkit_session_allows_developer_owner_mismatch()
     response = await workflows.create_workflow_chatkit_session(
         str(workflow.id),
         repo,
-        _MOCK_TENANT,
+        _MOCK_WORKSPACE,
         policy=policy,
         issuer=_issuer(),
     )
@@ -526,7 +526,7 @@ async def test_create_workflow_chatkit_session_allows_ownerless_workflow() -> No
     response = await workflows.create_workflow_chatkit_session(
         str(workflow.id),
         repo,
-        _MOCK_TENANT,
+        _MOCK_WORKSPACE,
         policy=policy,
         issuer=_issuer(),
     )

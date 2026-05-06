@@ -26,7 +26,7 @@ from orcheo_backend.app.repository import (
 from orcheo_backend.app.schemas.workflows import WorkflowRunCreateRequest
 
 
-_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 
 
 def _health_error(workflow_id: UUID) -> CredentialHealthError:
@@ -88,7 +88,7 @@ async def test_create_workflow_run_success() -> None:
     )
 
     result = await create_workflow_run(
-        str(workflow_id), request, Repository(), _MOCK_TENANT, None
+        str(workflow_id), request, Repository(), _MOCK_WORKSPACE, None
     )
 
     assert result.id == run_id
@@ -129,7 +129,7 @@ async def test_create_workflow_run_workflow_not_found() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         await create_workflow_run(
-            str(workflow_id), request, Repository(), _MOCK_TENANT, None
+            str(workflow_id), request, Repository(), _MOCK_WORKSPACE, None
         )
 
     assert exc_info.value.status_code == 404
@@ -169,7 +169,7 @@ async def test_create_workflow_run_version_not_found() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         await create_workflow_run(
-            str(workflow_id), request, Repository(), _MOCK_TENANT, None
+            str(workflow_id), request, Repository(), _MOCK_WORKSPACE, None
         )
 
     assert exc_info.value.status_code == 404
@@ -209,7 +209,7 @@ async def test_create_workflow_run_credential_health_error() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         await create_workflow_run(
-            str(workflow_id), request, Repository(), _MOCK_TENANT, None
+            str(workflow_id), request, Repository(), _MOCK_WORKSPACE, None
         )
 
     assert exc_info.value.status_code == 422
@@ -252,7 +252,7 @@ async def test_list_workflow_runs_success() -> None:
             ]
 
     result = await list_workflow_runs(
-        str(workflow_id), Repository(), _MOCK_TENANT, limit=50
+        str(workflow_id), Repository(), _MOCK_WORKSPACE, limit=50
     )
 
     assert len(result) == 2
@@ -277,7 +277,9 @@ async def test_list_workflow_runs_not_found() -> None:
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await list_workflow_runs(str(workflow_id), Repository(), _MOCK_TENANT, limit=50)
+        await list_workflow_runs(
+            str(workflow_id), Repository(), _MOCK_WORKSPACE, limit=50
+        )
 
     assert exc_info.value.status_code == 404
 
@@ -300,7 +302,7 @@ async def test_get_workflow_run_success() -> None:
                 updated_at=datetime.now(tz=UTC),
             )
 
-    result = await get_workflow_run(run_id, Repository(), _MOCK_TENANT)
+    result = await get_workflow_run(run_id, Repository(), _MOCK_WORKSPACE)
 
     assert result.id == run_id
 
@@ -316,6 +318,6 @@ async def test_get_workflow_run_not_found() -> None:
             raise WorkflowRunNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await get_workflow_run(run_id, Repository(), _MOCK_TENANT)
+        await get_workflow_run(run_id, Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 404

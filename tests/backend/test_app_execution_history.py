@@ -12,7 +12,7 @@ from orcheo_backend.app.history import RunHistoryNotFoundError, RunHistoryRecord
 from orcheo_backend.app.schemas.runs import RunReplayRequest
 
 
-_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 
 
 class _Repository:
@@ -55,7 +55,7 @@ async def test_list_workflow_execution_histories_returns_records() -> None:
         workflow_ref=str(workflow_id),
         history_store=HistoryStore(),
         repository=_Repository(),
-        workspace=_MOCK_TENANT,
+        workspace=_MOCK_WORKSPACE,
         limit=50,
     )
 
@@ -84,7 +84,7 @@ async def test_list_workflow_execution_histories_respects_limit() -> None:
         workflow_ref=str(workflow_id),
         history_store=HistoryStore(),
         repository=_Repository(),
-        workspace=_MOCK_TENANT,
+        workspace=_MOCK_WORKSPACE,
         limit=100,
     )
 

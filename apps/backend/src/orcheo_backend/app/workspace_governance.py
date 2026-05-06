@@ -15,7 +15,7 @@ from orcheo_backend.app.errors import (
 )
 
 
-_TENANT_GOVERNANCE_CACHE: dict[str, WorkspaceGovernance | None] = {"manager": None}
+_WORKSPACE_GOVERNANCE_CACHE: dict[str, WorkspaceGovernance | None] = {"manager": None}
 
 
 def _coerce_int(value: Any, default: int) -> int:
@@ -181,8 +181,8 @@ class WorkspaceGovernance:
 def get_workspace_governance(*, refresh: bool = False) -> WorkspaceGovernance:
     """Return the cached workspace governance manager."""
     if refresh:
-        _TENANT_GOVERNANCE_CACHE["manager"] = None
-    manager = _TENANT_GOVERNANCE_CACHE.get("manager")
+        _WORKSPACE_GOVERNANCE_CACHE["manager"] = None
+    manager = _WORKSPACE_GOVERNANCE_CACHE.get("manager")
     if manager is None:
         settings = get_settings()
         api_rate_limit = _coerce_int(
@@ -199,7 +199,7 @@ def get_workspace_governance(*, refresh: bool = False) -> WorkspaceGovernance:
             api_rate_interval_seconds=api_rate_interval_seconds,
             redis_url=str(redis_url) if redis_url else None,
         )
-        _TENANT_GOVERNANCE_CACHE["manager"] = manager
+        _WORKSPACE_GOVERNANCE_CACHE["manager"] = manager
     return manager
 
 

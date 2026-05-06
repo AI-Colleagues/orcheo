@@ -87,7 +87,7 @@ class _MissingWorkflowRepository:
         return []
 
 
-_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 
 
 @pytest.mark.asyncio()
@@ -95,7 +95,7 @@ async def test_get_workflow_canvas_returns_not_found_when_missing() -> None:
     repository = _MissingWorkflowRepository()
 
     with pytest.raises(HTTPException) as exc_info:
-        await get_workflow_canvas("canvas-flow", repository, _MOCK_TENANT)
+        await get_workflow_canvas("canvas-flow", repository, _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "Workflow not found"

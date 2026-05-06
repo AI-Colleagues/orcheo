@@ -67,7 +67,7 @@ class _CronConfigMissingRepo:
         raise WorkflowNotFoundError("missing")
 
 
-_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 
 
 @pytest.mark.asyncio()
@@ -77,7 +77,7 @@ async def test_configure_webhook_trigger_translates_workflow_not_found() -> None
             str(uuid4()),
             WebhookTriggerConfig(),
             _WebhookConfigMissingRepo(uuid4()),
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
         )
 
     assert excinfo.value.status_code == 404
@@ -89,7 +89,7 @@ async def test_get_webhook_trigger_config_translates_workflow_not_found() -> Non
         await triggers_router.get_webhook_trigger_config(
             str(uuid4()),
             _WebhookConfigMissingRepo(uuid4()),
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
         )
 
     assert excinfo.value.status_code == 404
@@ -102,7 +102,7 @@ async def test_configure_cron_trigger_translates_workflow_not_found() -> None:
             str(uuid4()),
             CronTriggerConfig(expression="0 9 * * *", timezone="UTC"),
             _CronConfigMissingRepo(uuid4()),
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
         )
 
     assert excinfo.value.status_code == 404
@@ -114,7 +114,7 @@ async def test_get_cron_trigger_config_translates_workflow_not_found() -> None:
         await triggers_router.get_cron_trigger_config(
             str(uuid4()),
             _CronConfigMissingRepo(uuid4()),
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
         )
 
     assert excinfo.value.status_code == 404
@@ -126,7 +126,7 @@ async def test_delete_cron_trigger_translates_workflow_not_found() -> None:
         await triggers_router.delete_cron_trigger(
             str(uuid4()),
             _CronConfigMissingRepo(uuid4()),
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
         )
 
     assert excinfo.value.status_code == 404

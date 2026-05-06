@@ -17,7 +17,7 @@ from orcheo_backend.app.schemas.workflows import (
 )
 
 
-_MOCK_TENANT = SimpleNamespace(
+_MOCK_WORKSPACE = SimpleNamespace(
     workspace_id=uuid4(),
     quotas=WorkspaceQuotas(),
 )
@@ -212,7 +212,7 @@ async def test_create_workflow_uses_authenticated_subject_and_workspace_tags(
         )
     )
 
-    await workflows.create_workflow(request, repository, _MOCK_TENANT, policy=policy)
+    await workflows.create_workflow(request, repository, _MOCK_WORKSPACE, policy=policy)
 
     assert repository.last_actor == "auth0|user-123"
     assert repository.last_tags is not None
@@ -231,7 +231,7 @@ async def test_create_workflow_keeps_request_actor_when_context_unavailable() ->
         actor="cli",
     )
 
-    await workflows.create_workflow(request, repository, _MOCK_TENANT)
+    await workflows.create_workflow(request, repository, _MOCK_WORKSPACE)
 
     assert repository.last_actor == "cli"
     assert repository.last_tags == ["legacy"]
@@ -261,7 +261,7 @@ async def test_create_workflow_adds_workspace_tags_when_tags_missing(
         )
     )
 
-    await workflows.create_workflow(request, repository, _MOCK_TENANT, policy=policy)
+    await workflows.create_workflow(request, repository, _MOCK_WORKSPACE, policy=policy)
 
     assert repository.last_actor == "service-token-2"
     assert repository.last_tags == ["workspace:team-x"]
@@ -292,7 +292,7 @@ async def test_create_workflow_defaults_authenticated_users_to_authenticated_sco
         )
     )
 
-    await workflows.create_workflow(request, repository, _MOCK_TENANT, policy=policy)
+    await workflows.create_workflow(request, repository, _MOCK_WORKSPACE, policy=policy)
 
     assert repository.last_actor == "auth0|user-456"
     assert repository.last_tags == ["shared"]
@@ -322,7 +322,7 @@ async def test_create_workflow_normalizes_workspace_tag_casing(
         )
     )
 
-    await workflows.create_workflow(request, repository, _MOCK_TENANT, policy=policy)
+    await workflows.create_workflow(request, repository, _MOCK_WORKSPACE, policy=policy)
 
     assert repository.last_actor == "service-token-4"
     assert repository.last_tags == ["workspace:team-x"]
@@ -351,7 +351,7 @@ async def test_update_workflow_appends_workspace_tags_when_auth_enforced(
     )
 
     await workflows.update_workflow(
-        str(workflow.id), request, repository, _MOCK_TENANT, policy=policy
+        str(workflow.id), request, repository, _MOCK_WORKSPACE, policy=policy
     )
 
     assert repository.last_actor == "service-token-1"
@@ -411,7 +411,7 @@ async def test_update_workflow_preserves_none_tags_when_request_omits_tags(
     )
 
     await workflows.update_workflow(
-        str(workflow.id), request, repository, _MOCK_TENANT, policy=policy
+        str(workflow.id), request, repository, _MOCK_WORKSPACE, policy=policy
     )
 
     assert repository.last_actor == "service-token-3"
@@ -446,7 +446,7 @@ async def test_create_workflow_rejects_personal_scope_with_workspace_tags(
 
     with pytest.raises(HTTPException) as exc_info:
         await workflows.create_workflow(
-            request, repository, _MOCK_TENANT, policy=policy
+            request, repository, _MOCK_WORKSPACE, policy=policy
         )
 
     assert exc_info.value.status_code == 400
@@ -480,7 +480,7 @@ async def test_create_workflow_rejects_workspace_scope_without_workspace_tags(
 
     with pytest.raises(HTTPException) as exc_info:
         await workflows.create_workflow(
-            request, repository, _MOCK_TENANT, policy=policy
+            request, repository, _MOCK_WORKSPACE, policy=policy
         )
 
     assert exc_info.value.status_code == 400
@@ -512,7 +512,7 @@ async def test_update_workflow_does_not_recompute_draft_access_from_tag_changes(
     )
 
     await workflows.update_workflow(
-        str(workflow.id), request, repository, _MOCK_TENANT, policy=policy
+        str(workflow.id), request, repository, _MOCK_WORKSPACE, policy=policy
     )
 
     assert repository.last_tags == ["shared"]
@@ -551,7 +551,7 @@ async def test_update_workflow_reuses_existing_tags_for_draft_access_when_tags_m
         str(existing.id),
         request,
         repository,
-        _MOCK_TENANT,
+        _MOCK_WORKSPACE,
         policy=policy,
     )
 
@@ -587,7 +587,7 @@ async def test_update_workflow_raises_not_found_when_existing_workflow_missing(
             str(uuid4()),
             request,
             repository,
-            _MOCK_TENANT,
+            _MOCK_WORKSPACE,
             policy=policy,
         )
 

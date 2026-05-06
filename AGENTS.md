@@ -114,5 +114,5 @@ Available when environment is active (defined in `pyproject.toml` scripts):
 - Prefer `uv run` for tooling parity with CI; ensure `uv.lock` stays updated when adding deps.
 - When writing documents, set the author to the person or AI agent writing the document.
 - Default document owner is ShaojieJiang unless explicitly stated otherwise.
-- For multi-tenant deployments, keep `ORCHEO_MULTI_TENANCY_ENABLED`, `ORCHEO_DEFAULT_TENANT`, and the tenant header setting aligned across backend, worker, beat, and stack templates.
+- For multi-workspace deployments, keep `ORCHEO_MULTI_WORKSPACE_ENABLED`, `ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG`, and the workspace header setting aligned across backend, worker, beat, and stack templates.
 - WebSocket support for real-time workflow monitoring.

@@ -19,7 +19,7 @@ from orcheo_backend.app.repository import (
 from orcheo_backend.app.routers import workflows as workflow_router
 
 
-_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 
 
 @pytest.mark.asyncio()
@@ -59,7 +59,9 @@ async def test_list_workflow_versions_success() -> None:
                 ),
             ]
 
-    result = await list_workflow_versions(str(workflow_id), Repository(), _MOCK_TENANT)
+    result = await list_workflow_versions(
+        str(workflow_id), Repository(), _MOCK_WORKSPACE
+    )
 
     assert len(result) == 2
     assert result[0].id == version1_id
@@ -85,7 +87,7 @@ async def test_list_workflow_versions_not_found() -> None:
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await list_workflow_versions(str(workflow_id), Repository(), _MOCK_TENANT)
+        await list_workflow_versions(str(workflow_id), Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 404
 
@@ -115,7 +117,9 @@ async def test_get_workflow_version_success() -> None:
                 updated_at=datetime.now(tz=UTC),
             )
 
-    result = await get_workflow_version(str(workflow_id), 1, Repository(), _MOCK_TENANT)
+    result = await get_workflow_version(
+        str(workflow_id), 1, Repository(), _MOCK_WORKSPACE
+    )
 
     assert result.id == version_id
     assert result.version == 1
@@ -139,7 +143,7 @@ async def test_get_workflow_version_workflow_not_found() -> None:
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await get_workflow_version(str(workflow_id), 1, Repository(), _MOCK_TENANT)
+        await get_workflow_version(str(workflow_id), 1, Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 404
 
@@ -161,7 +165,7 @@ async def test_get_workflow_version_version_not_found() -> None:
             raise WorkflowVersionNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await get_workflow_version(str(workflow_id), 1, Repository(), _MOCK_TENANT)
+        await get_workflow_version(str(workflow_id), 1, Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 404
 
@@ -188,7 +192,7 @@ async def test_diff_workflow_versions_success() -> None:
             return Diff()
 
     result = await diff_workflow_versions(
-        str(workflow_id), 1, 2, Repository(), _MOCK_TENANT
+        str(workflow_id), 1, 2, Repository(), _MOCK_WORKSPACE
     )
 
     assert result.base_version == 1
@@ -230,7 +234,9 @@ async def test_list_workflow_versions_handles_mermaid_render_failure(
 
     monkeypatch.setattr(workflow_router, "_mermaid_from_graph", _raise_mermaid_failure)
 
-    result = await list_workflow_versions(str(workflow_id), Repository(), _MOCK_TENANT)
+    result = await list_workflow_versions(
+        str(workflow_id), Repository(), _MOCK_WORKSPACE
+    )
 
     assert len(result) == 1
     assert result[0].mermaid is None
@@ -253,7 +259,9 @@ async def test_diff_workflow_versions_workflow_not_found() -> None:
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await diff_workflow_versions(str(workflow_id), 1, 2, Repository(), _MOCK_TENANT)
+        await diff_workflow_versions(
+            str(workflow_id), 1, 2, Repository(), _MOCK_WORKSPACE
+        )
 
     assert exc_info.value.status_code == 404
 
@@ -275,7 +283,9 @@ async def test_diff_workflow_versions_version_not_found() -> None:
             raise WorkflowVersionNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await diff_workflow_versions(str(workflow_id), 1, 2, Repository(), _MOCK_TENANT)
+        await diff_workflow_versions(
+            str(workflow_id), 1, 2, Repository(), _MOCK_WORKSPACE
+        )
 
     assert exc_info.value.status_code == 404
 

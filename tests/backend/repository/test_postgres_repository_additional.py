@@ -152,19 +152,18 @@ def _workflow_payload(workflow_id: UUID, **overrides: Any) -> dict[str, Any]:
 
 
 @pytest.mark.asyncio
-async def test_persistence_deserialize_workflow_ignores_legacy_tenant_id(
+async def test_persistence_deserialize_workflow_uses_workspace_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Legacy workflow payloads may still carry tenant_id from the rename."""
+    """Workflow payloads should use `workspace_id`."""
     workflow_id = uuid4()
-    payload = _workflow_payload(workflow_id, tenant_id="workspace-a")
+    payload = _workflow_payload(workflow_id, workspace_id="workspace-a")
 
     repo = make_repository(monkeypatch, [])
     workflow = repo._deserialize_workflow(payload)
 
     assert workflow.id == workflow_id
     assert workflow.workspace_id == "workspace-a"
-    assert not hasattr(workflow, "tenant_id")
 
 
 def _version_payload(
@@ -1210,14 +1209,14 @@ async def test_versions_get_latest_version_dict_payload(
 
 
 @pytest.mark.asyncio
-async def test_versions_get_latest_version_ignores_legacy_tenant_id(
+async def test_versions_get_latest_version_uses_workspace_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Legacy version payloads may still carry tenant_id from the rename."""
+    """Workflow version payloads should use `workspace_id`."""
     workflow_id = uuid4()
     version_id = uuid4()
     payload = _version_payload(
-        version_id, workflow_id, version=3, tenant_id="workspace-a"
+        version_id, workflow_id, version=3, workspace_id="workspace-a"
     )
 
     responses = [
@@ -1230,7 +1229,6 @@ async def test_versions_get_latest_version_ignores_legacy_tenant_id(
     version = await repo.get_latest_version(workflow_id)
     assert version.id == version_id
     assert version.workspace_id == "workspace-a"
-    assert not hasattr(version, "tenant_id")
 
 
 @pytest.mark.asyncio

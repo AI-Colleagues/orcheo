@@ -52,7 +52,7 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `VITE_ORCHEO_AUTH_STATE_BYTES` | `32` | Integer in `[16, 96]` | Byte length for generated OAuth `state` random values (`features/auth/lib/oidc-client.ts`). |
 | `VITE_ORCHEO_AUTH_VERIFIER_BYTES` | `64` | Integer in `[32, 96]` | Byte length for PKCE `code_verifier` random values (`features/auth/lib/oidc-client.ts`). |
 | `VITE_ORCHEO_AUTH_AUDIENCE` | _none_ | String | Optional audience value required by some IdPs. |
-| `VITE_ORCHEO_AUTH_ORGANIZATION` | _none_ | String | Optional organization identifier for IdPs that support multi-tenancy (e.g., Auth0 Organizations). When set, restricts login to users belonging to the specified organization. |
+| `VITE_ORCHEO_AUTH_ORGANIZATION` | _none_ | String | Optional organization identifier for IdPs that support organization-scoped login (e.g., Auth0 Organizations). When set, restricts login to users belonging to the specified organization. |
 | `VITE_ORCHEO_AUTH_PROVIDER_PARAM` | _none_ | String | Optional IdP hint parameter name (e.g., `connection`, `idp`). |
 | `VITE_ORCHEO_AUTH_PROVIDER_GOOGLE` | _none_ | String | Provider hint value for Google when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
 | `VITE_ORCHEO_AUTH_PROVIDER_GITHUB` | _none_ | String | Provider hint value for GitHub when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
@@ -70,9 +70,9 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `ORCHEO_VAULT_AWS_REGION` | _none_ | AWS region identifier (e.g. `us-east-1`) | Region targeted when `ORCHEO_VAULT_BACKEND=aws_kms` (`config/loader.py`). |
 | `ORCHEO_VAULT_AWS_KMS_KEY_ID` | _none_ | KMS key identifier | Key ID for AWS KMS vaults (`config/loader.py`). |
 | `ORCHEO_VAULT_TOKEN_TTL_SECONDS` | `3600` | Positive integer | Lifetime (seconds) for vault access tokens (`config/loader.py`). |
-| `ORCHEO_MULTI_TENANCY_ENABLED` | `false` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Enables workspace-aware request resolution, scoped repository lookups, and workspace-aware websocket/runnable execution (`config/loader.py`). |
-| `ORCHEO_DEFAULT_TENANT` | `default` | Slug string | Default workspace slug used when workspace scoping is disabled or when bootstrapping the shared deployment workspace (`config/loader.py`). |
-| `ORCHEO_MULTI_TENANCY_TENANT_HEADER` | `X-Orcheo-Tenant` | HTTP header name | Header that pins the active workspace for authenticated requests (`config/loader.py`). |
+| `ORCHEO_MULTI_WORKSPACE_ENABLED` | `false` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Enables workspace-aware request resolution, scoped repository lookups, and workspace-aware websocket/runnable execution (`config/loader.py`). |
+| `ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG` | `default` | Slug string | Default workspace slug used when workspace scoping is disabled or when bootstrapping the shared deployment workspace (`config/loader.py`). |
+| `ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER` | `X-Orcheo-Workspace` | HTTP header name | Header that pins the active workspace for authenticated requests (`config/loader.py`). |
 
 ## ChatKit rate limits
 

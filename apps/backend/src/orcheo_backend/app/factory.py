@@ -111,7 +111,6 @@ def _build_api_router() -> APIRouter:
     protected_router.include_router(system.router)
     protected_router.include_router(workspaces_router.admin_router)
     protected_router.include_router(workspaces_router.router)
-    protected_router.include_router(workspaces_router.legacy_router)
 
     router.include_router(workflows.public_router)
     router.include_router(chatkit_router.router)

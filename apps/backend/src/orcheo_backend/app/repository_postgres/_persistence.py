@@ -34,11 +34,8 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
             data = payload
         data.pop("publish_token_hash", None)
         data.pop("publish_token_rotated_at", None)
-        tenant_id = data.pop("tenant_id", None)
         if workspace_id is not None:
             data["workspace_id"] = workspace_id
-        elif tenant_id is not None and not data.get("workspace_id"):
-            data["workspace_id"] = tenant_id
         return Workflow.model_validate(data)
 
     @staticmethod
@@ -51,11 +48,8 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
             data = json.loads(payload)
         else:
             data = payload
-        tenant_id = data.pop("tenant_id", None)
         if workspace_id is not None:
             data["workspace_id"] = workspace_id
-        elif tenant_id is not None and not data.get("workspace_id"):
-            data["workspace_id"] = tenant_id
         return WorkflowVersion.model_validate(data)
 
     async def _get_workflow_locked(self, workflow_id: UUID) -> Workflow:

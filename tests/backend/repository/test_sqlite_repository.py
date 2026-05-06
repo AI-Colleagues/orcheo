@@ -278,14 +278,14 @@ async def test_sqlite_workflow_schema_migration_accepts_legacy_publish_fields(
 
 
 @pytest.mark.asyncio()
-async def test_sqlite_deserialize_workflow_ignores_legacy_tenant_id(
+async def test_sqlite_deserialize_workflow_uses_workspace_id(
     tmp_path: pathlib.Path,
 ) -> None:
-    """Legacy workflow payloads may still carry tenant_id from the rename."""
-    db_path = tmp_path / "legacy-tenant-id.sqlite"
-    workflow = Workflow(name="Legacy Tenant Flow", handle="legacy-tenant-flow")
+    """Workflow payloads should use `workspace_id`."""
+    db_path = tmp_path / "workspace-id.sqlite"
+    workflow = Workflow(name="Legacy Workspace Flow", handle="legacy-workspace-flow")
     payload = workflow.model_dump(mode="json")
-    payload["tenant_id"] = "workspace-a"
+    payload["workspace_id"] = "workspace-a"
 
     with sqlite3.connect(db_path) as conn:
         conn.execute(
@@ -324,12 +324,12 @@ async def test_sqlite_deserialize_workflow_ignores_legacy_tenant_id(
 
 
 @pytest.mark.asyncio()
-async def test_sqlite_get_latest_version_ignores_legacy_tenant_id(
+async def test_sqlite_get_latest_version_uses_workspace_id(
     tmp_path: pathlib.Path,
 ) -> None:
-    """Legacy SQLite version payloads may still carry tenant_id from the rename."""
+    """Workflow version payloads should use `workspace_id`."""
 
-    db_path = tmp_path / "legacy-version-tenant-id.sqlite"
+    db_path = tmp_path / "workspace-version-id.sqlite"
     workflow = Workflow(name="Legacy Version Flow", handle="legacy-version-flow")
     version = WorkflowVersion(
         workflow_id=workflow.id,
@@ -337,7 +337,7 @@ async def test_sqlite_get_latest_version_ignores_legacy_tenant_id(
         created_by="author",
     )
     payload = version.model_dump(mode="json")
-    payload["tenant_id"] = "workspace-a"
+    payload["workspace_id"] = "workspace-a"
 
     with sqlite3.connect(db_path) as conn:
         conn.execute(

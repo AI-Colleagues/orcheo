@@ -15,8 +15,8 @@ and [`../project/initiatives/multi_workspace/2_design.md`](../project/initiative
 
 1. Run the stack with workspace scoping enabled:
    ```bash
-   export ORCHEO_MULTI_TENANCY_ENABLED=true
-   export ORCHEO_DEFAULT_TENANT=default
+   export ORCHEO_MULTI_WORKSPACE_ENABLED=true
+   export ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG=default
    export REDIS_URL=redis://localhost:6379/0
    ```
 2. Make sure the default workspace already exists. For a fresh install, the startup

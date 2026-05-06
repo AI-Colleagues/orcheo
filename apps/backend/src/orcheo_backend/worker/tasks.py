@@ -124,13 +124,13 @@ def _patched_environment(updates: Mapping[str, str]) -> Iterator[None]:
 
 async def _load_and_validate_run(
     run_id: str,
-    tenant_id: str | None,
+    workspace_id: str | None,
 ) -> tuple[Any, dict[str, Any] | None]:
     """Load run from repository and validate its status.
 
     Args:
         run_id: UUID string of the run to load
-        tenant_id: Tenant that owns the run, or None if missing.
+        workspace_id: Workspace that owns the run, or None if missing.
 
     Returns:
         Tuple of (run object, error dict if any)
@@ -141,12 +141,12 @@ async def _load_and_validate_run(
 
     repository = get_repository()
 
-    if tenant_id is None:
-        logger.error("Run %s rejected because tenant_id header is missing", run_id)
-        return None, {"status": "failed", "error": "Missing tenant_id header"}
+    if workspace_id is None:
+        logger.error("Run %s rejected because workspace_id header is missing", run_id)
+        return None, {"status": "failed", "error": "Missing workspace_id header"}
 
     try:
-        run = await repository.get_run(UUID(run_id), tenant_id=tenant_id)
+        run = await repository.get_run(UUID(run_id), workspace_id=workspace_id)
     except WorkflowRunNotFoundError:
         logger.error("Run %s not found", run_id)
         return None, {"status": "failed", "error": "Run not found"}
@@ -215,7 +215,7 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:
     repository = get_repository()
     history_store = get_history_store()
     run_id = str(run.id)
-    tenant_id = getattr(run, "tenant_id", None)
+    workspace_id = getattr(run, "workspace_id", None)
 
     try:
         version = await repository.get_version(run.workflow_version_id)
@@ -226,7 +226,7 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:
         vault = get_vault()
         credential_context = CredentialAccessContext(
             workflow_id=version.workflow_id,
-            tenant_id=tenant_id,
+            workspace_id=workspace_id,
         )
         resolver = CredentialResolver(vault, context=credential_context)
 
@@ -242,7 +242,7 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:
             inputs=inputs,
             merged_config=merged_config,
             history_error_cls=RunHistoryError,
-            tenant_id=tenant_id,
+            workspace_id=workspace_id,
         )
 
         external_agent_environ = _external_agent_provider_environment()
@@ -259,7 +259,7 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:
                             graph_config,
                             inputs,
                             state_config,
-                            tenant_id,
+                            workspace_id,
                         )
                         await _stream_run_history_steps(
                             compiled=compiled,
@@ -283,10 +283,10 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:
             execution_id=execution_id,
             history_error_cls=RunHistoryError,
         )
-        if tenant_id is not None:
-            from orcheo_backend.app.tenant_governance import get_tenant_governance
+        if workspace_id is not None:
+            from orcheo_backend.app.workspace_governance import get_workspace_governance
 
-            get_tenant_governance().release_run_slot(str(tenant_id))
+            get_workspace_governance().release_run_slot(str(workspace_id))
         logger.info("Run %s completed successfully", run_id)
         return {"status": "succeeded"}
 
@@ -306,7 +306,7 @@ async def _start_history_record(
     inputs: dict[str, Any],
     merged_config: Any,
     history_error_cls: type[Exception],
-    tenant_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> None:
     """Persist initial run history metadata for worker executions."""
     stored_config_payload = merged_config.to_json_config(execution_id)
@@ -320,7 +320,7 @@ async def _start_history_record(
             callbacks=merged_config.callbacks,
             metadata=merged_config.metadata,
             run_name=merged_config.run_name,
-            tenant_id=tenant_id,
+            workspace_id=workspace_id,
         )
     except history_error_cls:
         logger.exception(
@@ -435,26 +435,26 @@ async def _handle_execution_failure(
                 run_id,
                 history_exc,
             )
-    tenant_id = getattr(run, "tenant_id", None)
-    if tenant_id is not None:
-        from orcheo_backend.app.tenant_governance import get_tenant_governance
+    workspace_id = getattr(run, "workspace_id", None)
+    if workspace_id is not None:
+        from orcheo_backend.app.workspace_governance import get_workspace_governance
 
-        get_tenant_governance().release_run_slot(str(tenant_id))
+        get_workspace_governance().release_run_slot(str(workspace_id))
 
     return {"status": "failed", "error": error_message}
 
 
-async def _execute_run_async(run_id: str, tenant_id: str | None) -> dict[str, Any]:
+async def _execute_run_async(run_id: str, workspace_id: str | None) -> dict[str, Any]:
     """Execute a workflow run asynchronously.
 
     Args:
         run_id: UUID string of the run to execute
-        tenant_id: Tenant that owns the run, or None if missing.
+        workspace_id: Workspace that owns the run, or None if missing.
 
     Returns:
         dict with keys: status (succeeded/failed), error (optional)
     """
-    run, error = await _load_and_validate_run(run_id, tenant_id)
+    run, error = await _load_and_validate_run(run_id, workspace_id)
     if error:
         return error
 
@@ -478,9 +478,9 @@ def execute_run(self: Task, run_id: str) -> dict[str, Any]:
     """
     logger.info("Executing run %s", run_id)
     headers = getattr(getattr(self, "request", None), "headers", None) or {}
-    tenant_id = headers.get("tenant_id") or headers.get("x-orcheo-tenant-id")
+    workspace_id = headers.get("workspace_id") or headers.get("x-orcheo-workspace-id")
     loop = _get_event_loop()
-    return loop.run_until_complete(_execute_run_async(run_id, tenant_id))
+    return loop.run_until_complete(_execute_run_async(run_id, workspace_id))
 
 
 async def _dispatch_cron_triggers_async() -> list[str]:

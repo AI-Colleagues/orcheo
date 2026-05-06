@@ -328,7 +328,6 @@ class PostgresRepositoryBase:
             rows = await cursor.fetchall()
             for row in rows:
                 payload = dict(row["payload"])
-                payload.pop("tenant_id", None)
                 workflow = Workflow.model_validate(payload)
                 await conn.execute(
                     """

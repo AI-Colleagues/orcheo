@@ -29,7 +29,7 @@ from orcheo_backend.app.schemas.workflows import (
 )
 
 
-_MOCK_TENANT = SimpleNamespace(workspace_id=uuid4())
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 
 
 @pytest.mark.asyncio()
@@ -65,7 +65,7 @@ async def test_list_workflows_returns_all() -> None:
             del workflow_id
             raise CronTriggerNotFoundError("No cron trigger configured")
 
-    result = await list_workflows(Repository(), _MOCK_TENANT, include_archived=False)
+    result = await list_workflows(Repository(), _MOCK_WORKSPACE, include_archived=False)
 
     assert len(result) == 2
     assert result[0].id == workflow1.id
@@ -116,7 +116,7 @@ async def test_list_workflows_fetches_metadata_concurrently() -> None:
             del workflow_id
             raise CronTriggerNotFoundError("No cron trigger configured")
 
-    result = await list_workflows(Repository(), _MOCK_TENANT, include_archived=False)
+    result = await list_workflows(Repository(), _MOCK_WORKSPACE, include_archived=False)
 
     assert len(result) == 2
 
@@ -158,7 +158,7 @@ async def test_create_workflow_returns_new_workflow() -> None:
         actor="admin",
     )
 
-    result = await create_workflow(request, Repository(), _MOCK_TENANT)
+    result = await create_workflow(request, Repository(), _MOCK_WORKSPACE)
 
     assert result.id == workflow_id
     assert result.name == "Test Workflow"
@@ -194,7 +194,7 @@ async def test_create_workflow_translates_handle_conflicts() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await create_workflow(request, Repository(), _MOCK_TENANT)
+        await create_workflow(request, Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["code"] == "workflow.handle.conflict"
@@ -221,7 +221,7 @@ async def test_get_workflow_returns_workflow() -> None:
                 updated_at=datetime.now(tz=UTC),
             )
 
-    result = await get_workflow(str(workflow_id), Repository(), _MOCK_TENANT)
+    result = await get_workflow(str(workflow_id), Repository(), _MOCK_WORKSPACE)
 
     assert result.id == workflow_id
     assert result.name == "Test Workflow"
@@ -243,7 +243,7 @@ async def test_get_workflow_not_found() -> None:
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await get_workflow(str(workflow_id), Repository(), _MOCK_TENANT)
+        await get_workflow(str(workflow_id), Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 404
 
@@ -287,7 +287,7 @@ async def test_get_workflow_canvas_returns_compact_versions() -> None:
             assert wf_id == workflow_id
             return [Version(1), Version(2)]
 
-    result = await get_workflow_canvas(str(workflow_id), Repository(), _MOCK_TENANT)
+    result = await get_workflow_canvas(str(workflow_id), Repository(), _MOCK_WORKSPACE)
 
     assert isinstance(result, WorkflowCanvasPayload)
     assert result.workflow.id == workflow_id
@@ -340,7 +340,7 @@ async def test_update_workflow_returns_updated() -> None:
     )
 
     result = await update_workflow(
-        str(workflow_id), request, Repository(), _MOCK_TENANT
+        str(workflow_id), request, Repository(), _MOCK_WORKSPACE
     )
 
     assert result.id == workflow_id
@@ -380,7 +380,7 @@ async def test_update_workflow_not_found() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await update_workflow(str(workflow_id), request, Repository(), _MOCK_TENANT)
+        await update_workflow(str(workflow_id), request, Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 404
 
@@ -422,7 +422,7 @@ async def test_update_workflow_translates_handle_conflicts() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await update_workflow(str(workflow_id), request, Repository(), _MOCK_TENANT)
+        await update_workflow(str(workflow_id), request, Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["code"] == "workflow.handle.conflict"
@@ -461,7 +461,7 @@ async def test_archive_workflow_returns_archived() -> None:
             )
 
     result = await archive_workflow(
-        str(workflow_id), Repository(), _MOCK_TENANT, actor="admin"
+        str(workflow_id), Repository(), _MOCK_WORKSPACE, actor="admin"
     )
 
     assert result.id == workflow_id
@@ -495,7 +495,7 @@ async def test_archive_workflow_not_found() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         await archive_workflow(
-            str(workflow_id), Repository(), _MOCK_TENANT, actor="admin"
+            str(workflow_id), Repository(), _MOCK_WORKSPACE, actor="admin"
         )
 
     assert exc_info.value.status_code == 404
@@ -529,7 +529,7 @@ async def test_archive_workflow_blocks_managed_vibe_workflow() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         await archive_workflow(
-            str(workflow_id), Repository(), _MOCK_TENANT, actor="admin"
+            str(workflow_id), Repository(), _MOCK_WORKSPACE, actor="admin"
         )
 
     assert exc_info.value.status_code == 409

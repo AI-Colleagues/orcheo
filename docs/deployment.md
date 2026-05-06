@@ -14,8 +14,8 @@ This setup mirrors the default configuration that the tests exercise. It is idea
    ```bash
    cp .env.example .env
    ```
-   - For multi-workspace installs, set `ORCHEO_MULTI_TENANCY_ENABLED=true` once the backfill and repo-retrofit release has been verified.
-   - Keep `ORCHEO_DEFAULT_TENANT` aligned with the deployment's default workspace slug so the bootstrap path and any legacy rows resolve consistently.
+   - For multi-workspace installs, set `ORCHEO_MULTI_WORKSPACE_ENABLED=true` once the backfill and repo-retrofit release has been verified.
+   - Keep `ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG` aligned with the deployment's default workspace slug so the bootstrap path and any legacy rows resolve consistently.
 3. **Start the API server**
    ```bash
    make dev-server
@@ -34,14 +34,14 @@ _Repository note_: Local development now defaults to a SQLite-backed workflow re
 Use this sequence when enabling workspace scoping on an existing installation.
 
 1. **Flag off first**
-   - Deploy the code with `ORCHEO_MULTI_TENANCY_ENABLED=false`.
-   - Keep `ORCHEO_DEFAULT_TENANT` set to the slug that already owns legacy data.
+   - Deploy the code with `ORCHEO_MULTI_WORKSPACE_ENABLED=false`.
+   - Keep `ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG` set to the slug that already owns legacy data.
 2. **Verify the backfill release**
    - Confirm the default workspace exists.
    - Confirm existing workflows, runs, credentials, and graph records resolve under that workspace.
    - Check `/api/workspaces/me` and the Canvas workspace badge to ensure the resolved workspace matches expectations.
 3. **Turn workspace scoping on**
-   - Flip `ORCHEO_MULTI_TENANCY_ENABLED=true` in the backend, worker, beat, and stack env files together.
+   - Flip `ORCHEO_MULTI_WORKSPACE_ENABLED=true` in the backend, worker, beat, and stack env files together.
    - Restart the stack so the API, Celery worker, and scheduled jobs pick up the same workspace settings.
 4. **Rollback**
    - If any cross-workspace regression appears, switch the flag back to `false`, restart the stack, and keep the data in place for inspection.
