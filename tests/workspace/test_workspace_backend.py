@@ -207,7 +207,7 @@ def test_active_workspace_endpoint_returns_resolved_context(
     assert payload["role"] == "owner"
 
 
-def test_resolve_workspace_context_requires_header_for_multi_membership(
+def test_resolve_workspace_context_requires_selector_for_multi_membership(
     workspace_app: tuple[FastAPI, InMemoryWorkspaceRepository],
 ) -> None:
     app, repo = workspace_app
@@ -221,7 +221,7 @@ def test_resolve_workspace_context_requires_header_for_multi_membership(
     )
     client = TestClient(app)
     response = client.get("/api/workspaces/me")
-    assert response.status_code == 403
+    assert response.status_code == 403, response.text
     assert response.json()["detail"]["error"]["code"] == "workspace.forbidden"
 
 

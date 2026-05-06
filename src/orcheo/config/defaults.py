@@ -10,6 +10,8 @@ _DEFAULTS: dict[str, object] = {
     "GRAPH_STORE_SQLITE_PATH": str(Path.home() / ".orcheo" / "graph_store.sqlite"),
     "REPOSITORY_BACKEND": "sqlite",
     "REPOSITORY_SQLITE_PATH": "~/.orcheo/workflows.sqlite",
+    "WORKSPACE_BACKEND": "inmemory",
+    "WORKSPACE_SQLITE_PATH": "~/.orcheo/workspaces.sqlite",
     "CHATKIT_BACKEND": "sqlite",
     "CHATKIT_SQLITE_PATH": "~/.orcheo/chatkit.sqlite",
     "CHATKIT_STORAGE_PATH": "~/.orcheo/chatkit",

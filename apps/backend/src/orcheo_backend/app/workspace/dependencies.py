@@ -8,7 +8,9 @@ from orcheo.config import get_settings
 from orcheo.workspace import (
     DEFAULT_WORKSPACE_SLUG,
     InMemoryWorkspaceRepository,
+    PostgresWorkspaceRepository,
     Role,
+    SqliteWorkspaceRepository,
     Workspace,
     WorkspaceContext,
     WorkspaceMembership,
@@ -77,7 +79,22 @@ def get_workspace_repository() -> WorkspaceRepository:
     """Return the configured workspace repository, falling back to in-memory."""
     repository = _workspace_repository_ref.get("repository")
     if repository is None:
-        repository = InMemoryWorkspaceRepository()
+        settings = get_settings()
+        backend = str(settings.get("WORKSPACE_BACKEND", "inmemory")).lower()
+        if backend == "postgres":
+            dsn = settings.get("POSTGRES_DSN")
+            if not dsn:
+                msg = "ORCHEO_POSTGRES_DSN must be set when using the postgres backend."
+                raise ValueError(msg)
+            repository = PostgresWorkspaceRepository(str(dsn))
+        elif backend == "sqlite":
+            repository = SqliteWorkspaceRepository(
+                str(
+                    settings.get("WORKSPACE_SQLITE_PATH", "~/.orcheo/workspaces.sqlite")
+                )
+            )
+        else:
+            repository = InMemoryWorkspaceRepository()
         _workspace_repository_ref["repository"] = repository
     return repository
 
@@ -86,7 +103,16 @@ def get_workspace_service() -> WorkspaceService:
     """Return the cached workspace service singleton."""
     service = _workspace_service_ref.get("service")
     if service is None:
-        service = WorkspaceService(get_workspace_repository())
+        settings = get_settings()
+        default_workspace_slug = str(
+            settings.get(
+                "MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG", DEFAULT_WORKSPACE_SLUG
+            )
+        )
+        service = WorkspaceService(
+            get_workspace_repository(),
+            default_workspace_slug=default_workspace_slug,
+        )
         _workspace_service_ref["service"] = service
     return service
 

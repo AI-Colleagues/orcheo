@@ -36,20 +36,49 @@ def test_resolver_picks_only_membership_when_unambiguous() -> None:
     assert ctx.role is Role.OWNER
 
 
-def test_resolver_requires_explicit_slug_with_multiple_memberships() -> None:
+def test_resolver_prefers_configured_default_workspace_when_memberships_are_ambiguous() -> (
+    None
+):
+    repo, acme, globex = _setup_repo()
+    repo.add_membership(
+        WorkspaceMembership(
+            workspace_id=acme.id,
+            user_id="alice",
+            role=Role.EDITOR,
+            created_at=acme.created_at,
+        )
+    )
+    repo.add_membership(
+        WorkspaceMembership(
+            workspace_id=globex.id,
+            user_id="alice",
+            role=Role.VIEWER,
+            created_at=globex.created_at,
+        )
+    )
+    resolver = WorkspaceResolver(repo, default_workspace_slug="acme")
+    ctx = resolver.resolve(user_id="alice")
+    assert ctx.workspace_slug == "acme"
+    assert ctx.role is Role.EDITOR
+    ctx = resolver.resolve(user_id="alice", workspace_slug="globex")
+    assert ctx.workspace_slug == "globex"
+    assert ctx.role is Role.VIEWER
+
+
+def test_resolver_requires_a_selector_when_memberships_are_ambiguous() -> None:
     repo, acme, globex = _setup_repo()
     repo.add_membership(
         WorkspaceMembership(workspace_id=acme.id, user_id="alice", role=Role.EDITOR)
     )
     repo.add_membership(
-        WorkspaceMembership(workspace_id=globex.id, user_id="alice", role=Role.VIEWER)
+        WorkspaceMembership(
+            workspace_id=globex.id,
+            user_id="alice",
+            role=Role.VIEWER,
+        )
     )
-    resolver = WorkspaceResolver(repo)
     with pytest.raises(WorkspacePermissionError):
-        resolver.resolve(user_id="alice")
-    ctx = resolver.resolve(user_id="alice", workspace_slug="globex")
-    assert ctx.workspace_slug == "globex"
-    assert ctx.role is Role.VIEWER
+        WorkspaceResolver(repo).resolve(user_id="alice")
 
 
 def test_resolver_rejects_unknown_slug() -> None:

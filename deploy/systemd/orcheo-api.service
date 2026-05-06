@@ -13,6 +13,7 @@ Environment=REDIS_URL=redis://localhost:6379/0
 Environment=ORCHEO_MULTI_WORKSPACE_ENABLED=false
 Environment=ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG=default
 Environment=ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER=X-Orcheo-Workspace
+Environment=ORCHEO_WORKSPACE_BACKEND=postgres
 EnvironmentFile=-/etc/orcheo/orcheo.env
 
 ExecStart=/opt/orcheo/.venv/bin/uvicorn \

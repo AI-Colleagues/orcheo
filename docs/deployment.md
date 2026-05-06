@@ -16,6 +16,7 @@ This setup mirrors the default configuration that the tests exercise. It is idea
    ```
    - For multi-workspace installs, set `ORCHEO_MULTI_WORKSPACE_ENABLED=true` once the backfill and repo-retrofit release has been verified.
    - Keep `ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG` aligned with the deployment's default workspace slug so the bootstrap path and any legacy rows resolve consistently.
+   - Keep `ORCHEO_WORKSPACE_BACKEND=sqlite` and `ORCHEO_WORKSPACE_SQLITE_PATH` pointed at shared durable storage so memberships and workspace metadata survive backend restarts.
 3. **Start the API server**
    ```bash
    make dev-server
@@ -36,13 +37,14 @@ Use this sequence when enabling workspace scoping on an existing installation.
 1. **Flag off first**
    - Deploy the code with `ORCHEO_MULTI_WORKSPACE_ENABLED=false`.
    - Keep `ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG` set to the slug that already owns legacy data.
+   - Set `ORCHEO_WORKSPACE_BACKEND=postgres` and provide `ORCHEO_POSTGRES_DSN` before creating or migrating memberships.
 2. **Verify the backfill release**
    - Confirm the default workspace exists.
    - Confirm existing workflows, runs, credentials, and graph records resolve under that workspace.
    - Check `/api/workspaces/me` and the Canvas workspace badge to ensure the resolved workspace matches expectations.
 3. **Turn workspace scoping on**
    - Flip `ORCHEO_MULTI_WORKSPACE_ENABLED=true` in the backend, worker, beat, and stack env files together.
-   - Restart the stack so the API, Celery worker, and scheduled jobs pick up the same workspace settings.
+   - Keep `ORCHEO_WORKSPACE_BACKEND=postgres` in those same env files and restart the stack so the API, Celery worker, and scheduled jobs pick up the same workspace settings.
 4. **Rollback**
    - If any cross-workspace regression appears, switch the flag back to `false`, restart the stack, and keep the data in place for inspection.
    - Because the migration keeps the default workspace slug stable, the deployment can return to single-workspace behavior without data loss.

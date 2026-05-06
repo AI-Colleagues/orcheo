@@ -7,6 +7,7 @@ CheckpointBackend = Literal["sqlite", "postgres"]
 GraphStoreBackend = Literal["sqlite", "postgres"]
 ChatKitBackend = Literal["sqlite", "postgres"]
 RepositoryBackend = Literal["inmemory", "sqlite", "postgres"]
+WorkspaceBackend = Literal["inmemory", "sqlite", "postgres"]
 VaultBackend = Literal["inmemory", "file", "aws_kms", "postgres"]
 
 __all__ = [
@@ -14,5 +15,6 @@ __all__ = [
     "CheckpointBackend",
     "GraphStoreBackend",
     "RepositoryBackend",
+    "WorkspaceBackend",
     "VaultBackend",
 ]

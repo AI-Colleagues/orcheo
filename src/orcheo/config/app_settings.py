@@ -11,6 +11,7 @@ from orcheo.config.types import (
     CheckpointBackend,
     GraphStoreBackend,
     RepositoryBackend,
+    WorkspaceBackend,
 )
 from orcheo.config.vault_settings import VaultSettings
 from orcheo.config.workspace_settings import MultiWorkspaceSettings
@@ -34,6 +35,12 @@ class AppSettings(BaseModel):
     )
     repository_sqlite_path: str = Field(
         default=cast(str, _DEFAULTS["REPOSITORY_SQLITE_PATH"])
+    )
+    workspace_backend: WorkspaceBackend = Field(
+        default=cast(WorkspaceBackend, _DEFAULTS["WORKSPACE_BACKEND"])
+    )
+    workspace_sqlite_path: str = Field(
+        default=cast(str, _DEFAULTS["WORKSPACE_SQLITE_PATH"])
     )
     chatkit_backend: ChatKitBackend = Field(
         default=cast(ChatKitBackend, _DEFAULTS["CHATKIT_BACKEND"])
@@ -142,6 +149,21 @@ class AppSettings(BaseModel):
             raise ValueError(msg)
         return cast(RepositoryBackend, candidate)
 
+    @field_validator("workspace_backend", mode="before")
+    @classmethod
+    def _coerce_workspace_backend(cls, value: object) -> WorkspaceBackend:
+        candidate = (
+            cast(str, value).lower()
+            if value is not None
+            else cast(str, _DEFAULTS["WORKSPACE_BACKEND"])
+        )
+        if candidate not in {"inmemory", "sqlite", "postgres"}:
+            msg = (
+                "ORCHEO_WORKSPACE_BACKEND must be 'inmemory', 'sqlite', or 'postgres'."
+            )
+            raise ValueError(msg)
+        return cast(WorkspaceBackend, candidate)
+
     @field_validator("graph_store_backend", mode="before")
     @classmethod
     def _coerce_graph_store_backend(cls, value: object) -> GraphStoreBackend:
@@ -176,6 +198,11 @@ class AppSettings(BaseModel):
     @field_validator("repository_sqlite_path", mode="before")
     @classmethod
     def _coerce_repo_sqlite_path(cls, value: object) -> str:
+        return str(value) if value is not None else ""
+
+    @field_validator("workspace_sqlite_path", mode="before")
+    @classmethod
+    def _coerce_workspace_sqlite_path(cls, value: object) -> str:
         return str(value) if value is not None else ""
 
     @field_validator("graph_store_sqlite_path", mode="before")
@@ -391,6 +418,7 @@ class AppSettings(BaseModel):
             self.checkpoint_backend,
             self.graph_store_backend,
             self.repository_backend,
+            self.workspace_backend,
             self.chatkit_backend,
             self.vault.backend,
         }

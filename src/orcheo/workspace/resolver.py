@@ -96,10 +96,12 @@ class WorkspaceResolver:
         repository: WorkspaceRepository,
         *,
         cache: MembershipCache | None = None,
+        default_workspace_slug: str | None = None,
     ) -> None:
         """Bind the resolver to a repository and an optional cache override."""
         self._repository = repository
         self._cache = cache or InMemoryMembershipCache()
+        self._default_workspace_slug = default_workspace_slug
 
     @property
     def repository(self) -> WorkspaceRepository:
@@ -129,7 +131,9 @@ class WorkspaceResolver:
 
         The slug is the workspace the caller asked for (e.g., header
         `X-Orcheo-Workspace`). When omitted, the resolver picks the principal's
-        only membership; multiple memberships without a selector are an error.
+        only membership. If the principal belongs to multiple workspaces, the
+        configured default workspace is preferred when the user is a member of
+        it; otherwise the caller must supply an explicit selector.
         """
         memberships = self.list_memberships(user_id)
         if not memberships:
@@ -146,12 +150,7 @@ class WorkspaceResolver:
             self._enforce_active(workspace)
             return self._make_context(workspace, membership)
 
-        if len(memberships) > 1:
-            raise WorkspacePermissionError(
-                "Multiple memberships found; workspace must be specified explicitly"
-            )
-
-        membership = memberships[0]
+        membership = self._select_primary_membership(memberships)
         workspace = self._repository.get_workspace(membership.workspace_id)
         self._enforce_active(workspace)
         return self._make_context(workspace, membership)
@@ -160,7 +159,9 @@ class WorkspaceResolver:
     def _enforce_active(workspace: Workspace) -> None:
         if workspace.status is not WorkspaceStatus.ACTIVE:
             raise WorkspacePermissionError(
-                f"Workspace {workspace.slug} is not active (status={workspace.status.value})"
+                "Workspace "
+                f"{workspace.slug} is not active "
+                f"(status={workspace.status.value})"
             )
 
     @staticmethod
@@ -172,6 +173,29 @@ class WorkspaceResolver:
                 return membership
         raise WorkspacePermissionError(
             f"User is not a member of workspace {workspace_id}"
+        )
+
+    def _select_primary_membership(
+        self,
+        memberships: list[WorkspaceMembership],
+    ) -> WorkspaceMembership:
+        """Return the principal's membership when no workspace is pinned."""
+        if len(memberships) == 1:
+            return memberships[0]
+
+        if self._default_workspace_slug:
+            try:
+                workspace = self._repository.get_workspace_by_slug(
+                    self._default_workspace_slug
+                )
+            except WorkspaceNotFoundError:
+                workspace = None
+            if workspace is not None:
+                membership = self._select_membership(memberships, workspace.id)
+                return membership
+
+        raise WorkspacePermissionError(
+            "Workspace selector is required when the user has multiple memberships"
         )
 
     @staticmethod

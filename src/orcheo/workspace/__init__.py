@@ -27,6 +27,7 @@ from orcheo.workspace.models import (
     normalize_slug,
 )
 from orcheo.workspace.postgres_schema import POSTGRES_WORKSPACE_SCHEMA
+from orcheo.workspace.postgres_store import PostgresWorkspaceRepository
 from orcheo.workspace.repository import InMemoryWorkspaceRepository, WorkspaceRepository
 from orcheo.workspace.resolver import (
     InMemoryMembershipCache,
@@ -59,6 +60,7 @@ __all__ = [
     "InMemoryWorkspaceRepository",
     "MembershipCache",
     "POSTGRES_WORKSPACE_SCHEMA",
+    "PostgresWorkspaceRepository",
     "Role",
     "SQLITE_WORKSPACE_SCHEMA_SQL",
     "SqliteWorkspaceRepository",
