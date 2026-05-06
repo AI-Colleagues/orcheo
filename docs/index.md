@@ -95,7 +95,6 @@ That's it! Your agent handles the complexity while you focus on describing what 
 - **[Auth0 IdP Setup](auth0_idp_setup.md)** — Configure Auth0 OAuth/OIDC for the Docker stack
 - **[MCP Integration](mcp_integration.md)** — Connect AI assistants to Orcheo
 - **[Workflow Config Annotations](workflow_config_annotations.md)** — Declare typed configurable fields with a companion schema file
-- **[Multi-Workspace Demo](multi_workspace_demo.md)** — Two-workspace walkthrough covering quotas, concurrent runs, audit events, and cleanup
 - **[Conversational Search](examples/conversational_search.md)** — Step-by-step demos from basic RAG to production-ready search
 - **[Evaluation](examples/evaluation.md)** — QReCC and MultiDoc2Dial benchmark workflows
 
@@ -110,7 +109,6 @@ That's it! Your agent handles the complexity while you focus on describing what 
 
 - **[Developer Guide](developer_guide.md)** — Repository layout, development environment, and testing
 - **[Deployment Guide](deployment.md)** — Docker Compose and PostgreSQL deployment recipes
-- **[Multi-Workspace Audit](multi_workspace_audit.md)** — Coverage and security review for the workspace boundary rollout
 - **[Plugin Tutorial](plugin_tutorial.md)** — Step-by-step guide: scaffold, register, test, and distribute a plugin
 - **[Plugin Reference](custom_nodes_and_tools.md)** — Full reference for all plugin authoring concepts and the registration API
 
