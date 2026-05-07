@@ -192,21 +192,34 @@ def test_resolve_runtime_thread_id_uses_session_id_when_thread_id_is_blank():
 
 def test_external_agent_provider_environment(monkeypatch):
     class DummyStore:
-        def get_provider_environment(self, provider):
+        def __init__(self):
+            self.calls = []
+
+        def get_provider_environment(self, provider, workspace_id=None):
+            self.calls.append((provider, workspace_id))
             return {provider.name: "ok"}
+
+    store = DummyStore()
+    workspace_id = "workspace-1"
 
     monkeypatch.setattr(
         workflow_executor_module,
         "get_external_agent_runtime_store",
-        lambda: DummyStore(),
+        lambda: store,
     )
     monkeypatch.setattr(
         workflow_executor_module,
         "list_external_agent_providers",
         lambda: [ExternalAgentProviderName.CLAUDE_CODE],
     )
-    env = _external_agent_provider_environment()
-    assert "CLAUDE_CODE" in env
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "load_external_agent_vault_environment",
+        lambda vault, workspace_id=None: {},
+    )
+    env = _external_agent_provider_environment(workspace_id)
+    assert env == {"CLAUDE_CODE": "ok"}
+    assert store.calls == [(ExternalAgentProviderName.CLAUDE_CODE, workspace_id)]
 
 
 def test_build_reply_state_and_extract_messages():
@@ -282,7 +295,10 @@ async def test_execute_graph_streams_updates_with_step_callback(
 
     class DummyCompiled:
         async def astream(self, payload, *, config, stream_mode):
-            assert payload == {"inputs": {"message": "hello"}}
+            assert payload == {
+                "inputs": {"message": "hello"},
+                "workspace_id": None,
+            }
             assert config == {"configurable": {"thread_id": "thread"}}
             assert stream_mode == "updates"
             yield {"node": {"status": "running"}}
@@ -331,7 +347,10 @@ async def test_execute_graph_streams_updates_with_step_callback(
     monkeypatch.setattr(
         workflow_executor_module,
         "build_initial_state",
-        lambda graph_config, inputs, runtime_config=None: {"inputs": dict(inputs)},
+        lambda graph_config, inputs, runtime_config=None, workspace_id=None: {
+            "inputs": dict(inputs),
+            "workspace_id": workspace_id,
+        },
     )
     monkeypatch.setattr(
         workflow_executor_module,
@@ -346,7 +365,10 @@ async def test_execute_graph_streams_updates_with_step_callback(
     monkeypatch.setattr(
         workflow_executor_module,
         "_external_agent_provider_environment",
-        lambda: {"EXTERNAL_AGENT_TOKEN": "secret"},
+        lambda workspace_id=None: {
+            "EXTERNAL_AGENT_TOKEN": "secret",
+            "WORKSPACE_ID": workspace_id or "",
+        },
     )
     monkeypatch.setattr(
         workflow_executor_module,
@@ -459,8 +481,8 @@ async def test_run_builds_step_callback_when_progress_callback_is_provided(
     monkeypatch.setattr(
         WorkflowExecutor,
         "_create_run_record",
-        lambda self, workflow_id, workflow_version_id, actor, inputs: asyncio.sleep(
-            0, result=None
+        lambda self, workflow_id, workflow_version_id, actor, inputs, **kwargs: (
+            execution_args.update(kwargs) or asyncio.sleep(0, result=None)
         ),
     )
     monkeypatch.setattr(
@@ -505,6 +527,7 @@ async def test_run_builds_step_callback_when_progress_callback_is_provided(
         UUID(int=1),
         {"message": "hello"},
         progress_callback=progress_callback,  # type: ignore[arg-type]
+        workspace_id="workspace-1",
     )
 
     assert reply == "ok"
@@ -512,3 +535,4 @@ async def test_run_builds_step_callback_when_progress_callback_is_provided(
     assert run is None
     assert build_step_callback_calls == [(history_store, "exec-1", progress_callback)]
     assert execution_args["step_callback"] is step_callback
+    assert execution_args["workspace_id"] == "workspace-1"

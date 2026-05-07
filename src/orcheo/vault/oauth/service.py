@@ -92,6 +92,12 @@ class OAuthCredentialService(CredentialHealthGuard):
             kind=template.kind,
             oauth_tokens=oauth_tokens,
             template_id=template.id,
+            workspace_id=template.workspace_id
+            or (
+                str(access_context.workspace_id)
+                if access_context.workspace_id is not None
+                else None
+            ),
         )
         self._vault.record_template_issuance(
             template_id=template.id,
@@ -111,11 +117,21 @@ class OAuthCredentialService(CredentialHealthGuard):
         return self._reports.get(workflow_id)
 
     async def ensure_workflow_health(
-        self, workflow_id: UUID, *, actor: str | None = None
+        self,
+        workflow_id: UUID,
+        *,
+        actor: str | None = None,
+        workspace_id: str | None = None,
     ) -> CredentialHealthReport:
         """Evaluate and refresh credentials prior to workflow execution."""
-        context = CredentialAccessContext(workflow_id=workflow_id)
-        credentials = self._vault.list_credentials(context=context)
+        context = CredentialAccessContext(
+            workflow_id=workflow_id,
+            workspace_id=workspace_id,
+        )
+        credentials = self._vault.list_credentials(
+            context=context,
+            workspace_id=workspace_id,
+        )
         actor_name = actor or self._default_actor
         results: list[CredentialHealthResult] = []
 

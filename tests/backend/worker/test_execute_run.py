@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import os
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
@@ -19,6 +20,7 @@ def mock_run() -> MagicMock:
     run.status = "pending"
     run.input_payload = {"test": "data"}
     run.runnable_config = None
+    run.workspace_id = "workspace-1"
     return run
 
 
@@ -48,7 +50,7 @@ class TestLoadAndValidateRun:
         with patch(
             "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
         ):
-            run, error = await _load_and_validate_run(str(uuid4()))
+            run, error = await _load_and_validate_run(str(uuid4()), "workspace-1")
 
         assert run is None
         assert error is not None
@@ -67,7 +69,7 @@ class TestLoadAndValidateRun:
         with patch(
             "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
         ):
-            run, error = await _load_and_validate_run(str(mock_run.id))
+            run, error = await _load_and_validate_run(str(mock_run.id), "workspace-1")
 
         assert run is None
         assert error is not None
@@ -86,7 +88,7 @@ class TestLoadAndValidateRun:
         with patch(
             "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
         ):
-            run, error = await _load_and_validate_run(str(mock_run.id))
+            run, error = await _load_and_validate_run(str(mock_run.id), "workspace-1")
 
         assert run is None
         assert error is not None
@@ -103,10 +105,31 @@ class TestLoadAndValidateRun:
         with patch(
             "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
         ):
-            run, error = await _load_and_validate_run(str(mock_run.id))
+            run, error = await _load_and_validate_run(str(mock_run.id), "workspace-1")
 
         assert run is mock_run
         assert error is None
+        mock_repo.get_run.assert_awaited_once_with(
+            mock_run.id, workspace_id="workspace-1"
+        )
+
+    @pytest.mark.asyncio
+    async def test_missing_workspace_header_is_rejected(
+        self, mock_run: MagicMock
+    ) -> None:
+        """Runs without workspace context should be rejected."""
+        from orcheo_backend.worker.tasks import _load_and_validate_run
+
+        mock_repo = MagicMock()
+
+        with patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
+        ):
+            run, error = await _load_and_validate_run(str(mock_run.id), None)
+
+        assert run is None
+        assert error == {"status": "failed", "error": "Missing workspace_id header"}
+        mock_repo.get_run.assert_not_called()
 
 
 class TestMarkRunStarted:
@@ -169,11 +192,15 @@ class TestExecuteRunTask:
             with patch(
                 "orcheo_backend.worker.tasks._execute_run_async",
                 new=MagicMock(return_value=MagicMock()),
-            ):
-                result = execute_run(run_id)
+            ) as mock_execute_async:
+                fake_self = SimpleNamespace(
+                    request=SimpleNamespace(headers={"workspace_id": "workspace-1"})
+                )
+                result = execute_run.__wrapped__.__func__(fake_self, run_id)
 
         assert result == mock_result
         mock_loop.run_until_complete.assert_called_once()
+        mock_execute_async.assert_called_once_with(run_id, "workspace-1")
 
 
 class TestDispatchCronTriggers:
@@ -217,14 +244,26 @@ class TestExternalAgentTasks:
             ExternalAgentProviderName.CLAUDE_CODE,
             {"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-shared"},
         )
+        vault = object()
 
-        with patch(
-            "orcheo_backend.app.dependencies.get_external_agent_runtime_store",
-            return_value=store,
+        with (
+            patch(
+                "orcheo_backend.app.dependencies.get_external_agent_runtime_store",
+                return_value=store,
+            ),
+            patch(
+                "orcheo_backend.app.dependencies.get_vault",
+                return_value=vault,
+            ),
+            patch(
+                "orcheo_backend.app.external_agent_auth.load_external_agent_vault_environment",
+                return_value={"GEMINI_API_KEY": "vault-key"},
+            ),
         ):
             environ = _external_agent_provider_environment()
 
         assert environ["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-shared"
+        assert environ["GEMINI_API_KEY"] == "vault-key"
 
     def test_patched_environment_temporarily_sets_provider_env(self) -> None:
         """Patched env should expose shared auth during a run and restore after."""

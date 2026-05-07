@@ -40,9 +40,13 @@ class GovernanceAlertOperationsMixin:
         credential_id: UUID | None = None,
         template_id: UUID | None = None,
         context: CredentialAccessContext | None = None,
+        workspace_id: str | None = None,
     ) -> SecretGovernanceAlert:
         """Persist a governance alert tied to a credential or template."""
         access_context = context or CredentialAccessContext()
+        workspace_id = (
+            workspace_id if workspace_id is not None else access_context.workspace_id
+        )
         scope = CredentialScope.unrestricted()
         resolver = cast("_AlertDependencies", self)
         if credential_id is not None:
@@ -51,14 +55,18 @@ class GovernanceAlertOperationsMixin:
             )
             scope = metadata.scope
             template_id = template_id or metadata.template_id
+            workspace_id = workspace_id or metadata.workspace_id
         elif template_id is not None:
             template = resolver._get_template(
                 template_id=template_id, context=access_context
             )
             scope = template.scope
+            workspace_id = workspace_id or template.workspace_id
 
         existing = None
-        for alert in self._iter_alerts():
+        for alert in self._iter_alerts(workspace_id=workspace_id):
+            if not self._alert_matches_workspace(alert.workspace_id, access_context):
+                continue
             if not alert.scope.allows(access_context):
                 continue
             if alert.is_acknowledged or alert.kind is not kind:
@@ -88,6 +96,7 @@ class GovernanceAlertOperationsMixin:
             actor=actor,
             credential_id=credential_id,
             template_id=template_id,
+            workspace_id=workspace_id,
         )
         self._persist_alert(alert)
         return alert.model_copy(deep=True)
@@ -100,8 +109,11 @@ class GovernanceAlertOperationsMixin:
     ) -> list[SecretGovernanceAlert]:
         """Return governance alerts permitted for the caller."""
         access_context = context or CredentialAccessContext()
+        workspace_id = access_context.workspace_id
         results: list[SecretGovernanceAlert] = []
-        for alert in self._iter_alerts():
+        for alert in self._iter_alerts(workspace_id=workspace_id):
+            if not self._alert_matches_workspace(alert.workspace_id, access_context):
+                continue
             if not alert.scope.allows(access_context):
                 continue
             if not include_acknowledged and alert.is_acknowledged:
@@ -163,11 +175,24 @@ class GovernanceAlertOperationsMixin:
     def _load_alert(self, alert_id: UUID) -> SecretGovernanceAlert:  # pragma: no cover
         raise NotImplementedError
 
-    def _iter_alerts(self) -> Iterable[SecretGovernanceAlert]:  # pragma: no cover
+    def _iter_alerts(
+        self, *, workspace_id: str | None = None
+    ) -> Iterable[SecretGovernanceAlert]:  # pragma: no cover
         raise NotImplementedError
 
     def _remove_alert(self, alert_id: UUID) -> None:  # pragma: no cover
         raise NotImplementedError
+
+    @staticmethod
+    def _alert_matches_workspace(
+        alert_workspace_id: str | None, context: CredentialAccessContext
+    ) -> bool:
+        """Return whether an alert belongs to the active workspace."""
+        if context.workspace_id is None:
+            return True
+        return alert_workspace_id is None or alert_workspace_id == str(
+            context.workspace_id
+        )
 
 
 __all__ = ["GovernanceAlertOperationsMixin"]

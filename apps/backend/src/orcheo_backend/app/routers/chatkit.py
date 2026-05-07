@@ -37,6 +37,7 @@ from orcheo_backend.app.authentication import (
     load_auth_settings,
 )
 from orcheo_backend.app.authentication.rate_limit import SlidingWindowRateLimiter
+from orcheo_backend.app.authentication.utils import coerce_str_items
 from orcheo_backend.app.chatkit import ChatKitRequestContext
 from orcheo_backend.app.chatkit_asset_proxy import proxy_chatkit_asset
 from orcheo_backend.app.chatkit_runtime import resolve_chatkit_token_issuer
@@ -139,6 +140,7 @@ class ChatKitAuthResult:
     actor: str
     auth_mode: Literal["jwt", "publish"]
     subject: str | None
+    workspace_id: str | None = None
 
 
 @lru_cache(maxsize=1)
@@ -289,6 +291,70 @@ def _rate_limit(
         raise exc.as_http_exception() from exc
 
 
+def _resolve_jwt_workspace_id(
+    chatkit_claims: Mapping[str, Any],
+    repository_workspace_id: str | None,
+) -> str | None:
+    """Return the workspace ID authorized by the JWT or the workflow row."""
+    authorized_workspace_ids = {
+        workspace_id.strip().lower()
+        for workspace_id in coerce_str_items(chatkit_claims.get("workspace_ids"))
+        if workspace_id.strip()
+    }
+    if repository_workspace_id is not None:
+        if repository_workspace_id.strip().lower() not in authorized_workspace_ids:
+            raise _chatkit_error(
+                status.HTTP_403_FORBIDDEN,
+                message=(
+                    "ChatKit session token authentication failed: "
+                    "workflow workspace is not authorized by the token."
+                ),
+                code="chatkit.auth.workspace_mismatch",
+                auth_mode="jwt",
+            )
+        return repository_workspace_id
+
+    claimed_workspace_id = chatkit_claims.get("workspace_id")
+    if claimed_workspace_id is None:
+        if authorized_workspace_ids:
+            raise _chatkit_error(
+                status.HTTP_400_BAD_REQUEST,
+                message=(
+                    "ChatKit session token authentication failed: "
+                    "workspace selection is required."
+                ),
+                code="chatkit.auth.workspace_required",
+                auth_mode="jwt",
+            )
+        return None
+
+    candidate = str(claimed_workspace_id).strip()
+    if not candidate:
+        if authorized_workspace_ids:
+            raise _chatkit_error(
+                status.HTTP_400_BAD_REQUEST,
+                message=(
+                    "ChatKit session token authentication failed: "
+                    "workspace selection is required."
+                ),
+                code="chatkit.auth.workspace_required",
+                auth_mode="jwt",
+            )
+        return None
+
+    if candidate.lower() not in authorized_workspace_ids:
+        raise _chatkit_error(
+            status.HTTP_403_FORBIDDEN,
+            message=(
+                "ChatKit session token authentication failed: "
+                "workspace_id claim is not authorized by the token."
+            ),
+            code="chatkit.auth.workspace_mismatch",
+            auth_mode="jwt",
+        )
+    return candidate
+
+
 async def authenticate_chatkit_invocation(
     *,
     request: Request,
@@ -409,6 +475,7 @@ async def chatkit_gateway(request: Request, repository: RepositoryDep) -> Respon
     context: ChatKitRequestContext = {
         "chatkit_request": parsed_request,
         "workflow_id": str(auth_result.workflow_id),
+        "workspace_id": auth_result.workspace_id,
         "actor": auth_result.actor,
         "auth_mode": auth_result.auth_mode,
     }
@@ -467,6 +534,15 @@ def _resolve_chatkit_workspace_id(
     if policy.context.workspace_ids:
         if len(policy.context.workspace_ids) == 1:
             return next(iter(policy.context.workspace_ids))
+        raise _chatkit_error(
+            status.HTTP_400_BAD_REQUEST,
+            message=(
+                "ChatKit session token authentication failed: "
+                "workspace selection is required."
+            ),
+            code="chatkit.auth.workspace_required",
+            auth_mode="jwt",
+        )
     return None
 
 
@@ -814,11 +890,14 @@ async def _authenticate_jwt_request(
         raise_not_found("Workflow not found", WorkflowNotFoundError(str(workflow_id)))
 
     actor_subject = str(claims.get("sub") or "chatkit")
+    repository_workspace_id = await repository.get_workflow_workspace_id(workflow_id)
+    workspace_id = _resolve_jwt_workspace_id(chatkit_claims, repository_workspace_id)
     return ChatKitAuthResult(
         workflow_id=workflow_id,
         actor=f"jwt:{actor_subject}",
         auth_mode="jwt",
         subject=actor_subject,
+        workspace_id=workspace_id,
     )
 
 
@@ -860,10 +939,12 @@ async def _authenticate_publish_request(
 
     _rate_limit(_SESSION_RATE_LIMITER, session_subject, now=now)
 
+    workspace_id = await repository.get_workflow_workspace_id(workflow_id)
     actor = f"workflow:{workflow_id}"
     return ChatKitAuthResult(
         workflow_id=workflow_id,
         actor=actor,
         auth_mode="publish",
         subject=session_subject,
+        workspace_id=workspace_id,
     )

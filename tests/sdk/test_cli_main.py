@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import io
+import os
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -221,6 +222,22 @@ def test_version_callback_package_not_found(
 def test_env_bool_falsey(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ORCHEO_TEST_BOOL", "0")
     assert main_mod._env_bool("ORCHEO_TEST_BOOL") is False
+
+
+def test_main_workspace_option_sets_process_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--workspace should populate ORCHEO_WORKSPACE for downstream API calls."""
+
+    monkeypatch.delenv("ORCHEO_WORKSPACE", raising=False)
+
+    def mock_app(*args: object, **kwargs: object) -> None:
+        assert os.environ["ORCHEO_WORKSPACE"] == "workspace-1"
+
+    monkeypatch.setattr(main_mod, "app", mock_app)
+    monkeypatch.setattr(main_mod.sys, "argv", ["orcheo", "--workspace", "workspace-1"])
+
+    run()
 
 
 def test_print_cli_error_machine_with_status_code(

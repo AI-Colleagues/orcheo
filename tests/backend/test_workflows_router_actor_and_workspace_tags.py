@@ -6,12 +6,20 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 from orcheo.models.workflow import Workflow, WorkflowDraftAccess
+from orcheo.workspace import WorkspaceQuotas
 from orcheo_backend.app.authentication import AuthorizationPolicy, RequestContext
+from orcheo_backend.app.managed_workflows import MANAGED_VIBE_WORKFLOW_HANDLE
 from orcheo_backend.app.repository.errors import WorkflowNotFoundError
 from orcheo_backend.app.routers import workflows
 from orcheo_backend.app.schemas.workflows import (
     WorkflowCreateRequest,
     WorkflowUpdateRequest,
+)
+
+
+_MOCK_WORKSPACE = SimpleNamespace(
+    workspace_id=uuid4(),
+    quotas=WorkspaceQuotas(),
 )
 
 
@@ -25,11 +33,13 @@ class _Repository:
         self,
         *,
         name: str,
-        slug: str | None,
-        description: str | None,
-        tags: list[str] | None,
-        draft_access: WorkflowDraftAccess,
+        slug: str | None = None,
+        description: str | None = None,
+        tags: list[str] | None = None,
+        draft_access: WorkflowDraftAccess = WorkflowDraftAccess.PERSONAL,
         actor: str,
+        workspace_id: str | None = None,
+        handle: str | None = None,
     ) -> Workflow:
         self.last_actor = actor
         self.last_tags = list(tags or [])
@@ -42,16 +52,37 @@ class _Repository:
             draft_access=draft_access,
         )
 
+    async def list_workflows(
+        self, *, include_archived: bool = False, workspace_id: str | None = None
+    ) -> list[Workflow]:
+        del include_archived, workspace_id
+        return []
+
+    async def list_versions(self, workflow_id) -> list[object]:
+        del workflow_id
+        return []
+
+    async def list_runs_for_workflow(
+        self, workflow_id, *, workspace_id: str | None = None
+    ) -> list[object]:
+        del workflow_id, workspace_id
+        return []
+
+    async def get_workflow(self, workflow_id, *, workspace_id=None) -> Workflow:
+        del workspace_id
+        return Workflow(id=workflow_id, name="Workflow")
+
     async def update_workflow(
         self,
         workflow_id,
         *,
-        name: str | None,
-        description: str | None,
-        tags: list[str] | None,
-        draft_access: WorkflowDraftAccess | None,
-        is_archived: bool | None,
+        name: str | None = None,
+        description: str | None = None,
+        tags: list[str] | None = None,
+        draft_access: WorkflowDraftAccess | None = None,
+        is_archived: bool | None = None,
         actor: str,
+        **kwargs,
     ) -> Workflow:
         self.last_actor = actor
         self.last_tags = list(tags) if tags is not None else None
@@ -65,7 +96,9 @@ class _Repository:
             is_archived=bool(is_archived),
         )
 
-    async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+    async def resolve_workflow_ref(
+        self, workflow_ref, *, include_archived=True, workspace_id=None
+    ):
         del include_archived
         return UUID(str(workflow_ref))
 
@@ -76,14 +109,83 @@ class _RepositoryWithExistingWorkflow(_Repository):
         self._existing_workflow = workflow
         self.last_get_workflow_id: UUID | None = None
 
-    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+    async def get_workflow(self, workflow_id: UUID, *, workspace_id=None) -> Workflow:
         self.last_get_workflow_id = workflow_id
+        del workspace_id
         return self._existing_workflow
+
+    async def resolve_workflow_ref(
+        self, workflow_ref, *, include_archived=True, workspace_id=None
+    ):
+        del include_archived, workspace_id
+        if str(workflow_ref) == MANAGED_VIBE_WORKFLOW_HANDLE:
+            return self._existing_workflow.id
+        return UUID(str(workflow_ref))
 
 
 class _RepositoryMissingWorkflow(_Repository):
-    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+    async def get_workflow(self, workflow_id: UUID, *, workspace_id=None) -> Workflow:
+        del workspace_id
         raise WorkflowNotFoundError(str(workflow_id))
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_canvas_allows_managed_workflow_across_workspaces() -> None:
+    original_workspace = uuid4()
+    current_workspace = uuid4()
+    workflow = Workflow(
+        id=uuid4(),
+        name="Orcheo Vibe",
+        handle=MANAGED_VIBE_WORKFLOW_HANDLE,
+        workspace_id=str(original_workspace),
+        tags=["orcheo-vibe-agent", "external-agent"],
+        draft_access=WorkflowDraftAccess.AUTHENTICATED,
+    )
+    repository = _RepositoryWithExistingWorkflow(workflow)
+
+    payload = await workflows.get_workflow_canvas(
+        workflow_ref=MANAGED_VIBE_WORKFLOW_HANDLE,
+        repository=repository,
+        workspace=SimpleNamespace(workspace_id=current_workspace),
+    )
+
+    assert payload.workflow.id == workflow.id
+    assert payload.workflow.handle == MANAGED_VIBE_WORKFLOW_HANDLE
+    assert repository.last_get_workflow_id == workflow.id
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_allows_managed_workflow_across_workspaces() -> None:
+    original_workspace = uuid4()
+    current_workspace = uuid4()
+    workflow = Workflow(
+        id=uuid4(),
+        name="Orcheo Vibe",
+        handle=MANAGED_VIBE_WORKFLOW_HANDLE,
+        workspace_id=str(original_workspace),
+        tags=["orcheo-vibe-agent", "external-agent"],
+        draft_access=WorkflowDraftAccess.AUTHENTICATED,
+    )
+    repository = _RepositoryWithExistingWorkflow(workflow)
+    request = WorkflowUpdateRequest(name="Orcheo Vibe", actor="canvas-app")
+
+    updated = await workflows.update_workflow(
+        workflow_ref=MANAGED_VIBE_WORKFLOW_HANDLE,
+        request=request,
+        repository=repository,
+        workspace=SimpleNamespace(workspace_id=current_workspace),
+        policy=AuthorizationPolicy(
+            RequestContext(
+                subject="canvas-app",
+                identity_type="developer",
+                scopes=frozenset(),
+                workspace_ids=frozenset(),
+            )
+        ),
+    )
+
+    assert updated.id == workflow.id
+    assert repository.last_get_workflow_id == workflow.id
 
 
 @pytest.mark.asyncio()
@@ -110,7 +212,7 @@ async def test_create_workflow_uses_authenticated_subject_and_workspace_tags(
         )
     )
 
-    await workflows.create_workflow(request, repository, policy=policy)
+    await workflows.create_workflow(request, repository, _MOCK_WORKSPACE, policy=policy)
 
     assert repository.last_actor == "auth0|user-123"
     assert repository.last_tags is not None
@@ -129,7 +231,7 @@ async def test_create_workflow_keeps_request_actor_when_context_unavailable() ->
         actor="cli",
     )
 
-    await workflows.create_workflow(request, repository)
+    await workflows.create_workflow(request, repository, _MOCK_WORKSPACE)
 
     assert repository.last_actor == "cli"
     assert repository.last_tags == ["legacy"]
@@ -159,7 +261,7 @@ async def test_create_workflow_adds_workspace_tags_when_tags_missing(
         )
     )
 
-    await workflows.create_workflow(request, repository, policy=policy)
+    await workflows.create_workflow(request, repository, _MOCK_WORKSPACE, policy=policy)
 
     assert repository.last_actor == "service-token-2"
     assert repository.last_tags == ["workspace:team-x"]
@@ -190,7 +292,7 @@ async def test_create_workflow_defaults_authenticated_users_to_authenticated_sco
         )
     )
 
-    await workflows.create_workflow(request, repository, policy=policy)
+    await workflows.create_workflow(request, repository, _MOCK_WORKSPACE, policy=policy)
 
     assert repository.last_actor == "auth0|user-456"
     assert repository.last_tags == ["shared"]
@@ -220,7 +322,7 @@ async def test_create_workflow_normalizes_workspace_tag_casing(
         )
     )
 
-    await workflows.create_workflow(request, repository, policy=policy)
+    await workflows.create_workflow(request, repository, _MOCK_WORKSPACE, policy=policy)
 
     assert repository.last_actor == "service-token-4"
     assert repository.last_tags == ["workspace:team-x"]
@@ -249,7 +351,7 @@ async def test_update_workflow_appends_workspace_tags_when_auth_enforced(
     )
 
     await workflows.update_workflow(
-        str(workflow.id), request, repository, policy=policy
+        str(workflow.id), request, repository, _MOCK_WORKSPACE, policy=policy
     )
 
     assert repository.last_actor == "service-token-1"
@@ -309,7 +411,7 @@ async def test_update_workflow_preserves_none_tags_when_request_omits_tags(
     )
 
     await workflows.update_workflow(
-        str(workflow.id), request, repository, policy=policy
+        str(workflow.id), request, repository, _MOCK_WORKSPACE, policy=policy
     )
 
     assert repository.last_actor == "service-token-3"
@@ -343,7 +445,9 @@ async def test_create_workflow_rejects_personal_scope_with_workspace_tags(
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await workflows.create_workflow(request, repository, policy=policy)
+        await workflows.create_workflow(
+            request, repository, _MOCK_WORKSPACE, policy=policy
+        )
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail["code"] == "workflow.draft_access.conflict"
@@ -375,7 +479,9 @@ async def test_create_workflow_rejects_workspace_scope_without_workspace_tags(
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await workflows.create_workflow(request, repository, policy=policy)
+        await workflows.create_workflow(
+            request, repository, _MOCK_WORKSPACE, policy=policy
+        )
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail["code"] == "workflow.draft_access.workspace_required"
@@ -406,7 +512,7 @@ async def test_update_workflow_does_not_recompute_draft_access_from_tag_changes(
     )
 
     await workflows.update_workflow(
-        str(workflow.id), request, repository, policy=policy
+        str(workflow.id), request, repository, _MOCK_WORKSPACE, policy=policy
     )
 
     assert repository.last_tags == ["shared"]
@@ -445,6 +551,7 @@ async def test_update_workflow_reuses_existing_tags_for_draft_access_when_tags_m
         str(existing.id),
         request,
         repository,
+        _MOCK_WORKSPACE,
         policy=policy,
     )
 
@@ -480,6 +587,7 @@ async def test_update_workflow_raises_not_found_when_existing_workflow_missing(
             str(uuid4()),
             request,
             repository,
+            _MOCK_WORKSPACE,
             policy=policy,
         )
 

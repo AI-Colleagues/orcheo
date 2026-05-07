@@ -98,6 +98,49 @@ async def test_create_chatkit_session_endpoint_workflow_specific(
 
 
 @pytest.mark.asyncio()
+async def test_create_chatkit_session_endpoint_requires_explicit_workspace_when_ambiguous(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A caller with multiple workspaces must choose one explicitly."""
+
+    monkeypatch.setenv("CHATKIT_TOKEN_SIGNING_KEY", "ambiguous-signing-key")
+
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="tester",
+            identity_type="user",
+            scopes=frozenset({"chatkit:session"}),
+            workspace_ids=frozenset({"ws-1", "ws-2"}),
+        )
+    )
+    issuer = ChatKitSessionTokenIssuer(
+        ChatKitTokenSettings(
+            signing_key="ambiguous-signing-key",
+            issuer="ambiguous-issuer",
+            audience="ambiguous-client",
+            ttl_seconds=120,
+        )
+    )
+    request = ChatKitSessionRequest(
+        workflow_id=None,
+        metadata={"workspace_id": "ws-2"},
+    )
+
+    response = await create_chatkit_session_endpoint(
+        request, policy=policy, issuer=issuer
+    )
+
+    decoded = jwt.decode(
+        response.client_secret,
+        "ambiguous-signing-key",
+        algorithms=["HS256"],
+        audience="ambiguous-client",
+        issuer="ambiguous-issuer",
+    )
+    assert decoded["chatkit"]["workspace_id"] == "ws-2"
+
+
+@pytest.mark.asyncio()
 async def test_create_chatkit_session_endpoint_with_current_client_secret() -> None:
     """ChatKit session endpoint includes previous secret in extra payload."""
 

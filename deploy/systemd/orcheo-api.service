@@ -10,6 +10,9 @@ Group=orcheo
 WorkingDirectory=/opt/orcheo
 Environment=PATH=/opt/orcheo/.venv/bin:/usr/bin:/bin
 Environment=REDIS_URL=redis://localhost:6379/0
+Environment=ORCHEO_MULTI_WORKSPACE_ENABLED=false
+Environment=ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER=X-Orcheo-Workspace
+Environment=ORCHEO_WORKSPACE_BACKEND=postgres
 EnvironmentFile=-/etc/orcheo/orcheo.env
 
 ExecStart=/opt/orcheo/.venv/bin/uvicorn \

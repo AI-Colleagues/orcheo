@@ -1,6 +1,7 @@
 """Tests for the Agentensor checkpoint routers."""
 
 from __future__ import annotations
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
@@ -14,12 +15,15 @@ from orcheo_backend.app.routers.agentensor import (
 )
 
 
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
+
+
 class DummyStore:
     def __init__(self, checkpoint: AgentensorCheckpoint) -> None:
         self.checkpoint = checkpoint
 
     async def list_checkpoints(
-        self, workflow_id: str, *, limit: int
+        self, workflow_id: str, *, limit: int, workspace_id: str | None = None
     ) -> list[AgentensorCheckpoint]:
         return [self.checkpoint]
 
@@ -47,6 +51,7 @@ class _Repository:
         workflow_ref: str,
         *,
         include_archived: bool = True,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
@@ -62,6 +67,7 @@ async def test_list_agentensor_checkpoints_returns_payloads() -> None:
         workflow_ref=str(workflow_uuid),
         repository=_Repository(),
         store=store,  # type: ignore[arg-type]
+        workspace=_MOCK_WORKSPACE,
         limit=1,
     )
 

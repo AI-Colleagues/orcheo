@@ -47,7 +47,7 @@ def test_jwt_with_audience_validation(monkeypatch: pytest.MonkeyPatch) -> None:
 
     client = _client()
     response = client.get(
-        "/api/workflows",
+        "/api/workspaces/me",
         headers={"Authorization": f"Bearer {token}"},
     )
 
@@ -76,7 +76,7 @@ def test_jwt_with_invalid_audience(monkeypatch: pytest.MonkeyPatch) -> None:
 
     client = _client()
     response = client.get(
-        "/api/workflows",
+        "/api/workspaces/me",
         headers={"Authorization": f"Bearer {token}"},
     )
 
@@ -107,7 +107,38 @@ def test_jwt_with_issuer_validation(monkeypatch: pytest.MonkeyPatch) -> None:
 
     client = _client()
     response = client.get(
-        "/api/workflows",
+        "/api/workspaces/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_jwt_with_trailing_slash_issuer_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """JWT issuer matching tolerates a trailing slash on the token claim."""
+
+    secret = "jwt-secret"
+    monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", secret)
+    monkeypatch.setenv("ORCHEO_AUTH_ISSUER", "https://auth.orcheo.com")
+    reset_authentication_state()
+
+    now = datetime.now(tz=UTC)
+    token = jwt.encode(
+        {
+            "sub": "tester",
+            "iss": "https://auth.orcheo.com/",
+            "iat": int(now.timestamp()),
+            "exp": int((now + timedelta(minutes=5)).timestamp()),
+        },
+        secret,
+        algorithm="HS256",
+    )
+
+    client = _client()
+    response = client.get(
+        "/api/workspaces/me",
         headers={"Authorization": f"Bearer {token}"},
     )
 

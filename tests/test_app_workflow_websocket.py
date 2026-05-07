@@ -11,10 +11,17 @@ from orcheo_backend.app.history import InMemoryRunHistoryStore
 class _Repository:
     def __init__(self, resolved_workflow_id: str) -> None:
         self._resolved_workflow_id = resolved_workflow_id
+        self._workspace_id = "workspace-1"
 
-    async def resolve_workflow_ref(self, workflow_ref: str, *, include_archived=True):
+    async def resolve_workflow_ref(
+        self, workflow_ref: str, *, include_archived=True, workspace_id=None
+    ):
         del workflow_ref, include_archived
         return self._resolved_workflow_id
+
+    async def get_workflow_workspace_id(self, workflow_id: str):
+        del workflow_id
+        return self._workspace_id
 
 
 @pytest.mark.asyncio
@@ -64,6 +71,7 @@ async def test_workflow_websocket_routes_requests(
         {"input": "test"},
         "test-execution",
         mock_websocket,
+        workspace_id="workspace-1",
         runnable_config=None,
         stored_runnable_config=None,
     )
@@ -118,6 +126,7 @@ async def test_workflow_websocket_routes_evaluation_requests(
         "eval-execution",
         mock_websocket,
         evaluation={"dataset": {"cases": [{"inputs": {"foo": "bar"}}]}},
+        workspace_id="workspace-1",
         runnable_config=None,
         stored_runnable_config=None,
     )
@@ -171,6 +180,7 @@ async def test_workflow_websocket_routes_training_requests(
         "train-execution",
         mock_websocket,
         training={"dataset": {"cases": [{"inputs": {"foo": "bar"}}]}},
+        workspace_id="workspace-1",
         runnable_config=None,
         stored_runnable_config=None,
     )

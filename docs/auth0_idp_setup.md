@@ -14,7 +14,7 @@ Set `ORCHEO_AUTH_MODE=required` and allow authenticated Canvas users to:
 
 ## Prerequisites
 
-- An Auth0 tenant with dashboard access.
+- An Auth0 account with dashboard access.
 - Your Orcheo stack running from `deploy/stack`.
 - A target Canvas URL (for example `http://localhost:5173` in local dev).
 - A target backend URL (for example `http://localhost:8000` in local dev).
@@ -69,7 +69,7 @@ For RBAC:
      - `http://localhost:5173`
      - `https://<your-canvas-domain>`
 4. Save, then note:
-   - `Domain` (tenant issuer base, example: `your-tenant.us.auth0.com`)
+   - `Domain` (issuer base, example: `your-auth0-domain.us.auth0.com`)
    - `Client ID`
 
 ## 4. Create an organization (optional but recommended for B2B)
@@ -107,6 +107,7 @@ Update your stack `.env` (derived from `deploy/stack/.env.example`):
 - `VITE_ORCHEO_AUTH_PROVIDER_PARAM=connection` (optional; for direct provider hints)
 - `VITE_ORCHEO_AUTH_PROVIDER_GOOGLE=google-oauth2` (optional)
 - `VITE_ORCHEO_AUTH_PROVIDER_GITHUB=github` (optional)
+- `VITE_ORCHEO_AUTH_PROVIDER_SIGNUP=Username-Password-Authentication` (optional; use a database connection or other sign-up target instead of a social login)
 
 ### Related runtime settings frequently needed
 

@@ -54,6 +54,26 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
             rows = cursor.fetchall()
             return [row_to_record(row) for row in rows]
 
+    async def list_for_workspace(
+        self, workspace_id: str, *, now: datetime | None = None
+    ) -> list[ServiceTokenRecord]:
+        """Return active service token records owned by *workspace_id*."""
+        reference = (now or datetime.now(tz=UTC)).isoformat()
+        with sqlite3.connect(self._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                """
+                SELECT * FROM service_tokens
+                WHERE workspace_id = ?
+                  AND revoked_at IS NULL
+                  AND (expires_at IS NULL OR expires_at > ?)
+                ORDER BY created_at DESC
+                """,
+                (workspace_id, reference),
+            )
+            rows = cursor.fetchall()
+            return [row_to_record(row) for row in rows]
+
     async def find_by_id(self, identifier: str) -> ServiceTokenRecord | None:
         """Look up a service token by identifier."""
         with sqlite3.connect(self._db_path) as conn:
@@ -83,8 +103,8 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
                     identifier, secret_hash, scopes, workspace_ids,
                     created_at, created_by, issued_at, expires_at,
                     rotation_expires_at, rotated_to, revoked_at,
-                    revoked_by, revocation_reason
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    revoked_by, revocation_reason, workspace_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.identifier,
@@ -100,6 +120,7 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
                     serialize_datetime(record.revoked_at),
                     None,
                     record.revocation_reason,
+                    record.workspace_id,
                 ),
             )
             conn.commit()
@@ -119,7 +140,8 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
                     rotation_expires_at = ?,
                     rotated_to = ?,
                     revoked_at = ?,
-                    revocation_reason = ?
+                    revocation_reason = ?,
+                    workspace_id = ?
                 WHERE identifier = ?
                 """,
                 (
@@ -132,6 +154,7 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
                     record.rotated_to,
                     serialize_datetime(record.revoked_at),
                     record.revocation_reason,
+                    record.workspace_id,
                     record.identifier,
                 ),
             )
@@ -156,6 +179,13 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
         """Track token usage."""
         now = datetime.now(tz=UTC).isoformat()
         with sqlite3.connect(self._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT workspace_id FROM service_tokens WHERE identifier = ?",
+                (token_id,),
+            )
+            row = cursor.fetchone()
+            workspace_id = row[0] if row is not None else None
             conn.execute(
                 """
                 UPDATE service_tokens
@@ -173,8 +203,16 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
             conn.execute(
                 """
                 INSERT INTO service_token_audit_log
-                    (token_id, action, ip_address, user_agent, timestamp, details)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (
+                        token_id,
+                        action,
+                        ip_address,
+                        user_agent,
+                        timestamp,
+                        details,
+                        workspace_id
+                    )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     token_id,
@@ -183,6 +221,7 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
                     user_agent,
                     now,
                     json.dumps(details) if details else None,
+                    workspace_id,
                 ),
             )
             conn.commit()
@@ -217,11 +256,18 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
         """Record an audit event for a token."""
         now = datetime.now(tz=UTC).isoformat()
         with sqlite3.connect(self._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT workspace_id FROM service_tokens WHERE identifier = ?",
+                (token_id,),
+            )
+            row = cursor.fetchone()
+            workspace_id = row[0] if row is not None else None
             conn.execute(
                 """
                 INSERT INTO service_token_audit_log
-                    (token_id, action, actor, ip_address, timestamp, details)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (token_id, action, actor, ip_address, timestamp, details, workspace_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     token_id,
@@ -230,6 +276,7 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
                     ip,
                     now,
                     json.dumps(details) if details else None,
+                    workspace_id,
                 ),
             )
             conn.commit()

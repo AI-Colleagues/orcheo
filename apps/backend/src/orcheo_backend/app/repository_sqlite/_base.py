@@ -63,12 +63,18 @@ class SqliteRepositoryBase:
         self._trigger_layer = TriggerLayer(health_guard=credential_service)
 
     async def _ensure_workflow_health(
-        self, workflow_id: UUID, *, actor: str | None = None
+        self,
+        workflow_id: UUID,
+        *,
+        actor: str | None = None,
+        workspace_id: str | None = None,
     ) -> None:
         if self._credential_service is None:
             return
         report = await self._credential_service.ensure_workflow_health(
-            workflow_id, actor=actor
+            workflow_id,
+            actor=actor,
+            workspace_id=workspace_id,
         )
         if not report.is_healthy:
             raise CredentialHealthError(report)
@@ -143,11 +149,13 @@ class SqliteRepositoryBase:
                         is_archived INTEGER NOT NULL DEFAULT 0,
                         payload TEXT NOT NULL,
                         created_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL
+                        updated_at TEXT NOT NULL,
+                        workspace_id TEXT
                     );
                     CREATE TABLE IF NOT EXISTS workflow_versions (
                         id TEXT PRIMARY KEY,
                         workflow_id TEXT NOT NULL,
+                        workspace_id TEXT,
                         version INTEGER NOT NULL,
                         payload TEXT NOT NULL,
                         created_at TEXT NOT NULL,
@@ -164,7 +172,8 @@ class SqliteRepositoryBase:
                         triggered_by TEXT NOT NULL,
                         payload TEXT NOT NULL,
                         created_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL
+                        updated_at TEXT NOT NULL,
+                        workspace_id TEXT
                     );
                     CREATE INDEX IF NOT EXISTS idx_runs_workflow
                         ON workflow_runs(workflow_id);
@@ -242,6 +251,7 @@ class SqliteRepositoryBase:
                 )
                 await self._ensure_cron_schema_migrations(conn)
                 await self._ensure_workflow_schema_migrations(conn)
+                await self._ensure_workflow_versions_schema_migrations(conn)
 
             await self._hydrate_trigger_state()
             self._initialized = True
@@ -270,6 +280,8 @@ class SqliteRepositoryBase:
                 "ALTER TABLE workflows "
                 "ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0"
             )
+        if "workspace_id" not in existing_columns:
+            await conn.execute("ALTER TABLE workflows ADD COLUMN workspace_id TEXT")
 
         cursor = await conn.execute("SELECT id, payload FROM workflows")
         workflow_rows = await cursor.fetchall()
@@ -289,6 +301,20 @@ class SqliteRepositoryBase:
                 ),
             )
 
+        # Add workspace_id to workflow_runs if table exists and column is missing
+        cursor = await conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='workflow_runs'"
+        )
+        runs_table_exists = await cursor.fetchone() is not None
+        if runs_table_exists:
+            cursor = await conn.execute("PRAGMA table_info(workflow_runs)")
+            runs_rows = await cursor.fetchall()
+            runs_columns = {row["name"] for row in runs_rows}
+            if "workspace_id" not in runs_columns:
+                await conn.execute(
+                    "ALTER TABLE workflow_runs ADD COLUMN workspace_id TEXT"
+                )
+
         # Create indexes after columns are guaranteed to exist
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_workflows_handle ON workflows(handle)"
@@ -297,6 +323,34 @@ class SqliteRepositoryBase:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle"
             " ON workflows(handle)"
             " WHERE is_archived = 0 AND handle IS NOT NULL"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_workflows_workspace_id "
+            "ON workflows(workspace_id)"
+        )
+        cursor = await conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='workflow_runs'"
+        )
+        if await cursor.fetchone() is not None:
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_runs_workspace_id "
+                "ON workflow_runs(workspace_id)"
+            )
+
+    async def _ensure_workflow_versions_schema_migrations(
+        self, conn: aiosqlite.Connection
+    ) -> None:
+        """Add workspace_id to workflow_versions when upgrading existing databases."""
+        cursor = await conn.execute("PRAGMA table_info(workflow_versions)")
+        rows = await cursor.fetchall()
+        existing_columns = {row["name"] for row in rows}
+        if "workspace_id" not in existing_columns:
+            await conn.execute(
+                "ALTER TABLE workflow_versions ADD COLUMN workspace_id TEXT"
+            )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_versions_workspace_id "
+            "ON workflow_versions(workspace_id)"
         )
 
     async def _hydrate_trigger_state(self) -> None:

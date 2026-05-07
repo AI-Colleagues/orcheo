@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
@@ -29,9 +30,13 @@ class _Repository:
         workflow_ref: str,
         *,
         include_archived: bool = True,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
+
+
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 
 
 def test_create_credential_template_success() -> None:
@@ -50,7 +55,9 @@ def test_create_credential_template_success() -> None:
             scope,
             kind,
             issuance_policy,
+            workspace_id=None,
         ):
+            assert workspace_id == str(_MOCK_WORKSPACE.workspace_id)
             return CredentialTemplate(
                 id=template_id,
                 name=name,
@@ -71,7 +78,7 @@ def test_create_credential_template_success() -> None:
         kind=CredentialKind.OAUTH,
     )
 
-    result = create_credential_template(request, Vault())
+    result = create_credential_template(request, Vault(), _MOCK_WORKSPACE)
 
     assert result.id == str(template_id)
     assert result.name == "Test Template"
@@ -118,6 +125,7 @@ async def test_update_credential_template_success() -> None:
         request,
         Vault(),
         _Repository(),
+        _MOCK_WORKSPACE,
     )
 
     assert result.id == str(template_id)
@@ -154,6 +162,7 @@ async def test_update_credential_template_not_found() -> None:
             request,
             Vault(),
             _Repository(),
+            _MOCK_WORKSPACE,
         )
 
     assert exc_info.value.status_code == 404
@@ -188,6 +197,7 @@ async def test_update_credential_template_scope_error() -> None:
             request,
             Vault(),
             _Repository(),
+            _MOCK_WORKSPACE,
         )
 
     assert exc_info.value.status_code == 403
@@ -205,7 +215,9 @@ async def test_delete_credential_template_success() -> None:
             nonlocal deleted_id
             deleted_id = template_id
 
-    response = await delete_credential_template(template_id, Vault(), _Repository())
+    response = await delete_credential_template(
+        template_id, Vault(), _Repository(), _MOCK_WORKSPACE
+    )
 
     assert response.status_code == 204
     assert deleted_id == template_id
@@ -223,7 +235,9 @@ async def test_delete_credential_template_not_found() -> None:
             raise CredentialTemplateNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await delete_credential_template(template_id, Vault(), _Repository())
+        await delete_credential_template(
+            template_id, Vault(), _Repository(), _MOCK_WORKSPACE
+        )
 
     assert exc_info.value.status_code == 404
 
@@ -239,6 +253,8 @@ async def test_delete_credential_template_scope_error() -> None:
             raise WorkflowScopeError("Access denied")
 
     with pytest.raises(HTTPException) as exc_info:
-        await delete_credential_template(template_id, Vault(), _Repository())
+        await delete_credential_template(
+            template_id, Vault(), _Repository(), _MOCK_WORKSPACE
+        )
 
     assert exc_info.value.status_code == 403

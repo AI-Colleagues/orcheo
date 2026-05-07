@@ -15,12 +15,17 @@ from orcheo_backend.app.errors import raise_not_found
 from orcheo_backend.app.external_agent_runtime_store import ExternalAgentRuntimeStore
 from orcheo_backend.app.history import InMemoryRunHistoryStore, RunHistoryStore
 from orcheo_backend.app.listener_runtime import ListenerRuntimeStore
+from orcheo_backend.app.plugin_installation_store import (
+    InMemoryPluginInstallationStore,
+    PluginInstallationStore,
+)
 from orcheo_backend.app.providers import (
     create_repository,
     create_vault,
     ensure_credential_service,
 )
 from orcheo_backend.app.repository import WorkflowNotFoundError, WorkflowRepository
+from orcheo_backend.app.workspace import WorkspaceContextDep, WorkspaceServiceDep
 
 
 _repository_ref: dict[str, WorkflowRepository] = {}
@@ -36,6 +41,9 @@ _external_agent_runtime_store_ref: dict[str, ExternalAgentRuntimeStore | None] =
 }
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
 _vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
+_plugin_installation_store_ref: dict[str, PluginInstallationStore] = {
+    "store": InMemoryPluginInstallationStore()
+}
 
 
 def _create_vault(settings: object) -> BaseCredentialVault:
@@ -86,6 +94,7 @@ def _create_repository(settings: object | None = None) -> WorkflowRepository:
         credential_service,
         _history_store_ref,
         _checkpoint_store_ref,
+        _plugin_installation_store_ref,  # type: ignore[arg-type]
     )
     _repository_ref["repository"] = repository
     return repository
@@ -211,6 +220,23 @@ def set_vault(vault: BaseCredentialVault | None) -> None:
     _vault_ref["vault"] = vault
 
 
+def get_plugin_installation_store() -> PluginInstallationStore:
+    """Return the plugin installation store singleton."""
+    return _plugin_installation_store_ref["store"]
+
+
+PluginInstallationStoreDep = Annotated[
+    PluginInstallationStore, Depends(get_plugin_installation_store)
+]
+
+
+def set_plugin_installation_store(store: PluginInstallationStore | None) -> None:
+    """Override the plugin installation store singleton (primarily for testing)."""
+    _plugin_installation_store_ref["store"] = (
+        store if store is not None else InMemoryPluginInstallationStore()
+    )
+
+
 WorkflowIdQuery = Annotated[UUID | None, Query()]
 WorkflowRefQuery = Annotated[str | None, Query(alias="workflow_id")]
 IncludeAcknowledgedQuery = Annotated[bool, Query()]
@@ -218,11 +244,27 @@ IncludeAcknowledgedQuery = Annotated[bool, Query()]
 
 def credential_context_from_workflow(
     workflow_id: UUID | None,
+    *,
+    workspace_id: str | None = None,
 ) -> CredentialAccessContext | None:
     """Return a credential context for the provided workflow identifier."""
+    if workflow_id is None and workspace_id is None:
+        return None
+    return CredentialAccessContext(workflow_id=workflow_id, workspace_id=workspace_id)
+
+
+async def resolve_workflow_workspace_id(
+    repository: WorkflowRepository,
+    workflow_id: UUID | None,
+    *,
+    workspace_id: str | None = None,
+) -> str | None:
+    """Return the workflow workspace id, preferring the provided workspace hint."""
+    if workspace_id is not None:
+        return workspace_id
     if workflow_id is None:
         return None
-    return CredentialAccessContext(workflow_id=workflow_id)
+    return await repository.get_workflow_workspace_id(workflow_id)
 
 
 async def resolve_workflow_ref_id(
@@ -230,12 +272,14 @@ async def resolve_workflow_ref_id(
     workflow_ref: str,
     *,
     include_archived: bool = True,
+    workspace_id: str | None = None,
 ) -> UUID:
     """Resolve a user-facing workflow ref to the canonical UUID."""
     try:
         return await repository.resolve_workflow_ref(
             workflow_ref,
             include_archived=include_archived,
+            workspace_id=workspace_id,
         )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
@@ -252,31 +296,37 @@ async def resolve_optional_workflow_ref_id(
 
 
 __all__ = [
+    "CheckpointStoreDep",
     "CredentialServiceDep",
     "ExternalAgentRuntimeStoreDep",
-    "IncludeAcknowledgedQuery",
     "HistoryStoreDep",
+    "IncludeAcknowledgedQuery",
     "ListenerRuntimeStoreDep",
+    "PluginInstallationStoreDep",
     "RepositoryDep",
+    "WorkspaceContextDep",
+    "WorkspaceServiceDep",
     "VaultDep",
-    "CheckpointStoreDep",
+    "WorkflowIdQuery",
+    "WorkflowRefQuery",
     "credential_context_from_workflow",
+    "get_checkpoint_store",
     "get_credential_service",
     "get_external_agent_runtime_store",
-    "get_checkpoint_store",
     "get_history_store",
     "get_listener_runtime_store",
+    "get_plugin_installation_store",
     "get_repository",
     "get_vault",
     "resolve_optional_workflow_ref_id",
     "resolve_workflow_ref_id",
+    "resolve_workflow_workspace_id",
+    "set_checkpoint_store",
     "set_credential_service",
     "set_external_agent_runtime_store",
-    "set_checkpoint_store",
     "set_history_store",
     "set_listener_runtime_store",
+    "set_plugin_installation_store",
     "set_repository",
     "set_vault",
-    "WorkflowIdQuery",
-    "WorkflowRefQuery",
 ]

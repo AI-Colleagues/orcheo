@@ -151,6 +151,21 @@ def _workflow_payload(workflow_id: UUID, **overrides: Any) -> dict[str, Any]:
     return base
 
 
+@pytest.mark.asyncio
+async def test_persistence_deserialize_workflow_uses_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workflow payloads should use `workspace_id`."""
+    workflow_id = uuid4()
+    payload = _workflow_payload(workflow_id, workspace_id="workspace-a")
+
+    repo = make_repository(monkeypatch, [])
+    workflow = repo._deserialize_workflow(payload)
+
+    assert workflow.id == workflow_id
+    assert workflow.workspace_id == "workspace-a"
+
+
 def _version_payload(
     version_id: UUID, workflow_id: UUID, version: int = 1, **overrides: Any
 ) -> dict[str, Any]:
@@ -171,6 +186,26 @@ def _version_payload(
     }
     base.update(overrides)
     return base
+
+
+@pytest.mark.asyncio
+async def test_list_workflows_includes_legacy_unscoped_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace-scoped listing should keep legacy NULL-scoped workflows visible."""
+    workflow_id = uuid4()
+    workflow_payload = _workflow_payload(workflow_id)
+    responses: list[Any] = [
+        {"rows": [{"payload": workflow_payload}]},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    result = await repo.list_workflows(workspace_id="workspace-a")
+
+    assert len(result) == 1
+    query, params = repo._pool._connection.queries[0]  # noqa: SLF001
+    assert "workspace_id = %s OR workspace_id IS NULL" in query
+    assert params == ("workspace-a",)
 
 
 @pytest.mark.asyncio
@@ -420,13 +455,20 @@ async def test_base_ensure_workflow_schema_migrations_backfills_columns(
         is_archived=True,
     )
     responses: list[Any] = [
-        {"rows": []},
-        {},
-        {},
-        {"rows": [{"id": str(workflow_id), "payload": legacy_payload}]},
-        {},
-        {},
-        {},
+        {"rows": []},  # SELECT columns from workflows (none exist)
+        {},  # ALTER TABLE workflows ADD COLUMN handle
+        {},  # ALTER TABLE workflows ADD COLUMN is_archived
+        {},  # ALTER TABLE workflows ADD COLUMN workspace_id
+        {
+            "rows": [{"id": str(workflow_id), "payload": legacy_payload}]
+        },  # SELECT workflows
+        {},  # UPDATE workflows
+        {"rows": []},  # SELECT columns from workflow_runs (none exist)
+        {},  # ALTER TABLE workflow_runs ADD COLUMN workspace_id
+        {},  # CREATE INDEX idx_workflows_handle
+        {},  # CREATE UNIQUE INDEX idx_workflows_active_handle
+        {},  # CREATE INDEX idx_workflows_workspace_id
+        {},  # CREATE INDEX idx_runs_workspace_id
     ]
     repo = make_repository(monkeypatch, responses)
     connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
@@ -457,17 +499,53 @@ async def test_base_ensure_workflow_schema_migrations_backfills_columns(
 
 
 @pytest.mark.asyncio
+async def test_postgres_ensure_initialized_adds_versions_workspace_index_after_column(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Legacy Postgres databases should migrate the column before the index."""
+
+    repo = make_repository(monkeypatch, [], initialized=False)
+    connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
+
+    await repo._ensure_initialized()
+
+    queries = [query for query, _ in connection.queries]
+    workspace_index_queries = [
+        query for query in queries if "idx_versions_workspace_id" in query
+    ]
+    assert len(workspace_index_queries) == 1
+
+    alter_position = next(
+        index
+        for index, query in enumerate(queries)
+        if "ALTER TABLE workflow_versions ADD COLUMN workspace_id TEXT" in query
+    )
+    index_position = next(
+        index
+        for index, query in enumerate(queries)
+        if "CREATE INDEX IF NOT EXISTS idx_versions_workspace_id" in query
+    )
+
+    assert alter_position < index_position
+
+
+@pytest.mark.asyncio
 async def test_base_ensure_workflow_schema_migrations_respects_existing_handle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Existing mirrored columns should not be re-added during migration."""
 
     responses: list[Any] = [
-        {"rows": [{"column_name": "handle"}]},
-        {},
-        {"rows": []},
-        {},
-        {},
+        {"rows": [{"column_name": "handle"}]},  # SELECT columns from workflows
+        {},  # ALTER TABLE workflows ADD COLUMN is_archived
+        {},  # ALTER TABLE workflows ADD COLUMN workspace_id
+        {"rows": []},  # SELECT workflows (no rows to backfill)
+        {"rows": []},  # SELECT columns from workflow_runs (none exist)
+        {},  # ALTER TABLE workflow_runs ADD COLUMN workspace_id
+        {},  # CREATE INDEX idx_workflows_handle
+        {},  # CREATE UNIQUE INDEX idx_workflows_active_handle
+        {},  # CREATE INDEX idx_workflows_workspace_id
+        {},  # CREATE INDEX idx_runs_workspace_id
     ]
     repo = make_repository(monkeypatch, responses)
     connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
@@ -491,10 +569,21 @@ async def test_base_ensure_workflow_schema_migrations_skips_existing_columns(
     """Existing mirrored columns should bypass both ALTER statements."""
 
     responses: list[Any] = [
-        {"rows": [{"column_name": "handle"}, {"column_name": "is_archived"}]},
-        {"rows": []},
-        {},
-        {},
+        {
+            "rows": [
+                {"column_name": "handle"},
+                {"column_name": "is_archived"},
+                {"column_name": "workspace_id"},
+            ]
+        },  # SELECT columns from workflows (all exist)
+        {"rows": []},  # SELECT workflows (no rows to backfill)
+        {
+            "rows": [{"column_name": "workspace_id"}]
+        },  # SELECT columns from workflow_runs (workspace_id exists)
+        {},  # CREATE INDEX idx_workflows_handle
+        {},  # CREATE UNIQUE INDEX idx_workflows_active_handle
+        {},  # CREATE INDEX idx_workflows_workspace_id
+        {},  # CREATE INDEX idx_runs_workspace_id
     ]
     repo = make_repository(monkeypatch, responses)
     connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
@@ -660,6 +749,7 @@ async def test_triggers_handle_webhook_trigger(
 
     responses = [
         {"row": {"payload": workflow_payload}},  # _get_workflow_locked
+        {"row": {"workspace_id": None}},  # _get_workflow_workspace_id_locked
         {"row": {"payload": version_payload}},  # _get_latest_version_locked
         {"row": {"payload": version_payload}},  # _get_version_locked (for validation)
         {},  # INSERT run
@@ -1119,6 +1209,29 @@ async def test_versions_get_latest_version_dict_payload(
 
 
 @pytest.mark.asyncio
+async def test_versions_get_latest_version_uses_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workflow version payloads should use `workspace_id`."""
+    workflow_id = uuid4()
+    version_id = uuid4()
+    payload = _version_payload(
+        version_id, workflow_id, version=3, workspace_id="workspace-a"
+    )
+
+    responses = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},  # _get_workflow_locked
+        {"row": {"payload": payload}},  # Legacy dictionary payload
+    ]
+
+    repo = make_repository(monkeypatch, responses)
+
+    version = await repo.get_latest_version(workflow_id)
+    assert version.id == version_id
+    assert version.workspace_id == "workspace-a"
+
+
+@pytest.mark.asyncio
 async def test_persistence_get_workflow_locked_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1434,12 +1547,12 @@ async def test_triggers_enqueue_run_for_execution_success(
     from orcheo.models.workflow import WorkflowRun
     from orcheo_backend.app.repository_postgres import _triggers
 
-    enqueued_ids: list[str] = []
+    enqueued_calls: list[tuple[str, Any | None]] = []
 
     class MockTask:
         @staticmethod
-        def delay(run_id: str) -> None:
-            enqueued_ids.append(run_id)
+        def delay(run_id: str, headers: dict[str, Any] | None = None) -> None:
+            enqueued_calls.append((run_id, headers))
 
     # Create a mock run
     run_id = uuid4()
@@ -1460,7 +1573,44 @@ async def test_triggers_enqueue_run_for_execution_success(
 
     _triggers._enqueue_run_for_execution(run)
 
-    assert str(run_id) in enqueued_ids
+    assert (str(run_id), None) in enqueued_calls
+
+
+@pytest.mark.asyncio
+async def test_triggers_enqueue_run_for_execution_fallback_preserves_workspace_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fallback enqueue path passes workspace headers when apply_async is unavailable."""
+    import sys
+    from orcheo.models.workflow import WorkflowRun
+    from orcheo_backend.app.repository_postgres import _triggers
+
+    enqueued_calls: list[tuple[str, Any | None]] = []
+
+    class MockTask:
+        @staticmethod
+        def delay(run_id: str, headers: dict[str, Any] | None = None) -> None:
+            enqueued_calls.append((run_id, headers))
+
+    run_id = uuid4()
+    now = datetime.now(tz=UTC)
+    run = WorkflowRun(
+        id=run_id,
+        workflow_version_id=uuid4(),
+        triggered_by="manual",
+        input_payload={},
+        created_at=now,
+        updated_at=now,
+        workspace_id="workspace-a",
+    )
+
+    mock_module = type(sys)("orcheo_backend.worker.tasks")
+    mock_module.execute_run = MockTask()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "orcheo_backend.worker.tasks", mock_module)
+
+    _triggers._enqueue_run_for_execution(run)
+
+    assert (str(run_id), {"workspace_id": "workspace-a"}) in enqueued_calls
 
 
 @pytest.mark.asyncio

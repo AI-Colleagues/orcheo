@@ -93,6 +93,7 @@ orcheo-format = "orcheo.tooling.commands:format_code"
 orcheo-lint = "orcheo.tooling.commands:lint"
 orcheo-seed-env = "orcheo.tooling.env:main"
 orcheo-test = "orcheo.tooling.commands:test"
+orcheo-workspace-backfill = "orcheo.tooling.workspace_backfill:main"
 
 [project.urls]
 Homepage = "https://github.com/AI-Colleagues/orcheo"

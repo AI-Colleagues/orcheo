@@ -47,13 +47,23 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
         if isawaitable(result):
             await result
 
-    async def list_workflows(self, *, include_archived: bool = False) -> list[Workflow]:
+    async def list_workflows(
+        self,
+        *,
+        include_archived: bool = False,
+        workspace_id: str | None = None,
+    ) -> list[Workflow]:
         """Return workflows stored within the repository."""
         async with self._lock:
             return [
                 workflow.model_copy(deep=True)
                 for workflow in self._workflows.values()
-                if include_archived or not workflow.is_archived
+                if (include_archived or not workflow.is_archived)
+                and (
+                    workspace_id is None
+                    or self._workflow_workspaces.get(workflow.id) is None
+                    or self._workflow_workspaces.get(workflow.id) == workspace_id
+                )
             ]
 
     async def create_workflow(
@@ -66,6 +76,7 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
         tags: Iterable[str] | None,
         draft_access: WorkflowDraftAccess,
         actor: str,
+        workspace_id: str | None = None,
     ) -> Workflow:
         """Persist a new workflow and return the created instance."""
         normalized_handle = normalize_workflow_handle(handle)
@@ -78,6 +89,7 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
             workflow = Workflow(
                 name=name,
                 handle=normalized_handle,
+                workspace_id=workspace_id,
                 slug=slug or "",
                 description=description,
                 tags=list(tags or []),
@@ -85,28 +97,49 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
             )
             workflow.record_event(actor=actor, action="workflow_created")
             self._workflows[workflow.id] = workflow
+            if workspace_id is not None:
+                self._workflow_workspaces[workflow.id] = workspace_id
             self._rebuild_handle_indexes_locked()
             self._workflow_versions.setdefault(workflow.id, [])
             return workflow.model_copy(deep=True)
 
-    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+    async def get_workflow(
+        self,
+        workflow_id: UUID,
+        *,
+        workspace_id: str | None = None,
+    ) -> Workflow:
         """Retrieve a workflow by its identifier."""
         async with self._lock:
             workflow = self._workflows.get(workflow_id)
             if workflow is None:
                 raise WorkflowNotFoundError(str(workflow_id))
+            stored_workspace_id = self._workflow_workspaces.get(workflow_id)
+            if (
+                workspace_id is not None
+                and stored_workspace_id is not None
+                and stored_workspace_id != workspace_id
+            ):
+                raise WorkflowNotFoundError(str(workflow_id))
             return workflow.model_copy(deep=True)
+
+    async def get_workflow_workspace_id(self, workflow_id: UUID) -> str | None:
+        """Return the workspace_id for the workflow, or None if unscoped."""
+        async with self._lock:
+            return self._workflow_workspaces.get(workflow_id)
 
     async def resolve_workflow_ref(
         self,
         workflow_ref: str,
         *,
         include_archived: bool = True,
+        workspace_id: str | None = None,
     ) -> UUID:
         """Resolve a workflow ref using handle-first semantics."""
         return await super().resolve_workflow_ref(
             workflow_ref,
             include_archived=include_archived,
+            workspace_id=workspace_id,
         )
 
     async def update_workflow(

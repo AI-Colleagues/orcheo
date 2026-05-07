@@ -10,7 +10,7 @@ import {
 describe("workflow-config-sheet utils", () => {
   it("preserves upload-time runnable config fields", () => {
     const formData = {
-      configurable: { tenant: "acme", region: "us-east-1" },
+      configurable: { workspace: "acme", region: "us-east-1" },
       run_name: "  nightly-run  ",
       tags: ["prod", " prod ", "nightly"],
       metadata: { owner: "search-team" },
@@ -27,7 +27,7 @@ describe("workflow-config-sheet utils", () => {
     } satisfies Record<string, unknown>;
 
     expect(toWorkflowConfig(formData)).toEqual({
-      configurable: { tenant: "acme", region: "us-east-1" },
+      configurable: { workspace: "acme", region: "us-east-1" },
       run_name: "nightly-run",
       tags: ["prod", "nightly"],
       metadata: { owner: "search-team" },

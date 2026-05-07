@@ -52,13 +52,26 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
         if isawaitable(result):
             await result
 
-    async def list_workflows(self, *, include_archived: bool = False) -> list[Workflow]:
+    async def list_workflows(
+        self,
+        *,
+        include_archived: bool = False,
+        workspace_id: str | None = None,
+    ) -> list[Workflow]:
         await self._ensure_initialized()
         async with self._lock:
             async with self._connection() as conn:
-                cursor = await conn.execute(
-                    "SELECT payload FROM workflows ORDER BY created_at ASC"
-                )
+                if workspace_id is not None:
+                    cursor = await conn.execute(
+                        "SELECT payload FROM workflows"
+                        " WHERE workspace_id = %s"
+                        " ORDER BY created_at ASC",
+                        (workspace_id,),
+                    )
+                else:
+                    cursor = await conn.execute(
+                        "SELECT payload FROM workflows ORDER BY created_at ASC"
+                    )
                 rows = await cursor.fetchall()
             workflows = [
                 self._deserialize_workflow(row["payload"]).model_copy(deep=True)
@@ -78,6 +91,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
         tags: Iterable[str] | None,
         draft_access: WorkflowDraftAccess,
         actor: str,
+        workspace_id: str | None = None,
     ) -> Workflow:
         await self._ensure_initialized()
         normalized_handle = normalize_workflow_handle(handle)
@@ -90,6 +104,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
             workflow = Workflow(
                 name=name,
                 handle=normalized_handle,
+                workspace_id=workspace_id,
                 slug=slug or "",
                 description=description,
                 tags=list(tags or []),
@@ -105,9 +120,10 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                         is_archived,
                         payload,
                         created_at,
-                        updated_at
+                        updated_at,
+                        workspace_id
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         str(workflow.id),
@@ -116,27 +132,71 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                         self._dump_model(workflow),
                         workflow.created_at,
                         workflow.updated_at,
+                        workspace_id,
                     ),
                 )
             return workflow.model_copy(deep=True)
 
-    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+    async def get_workflow(
+        self,
+        workflow_id: UUID,
+        *,
+        workspace_id: str | None = None,
+    ) -> Workflow:
         await self._ensure_initialized()
         async with self._lock:
-            return await self._get_workflow_locked(workflow_id)
+            workflow = await self._get_workflow_locked(workflow_id)
+            if workspace_id is not None:
+                row_tid = await self._get_workflow_workspace_id_locked(workflow_id)
+                if row_tid is not None and row_tid != workspace_id:
+                    from orcheo_backend.app.repository.errors import (
+                        WorkflowNotFoundError,
+                    )
+
+                    raise WorkflowNotFoundError(str(workflow_id))
+            return workflow
+
+    async def _get_workflow_workspace_id_locked(self, workflow_id: UUID) -> str | None:
+        """Return the workspace_id column for a workflow row (Postgres)."""
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                "SELECT workspace_id FROM workflows WHERE id = %s",
+                (str(workflow_id),),
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        try:
+            return row["workspace_id"]
+        except (KeyError, IndexError, TypeError):
+            return None
+
+    async def get_workflow_workspace_id(self, workflow_id: UUID) -> str | None:
+        """Return the workspace_id for the workflow, or None if unscoped."""
+        return await self._get_workflow_workspace_id_locked(workflow_id)
 
     async def resolve_workflow_ref(
         self,
         workflow_ref: str,
         *,
         include_archived: bool = True,
+        workspace_id: str | None = None,
     ) -> UUID:
         await self._ensure_initialized()
         async with self._lock:
-            return await self._resolve_workflow_ref_locked(
+            workflow_id = await self._resolve_workflow_ref_locked(
                 workflow_ref,
                 include_archived=include_archived,
             )
+            if workspace_id is not None:
+                row_tid = await self._get_workflow_workspace_id_locked(workflow_id)
+                if row_tid is not None and row_tid != workspace_id:
+                    from orcheo_backend.app.repository.errors import (
+                        WorkflowNotFoundError,
+                    )
+
+                    raise WorkflowNotFoundError(workflow_ref)
+            return workflow_id
 
     async def update_workflow(
         self,

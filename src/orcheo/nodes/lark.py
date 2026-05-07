@@ -30,19 +30,19 @@ def _normalize_optional_value(value: str | None) -> str | None:
 
 
 def _parse_tenant_access_token_response(data: dict[str, Any]) -> str:
-    """Extract and validate the tenant access token from a Lark auth response."""
+    """Extract and validate the workspace access token from a Lark auth response."""
     if data.get("code", 0) != 0:
         msg = data.get("msg", "Unknown error")
-        raise ValueError(f"Lark tenant token error: {msg}")
+        raise ValueError(f"Lark workspace token error: {msg}")
 
     token = data.get("tenant_access_token")
     if not isinstance(token, str) or not token.strip():
-        raise ValueError("Lark tenant token response missing tenant_access_token")
+        raise ValueError("Lark workspace token response missing tenant_access_token")
     return token
 
 
 def _extract_tenant_access_token(result: Any) -> str | None:
-    """Extract a tenant access token from a prior node result when present."""
+    """Extract a workspace access token from a prior node result when present."""
     if not isinstance(result, dict):
         return None
 
@@ -66,7 +66,7 @@ async def _request_tenant_access_token(
     app_secret: str,
     timeout: float | None,
 ) -> dict[str, Any]:
-    """Request a tenant access token from the Lark auth API."""
+    """Request a workspace access token from the Lark auth API."""
     payload = {
         "app_id": app_id,
         "app_secret": app_secret,
@@ -79,23 +79,23 @@ async def _request_tenant_access_token(
 
 @registry.register(
     NodeMetadata(
-        name="LarkTenantAccessTokenNode",
-        description="Fetch a tenant access token from the Lark auth API",
+        name="LarkWorkspaceAccessTokenNode",
+        description="Fetch a workspace access token from the Lark auth API",
         category="lark",
     )
 )
-class LarkTenantAccessTokenNode(TaskNode):
-    """Fetch a Lark tenant access token."""
+class LarkWorkspaceAccessTokenNode(TaskNode):
+    """Fetch a Lark workspace access token."""
 
     app_id: str = Field(description="Lark app ID")
     app_secret: str = Field(description="Lark app secret")
     timeout: float | None = Field(
         default=DEFAULT_TIMEOUT,
-        description="Timeout in seconds for the tenant access token request",
+        description="Timeout in seconds for the workspace access token request",
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Fetch a tenant access token from the Lark auth API."""
+        """Fetch a workspace access token from the Lark auth API."""
         del state
         del config
 
@@ -150,7 +150,7 @@ class LarkSendMessageNode(TaskNode):
     )
 
     async def _fetch_tenant_access_token(self) -> str:
-        """Fetch a tenant access token directly from the Lark auth API."""
+        """Fetch a workspace access token directly from the Lark auth API."""
         data = await _request_tenant_access_token(
             app_id=self.app_id,
             app_secret=self.app_secret,
@@ -159,7 +159,7 @@ class LarkSendMessageNode(TaskNode):
         return _parse_tenant_access_token_response(data)
 
     async def _resolve_access_token(self, state: State) -> str:
-        """Resolve the tenant access token from prior results or fetch it."""
+        """Resolve the workspace access token from prior results or fetch it."""
         results = state.get("results", {})
         if isinstance(results, dict):
             token = _extract_tenant_access_token(results.get("get_lark_tenant_token"))
@@ -258,4 +258,4 @@ class LarkSendMessageNode(TaskNode):
         }
 
 
-__all__ = ["LarkSendMessageNode", "LarkTenantAccessTokenNode"]
+__all__ = ["LarkSendMessageNode", "LarkWorkspaceAccessTokenNode"]

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  getActiveWorkspace,
+  createWorkspace,
   disconnectExternalAgent,
   executeNode,
   getExternalAgentLoginSession,
@@ -9,6 +11,10 @@ import {
   startExternalAgentLogin,
   submitExternalAgentLoginInput,
 } from "./api";
+import {
+  clearSelectedWorkspaceSlug,
+  setSelectedWorkspaceSlug,
+} from "./workspace-session";
 
 describe("executeNode", () => {
   beforeEach(() => {
@@ -183,6 +189,60 @@ describe("executeNode", () => {
       expect.stringContaining("/api/system/info"),
       expect.objectContaining({ method: "GET" }),
     );
+  });
+
+  it("should fetch active workspace summary", async () => {
+    const mockResponse = {
+      workspace_id: "workspace-1",
+      slug: "acme",
+      name: "Acme",
+      role: "owner",
+    };
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockResponse,
+    });
+
+    const result = await getActiveWorkspace();
+    expect(result.slug).toBe("acme");
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/workspaces/active"),
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("should create a workspace through the self-service endpoint", async () => {
+    setSelectedWorkspaceSlug("stale-workspace");
+    const mockResponse = {
+      id: "workspace-1",
+      slug: "acme",
+      name: "Acme",
+      status: "active",
+      quotas: {
+        max_workflows: 100,
+        max_concurrent_runs: 25,
+        max_credentials: 200,
+        max_storage_rows: 1000000,
+      },
+      deleted_at: null,
+      created_at: "2026-02-21T12:00:00Z",
+      updated_at: "2026-02-21T12:00:00Z",
+    };
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockResponse,
+    });
+
+    const result = await createWorkspace({ slug: "acme", name: "Acme" });
+    expect(result.slug).toBe("acme");
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/workspaces"),
+      expect.objectContaining({ method: "POST" }),
+    );
+    const [, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const headers = options?.headers as Headers;
+    expect(headers.get("X-Orcheo-Workspace")).toBeNull();
+    clearSelectedWorkspaceSlug();
   });
 
   it("should fetch external agent status", async () => {

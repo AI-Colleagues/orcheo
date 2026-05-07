@@ -2,11 +2,12 @@ from __future__ import annotations
 import asyncio
 import json
 import pathlib
+import sqlite3
 from datetime import UTC, datetime
 from uuid import uuid4
 import aiosqlite
 import pytest
-from orcheo.models.workflow import Workflow, WorkflowDraftAccess
+from orcheo.models.workflow import Workflow, WorkflowDraftAccess, WorkflowVersion
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
 from orcheo.triggers.retry import RetryPolicyConfig
@@ -188,6 +189,43 @@ async def test_sqlite_ensure_workflow_schema_migrations_backfills_columns(
 
 
 @pytest.mark.asyncio()
+async def test_sqlite_ensure_initialized_adds_versions_workspace_index(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Legacy SQLite databases should migrate workflow_versions on startup."""
+
+    db_path = tmp_path / "legacy-versions.sqlite"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE workflow_versions (
+                id TEXT PRIMARY KEY,
+                workflow_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(workflow_id, version)
+            )
+            """
+        )
+        conn.commit()
+
+    repository = SqliteWorkflowRepository(db_path)
+    await repository._ensure_initialized()  # noqa: SLF001
+
+    async with aiosqlite.connect(str(db_path)) as conn:
+        conn.row_factory = aiosqlite.Row
+        cursor = await conn.execute("PRAGMA table_info(workflow_versions)")
+        columns = {row["name"] for row in await cursor.fetchall()}
+        cursor = await conn.execute("PRAGMA index_list(workflow_versions)")
+        indexes = {row["name"] for row in await cursor.fetchall()}
+
+    assert "workspace_id" in columns
+    assert "idx_versions_workspace_id" in indexes
+
+
+@pytest.mark.asyncio()
 async def test_sqlite_workflow_schema_migration_accepts_legacy_publish_fields(
     tmp_path: pathlib.Path,
 ) -> None:
@@ -237,6 +275,140 @@ async def test_sqlite_workflow_schema_migration_accepts_legacy_publish_fields(
     assert row is not None
     assert row["handle"] == "legacy-published-flow"
     assert row["is_archived"] == 0
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_deserialize_workflow_uses_workspace_id(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Workflow payloads should use `workspace_id`."""
+    db_path = tmp_path / "workspace-id.sqlite"
+    workflow = Workflow(name="Legacy Workspace Flow", handle="legacy-workspace-flow")
+    payload = workflow.model_dump(mode="json")
+    payload["workspace_id"] = "workspace-a"
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE workflows (
+                id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO workflows (id, payload, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                str(workflow.id),
+                json.dumps(payload),
+                workflow.created_at.isoformat(),
+                workflow.updated_at.isoformat(),
+            ),
+        )
+        conn.commit()
+
+    repository = SqliteWorkflowRepository(db_path)
+    try:
+        workflows = await repository.list_workflows()
+    finally:
+        await repository.reset()
+
+    assert len(workflows) == 1
+    assert workflows[0].id == workflow.id
+    assert workflows[0].workspace_id == "workspace-a"
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_get_latest_version_uses_workspace_id(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Workflow version payloads should use `workspace_id`."""
+
+    db_path = tmp_path / "workspace-version-id.sqlite"
+    workflow = Workflow(name="Legacy Version Flow", handle="legacy-version-flow")
+    version = WorkflowVersion(
+        workflow_id=workflow.id,
+        version=1,
+        created_by="author",
+    )
+    payload = version.model_dump(mode="json")
+    payload["workspace_id"] = "workspace-a"
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE workflows (
+                id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE workflow_versions (
+                id TEXT PRIMARY KEY,
+                workflow_id TEXT NOT NULL,
+                workspace_id TEXT,
+                version INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(workflow_id, version)
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO workflows (id, payload, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                str(workflow.id),
+                workflow.model_dump_json(),
+                workflow.created_at.isoformat(),
+                workflow.updated_at.isoformat(),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO workflow_versions (
+                id,
+                workflow_id,
+                workspace_id,
+                version,
+                payload,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(version.id),
+                str(workflow.id),
+                None,
+                version.version,
+                json.dumps(payload),
+                version.created_at.isoformat(),
+                version.updated_at.isoformat(),
+            ),
+        )
+        conn.commit()
+
+    repository = SqliteWorkflowRepository(db_path)
+    try:
+        latest = await repository.get_latest_version(workflow.id)
+    finally:
+        await repository.reset()
+
+    assert latest.id == version.id
+    assert latest.workspace_id == "workspace-a"
 
 
 @pytest.mark.asyncio()

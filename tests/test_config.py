@@ -138,6 +138,22 @@ def test_postgres_repository_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> No
     assert settings.postgres_dsn == "postgresql://example"
 
 
+def test_postgres_workspace_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Workspace backends also require a DSN when Postgres is selected."""
+
+    monkeypatch.setenv("ORCHEO_WORKSPACE_BACKEND", "postgres")
+    monkeypatch.delenv("ORCHEO_POSTGRES_DSN", raising=False)
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
+
+    monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://example")
+    settings = config.get_settings(refresh=True)
+
+    assert settings.workspace_backend == "postgres"
+    assert settings.postgres_dsn == "postgresql://example"
+
+
 def test_postgres_chatkit_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
     """ChatKit postgres backend requires a DSN to be configured."""
 

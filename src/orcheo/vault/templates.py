@@ -26,7 +26,9 @@ if TYPE_CHECKING:
     from orcheo.models import SecretGovernanceAlert  # pragma: no cover
 
     class _AlertStore(Protocol):
-        def _iter_alerts(self) -> Iterable[SecretGovernanceAlert]: ...
+        def _iter_alerts(
+            self, *, workspace_id: str | None = None
+        ) -> Iterable[SecretGovernanceAlert]: ...
 
         def _remove_alert(self, alert_id: UUID) -> None: ...
 
@@ -45,6 +47,7 @@ class TemplateOperationsMixin:
         scope: CredentialScope | None = None,
         kind: CredentialKind | str = CredentialKind.SECRET,
         issuance_policy: CredentialIssuancePolicy | None = None,
+        workspace_id: str | None = None,
     ) -> CredentialTemplate:
         """Persist and return a new credential template."""
         normalized_kind = normalize_template_kind(kind) or CredentialKind.SECRET
@@ -57,6 +60,7 @@ class TemplateOperationsMixin:
             scope=scope,
             kind=normalized_kind,
             issuance_policy=issuance_policy,
+            workspace_id=workspace_id,
         )
         self._persist_template(template)
         return template.model_copy(deep=True)
@@ -118,20 +122,30 @@ class TemplateOperationsMixin:
         """Return a credential template ensuring scope restrictions."""
         template = self._load_template(template_id)
         access_context = context or CredentialAccessContext()
+        if not self._template_matches_workspace(template.workspace_id, access_context):
+            msg = "Credential template cannot be accessed with the provided context."
+            raise WorkflowScopeError(msg)
         if not template.scope.allows(access_context):
             msg = "Credential template cannot be accessed with the provided context."
             raise WorkflowScopeError(msg)
         return template.model_copy(deep=True)
 
     def list_templates(
-        self, *, context: CredentialAccessContext | None = None
+        self,
+        *,
+        context: CredentialAccessContext | None = None,
+        workspace_id: str | None = None,
     ) -> list[CredentialTemplate]:
         """Return credential templates available to the context."""
         access_context = context or CredentialAccessContext()
+        workspace_filter = (
+            workspace_id if workspace_id is not None else access_context.workspace_id
+        )
         return [
             template.model_copy(deep=True)
-            for template in self._iter_templates()
-            if template.scope.allows(access_context)
+            for template in self._iter_templates(workspace_id=workspace_filter)
+            if self._template_matches_workspace(template.workspace_id, access_context)
+            and template.scope.allows(access_context)
         ]
 
     def record_template_issuance(
@@ -156,6 +170,9 @@ class TemplateOperationsMixin:
     ) -> CredentialTemplate:
         template = self._load_template(template_id)
         access_context = context or CredentialAccessContext()
+        if not self._template_matches_workspace(template.workspace_id, access_context):
+            msg = "Credential template cannot be accessed with the provided context."
+            raise WorkflowScopeError(msg)
         if not template.scope.allows(access_context):
             msg = "Credential template cannot be accessed with the provided context."
             raise WorkflowScopeError(msg)
@@ -169,13 +186,26 @@ class TemplateOperationsMixin:
         """Load a credential template from storage."""
         raise NotImplementedError  # pragma: no cover
 
-    def _iter_templates(self) -> Iterable[CredentialTemplate]:
+    def _iter_templates(
+        self, *, workspace_id: str | None = None
+    ) -> Iterable[CredentialTemplate]:
         """Iterate over stored credential templates."""
         raise NotImplementedError  # pragma: no cover
 
     def _remove_template(self, template_id: UUID) -> None:
         """Remove a credential template from storage."""
         raise NotImplementedError  # pragma: no cover
+
+    @staticmethod
+    def _template_matches_workspace(
+        template_workspace_id: str | None, context: CredentialAccessContext
+    ) -> bool:
+        """Return whether a template belongs to the active workspace."""
+        if context.workspace_id is None:
+            return True
+        return template_workspace_id is None or template_workspace_id == str(
+            context.workspace_id
+        )
 
 
 __all__ = ["TemplateOperationsMixin"]

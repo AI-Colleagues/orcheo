@@ -201,7 +201,7 @@ class ExternalAgentProvider(Protocol):
 
 ## Security Considerations
 
-- V1 is self-hosted only. It is not designed for shared multi-tenant runtimes.
+- V1 is self-hosted only. It is not designed for shared multi-workspace runtimes.
 - Runtime binaries are installed into an Orcheo-managed directory, not global system paths.
 - Provider login is still owned by the provider CLI. Orcheo does not copy or reinterpret provider OAuth tokens in V1.
 - Nodes execute with the same worker OS user already used by Orcheo.

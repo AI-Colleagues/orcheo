@@ -122,8 +122,12 @@ class ExternalAgentNode(TaskNode):
         try:
             prompt = self._resolve_prompt(state)
             working_directory_input = self._resolve_working_directory_input(state)
+            workspace_id = state.get("workspace_id")
+            if not isinstance(workspace_id, str) or not workspace_id.strip():
+                workspace_id = None
             working_directory = manager.validate_working_directory(
                 working_directory_input,
+                workspace_id=workspace_id,
                 auto_init_git_worktree=self.auto_init_git_worktree,
             )
         except (ValueError, WorkingDirectoryValidationError) as exc:
@@ -174,7 +178,10 @@ class ExternalAgentNode(TaskNode):
 
         provider = manager.get_provider(self.provider_name)
         runtime = resolution.runtime
-        provider_environ = manager.environment_for_provider(self.provider_name)
+        provider_environ = manager.environment_for_provider(
+            self.provider_name,
+            workspace_id=workspace_id,
+        )
         provider_environ.update(self.auth_environment_overrides())
         auth_probe = provider.probe_auth(runtime, environ=provider_environ)
         if not auth_probe.authenticated:

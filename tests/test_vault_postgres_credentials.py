@@ -114,6 +114,57 @@ def test_postgres_vault_initialization() -> None:
     assert len(conn.queries) == conn_queries_count  # No new queries
 
 
+def test_postgres_vault_initialization_adds_workspace_indexes_after_columns() -> None:
+    """Legacy databases should add workspace columns before workspace indexes."""
+    cipher = AesGcmCredentialCipher(key="test-key")
+    conn = FakeConnection(responses=[])
+    pool = FakePool(conn)
+
+    vault = PostgresCredentialVault(dsn="postgresql://test", cipher=cipher)
+    vault._pool = pool
+
+    vault._ensure_initialized()
+
+    queries = [query for query, _ in conn.queries]
+
+    credential_column = next(
+        index
+        for index, query in enumerate(queries)
+        if "ALTER TABLE credentials ADD COLUMN IF NOT EXISTS workspace_id TEXT" in query
+    )
+    credential_index = next(
+        index
+        for index, query in enumerate(queries)
+        if "CREATE INDEX IF NOT EXISTS idx_credentials_workspace_id " in query
+    )
+    template_column = next(
+        index
+        for index, query in enumerate(queries)
+        if "ALTER TABLE credential_templates ADD COLUMN IF NOT EXISTS workspace_id TEXT"
+        in query
+    )
+    template_index = next(
+        index
+        for index, query in enumerate(queries)
+        if "CREATE INDEX IF NOT EXISTS idx_templates_workspace_id" in query
+    )
+    alert_column = next(
+        index
+        for index, query in enumerate(queries)
+        if "ALTER TABLE governance_alerts ADD COLUMN IF NOT EXISTS workspace_id TEXT"
+        in query
+    )
+    alert_index = next(
+        index
+        for index, query in enumerate(queries)
+        if "CREATE INDEX IF NOT EXISTS idx_alerts_workspace_id" in query
+    )
+
+    assert credential_column < credential_index
+    assert template_column < template_index
+    assert alert_column < alert_index
+
+
 def test_postgres_vault_initialization_race_condition() -> None:
     """Test that concurrent initialization only runs schema once."""
     import threading
@@ -196,6 +247,7 @@ def test_postgres_vault_persist_metadata_new_credential() -> None:
     """Test persisting new credential metadata."""
     cipher = AesGcmCredentialCipher(key="test-key")
     workflow_id = uuid4()
+    workspace_id = "workspace-a"
 
     # Mock responses: check for duplicates (empty), then insert
     conn = FakeConnection(responses=[{"rows": []}, {}])
@@ -213,6 +265,7 @@ def test_postgres_vault_persist_metadata_new_credential() -> None:
         secret="test-secret",
         actor="test-actor",
         scope=CredentialScope.for_workflows(workflow_id),
+        workspace_id=workspace_id,
     )
 
     # Verify INSERT was called with correct params
@@ -221,8 +274,9 @@ def test_postgres_vault_persist_metadata_new_credential() -> None:
     params = insert_queries[0][1]
     assert params[0] == str(metadata.id)
     assert params[1] == metadata.scope.scope_hint()
-    assert params[2] == "Test Service"
-    assert params[3] == "test-provider"
+    assert params[2] == workspace_id
+    assert params[3] == "Test Service"
+    assert params[4] == "test-provider"
 
 
 def test_postgres_vault_persist_metadata_duplicate_name() -> None:
@@ -230,6 +284,7 @@ def test_postgres_vault_persist_metadata_duplicate_name() -> None:
     cipher = AesGcmCredentialCipher(key="test-key")
     workflow_id = uuid4()
     other_id = uuid4()
+    workspace_id = "workspace-a"
 
     # Mock response: duplicate found
     conn = FakeConnection(responses=[{"rows": [{"id": str(other_id)}]}])
@@ -247,6 +302,7 @@ def test_postgres_vault_persist_metadata_duplicate_name() -> None:
             secret="secret",
             actor="actor",
             scope=CredentialScope.for_workflows(workflow_id),
+            workspace_id=workspace_id,
         )
 
 
@@ -270,6 +326,7 @@ def test_postgres_vault_persist_metadata_update_existing() -> None:
         secret="secret",
         actor="actor",
         scope=CredentialScope.for_workflows(workflow_id),
+        workspace_id="workspace-a",
     )
 
     # Now update - simulate finding same ID in duplicate check
@@ -304,7 +361,11 @@ def test_postgres_vault_load_metadata_found() -> None:
         "audit_log": [],
     }
 
-    conn = FakeConnection(responses=[{"row": {"payload": json.dumps(metadata_dict)}}])
+    conn = FakeConnection(
+        responses=[
+            {"row": {"payload": json.dumps(metadata_dict), "workspace_id": None}}
+        ]
+    )
     pool = FakePool(conn)
 
     vault = PostgresCredentialVault(dsn="postgresql://test", cipher=cipher)
@@ -338,7 +399,9 @@ def test_postgres_vault_load_metadata_dict_payload() -> None:
     }
 
     # Return dict instead of JSON string
-    conn = FakeConnection(responses=[{"row": {"payload": metadata_dict}}])
+    conn = FakeConnection(
+        responses=[{"row": {"payload": metadata_dict, "workspace_id": None}}]
+    )
     pool = FakePool(conn)
 
     vault = PostgresCredentialVault(dsn="postgresql://test", cipher=cipher)
@@ -400,8 +463,8 @@ def test_postgres_vault_iter_metadata() -> None:
         responses=[
             {
                 "rows": [
-                    {"payload": json.dumps(metadata1)},
-                    {"payload": metadata2},  # Dict payload
+                    {"payload": json.dumps(metadata1), "workspace_id": None},
+                    {"payload": metadata2, "workspace_id": None},  # Dict payload
                 ]
             }
         ]
@@ -416,6 +479,45 @@ def test_postgres_vault_iter_metadata() -> None:
     assert len(results) == 2
     assert results[0].name == "Cred1"
     assert results[1].name == "Cred2"
+
+
+def test_postgres_vault_iter_metadata_filters_by_workspace() -> None:
+    """Test iterating over workspace-scoped credentials."""
+    cipher = AesGcmCredentialCipher(key="test-key")
+    workflow_id = uuid4()
+
+    metadata = {
+        "id": str(uuid4()),
+        "name": "Cred1",
+        "provider": "provider",
+        "scopes": ["read"],
+        "created_at": datetime.now(tz=UTC).isoformat(),
+        "updated_at": datetime.now(tz=UTC).isoformat(),
+        "scope": {"workflow_ids": [str(workflow_id)], "workspace_ids": [], "roles": []},
+        "kind": "secret",
+        "encryption": cipher.encrypt("secret1").model_dump(),
+        "audit_log": [],
+    }
+
+    conn = FakeConnection(
+        responses=[
+            {
+                "rows": [
+                    {"payload": json.dumps(metadata), "workspace_id": "workspace-a"},
+                ]
+            }
+        ]
+    )
+    pool = FakePool(conn)
+
+    vault = PostgresCredentialVault(dsn="postgresql://test", cipher=cipher)
+    vault._pool = pool
+    vault._initialized = True
+
+    results = list(vault._iter_metadata(workspace_id="workspace-a"))
+    assert len(results) == 1
+    assert results[0].name == "Cred1"
+    assert "WHERE workspace_id = %s" in conn.queries[0][0]
 
 
 def test_postgres_vault_remove_credential_success() -> None:

@@ -24,6 +24,11 @@ from orcheo_backend.app.history import (
     RunHistoryStore,
     SqliteRunHistoryStore,
 )
+from orcheo_backend.app.plugin_installation_store import (
+    InMemoryPluginInstallationStore,
+    PostgresPluginInstallationStore,
+    SqlitePluginInstallationStore,
+)
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
     WorkflowRepository,
@@ -181,11 +186,12 @@ def ensure_credential_service(
     return OAuthCredentialService(vault, token_ttl_seconds=token_ttl)
 
 
-def create_repository(
+def create_repository(  # noqa: C901
     settings: Dynaconf,
     credential_service: OAuthCredentialService,
     history_store_ref: dict[str, RunHistoryStore],
     checkpoint_store_ref: dict[str, object] | None = None,
+    plugin_installation_store_ref: dict[str, object] | None = None,
 ) -> WorkflowRepository:
     """Create the workflow repository using configured backend."""
     backend = cast(
@@ -211,6 +217,10 @@ def create_repository(
         history_store_ref["store"] = SqliteRunHistoryStore(sqlite_path)
         if checkpoint_store_ref is not None:  # pragma: no branch
             checkpoint_store_ref["store"] = SqliteAgentensorCheckpointStore(sqlite_path)
+        if plugin_installation_store_ref is not None:
+            plugin_installation_store_ref["store"] = SqlitePluginInstallationStore(
+                sqlite_path
+            )
         return SqliteWorkflowRepository(
             sqlite_path,
             credential_service=credential_service,
@@ -219,6 +229,8 @@ def create_repository(
         history_store_ref["store"] = InMemoryRunHistoryStore()
         if checkpoint_store_ref is not None:  # pragma: no branch
             checkpoint_store_ref["store"] = InMemoryAgentensorCheckpointStore()
+        if plugin_installation_store_ref is not None:
+            plugin_installation_store_ref["store"] = InMemoryPluginInstallationStore()
         return InMemoryWorkflowRepository(credential_service=credential_service)
     if backend == "postgres":
         dsn = cast(
@@ -278,6 +290,14 @@ def create_repository(
         )
         if checkpoint_store_ref is not None:  # pragma: no branch
             checkpoint_store_ref["store"] = PostgresAgentensorCheckpointStore(
+                dsn,
+                pool_min_size=pool_min_size,
+                pool_max_size=pool_max_size,
+                pool_timeout=pool_timeout,
+                pool_max_idle=pool_max_idle,
+            )
+        if plugin_installation_store_ref is not None:
+            plugin_installation_store_ref["store"] = PostgresPluginInstallationStore(
                 dsn,
                 pool_min_size=pool_min_size,
                 pool_max_size=pool_max_size,

@@ -3,7 +3,9 @@
 from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 import pytest
+from orcheo.workspace import Role, WorkspaceContext
 from orcheo_backend.app.authentication import (
     AuthenticationError,
     AuthorizationError,
@@ -15,6 +17,15 @@ from orcheo_backend.app.service_token_endpoints import (
     CreateServiceTokenRequest,
     create_service_token,
 )
+
+
+def _make_workspace_context(workspace_id=None, slug="acme") -> WorkspaceContext:
+    return WorkspaceContext(
+        workspace_id=workspace_id or uuid4(),
+        workspace_slug=slug,
+        user_id="user",
+        role=Role.ADMIN,
+    )
 
 
 @pytest.mark.asyncio
@@ -43,7 +54,8 @@ async def test_create_service_token_success(admin_policy):
         mock_manager.mint.return_value = (mock_secret, mock_record)
         mock_get_manager.return_value = mock_manager
 
-        response = await create_service_token(request, admin_policy)
+        workspace = _make_workspace_context()
+        response = await create_service_token(request, admin_policy, workspace)
 
         assert response.identifier == "my-token"
         assert response.secret == mock_secret
@@ -53,6 +65,7 @@ async def test_create_service_token_success(admin_policy):
             scopes=["read", "write"],
             workspace_ids=["ws-1"],
             expires_in=3600,
+            workspace_id=str(workspace.workspace_id),
         )
 
 
@@ -76,7 +89,8 @@ async def test_create_service_token_with_default_values(admin_policy):
         mock_manager.mint.return_value = (mock_secret, mock_record)
         mock_get_manager.return_value = mock_manager
 
-        response = await create_service_token(request, admin_policy)
+        workspace = _make_workspace_context()
+        response = await create_service_token(request, admin_policy, workspace)
 
         assert response.identifier == "auto-generated-id"
         assert response.secret == mock_secret
@@ -85,6 +99,7 @@ async def test_create_service_token_with_default_values(admin_policy):
             scopes=[],
             workspace_ids=[],
             expires_in=None,
+            workspace_id=str(workspace.workspace_id),
         )
 
 
@@ -93,10 +108,11 @@ async def test_create_service_token_without_authentication():
     """Anonymous users should be rejected."""
     anonymous_context = RequestContext.anonymous()
     policy = AuthorizationPolicy(anonymous_context)
+    workspace = _make_workspace_context()
     request = CreateServiceTokenRequest()
 
     with pytest.raises(AuthenticationError):
-        await create_service_token(request, policy)
+        await create_service_token(request, policy, workspace)
 
 
 @pytest.mark.asyncio
@@ -108,7 +124,8 @@ async def test_create_service_token_without_required_scope():
         scopes=frozenset(["read"]),
     )
     policy = AuthorizationPolicy(context)
+    workspace = _make_workspace_context()
     request = CreateServiceTokenRequest()
 
     with pytest.raises(AuthorizationError):
-        await create_service_token(request, policy)
+        await create_service_token(request, policy, workspace)

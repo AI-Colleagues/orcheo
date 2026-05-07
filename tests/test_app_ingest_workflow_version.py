@@ -2,6 +2,7 @@
 
 import asyncio
 import textwrap
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException, status
@@ -180,7 +181,11 @@ async def test_ingest_workflow_version_raises_not_found_error() -> None:
 
     class FailingRepository(InMemoryWorkflowRepository):
         async def resolve_workflow_ref(
-            self, workflow_ref: str, *, include_archived: bool = True
+            self,
+            workflow_ref: str,
+            *,
+            include_archived: bool = True,
+            workspace_id: str | None = None,
         ) -> UUID:
             del include_archived
             return UUID(str(workflow_ref))
@@ -200,8 +205,11 @@ async def test_ingest_workflow_version_raises_not_found_error() -> None:
     repository = FailingRepository()
     workflow_id = uuid4()
 
+    _mock_workspace = SimpleNamespace(workspace_id=uuid4())
     with pytest.raises(HTTPException) as exc_info:
-        await ingest_workflow_version(str(workflow_id), request, repository)
+        await ingest_workflow_version(
+            str(workflow_id), request, repository, _mock_workspace
+        )
 
     assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
     assert exc_info.value.detail == "Workflow not found"

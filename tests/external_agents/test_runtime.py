@@ -276,6 +276,61 @@ def test_validate_working_directory_requires_git_and_rejects_runtime_root(
         validate_working_directory(plain_dir, runtime_root=runtime_root)
 
 
+def test_validate_working_directory_enforces_workspace_root(
+    tmp_path: Path,
+) -> None:
+    """Workspace-scoped validation keeps agents inside the connected filesystem."""
+    runtime_root = tmp_path / "agent-runtimes"
+    runtime_root.mkdir()
+    workspace_id = "workspace-1"
+    workspace_root = tmp_path / "connected" / workspace_id
+    workspace_root.mkdir(parents=True)
+    subprocess.run(["git", "-C", str(workspace_root), "init", "--quiet"], check=True)
+    allowed_repo = workspace_root / "repo"
+    allowed_repo.mkdir()
+    subprocess.run(["git", "-C", str(allowed_repo), "init", "--quiet"], check=True)
+    outside_repo = tmp_path / "outside"
+    outside_repo.mkdir()
+    subprocess.run(["git", "-C", str(outside_repo), "init", "--quiet"], check=True)
+
+    assert (
+        validate_working_directory(
+            allowed_repo,
+            runtime_root=runtime_root,
+            workspace_id=workspace_id,
+            workspace_root=workspace_root,
+        )
+        == allowed_repo.resolve()
+    )
+
+    with pytest.raises(WorkingDirectoryValidationError, match="connected workspace"):
+        validate_working_directory(
+            outside_repo,
+            runtime_root=runtime_root,
+            workspace_id=workspace_id,
+            workspace_root=workspace_root,
+        )
+
+
+def test_environment_for_provider_uses_workspace_auth_cache_roots(
+    tmp_path: Path,
+) -> None:
+    """Workspace-scoped provider env should not fall back to shared auth caches."""
+    manager = ExternalAgentRuntimeManager(runtime_root=tmp_path, environ={})
+
+    codex_env = manager.environment_for_provider(
+        "codex",
+        workspace_id="workspace-1",
+    )
+    gemini_env = manager.environment_for_provider(
+        "gemini",
+        workspace_id="workspace-1",
+    )
+
+    assert codex_env["CODEX_HOME"] == "/workspace/agents/workspace-1/.codex"
+    assert gemini_env["HOME"] == "/workspace/agents/workspace-1"
+
+
 def test_validate_working_directory_auto_initializes_git_repo(
     tmp_path: Path,
 ) -> None:
@@ -1400,7 +1455,12 @@ def test_validate_working_directory_delegates_to_paths_helper(
     expected = tmp_path / "repo"
     monkeypatch.setattr(
         "orcheo.external_agents.runtime.validate_working_directory",
-        lambda candidate, *, runtime_root, auto_init_git_worktree: expected,
+        lambda candidate,
+        *,
+        runtime_root,
+        workspace_id=None,
+        workspace_root=None,
+        auto_init_git_worktree=False: expected,
     )
 
     assert manager.validate_working_directory("repo") == expected

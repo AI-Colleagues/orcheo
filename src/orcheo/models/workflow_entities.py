@@ -135,6 +135,7 @@ class Workflow(TimestampedAuditModel):
 
     name: str = Field(min_length=1, max_length=128)
     handle: str | None = Field(default=None, max_length=64)
+    workspace_id: str | None = None
     slug: str = ""
     description: str | None = Field(default=None, max_length=1024)
     tags: list[str] = Field(default_factory=list)
@@ -334,6 +335,7 @@ class WorkflowVersion(TimestampedAuditModel):
     """Versioned definition of a workflow graph."""
 
     workflow_id: UUID
+    workspace_id: str | None = None
     version: int = Field(gt=0)
     graph: dict[str, Any] = Field(default_factory=dict)
     mermaid: str | None = None
@@ -370,6 +372,7 @@ class WorkflowRunStatus(str, Enum):
 class WorkflowRun(TimestampedAuditModel):
     """Runtime record for a workflow execution."""
 
+    workspace_id: str | None = None
     workflow_version_id: UUID
     status: WorkflowRunStatus = Field(default=WorkflowRunStatus.PENDING)
     triggered_by: str

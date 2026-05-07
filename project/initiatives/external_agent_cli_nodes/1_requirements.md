@@ -68,7 +68,7 @@ The main challenge is not invoking a binary; it is owning the lifecycle around i
 **Non-goals:**
 - SDK-based integration for Claude Code or Codex.
 - Full pause-and-resume workflow semantics for blocked login/setup states.
-- Multi-tenant hosted SaaS support in V1.
+- Multi-workspace hosted SaaS support in V1.
 - Arbitrary per-provider tuning knobs exposed as environment variables.
 - Exact version pinning, support matrices, or rollout channels in V1.
 - Generic package manager support beyond what the provider CLIs require.

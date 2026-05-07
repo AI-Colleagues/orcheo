@@ -59,7 +59,9 @@ async def test_invoke_webhook_trigger_returns_immediate_response(
         def __init__(self) -> None:
             self.handle_webhook_trigger = AsyncMock()
 
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
@@ -102,7 +104,9 @@ async def test_invoke_webhook_trigger_queues_run(
     )
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
@@ -142,7 +146,9 @@ async def test_invoke_webhook_trigger_returns_accepted_when_no_run(
     request = _make_request(query_string="msg_signature=abc")
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
@@ -177,7 +183,9 @@ async def test_invoke_webhook_trigger_reports_missing_workflow() -> None:
     request = _make_request(query_string="msg_signature=abc")
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
@@ -202,7 +210,9 @@ async def test_invoke_webhook_trigger_reports_missing_version() -> None:
     request = _make_request(query_string="msg_signature=abc")
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 

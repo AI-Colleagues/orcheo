@@ -31,6 +31,7 @@ class _ThreadState:
 
     thread: ThreadMetadata
     items: list[ThreadItem]
+    workspace_id: str | None = None
 
 
 class InMemoryChatKitStore(Store[ChatKitRequestContext]):
@@ -88,14 +89,18 @@ class InMemoryChatKitStore(Store[ChatKitRequestContext]):
         """Persist metadata for ``thread`` while merging incoming context metadata."""
         if not thread.title:
             thread.title = _extract_title_from_request(context)
+        workspace_id: str | None = context.get("workspace_id") if context else None
         async with self._lock:
             self._merge_metadata_from_context(thread, context)
             existing = self._threads.get(thread.id)
             metadata = self._clone_metadata(thread)
             if existing:
                 existing.thread = metadata
+                existing.workspace_id = workspace_id
             else:
-                self._threads[thread.id] = _ThreadState(thread=metadata, items=[])
+                self._threads[thread.id] = _ThreadState(
+                    thread=metadata, items=[], workspace_id=workspace_id
+                )
 
     async def load_threads(
         self,
@@ -106,16 +111,22 @@ class InMemoryChatKitStore(Store[ChatKitRequestContext]):
     ) -> Page[ThreadMetadata]:
         """Return a page of stored thread metadata scoped to the workflow in context."""
         workflow_id: str | None = context.get("workflow_id") if context else None
+        workspace_id: str | None = context.get("workspace_id") if context else None
         async with self._lock:
-            all_threads = (
-                self._clone_metadata(state.thread) for state in self._threads.values()
-            )
+            all_states = list(self._threads.values())
             if workflow_id:
-                all_threads = (
-                    t
-                    for t in all_threads
-                    if t.metadata.get("workflow_id") == workflow_id
-                )
+                all_states = [
+                    s
+                    for s in all_states
+                    if s.thread.metadata.get("workflow_id") == workflow_id
+                ]
+            if workspace_id is not None:
+                all_states = [
+                    s
+                    for s in all_states
+                    if s.workspace_id is None or s.workspace_id == workspace_id
+                ]
+            all_threads = (self._clone_metadata(s.thread) for s in all_states)
             threads = sorted(
                 all_threads,
                 key=lambda t: t.created_at or datetime.min,

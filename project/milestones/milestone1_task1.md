@@ -21,7 +21,7 @@ that will power both the code-first SDK and the future canvas experience.
 ### Persistence Layer
 
 - **Primary backend: SQLite** – For local development and lightweight
-  single-tenant deployments we use `langgraph-checkpoint-sqlite` backed by an
+  single-workspace deployments we use `langgraph-checkpoint-sqlite` backed by an
   application-managed `aiosqlite` connection. This keeps onboarding friction low
   while providing deterministic recovery for streaming runs.
 - **Production backend: Postgres** – We introduced a pluggable persistence helper

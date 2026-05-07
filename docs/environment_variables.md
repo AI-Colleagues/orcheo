@@ -15,6 +15,8 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_POSTGRES_DSN` | _none_ | PostgreSQL DSN (e.g. `postgresql://user:pass@host:port/db`) | Connection string required when any backend is set to `postgres` (checkpoint, graph store, repository, chatkit, or vault; see `config/loader.py`). |
 | `ORCHEO_REPOSITORY_BACKEND` | `sqlite` | `sqlite`, `postgres`, or `inmemory` | Chooses the workflow repository implementation (`config/loader.py`). |
 | `ORCHEO_REPOSITORY_SQLITE_PATH` | `~/.orcheo/workflows.sqlite` | Filesystem path | Location of the workflow repository SQLite file (`config/loader.py`). |
+| `ORCHEO_WORKSPACE_BACKEND` | `inmemory` | `inmemory`, `sqlite`, or `postgres` | Chooses the workspace repository implementation used for workspaces and memberships (`config/loader.py`, `app/workspace/dependencies.py`). |
+| `ORCHEO_WORKSPACE_SQLITE_PATH` | `~/.orcheo/workspaces.sqlite` | Filesystem path | Location of the persistent workspace repository SQLite file when `ORCHEO_WORKSPACE_BACKEND=sqlite` (`config/loader.py`). |
 | `ORCHEO_CHATKIT_BACKEND` | `sqlite` | `sqlite` or `postgres` | Selects the ChatKit persistence backend used by `chatkit/server.py`. |
 | `ORCHEO_CHATKIT_SQLITE_PATH` | `~/.orcheo/chatkit.sqlite` | Filesystem path | Storage for ChatKit conversation history when using SQLite persistence (`config/loader.py` and `chatkit/server.py`). |
 | `ORCHEO_CHATKIT_STORAGE_PATH` | `~/.orcheo/chatkit` | Directory path | Filesystem root for ChatKit attachments (`config/loader.py`). |
@@ -52,10 +54,11 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `VITE_ORCHEO_AUTH_STATE_BYTES` | `32` | Integer in `[16, 96]` | Byte length for generated OAuth `state` random values (`features/auth/lib/oidc-client.ts`). |
 | `VITE_ORCHEO_AUTH_VERIFIER_BYTES` | `64` | Integer in `[32, 96]` | Byte length for PKCE `code_verifier` random values (`features/auth/lib/oidc-client.ts`). |
 | `VITE_ORCHEO_AUTH_AUDIENCE` | _none_ | String | Optional audience value required by some IdPs. |
-| `VITE_ORCHEO_AUTH_ORGANIZATION` | _none_ | String | Optional organization identifier for IdPs that support multi-tenancy (e.g., Auth0 Organizations). When set, restricts login to users belonging to the specified organization. |
+| `VITE_ORCHEO_AUTH_ORGANIZATION` | _none_ | String | Optional organization identifier for IdPs that support organization-scoped login (e.g., Auth0 Organizations). When set, restricts login to users belonging to the specified organization. |
 | `VITE_ORCHEO_AUTH_PROVIDER_PARAM` | _none_ | String | Optional IdP hint parameter name (e.g., `connection`, `idp`). |
 | `VITE_ORCHEO_AUTH_PROVIDER_GOOGLE` | _none_ | String | Provider hint value for Google when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
 | `VITE_ORCHEO_AUTH_PROVIDER_GITHUB` | _none_ | String | Provider hint value for GitHub when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
+| `VITE_ORCHEO_AUTH_PROVIDER_SIGNUP` | _none_ | String | Optional provider hint used for the sign-up flow when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. Leave unset to send sign-up to the generic IdP signup screen. |
 | `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` | _none_ | String | ChatKit domain key used by Canvas public chat surfaces. Setup prompts for this value; if left unset/placeholder, ChatKit UI features remain disabled until configured. |
 | `VITE_ORCHEO_CHATKIT_DEFAULT_DOMAIN_KEY` | `domain_pk_localhost_dev` | String | Dev-only fallback domain key used when neither `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` nor runtime `window.__ORCHEO_CONFIG__.chatkitDomainKey` is provided (`features/chatkit/lib/chatkit-client.ts`). |
 | `VITE_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated hostnames | Hostnames the Canvas server will accept requests for (maps to `server.allowedHosts` in `vite.config.ts`). Public-ingress installs append the configured public hostname. Tunnel or custom split-origin installs should include the public Canvas hostname here. |
@@ -70,6 +73,9 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `ORCHEO_VAULT_AWS_REGION` | _none_ | AWS region identifier (e.g. `us-east-1`) | Region targeted when `ORCHEO_VAULT_BACKEND=aws_kms` (`config/loader.py`). |
 | `ORCHEO_VAULT_AWS_KMS_KEY_ID` | _none_ | KMS key identifier | Key ID for AWS KMS vaults (`config/loader.py`). |
 | `ORCHEO_VAULT_TOKEN_TTL_SECONDS` | `3600` | Positive integer | Lifetime (seconds) for vault access tokens (`config/loader.py`). |
+| `ORCHEO_MULTI_WORKSPACE_ENABLED` | `false` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Enables workspace-aware request resolution, scoped repository lookups, and workspace-aware websocket/runnable execution (`config/loader.py`). |
+| `ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG` | `default` | Slug string | Legacy compatibility slug retained for migration helpers and explicit resolver overrides. The runtime no longer bootstraps a shared default workspace at startup (`config/loader.py`). |
+| `ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER` | `X-Orcheo-Workspace` | HTTP header name | Header that pins the active workspace for authenticated requests (`config/loader.py`). |
 
 ## ChatKit rate limits
 

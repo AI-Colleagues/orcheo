@@ -1,10 +1,29 @@
 """HTTP client helpers for the Orcheo CLI."""
 
 from __future__ import annotations
+import os
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any
 import httpx
 from orcheo_sdk.cli.errors import APICallError
+
+
+_WORKSPACE_CONFIG_FILE = Path.home() / ".orcheo" / "workspace"
+
+
+def _resolve_active_workspace() -> str | None:
+    """Return the active workspace slug from env var or `~/.orcheo/workspace`."""
+    env = os.environ.get("ORCHEO_WORKSPACE")
+    if env and env.strip():
+        return env.strip()
+    if not _WORKSPACE_CONFIG_FILE.exists():
+        return None
+    try:
+        candidate = _WORKSPACE_CONFIG_FILE.read_text(encoding="utf-8").strip()
+    except OSError:  # pragma: no cover - defensive
+        return None
+    return candidate or None
 
 
 class ApiClient:
@@ -65,6 +84,9 @@ class ApiClient:
         token = self._get_active_token()
         if token:
             headers["Authorization"] = f"Bearer {token}"
+        workspace = _resolve_active_workspace()
+        if workspace:
+            headers["X-Orcheo-Workspace"] = workspace
         return headers
 
     def get(self, path: str, *, params: Mapping[str, Any] | None = None) -> Any:
@@ -89,6 +111,7 @@ class ApiClient:
         self,
         path: str,
         *,
+        params: Mapping[str, Any] | None = None,
         json_body: Mapping[str, Any] | None = None,
     ) -> Any:
         """Issue a POST request and return parsed JSON when available."""
@@ -96,6 +119,7 @@ class ApiClient:
         try:
             response = httpx.post(
                 url,
+                params=params,
                 json=json_body,
                 headers=self._headers(),
                 timeout=self._timeout,
@@ -131,6 +155,32 @@ class ApiClient:
             message = self._format_error(exc.response)
             raise APICallError(message, status_code=exc.response.status_code) from exc
         except httpx.RequestError as exc:  # pragma: no cover - defensive code
+            raise APICallError(f"Failed to reach {url}: {exc}") from exc
+
+        if response.status_code == httpx.codes.NO_CONTENT:
+            return None
+        return response.json()
+
+    def patch(
+        self,
+        path: str,
+        *,
+        json_body: Mapping[str, Any] | None = None,
+    ) -> Any:
+        """Issue a PATCH request and return parsed JSON when available."""
+        url = f"{self._base_url}{path}"
+        try:
+            response = httpx.patch(
+                url,
+                json=json_body,
+                headers=self._headers(),
+                timeout=self._timeout,
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            message = self._format_error(exc.response)
+            raise APICallError(message, status_code=exc.response.status_code) from exc
+        except httpx.RequestError as exc:
             raise APICallError(f"Failed to reach {url}: {exc}") from exc
 
         if response.status_code == httpx.codes.NO_CONTENT:

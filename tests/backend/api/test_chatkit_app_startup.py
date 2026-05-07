@@ -40,3 +40,17 @@ def test_create_app_startup_exception_handling(
 
     with TestClient(app) as client:
         assert client is not None
+
+
+def test_create_app_seeds_managed_vibe_workflow(
+    api_client: TestClient,
+) -> None:
+    """The managed Vibe workflow should exist immediately after startup."""
+
+    response = api_client.get("/api/workflows/orcheo-vibe-agent/canvas")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["workflow"]["handle"] == "orcheo-vibe-agent"
+    assert payload["workflow"]["is_archived"] is False
+    assert payload["versions"][0]["version"] == 1

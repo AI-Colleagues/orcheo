@@ -197,3 +197,17 @@ def test_api_client_get_active_token_returns_token() -> None:
     """Test that get_active_token exposes the active bearer token."""
     client = ApiClient(base_url="http://test.com", token="static-token")
     assert client.get_active_token() == "static-token"
+
+
+def test_api_client_uses_workspace_header_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that the CLI sends the active workspace header when configured."""
+    monkeypatch.setenv("ORCHEO_WORKSPACE", "workspace-1")
+    client = ApiClient(base_url="http://test.com", token=None)
+    with respx.mock:
+        route = respx.get("http://test.com/api/test").mock(
+            return_value=httpx.Response(200, json={"key": "value"})
+        )
+        client.get("/api/test")
+    assert route.calls[0].request.headers["X-Orcheo-Workspace"] == "workspace-1"

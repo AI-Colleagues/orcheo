@@ -29,6 +29,50 @@ export interface SystemInfoResponse {
   checked_at: string;
 }
 
+export interface ActiveWorkspaceResponse {
+  workspace_id?: string;
+  slug: string;
+  name: string;
+  role: "owner" | "admin" | "editor" | "viewer";
+}
+
+export interface WorkspaceMembershipSummary {
+  workspace_id: string;
+  slug: string;
+  name: string;
+  role: "owner" | "admin" | "editor" | "viewer";
+  status: "active" | "suspended" | "deleted";
+}
+
+export interface WorkspaceMembershipsResponse {
+  memberships: WorkspaceMembershipSummary[];
+}
+
+export interface WorkspaceCreateRequest {
+  slug: string;
+  name: string;
+  owner_user_id?: string;
+}
+
+export interface WorkspaceResponse {
+  id: string;
+  slug: string;
+  name: string;
+  status: "active" | "suspended" | "deleted";
+}
+
+export interface DevLoginRequest {
+  provider?: string;
+  email?: string;
+  name?: string;
+}
+
+export interface DevLoginResponse {
+  provider: string;
+  subject: string;
+  display_name: string;
+}
+
 export type ExternalAgentProviderName = "claude_code" | "codex" | "gemini";
 
 export type ExternalAgentProviderState =
@@ -141,10 +185,105 @@ export async function getSystemInfo(
   return response.json();
 }
 
+export async function getActiveWorkspace(
+  baseUrl?: string,
+): Promise<ActiveWorkspaceResponse> {
+  const url = buildBackendHttpUrl("/api/workspaces/active", baseUrl);
+  const response = await authFetch(url, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({
+      detail: "Failed to fetch active workspace",
+    }));
+    throw new Error(errorData.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function getMyWorkspaces(
+  baseUrl?: string,
+): Promise<WorkspaceMembershipsResponse> {
+  const url = buildBackendHttpUrl("/api/workspaces/me", baseUrl);
+  const response = await authFetch(url, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({
+      detail: "Failed to fetch workspaces",
+    }));
+    throw new Error(errorData.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function startDevLogin(
+  request: DevLoginRequest,
+  baseUrl?: string,
+): Promise<DevLoginResponse> {
+  const url = buildBackendHttpUrl("/api/auth/dev/login", baseUrl);
+  const response = await authFetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({
+      detail: "Failed to start developer login",
+    }));
+    throw new Error(errorData.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function endDevLogin(baseUrl?: string): Promise<void> {
+  const url = buildBackendHttpUrl("/api/auth/dev/logout", baseUrl);
+  const response = await authFetch(url, {
+    method: "POST",
+  });
+
+  if (!response.ok && response.status !== 204) {
+    const errorData = await response.json().catch(() => ({
+      detail: "Failed to end developer login",
+    }));
+    throw new Error(errorData.detail || `HTTP ${response.status}`);
+  }
+}
+
+export async function createWorkspace(
+  request: WorkspaceCreateRequest,
+  baseUrl?: string,
+): Promise<WorkspaceResponse> {
+  return requestSystemJson<WorkspaceResponse>(
+    "/api/workspaces",
+    {
+      method: "POST",
+      body: JSON.stringify(request),
+    },
+    baseUrl,
+    { includeWorkspaceHeaders: false },
+  );
+}
+
 async function requestSystemJson<T>(
   path: string,
   init: RequestInit,
   baseUrl?: string,
+  options: { includeWorkspaceHeaders?: boolean } = {},
 ): Promise<T> {
   const url = buildBackendHttpUrl(path, baseUrl);
   const response = await authFetch(url, {
@@ -153,7 +292,7 @@ async function requestSystemJson<T>(
       "Content-Type": "application/json",
       ...(init.headers ?? {}),
     },
-  });
+  }, options);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({

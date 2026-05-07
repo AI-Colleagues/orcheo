@@ -14,6 +14,9 @@ This setup mirrors the default configuration that the tests exercise. It is idea
    ```bash
    cp .env.example .env
    ```
+   - For multi-workspace installs, set `ORCHEO_MULTI_WORKSPACE_ENABLED=true` once the backfill and repo-retrofit release has been verified.
+   - There is no bootstrapped default workspace anymore; users must already belong to a workspace or create one through the self-service API after login.
+   - Keep `ORCHEO_WORKSPACE_BACKEND=sqlite` and `ORCHEO_WORKSPACE_SQLITE_PATH` pointed at shared durable storage so memberships and workspace metadata survive backend restarts.
 3. **Start the API server**
    ```bash
    make dev-server
@@ -26,6 +29,24 @@ This setup mirrors the default configuration that the tests exercise. It is idea
 _Vault note_: The default `.env.example` now stores credentials in an encrypted SQLite vault at `.orcheo/vault.sqlite`. The backend generates and caches the AES key alongside the database on first start. Switch `ORCHEO_VAULT_BACKEND` to `inmemory` for ephemeral secrets or set `ORCHEO_VAULT_ENCRYPTION_KEY` to supply a managed key.
 
 _Repository note_: Local development now defaults to a SQLite-backed workflow repository stored at `~/.orcheo/workflows.sqlite`. Override `ORCHEO_REPOSITORY_BACKEND` to `inmemory` if you prefer ephemeral state or set `ORCHEO_REPOSITORY_SQLITE_PATH` to relocate the database file. The in-memory backend does not enqueue webhook/cron/manual triggers for execution, so runs remain `PENDING` unless you drive execution manually.
+
+### Workspace Rollout
+
+Use this sequence when enabling workspace scoping on an existing installation.
+
+1. **Flag off first**
+   - Deploy the code with `ORCHEO_MULTI_WORKSPACE_ENABLED=false`.
+   - Set `ORCHEO_WORKSPACE_BACKEND=postgres` and provide `ORCHEO_POSTGRES_DSN` before creating or migrating memberships.
+2. **Verify the backfill release**
+   - Confirm existing users have at least one membership before turning the feature on.
+   - Confirm existing workflows, runs, credentials, and graph records resolve under the intended workspaces.
+   - Check `/api/workspaces/me` and the Canvas workspace badge to ensure the resolved workspace matches expectations.
+3. **Turn workspace scoping on**
+   - Flip `ORCHEO_MULTI_WORKSPACE_ENABLED=true` in the backend, worker, beat, and stack env files together.
+   - Keep `ORCHEO_WORKSPACE_BACKEND=postgres` in those same env files and restart the stack so the API, Celery worker, and scheduled jobs pick up the same workspace settings.
+4. **Rollback**
+   - If any cross-workspace regression appears, switch the flag back to `false`, restart the stack, and keep the data in place for inspection.
+   - Because memberships are explicit now, rollback only restores the old routing behavior; it does not recreate or depend on a shared default workspace.
 
 ## Docker Compose (SQLite, multi-container)
 

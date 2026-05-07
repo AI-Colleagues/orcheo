@@ -79,6 +79,7 @@ class FakePool:
 def test_postgres_vault_persist_template() -> None:
     """Test persisting template metadata."""
     cipher = AesGcmCredentialCipher(key="test-key")
+    workspace_id = "workspace-a"
 
     conn = FakeConnection(responses=[{}])
     pool = FakePool(conn)
@@ -92,6 +93,7 @@ def test_postgres_vault_persist_template() -> None:
         provider="test-provider",
         scopes=["read", "write"],
         actor="test-actor",
+        workspace_id=workspace_id,
     )
 
     # Verify INSERT was called
@@ -102,8 +104,9 @@ def test_postgres_vault_persist_template() -> None:
     params = insert_queries[0][1]
     assert params[0] == str(template.id)
     assert params[1] == template.scope.scope_hint()
-    assert params[2] == "Test Template"
-    assert params[3] == "test-provider"
+    assert params[2] == workspace_id
+    assert params[3] == "Test Template"
+    assert params[4] == "test-provider"
 
 
 def test_postgres_vault_load_template_found() -> None:
@@ -231,6 +234,43 @@ def test_postgres_vault_iter_templates() -> None:
     assert len(results) == 2
     assert results[0].name == "Template1"
     assert results[1].name == "Template2"
+
+
+def test_postgres_vault_iter_templates_filters_by_workspace() -> None:
+    """Test iterating over workspace-scoped templates."""
+    cipher = AesGcmCredentialCipher(key="test-key")
+
+    template = {
+        "id": str(uuid4()),
+        "name": "Template1",
+        "provider": "provider",
+        "scopes": ["read"],
+        "created_at": datetime.now(tz=UTC).isoformat(),
+        "updated_at": datetime.now(tz=UTC).isoformat(),
+        "scope": {"workflow_ids": [], "workspace_ids": [], "roles": []},
+        "kind": "oauth",
+        "audit_log": [],
+    }
+
+    conn = FakeConnection(
+        responses=[
+            {
+                "rows": [
+                    {"payload": json.dumps(template)},
+                ]
+            }
+        ]
+    )
+    pool = FakePool(conn)
+
+    vault = PostgresCredentialVault(dsn="postgresql://test", cipher=cipher)
+    vault._pool = pool
+    vault._initialized = True
+
+    results = list(vault._iter_templates(workspace_id="workspace-a"))
+    assert len(results) == 1
+    assert results[0].name == "Template1"
+    assert "WHERE workspace_id = %s" in conn.queries[0][0]
 
 
 def test_postgres_vault_remove_template_success() -> None:

@@ -149,7 +149,7 @@ Agent nodes refer to trainable prompts by config path (e.g., `config.prompts.age
 
 - Authenticate all trainer and run requests; enforce workflow-level authorization.
 - Validate configs to block arbitrary code injection via callbacks or unserializable objects.
-- Redact secrets from configs and evaluator outputs before persistence; honor tenancy boundaries for datasets/checkpoints.
+- Redact secrets from configs and evaluator outputs before persistence; honor workspace boundaries for datasets/checkpoints.
 - Rate limit training runs and cap concurrency to protect shared model gateways.
 
 ## Performance Considerations

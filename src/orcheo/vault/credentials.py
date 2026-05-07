@@ -44,6 +44,7 @@ class CredentialOperationsMixin:
         kind: CredentialKind | str = CredentialKind.SECRET,
         oauth_tokens: OAuthTokenSecrets | None = None,
         template_id: UUID | None = None,
+        workspace_id: str | None = None,
     ) -> CredentialMetadata:
         """Encrypt and persist a new credential."""
         normalized_kind = kind
@@ -60,6 +61,7 @@ class CredentialOperationsMixin:
             kind=normalized_kind,
             oauth_tokens=oauth_tokens,
             template_id=template_id,
+            workspace_id=workspace_id,
         )
         self._persist_metadata(metadata)
         return metadata.model_copy(deep=True)
@@ -188,28 +190,56 @@ class CredentialOperationsMixin:
         return metadata.reveal(cipher=self._cipher)
 
     def list_credentials(
-        self, *, context: CredentialAccessContext | None = None
+        self,
+        *,
+        context: CredentialAccessContext | None = None,
+        workspace_id: str | None = None,
     ) -> list[CredentialMetadata]:
         """Return credential metadata permitted for the workflow context."""
         access_context = context or CredentialAccessContext()
+        workspace_filter = (
+            workspace_id if workspace_id is not None else access_context.workspace_id
+        )
+        workspace_str = str(workspace_filter) if workspace_filter is not None else None
         return [
             item.model_copy(deep=True)
-            for item in self._iter_metadata()
+            for item in self._iter_metadata(workspace_id=workspace_str)
             if item.scope.allows(access_context)
+            and (
+                workspace_str is None
+                or item.workspace_id is None
+                or item.workspace_id == workspace_str
+            )
         ]
 
-    def list_all_credentials(self) -> list[CredentialMetadata]:
+    def list_all_credentials(
+        self, *, workspace_id: str | None = None
+    ) -> list[CredentialMetadata]:
         """Return all credential metadata without applying scope filtering."""
-        return [item.model_copy(deep=True) for item in self._iter_metadata()]
+        workspace_str = str(workspace_id) if workspace_id is not None else None
+        return [
+            item.model_copy(deep=True)
+            for item in self._iter_metadata(workspace_id=workspace_str)
+            if (
+                workspace_str is None
+                or item.workspace_id is None
+                or item.workspace_id == workspace_str
+            )
+        ]
 
     def describe_credentials(
         self, *, context: CredentialAccessContext | None = None
     ) -> list[MutableMapping[str, object]]:
         """Return masked representations suitable for logging."""
         access_context = context or CredentialAccessContext()
+        workspace_filter = (
+            str(access_context.workspace_id)
+            if access_context.workspace_id is not None
+            else None
+        )
         return [
             item.redact()
-            for item in self._iter_metadata()
+            for item in self._iter_metadata(workspace_id=workspace_filter)
             if item.scope.allows(access_context)
         ]
 
@@ -235,6 +265,12 @@ class CredentialOperationsMixin:
     ) -> CredentialMetadata:
         metadata = self._load_metadata(credential_id)
         access_context = context or CredentialAccessContext()
+        if access_context.workspace_id is not None and metadata.workspace_id not in {
+            None,
+            str(access_context.workspace_id),
+        }:
+            msg = "Credential cannot be accessed with the provided context."
+            raise WorkflowScopeError(msg)
         if not metadata.scope.allows(access_context):
             msg = "Credential cannot be accessed with the provided context."
             raise WorkflowScopeError(msg)
@@ -248,7 +284,9 @@ class CredentialOperationsMixin:
         """Load credential metadata from storage."""
         raise NotImplementedError  # pragma: no cover
 
-    def _iter_metadata(self) -> Iterable[CredentialMetadata]:
+    def _iter_metadata(
+        self, *, workspace_id: str | None = None
+    ) -> Iterable[CredentialMetadata]:
         """Iterate over stored credential metadata."""
         raise NotImplementedError  # pragma: no cover
 

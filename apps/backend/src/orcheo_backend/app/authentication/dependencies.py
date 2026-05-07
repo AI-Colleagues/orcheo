@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 from datetime import UTC, datetime
 from sys import modules
 from typing import Any
@@ -177,17 +178,43 @@ def _build_dev_context(identity: str, settings: AuthSettings) -> RequestContext:
     )
 
 
-def _try_dev_login_cookie(
+def _parse_dev_identity(raw_value: object) -> str | None:
+    if not isinstance(raw_value, str):
+        return None
+    candidate = raw_value.strip()
+    if not candidate:
+        return None
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        subject = parsed.get("subject")
+        if isinstance(subject, str):
+            subject = subject.strip()
+            if subject:
+                return subject
+    return candidate.split(":", 1)[0].strip() or None
+
+
+def _try_dev_login_session(
     scope: Request | WebSocket, settings: AuthSettings
 ) -> RequestContext | None:
-    cookie_name = settings.dev_login_cookie_name if settings.dev_login_enabled else None
-    if not cookie_name:
+    if not settings.dev_login_enabled:
         return None
-    cookies = getattr(scope, "cookies", None) or {}
-    raw_value = cookies.get(cookie_name)
+    headers = getattr(scope, "headers", None) or {}
+    raw_value = headers.get("x-orcheo-dev-session")
+    if raw_value is None:
+        cookie_name = settings.dev_login_cookie_name
+        if not cookie_name:
+            return None
+        cookies = getattr(scope, "cookies", None) or {}
+        raw_value = cookies.get(cookie_name)
     if not raw_value:
         return None
-    identity = f"dev:{raw_value}"
+    identity = _parse_dev_identity(raw_value)
+    if not identity:
+        return None
     return _build_dev_context(identity, settings)
 
 
@@ -210,7 +237,7 @@ async def authenticate_request(request: Request) -> RequestContext:
         request.state.auth = context
         return context
 
-    dev_context = _try_dev_login_cookie(request, authenticator.settings)
+    dev_context = _try_dev_login_session(request, authenticator.settings)
     if dev_context:
         request.state.auth = dev_context
         return dev_context
@@ -303,7 +330,7 @@ async def authenticate_websocket(websocket: WebSocket) -> RequestContext:  # noq
         raise
 
     if not token:
-        dev_context = _try_dev_login_cookie(websocket, authenticator.settings)
+        dev_context = _try_dev_login_session(websocket, authenticator.settings)
         if dev_context:
             websocket.state.auth = dev_context
             return dev_context
