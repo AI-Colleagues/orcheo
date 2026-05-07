@@ -92,7 +92,12 @@ class OAuthCredentialService(CredentialHealthGuard):
             kind=template.kind,
             oauth_tokens=oauth_tokens,
             template_id=template.id,
-            workspace_id=template.workspace_id or access_context.workspace_id,
+            workspace_id=template.workspace_id
+            or (
+                str(access_context.workspace_id)
+                if access_context.workspace_id is not None
+                else None
+            ),
         )
         self._vault.record_template_issuance(
             template_id=template.id,

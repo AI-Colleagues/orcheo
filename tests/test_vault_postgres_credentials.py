@@ -361,7 +361,11 @@ def test_postgres_vault_load_metadata_found() -> None:
         "audit_log": [],
     }
 
-    conn = FakeConnection(responses=[{"row": {"payload": json.dumps(metadata_dict)}}])
+    conn = FakeConnection(
+        responses=[
+            {"row": {"payload": json.dumps(metadata_dict), "workspace_id": None}}
+        ]
+    )
     pool = FakePool(conn)
 
     vault = PostgresCredentialVault(dsn="postgresql://test", cipher=cipher)
@@ -395,7 +399,9 @@ def test_postgres_vault_load_metadata_dict_payload() -> None:
     }
 
     # Return dict instead of JSON string
-    conn = FakeConnection(responses=[{"row": {"payload": metadata_dict}}])
+    conn = FakeConnection(
+        responses=[{"row": {"payload": metadata_dict, "workspace_id": None}}]
+    )
     pool = FakePool(conn)
 
     vault = PostgresCredentialVault(dsn="postgresql://test", cipher=cipher)
@@ -457,8 +463,8 @@ def test_postgres_vault_iter_metadata() -> None:
         responses=[
             {
                 "rows": [
-                    {"payload": json.dumps(metadata1)},
-                    {"payload": metadata2},  # Dict payload
+                    {"payload": json.dumps(metadata1), "workspace_id": None},
+                    {"payload": metadata2, "workspace_id": None},  # Dict payload
                 ]
             }
         ]
@@ -497,7 +503,7 @@ def test_postgres_vault_iter_metadata_filters_by_workspace() -> None:
         responses=[
             {
                 "rows": [
-                    {"payload": json.dumps(metadata)},
+                    {"payload": json.dumps(metadata), "workspace_id": "workspace-a"},
                 ]
             }
         ]
@@ -511,7 +517,7 @@ def test_postgres_vault_iter_metadata_filters_by_workspace() -> None:
     results = list(vault._iter_metadata(workspace_id="workspace-a"))
     assert len(results) == 1
     assert results[0].name == "Cred1"
-    assert "workspace_id IS NULL OR workspace_id = %s" in conn.queries[0][0]
+    assert "WHERE workspace_id = %s" in conn.queries[0][0]
 
 
 def test_postgres_vault_remove_credential_success() -> None:

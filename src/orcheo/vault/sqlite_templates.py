@@ -86,7 +86,7 @@ class SQLiteTemplateStoreMixin:
                      WHERE workspace_id = ?
                   ORDER BY created_at ASC
                     """,
-                    (workspace_id,),
+                    (str(workspace_id),),
                 )
             rows = cursor.fetchall()
         for row in rows:

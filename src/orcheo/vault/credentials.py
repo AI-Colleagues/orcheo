@@ -200,14 +200,15 @@ class CredentialOperationsMixin:
         workspace_filter = (
             workspace_id if workspace_id is not None else access_context.workspace_id
         )
+        workspace_str = str(workspace_filter) if workspace_filter is not None else None
         return [
             item.model_copy(deep=True)
-            for item in self._iter_metadata(workspace_id=workspace_filter)
+            for item in self._iter_metadata(workspace_id=workspace_str)
             if item.scope.allows(access_context)
             and (
-                workspace_id is None
+                workspace_str is None
                 or item.workspace_id is None
-                or item.workspace_id == workspace_id
+                or item.workspace_id == workspace_str
             )
         ]
 
@@ -215,13 +216,14 @@ class CredentialOperationsMixin:
         self, *, workspace_id: str | None = None
     ) -> list[CredentialMetadata]:
         """Return all credential metadata without applying scope filtering."""
+        workspace_str = str(workspace_id) if workspace_id is not None else None
         return [
             item.model_copy(deep=True)
-            for item in self._iter_metadata(workspace_id=workspace_id)
+            for item in self._iter_metadata(workspace_id=workspace_str)
             if (
-                workspace_id is None
+                workspace_str is None
                 or item.workspace_id is None
-                or item.workspace_id == workspace_id
+                or item.workspace_id == workspace_str
             )
         ]
 
@@ -230,7 +232,11 @@ class CredentialOperationsMixin:
     ) -> list[MutableMapping[str, object]]:
         """Return masked representations suitable for logging."""
         access_context = context or CredentialAccessContext()
-        workspace_filter = access_context.workspace_id
+        workspace_filter = (
+            str(access_context.workspace_id)
+            if access_context.workspace_id is not None
+            else None
+        )
         return [
             item.redact()
             for item in self._iter_metadata(workspace_id=workspace_filter)
@@ -261,7 +267,7 @@ class CredentialOperationsMixin:
         access_context = context or CredentialAccessContext()
         if access_context.workspace_id is not None and metadata.workspace_id not in {
             None,
-            access_context.workspace_id,
+            str(access_context.workspace_id),
         }:
             msg = "Credential cannot be accessed with the provided context."
             raise WorkflowScopeError(msg)

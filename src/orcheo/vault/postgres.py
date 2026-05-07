@@ -223,7 +223,7 @@ class PostgresCredentialVault(BaseCredentialVault):
                      WHERE workspace_id = %s
                   ORDER BY created_at ASC
                     """,
-                    (workspace_id,),
+                    (str(workspace_id),),
                 )
             rows = cursor.fetchall()
         for row in rows:
@@ -311,7 +311,7 @@ class PostgresCredentialVault(BaseCredentialVault):
                      WHERE workspace_id = %s
                   ORDER BY created_at ASC
                     """,
-                    (workspace_id,),
+                    (str(workspace_id),),
                 )
             rows = cursor.fetchall()
         for row in rows:
@@ -395,7 +395,7 @@ class PostgresCredentialVault(BaseCredentialVault):
                      WHERE workspace_id = %s
                   ORDER BY created_at ASC
                     """,
-                    (workspace_id,),
+                    (str(workspace_id),),
                 )
             rows = cursor.fetchall()
         for row in rows:

@@ -203,9 +203,8 @@ class TemplateOperationsMixin:
         """Return whether a template belongs to the active workspace."""
         if context.workspace_id is None:
             return True
-        return (
-            template_workspace_id is None
-            or template_workspace_id == context.workspace_id
+        return template_workspace_id is None or template_workspace_id == str(
+            context.workspace_id
         )
 
 

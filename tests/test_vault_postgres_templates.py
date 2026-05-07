@@ -270,7 +270,7 @@ def test_postgres_vault_iter_templates_filters_by_workspace() -> None:
     results = list(vault._iter_templates(workspace_id="workspace-a"))
     assert len(results) == 1
     assert results[0].name == "Template1"
-    assert "workspace_id IS NULL OR workspace_id = %s" in conn.queries[0][0]
+    assert "WHERE workspace_id = %s" in conn.queries[0][0]
 
 
 def test_postgres_vault_remove_template_success() -> None:

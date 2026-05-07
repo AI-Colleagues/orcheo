@@ -190,7 +190,9 @@ class GovernanceAlertOperationsMixin:
         """Return whether an alert belongs to the active workspace."""
         if context.workspace_id is None:
             return True
-        return alert_workspace_id is None or alert_workspace_id == context.workspace_id
+        return alert_workspace_id is None or alert_workspace_id == str(
+            context.workspace_id
+        )
 
 
 __all__ = ["GovernanceAlertOperationsMixin"]

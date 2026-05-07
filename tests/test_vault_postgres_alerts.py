@@ -272,7 +272,7 @@ def test_postgres_vault_iter_alerts_filters_by_workspace() -> None:
     results = list(vault._iter_alerts(workspace_id="workspace-a"))
     assert len(results) == 1
     assert results[0].message == "Alert 1"
-    assert "workspace_id IS NULL OR workspace_id = %s" in conn.queries[0][0]
+    assert "WHERE workspace_id = %s" in conn.queries[0][0]
 
 
 def test_postgres_vault_remove_alert() -> None:
