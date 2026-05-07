@@ -70,14 +70,17 @@ class SQLiteCredentialStoreMixin:
     ) -> CredentialMetadata:
         with self._locked_connection() as conn:
             cursor = conn.execute(
-                "SELECT payload FROM credentials WHERE id = ?",
+                "SELECT payload, workspace_id FROM credentials WHERE id = ?",
                 (str(credential_id),),
             )
             row = cursor.fetchone()
         if row is None:
             msg = "Credential was not found."
             raise CredentialNotFoundError(msg)
-        return CredentialMetadata.model_validate_json(row[0])
+        metadata = CredentialMetadata.model_validate_json(row[0])
+        if metadata.workspace_id is None and row[1] is not None:
+            metadata.workspace_id = row[1]
+        return metadata
 
     def _iter_metadata(
         self: _SQLiteConnectionSupport,
@@ -88,7 +91,7 @@ class SQLiteCredentialStoreMixin:
             if workspace_id is None:
                 cursor = conn.execute(
                     """
-                    SELECT payload
+                    SELECT payload, workspace_id
                       FROM credentials
                   ORDER BY created_at ASC
                     """
@@ -96,7 +99,7 @@ class SQLiteCredentialStoreMixin:
             else:
                 cursor = conn.execute(
                     """
-                    SELECT payload
+                    SELECT payload, workspace_id
                       FROM credentials
                      WHERE workspace_id = ?
                   ORDER BY created_at ASC
@@ -105,7 +108,10 @@ class SQLiteCredentialStoreMixin:
                 )
             rows = cursor.fetchall()
         for row in rows:
-            yield CredentialMetadata.model_validate_json(row[0])
+            metadata = CredentialMetadata.model_validate_json(row[0])
+            if metadata.workspace_id is None and row[1] is not None:
+                metadata.workspace_id = row[1]
+            yield metadata
 
     def _remove_credential(self: _SQLiteConnectionSupport, credential_id: UUID) -> None:
         with self._locked_connection() as conn:

@@ -168,7 +168,9 @@ class PostgresCredentialVault(BaseCredentialVault):
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     workflow_id = EXCLUDED.workflow_id,
-                    workspace_id = EXCLUDED.workspace_id,
+                    workspace_id = COALESCE(
+                        EXCLUDED.workspace_id, credentials.workspace_id
+                    ),
                     name = EXCLUDED.name,
                     provider = EXCLUDED.provider,
                     created_at = EXCLUDED.created_at,
@@ -190,7 +192,7 @@ class PostgresCredentialVault(BaseCredentialVault):
     def _load_metadata(self, credential_id: UUID) -> CredentialMetadata:
         with self._connection() as conn:
             cursor = conn.execute(
-                "SELECT payload FROM credentials WHERE id = %s",
+                "SELECT payload, workspace_id FROM credentials WHERE id = %s",
                 (str(credential_id),),
             )
             row = cursor.fetchone()
@@ -199,7 +201,10 @@ class PostgresCredentialVault(BaseCredentialVault):
         p = row["payload"]
         if not isinstance(p, str):
             p = json.dumps(p)
-        return CredentialMetadata.model_validate_json(p)
+        metadata = CredentialMetadata.model_validate_json(p)
+        if metadata.workspace_id is None and row["workspace_id"] is not None:
+            metadata.workspace_id = row["workspace_id"]
+        return metadata
 
     def _iter_metadata(
         self, *, workspace_id: str | None = None
@@ -207,12 +212,13 @@ class PostgresCredentialVault(BaseCredentialVault):
         with self._connection() as conn:
             if workspace_id is None:
                 cursor = conn.execute(
-                    "SELECT payload FROM credentials ORDER BY created_at ASC"
+                    "SELECT payload, workspace_id FROM credentials "
+                    "ORDER BY created_at ASC"
                 )
             else:
                 cursor = conn.execute(
                     """
-                    SELECT payload
+                    SELECT payload, workspace_id
                       FROM credentials
                      WHERE workspace_id = %s
                   ORDER BY created_at ASC
@@ -224,7 +230,10 @@ class PostgresCredentialVault(BaseCredentialVault):
             p = row["payload"]
             if not isinstance(p, str):
                 p = json.dumps(p)
-            yield CredentialMetadata.model_validate_json(p)
+            metadata = CredentialMetadata.model_validate_json(p)
+            if metadata.workspace_id is None and row["workspace_id"] is not None:
+                metadata.workspace_id = row["workspace_id"]
+            yield metadata
 
     def _remove_credential(self, credential_id: UUID) -> None:
         with self._connection() as conn:
