@@ -54,6 +54,18 @@ def test_load_auth_settings_with_custom_values(
     assert settings.issuer == "https://auth.example.com"
 
 
+def test_load_auth_settings_strips_trailing_slash_from_issuer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issuer URLs are normalized so Auth0-style trailing slashes still work."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_ISSUER", "https://auth.example.com/")
+
+    settings = load_auth_settings(refresh=True)
+
+    assert settings.issuer == "https://auth.example.com"
+
+
 def test_get_authenticator_caching() -> None:
     """get_authenticator caches the instance."""
 

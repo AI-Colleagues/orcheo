@@ -88,7 +88,7 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
         allowed_algorithms = _DEFAULT_ALGORITHMS
 
     audiences = _parse_str_sequence(settings.get("AUTH_AUDIENCE"))
-    issuer = _coerce_optional_str(settings.get("AUTH_ISSUER"))
+    issuer = _normalize_issuer(settings.get("AUTH_ISSUER"))
     service_token_backend = _coerce_mode_backend(
         settings.get("AUTH_SERVICE_TOKEN_BACKEND", "sqlite")
     )
@@ -146,6 +146,14 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
         public_exposure_detected=bool(public_exposure_sources),
         public_exposure_sources=public_exposure_sources,
     )
+
+
+def _normalize_issuer(value: Any) -> str | None:
+    """Return a canonical issuer URL without a trailing slash."""
+    issuer = _coerce_optional_str(value)
+    if issuer is None:
+        return None
+    return issuer.rstrip("/")
 
 
 def _resolve_service_token_db_path(settings: Any) -> str | None:
