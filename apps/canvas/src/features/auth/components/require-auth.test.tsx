@@ -1,19 +1,39 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
-const { isAuthenticatedMock } = vi.hoisted(() => ({
+const {
+  isAuthenticatedMock,
+  getAuthTokensMock,
+  startOidcLoginMock,
+  tryRefreshTokensMock,
+} = vi.hoisted(() => ({
   isAuthenticatedMock: vi.fn(),
+  getAuthTokensMock: vi.fn(),
+  startOidcLoginMock: vi.fn().mockResolvedValue(undefined),
+  tryRefreshTokensMock: vi.fn().mockResolvedValue(false),
 }));
 
 vi.mock("@features/auth/lib/auth-session", () => ({
   isAuthenticated: isAuthenticatedMock,
+  getAuthTokens: getAuthTokensMock,
+}));
+
+vi.mock("@features/auth/lib/oidc-client", () => ({
+  startOidcLogin: startOidcLoginMock,
+  tryRefreshTokens: tryRefreshTokensMock,
 }));
 
 describe("RequireAuth", () => {
   beforeEach(() => {
     isAuthenticatedMock.mockReset();
     isAuthenticatedMock.mockReturnValue(false);
+    getAuthTokensMock.mockReset();
+    getAuthTokensMock.mockReturnValue(null);
+    startOidcLoginMock.mockReset();
+    startOidcLoginMock.mockResolvedValue(undefined);
+    tryRefreshTokensMock.mockReset();
+    tryRefreshTokensMock.mockResolvedValue(false);
   });
   afterEach(() => {
     cleanup();
@@ -34,7 +54,6 @@ describe("RequireAuth", () => {
           <Route element={<RequireAuth />}>
             <Route path="/" element={<div>protected content</div>} />
           </Route>
-          <Route path="/login" element={<div>login page</div>} />
         </Routes>
       </MemoryRouter>,
     );
@@ -55,9 +74,13 @@ describe("RequireAuth", () => {
     expect(screen.getByText("protected content")).toBeInTheDocument();
   });
 
-  it("redirects to login when auth issuer is a valid URL and not authenticated", async () => {
+  it("redirects to Auth0 when auth issuer is a valid URL and not authenticated", async () => {
     await renderWithAuth("https://auth.example.com");
-    expect(screen.getByText("login page")).toBeInTheDocument();
+    expect(screen.queryByText("protected content")).not.toBeInTheDocument();
+    await waitFor(() => expect(startOidcLoginMock).toHaveBeenCalledOnce());
+    expect(startOidcLoginMock).toHaveBeenCalledWith(
+      expect.objectContaining({ redirectTo: "/" }),
+    );
   });
 
   it("allows access when auth issuer is valid and user is authenticated", async () => {
@@ -71,8 +94,40 @@ describe("RequireAuth", () => {
     expect(screen.getByText("protected content")).toBeInTheDocument();
   });
 
-  it("redirects to login with http localhost issuer when not authenticated", async () => {
+  it("redirects to Auth0 with http localhost issuer when not authenticated", async () => {
     await renderWithAuth("http://localhost:8080");
-    expect(screen.getByText("login page")).toBeInTheDocument();
+    expect(screen.queryByText("protected content")).not.toBeInTheDocument();
+    await waitFor(() => expect(startOidcLoginMock).toHaveBeenCalledOnce());
+  });
+
+  it("silently refreshes when access token is expired but refresh token is stored", async () => {
+    getAuthTokensMock.mockReturnValue({ refreshToken: "rt_valid" });
+    tryRefreshTokensMock.mockResolvedValue(true);
+
+    await renderWithAuth("https://auth.example.com");
+
+    await waitFor(() => expect(tryRefreshTokensMock).toHaveBeenCalledOnce());
+    expect(screen.getByText("protected content")).toBeInTheDocument();
+    expect(startOidcLoginMock).not.toHaveBeenCalled();
+  });
+
+  it("redirects to Auth0 when token refresh fails", async () => {
+    getAuthTokensMock.mockReturnValue({ refreshToken: "rt_expired" });
+    tryRefreshTokensMock.mockResolvedValue(false);
+
+    await renderWithAuth("https://auth.example.com");
+
+    await waitFor(() => expect(tryRefreshTokensMock).toHaveBeenCalledOnce());
+    await waitFor(() => expect(startOidcLoginMock).toHaveBeenCalledOnce());
+    expect(screen.queryByText("protected content")).not.toBeInTheDocument();
+  });
+
+  it("does not attempt refresh when no tokens are stored", async () => {
+    getAuthTokensMock.mockReturnValue(null);
+
+    await renderWithAuth("https://auth.example.com");
+
+    await waitFor(() => expect(startOidcLoginMock).toHaveBeenCalledOnce());
+    expect(tryRefreshTokensMock).not.toHaveBeenCalled();
   });
 });

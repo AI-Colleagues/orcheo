@@ -1,6 +1,10 @@
-import { setAuthTokens } from "@features/auth/lib/auth-session";
+import {
+  clearAuthSession,
+  getAuthTokens,
+  setAuthTokens,
+} from "@features/auth/lib/auth-session";
 
-type AuthProvider = "google" | "github";
+type AuthProvider = "google" | "github" | "email";
 
 interface OidcInviteContext {
   invitation?: string;
@@ -182,6 +186,9 @@ const getAuthConfig = (): OidcAuthConfig => {
   const providerValues: Partial<Record<AuthProvider, string>> = {
     google: readEnv("VITE_ORCHEO_AUTH_PROVIDER_GOOGLE"),
     github: readEnv("VITE_ORCHEO_AUTH_PROVIDER_GITHUB"),
+    email:
+      readEnv("VITE_ORCHEO_AUTH_PROVIDER_EMAIL") ??
+      "Username-Password-Authentication",
   };
 
   return {
@@ -338,10 +345,12 @@ export const startOidcLogin = async ({
   loginHint,
   screenHint,
   signup = false,
+  prompt,
 }: {
   provider?: AuthProvider;
   redirectTo?: string;
   signup?: boolean;
+  prompt?: string;
 } & OidcInviteContext): Promise<void> => {
   const normalizedInvitation = normalizeOptionalParam(invitation);
   const normalizedOrganization = normalizeOptionalParam(organization);
@@ -385,6 +394,9 @@ export const startOidcLogin = async ({
   }
   if (normalizedScreenHint) {
     url.searchParams.set("screen_hint", normalizedScreenHint);
+  }
+  if (prompt) {
+    url.searchParams.set("prompt", prompt);
   }
   if (config.audience) {
     url.searchParams.set("audience", config.audience);
@@ -468,4 +480,84 @@ export const completeOidcLogin = async ({
     tokenType: payload.token_type,
     expiresAt,
   });
+};
+
+export const tryRefreshTokens = async (): Promise<boolean> => {
+  const tokens = getAuthTokens();
+  if (!tokens?.refreshToken) {
+    return false;
+  }
+
+  let config: OidcAuthConfig;
+  try {
+    config = getAuthConfig();
+  } catch {
+    return false;
+  }
+
+  let discovery: OidcDiscovery;
+  try {
+    discovery = await loadDiscovery(config.issuer);
+  } catch {
+    return false;
+  }
+
+  const body = new URLSearchParams();
+  body.set("grant_type", "refresh_token");
+  body.set("client_id", config.clientId);
+  body.set("refresh_token", tokens.refreshToken);
+
+  let response: Response;
+  try {
+    response = await fetch(discovery.token_endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+  } catch {
+    return false;
+  }
+
+  if (!response.ok) {
+    clearAuthSession();
+    return false;
+  }
+
+  let payload: {
+    access_token?: string;
+    id_token?: string;
+    refresh_token?: string;
+    token_type?: string;
+    expires_in?: number;
+  };
+  try {
+    payload = (await response.json()) as typeof payload;
+  } catch {
+    clearAuthSession();
+    return false;
+  }
+
+  if (!payload.access_token) {
+    clearAuthSession();
+    return false;
+  }
+
+  const expiresIn = payload.expires_in;
+  const expiryFromToken =
+    parseJwtExpiry(payload.access_token) ?? parseJwtExpiry(payload.id_token);
+  const expiresAt =
+    typeof expiresIn === "number"
+      ? Date.now() + expiresIn * 1000
+      : expiryFromToken;
+
+  setAuthTokens({
+    accessToken: payload.access_token,
+    idToken: payload.id_token,
+    // keep the old refresh token if the server doesn't issue a new one
+    refreshToken: payload.refresh_token ?? tokens.refreshToken,
+    tokenType: payload.token_type,
+    expiresAt,
+  });
+
+  return true;
 };
