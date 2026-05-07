@@ -24,6 +24,7 @@ interface OidcAuthConfig {
   audience?: string;
   organization?: string;
   providerParam?: string;
+  signupProvider?: string;
   providerValues: Partial<Record<AuthProvider, string>>;
 }
 
@@ -177,6 +178,7 @@ const getAuthConfig = (): OidcAuthConfig => {
   const audience = readEnv("VITE_ORCHEO_AUTH_AUDIENCE");
   const organization = readEnv("VITE_ORCHEO_AUTH_ORGANIZATION");
   const providerParam = readEnv("VITE_ORCHEO_AUTH_PROVIDER_PARAM");
+  const signupProvider = readEnv("VITE_ORCHEO_AUTH_PROVIDER_SIGNUP");
   const providerValues: Partial<Record<AuthProvider, string>> = {
     google: readEnv("VITE_ORCHEO_AUTH_PROVIDER_GOOGLE"),
     github: readEnv("VITE_ORCHEO_AUTH_PROVIDER_GITHUB"),
@@ -190,6 +192,7 @@ const getAuthConfig = (): OidcAuthConfig => {
     audience,
     organization,
     providerParam,
+    signupProvider,
     providerValues,
   };
 };
@@ -334,9 +337,11 @@ export const startOidcLogin = async ({
   organizationName,
   loginHint,
   screenHint,
+  signup = false,
 }: {
   provider?: AuthProvider;
   redirectTo?: string;
+  signup?: boolean;
 } & OidcInviteContext): Promise<void> => {
   const normalizedInvitation = normalizeOptionalParam(invitation);
   const normalizedOrganization = normalizeOptionalParam(organization);
@@ -384,8 +389,12 @@ export const startOidcLogin = async ({
   if (config.audience) {
     url.searchParams.set("audience", config.audience);
   }
-  if (provider && config.providerParam) {
-    const providerValue = config.providerValues[provider] ?? provider;
+  const effectiveProvider = signup ? config.signupProvider ?? provider : provider;
+  if (effectiveProvider && config.providerParam) {
+    const providerValue =
+      provider && provider in config.providerValues
+        ? config.providerValues[provider] ?? provider
+        : effectiveProvider;
     url.searchParams.set(config.providerParam, providerValue);
   }
 

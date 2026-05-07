@@ -8,17 +8,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/design-system/ui/card";
-import { Input } from "@/design-system/ui/input";
-import { Label } from "@/design-system/ui/label";
 import { Loader2 } from "lucide-react";
 import { GoogleLogo, GithubLogo } from "@features/auth/components/auth-logos";
 import { toast } from "@/hooks/use-toast";
 import { startOidcLogin } from "@features/auth/lib/oidc-client";
-import {
-  clearAuthSession,
-  setDevAuthSession,
-} from "@features/auth/lib/auth-session";
-import { startDevLogin } from "@/lib/api";
 
 interface OidcInviteContext {
   invitation?: string;
@@ -98,12 +91,9 @@ const extractSearch = (pathWithSearchAndHash: string): string => {
 
 export default function AuthPage() {
   const location = useLocation();
-  const [providerLoading, setProviderLoading] = useState<
-    "google" | "github" | null
+  const [authActionLoading, setAuthActionLoading] = useState<
+    "google" | "github" | "signup" | null
   >(null);
-  const [devEmail, setDevEmail] = useState("local@orcheo.local");
-  const [devName, setDevName] = useState("Local Developer");
-  const [devLoginLoading, setDevLoginLoading] = useState(false);
   const redirectTo = useMemo(
     () => resolveRedirectTo(location.state),
     [location.state],
@@ -116,56 +106,19 @@ export default function AuthPage() {
   }, [location.search, redirectTo]);
   const oidcConfigured = Boolean(
     (import.meta.env?.VITE_ORCHEO_AUTH_ISSUER ?? "").trim() &&
-      (import.meta.env?.VITE_ORCHEO_AUTH_CLIENT_ID ?? "").trim(),
+    (import.meta.env?.VITE_ORCHEO_AUTH_CLIENT_ID ?? "").trim(),
   );
 
-  const startLocalLogin = async () => {
-    setDevLoginLoading(true);
+  const startOidcAction = async (action: "google" | "github" | "signup") => {
+    setAuthActionLoading(action);
     try {
-      const response = await startDevLogin({
-        provider: "local",
-        email: devEmail,
-        name: devName,
+      await startOidcLogin({
+        provider: action === "signup" ? undefined : action,
+        redirectTo,
+        ...inviteContext,
+        screenHint: action === "signup" ? "signup" : inviteContext.screenHint,
+        signup: action === "signup",
       });
-      clearAuthSession();
-      setDevAuthSession({
-        provider: response.provider,
-        subject: response.subject,
-        displayName: response.display_name,
-      });
-      toast({
-        title: "Signed in locally",
-        description: `Welcome ${response.display_name}.`,
-      });
-      const target = new URL(redirectTo, window.location.origin);
-      target.searchParams.set(
-        "dev_session",
-        encodeURIComponent(
-          JSON.stringify({
-            provider: response.provider,
-            subject: response.subject,
-            displayName: response.display_name,
-          }),
-        ),
-      );
-      window.location.assign(target.toString());
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unable to sign in locally.";
-      toast({
-        title: "Local sign-in failed",
-        description: message,
-        variant: "destructive",
-      });
-    } finally {
-      setDevLoginLoading(false);
-    }
-  };
-
-  const startProviderLogin = async (provider: "google" | "github") => {
-    setProviderLoading(provider);
-    try {
-      await startOidcLogin({ provider, redirectTo, ...inviteContext });
     } catch (error) {
       const message =
         error instanceof Error
@@ -177,7 +130,7 @@ export default function AuthPage() {
         variant: "destructive",
       });
     } finally {
-      setProviderLoading(null);
+      setAuthActionLoading(null);
     }
   };
 
@@ -206,81 +159,56 @@ export default function AuthPage() {
           <CardTitle className="text-2xl">Sign in</CardTitle>
           <CardDescription>
             {oidcConfigured
-              ? "Continue with your OAuth provider, or use the local dev login below."
-              : "Use the local dev login below for this development stack."}
+              ? "Continue with Google or GitHub."
+              : "OAuth login is not configured for this environment."}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
           {oidcConfigured ? (
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => startProviderLogin("google")}
-                disabled={providerLoading !== null || devLoginLoading}
+            <div className="grid gap-3">
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => startOidcAction("google")}
+                  disabled={authActionLoading !== null}
+                >
+                  {authActionLoading === "google" ? (
+                    <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                  ) : (
+                    <GoogleLogo className="h-5 w-5 mr-2" />
+                  )}
+                  {authActionLoading === "google" ? "Signing in…" : "Google"}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => startOidcAction("github")}
+                  disabled={authActionLoading !== null}
+                >
+                  {authActionLoading === "github" ? (
+                    <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                  ) : (
+                    <GithubLogo className="h-5 w-5 mr-2" />
+                  )}
+                  {authActionLoading === "github" ? "Signing in…" : "GitHub"}
+                </Button>
+              </div>
+              <a
+                href="/login?screen_hint=signup"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void startOidcAction("signup");
+                }}
+                className="text-sm text-primary underline-offset-4 hover:underline"
               >
-                {providerLoading === "google" ? (
-                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                ) : (
-                  <GoogleLogo className="h-5 w-5 mr-2" />
-                )}
-                {providerLoading === "google" ? "Signing in…" : "Google"}
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => startProviderLogin("github")}
-                disabled={providerLoading !== null || devLoginLoading}
-              >
-                {providerLoading === "github" ? (
-                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                ) : (
-                  <GithubLogo className="h-5 w-5 mr-2" />
-                )}
-                {providerLoading === "github" ? "Signing in…" : "GitHub"}
-              </Button>
+                Create an account with username and password
+              </a>
             </div>
           ) : null}
-          <div className="grid gap-3 rounded-lg border border-dashed border-border/70 bg-background/70 p-4">
-            <div className="space-y-1">
-              <h3 className="font-medium">Local development login</h3>
-              <p className="text-sm text-muted-foreground">
-                This creates a developer session backed by the local backend so
-                you can test workspace separation without a real IdP.
-              </p>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="dev-name">Name</Label>
-              <Input
-                id="dev-name"
-                value={devName}
-                onChange={(event) => setDevName(event.target.value)}
-                placeholder="Local Developer"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="dev-email">Email</Label>
-              <Input
-                id="dev-email"
-                value={devEmail}
-                onChange={(event) => setDevEmail(event.target.value)}
-                placeholder="local@orcheo.local"
-              />
-            </div>
-            <Button
-              className="w-full"
-              onClick={startLocalLogin}
-              disabled={devLoginLoading || providerLoading !== null}
-            >
-              {devLoginLoading ? (
-                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-              ) : null}
-              {devLoginLoading ? "Signing in…" : "Continue locally"}
-            </Button>
-          </div>
-          {oidcConfigured ? (
-            <div className="mt-2 text-center text-sm text-muted-foreground">
-              Need access? Contact your admin.
+          {!oidcConfigured ? (
+            <div className="rounded-lg border border-dashed border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
+              OAuth sign-in is not configured for this environment.
             </div>
           ) : null}
         </CardContent>

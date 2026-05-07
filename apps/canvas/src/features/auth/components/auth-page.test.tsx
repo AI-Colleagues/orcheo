@@ -92,6 +92,38 @@ describe("AuthPage", () => {
     });
   });
 
+  it("starts the sign-up flow from the account creation link", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter
+        initialEntries={[
+          {
+            pathname: "/login",
+          },
+        ]}
+      >
+        <AuthPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(
+      screen.getByRole("link", {
+        name: /create an account with username and password/i,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(startOidcLoginMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: undefined,
+          screenHint: "signup",
+          signup: true,
+        }),
+      );
+    });
+  });
+
   it("ignores query-like content inside redirect hash fragments", async () => {
     const user = userEvent.setup();
 

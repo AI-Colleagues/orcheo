@@ -8,22 +8,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/design-system/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/design-system/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/design-system/ui/dropdown-menu";
 import { Input } from "@/design-system/ui/input";
 import { Label } from "@/design-system/ui/label";
 import { Badge } from "@/design-system/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import {
   createWorkspace,
-  getActiveWorkspace,
   getMyWorkspaces,
-  type ActiveWorkspaceResponse,
   type WorkspaceMembershipSummary,
 } from "@/lib/api";
 import {
+  clearSelectedWorkspaceSlug,
   getSelectedWorkspaceSlug,
   setSelectedWorkspaceSlug,
 } from "@/lib/workspace-session";
+import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
 
 const slugify = (value: string): string =>
   value
@@ -34,8 +39,7 @@ const slugify = (value: string): string =>
     .replace(/^-|-$/g, "");
 
 export default function ActiveWorkspaceIndicator() {
-  const [activeWorkspace, setActiveWorkspace] =
-    useState<ActiveWorkspaceResponse | null>(null);
+  const authUser = useMemo(() => getAuthenticatedUserProfile(), []);
   const [workspaces, setWorkspaces] = useState<WorkspaceMembershipSummary[]>(
     [],
   );
@@ -43,30 +47,63 @@ export default function ActiveWorkspaceIndicator() {
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSlug, setWorkspaceSlugState] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const suggestedWorkspaceName = useMemo(() => {
+    if (!authUser?.name) {
+      return "";
+    }
+    return `${authUser.name}'s workspace`;
+  }, [authUser]);
 
   useEffect(() => {
     let active = true;
 
     const load = async () => {
       try {
-        const [activePayload, membershipsPayload] = await Promise.all([
-          getActiveWorkspace(),
-          getMyWorkspaces(),
-        ]);
+        const membershipsPayload = await getMyWorkspaces();
         if (!active) {
           return;
         }
-        setActiveWorkspace(activePayload);
         setWorkspaces(membershipsPayload.memberships);
 
         const currentSlug = getSelectedWorkspaceSlug();
-        if (!currentSlug) {
-          setSelectedWorkspaceSlug(activePayload.slug);
+        if (membershipsPayload.memberships.length === 0) {
+          setWorkspaceName((current) => current || suggestedWorkspaceName);
+          setWorkspaceSlugState("");
+          if (currentSlug) {
+            clearSelectedWorkspaceSlug();
+          }
+          return;
         }
-      } catch {
+
+        const nextSelected =
+          membershipsPayload.memberships.find(
+            (workspace) => workspace.slug === currentSlug,
+          ) ??
+          membershipsPayload.memberships[0] ??
+          null;
+
+        if (nextSelected === null) {
+          if (currentSlug) {
+            clearSelectedWorkspaceSlug();
+          }
+          return;
+        }
+
+        if (nextSelected.slug !== currentSlug) {
+          setSelectedWorkspaceSlug(nextSelected.slug);
+          if (currentSlug) {
+            window.location.reload();
+          }
+        }
+      } catch (error) {
         if (active) {
-          setActiveWorkspace(null);
           setWorkspaces([]);
+          if (getSelectedWorkspaceSlug()) {
+            clearSelectedWorkspaceSlug();
+          }
+          if (error instanceof Error) {
+            console.error("Failed to load workspaces", error);
+          }
         }
       }
     };
@@ -76,7 +113,10 @@ export default function ActiveWorkspaceIndicator() {
     const handleSelectionChange = () => {
       void load();
     };
-    window.addEventListener("orcheo-workspace-selection-changed", handleSelectionChange);
+    window.addEventListener(
+      "orcheo-workspace-selection-changed",
+      handleSelectionChange,
+    );
 
     return () => {
       active = false;
@@ -85,18 +125,17 @@ export default function ActiveWorkspaceIndicator() {
         handleSelectionChange,
       );
     };
-  }, []);
+  }, [suggestedWorkspaceName]);
 
   const currentWorkspace = useMemo(() => {
     const selectedSlug = getSelectedWorkspaceSlug();
     if (selectedSlug) {
       return (
-        workspaces.find((workspace) => workspace.slug === selectedSlug) ??
-        activeWorkspace
+        workspaces.find((workspace) => workspace.slug === selectedSlug) ?? null
       );
     }
-    return activeWorkspace ?? workspaces[0] ?? null;
-  }, [activeWorkspace, workspaces]);
+    return workspaces[0] ?? null;
+  }, [workspaces]);
 
   const handleSelectWorkspace = (slug: string) => {
     setSelectedWorkspaceSlug(slug);
@@ -147,13 +186,13 @@ export default function ActiveWorkspaceIndicator() {
           <Button
             variant="outline"
             className="inline-flex items-center gap-2 border-dashed bg-background/80"
-            disabled={!currentWorkspace}
+            disabled={false}
           >
             <Badge variant="secondary" className="text-[10px] uppercase">
               Workspace
             </Badge>
             <span className="max-w-[10rem] truncate font-medium">
-              {currentWorkspace?.slug ?? "Loading…"}
+              {currentWorkspace?.slug ?? "No workspace"}
             </span>
             <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />
           </Button>
@@ -181,7 +220,9 @@ export default function ActiveWorkspaceIndicator() {
               </DropdownMenuItem>
             ))
           ) : (
-            <DropdownMenuItem disabled>No workspaces available</DropdownMenuItem>
+            <DropdownMenuItem disabled>
+              No workspaces available
+            </DropdownMenuItem>
           )}
           <DropdownMenuItem
             onSelect={(event) => {
@@ -212,17 +253,21 @@ export default function ActiveWorkspaceIndicator() {
                 value={workspaceName}
                 onChange={(event) => setWorkspaceName(event.target.value)}
                 placeholder="Acme"
+                autoFocus
               />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="workspace-slug">Slug</Label>
-              <Input
-                id="workspace-slug"
-                value={workspaceSlug}
-                onChange={(event) => setWorkspaceSlugState(event.target.value)}
-                placeholder="acme"
-              />
-            </div>
+          <div className="grid gap-2">
+            <Label htmlFor="workspace-slug">Workspace URL name</Label>
+            <Input
+              id="workspace-slug"
+              value={workspaceSlug}
+              onChange={(event) => setWorkspaceSlugState(event.target.value)}
+              placeholder="acme"
+            />
+            <p className="text-xs text-muted-foreground">
+              Used in links to your workspace. Keep it short and easy to share.
+            </p>
+          </div>
             <Button onClick={handleCreateWorkspace} disabled={isCreating}>
               {isCreating ? "Creating…" : "Create workspace"}
             </Button>

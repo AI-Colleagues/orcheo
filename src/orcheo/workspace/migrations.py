@@ -1,8 +1,9 @@
 """Helpers used during the multi-workspace backfill migration.
 
 These utilities are deliberately conservative: they perform additive,
-idempotent schema work and ensure the default workspace exists. They do **not**
-yet rewrite every existing repository/store — that sweep is Milestone 2.
+idempotent schema work and can create the legacy default workspace only for
+backfill and compatibility purposes. They do **not** yet rewrite every existing
+repository/store — that sweep is Milestone 2.
 """
 
 from __future__ import annotations
@@ -59,7 +60,7 @@ def ensure_default_workspace_for_repository(
     slug: str = DEFAULT_WORKSPACE_SLUG,
     name: str = "Default Workspace",
 ) -> Workspace:
-    """Create or fetch the default workspace via the supplied repository."""
+    """Create or fetch the legacy default workspace via the repository."""
     return ensure_default_workspace(repository, slug=slug, name=name)
 
 

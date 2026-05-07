@@ -58,6 +58,7 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `VITE_ORCHEO_AUTH_PROVIDER_PARAM` | _none_ | String | Optional IdP hint parameter name (e.g., `connection`, `idp`). |
 | `VITE_ORCHEO_AUTH_PROVIDER_GOOGLE` | _none_ | String | Provider hint value for Google when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
 | `VITE_ORCHEO_AUTH_PROVIDER_GITHUB` | _none_ | String | Provider hint value for GitHub when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
+| `VITE_ORCHEO_AUTH_PROVIDER_SIGNUP` | _none_ | String | Optional provider hint used for the sign-up flow when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. Leave unset to send sign-up to the generic IdP signup screen. |
 | `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` | _none_ | String | ChatKit domain key used by Canvas public chat surfaces. Setup prompts for this value; if left unset/placeholder, ChatKit UI features remain disabled until configured. |
 | `VITE_ORCHEO_CHATKIT_DEFAULT_DOMAIN_KEY` | `domain_pk_localhost_dev` | String | Dev-only fallback domain key used when neither `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` nor runtime `window.__ORCHEO_CONFIG__.chatkitDomainKey` is provided (`features/chatkit/lib/chatkit-client.ts`). |
 | `VITE_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated hostnames | Hostnames the Canvas server will accept requests for (maps to `server.allowedHosts` in `vite.config.ts`). Public-ingress installs append the configured public hostname. Tunnel or custom split-origin installs should include the public Canvas hostname here. |
@@ -73,7 +74,7 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `ORCHEO_VAULT_AWS_KMS_KEY_ID` | _none_ | KMS key identifier | Key ID for AWS KMS vaults (`config/loader.py`). |
 | `ORCHEO_VAULT_TOKEN_TTL_SECONDS` | `3600` | Positive integer | Lifetime (seconds) for vault access tokens (`config/loader.py`). |
 | `ORCHEO_MULTI_WORKSPACE_ENABLED` | `false` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Enables workspace-aware request resolution, scoped repository lookups, and workspace-aware websocket/runnable execution (`config/loader.py`). |
-| `ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG` | `default` | Slug string | Default workspace slug used when workspace scoping is disabled or when bootstrapping the shared deployment workspace (`config/loader.py`). |
+| `ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG` | `default` | Slug string | Legacy compatibility slug retained for migration helpers and explicit resolver overrides. The runtime no longer bootstraps a shared default workspace at startup (`config/loader.py`). |
 | `ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER` | `X-Orcheo-Workspace` | HTTP header name | Header that pins the active workspace for authenticated requests (`config/loader.py`). |
 
 ## ChatKit rate limits

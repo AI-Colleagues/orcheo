@@ -66,8 +66,6 @@ from orcheo_backend.app.routers import (
 from orcheo_backend.app.service_token_endpoints import router as service_token_router
 from orcheo_backend.app.workflow_execution import configure_sensitive_logging
 from orcheo_backend.app.workspace import (
-    bootstrap_default_workspace,
-    get_workspace_repository,
     resolve_workspace_context,
 )
 
@@ -116,6 +114,7 @@ def _build_api_router() -> APIRouter:
     router.include_router(chatkit_router.router)
     router.include_router(auth.router)
     router.include_router(system.public_router)
+    router.include_router(workspaces_router.self_service_router)
     # Public webhook invocation routes - external services (Slack, GitHub, etc.)
     # cannot provide Orcheo auth tokens. Security is enforced via webhook-level
     # validation (HMAC signatures, shared secrets) configured per workflow.
@@ -167,10 +166,7 @@ def create_app(
         """Manage application lifespan with startup and shutdown logic."""
         load_auth_settings(refresh=True)
         load_enabled_plugins(force=True)
-        default_workspace = bootstrap_default_workspace(
-            repository=get_workspace_repository()
-        )
-        await ensure_managed_vibe_workflow(get_repository(), default_workspace)
+        await ensure_managed_vibe_workflow(get_repository(), None)
         listener_runtime = ListenerRuntimeService(
             repository=get_repository(),
             vault=get_vault(),

@@ -10,10 +10,15 @@ from orcheo.workspace import (
     WorkspaceAuditEvent,
     WorkspaceMembership,
     WorkspaceMembershipError,
+    WorkspaceMembershipLimitError,
     WorkspaceNotFoundError,
     WorkspacePermissionError,
     WorkspaceSlugConflictError,
     WorkspaceStatus,
+)
+from orcheo_backend.app.authentication import (
+    RequestContext,
+    authenticate_request,
 )
 from orcheo_backend.app.schemas.workspaces import (
     ActiveWorkspaceResponse,
@@ -43,6 +48,7 @@ from orcheo_backend.app.workspace.dependencies import (
 __all__ = [
     "admin_router",
     "router",
+    "self_service_router",
 ]
 
 
@@ -51,6 +57,7 @@ admin_router = APIRouter(
     tags=["admin", "workspaces"],
     dependencies=[Depends(require_role(Role.ADMIN))],
 )
+self_service_router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 
@@ -115,6 +122,70 @@ def create_workspace(
             status_code=status.HTTP_409_CONFLICT,
             message=f"Workspace slug already exists: {exc}",
             error_code="workspace.slug_conflict",
+        ) from exc
+    except WorkspaceMembershipLimitError as exc:
+        raise WorkspaceHTTPError(
+            status_code=status.HTTP_409_CONFLICT,
+            message=str(exc),
+            error_code="workspace.membership_limit_reached",
+        ) from exc
+    except WorkspaceMembershipError as exc:
+        raise WorkspaceHTTPError(
+            status_code=status.HTTP_409_CONFLICT,
+            message=str(exc),
+            error_code="workspace.membership_conflict",
+        ) from exc
+    return _to_workspace_response(workspace)
+
+
+@self_service_router.post(
+    "",
+    response_model=WorkspaceResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_own_workspace(
+    payload: WorkspaceCreateRequest,
+    service: WorkspaceServiceDep,
+    auth: Annotated[RequestContext, Depends(authenticate_request)],
+) -> WorkspaceResponse:
+    """Create a workspace for the authenticated principal."""
+    if not auth.is_authenticated:
+        raise WorkspaceHTTPError(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            message="Authentication is required to create a workspace",
+            error_code="auth.authentication_required",
+        )
+
+    if payload.owner_user_id is not None and payload.owner_user_id != auth.subject:
+        raise_workspace_forbidden(
+            "Cannot create a workspace for another user",
+            error_code="workspace.owner_mismatch",
+        )
+
+    try:
+        workspace, _ = service.create_workspace(
+            slug=payload.slug,
+            name=payload.name,
+            owner_user_id=auth.subject,
+            quotas=payload.quotas,
+        )
+    except WorkspaceSlugConflictError as exc:
+        raise WorkspaceHTTPError(
+            status_code=status.HTTP_409_CONFLICT,
+            message=f"Workspace slug already exists: {exc}",
+            error_code="workspace.slug_conflict",
+        ) from exc
+    except WorkspaceMembershipLimitError as exc:
+        raise WorkspaceHTTPError(
+            status_code=status.HTTP_409_CONFLICT,
+            message=str(exc),
+            error_code="workspace.membership_limit_reached",
+        ) from exc
+    except WorkspaceMembershipError as exc:
+        raise WorkspaceHTTPError(
+            status_code=status.HTTP_409_CONFLICT,
+            message=str(exc),
+            error_code="workspace.membership_conflict",
         ) from exc
     return _to_workspace_response(workspace)
 
@@ -210,13 +281,20 @@ def purge_deleted_workspaces(
     service.purge_deleted_workspaces(retention_days=retention_days)
 
 
-@router.get("/me", response_model=MeMembershipsResponse)
+@self_service_router.get("/me", response_model=MeMembershipsResponse)
 def list_my_memberships(
     service: WorkspaceServiceDep,
-    context: WorkspaceContextDep,
+    auth: Annotated[RequestContext, Depends(authenticate_request)],
 ) -> MeMembershipsResponse:
     """Return the memberships for the calling principal."""
-    pairs = service.memberships_for(user_id=context.user_id)
+    if not auth.is_authenticated:
+        raise WorkspaceHTTPError(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            message="Authentication is required to list workspaces",
+            error_code="auth.authentication_required",
+        )
+
+    pairs = service.memberships_for(user_id=auth.subject)
     entries = [
         {
             "workspace_id": workspace.id,
@@ -276,6 +354,12 @@ def add_workspace_member(
             role=payload.role,
             actor_role=context.role,
         )
+    except WorkspaceMembershipLimitError as exc:
+        raise WorkspaceHTTPError(
+            status_code=status.HTTP_409_CONFLICT,
+            message=str(exc),
+            error_code="workspace.membership_limit_reached",
+        ) from exc
     except WorkspaceMembershipError as exc:
         raise WorkspaceHTTPError(
             status_code=status.HTTP_409_CONFLICT,

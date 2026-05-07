@@ -6,6 +6,7 @@ from orcheo.workspace import (
     InMemoryWorkspaceRepository,
     Role,
     WorkspaceMembershipError,
+    WorkspaceMembershipLimitError,
     WorkspacePermissionError,
     WorkspaceService,
     WorkspaceStatus,
@@ -113,3 +114,45 @@ def test_remove_nonexistent_member_raises() -> None:
     workspace, _ = svc.create_workspace(slug="acme", name="Acme", owner_user_id="alice")
     with pytest.raises(WorkspaceMembershipError):
         svc.remove_member(workspace_id=workspace.id, user_id="ghost")
+
+
+def test_create_workspace_limits_memberships_per_user() -> None:
+    svc = _service()
+    svc.create_workspace(slug="acme", name="Acme", owner_user_id="alice")
+    svc.create_workspace(slug="globex", name="Globex", owner_user_id="alice")
+    svc.create_workspace(slug="initech", name="Initech", owner_user_id="alice")
+
+    with pytest.raises(WorkspaceMembershipLimitError):
+        svc.create_workspace(slug="umbrella", name="Umbrella", owner_user_id="alice")
+    assert all(ws.slug != "umbrella" for ws in svc.list_workspaces())
+
+
+def test_invite_member_limits_memberships_per_user() -> None:
+    svc = _service()
+    workspaces = [
+        svc.create_workspace(slug=slug, name=slug.title(), owner_user_id="owner")[0]
+        for slug in ("acme", "globex", "initech")
+    ]
+    svc.invite_member(
+        workspace_id=workspaces[0].id,
+        user_id="bob",
+        role=Role.VIEWER,
+    )
+    svc.invite_member(
+        workspace_id=workspaces[1].id,
+        user_id="bob",
+        role=Role.VIEWER,
+    )
+    svc.invite_member(
+        workspace_id=workspaces[2].id,
+        user_id="bob",
+        role=Role.VIEWER,
+    )
+
+    extra = svc.create_workspace(slug="hooli", name="Hooli", owner_user_id="carol")[0]
+    with pytest.raises(WorkspaceMembershipLimitError):
+        svc.invite_member(
+            workspace_id=extra.id,
+            user_id="bob",
+            role=Role.VIEWER,
+        )

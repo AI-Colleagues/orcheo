@@ -131,9 +131,9 @@ class WorkspaceResolver:
 
         The slug is the workspace the caller asked for (e.g., header
         `X-Orcheo-Workspace`). When omitted, the resolver picks the principal's
-        only membership. If the principal belongs to multiple workspaces, the
-        configured default workspace is preferred when the user is a member of
-        it; otherwise the caller must supply an explicit selector.
+        only membership. If the principal belongs to multiple workspaces, an
+        explicitly configured default workspace slug may be used as a fallback;
+        otherwise the caller must supply an explicit selector.
         """
         memberships = self.list_memberships(user_id)
         if not memberships:

@@ -230,6 +230,9 @@ export const clearAuthSession = (): void => {
 
 export const getAccessToken = (): string | null => {
   const tokens = getAuthTokens();
+  if (!tokens) {
+    return null;
+  }
   if (!isTokenFresh(tokens)) {
     clearAuthSession();
     return null;
@@ -362,22 +365,38 @@ const resolveRole = (
   return null;
 };
 
+const resolveAvatar = (
+  claimSets: Array<Record<string, unknown> | null>,
+): string | null =>
+  firstStringClaim(claimSets, [
+    "picture",
+    "avatar",
+    "avatar_url",
+    "profile_picture",
+    "profilePicture",
+    "profile_image",
+    "profileImage",
+    "profileImageUrl",
+    "photo",
+    "image",
+  ]);
+
 export const getAuthenticatedUserProfile =
   (): AuthenticatedUserProfile | null => {
-  const accessToken = getAccessToken();
-  if (!accessToken) {
-    const devSession = getDevAuthSession();
-    if (!devSession) {
-      return null;
+    const accessToken = getAccessToken();
+    if (!accessToken) {
+      const devSession = getDevAuthSession();
+      if (!devSession) {
+        return null;
+      }
+      return {
+        subject: devSession.subject,
+        name: devSession.displayName,
+        email: devSession.subject.includes("@") ? devSession.subject : null,
+        avatar: null,
+        role: "member",
+      };
     }
-    return {
-      subject: devSession.subject,
-      name: devSession.displayName,
-      email: devSession.subject.includes("@") ? devSession.subject : null,
-      avatar: null,
-      role: "member",
-    };
-  }
 
     const tokens = getAuthTokens();
     const claimSets = [
@@ -401,7 +420,7 @@ export const getAuthenticatedUserProfile =
       subject,
       name,
       email,
-      avatar: firstStringClaim(claimSets, ["picture", "avatar", "avatar_url"]),
+      avatar: resolveAvatar(claimSets),
       role: resolveRole(claimSets),
     };
   };

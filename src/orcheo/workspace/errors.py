@@ -5,6 +5,7 @@ from __future__ import annotations
 
 __all__ = [
     "WorkspaceError",
+    "WorkspaceMembershipLimitError",
     "WorkspaceNotFoundError",
     "WorkspaceSlugConflictError",
     "WorkspaceMembershipError",
@@ -26,6 +27,10 @@ class WorkspaceSlugConflictError(WorkspaceError):
 
 class WorkspaceMembershipError(WorkspaceError):
     """Raised when a membership is missing or invalid."""
+
+
+class WorkspaceMembershipLimitError(WorkspaceMembershipError):
+    """Raised when a user would exceed the workspace membership cap."""
 
 
 class WorkspacePermissionError(WorkspaceError):

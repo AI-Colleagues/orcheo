@@ -3,7 +3,10 @@
 from __future__ import annotations
 from collections.abc import Iterable
 from uuid import UUID
-from orcheo.workspace.errors import WorkspacePermissionError
+from orcheo.workspace.errors import (
+    WorkspaceMembershipLimitError,
+    WorkspacePermissionError,
+)
 from orcheo.workspace.models import (
     DEFAULT_WORKSPACE_SLUG,
     Role,
@@ -20,6 +23,8 @@ from orcheo.workspace.resolver import WorkspaceResolver
 
 __all__ = ["WorkspaceService", "ensure_default_workspace"]
 
+MAX_WORKSPACE_MEMBERSHIPS_PER_USER = 3
+
 
 def ensure_default_workspace(
     repository: WorkspaceRepository,
@@ -27,11 +32,7 @@ def ensure_default_workspace(
     slug: str = DEFAULT_WORKSPACE_SLUG,
     name: str = "Default Workspace",
 ) -> Workspace:
-    """Return or create the deployment-wide default workspace.
-
-    The default workspace is the home for all data in single-workspace deployments
-    and for backfilled rows during the multi-workspace migration.
-    """
+    """Return or create the legacy default workspace used by migrations."""
     try:
         return repository.get_workspace_by_slug(slug)
     except Exception:  # noqa: BLE001 - any "not found" surface is acceptable here
@@ -91,7 +92,12 @@ class WorkspaceService:
             user_id=owner_user_id,
             role=Role.OWNER,
         )
-        self._repository.add_membership(membership)
+        try:
+            self._ensure_membership_capacity(owner_user_id)
+            self._repository.add_membership(membership)
+        except Exception:
+            self._repository.delete_workspace(created.id)
+            raise
         try:
             self._repository.record_audit_event(
                 WorkspaceAuditEvent(
@@ -199,6 +205,7 @@ class WorkspaceService:
             raise WorkspacePermissionError(
                 "Only admins or owners can invite new members"
             )
+        self._ensure_membership_capacity(user_id, workspace_id=workspace_id)
         membership = WorkspaceMembership(
             workspace_id=workspace_id,
             user_id=user_id,
@@ -301,3 +308,18 @@ class WorkspaceService:
             self.hard_delete_workspace(workspace.id)
             purged.append(workspace)
         return purged
+
+    def _ensure_membership_capacity(
+        self, user_id: str, *, workspace_id: UUID | None = None
+    ) -> None:
+        """Raise when `user_id` already belongs to too many workspaces."""
+        memberships = self._repository.list_memberships_for_user(user_id)
+        if workspace_id is not None:
+            for membership in memberships:
+                if membership.workspace_id == workspace_id:
+                    return
+        if len(memberships) >= MAX_WORKSPACE_MEMBERSHIPS_PER_USER:
+            raise WorkspaceMembershipLimitError(
+                f"User {user_id} can belong to at most "
+                f"{MAX_WORKSPACE_MEMBERSHIPS_PER_USER} workspaces"
+            )

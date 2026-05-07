@@ -107,6 +107,7 @@ Update your stack `.env` (derived from `deploy/stack/.env.example`):
 - `VITE_ORCHEO_AUTH_PROVIDER_PARAM=connection` (optional; for direct provider hints)
 - `VITE_ORCHEO_AUTH_PROVIDER_GOOGLE=google-oauth2` (optional)
 - `VITE_ORCHEO_AUTH_PROVIDER_GITHUB=github` (optional)
+- `VITE_ORCHEO_AUTH_PROVIDER_SIGNUP=Username-Password-Authentication` (optional; use a database connection or other sign-up target instead of a social login)
 
 ### Related runtime settings frequently needed
 

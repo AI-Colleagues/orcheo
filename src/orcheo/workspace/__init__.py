@@ -3,6 +3,7 @@
 from orcheo.workspace.errors import (
     WorkspaceError,
     WorkspaceMembershipError,
+    WorkspaceMembershipLimitError,
     WorkspaceNotFoundError,
     WorkspacePermissionError,
     WorkspaceSlugConflictError,
@@ -70,6 +71,7 @@ __all__ = [
     "WorkspaceError",
     "WorkspaceMembership",
     "WorkspaceMembershipError",
+    "WorkspaceMembershipLimitError",
     "WorkspaceNotFoundError",
     "WorkspacePermissionError",
     "WorkspaceQuotas",

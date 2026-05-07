@@ -5,7 +5,6 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel
 from orcheo_backend.app.authentication.settings import load_auth_settings
-from orcheo_backend.app.workspace.dependencies import bootstrap_default_workspace
 
 
 router = APIRouter()
@@ -43,7 +42,6 @@ async def dev_login(request: DevLoginRequest, response: Response) -> DevLoginRes
     subject = request.email or f"{request.provider}-dev@orcheo.local"
     display_name = request.name or subject.split("@")[0]
     session_value = f"{subject}:{uuid4().hex}"
-    bootstrap_default_workspace(user_id=subject)
     response.set_cookie(
         key=settings.dev_login_cookie_name,
         value=session_value,

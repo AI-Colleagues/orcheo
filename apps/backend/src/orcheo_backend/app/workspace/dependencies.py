@@ -6,21 +6,17 @@ from typing import Annotated, Any
 from fastapi import Depends, Request
 from orcheo.config import get_settings
 from orcheo.workspace import (
-    DEFAULT_WORKSPACE_SLUG,
     InMemoryWorkspaceRepository,
     PostgresWorkspaceRepository,
     Role,
     SqliteWorkspaceRepository,
-    Workspace,
     WorkspaceContext,
-    WorkspaceMembership,
     WorkspaceMembershipError,
     WorkspaceNotFoundError,
     WorkspacePermissionError,
     WorkspaceRepository,
     WorkspaceResolver,
     WorkspaceService,
-    ensure_default_workspace,
 )
 from orcheo_backend.app.authentication import RequestContext, authenticate_request
 from orcheo_backend.app.errors import WorkspaceRateLimitError
@@ -35,7 +31,6 @@ from orcheo_backend.app.workspace_governance import get_workspace_governance
 __all__ = [
     "WorkspaceContextDep",
     "WorkspaceServiceDep",
-    "bootstrap_default_workspace",
     "get_workspace_repository",
     "get_workspace_resolver",
     "get_workspace_service",
@@ -103,16 +98,7 @@ def get_workspace_service() -> WorkspaceService:
     """Return the cached workspace service singleton."""
     service = _workspace_service_ref.get("service")
     if service is None:
-        settings = get_settings()
-        default_workspace_slug = str(
-            settings.get(
-                "MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG", DEFAULT_WORKSPACE_SLUG
-            )
-        )
-        service = WorkspaceService(
-            get_workspace_repository(),
-            default_workspace_slug=default_workspace_slug,
-        )
+        service = WorkspaceService(get_workspace_repository())
         _workspace_service_ref["service"] = service
     return service
 
@@ -120,38 +106,6 @@ def get_workspace_service() -> WorkspaceService:
 def get_workspace_resolver() -> WorkspaceResolver:
     """Return the resolver bound to the current service."""
     return get_workspace_service().resolver
-
-
-def bootstrap_default_workspace(
-    *,
-    user_id: str | None = None,
-    repository: WorkspaceRepository | None = None,
-) -> Workspace:
-    """Ensure the default workspace exists and (optionally) the principal is in it.
-
-    Used by the foundation rollout: with `multi_workspace.enabled=False`, every
-    request resolves to this default workspace. If `user_id` is supplied and has
-    no membership, an owner membership is created.
-    """
-    repo = repository if repository is not None else get_workspace_repository()
-    settings = get_settings()
-    default_slug = str(
-        settings.get("MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG", DEFAULT_WORKSPACE_SLUG)
-    )
-    workspace = ensure_default_workspace(repo, slug=default_slug)
-    if user_id is None:
-        return workspace
-    try:
-        repo.get_membership(workspace.id, user_id)
-    except WorkspaceMembershipError:
-        repo.add_membership(
-            WorkspaceMembership(
-                workspace_id=workspace.id,
-                user_id=user_id,
-                role=Role.OWNER,
-            )
-        )
-    return workspace
 
 
 def _read_workspace_header(request: Request) -> str | None:
@@ -172,35 +126,19 @@ async def resolve_workspace_context(
 ) -> WorkspaceContext:
     """FastAPI dependency that produces a WorkspaceContext for the request.
 
-    Behavior depends on `MULTI_WORKSPACE_ENABLED`:
-    - When False: every request resolves to the default workspace; the principal
-      (or an anonymous sentinel when auth is disabled) is auto-enrolled as
-      owner if missing, preserving single-workspace compatibility.
-    - When True: the principal must be authenticated and have a membership;
-      an explicit slug header pins the active workspace when the user has
-      multiple memberships.
+    The caller must be authenticated and have at least one workspace membership.
+    An explicit slug header pins the active workspace when the user has multiple
+    memberships.
     """
-    settings = get_settings()
-    enabled = bool(settings.get("MULTI_WORKSPACE_ENABLED", False))
-
     if not auth.is_authenticated:
-        if enabled:
-            raise WorkspaceContextRequiredError(
-                "Authentication is required for workspace"
-            )
-        user_id = auth.subject or "anonymous"
-    else:
-        user_id = auth.subject
+        raise WorkspaceContextRequiredError("Authentication is required for workspace")
 
     service = get_workspace_service()
     requested_slug = _read_workspace_header(request)
 
-    if not enabled:
-        bootstrap_default_workspace(user_id=user_id)
-
     try:
         context = service.resolver.resolve(
-            user_id=user_id,
+            user_id=auth.subject,
             workspace_slug=requested_slug,
         )
     except WorkspaceNotFoundError:

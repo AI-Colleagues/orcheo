@@ -3,7 +3,6 @@
 from orcheo_backend.app.workspace.dependencies import (
     WorkspaceContextDep,
     WorkspaceServiceDep,
-    bootstrap_default_workspace,
     get_workspace_repository,
     get_workspace_resolver,
     get_workspace_service,
@@ -27,7 +26,6 @@ __all__ = [
     "WorkspaceContextRequiredError",
     "WorkspaceHTTPError",
     "WorkspaceServiceDep",
-    "bootstrap_default_workspace",
     "get_workspace_repository",
     "get_workspace_resolver",
     "get_workspace_service",

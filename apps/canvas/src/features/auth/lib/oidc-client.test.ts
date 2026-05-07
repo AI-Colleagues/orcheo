@@ -110,6 +110,49 @@ describe("startOidcLogin organization precedence", () => {
     expect(authUrl.searchParams.get("organization")).toBe("org_runtime");
     expect(authUrl.searchParams.get("organization_name")).toBe("runtime-name");
   });
+
+  it("passes through the signup screen hint", async () => {
+    const assignMock = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign: assignMock });
+
+    await startOidcLogin({ screenHint: "signup", signup: true });
+
+    const [redirectUrl] = assignMock.mock.calls[0] as [string];
+    const authUrl = new URL(redirectUrl);
+
+    expect(authUrl.searchParams.get("screen_hint")).toBe("signup");
+  });
+
+  it("does not force a GitHub connection during sign-up", async () => {
+    setEnv("VITE_ORCHEO_AUTH_PROVIDER_PARAM", "connection");
+    setEnv("VITE_ORCHEO_AUTH_PROVIDER_GITHUB", "github");
+    const assignMock = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign: assignMock });
+
+    await startOidcLogin({ screenHint: "signup", signup: true });
+
+    const [redirectUrl] = assignMock.mock.calls[0] as [string];
+    const authUrl = new URL(redirectUrl);
+
+    expect(authUrl.searchParams.get("connection")).toBeNull();
+    expect(authUrl.searchParams.get("screen_hint")).toBe("signup");
+  });
+
+  it("uses the configured signup provider when available", async () => {
+    setEnv("VITE_ORCHEO_AUTH_PROVIDER_PARAM", "connection");
+    setEnv("VITE_ORCHEO_AUTH_PROVIDER_SIGNUP", "Username-Password-Authentication");
+    const assignMock = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign: assignMock });
+
+    await startOidcLogin({ screenHint: "signup", signup: true });
+
+    const [redirectUrl] = assignMock.mock.calls[0] as [string];
+    const authUrl = new URL(redirectUrl);
+
+    expect(authUrl.searchParams.get("connection")).toBe(
+      "Username-Password-Authentication",
+    );
+  });
 });
 
 describe("completeOidcLogin expiry parsing", () => {

@@ -268,16 +268,22 @@ export async function createWorkspace(
   request: WorkspaceCreateRequest,
   baseUrl?: string,
 ): Promise<WorkspaceResponse> {
-  return requestSystemJson<WorkspaceResponse>("/api/admin/workspaces", {
-    method: "POST",
-    body: JSON.stringify(request),
-  }, baseUrl);
+  return requestSystemJson<WorkspaceResponse>(
+    "/api/workspaces",
+    {
+      method: "POST",
+      body: JSON.stringify(request),
+    },
+    baseUrl,
+    { includeWorkspaceHeaders: false },
+  );
 }
 
 async function requestSystemJson<T>(
   path: string,
   init: RequestInit,
   baseUrl?: string,
+  options: { includeWorkspaceHeaders?: boolean } = {},
 ): Promise<T> {
   const url = buildBackendHttpUrl(path, baseUrl);
   const response = await authFetch(url, {
@@ -286,7 +292,7 @@ async function requestSystemJson<T>(
       "Content-Type": "application/json",
       ...(init.headers ?? {}),
     },
-  });
+  }, options);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({

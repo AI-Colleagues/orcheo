@@ -235,9 +235,10 @@ MANAGED_VIBE_WORKFLOW_TAGS = ("orcheo-vibe-agent", "external-agent")
 
 async def ensure_managed_vibe_workflow(
     repository: WorkflowRepository,
-    workspace: Workspace,
+    workspace: Workspace | None,
 ) -> Workflow:
     """Ensure the backend-owned Orcheo Vibe workflow exists and is active."""
+    del workspace
     workflow: Workflow | None = None
 
     try:

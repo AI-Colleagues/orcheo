@@ -59,7 +59,7 @@ describe("getAuthenticatedUserProfile", () => {
         sub: "auth0|abc",
         preferred_username: "canvas-user",
         email: "canvas@example.com",
-        avatar_url: "https://example.com/avatar-access.png",
+        profile_picture: "https://example.com/avatar-access.png",
         role: "Editor",
       }),
       expiresAt: Date.now() + 5 * 60_000,
