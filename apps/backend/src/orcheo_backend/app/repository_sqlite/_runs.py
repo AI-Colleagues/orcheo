@@ -64,7 +64,7 @@ class WorkflowRunMixin(SqlitePersistenceMixin):
                     SELECT payload
                       FROM workflow_runs
                      WHERE workflow_id = ?
-                       AND (workspace_id = ? OR workspace_id IS NULL)
+                       AND workspace_id = ?
                   ORDER BY created_at DESC
                 """
                 params: list[Any] = [str(workflow_id), tid]

@@ -259,7 +259,7 @@ class SqliteAgentensorCheckpointStore(AgentensorCheckpointStore):
         )
         params: list[object] = [workflow_id]
         if workspace_id is not None:
-            query += " AND (workspace_id = ? OR workspace_id IS NULL)"
+            query += " AND workspace_id = ?"
             params.append(workspace_id)
         query += " ORDER BY config_version DESC"
         if limit is not None:
@@ -501,7 +501,7 @@ class PostgresAgentensorCheckpointStore(AgentensorCheckpointStore):
         """
         params: list[object] = [workflow_id]
         if workspace_id is not None:
-            query += " AND (workspace_id = %s OR workspace_id IS NULL)"
+            query += " AND workspace_id = %s"
             params.append(workspace_id)
         query += " ORDER BY config_version DESC"
         if limit is not None:

@@ -388,16 +388,16 @@ class PostgresRunHistoryStore:
         """Return histories associated with the provided workflow."""
         await self._ensure_initialized()
         query = """
-            SELECT execution_id, workflow_id, workspace_id, inputs, runnable_config, tags,
-                   callbacks, metadata, run_name, status, started_at,
-                   completed_at, error, trace_id, trace_started_at,
+            SELECT execution_id, workflow_id, workspace_id, inputs,
+                   runnable_config, tags, callbacks, metadata, run_name, status,
+                   started_at, completed_at, error, trace_id, trace_started_at,
                    trace_completed_at, trace_last_span_at
               FROM execution_history
              WHERE workflow_id = %s
         """
         params: list[object] = [workflow_id]
         if workspace_id is not None:
-            query += " AND (workspace_id = %s OR workspace_id IS NULL)"
+            query += " AND workspace_id = %s"
             params.append(workspace_id)
         query += " ORDER BY started_at DESC"
         if limit is not None:
@@ -468,9 +468,9 @@ class PostgresRunHistoryStore:
         """Return the raw execution history row if present."""
         cursor = await conn.execute(
             """
-            SELECT execution_id, workflow_id, workspace_id, inputs, runnable_config, tags,
-                   callbacks, metadata, run_name, status, started_at,
-                   completed_at, error, trace_id, trace_started_at,
+            SELECT execution_id, workflow_id, workspace_id, inputs,
+                   runnable_config, tags, callbacks, metadata, run_name, status,
+                   started_at, completed_at, error, trace_id, trace_started_at,
                    trace_completed_at, trace_last_span_at
               FROM execution_history
              WHERE execution_id = %s

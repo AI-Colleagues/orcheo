@@ -62,7 +62,7 @@ class WorkflowRunMixin(PostgresPersistenceMixin):
                     SELECT payload
                       FROM workflow_runs
                      WHERE workflow_id = %s
-                       AND (workspace_id = %s OR workspace_id IS NULL)
+                       AND workspace_id = %s
                   ORDER BY created_at DESC
                 """
                 params: list[Any] = [str(workflow_id), workspace_id]

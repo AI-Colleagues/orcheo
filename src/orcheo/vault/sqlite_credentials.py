@@ -30,9 +30,9 @@ class SQLiteCredentialStoreMixin:
                 SELECT id
                   FROM credentials
                  WHERE lower(name) = lower(?)
-                   AND (workspace_id IS ? OR (workspace_id IS NULL AND ? IS NULL))
+                   AND workspace_id = ?
                 """,
-                (metadata.name, metadata.workspace_id, metadata.workspace_id),
+                (metadata.name, metadata.workspace_id),
             )
             rows = [row[0] for row in cursor.fetchall()]
             duplicates = [row_id for row_id in rows if row_id != str(metadata.id)]
@@ -98,7 +98,7 @@ class SQLiteCredentialStoreMixin:
                     """
                     SELECT payload
                       FROM credentials
-                     WHERE workspace_id IS NULL OR workspace_id = ?
+                     WHERE workspace_id = ?
                   ORDER BY created_at ASC
                     """,
                     (workspace_id,),

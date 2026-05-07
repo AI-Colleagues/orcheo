@@ -66,7 +66,7 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
                     tid = ensure_workspace_id(workspace_id)
                     cursor = await conn.execute(
                         "SELECT payload FROM workflows"
-                        " WHERE (workspace_id = ? OR workspace_id IS NULL)"
+                        " WHERE workspace_id = ?"
                         " ORDER BY created_at ASC",
                         (tid,),
                     )

@@ -252,7 +252,7 @@ class SqliteRunHistoryStore:
         query = LIST_HISTORIES_SQL
         params: list[object] = [workflow_id]
         if workspace_id is not None:
-            query += " AND (workspace_id = ? OR workspace_id IS NULL)"
+            query += " AND workspace_id = ?"
             params.append(workspace_id)
         query += " ORDER BY started_at DESC"
         if limit is not None:

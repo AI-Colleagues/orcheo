@@ -122,7 +122,7 @@ class ThreadStoreMixin(BasePostgresStore):
             params.append(workflow_id)
 
         if workspace_id is not None:
-            conditions.append("(workspace_id = %s OR workspace_id IS NULL)")
+            conditions.append("workspace_id = %s")
             params.append(workspace_id)
 
         async with self._connection() as conn:
@@ -135,7 +135,7 @@ class ThreadStoreMixin(BasePostgresStore):
                     cursor_query += " AND workflow_id = %s"
                     cursor_params.append(workflow_id)
                 if workspace_id is not None:
-                    cursor_query += " AND (workspace_id = %s OR workspace_id IS NULL)"
+                    cursor_query += " AND workspace_id = %s"
                     cursor_params.append(workspace_id)
 
                 cursor = await conn.execute(cursor_query, tuple(cursor_params))

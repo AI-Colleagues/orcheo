@@ -214,7 +214,7 @@ class PostgresCredentialVault(BaseCredentialVault):
                     """
                     SELECT payload
                       FROM credentials
-                     WHERE workspace_id IS NULL OR workspace_id = %s
+                     WHERE workspace_id = %s
                   ORDER BY created_at ASC
                     """,
                     (workspace_id,),
@@ -299,7 +299,7 @@ class PostgresCredentialVault(BaseCredentialVault):
                     """
                     SELECT payload
                       FROM credential_templates
-                     WHERE workspace_id IS NULL OR workspace_id = %s
+                     WHERE workspace_id = %s
                   ORDER BY created_at ASC
                     """,
                     (workspace_id,),
@@ -383,7 +383,7 @@ class PostgresCredentialVault(BaseCredentialVault):
                     """
                     SELECT payload
                       FROM governance_alerts
-                     WHERE workspace_id IS NULL OR workspace_id = %s
+                     WHERE workspace_id = %s
                   ORDER BY created_at ASC
                     """,
                     (workspace_id,),

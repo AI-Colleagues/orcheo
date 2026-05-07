@@ -124,7 +124,7 @@ class ThreadStoreMixin(BaseSqliteStore):
                 params.append(workflow_id)
 
             if workspace_id is not None:
-                conditions.append("(workspace_id = ? OR workspace_id IS NULL)")
+                conditions.append("workspace_id = ?")
                 params.append(workspace_id)
 
             if after:
@@ -136,7 +136,7 @@ class ThreadStoreMixin(BaseSqliteStore):
                     cursor_query += " AND workflow_id = ?"
                     cursor_params.append(workflow_id)
                 if workspace_id is not None:
-                    cursor_query += " AND (workspace_id = ? OR workspace_id IS NULL)"
+                    cursor_query += " AND workspace_id = ?"
                     cursor_params.append(workspace_id)
 
                 cursor = await conn.execute(cursor_query, tuple(cursor_params))

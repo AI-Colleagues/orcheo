@@ -83,7 +83,7 @@ class SQLiteTemplateStoreMixin:
                     """
                     SELECT payload
                       FROM credential_templates
-                     WHERE workspace_id IS NULL OR workspace_id = ?
+                     WHERE workspace_id = ?
                   ORDER BY created_at ASC
                     """,
                     (workspace_id,),
