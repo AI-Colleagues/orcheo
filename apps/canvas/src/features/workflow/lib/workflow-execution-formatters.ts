@@ -1,6 +1,6 @@
 import type {
-  HistoryWorkflowNode,
   WorkflowExecution,
+  WorkflowExecutionNode,
 } from "./workflow-execution.types";
 
 type LogLevel = "INFO" | "DEBUG" | "ERROR" | "WARNING";
@@ -79,13 +79,13 @@ export const determineLogLevel = (
 
 export const resolveNodeLabel = (
   nodeId: string,
-  nodes: Map<string, HistoryWorkflowNode>,
+  nodes: Map<string, WorkflowExecutionNode>,
 ): string => nodes.get(nodeId)?.name ?? nodeId;
 
 export const describePayload = (
   payload: Record<string, unknown>,
   graphToCanvas: Record<string, string>,
-  nodes: Map<string, HistoryWorkflowNode>,
+  nodes: Map<string, WorkflowExecutionNode>,
 ): string => {
   if (typeof payload.error === "string" && payload.error.trim()) {
     return `Run error: ${payload.error.trim()}`;

@@ -29,6 +29,10 @@ from orcheo.models.workflow_entities import (
     WorkflowChatKitConfig,
     WorkflowDraftAccess,
     WorkflowRun,
+    WorkflowRunRemediation,
+    WorkflowRunRemediationAction,
+    WorkflowRunRemediationClassification,
+    WorkflowRunRemediationStatus,
     WorkflowRunStatus,
     WorkflowVersion,
 )
@@ -61,6 +65,10 @@ __all__ = [
     "Workflow",
     "WorkflowDraftAccess",
     "WorkflowRun",
+    "WorkflowRunRemediation",
+    "WorkflowRunRemediationAction",
+    "WorkflowRunRemediationClassification",
+    "WorkflowRunRemediationStatus",
     "WorkflowRunStatus",
     "WorkflowVersion",
 ]

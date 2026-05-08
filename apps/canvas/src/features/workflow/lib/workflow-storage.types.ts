@@ -105,6 +105,45 @@ export interface ApiWorkflowRun {
   updated_at?: string;
 }
 
+export type WorkflowRunRemediationStatus =
+  | "pending"
+  | "claimed"
+  | "fixed"
+  | "note_only"
+  | "failed"
+  | "dismissed";
+
+export type WorkflowRunRemediationClassification =
+  | "workflow_fixable"
+  | "node_or_edge_bug_workaround"
+  | "runtime_or_platform"
+  | "external_dependency"
+  | "unknown";
+
+export interface ApiWorkflowRunRemediation {
+  id: string;
+  workflow_id: string;
+  workflow_version_id: string;
+  run_id: string;
+  status: WorkflowRunRemediationStatus;
+  fingerprint: string;
+  version_checksum: string;
+  graph_format?: string | null;
+  attempt_count: number;
+  classification?: WorkflowRunRemediationClassification | null;
+  action?: "create_workflow_version" | "note_only" | null;
+  context?: Record<string, unknown>;
+  developer_note?: string | null;
+  created_version_id?: string | null;
+  artifacts?: Record<string, unknown>;
+  validation_result?: Record<string, unknown> | null;
+  last_error?: string | null;
+  claimed_by?: string | null;
+  claimed_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface WorkflowCredentialReadinessItem {
   name: string;
   placeholders: string[];

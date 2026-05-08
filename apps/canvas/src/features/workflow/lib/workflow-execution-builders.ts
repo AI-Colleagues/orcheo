@@ -7,19 +7,19 @@ import {
   toNodeStatus,
 } from "./workflow-execution-formatters";
 import type {
-  HistoryWorkflowNode,
-  HistoryWorkflowEdge,
   RunHistoryResponse,
   SnapshotEdge,
   SnapshotNode,
   WorkflowExecution,
   WorkflowLookup,
+  WorkflowExecutionEdge,
+  WorkflowExecutionNode,
 } from "./workflow-execution.types";
 
 const buildNodesFromSnapshot = (
   nodes: SnapshotNode[],
   status: WorkflowExecution["status"],
-): HistoryWorkflowNode[] => {
+): WorkflowExecutionNode[] => {
   const resolvedStatus = toNodeStatus(status);
   return nodes.map((node) => ({
     id: node.id,
@@ -36,7 +36,7 @@ const buildNodesFromSnapshot = (
   }));
 };
 
-const buildEdgesFromSnapshot = (edges: SnapshotEdge[]): HistoryWorkflowEdge[] =>
+const buildEdgesFromSnapshot = (edges: SnapshotEdge[]): WorkflowExecutionEdge[] =>
   edges.map((edge) => ({
     id: edge.id ?? `${edge.source}-${edge.target}`,
     source: edge.source,

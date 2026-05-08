@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   extractCronConfigFromVersionGraph,
+  fetchWorkflowRemediations,
   fetchWorkflowCanvasData,
   fetchWorkflowCredentialReadiness,
   fetchWorkflowListenerMetrics,
@@ -215,6 +216,40 @@ describe("workflow-storage-api helpers", () => {
     ) as { workflow_version_id?: string; triggered_by?: string };
     expect(requestBody.workflow_version_id).toBe("v2");
     expect(requestBody.triggered_by).toBe("canvas");
+  });
+
+  it("fetches workflow remediations with filters", async () => {
+    const mockFetch = getFetchMock();
+    queueResponses([
+      jsonResponse([
+        {
+          id: "rem-1",
+          workflow_id: "wf-1",
+          workflow_version_id: "v1",
+          run_id: "run-1",
+          status: "fixed",
+          fingerprint: "fp",
+          version_checksum: "checksum",
+          attempt_count: 1,
+          classification: "workflow_fixable",
+          action: "create_workflow_version",
+          developer_note: "Fixed workflow source.",
+          created_version_id: "v2",
+        },
+      ]),
+    ]);
+
+    const remediations = await fetchWorkflowRemediations({
+      workflowId: "wf-1",
+      runId: "run-1",
+      status: "fixed",
+      limit: 25,
+    });
+
+    expect(remediations[0]?.id).toBe("rem-1");
+    expect(String(mockFetch.mock.calls[0]?.[0])).toContain(
+      "/api/workflow-remediations?workflow_id=wf-1&run_id=run-1&status=fixed&limit=25",
+    );
   });
 
   it("selects the highest workflow version even when the API response is unsorted", () => {
