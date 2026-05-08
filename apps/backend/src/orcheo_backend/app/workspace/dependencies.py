@@ -3,6 +3,7 @@
 from __future__ import annotations
 from collections.abc import Callable, Coroutine
 from typing import Annotated, Any
+from uuid import UUID
 from fastapi import Depends, Request
 from orcheo.config import get_settings
 from orcheo.workspace import (
@@ -10,6 +11,7 @@ from orcheo.workspace import (
     PostgresWorkspaceRepository,
     Role,
     SqliteWorkspaceRepository,
+    Workspace,
     WorkspaceContext,
     WorkspaceMembershipError,
     WorkspaceNotFoundError,
@@ -17,6 +19,8 @@ from orcheo.workspace import (
     WorkspaceRepository,
     WorkspaceResolver,
     WorkspaceService,
+    WorkspaceStatus,
+    ensure_default_workspace,
 )
 from orcheo_backend.app.authentication import RequestContext, authenticate_request
 from orcheo_backend.app.errors import WorkspaceRateLimitError
@@ -40,6 +44,7 @@ __all__ = [
     "reset_workspace_state",
     "set_workspace_repository",
     "set_workspace_service",
+    "_resolve_from_authorized_workspaces",
 ]
 
 
@@ -126,27 +131,49 @@ async def resolve_workspace_context(
 ) -> WorkspaceContext:
     """FastAPI dependency that produces a WorkspaceContext for the request.
 
-    The caller must be authenticated and have at least one workspace membership.
-    An explicit slug header pins the active workspace when the user has multiple
-    memberships.
+    When multi-workspace is disabled the dependency synthesises a default
+    workspace context so that single-tenant installs continue to work without
+    auth or membership configuration.
+
+    When multi-workspace is enabled the caller must be authenticated.  Service
+    tokens and dev logins that carry *workspace_ids* in their claims are
+    resolved directly from those identifiers; user identities are resolved via
+    the membership-based resolver.
     """
+    settings = get_settings()
+    multi_workspace_enabled = bool(settings.get("MULTI_WORKSPACE_ENABLED", False))
+
+    if not multi_workspace_enabled:
+        context = _synthesize_default_context(get_workspace_service(), auth.subject)
+        request.state.workspace = context
+        return context
+
     if not auth.is_authenticated:
         raise WorkspaceContextRequiredError("Authentication is required for workspace")
 
     service = get_workspace_service()
     requested_slug = _read_workspace_header(request)
 
-    try:
-        context = service.resolver.resolve(
-            user_id=auth.subject,
-            workspace_slug=requested_slug,
+    if auth.workspace_ids:
+        context = _resolve_from_authorized_workspaces(
+            repository=service.repository,
+            workspace_ids=auth.workspace_ids,
+            requested_slug=requested_slug,
         )
-    except WorkspaceNotFoundError:
-        raise_workspace_not_found()
-    except WorkspacePermissionError as exc:
-        raise_workspace_forbidden(str(exc))
-    except WorkspaceMembershipError as exc:
-        raise_workspace_forbidden(str(exc), error_code="workspace.membership_required")
+    else:
+        try:
+            context = service.resolver.resolve(
+                user_id=auth.subject,
+                workspace_slug=requested_slug,
+            )
+        except WorkspaceNotFoundError:
+            raise_workspace_not_found()
+        except WorkspacePermissionError as exc:
+            raise_workspace_forbidden(str(exc))
+        except WorkspaceMembershipError as exc:
+            raise_workspace_forbidden(
+                str(exc), error_code="workspace.membership_required"
+            )
 
     try:
         get_workspace_governance().check_api_rate_limit(str(context.workspace_id))
@@ -154,6 +181,73 @@ async def resolve_workspace_context(
         raise exc.as_http_exception() from exc
     request.state.workspace = context
     return context
+
+
+def _synthesize_default_context(
+    service: WorkspaceService,
+    user_id: str,
+) -> WorkspaceContext:
+    """Build a default workspace context for legacy single-tenant mode."""
+    default_workspace = ensure_default_workspace(service.repository)
+    return WorkspaceContext(
+        workspace_id=default_workspace.id,
+        workspace_slug=default_workspace.slug,
+        user_id=user_id,
+        role=Role.OWNER,
+        quotas=default_workspace.quotas,
+    )
+
+
+def _resolve_from_authorized_workspaces(
+    *,
+    repository: WorkspaceRepository,
+    workspace_ids: frozenset[str],
+    requested_slug: str | None = None,
+) -> WorkspaceContext:
+    """Resolve a workspace context from token-authorized workspace IDs.
+
+    Service tokens and dev logins carry *workspace_ids* directly in their
+    claims.  This path resolves the workspace from those IDs without requiring
+    a user-membership row (which does not exist for token identifiers).
+    """
+    workspaces: list[Workspace] = []
+    for wid in workspace_ids:
+        try:
+            workspace = repository.get_workspace(UUID(wid))
+            workspaces.append(workspace)
+        except WorkspaceNotFoundError:
+            continue
+
+    if not workspaces:
+        raise_workspace_forbidden(
+            "No authorized workspaces found",
+            error_code="workspace.membership_required",
+        )
+
+    if requested_slug is not None:
+        for workspace in workspaces:
+            if workspace.slug == requested_slug:
+                selected = workspace
+                break
+        else:
+            raise_workspace_not_found()
+    elif len(workspaces) == 1:
+        selected = workspaces[0]
+    else:
+        selected = workspaces[0]
+
+    if selected.status is not WorkspaceStatus.ACTIVE:
+        raise_workspace_forbidden(
+            f"Workspace {selected.slug} is not active (status={selected.status.value})"
+        )
+
+    return WorkspaceContext(
+        workspace_id=selected.id,
+        workspace_slug=selected.slug,
+        user_id="service",
+        role=Role.OWNER,
+        quotas=selected.quotas,
+    )
 
 
 WorkspaceContextDep = Annotated[WorkspaceContext, Depends(resolve_workspace_context)]
