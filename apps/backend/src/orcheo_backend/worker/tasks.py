@@ -524,8 +524,6 @@ async def _refresh_external_agent_status_async(
         refresh_external_agent_status_async,
     )
 
-    if workspace_id is None:
-        return await refresh_external_agent_status_async(provider_name)
     return await refresh_external_agent_status_async(
         provider_name,
         workspace_id=workspace_id,
@@ -542,8 +540,6 @@ async def _start_external_agent_login_async(
         start_external_agent_login_async,
     )
 
-    if workspace_id is None:
-        return await start_external_agent_login_async(provider_name, session_id)
     return await start_external_agent_login_async(
         provider_name,
         session_id,
@@ -558,8 +554,6 @@ async def _disconnect_external_agent_async(
     """Clear worker-side auth state for one external agent provider."""
     from orcheo_backend.worker.external_agents import disconnect_external_agent_async
 
-    if workspace_id is None:
-        return await disconnect_external_agent_async(provider_name)
     return await disconnect_external_agent_async(
         provider_name,
         workspace_id=workspace_id,
@@ -594,10 +588,6 @@ def refresh_external_agent_status(
     """Refresh worker-scoped status for one external agent provider."""
     logger.info("Refreshing external agent status for %s", provider_name)
     loop = _get_event_loop()
-    if workspace_id is None:
-        return loop.run_until_complete(
-            _refresh_external_agent_status_async(provider_name)
-        )
     return loop.run_until_complete(
         _refresh_external_agent_status_async(provider_name, workspace_id)
     )
@@ -617,10 +607,6 @@ def start_external_agent_login(
         session_id,
     )
     loop = _get_event_loop()
-    if workspace_id is None:
-        return loop.run_until_complete(
-            _start_external_agent_login_async(provider_name, session_id)
-        )
     return loop.run_until_complete(
         _start_external_agent_login_async(provider_name, session_id, workspace_id)
     )
@@ -635,8 +621,6 @@ def disconnect_external_agent(
     """Clear worker-side auth state for one external agent provider."""
     logger.info("Disconnecting external agent auth for %s", provider_name)
     loop = _get_event_loop()
-    if workspace_id is None:
-        return loop.run_until_complete(_disconnect_external_agent_async(provider_name))
     return loop.run_until_complete(
         _disconnect_external_agent_async(provider_name, workspace_id)
     )

@@ -56,7 +56,7 @@ def set_workspace_repository(repository: WorkspaceRepository | None) -> None:
 def set_workspace_service(service: WorkspaceService | None) -> None:
     """Override the workspace service singleton (primarily for testing)."""
     _workspace_service_ref["service"] = service
-    if service is not None:
+    if service is not None:  # pragma: no branch
         _workspace_repository_ref["repository"] = service.repository
 
 

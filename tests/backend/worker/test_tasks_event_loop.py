@@ -98,7 +98,7 @@ async def test_refresh_external_agent_status_async_proxies_to_worker_helper() ->
     ) as refresh:
         result = await _refresh_external_agent_status_async("codex")
 
-    refresh.assert_awaited_once_with("codex")
+    refresh.assert_awaited_once_with("codex", workspace_id=None)
     assert result == {"status": "ready"}
 
 
@@ -112,7 +112,7 @@ async def test_start_external_agent_login_async_proxies_to_worker_helper() -> No
     ) as start:
         result = await _start_external_agent_login_async("codex", "session-1")
 
-    start.assert_awaited_once_with("codex", "session-1")
+    start.assert_awaited_once_with("codex", "session-1", workspace_id=None)
     assert result == {"status": "authenticated"}
 
 
@@ -126,7 +126,7 @@ async def test_disconnect_external_agent_async_proxies_to_worker_helper() -> Non
     ) as disconnect:
         result = await _disconnect_external_agent_async("gemini")
 
-    disconnect.assert_awaited_once_with("gemini")
+    disconnect.assert_awaited_once_with("gemini", workspace_id=None)
     assert result == {"status": "needs_login"}
 
 
@@ -200,7 +200,7 @@ def test_refresh_external_agent_status_task_with_workspace_id() -> None:
             ),
         ):
             result = tasks_mod.refresh_external_agent_status.run(
-                tasks_mod.refresh_external_agent_status, "codex", workspace_id="ws-1"
+                "codex", workspace_id="ws-1"
             )
     finally:
         loop.close()
@@ -230,7 +230,6 @@ def test_start_external_agent_login_task_with_workspace_id() -> None:
             ),
         ):
             result = tasks_mod.start_external_agent_login.run(
-                tasks_mod.start_external_agent_login,
                 "codex",
                 "sess-1",
                 workspace_id="ws-1",
@@ -263,7 +262,7 @@ def test_disconnect_external_agent_task_with_workspace_id() -> None:
             ),
         ):
             result = tasks_mod.disconnect_external_agent.run(
-                tasks_mod.disconnect_external_agent, "codex", workspace_id="ws-1"
+                "codex", workspace_id="ws-1"
             )
     finally:
         loop.close()
