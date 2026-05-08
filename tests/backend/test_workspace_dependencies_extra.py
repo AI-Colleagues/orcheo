@@ -168,3 +168,34 @@ async def test_require_role_and_require_workspace() -> None:
         await checker(SimpleNamespace(), context)
 
     assert await workspace_dependencies.require_workspace(context) is context
+
+
+def test_set_workspace_service_with_non_none_also_sets_repository() -> None:
+    """Lines 58-60: set_workspace_service with a non-None service also updates the repository ref."""
+    from types import SimpleNamespace
+    from orcheo.workspace import InMemoryWorkspaceRepository
+
+    repo = InMemoryWorkspaceRepository()
+    service = SimpleNamespace(repository=repo)
+
+    workspace_dependencies.set_workspace_service(service)
+    assert workspace_dependencies._workspace_service_ref["service"] is service
+    assert workspace_dependencies._workspace_repository_ref["repository"] is repo
+
+    workspace_dependencies.reset_workspace_state()
+
+
+def test_get_workspace_resolver_returns_resolver_from_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Line 108: get_workspace_resolver returns service.resolver."""
+    sentinel = object()
+
+    class _FakeService:
+        resolver = sentinel
+
+    monkeypatch.setattr(
+        workspace_dependencies, "get_workspace_service", lambda: _FakeService()
+    )
+
+    assert workspace_dependencies.get_workspace_resolver() is sentinel

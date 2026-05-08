@@ -237,3 +237,27 @@ def test_focus_preserved_across_unfocused_update() -> None:
     result = store.get_active()
     # last_focused_at should still be t1
     assert result["last_focused_at"] == t1.isoformat()
+
+
+def test_periodic_cleanup_evicts_expired_entries() -> None:
+    """Lines 77-80: _periodic_cleanup evicts stale entries and reschedules."""
+    store = BrowserContextStore(ttl_seconds=1)
+    if store._cleanup_timer:
+        store._cleanup_timer.cancel()
+
+    old_time = _now() - timedelta(seconds=10)
+    store.upsert(
+        session_id="old",
+        page="canvas",
+        workflow_id=None,
+        workflow_name=None,
+        focused=False,
+        timestamp=old_time,
+    )
+    assert "old" in store._sessions
+
+    store._periodic_cleanup()
+
+    assert "old" not in store._sessions
+    assert store._cleanup_timer is not None
+    store._cleanup_timer.cancel()

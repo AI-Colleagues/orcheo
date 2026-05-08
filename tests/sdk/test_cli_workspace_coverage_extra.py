@@ -271,6 +271,160 @@ def test_invite_and_membership_listing_machine_outputs(
     assert machine[1]["memberships"][0]["slug"] == "acme"
 
 
+def test_deactivate_and_reactivate_human_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lines 105, 119: deactivate/reactivate print success in human mode."""
+
+    monkeypatch.setattr(
+        workspace_mod,
+        "deactivate_workspace_data",
+        lambda client, workspace_id: {"slug": "acme", "status": "suspended"},
+    )
+    monkeypatch.setattr(
+        workspace_mod,
+        "reactivate_workspace_data",
+        lambda client, workspace_id: {"slug": "acme", "status": "active"},
+    )
+    messages: list[str] = []
+    monkeypatch.setattr(workspace_mod, "success", lambda msg: messages.append(msg))
+
+    ctx, _, _ = _make_ctx(human=True)
+    workspace_mod.deactivate_workspace(ctx, "ws-1")
+    workspace_mod.reactivate_workspace(ctx, "ws-1")
+
+    assert any("suspended" in m for m in messages)
+    assert any("reactivated" in m for m in messages)
+
+
+def test_delete_workspace_confirmed_and_machine_with_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lines 140->142 and 147: confirmed delete and machine path when data not None."""
+
+    delete_calls: list[str] = []
+    monkeypatch.setattr(
+        workspace_mod,
+        "delete_workspace_data",
+        lambda client, workspace_id: delete_calls.append(workspace_id)
+        or {"id": workspace_id},
+    )
+    monkeypatch.setattr(typer, "confirm", lambda *args, **kwargs: True)
+    success_messages: list[str] = []
+    monkeypatch.setattr(
+        workspace_mod, "success", lambda msg: success_messages.append(msg)
+    )
+
+    ctx, _, _ = _make_ctx(human=True)
+    workspace_mod.delete_workspace(ctx, "ws-confirmed", force=False)
+    assert "ws-confirmed" in delete_calls
+    assert any("deleted" in m for m in success_messages)
+
+    machine: list[object] = []
+    monkeypatch.setattr(workspace_mod, "print_json", lambda data: machine.append(data))
+    monkeypatch.setattr(
+        workspace_mod,
+        "delete_workspace_data",
+        lambda client, workspace_id: {"id": workspace_id, "status": "deleted"},
+    )
+    ctx, _, _ = _make_ctx(human=False)
+    workspace_mod.delete_workspace(ctx, "ws-data", force=True)
+    assert machine[0]["id"] == "ws-data"
+
+
+def test_purge_deleted_workspaces_machine_with_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Line 175: machine mode prints JSON when purge returns non-None data."""
+
+    monkeypatch.setattr(
+        workspace_mod,
+        "purge_deleted_workspaces_data",
+        lambda client, retention_days: {"purged": 3},
+    )
+    machine: list[object] = []
+    monkeypatch.setattr(workspace_mod, "print_json", lambda data: machine.append(data))
+
+    ctx, _, _ = _make_ctx(human=False)
+    workspace_mod.purge_deleted_workspaces(ctx, retention_days=7)
+    assert machine[0]["purged"] == 3
+
+
+def test_invite_member_human_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Line 200: invite_member prints success in human mode."""
+
+    monkeypatch.setattr(
+        workspace_mod,
+        "invite_workspace_member_data",
+        lambda client, *, slug, user_id, role: {
+            "slug": slug,
+            "user_id": user_id,
+            "role": role,
+        },
+    )
+    messages: list[str] = []
+    monkeypatch.setattr(workspace_mod, "success", lambda msg: messages.append(msg))
+
+    ctx, _, _ = _make_ctx(human=True)
+    workspace_mod.invite_member(ctx, "acme", user_id="bob", role="viewer")
+    assert any("bob" in m and "viewer" in m and "acme" in m for m in messages)
+
+
+def test_use_workspace_clear_human_and_no_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Lines 265->267 and 270-271: clear when file absent and in human mode."""
+
+    config_file = tmp_path / "workspace"
+    monkeypatch.setattr(workspace_mod, "_WORKSPACE_CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(workspace_mod, "_WORKSPACE_CONFIG_FILE", config_file)
+
+    messages: list[str] = []
+    monkeypatch.setattr(workspace_mod, "success", lambda msg: messages.append(msg))
+
+    ctx, _, _ = _make_ctx(human=True)
+    workspace_mod.use_workspace(ctx, slug=None, clear=True)
+    assert any("cleared" in m for m in messages)
+
+    config_file.write_text("acme\n", encoding="utf-8")
+    ctx, _, _ = _make_ctx(human=True)
+    messages.clear()
+    workspace_mod.use_workspace(ctx, slug=None, clear=True)
+    assert any("cleared" in m for m in messages)
+    assert not config_file.exists()
+
+
+def test_list_my_memberships_human_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lines 302-310: list_my_memberships renders a table in human mode."""
+
+    monkeypatch.setattr(
+        workspace_mod,
+        "list_my_workspaces_data",
+        lambda client: {
+            "memberships": [
+                {
+                    "slug": "acme",
+                    "name": "Acme Corp",
+                    "role": "owner",
+                    "status": "active",
+                }
+            ]
+        },
+    )
+
+    ctx, _, buffer = _make_ctx(human=True)
+    workspace_mod.list_my_memberships(ctx)
+
+    rendered = buffer.getvalue()
+    assert "acme" in rendered
+    assert "owner" in rendered
+
+
 def test_audit_log_and_purge_human_outputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

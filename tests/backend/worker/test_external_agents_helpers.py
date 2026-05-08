@@ -1112,3 +1112,292 @@ def test_delete_directory_if_present_is_noop_when_missing(tmp_path: Path) -> Non
     missing = tmp_path / "nonexistent_dir"
     _delete_directory_if_present(missing)
     assert not missing.exists()
+
+
+def test_clear_provider_auth_state_claude_code_with_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Line 998: _clear_provider_auth_state for CLAUDE_CODE passes workspace_id to delete."""
+    from orcheo_backend.worker import external_agents as ea_mod
+
+    calls: list[dict] = []
+
+    def fake_delete(vault, *, credential_name, workspace_id=None):
+        calls.append({"credential_name": credential_name, "workspace_id": workspace_id})
+
+    monkeypatch.setattr(ea_mod, "get_vault", lambda: None)
+    monkeypatch.setattr(ea_mod, "delete_external_agent_secret", fake_delete)
+
+    _clear_provider_auth_state(
+        ExternalAgentProviderName.CLAUDE_CODE,
+        {},
+        workspace_id="ws-1",
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["workspace_id"] == "ws-1"
+    assert calls[0]["credential_name"] == ea_mod.CLAUDE_CODE_OAUTH_TOKEN_CREDENTIAL_NAME
+
+
+def test_clear_provider_auth_state_codex_with_workspace_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Line 1012: _clear_provider_auth_state for CODEX passes workspace_id to delete."""
+    from orcheo_backend.worker import external_agents as ea_mod
+
+    calls: list[dict] = []
+
+    def fake_delete(vault, *, credential_name, workspace_id=None):
+        calls.append({"credential_name": credential_name, "workspace_id": workspace_id})
+
+    monkeypatch.setattr(ea_mod, "get_vault", lambda: None)
+    monkeypatch.setattr(ea_mod, "delete_external_agent_secret", fake_delete)
+    monkeypatch.setattr(ea_mod, "_delete_file_if_present", lambda path: None)
+    monkeypatch.setattr(
+        ea_mod, "_codex_auth_file_path", lambda environ: tmp_path / "codex-auth.json"
+    )
+
+    _clear_provider_auth_state(
+        ExternalAgentProviderName.CODEX,
+        {},
+        workspace_id="ws-1",
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["workspace_id"] == "ws-1"
+    assert calls[0]["credential_name"] == ea_mod.CODEX_AUTH_JSON_CREDENTIAL_NAME
+
+
+@pytest.mark.asyncio
+async def test_disconnect_external_agent_async_workspace_id_branches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lines 1105, 1116, 1129, 1138-1143: disconnect_external_agent_async with workspace_id."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from orcheo_backend.worker import external_agents as ea_mod
+
+    workspace_id = "ws-disconnect"
+    provider_name = "claude_code"
+
+    fake_store = MagicMock()
+    fake_store.save_provider_environment = MagicMock()
+
+    fake_manager = MagicMock()
+    fake_manager.inspect_runtime.return_value = (MagicMock(), None)
+    fake_manager.environment_for_provider.return_value = {}
+    fake_manager.save_provider_environment = MagicMock()
+
+    clear_calls: list[dict] = []
+    mark_calls: list[dict] = []
+
+    def fake_clear(provider_id, provider_environ, *, workspace_id=None):
+        clear_calls.append({"workspace_id": workspace_id})
+
+    def fake_mark(store, provider_id, *, workspace_id=None):
+        mark_calls.append({"workspace_id": workspace_id})
+
+    with (
+        patch.object(
+            ea_mod, "get_external_agent_runtime_store", return_value=fake_store
+        ),
+        patch(
+            "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+            return_value=fake_manager,
+        ),
+        patch.object(ea_mod, "_worker_provider_environment", return_value={}),
+        patch.object(ea_mod, "_logout_provider_cli"),
+        patch.object(ea_mod, "_clear_provider_auth_state", side_effect=fake_clear),
+        patch.object(ea_mod, "_provider_environment_reset", return_value={}),
+        patch.object(
+            ea_mod, "_mark_provider_session_disconnected", side_effect=fake_mark
+        ),
+        patch.object(
+            ea_mod,
+            "refresh_external_agent_status_async",
+            new_callable=AsyncMock,
+            return_value={"status": "needs_login"},
+        ),
+    ):
+        result = await ea_mod.disconnect_external_agent_async(
+            provider_name, workspace_id=workspace_id
+        )
+
+    assert result == {"status": "needs_login"}
+    assert clear_calls and clear_calls[0]["workspace_id"] == workspace_id
+    assert mark_calls and mark_calls[0]["workspace_id"] == workspace_id
+    fake_manager.save_provider_environment.assert_called_once()
+    fake_store.save_provider_environment.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_start_external_agent_login_async_persists_with_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lines 1594, 1615: workspace_id not-None paths in start_external_agent_login_async."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from orcheo_backend.worker import external_agents as ea_mod
+
+    workspace_id = "ws-login"
+    provider_name = "claude_code"
+    session_id = "sess-1"
+
+    fake_session = MagicMock()
+    fake_session.workspace_id = workspace_id
+
+    fake_store = MagicMock()
+    fake_store.get_login_session.return_value = fake_session
+    fake_store.save_login_session.return_value = fake_session
+    fake_store.get_login_input.return_value = None
+
+    fake_runtime = MagicMock()
+    fake_runtime.version = "1.0"
+    fake_runtime.executable_path = Path("/usr/bin/claude")
+
+    fake_manifest = MagicMock()
+    fake_manifest.last_auth_ok_at = None
+
+    fake_probe_not_auth = MagicMock()
+    fake_probe_not_auth.authenticated = False
+    fake_probe_not_auth.message = ""
+
+    fake_probe_auth = MagicMock()
+    fake_probe_auth.authenticated = True
+
+    fake_provider = MagicMock()
+    fake_provider.probe_auth.side_effect = [fake_probe_not_auth, fake_probe_auth]
+    fake_provider.oauth_login_command.return_value = ["echo", "done"]
+    fake_provider.build_environment.return_value = {}
+
+    fake_manager = MagicMock()
+    fake_manager.inspect_runtime.return_value = (fake_runtime, fake_manifest)
+    fake_manager.environment_for_provider.return_value = {}
+    fake_manager.get_provider.return_value = fake_provider
+    fake_manager.mark_auth_success.return_value = fake_manifest
+
+    fake_result = MagicMock()
+    fake_result.auth_token = "sk-ant-token123"
+    fake_result.auth_url = None
+    fake_result.device_code = None
+    fake_result.output = "done"
+    fake_result.timed_out = False
+
+    persist_calls: list[dict] = []
+    sync_calls: list[dict] = []
+
+    with (
+        patch.object(
+            ea_mod, "get_external_agent_runtime_store", return_value=fake_store
+        ),
+        patch(
+            "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+            return_value=fake_manager,
+        ),
+        patch.object(ea_mod, "_worker_provider_environment", return_value={}),
+        patch.object(ea_mod, "_run_login_command", return_value=fake_result),
+        patch.object(
+            ea_mod,
+            "_persist_claude_oauth_token_to_vault",
+            side_effect=lambda token, **kw: persist_calls.append(kw),
+        ),
+        patch.object(
+            ea_mod,
+            "_sync_authenticated_provider_to_vault",
+            side_effect=lambda *a, **kw: sync_calls.append(kw),
+        ),
+        patch.object(ea_mod, "_save_ready_provider_status"),
+        patch.object(ea_mod, "_trim_recent_output", return_value="done"),
+    ):
+        result = await ea_mod.start_external_agent_login_async(
+            provider_name, session_id, workspace_id=workspace_id
+        )
+
+    assert result == {"status": "authenticated"}
+    assert persist_calls and persist_calls[0].get("workspace_id") == workspace_id
+    assert sync_calls and sync_calls[0].get("workspace_id") == workspace_id
+
+
+@pytest.mark.asyncio
+async def test_start_external_agent_login_async_codex_persists_with_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Line 1603: CODEX provider persists auth JSON with workspace_id."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from orcheo_backend.worker import external_agents as ea_mod
+
+    workspace_id = "ws-codex"
+    provider_name = "codex"
+    session_id = "sess-codex"
+
+    fake_session = MagicMock()
+    fake_session.workspace_id = workspace_id
+
+    fake_store = MagicMock()
+    fake_store.get_login_session.return_value = fake_session
+    fake_store.save_login_session.return_value = fake_session
+    fake_store.get_login_input.return_value = None
+
+    fake_runtime = MagicMock()
+    fake_runtime.version = "1.0"
+    fake_runtime.executable_path = Path("/usr/bin/codex")
+
+    fake_manifest = MagicMock()
+    fake_manifest.last_auth_ok_at = None
+
+    fake_probe_not_auth = MagicMock()
+    fake_probe_not_auth.authenticated = False
+    fake_probe_not_auth.message = ""
+
+    fake_probe_auth = MagicMock()
+    fake_probe_auth.authenticated = True
+
+    fake_provider = MagicMock()
+    fake_provider.probe_auth.side_effect = [fake_probe_not_auth, fake_probe_auth]
+    fake_provider.oauth_login_command.return_value = ["echo", "done"]
+    fake_provider.build_environment.return_value = {}
+
+    fake_manager = MagicMock()
+    fake_manager.inspect_runtime.return_value = (fake_runtime, fake_manifest)
+    fake_manager.environment_for_provider.return_value = {}
+    fake_manager.get_provider.return_value = fake_provider
+    fake_manager.mark_auth_success.return_value = fake_manifest
+
+    fake_result = MagicMock()
+    fake_result.auth_token = None
+    fake_result.auth_url = None
+    fake_result.device_code = None
+    fake_result.output = "done"
+    fake_result.timed_out = False
+
+    codex_calls: list[dict] = []
+    sync_calls: list[dict] = []
+
+    with (
+        patch.object(
+            ea_mod, "get_external_agent_runtime_store", return_value=fake_store
+        ),
+        patch(
+            "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+            return_value=fake_manager,
+        ),
+        patch.object(ea_mod, "_worker_provider_environment", return_value={}),
+        patch.object(ea_mod, "_run_login_command", return_value=fake_result),
+        patch.object(
+            ea_mod,
+            "_persist_codex_auth_json_to_vault",
+            side_effect=lambda environ, **kw: codex_calls.append(kw),
+        ),
+        patch.object(
+            ea_mod,
+            "_sync_authenticated_provider_to_vault",
+            side_effect=lambda *a, **kw: sync_calls.append(kw),
+        ),
+        patch.object(ea_mod, "_save_ready_provider_status"),
+        patch.object(ea_mod, "_trim_recent_output", return_value="done"),
+    ):
+        result = await ea_mod.start_external_agent_login_async(
+            provider_name, session_id, workspace_id=workspace_id
+        )
+
+    assert result == {"status": "authenticated"}
+    assert codex_calls and codex_calls[0].get("workspace_id") == workspace_id
+    assert sync_calls and sync_calls[0].get("workspace_id") == workspace_id
