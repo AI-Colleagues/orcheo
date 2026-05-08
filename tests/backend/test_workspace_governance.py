@@ -397,3 +397,90 @@ async def test_ensure_workspace_workflow_quota_raises_on_storage_rows_exceeded()
     with pytest.raises(WorkspaceQuotaExceededError) as exc_info:
         await governance_mod.ensure_workspace_workflow_quota(_Repository(), workspace)
     assert exc_info.value.code == "workspace.quota.storage"
+
+
+def test_check_api_rate_limit_redis_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Line 104: successful Redis rate limit check returns early."""
+
+    class _PipeSuccess:
+        def zremrangebyscore(self, *a, **k):
+            return self
+
+        def zadd(self, *a, **k):
+            return self
+
+        def zcard(self, *a, **k):
+            return self
+
+        def expire(self, *a, **k):
+            return self
+
+        def execute(self):
+            # count=1, limit=10 -> should succeed
+            return [None, None, 1, True]
+
+    class _FakeRedis:
+        def pipeline(self):
+            return _PipeSuccess()
+
+    monkeypatch.setattr(redis, "from_url", lambda *a, **k: _FakeRedis())
+    limiter = WorkspaceGovernance(
+        api_rate_limit=10, api_rate_interval_seconds=60, redis_url="redis://ok"
+    )
+
+    # This should hit line 104 and return
+    limiter.check_api_rate_limit("ws-success")
+
+
+def test_get_workspace_governance(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Lines 183-203: singleton factory returns and refreshes the manager."""
+    monkeypatch.setattr(governance_mod, "_WORKSPACE_GOVERNANCE_CACHE", {})
+    monkeypatch.setattr(
+        governance_mod,
+        "get_settings",
+        lambda: {"REDIS_URL": "redis://localhost", "MULTI_WORKSPACE_RATE_LIMIT": "50"},
+    )
+
+    manager = governance_mod.get_workspace_governance()
+    assert manager._api_rate_limit == 50
+    assert manager._redis is not None
+
+    manager2 = governance_mod.get_workspace_governance()
+    assert manager2 is manager
+
+    manager3 = governance_mod.get_workspace_governance(refresh=True)
+    assert manager3 is not manager
+
+
+@pytest.mark.asyncio()
+async def test_ensure_workspace_quotas_under_limit() -> None:
+    """Lines 239, 258: success branches when under quota."""
+    workspace = SimpleNamespace(
+        workspace_id="ws-ok",
+        slug="ok",
+        quotas=SimpleNamespace(
+            max_workflows=10,
+            max_storage_rows=10,
+            max_credentials=10,
+        ),
+    )
+
+    class _Repository:
+        async def list_workflows(self, **k):
+            return []
+
+        async def list_versions(self, **k):
+            return []
+
+        async def list_runs_for_workflow(self, **k):
+            return []
+
+    class _Vault:
+        def list_all_credentials(self, **k):
+            return []
+
+    # Should not raise
+    await governance_mod.ensure_workspace_workflow_quota(_Repository(), workspace)
+    await governance_mod.ensure_workspace_credential_quota(_Vault(), workspace)
