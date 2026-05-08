@@ -96,6 +96,7 @@ def test_config_command_without_auth_or_service_token_fails(
         "ORCHEO_CONFIG_DIR": str(config_dir),
         "ORCHEO_CACHE_DIR": str(tmp_path / "cache"),
         "ORCHEO_API_URL": "http://api.test",
+        "ORCHEO_SERVICE_TOKEN": "",
         "ORCHEO_AUTH_ISSUER": "",
         "ORCHEO_AUTH_CLIENT_ID": "",
         "ORCHEO_AUTH_SCOPES": "",

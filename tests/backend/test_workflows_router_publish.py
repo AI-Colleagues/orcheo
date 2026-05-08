@@ -43,6 +43,9 @@ class _InvalidPublishRepo:
         del include_archived
         return UUID(str(workflow_ref))
 
+    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+        return Workflow(id=workflow_id, name="Stub")
+
     async def publish_workflow(self, workflow_id: UUID, **kwargs: object) -> Workflow:
         raise WorkflowPublishStateError("invalid state")
 
@@ -57,6 +60,9 @@ class _InvalidRevokeRepo:
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
+
+    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+        return Workflow(id=workflow_id, name="Stub")
 
     async def revoke_publish(self, workflow_id: UUID, **kwargs: object) -> Workflow:
         raise WorkflowPublishStateError("invalid")
@@ -90,6 +96,10 @@ class _RevokeRepo:
     ) -> UUID:
         del workflow_ref, include_archived
         return self.workflow.id
+
+    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+        del workflow_id
+        return self.workflow
 
     async def revoke_publish(self, workflow_id: UUID, **kwargs: object) -> Workflow:
         return self.workflow

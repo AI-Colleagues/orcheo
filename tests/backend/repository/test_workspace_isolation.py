@@ -8,8 +8,10 @@ from __future__ import annotations
 from uuid import UUID
 import pytest
 import pytest_asyncio
+import redis
 from orcheo.workspace import InMemoryWorkspaceRepository as WorkspaceRepository
 from orcheo.workspace import Workspace
+from orcheo_backend.app import workspace_governance
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowRunNotFoundError,
@@ -23,8 +25,14 @@ WORKSPACE_B = "22222222-2222-2222-2222-222222222222"
 
 
 @pytest_asyncio.fixture()
-async def repository() -> InMemoryWorkflowRepository:
+async def repository(monkeypatch: pytest.MonkeyPatch) -> InMemoryWorkflowRepository:
     repo = InMemoryWorkflowRepository()
+    monkeypatch.setattr(
+        workspace_governance.redis,
+        "from_url",
+        lambda *args, **kwargs: (_ for _ in ()).throw(redis.RedisError("boom")),
+    )
+    reset_workspace_state()
     workspace_repo = WorkspaceRepository()
     workspace_repo.create_workspace(
         Workspace(

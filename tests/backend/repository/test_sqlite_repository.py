@@ -3,8 +3,11 @@ import asyncio
 import json
 import pathlib
 import sqlite3
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from uuid import uuid4
+from types import SimpleNamespace
+from typing import Any
+from uuid import UUID, uuid4
 import aiosqlite
 import pytest
 from orcheo.models.workflow import Workflow, WorkflowDraftAccess, WorkflowVersion
@@ -12,14 +15,17 @@ from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
 from orcheo.triggers.retry import RetryPolicyConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
+from orcheo_backend.app.errors import WorkspaceQuotaExceededError
 from orcheo_backend.app.repository import (
     SqliteWorkflowRepository,
     WorkflowHandleConflictError,
     WorkflowNotFoundError,
     WorkflowPublishStateError,
+    WorkflowRunNotFoundError,
 )
+from orcheo_backend.app.repository_sqlite import _persistence as sqlite_persistence
+from orcheo_backend.app.repository_sqlite import _triggers as sqlite_triggers
 from orcheo_backend.app.repository_sqlite._base import (
-    SqliteRepositoryBase,
     _parse_optional_datetime,
 )
 
@@ -97,6 +103,49 @@ async def test_sqlite_repository_hydrates_failed_run_retry_state(
         await repository.reset()
 
 
+@pytest.mark.asyncio()
+async def test_sqlite_dispatch_manual_runs_skips_quota_exceeded(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Manual dispatch skips runs when the workspace quota is exceeded."""
+
+    db_path = tmp_path_factory.mktemp("manual-quota") / "manual.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await repository.create_workflow(
+            name="Quota Manual",
+            slug=None,
+            description=None,
+            tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="author",
+        )
+        await repository.create_version(
+            workflow.id,
+            graph={},
+            metadata={},
+            notes=None,
+            created_by="author",
+        )
+
+        async def _raise_quota(*_: object, **__: object):
+            raise WorkspaceQuotaExceededError("quota", code="workspace.quota.runs")
+
+        repository._create_run_locked = _raise_quota  # type: ignore[method-assign]
+
+        runs = await repository.dispatch_manual_runs(
+            ManualDispatchRequest(
+                workflow_id=workflow.id,
+                runs=[ManualDispatchItem()],
+            )
+        )
+
+        assert runs == []
+    finally:
+        await repository.reset()
+
+
 def test_parse_optional_datetime_adds_utc_timezone() -> None:
     """Naive timestamps returned from SQLite should be converted to UTC."""
 
@@ -107,6 +156,29 @@ def test_parse_optional_datetime_adds_utc_timezone() -> None:
     assert parsed.isoformat().endswith("+00:00")
 
 
+def test_sqlite_enqueue_run_logs_when_enqueue_fails(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Enqueue failures are logged and swallowed."""
+    import importlib
+
+    importlib.reload(sqlite_triggers)
+
+    class _Run:
+        id = uuid4()
+
+        @property
+        def workspace_id(self) -> str | None:
+            raise RuntimeError("workspace lookup failed")
+
+    run = _Run()
+
+    with caplog.at_level(
+        "WARNING", logger="orcheo_backend.app.repository_sqlite._base"
+    ):
+        assert sqlite_triggers._enqueue_run_for_execution(run) is None
+
+
 @pytest.mark.asyncio()
 async def test_sqlite_ensure_cron_schema_migrations_adds_missing_column(
     tmp_path: pathlib.Path,
@@ -114,7 +186,7 @@ async def test_sqlite_ensure_cron_schema_migrations_adds_missing_column(
     """The migration adds the `last_dispatched_at` column when absent."""
 
     db_path = tmp_path / "legacy.sqlite"
-    repo_base = SqliteRepositoryBase(db_path)
+    repo_base = SqliteWorkflowRepository(db_path)
 
     async with aiosqlite.connect(str(db_path)) as conn:
         conn.row_factory = aiosqlite.Row
@@ -141,7 +213,7 @@ async def test_sqlite_ensure_workflow_schema_migrations_backfills_columns(
     """The workflow migration adds mirrored columns and backfills them."""
 
     db_path = tmp_path / "legacy-workflows.sqlite"
-    repo_base = SqliteRepositoryBase(db_path)
+    repo_base = SqliteWorkflowRepository(db_path)
     workflow = Workflow(name="Legacy Flow", handle="legacy-flow")
     workflow.is_archived = True
 
@@ -184,8 +256,96 @@ async def test_sqlite_ensure_workflow_schema_migrations_backfills_columns(
     assert "handle" in columns
     assert "is_archived" in columns
     assert row is not None
-    assert row["handle"] == "legacy-flow"
-    assert row["is_archived"] == 1
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_ensure_workflow_schema_migrations_adds_run_workspace_column(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The migration adds workspace_id to workflow_runs when it is missing."""
+
+    db_path = tmp_path / "legacy-run-workspace.sqlite"
+    repo_base = SqliteWorkflowRepository(db_path)
+
+    async with aiosqlite.connect(str(db_path)) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute(
+            """
+            CREATE TABLE workflows (
+                id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+        await conn.execute(
+            """
+            CREATE TABLE workflow_runs (
+                id TEXT PRIMARY KEY,
+                workflow_id TEXT NOT NULL,
+                workflow_version_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                triggered_by TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+        await conn.commit()
+        await repo_base._ensure_workflow_schema_migrations(conn)
+        cursor = await conn.execute("PRAGMA table_info(workflow_runs)")
+        rows = await cursor.fetchall()
+
+    assert any(row["name"] == "workspace_id" for row in rows)
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_ensure_workflow_schema_migrations_keeps_existing_run_workspace_id(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Existing workflow_runs.workspace_id columns should not be re-added."""
+
+    db_path = tmp_path / "legacy-workflow-runs.sqlite"
+    repo_base = SqliteWorkflowRepository(db_path)
+
+    async with aiosqlite.connect(str(db_path)) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute(
+            """
+            CREATE TABLE workflows (
+                id TEXT PRIMARY KEY,
+                handle TEXT,
+                is_archived INTEGER NOT NULL DEFAULT 0,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                workspace_id TEXT
+            );
+            """
+        )
+        await conn.execute(
+            """
+            CREATE TABLE workflow_runs (
+                id TEXT PRIMARY KEY,
+                workflow_id TEXT NOT NULL,
+                workflow_version_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                triggered_by TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                workspace_id TEXT
+            );
+            """
+        )
+        await conn.commit()
+        await repo_base._ensure_workflow_schema_migrations(conn)
+        cursor = await conn.execute("PRAGMA table_info(workflow_runs)")
+        columns = {row["name"] for row in await cursor.fetchall()}
+
+    assert "workspace_id" in columns
 
 
 @pytest.mark.asyncio()
@@ -226,13 +386,46 @@ async def test_sqlite_ensure_initialized_adds_versions_workspace_index(
 
 
 @pytest.mark.asyncio()
+async def test_sqlite_ensure_workflow_versions_schema_migrations_keeps_existing_workspace_id(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Existing workflow_versions.workspace_id columns should not be re-added."""
+
+    db_path = tmp_path / "legacy-version-workspace.sqlite"
+    repo_base = SqliteWorkflowRepository(db_path)
+
+    async with aiosqlite.connect(str(db_path)) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute(
+            """
+            CREATE TABLE workflow_versions (
+                id TEXT PRIMARY KEY,
+                workflow_id TEXT NOT NULL,
+                workspace_id TEXT,
+                version INTEGER NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(workflow_id, version)
+            );
+            """
+        )
+        await conn.commit()
+        await repo_base._ensure_workflow_versions_schema_migrations(conn)
+        cursor = await conn.execute("PRAGMA table_info(workflow_versions)")
+        columns = {row["name"] for row in await cursor.fetchall()}
+
+    assert "workspace_id" in columns
+
+
+@pytest.mark.asyncio()
 async def test_sqlite_workflow_schema_migration_accepts_legacy_publish_fields(
     tmp_path: pathlib.Path,
 ) -> None:
     """The workflow migration tolerates removed publish-token fields."""
 
     db_path = tmp_path / "legacy-publish-fields.sqlite"
-    repo_base = SqliteRepositoryBase(db_path)
+    repo_base = SqliteWorkflowRepository(db_path)
     workflow = Workflow(name="Legacy Published Flow", handle="legacy-published-flow")
     payload = workflow.model_dump(mode="json")
     payload["publish_token_hash"] = "old-hash"
@@ -321,6 +514,342 @@ async def test_sqlite_deserialize_workflow_uses_workspace_id(
     assert len(workflows) == 1
     assert workflows[0].id == workflow.id
     assert workflows[0].workspace_id == "workspace-a"
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_deserialize_workflow_explicit_workspace_id(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The helper should inject an explicit workspace_id into workflow payloads."""
+
+    db_path = tmp_path / "workspace-id-explicit.sqlite"
+    repo_base = SqliteWorkflowRepository(db_path)
+    workflow = Workflow(
+        name="Explicit Workspace Flow", handle="explicit-workspace-flow"
+    )
+    payload = workflow.model_dump(mode="json")
+
+    result = repo_base._deserialize_workflow(json.dumps(payload), workspace_id="ws-a")
+
+    assert result.workspace_id == "ws-a"
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_deserialize_workflow_version_explicit_workspace_id(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The helper should inject an explicit workspace_id into version payloads."""
+
+    db_path = tmp_path / "workspace-version-explicit.sqlite"
+    repo_base = SqliteWorkflowRepository(db_path)
+    workflow = Workflow(name="Explicit Version Flow", handle="explicit-version-flow")
+    version = WorkflowVersion(workflow_id=workflow.id, version=1, created_by="author")
+    payload = version.model_dump(mode="json")
+
+    result = repo_base._deserialize_workflow_version(
+        json.dumps(payload), workspace_id="ws-b"
+    )
+
+    assert result.workspace_id == "ws-b"
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_workflow_workspace_scoping_and_update_branches(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Workspace filters and workflow updates should exercise all branch variants."""
+
+    db_path = tmp_path / "workflow-scope-update.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+    workspace_id = str(uuid4())
+
+    try:
+        scoped = await repository.create_workflow(
+            name="Scoped",
+            slug=None,
+            description="Scoped workflow",
+            tags=["a"],
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="author",
+            workspace_id=workspace_id,
+        )
+        unscoped = await repository.create_workflow(
+            name="Unscoped",
+            slug=None,
+            description="Legacy workflow",
+            tags=["b"],
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="author",
+        )
+
+        workflows = await repository.list_workflows(workspace_id=workspace_id)
+        assert [workflow.id for workflow in workflows] == [scoped.id]
+        assert await repository.get_workflow_workspace_id(scoped.id) == workspace_id
+        assert await repository.get_workflow_workspace_id(unscoped.id) is None
+        assert (
+            await repository.get_workflow(unscoped.id, workspace_id=workspace_id)
+        ).id == unscoped.id
+        assert (
+            await repository.resolve_workflow_ref(
+                str(unscoped.id), workspace_id=workspace_id
+            )
+            == unscoped.id
+        )
+
+        await repository.publish_workflow(
+            scoped.id,
+            require_login=True,
+            actor="author",
+        )
+        updated = await repository.update_workflow(
+            scoped.id,
+            name="Scoped Renamed",
+            handle="scoped-renamed",
+            description="Updated description",
+            tags=["x", "y"],
+            chatkit_start_screen_prompts=None,
+            chatkit_supported_models=None,
+            clear_chatkit_start_screen_prompts=False,
+            clear_chatkit_supported_models=False,
+            draft_access=WorkflowDraftAccess.AUTHENTICATED,
+            is_archived=True,
+            actor="editor",
+        )
+
+        assert updated.name == "Scoped Renamed"
+        assert updated.handle == "scoped-renamed"
+        assert updated.description == "Updated description"
+        assert updated.tags == ["x", "y"]
+        assert updated.draft_access == WorkflowDraftAccess.AUTHENTICATED
+        assert updated.is_archived is True
+        assert updated.is_public is False
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_create_run_locked_releases_workspace_slot_on_error(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Run slot reservations are released if SQLite persistence fails."""
+
+    db_path = tmp_path / "sqlite-run-slot.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+    workflow = await repository.create_workflow(
+        name="Slot Flow",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="author",
+    )
+    version = await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="author",
+    )
+    workspace_id = str(uuid4())
+    reserve_calls: list[tuple[str, int]] = []
+    release_calls: list[str] = []
+
+    class _WorkspaceRepo:
+        def get_workspace(self, workspace_uuid: UUID) -> SimpleNamespace:
+            assert str(workspace_uuid) == workspace_id
+            return SimpleNamespace(
+                quotas=SimpleNamespace(max_concurrent_runs=2),
+            )
+
+    class _Governance:
+        def reserve_run_slot(self, workspace: str, *, limit: int) -> None:
+            reserve_calls.append((workspace, limit))
+
+        def release_run_slot(self, workspace: str) -> None:
+            release_calls.append(workspace)
+
+    monkeypatch.setattr(
+        sqlite_persistence,
+        "get_workspace_repository",
+        lambda: _WorkspaceRepo(),
+    )
+    monkeypatch.setattr(
+        sqlite_persistence,
+        "get_workspace_governance",
+        lambda: _Governance(),
+    )
+
+    def _boom(*_: object, **__: object) -> None:
+        raise RuntimeError("track failed")
+
+    repository._trigger_layer.track_run = _boom  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="track failed"):
+        await repository._create_run_locked(
+            workflow_id=workflow.id,
+            workflow_version_id=version.id,
+            triggered_by="manual",
+            input_payload={},
+            actor="author",
+            workspace_id=workspace_id,
+        )
+
+    assert reserve_calls == [(workspace_id, 2)]
+    assert release_calls == [workspace_id]
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_create_run_locked_without_workspace_slot_does_not_release(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Failures without a workspace_id should not try to release a run slot."""
+
+    db_path = tmp_path / "sqlite-run-slot-none.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+    workflow = await repository.create_workflow(
+        name="Slot Flow",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="author",
+    )
+    version = await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="author",
+    )
+
+    def _boom(*_: object, **__: object) -> None:
+        raise RuntimeError("track failed")
+
+    repository._trigger_layer.track_run = _boom  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="track failed"):
+        await repository._create_run_locked(
+            workflow_id=workflow.id,
+            workflow_version_id=version.id,
+            triggered_by="manual",
+            input_payload={},
+            actor="author",
+        )
+    await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_get_workflow_locked_handles_missing_workspace_column(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Missing workspace_id columns are treated as unscoped workflows."""
+
+    db_path = tmp_path / "workflow-missing-workspace-column.sqlite"
+    workflow = Workflow(name="Missing Workspace", handle="missing-workspace")
+    payload = workflow.model_dump_json()
+
+    class _Cursor:
+        async def fetchone(self) -> dict[str, str]:
+            return {"payload": payload}
+
+    class _Connection:
+        async def execute(
+            self, query: str, params: tuple[str, ...] | None = None
+        ) -> _Cursor:
+            del query, params
+            return _Cursor()
+
+    repo = SqliteWorkflowRepository(db_path)
+
+    @asynccontextmanager
+    async def _connection() -> Any:  # type: ignore[valid-type]
+        yield _Connection()
+
+    repo._connection = _connection  # type: ignore[method-assign]
+
+    result = await repo._get_workflow_locked(workflow.id)  # noqa: SLF001
+
+    assert result.workspace_id is None
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_get_workflow_workspace_id_locked_handles_missing_row(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Missing workflow rows return no workspace_id."""
+
+    db_path = tmp_path / "workflow-helper-none.sqlite"
+    repo = SqliteWorkflowRepository(db_path)
+
+    await repo._ensure_initialized()
+    assert await repo._get_workflow_workspace_id_locked(uuid4()) is None  # noqa: SLF001
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_get_workflow_workspace_id_locked_handles_missing_key(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Rows without a workspace_id column are treated as unscoped."""
+
+    db_path = tmp_path / "workflow-helper-missing-key.sqlite"
+    workflow = Workflow(name="Missing Key", handle="missing-key")
+
+    class _Cursor:
+        async def fetchone(self) -> dict[str, str]:
+            return {"unexpected": "value"}
+
+    class _Connection:
+        async def execute(
+            self, query: str, params: tuple[str, ...] | None = None
+        ) -> _Cursor:
+            del query, params
+            return _Cursor()
+
+    repo = SqliteWorkflowRepository(db_path)
+
+    @asynccontextmanager
+    async def _connection() -> Any:  # type: ignore[valid-type]
+        yield _Connection()
+
+    repo._connection = _connection  # type: ignore[method-assign]
+
+    assert (
+        await repo._get_workflow_workspace_id_locked(workflow.id)  # noqa: SLF001
+    ) is None
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_get_run_workspace_id_locked_handles_missing_column(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Missing workspace_id columns are treated as unscoped runs."""
+
+    db_path = tmp_path / "run-missing-workspace-column.sqlite"
+    run_id = uuid4()
+
+    class _Cursor:
+        async def fetchone(self) -> dict[str, str]:
+            return {"unexpected": "value"}
+
+    class _Connection:
+        async def execute(
+            self, query: str, params: tuple[str, ...] | None = None
+        ) -> _Cursor:
+            del query, params
+            return _Cursor()
+
+    repo = SqliteWorkflowRepository(db_path)
+
+    @asynccontextmanager
+    async def _connection() -> Any:  # type: ignore[valid-type]
+        yield _Connection()
+
+    repo._connection = _connection  # type: ignore[method-assign]
+
+    result = await repo._get_run_workspace_id_locked(run_id)  # noqa: SLF001
+
+    assert result is None
 
 
 @pytest.mark.asyncio()
@@ -454,6 +983,50 @@ async def test_sqlite_dispatch_due_cron_runs_persists_last_dispatched(
 
         assert row is not None
         assert row["last_dispatched_at"] == now.isoformat()
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_dispatch_due_cron_runs_skips_quota_exceeded(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """Cron dispatch skips runs when the workspace quota is exceeded."""
+
+    db_path = tmp_path_factory.mktemp("cron-quota") / "dispatch.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workflow = await repository.create_workflow(
+            name="Quota Cron",
+            slug=None,
+            description=None,
+            tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="owner",
+        )
+        await repository.create_version(
+            workflow.id,
+            graph={},
+            metadata={},
+            notes=None,
+            created_by="owner",
+        )
+        await repository.configure_cron_trigger(
+            workflow.id,
+            CronTriggerConfig(expression="0 9 * * *", timezone="UTC"),
+        )
+
+        async def _raise_quota(*_: object, **__: object):
+            raise WorkspaceQuotaExceededError("quota", code="workspace.quota.runs")
+
+        repository._create_run_locked = _raise_quota  # type: ignore[method-assign]
+
+        runs = await repository.dispatch_due_cron_runs(
+            now=datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+        )
+
+        assert runs == []
     finally:
         await repository.reset()
 
@@ -794,6 +1367,261 @@ async def test_sqlite_handle_webhook_trigger_success(
         stored = await repository.get_run(run.id)
         assert stored.input_payload["body"] == {"payload": True}
         assert stored.input_payload["query_params"] == {"ok": "1"}
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_list_runs_for_workflow_with_workspace_filter(
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace-scoped run listing returns only matching rows."""
+
+    db_path = tmp_path_factory.mktemp("repo") / "runs.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workspace_id = str(uuid4())
+        workflow = await repository.create_workflow(
+            name="Runs",
+            slug=None,
+            description=None,
+            tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="author",
+            workspace_id=workspace_id,
+        )
+        version = await repository.create_version(
+            workflow.id,
+            graph={},
+            metadata={},
+            notes=None,
+            created_by="author",
+        )
+
+        class _WorkspaceRepo:
+            def get_workspace(self, workspace_uuid: UUID) -> SimpleNamespace:
+                assert str(workspace_uuid) == workspace_id
+                return SimpleNamespace(
+                    quotas=SimpleNamespace(max_concurrent_runs=2),
+                )
+
+        class _Governance:
+            def reserve_run_slot(self, workspace: str, *, limit: int) -> None:
+                return None
+
+            def release_run_slot(self, workspace: str) -> None:
+                return None
+
+        monkeypatch.setattr(
+            sqlite_persistence,
+            "get_workspace_repository",
+            lambda: _WorkspaceRepo(),
+        )
+        monkeypatch.setattr(
+            sqlite_persistence,
+            "get_workspace_governance",
+            lambda: _Governance(),
+        )
+        await repository.create_run(
+            workflow.id,
+            workflow_version_id=version.id,
+            triggered_by="manual",
+            input_payload={},
+            workspace_id=workspace_id,
+        )
+
+        runs = await repository.list_runs_for_workflow(
+            workflow.id, workspace_id=workspace_id
+        )
+
+        assert len(runs) == 1
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_get_run_workspace_mismatch_raises(
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace-scoped get_run rejects rows from another workspace."""
+
+    db_path = tmp_path_factory.mktemp("repo") / "run-mismatch.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workspace_id = str(uuid4())
+        workflow = await repository.create_workflow(
+            name="Runs",
+            slug=None,
+            description=None,
+            tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="author",
+            workspace_id=workspace_id,
+        )
+        version = await repository.create_version(
+            workflow.id,
+            graph={},
+            metadata={},
+            notes=None,
+            created_by="author",
+        )
+
+        class _WorkspaceRepo:
+            def get_workspace(self, workspace_uuid: UUID) -> SimpleNamespace:
+                assert str(workspace_uuid) == workspace_id
+                return SimpleNamespace(
+                    quotas=SimpleNamespace(max_concurrent_runs=2),
+                )
+
+        class _Governance:
+            def reserve_run_slot(self, workspace: str, *, limit: int) -> None:
+                return None
+
+            def release_run_slot(self, workspace: str) -> None:
+                return None
+
+        monkeypatch.setattr(
+            sqlite_persistence,
+            "get_workspace_repository",
+            lambda: _WorkspaceRepo(),
+        )
+        monkeypatch.setattr(
+            sqlite_persistence,
+            "get_workspace_governance",
+            lambda: _Governance(),
+        )
+        run = await repository.create_run(
+            workflow.id,
+            workflow_version_id=version.id,
+            triggered_by="manual",
+            input_payload={},
+            workspace_id=workspace_id,
+        )
+
+        with pytest.raises(WorkflowRunNotFoundError):
+            await repository.get_run(run.id, workspace_id="workspace-b")
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_get_run_workspace_scoping_accepts_matching_rows(
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace-scoped get_run accepts rows from the same workspace."""
+
+    db_path = tmp_path_factory.mktemp("repo") / "run-match.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workspace_id = str(uuid4())
+        workflow = await repository.create_workflow(
+            name="Runs",
+            slug=None,
+            description=None,
+            tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="author",
+            workspace_id=workspace_id,
+        )
+        version = await repository.create_version(
+            workflow.id,
+            graph={},
+            metadata={},
+            notes=None,
+            created_by="author",
+        )
+
+        class _WorkspaceRepo:
+            def get_workspace(self, workspace_uuid: UUID) -> SimpleNamespace:
+                assert str(workspace_uuid) == workspace_id
+                return SimpleNamespace(
+                    quotas=SimpleNamespace(max_concurrent_runs=2),
+                )
+
+        class _Governance:
+            def reserve_run_slot(self, workspace: str, *, limit: int) -> None:
+                return None
+
+            def release_run_slot(self, workspace: str) -> None:
+                return None
+
+        monkeypatch.setattr(
+            sqlite_persistence,
+            "get_workspace_repository",
+            lambda: _WorkspaceRepo(),
+        )
+        monkeypatch.setattr(
+            sqlite_persistence,
+            "get_workspace_governance",
+            lambda: _Governance(),
+        )
+        run = await repository.create_run(
+            workflow.id,
+            workflow_version_id=version.id,
+            triggered_by="manual",
+            input_payload={},
+            workspace_id=workspace_id,
+        )
+
+        assert await repository.get_run(run.id, workspace_id=workspace_id) == run
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_get_run_workspace_id_helper_returns_none(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """The run workspace_id helper returns None when the row is absent."""
+
+    db_path = tmp_path_factory.mktemp("repo") / "run-helper-none.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        await repository._ensure_initialized()  # noqa: SLF001
+        assert (
+            await repository._get_run_workspace_id_locked(uuid4())  # noqa: SLF001
+        ) is None
+    finally:
+        await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_get_workflow_workspace_scoping_rejects_mismatched_rows(
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace-scoped workflow lookups reject rows from another workspace."""
+
+    db_path = tmp_path_factory.mktemp("repo") / "workflow-mismatch.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    try:
+        workspace_id = str(uuid4())
+        workflow = await repository.create_workflow(
+            name="Scoped",
+            slug=None,
+            description=None,
+            tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="author",
+            workspace_id=workspace_id,
+        )
+        other_workspace_id = str(uuid4())
+
+        with pytest.raises(WorkflowNotFoundError):
+            await repository.get_workflow(workflow.id, workspace_id=other_workspace_id)
+
+        with pytest.raises(WorkflowNotFoundError):
+            await repository.resolve_workflow_ref(
+                str(workflow.id), workspace_id=other_workspace_id
+            )
     finally:
         await repository.reset()
 

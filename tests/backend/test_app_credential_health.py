@@ -224,6 +224,9 @@ async def test_invoke_webhook_trigger_wraps_health_error(
             del include_archived
             return workflow_id
 
+        async def get_workflow_workspace_id(self, workflow_id):
+            return None
+
         async def get_latest_version(self, workflow_id):
             return object()
 

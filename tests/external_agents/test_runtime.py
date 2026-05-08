@@ -331,6 +331,19 @@ def test_environment_for_provider_uses_workspace_auth_cache_roots(
     assert gemini_env["HOME"] == "/workspace/agents/workspace-1"
 
 
+def test_workspace_provider_environment_overrides_ignores_unknown_provider(
+    tmp_path: Path,
+) -> None:
+    """Unknown providers should not receive workspace-specific overrides."""
+    overrides = external_agent_paths.workspace_provider_environment_overrides(
+        "unknown",
+        workspace_id="workspace-1",
+        workspace_root=tmp_path / "workspace",
+    )
+
+    assert overrides == {}
+
+
 def test_validate_working_directory_auto_initializes_git_repo(
     tmp_path: Path,
 ) -> None:

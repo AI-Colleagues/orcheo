@@ -354,6 +354,42 @@ async def test_postgres_store_load_threads_scoped_by_workflow_after_marker(
 
 
 @pytest.mark.asyncio
+async def test_postgres_store_load_threads_scoped_by_workspace_and_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """load_threads should scope cursor lookups and filters by workspace."""
+
+    marker_created_at = datetime(2024, 1, 1, tzinfo=UTC)
+    thread = ThreadMetadata(
+        id="thr_workspace",
+        created_at=datetime(2024, 1, 2, tzinfo=UTC),
+        metadata={"workflow_id": "wf_1"},
+    )
+    responses = [
+        {"row": {"created_at": marker_created_at, "id": "thr_marker"}},
+        {"rows": [_thread_row(thread)]},
+    ]
+    store = make_store(monkeypatch, responses=responses)
+    context: dict[str, object] = {
+        "workflow_id": "wf_1",
+        "workspace_id": "workspace-1",
+    }
+
+    page = await store.load_threads(
+        limit=10,
+        after="thr_marker",
+        order="asc",
+        context=context,
+    )
+
+    conn = store._pool.connection()
+    assert conn.queries[0][1] == ("thr_marker", "wf_1", "workspace-1")
+    assert "AND workspace_id = %s" in conn.queries[0][0]
+    assert "workspace_id = %s" in conn.queries[1][0]
+    assert page.data[0].id == "thr_workspace"
+
+
+@pytest.mark.asyncio
 async def test_postgres_store_items_and_search(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

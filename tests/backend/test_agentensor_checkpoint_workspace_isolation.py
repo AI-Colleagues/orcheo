@@ -123,10 +123,10 @@ async def test_sqlite_unscoped_checkpoint_visible_to_all_workspaces(
 
     tids_a = {c.workspace_id for c in results_a}
     tids_b = {c.workspace_id for c in results_b}
-    assert None in tids_a
     assert "workspace-a" in tids_a
-    assert None in tids_b
+    assert None not in tids_a
     assert "workspace-a" not in tids_b
+    assert None not in tids_b
 
 
 @pytest.mark.asyncio

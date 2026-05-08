@@ -412,6 +412,46 @@ def test_postgres_vault_load_metadata_dict_payload() -> None:
     assert result.id == credential_id
 
 
+def test_postgres_vault_load_metadata_backfills_workspace_id() -> None:
+    """Test loading metadata backfills a missing payload workspace id."""
+    cipher = AesGcmCredentialCipher(key="test-key")
+    credential_id = uuid4()
+    workflow_id = uuid4()
+
+    metadata_dict = {
+        "id": str(credential_id),
+        "name": "Test",
+        "provider": "provider",
+        "scopes": ["read"],
+        "created_at": datetime.now(tz=UTC).isoformat(),
+        "updated_at": datetime.now(tz=UTC).isoformat(),
+        "scope": {"workflow_ids": [str(workflow_id)], "workspace_ids": [], "roles": []},
+        "kind": "secret",
+        "encryption": cipher.encrypt("secret").model_dump(),
+        "audit_log": [],
+    }
+
+    conn = FakeConnection(
+        responses=[
+            {
+                "row": {
+                    "payload": json.dumps(metadata_dict),
+                    "workspace_id": "workspace-a",
+                }
+            }
+        ]
+    )
+    pool = FakePool(conn)
+
+    vault = PostgresCredentialVault(dsn="postgresql://test", cipher=cipher)
+    vault._pool = pool
+    vault._initialized = True
+
+    result = vault._load_metadata(credential_id)
+    assert result.id == credential_id
+    assert result.workspace_id == "workspace-a"
+
+
 def test_postgres_vault_load_metadata_not_found() -> None:
     """Test loading metadata when credential doesn't exist."""
     cipher = AesGcmCredentialCipher(key="test-key")

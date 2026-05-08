@@ -5,7 +5,14 @@ import pytest
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
-from orcheo.models import WorkflowVersion
+from orcheo.models import CredentialHealthStatus, WorkflowVersion
+from orcheo.triggers.webhook import WebhookValidationError
+from orcheo.vault.oauth import (
+    CredentialHealthError,
+    CredentialHealthReport,
+    CredentialHealthResult,
+)
+from orcheo_backend.app.errors import WorkspaceQuotaExceededError
 from orcheo_backend.app.routers import triggers
 
 
@@ -445,3 +452,99 @@ def test_build_json_immediate_response_non_string_non_dict_content() -> None:
     assert isinstance(result, JSONResponse)
     assert json.loads(result.body) == 12345
     assert result.status_code == 201
+
+
+@pytest.mark.asyncio()
+async def test_queue_webhook_run_translates_quota_error() -> None:
+    """Webhook queueing should surface quota errors as HTTP exceptions."""
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def handle_webhook_trigger(self, *args, **kwargs):
+            del args, kwargs
+            raise WorkspaceQuotaExceededError(
+                "Workspace reached its concurrent run limit",
+                code="workspace.quota.concurrent_runs",
+                details={"limit": 1, "current": 1},
+            )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await triggers._queue_webhook_run(
+            Repository(),
+            workflow_id,
+            method="POST",
+            headers={},
+            query_params={},
+            payload={},
+            source_ip=None,
+        )
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.detail["error"]["code"] == "workspace.quota.concurrent_runs"
+
+
+@pytest.mark.asyncio()
+async def test_queue_webhook_run_translates_validation_error() -> None:
+    """Webhook queueing should translate validation errors into HTTP errors."""
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def handle_webhook_trigger(self, *args, **kwargs):
+            del args, kwargs
+            raise WebhookValidationError("invalid", status_code=400)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await triggers._queue_webhook_run(
+            Repository(),
+            workflow_id,
+            method="POST",
+            headers={},
+            query_params={},
+            payload={},
+            source_ip=None,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "invalid"
+
+
+@pytest.mark.asyncio()
+async def test_queue_webhook_run_translates_credential_health_error() -> None:
+    """Webhook queueing should translate credential health failures."""
+
+    workflow_id = uuid4()
+    report = CredentialHealthReport(
+        workflow_id=workflow_id,
+        results=[
+            CredentialHealthResult(
+                credential_id=uuid4(),
+                name="Slack",
+                provider="slack",
+                status=CredentialHealthStatus.UNHEALTHY,
+                last_checked_at=None,
+                failure_reason="expired",
+            )
+        ],
+        checked_at=None,
+    )
+
+    class Repository:
+        async def handle_webhook_trigger(self, *args, **kwargs):
+            del args, kwargs
+            raise CredentialHealthError(report)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await triggers._queue_webhook_run(
+            Repository(),
+            workflow_id,
+            method="POST",
+            headers={},
+            query_params={},
+            payload={},
+            source_ip=None,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail["failures"] == ["expired"]

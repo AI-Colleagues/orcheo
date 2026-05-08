@@ -31,6 +31,7 @@ def test_resolver_picks_only_membership_when_unambiguous() -> None:
         WorkspaceMembership(workspace_id=acme.id, user_id="alice", role=Role.OWNER)
     )
     resolver = WorkspaceResolver(repo)
+    assert resolver.repository is repo
     ctx = resolver.resolve(user_id="alice")
     assert ctx.workspace_id == acme.id
     assert ctx.role is Role.OWNER
@@ -132,10 +133,40 @@ def test_resolver_uses_cache() -> None:
 
 
 def test_membership_cache_expires() -> None:
-    cache = InMemoryMembershipCache(ttl_seconds=1, clock=lambda: 0.0)
+    now = {"value": 0.0}
+    cache = InMemoryMembershipCache(ttl_seconds=1, clock=lambda: now["value"])
     cache.set("alice", [])
-    expired = InMemoryMembershipCache(ttl_seconds=0.5)
-    expired.set("alice", [])
-    # No assertion needed beyond confirming get does not raise; this exercises
-    # the fast-path when entries expire on the next access.
-    assert cache.get("alice") is not None
+    now["value"] = 2.0
+    assert cache.get("alice") is None
+
+
+def test_resolver_rejects_missing_default_workspace_slug() -> None:
+    repo, acme, globex = _setup_repo()
+    repo.add_membership(
+        WorkspaceMembership(workspace_id=acme.id, user_id="alice", role=Role.EDITOR)
+    )
+    repo.add_membership(
+        WorkspaceMembership(workspace_id=globex.id, user_id="alice", role=Role.VIEWER)
+    )
+
+    with pytest.raises(WorkspacePermissionError):
+        WorkspaceResolver(repo, default_workspace_slug="missing").resolve(
+            user_id="alice"
+        )
+
+
+def test_resolver_rejects_default_workspace_without_membership() -> None:
+    repo, acme, globex = _setup_repo()
+    default = Workspace(slug="default", name="Default")
+    repo.create_workspace(default)
+    repo.add_membership(
+        WorkspaceMembership(workspace_id=acme.id, user_id="alice", role=Role.EDITOR)
+    )
+    repo.add_membership(
+        WorkspaceMembership(workspace_id=globex.id, user_id="alice", role=Role.VIEWER)
+    )
+
+    with pytest.raises(WorkspacePermissionError):
+        WorkspaceResolver(repo, default_workspace_slug="default").resolve(
+            user_id="alice"
+        )

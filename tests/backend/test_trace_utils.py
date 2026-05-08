@@ -544,3 +544,14 @@ def test_sanitize_sequence_value_truncates_long_sequences() -> None:
     assert len(sanitized) == trace_utils._STATE_MAX_COLLECTION_ITEMS + 1
     assert redacted is False
     assert truncated is True
+
+
+def test_node_attributes_uses_workspace_id_from_payload() -> None:
+    """_node_attributes should carry a trimmed workspace id from the payload."""
+
+    payload = {"workspace_id": " workspace-123 ", "kind": "task"}
+
+    attributes = trace_utils._node_attributes("node", payload)
+
+    assert attributes["orcheo.workspace.id"] == "workspace-123"
+    assert attributes["orcheo.node.kind"] == "task"

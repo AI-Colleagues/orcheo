@@ -22,7 +22,7 @@ from orcheo_backend.app.repository_postgres._persistence import PostgresPersiste
 class _WorkflowWorkspaceLookup(Protocol):
     async def _get_workflow_workspace_id_locked(
         self, workflow_id: UUID
-    ) -> str | None: ...
+    ) -> str | None: ...  # pragma: no cover
 
 
 def _enqueue_run_for_execution(run: WorkflowRun) -> None:

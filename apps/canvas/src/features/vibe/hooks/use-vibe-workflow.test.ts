@@ -196,7 +196,7 @@ describe("useVibeWorkflow", () => {
             ],
     );
     vi.mocked(fetchWorkflowVersions).mockResolvedValue([]);
-    vi.mocked(request).mockImplementation(async (path, options) => {
+    vi.mocked(request).mockImplementation(async (path) => {
       throw new Error(`Unexpected request: ${path}`);
     });
 

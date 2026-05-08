@@ -12,6 +12,14 @@ from orcheo.models import (
 from orcheo.vault import InMemoryCredentialVault
 
 
+class BroadAlertVault(InMemoryCredentialVault):
+    """Test helper that exposes every stored alert regardless of workspace."""
+
+    def _iter_alerts(self, *, workspace_id: str | None = None):
+        del workspace_id
+        yield from (alert.model_copy(deep=True) for alert in self._alerts.values())
+
+
 def test_record_alert_updates_existing_entries() -> None:
     cipher = AesGcmCredentialCipher(key="alert-update")
     vault = InMemoryCredentialVault(cipher=cipher)
@@ -207,3 +215,62 @@ def test_list_alerts_excludes_acknowledged_by_default() -> None:
     vault.acknowledge_alert(alert.id, actor="ops")
 
     assert vault.list_alerts() == []
+
+
+def test_inmemory_iter_alerts_filters_workspace() -> None:
+    vault = InMemoryCredentialVault()
+    vault.record_alert(
+        kind=GovernanceAlertKind.VALIDATION_FAILED,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="workspace-a",
+        actor="ops",
+        workspace_id="workspace-a",
+    )
+    vault.record_alert(
+        kind=GovernanceAlertKind.VALIDATION_FAILED,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="workspace-b",
+        actor="ops",
+        workspace_id="workspace-b",
+    )
+
+    alerts = list(vault._iter_alerts(workspace_id="workspace-a"))
+
+    assert [alert.message for alert in alerts] == ["workspace-a"]
+
+
+def test_record_alert_skips_alerts_from_other_workspaces() -> None:
+    vault = BroadAlertVault()
+    vault.record_alert(
+        kind=GovernanceAlertKind.TOKEN_EXPIRING,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="existing",
+        actor="ops",
+        workspace_id="workspace-b",
+    )
+
+    refreshed = vault.record_alert(
+        kind=GovernanceAlertKind.TOKEN_EXPIRING,
+        severity=SecretGovernanceAlertSeverity.CRITICAL,
+        message="new",
+        actor="ops",
+        workspace_id="workspace-a",
+        context=CredentialAccessContext(workspace_id=uuid4()),
+    )
+
+    assert refreshed.message == "new"
+
+
+def test_list_alerts_skips_alerts_from_other_workspaces() -> None:
+    vault = BroadAlertVault()
+    vault.record_alert(
+        kind=GovernanceAlertKind.VALIDATION_FAILED,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="workspace-b",
+        actor="ops",
+        workspace_id="workspace-b",
+    )
+
+    assert (
+        vault.list_alerts(context=CredentialAccessContext(workspace_id=uuid4())) == []
+    )

@@ -291,7 +291,7 @@ async def test_execute_workflow_reports_history_store_failure(
     monkeypatch.setattr(workflow_execution, "get_settings", lambda: {"dummy": True})
 
     class DummyVault:
-        def list_all_credentials(self) -> list[Any]:
+        def list_all_credentials(self, *, workspace_id=None) -> list[Any]:
             return []
 
     monkeypatch.setattr(workflow_execution, "get_vault", lambda: DummyVault())
@@ -845,7 +845,7 @@ async def test_execute_workflow_completes_for_invalid_workflow_id(
     )
 
     class DummyVault:
-        def list_all_credentials(self) -> list[Any]:
+        def list_all_credentials(self, *, workspace_id=None) -> list[Any]:
             return []
 
     monkeypatch.setattr(workflow_execution, "get_vault", lambda: DummyVault())
@@ -873,7 +873,7 @@ async def test_execute_workflow_completes_for_invalid_workflow_id(
     monkeypatch.setattr(
         workflow_execution,
         "_external_agent_provider_environment",
-        lambda: {},
+        lambda workspace_id=None: {},
     )
     monkeypatch.setattr(
         workflow_execution,
@@ -990,7 +990,7 @@ async def test_execute_node_runs_node_with_prepared_state(
     monkeypatch.setattr(
         workflow_execution,
         "_external_agent_provider_environment",
-        lambda: {"EXTERNAL_AGENT": "1"},
+        lambda workspace_id=None: {"EXTERNAL_AGENT": "1"},
     )
     monkeypatch.setattr(workflow_execution.uuid, "uuid4", lambda: UUID(int=99))
 

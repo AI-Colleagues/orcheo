@@ -1,14 +1,23 @@
 """Integration tests for workflow CRUD endpoints."""
 
 from __future__ import annotations
+from typing import Any
 from uuid import uuid4
 from fastapi.testclient import TestClient
+
+
+_MANAGED_HANDLE = "orcheo-vibe-agent"
+
+
+def _user_workflows(workflows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return workflows excluding the system-managed vibe agent."""
+    return [w for w in workflows if w.get("handle") != _MANAGED_HANDLE]
 
 
 def test_list_workflows_empty(client: TestClient) -> None:
     response = client.get("/api/workflows")
     assert response.status_code == 200
-    assert response.json() == []
+    assert _user_workflows(response.json()) == []
 
 
 def test_list_workflows_excludes_archived_by_default(client: TestClient) -> None:
@@ -26,7 +35,7 @@ def test_list_workflows_excludes_archived_by_default(client: TestClient) -> None
     client.delete(f"/api/workflows/{archived_id}?actor=admin")
 
     list_response = client.get("/api/workflows")
-    workflows = list_response.json()
+    workflows = _user_workflows(list_response.json())
     assert len(workflows) == 1
     assert workflows[0]["name"] == "Active Workflow"
     assert not workflows[0]["is_archived"]
@@ -46,7 +55,7 @@ def test_list_workflows_includes_archived_with_flag(client: TestClient) -> None:
     client.delete(f"/api/workflows/{archived_id}?actor=admin")
 
     list_response = client.get("/api/workflows?include_archived=true")
-    workflows = list_response.json()
+    workflows = _user_workflows(list_response.json())
     assert len(workflows) == 2
 
     workflow_names = {wf["name"] for wf in workflows}

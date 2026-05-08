@@ -1,5 +1,6 @@
 """Unit tests for AppSettings widget set coercion helpers."""
 
+import pytest
 from orcheo.config.app_settings import AppSettings
 from orcheo.config.defaults import _DEFAULTS
 
@@ -71,3 +72,45 @@ def test_coerce_graph_store_backend_defaults_and_valid_values() -> None:
 
     assert AppSettings._coerce_graph_store_backend(None) == "sqlite"
     assert AppSettings._coerce_graph_store_backend("POSTGRES") == "postgres"
+
+
+def test_coerce_workspace_backend_defaults_and_validation() -> None:
+    """Workspace backend coercion should accept supported values only."""
+
+    assert AppSettings._coerce_workspace_backend(None) == "inmemory"
+    assert AppSettings._coerce_workspace_backend("POSTGRES") == "postgres"
+
+    with pytest.raises(ValueError, match="ORCHEO_WORKSPACE_BACKEND"):
+        AppSettings._coerce_workspace_backend("unsupported")
+
+
+def test_coerce_chatkit_and_postgres_pool_helpers_reject_invalid_values() -> None:
+    with pytest.raises(ValueError, match="CHATKIT_MAX_UPLOAD_SIZE_BYTES"):
+        AppSettings._coerce_chatkit_max_upload_size_bytes("bad")
+    with pytest.raises(ValueError, match="CHATKIT_RETENTION_DAYS"):
+        AppSettings._coerce_chatkit_retention("bad")
+    with pytest.raises(ValueError, match="PostgreSQL pool size"):
+        AppSettings._coerce_postgres_pool_int("bad", "POSTGRES_POOL_MIN_SIZE")
+    with pytest.raises(ValueError, match="PostgreSQL pool timeout"):
+        AppSettings._coerce_postgres_pool_float("bad", "POSTGRES_POOL_TIMEOUT")
+
+
+def test_coerce_port_and_tracing_helpers_reject_invalid_values() -> None:
+    with pytest.raises(ValueError, match="ORCHEO_PORT"):
+        AppSettings._parse_port("bad")
+    with pytest.raises(ValueError, match="ORCHEO_TRACING_SAMPLE_RATIO"):
+        AppSettings._coerce_tracing_sample_ratio("bad")
+    assert AppSettings._coerce_tracing_high_token_threshold(True) == 1
+    with pytest.raises(ValueError, match="TRACING_HIGH_TOKEN_THRESHOLD"):
+        AppSettings._coerce_tracing_high_token_threshold("bad")
+    assert AppSettings._coerce_tracing_preview_max_length(False) == 0
+    with pytest.raises(ValueError, match="TRACING_PREVIEW_MAX_LENGTH"):
+        AppSettings._coerce_tracing_preview_max_length("bad")
+
+
+def test_apply_runtime_defaults_restores_invalid_retention_days() -> None:
+    settings = AppSettings()
+    settings.chatkit_retention_days = 0
+    settings._apply_runtime_defaults()
+
+    assert settings.chatkit_retention_days == _DEFAULTS["CHATKIT_RETENTION_DAYS"]

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 import pytest
 from fastapi import HTTPException
-from orcheo.models.workflow import WorkflowVersion
+from orcheo.models.workflow import Workflow, WorkflowVersion
 from orcheo_backend.app import (
     diff_workflow_versions,
     get_workflow_version,
@@ -20,6 +20,32 @@ from orcheo_backend.app.routers import workflows as workflow_router
 
 
 _MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
+
+
+@pytest.fixture(autouse=True)
+def _stub_load_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replace `_load_workflow_for_request` so tests can stub Repository.resolve_workflow_ref alone."""
+
+    async def _load(
+        repository, workflow_ref, *, include_archived=True, workspace_id=None
+    ):  # noqa: ARG001
+        try:
+            workflow_id = await repository.resolve_workflow_ref(
+                workflow_ref,
+                include_archived=include_archived,
+                workspace_id=workspace_id,
+            )
+        except WorkflowNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return Workflow(
+            id=workflow_id,
+            name="Stub",
+            slug="stub",
+            created_at=datetime.now(tz=UTC),
+            updated_at=datetime.now(tz=UTC),
+        )
+
+    monkeypatch.setattr(workflow_router, "_load_workflow_for_request", _load)
 
 
 @pytest.mark.asyncio()
@@ -81,9 +107,10 @@ async def test_list_workflow_versions_not_found() -> None:
             self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
             del workflow_ref, include_archived
-            return workflow_id
+            raise WorkflowNotFoundError("not found")
 
         async def list_versions(self, wf_id):
+            del wf_id
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:

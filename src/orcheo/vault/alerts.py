@@ -44,8 +44,11 @@ class GovernanceAlertOperationsMixin:
     ) -> SecretGovernanceAlert:
         """Persist a governance alert tied to a credential or template."""
         access_context = context or CredentialAccessContext()
+        _ctx_ws = access_context.workspace_id
         workspace_id = (
-            workspace_id if workspace_id is not None else access_context.workspace_id
+            workspace_id
+            if workspace_id is not None
+            else (str(_ctx_ws) if _ctx_ws is not None else None)
         )
         scope = CredentialScope.unrestricted()
         resolver = cast("_AlertDependencies", self)

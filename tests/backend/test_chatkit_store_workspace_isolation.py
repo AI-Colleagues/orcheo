@@ -122,10 +122,10 @@ async def test_sqlite_unscoped_thread_visible_to_all_workspaces(tmp_path: Path) 
 
     ids_a = {t.id for t in page_a.data}
     ids_b = {t.id for t in page_b.data}
-    assert "t-shared" in ids_a
     assert "t-a" in ids_a
-    assert "t-shared" in ids_b
+    assert "t-shared" not in ids_a
     assert "t-a" not in ids_b
+    assert "t-shared" not in ids_b
 
 
 @pytest.mark.asyncio

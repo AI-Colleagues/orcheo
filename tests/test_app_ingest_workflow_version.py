@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.workspace.models import Role, WorkspaceContext
 from orcheo_backend.app import create_app, ingest_workflow_version
 from orcheo_backend.app.authentication import reset_authentication_state
 from orcheo_backend.app.repository import (
@@ -16,6 +17,7 @@ from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
 )
 from orcheo_backend.app.schemas.workflows import WorkflowVersionIngestRequest
+from orcheo_backend.app.workspace.dependencies import resolve_workspace_context
 
 
 def test_ingest_workflow_version_endpoint_creates_version(
@@ -39,6 +41,13 @@ def test_ingest_workflow_version_endpoint_creates_version(
     )
 
     app = create_app(repository)
+    workspace_context = WorkspaceContext(
+        workspace_id=uuid4(),
+        workspace_slug="default",
+        user_id="tester",
+        role=Role.OWNER,
+    )
+    app.dependency_overrides[resolve_workspace_context] = lambda: workspace_context
     client = TestClient(app)
 
     script = textwrap.dedent(
@@ -124,6 +133,13 @@ def test_ingest_workflow_version_missing_workflow_returns_404(
 
     repository = InMemoryWorkflowRepository()
     app = create_app(repository)
+    workspace_context = WorkspaceContext(
+        workspace_id=uuid4(),
+        workspace_slug="default",
+        user_id="tester",
+        role=Role.OWNER,
+    )
+    app.dependency_overrides[resolve_workspace_context] = lambda: workspace_context
     client = TestClient(app)
 
     missing_id = str(uuid4())

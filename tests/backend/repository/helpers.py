@@ -1,6 +1,7 @@
 """Helper utilities shared across workflow repository tests."""
 
 from __future__ import annotations
+import sqlite3
 from uuid import UUID
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
@@ -21,14 +22,18 @@ async def _remove_version(repository: WorkflowRepository, version_id: UUID) -> N
         return
 
     if isinstance(repository, SqliteWorkflowRepository):
-        async with repository._connection() as conn:  # type: ignore[attr-defined]  # noqa: SLF001
-            await conn.execute(
-                "DELETE FROM workflow_versions WHERE id = ?", (str(version_id),)
-            )
-            await conn.execute(
+        conn = sqlite3.connect(str(repository._database_path))  # type: ignore[attr-defined]  # noqa: SLF001
+        try:
+            conn.execute(
                 "DELETE FROM workflow_runs WHERE workflow_version_id = ?",
                 (str(version_id),),
             )
+            conn.execute(
+                "DELETE FROM workflow_versions WHERE id = ?", (str(version_id),)
+            )
+            conn.commit()
+        finally:
+            conn.close()
         return
 
     raise AssertionError(f"Unsupported repository type: {type(repository)!r}")

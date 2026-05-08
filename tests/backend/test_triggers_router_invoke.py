@@ -7,6 +7,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from starlette.types import Message
 from orcheo.models import WorkflowRun, WorkflowVersion
+from orcheo_backend.app.errors import WorkspaceRateLimitError
 from orcheo_backend.app.repository.errors import (
     WorkflowNotFoundError,
     WorkflowVersionNotFoundError,
@@ -65,6 +66,9 @@ async def test_invoke_webhook_trigger_returns_immediate_response(
             del workflow_ref, include_archived
             return workflow_id
 
+        async def get_workflow_workspace_id(self, workflow_id: UUID) -> None:
+            return None
+
         async def get_latest_version(self, workflow_id: UUID) -> WorkflowVersion:
             return _version(workflow_id)
 
@@ -110,6 +114,9 @@ async def test_invoke_webhook_trigger_queues_run(
             del workflow_ref, include_archived
             return workflow_id
 
+        async def get_workflow_workspace_id(self, workflow_id: UUID) -> None:
+            return None
+
         async def get_latest_version(self, workflow_id: UUID) -> WorkflowVersion:
             return _version(workflow_id)
 
@@ -152,6 +159,9 @@ async def test_invoke_webhook_trigger_returns_accepted_when_no_run(
             del workflow_ref, include_archived
             return workflow_id
 
+        async def get_workflow_workspace_id(self, workflow_id: UUID) -> None:
+            return None
+
         async def get_latest_version(self, workflow_id: UUID) -> WorkflowVersion:
             return _version(workflow_id)
 
@@ -189,6 +199,9 @@ async def test_invoke_webhook_trigger_reports_missing_workflow() -> None:
             del workflow_ref, include_archived
             return workflow_id
 
+        async def get_workflow_workspace_id(self, workflow_id: UUID) -> None:
+            return None
+
         async def get_latest_version(self, workflow_id: UUID) -> WorkflowVersion:
             raise WorkflowNotFoundError("missing")
 
@@ -216,6 +229,9 @@ async def test_invoke_webhook_trigger_reports_missing_version() -> None:
             del workflow_ref, include_archived
             return workflow_id
 
+        async def get_workflow_workspace_id(self, workflow_id: UUID) -> None:
+            return None
+
         async def get_latest_version(self, workflow_id: UUID) -> WorkflowVersion:
             raise WorkflowVersionNotFoundError("missing version")
 
@@ -229,3 +245,50 @@ async def test_invoke_webhook_trigger_reports_missing_version() -> None:
 
     assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "Workflow version not found"
+
+
+@pytest.mark.asyncio()
+async def test_invoke_webhook_trigger_reports_rate_limit() -> None:
+    """Webhook invocation should translate rate-limit failures into HTTP errors."""
+
+    workflow_id = uuid4()
+    request = _make_request(query_string="")
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def get_workflow_workspace_id(self, workflow_id: UUID) -> str:
+            del workflow_id
+            return "workspace-1"
+
+    class Governance:
+        def check_api_rate_limit(self, workspace_id: str) -> None:
+            del workspace_id
+            raise WorkspaceRateLimitError(
+                "Too many requests for workspace workspace-1",
+                code="workspace.rate_limited",
+                retry_after=60,
+            )
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        triggers_router,
+        "get_workspace_governance",
+        lambda: Governance(),
+    )
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            await triggers_router.invoke_webhook_trigger(
+                str(workflow_id),
+                request,
+                repository=Repository(),
+                vault=object(),
+            )
+    finally:
+        monkeypatch.undo()
+
+    assert exc_info.value.status_code == 429

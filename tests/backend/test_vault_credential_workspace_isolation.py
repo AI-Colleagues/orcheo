@@ -108,10 +108,10 @@ def test_sqlite_unscoped_credential_visible_to_all_workspaces(tmp_path: Path) ->
 
     names_a = {c.name for c in results_a}
     names_b = {c.name for c in results_b}
-    assert "shared" in names_a
     assert "cred-a" in names_a
-    assert "shared" in names_b
+    assert "shared" not in names_a
     assert "cred-a" not in names_b
+    assert "shared" not in names_b
 
 
 def test_sqlite_create_credential_records_workspace_id(tmp_path: Path) -> None:

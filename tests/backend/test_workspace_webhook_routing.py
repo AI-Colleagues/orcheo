@@ -5,7 +5,10 @@ from types import SimpleNamespace
 from uuid import uuid4
 import pytest
 from fastapi import HTTPException
-from orcheo_backend.app.routers.triggers import _invoke_workspace_webhook
+from orcheo_backend.app.routers.triggers import (
+    _invoke_workspace_webhook,
+    invoke_workspace_webhook,
+)
 
 
 class _MockRequest:
@@ -41,6 +44,19 @@ class _MockRepository:
             raise WorkflowNotFoundError(workflow_ref)
         return uuid4()
 
+    async def handle_webhook_trigger(
+        self,
+        workflow_id: object,
+        *,
+        method: str,
+        headers: dict[str, str],
+        query_params: dict[str, object],
+        payload: object,
+        source_ip: str | None,
+    ) -> object:
+        del workflow_id, method, headers, query_params, payload, source_ip
+        return SimpleNamespace(triggered_by="webhook")
+
 
 class _MockWorkspaceService:
     """Stub workspace service that knows one workspace by slug."""
@@ -60,6 +76,11 @@ class _MockWorkspaceService:
 
 class _MockVault:
     pass
+
+
+class _BodyErrorRequest(_MockRequest):
+    async def body(self) -> bytes:
+        raise RuntimeError("body failed")
 
 
 @pytest.mark.asyncio
@@ -120,3 +141,44 @@ async def test_wrong_workspace_cannot_access_other_workspaces_trigger() -> None:
             workspace_service_b,  # type: ignore[arg-type]
         )
     assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_workspace_webhook_success_returns_run() -> None:
+    """A valid workspace webhook should queue a workflow run."""
+
+    workspace_id = str(uuid4())
+    workspace_service = _MockWorkspaceService(slug="acme", workspace_id=workspace_id)
+    repository = _MockRepository(workspace_id=workspace_id, workflow_ref="trigger-1")
+
+    response = await invoke_workspace_webhook(
+        "acme",
+        "trigger-1",
+        _MockRequest(),  # type: ignore[arg-type]
+        repository,  # type: ignore[arg-type]
+        _MockVault(),  # type: ignore[arg-type]
+        workspace_service,  # type: ignore[arg-type]
+    )
+
+    assert response.triggered_by == "webhook"
+
+
+@pytest.mark.asyncio
+async def test_workspace_webhook_body_read_failure_returns_400() -> None:
+    """Body read failures should be surfaced as a generic bad request."""
+
+    workspace_id = str(uuid4())
+    workspace_service = _MockWorkspaceService(slug="acme", workspace_id=workspace_id)
+    repository = _MockRepository(workspace_id=workspace_id, workflow_ref="trigger-1")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await invoke_workspace_webhook(
+            "acme",
+            "trigger-1",
+            _BodyErrorRequest(),  # type: ignore[arg-type]
+            repository,  # type: ignore[arg-type]
+            _MockVault(),  # type: ignore[arg-type]
+            workspace_service,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 400

@@ -107,7 +107,7 @@ class WorkflowVersionMixin(SqlitePersistenceMixin):
                     """,
                     (str(workflow_id),),
                 )
-            rows = await cursor.fetchall()
+                rows = await cursor.fetchall()
             return [
                 self._deserialize_workflow_version(row["payload"]).model_copy(deep=True)
                 for row in rows

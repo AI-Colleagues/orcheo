@@ -88,7 +88,11 @@ def test_chatkit_workflow_trigger_surfaces_credential_health_error(
 
     class UnhealthyService:
         async def ensure_workflow_health(  # type: ignore[override]
-            self, workflow_id: UUID, actor: str | None = None
+            self,
+            workflow_id: UUID,
+            *,
+            actor: str | None = None,
+            workspace_id: str | None = None,
         ) -> CredentialHealthReport:
             return failing_report
 

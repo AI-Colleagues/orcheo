@@ -259,6 +259,39 @@ async def test_postgres_service_token_repository_list_active(
 
 
 @pytest.mark.asyncio
+async def test_postgres_service_token_repository_list_for_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify that list_for_workspace filters tokens by workspace id."""
+
+    now = datetime.now(tz=UTC)
+    responses: list[Any] = [
+        {
+            "rows": [
+                _token_row(
+                    "token-1",
+                    workspace_id="ws-1",
+                    expires_at=(now + timedelta(days=1)).isoformat(),
+                ),
+                _token_row(
+                    "token-2",
+                    workspace_id="ws-2",
+                    expires_at=(now + timedelta(days=1)).isoformat(),
+                ),
+            ]
+        },
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    tokens = await repo.list_for_workspace("ws-1", now=now)
+
+    assert [token.identifier for token in tokens] == ["token-1", "token-2"]
+    queries = repo._pool._connection.queries
+    assert "WHERE workspace_id = %s" in queries[0][0]
+    assert queries[0][1][0] == "ws-1"
+
+
+@pytest.mark.asyncio
 async def test_postgres_service_token_repository_find_by_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

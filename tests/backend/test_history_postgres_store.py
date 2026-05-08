@@ -734,6 +734,51 @@ async def test_postgres_store_list_histories_with_limit(
 
 
 @pytest.mark.asyncio
+async def test_postgres_store_list_histories_with_workspace_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify that list_histories includes the workspace filter when provided."""
+    now = datetime.now(tz=UTC).isoformat()
+    responses: list[Any] = [
+        {
+            "rows": [
+                {
+                    "execution_id": "exec-1",
+                    "workflow_id": "wf-123",
+                    "workspace_id": "workspace-1",
+                    "inputs": json.dumps({}),
+                    "runnable_config": json.dumps({}),
+                    "tags": json.dumps([]),
+                    "callbacks": json.dumps([]),
+                    "metadata": json.dumps({}),
+                    "run_name": None,
+                    "status": "completed",
+                    "started_at": now,
+                    "completed_at": now,
+                    "error": None,
+                    "trace_id": None,
+                    "trace_started_at": now,
+                    "trace_completed_at": now,
+                    "trace_last_span_at": now,
+                }
+            ]
+        },
+        {"rows": []},
+    ]
+    store = make_store(monkeypatch, responses)
+
+    records = await store.list_histories(
+        workflow_id="wf-123",
+        workspace_id="workspace-1",
+    )
+
+    conn = store._pool._connection  # type: ignore[union-attr]
+    assert "workspace_id = %s" in conn.queries[0][0]
+    assert conn.queries[0][1] == ("wf-123", "workspace-1")
+    assert len(records) == 1
+
+
+@pytest.mark.asyncio
 async def test_postgres_store_fetch_steps_with_string_timestamps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

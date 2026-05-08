@@ -121,12 +121,12 @@ async def test_sqlite_list_histories_unscoped_visible_to_all_workspaces(
     records_b = await store.list_histories("wf-1", workspace_id="workspace-b")
 
     exec_ids_a = {r.execution_id for r in records_a}
-    assert "exec-unscoped" in exec_ids_a
     assert "exec-a" in exec_ids_a
+    assert "exec-unscoped" not in exec_ids_a
 
     exec_ids_b = {r.execution_id for r in records_b}
-    assert "exec-unscoped" in exec_ids_b
     assert "exec-a" not in exec_ids_b
+    assert "exec-unscoped" not in exec_ids_b
 
 
 @pytest.mark.asyncio

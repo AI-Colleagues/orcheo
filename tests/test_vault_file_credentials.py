@@ -112,6 +112,7 @@ def test_file_vault_rejects_duplicate_names(tmp_path) -> None:
         scopes=["read"],
         secret="secret",
         actor="ops",
+        workspace_id="workspace-a",
     )
 
     with pytest.raises(DuplicateCredentialNameError):
@@ -121,6 +122,7 @@ def test_file_vault_rejects_duplicate_names(tmp_path) -> None:
             scopes=["write"],
             secret="another",
             actor="ops",
+            workspace_id="workspace-a",
         )
 
 

@@ -7,14 +7,18 @@ implementation.
 from __future__ import annotations
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 import pytest
+from orcheo.models.workflow import WorkflowRun, WorkflowVersion
 from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo.triggers.cron import CronTriggerConfig
+from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo.vault.oauth import CredentialHealthError, CredentialHealthReport
+from orcheo_backend.app.errors import WorkspaceQuotaExceededError
 from orcheo_backend.app.repository.errors import (
     WorkflowHandleConflictError,
     WorkflowNotFoundError,
@@ -23,6 +27,8 @@ from orcheo_backend.app.repository.errors import (
 )
 from orcheo_backend.app.repository_postgres import PostgresWorkflowRepository
 from orcheo_backend.app.repository_postgres import _base as pg_base
+from orcheo_backend.app.repository_postgres import _persistence as pg_persistence
+from orcheo_backend.app.repository_postgres import _triggers as pg_triggers
 
 
 class FakeRow(dict[str, Any]):
@@ -166,6 +172,21 @@ async def test_persistence_deserialize_workflow_uses_workspace_id(
     assert workflow.workspace_id == "workspace-a"
 
 
+@pytest.mark.asyncio
+async def test_persistence_deserialize_workflow_explicit_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit workspace_id arguments are injected into workflow payloads."""
+
+    workflow_id = uuid4()
+    payload = _workflow_payload(workflow_id)
+
+    repo = make_repository(monkeypatch, [])
+    workflow = repo._deserialize_workflow(payload, workspace_id="workspace-b")
+
+    assert workflow.workspace_id == "workspace-b"
+
+
 def _version_payload(
     version_id: UUID, workflow_id: UUID, version: int = 1, **overrides: Any
 ) -> dict[str, Any]:
@@ -188,6 +209,40 @@ def _version_payload(
     return base
 
 
+def _run_payload(
+    run_id: UUID,
+    version_id: UUID,
+    *,
+    status: str = "pending",
+    triggered_by: str = "manual",
+    **overrides: Any,
+) -> dict[str, Any]:
+    """Generate a fake run payload dictionary."""
+
+    now = datetime.now(tz=UTC).isoformat()
+    base = {
+        "id": str(run_id),
+        "workflow_version_id": str(version_id),
+        "status": status,
+        "triggered_by": triggered_by,
+        "input_payload": {},
+        "runnable_config": {},
+        "tags": [],
+        "callbacks": [],
+        "metadata": {},
+        "run_name": None,
+        "output_payload": None,
+        "error": None,
+        "audit_log": [],
+        "created_at": now,
+        "updated_at": now,
+        "started_at": None,
+        "completed_at": None,
+    }
+    base.update(overrides)
+    return base
+
+
 @pytest.mark.asyncio
 async def test_list_workflows_includes_legacy_unscoped_rows(
     monkeypatch: pytest.MonkeyPatch,
@@ -204,7 +259,8 @@ async def test_list_workflows_includes_legacy_unscoped_rows(
 
     assert len(result) == 1
     query, params = repo._pool._connection.queries[0]  # noqa: SLF001
-    assert "workspace_id = %s OR workspace_id IS NULL" in query
+    assert "workspace_id = %s" in query
+    assert "workspace_id IS NULL" not in query
     assert params == ("workspace-a",)
 
 
@@ -238,6 +294,22 @@ async def test_persistence_deserialize_workflow_with_deprecated_fields(
     # Deprecated fields should not be present
     assert not hasattr(workflow, "publish_token_hash")
     assert not hasattr(workflow, "publish_token_rotated_at")
+
+
+@pytest.mark.asyncio
+async def test_persistence_deserialize_workflow_version_explicit_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit workspace_id arguments are injected into version payloads."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    payload = _version_payload(version_id, workflow_id)
+
+    repo = make_repository(monkeypatch, [])
+    version = repo._deserialize_workflow_version(payload, workspace_id="workspace-b")
+
+    assert version.workspace_id == "workspace-b"
 
 
 @pytest.mark.asyncio
@@ -443,6 +515,96 @@ async def test_postgres_repository_resolve_workflow_ref_delegates_to_locked_help
 
 
 @pytest.mark.asyncio
+async def test_postgres_get_workflow_workspace_mismatch_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace-scoped get_workflow rejects rows from another workspace."""
+
+    workflow_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id), "workspace_id": "ws-a"}},
+        {"row": {"workspace_id": "ws-a"}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repo.get_workflow(workflow_id, workspace_id="ws-b")
+
+
+@pytest.mark.asyncio
+async def test_postgres_get_workflow_workspace_scoping_allows_unscoped_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace-scoped get_workflow accepts legacy NULL-scoped rows."""
+
+    workflow_id = uuid4()
+    repo = make_repository(
+        monkeypatch,
+        [
+            {"row": {"payload": _workflow_payload(workflow_id)}},
+            {"row": {"unexpected": "value"}},
+        ],
+    )
+
+    workflow = await repo.get_workflow(workflow_id, workspace_id="ws-b")
+
+    assert workflow.id == workflow_id
+
+
+@pytest.mark.asyncio
+async def test_postgres_get_workflow_workspace_id_helper_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The workspace_id helper returns None when the row omits the column."""
+
+    workflow_id = uuid4()
+    repo = make_repository(monkeypatch, [{"row": {"unexpected": "value"}}])
+
+    workspace_id = await repo.get_workflow_workspace_id(workflow_id)
+
+    assert workspace_id is None
+
+
+@pytest.mark.asyncio
+async def test_postgres_resolve_workflow_ref_workspace_mismatch_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace-scoped resolve_workflow_ref rejects unauthorized workspaces."""
+
+    workflow_id = uuid4()
+    repo = make_repository(
+        monkeypatch,
+        [
+            {"row": {"id": str(workflow_id)}},
+            {"row": {"workspace_id": "ws-a"}},
+        ],
+    )
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repo.resolve_workflow_ref("handle-flow", workspace_id="ws-b")
+
+
+@pytest.mark.asyncio
+async def test_postgres_resolve_workflow_ref_workspace_scoping_allows_unscoped_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace-scoped resolve_workflow_ref accepts legacy NULL-scoped rows."""
+
+    workflow_id = uuid4()
+    repo = make_repository(
+        monkeypatch,
+        [
+            {"row": {"id": str(workflow_id)}},
+            {"row": {"unexpected": "value"}},
+        ],
+    )
+
+    resolved = await repo.resolve_workflow_ref("handle-flow", workspace_id="ws-b")
+
+    assert resolved == workflow_id
+
+
+@pytest.mark.asyncio
 async def test_base_ensure_workflow_schema_migrations_backfills_columns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -602,6 +764,74 @@ async def test_base_ensure_workflow_schema_migrations_skips_existing_columns(
 
 
 @pytest.mark.asyncio
+async def test_base_ensure_workflow_schema_migrations_keeps_existing_run_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Existing workflow_runs.workspace_id columns should not be re-added."""
+
+    class _Cursor:
+        def __init__(self, rows: list[dict[str, Any]]) -> None:
+            self._rows = [FakeRow(row) for row in rows]
+
+        async def fetchall(self) -> list[FakeRow]:
+            return list(self._rows)
+
+    class _Connection:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def execute(self, query: str, params: Any | None = None) -> _Cursor:
+            self.queries.append(query.strip())
+            if "table_name = 'workflows'" in query:
+                return _Cursor(
+                    [
+                        {"column_name": "handle"},
+                        {"column_name": "is_archived"},
+                        {"column_name": "workspace_id"},
+                    ]
+                )
+            if "table_name = 'workflow_runs'" in query:
+                return _Cursor([{"column_name": "workspace_id"}])
+            if "SELECT id, payload FROM workflows" in query:
+                return _Cursor([])
+            if "ALTER TABLE workflow_runs ADD COLUMN workspace_id TEXT" in query:
+                raise AssertionError("workflow_runs workspace_id should already exist")
+            return _Cursor([])
+
+    repo = make_repository(monkeypatch, [])
+    connection = _Connection()
+
+    await repo._ensure_workflow_schema_migrations(connection)
+
+    assert (
+        "ALTER TABLE workflow_runs ADD COLUMN workspace_id TEXT"
+        not in connection.queries
+    )
+
+
+@pytest.mark.asyncio
+async def test_postgres_versions_schema_migration_keeps_existing_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Existing workflow_versions.workspace_id columns should not be re-added."""
+
+    responses: list[Any] = [
+        {"rows": [{"column_name": "workspace_id"}]},
+        {},
+    ]
+    repo = make_repository(monkeypatch, responses)
+    connection = repo._pool._connection  # type: ignore[unionattr]  # noqa: SLF001
+
+    await repo._ensure_workflow_versions_schema_migrations(connection)
+
+    queries = [query for query, _ in connection.queries]
+    assert not any(
+        "ALTER TABLE workflow_versions ADD COLUMN workspace_id TEXT" in q
+        for q in queries
+    )
+
+
+@pytest.mark.asyncio
 async def test_persistence_get_run_locked_with_string_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -650,6 +880,97 @@ async def test_persistence_get_run_locked_with_string_payload(
 
 
 @pytest.mark.asyncio
+async def test_persistence_get_run_workspace_id_helper_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The run workspace_id helper returns None when the row is missing."""
+
+    run_id = uuid4()
+    repo = make_repository(monkeypatch, [{"row": None}])
+
+    workspace_id = await repo._get_run_workspace_id_locked(run_id)
+
+    assert workspace_id is None
+
+
+@pytest.mark.asyncio
+async def test_postgres_get_run_workspace_scoping_allows_unscoped_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace-scoped get_run accepts legacy NULL-scoped rows."""
+
+    run_id = uuid4()
+    workflow_id = uuid4()
+    version_id = uuid4()
+    repo = make_repository(
+        monkeypatch,
+        [
+            {"row": {"payload": _run_payload(run_id, version_id)}},
+            {"row": {"unexpected": "value"}},
+        ],
+    )
+
+    run = await repo.get_run(run_id, workspace_id="ws-b")
+
+    assert run.id == run_id
+
+
+@pytest.mark.asyncio
+async def test_postgres_get_run_workspace_scoping_accepts_matching_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace-scoped get_run accepts rows from the same workspace."""
+
+    run_id = uuid4()
+    workflow_id = uuid4()
+    version_id = uuid4()
+    workspace_id = "ws-b"
+    repo = make_repository(
+        monkeypatch,
+        [
+            {"row": {"payload": _run_payload(run_id, version_id)}},
+            {"row": {"workspace_id": workspace_id}},
+        ],
+    )
+
+    run = await repo.get_run(run_id, workspace_id=workspace_id)
+
+    assert run.id == run_id
+
+
+@pytest.mark.asyncio
+async def test_postgres_get_run_without_workspace_filter_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The public get_run wrapper should return rows without a workspace filter."""
+
+    run_id = uuid4()
+    version_id = uuid4()
+    repo = make_repository(
+        monkeypatch,
+        [{"row": {"payload": _run_payload(run_id, version_id)}}],
+    )
+
+    run = await repo.get_run(run_id)
+
+    assert run.id == run_id
+
+
+@pytest.mark.asyncio
+async def test_postgres_get_run_workspace_id_helper_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The run workspace_id helper returns None when the row is absent."""
+
+    run_id = uuid4()
+    repo = make_repository(monkeypatch, [{"row": None}])
+
+    workspace_id = await repo._get_run_workspace_id_locked(run_id)
+
+    assert workspace_id is None
+
+
+@pytest.mark.asyncio
 async def test_persistence_create_run_locked_version_mismatch_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -671,6 +992,68 @@ async def test_persistence_create_run_locked_version_mismatch_raises(
             triggered_by="manual",
             input_payload={},
             actor="test",
+        )
+
+
+@pytest.mark.asyncio
+async def test_persistence_create_run_locked_without_workspace_slot_does_not_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Failures without a workspace_id should not try to release a run slot."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    version_payload = _version_payload(version_id, workflow_id)
+    repo = make_repository(monkeypatch, [{"row": {"payload": version_payload}}, {}])
+
+    def _boom(*_: object, **__: object) -> None:
+        raise RuntimeError("track failed")
+
+    repo._trigger_layer.track_run = _boom  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="track failed"):
+        await repo._create_run_locked(
+            workflow_id=workflow_id,
+            workflow_version_id=version_id,
+            triggered_by="manual",
+            input_payload={},
+            actor="test",
+        )
+
+
+@pytest.mark.asyncio
+async def test_triggers_dispatch_manual_runs_rejects_version_from_other_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Manual dispatch rejects run plans that point at another workflow's version."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    other_workflow_id = uuid4()
+    version_payload = _version_payload(version_id, other_workflow_id)
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},
+        {"row": {"payload": _version_payload(uuid4(), workflow_id)}},
+        {"row": {"workspace_id": None}},
+        {"row": {"payload": version_payload}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    class _Plan:
+        actor = "tester"
+        triggered_by = "manual"
+        runs = [SimpleNamespace(workflow_version_id=version_id, input_payload={})]
+
+    repo._trigger_layer.prepare_manual_dispatch = (
+        lambda request, default_workflow_version_id: _Plan()
+    )  # type: ignore[method-assign]
+
+    with pytest.raises(WorkflowVersionNotFoundError, match=str(version_id)):
+        await repo.dispatch_manual_runs(
+            ManualDispatchRequest(
+                workflow_id=workflow_id,
+                runs=[ManualDispatchItem()],
+            )
         )
 
 
@@ -708,6 +1091,69 @@ async def test_persistence_create_run_locked_with_pydantic_config(
 
 
 @pytest.mark.asyncio
+async def test_persistence_create_run_locked_releases_workspace_slot_on_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Run slot reservations are released if persistence fails after reserving."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    workspace_id = str(uuid4())
+    version_payload = _version_payload(version_id, workflow_id)
+    responses: list[Any] = [
+        {"row": {"payload": version_payload}},
+        {},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    reserve_calls: list[tuple[str, int]] = []
+    release_calls: list[str] = []
+
+    class _WorkspaceRepo:
+        def get_workspace(self, workspace_uuid: UUID) -> SimpleNamespace:
+            assert str(workspace_uuid) == workspace_id
+            return SimpleNamespace(
+                quotas=SimpleNamespace(max_concurrent_runs=4),
+            )
+
+    class _Governance:
+        def reserve_run_slot(self, workspace: str, *, limit: int) -> None:
+            reserve_calls.append((workspace, limit))
+
+        def release_run_slot(self, workspace: str) -> None:
+            release_calls.append(workspace)
+
+    monkeypatch.setattr(
+        pg_persistence,
+        "get_workspace_repository",
+        lambda: _WorkspaceRepo(),
+    )
+    monkeypatch.setattr(
+        pg_persistence,
+        "get_workspace_governance",
+        lambda: _Governance(),
+    )
+
+    def _boom(*_: object, **__: object) -> None:
+        raise RuntimeError("track failed")
+
+    repo._trigger_layer.track_run = _boom  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="track failed"):
+        await repo._create_run_locked(
+            workflow_id=workflow_id,
+            workflow_version_id=version_id,
+            triggered_by="manual",
+            input_payload={},
+            actor="tester",
+            workspace_id=workspace_id,
+        )
+
+    assert reserve_calls == [(workspace_id, 4)]
+    assert release_calls == [workspace_id]
+
+
+@pytest.mark.asyncio
 async def test_runs_get_run_not_found_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -721,6 +1167,76 @@ async def test_runs_get_run_not_found_raises(
 
     with pytest.raises(WorkflowRunNotFoundError):
         await repo.get_run(run_id)
+
+
+@pytest.mark.asyncio
+async def test_postgres_list_runs_for_workflow_with_workspace_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace-scoped list queries include the workspace predicate."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    run_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},
+        {
+            "rows": [
+                {"payload": _run_payload(run_id, version_id)},
+            ]
+        },
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    runs = await repo.list_runs_for_workflow(
+        workflow_id,
+        workspace_id="workspace-a",
+    )
+
+    assert len(runs) == 1
+    query, params = repo._pool._connection.queries[1]  # noqa: SLF001
+    assert "workspace_id = %s" in query
+    assert params == (str(workflow_id), "workspace-a")
+
+
+@pytest.mark.asyncio
+async def test_postgres_get_run_workspace_mismatch_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace-scoped get_run rejects runs from a different workspace."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    run_id = uuid4()
+    responses: list[Any] = [
+        {
+            "row": {
+                "payload": _run_payload(run_id, version_id),
+                "workflow_id": str(workflow_id),
+                "triggered_by": "manual",
+                "status": "pending",
+            }
+        },
+        {"row": {"workspace_id": "workspace-a"}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(WorkflowRunNotFoundError):
+        await repo.get_run(run_id, workspace_id="workspace-b")
+
+
+@pytest.mark.asyncio
+async def test_postgres_get_run_workspace_lookup_handles_missing_column(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing workspace columns are treated as unscoped rows."""
+
+    run_id = uuid4()
+    repo = make_repository(monkeypatch, [{"row": {"unexpected": "value"}}])
+
+    workspace_id = await repo._get_run_workspace_id_locked(run_id)
+
+    assert workspace_id is None
 
 
 @pytest.mark.asyncio
@@ -867,6 +1383,45 @@ async def test_triggers_dispatch_due_cron_runs_skip_unhealthy_workflow(
 
 
 @pytest.mark.asyncio
+async def test_triggers_dispatch_due_cron_runs_skip_quota_exceeded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cron dispatch skips runs when the workspace quota is exceeded."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    config = CronTriggerConfig(expression="0 9 * * *", timezone="UTC")
+    version = WorkflowVersion.model_validate(_version_payload(version_id, workflow_id))
+    responses = [
+        {
+            "rows": [
+                {
+                    "workflow_id": str(workflow_id),
+                    "config": config.model_dump(mode="json"),
+                    "last_dispatched_at": None,
+                }
+            ]
+        }
+    ]
+    repo = make_repository(monkeypatch, responses)
+    repo._trigger_layer.configure_cron(workflow_id, config)
+    monkeypatch.setattr(
+        repo,
+        "_get_latest_version_locked",
+        AsyncMock(return_value=version),
+    )
+
+    async def _raise_quota(*_: object, **__: object) -> WorkflowRun:
+        raise WorkspaceQuotaExceededError("quota", code="workspace.quota.runs")
+
+    monkeypatch.setattr(repo, "_create_run_locked", _raise_quota)
+
+    runs = await repo.dispatch_due_cron_runs(now=datetime(2025, 1, 1, 9, 0, tzinfo=UTC))
+
+    assert runs == []
+
+
+@pytest.mark.asyncio
 async def test_triggers_dispatch_manual_runs_version_mismatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -898,6 +1453,42 @@ async def test_triggers_dispatch_manual_runs_version_mismatch(
 
     with pytest.raises(WorkflowVersionNotFoundError):
         await repo.dispatch_manual_runs(request)
+
+
+@pytest.mark.asyncio
+async def test_triggers_dispatch_manual_runs_skip_quota_exceeded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Manual dispatch skips runs that exceed workspace quotas."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    workflow_payload = _workflow_payload(workflow_id)
+    version_payload = _version_payload(version_id, workflow_id)
+
+    responses = [
+        {"row": {"payload": workflow_payload}},
+        {"row": {"payload": version_payload}},
+        {"row": {"payload": version_payload}},
+        {"row": {"payload": version_payload}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    async def _raise_quota(*_: object, **__: object) -> WorkflowRun:
+        raise WorkspaceQuotaExceededError("quota", code="workspace.quota.runs")
+
+    monkeypatch.setattr(repo, "_create_run_locked", _raise_quota)
+
+    from orcheo.triggers.manual import ManualDispatchRequest
+
+    request = ManualDispatchRequest(
+        workflow_id=workflow_id,
+        runs=[{"workflow_version_id": version_id, "input_payload": {}}],
+    )
+
+    runs = await repo.dispatch_manual_runs(request)
+
+    assert runs == []
 
 
 @pytest.mark.asyncio
@@ -972,6 +1563,58 @@ async def test_triggers_get_cron_trigger_config(
     result = await repo.get_cron_trigger_config(workflow_id)
     assert result.expression == "0 0 * * *"
     assert result.timezone == "UTC"
+
+
+@pytest.mark.asyncio
+async def test_triggers_enqueue_run_uses_apply_async(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The enqueue helper prefers Celery's apply_async when available."""
+
+    run = SimpleNamespace(id=uuid4(), workspace_id="workspace-a")
+    calls: list[tuple[tuple[Any, ...], Any]] = []
+
+    class _Task:
+        def apply_async(
+            self, *, args: tuple[str, ...], headers: dict[str, str] | None
+        ) -> None:
+            calls.append((args, headers))
+
+    from importlib import import_module
+
+    worker_tasks = import_module("orcheo_backend.worker.tasks")
+    monkeypatch.setattr(worker_tasks, "execute_run", _Task())
+
+    pg_triggers._enqueue_run_for_execution(run)
+
+    assert calls == [((str(run.id),), {"workspace_id": "workspace-a"})]
+
+
+@pytest.mark.asyncio
+async def test_triggers_enqueue_run_logs_when_enqueue_fails(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Failures while enqueueing are logged and swallowed."""
+
+    run = SimpleNamespace(id=uuid4(), workspace_id=None)
+
+    class _Task:
+        def apply_async(
+            self, *, args: tuple[str, ...], headers: dict[str, str] | None
+        ) -> None:
+            raise RuntimeError("queue unavailable")
+
+    from importlib import import_module
+
+    worker_tasks = import_module("orcheo_backend.worker.tasks")
+    monkeypatch.setattr(worker_tasks, "execute_run", _Task())
+
+    with caplog.at_level(
+        "WARNING", logger="orcheo_backend.app.repository_postgres._triggers"
+    ):
+        pg_triggers._enqueue_run_for_execution(run)
+
+    assert "Failed to enqueue run" in caplog.text
 
 
 @pytest.mark.asyncio

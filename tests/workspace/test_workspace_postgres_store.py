@@ -1,6 +1,8 @@
 """Tests for the PostgreSQL-backed workspace repository."""
 
 from __future__ import annotations
+import json
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 import pytest
@@ -10,6 +12,7 @@ from orcheo.workspace import (
     Workspace,
     WorkspaceAuditEvent,
     WorkspaceMembership,
+    WorkspaceMembershipError,
     WorkspaceNotFoundError,
     WorkspaceSlugConflictError,
     WorkspaceStatus,
@@ -121,6 +124,23 @@ def _audit_row(event: WorkspaceAuditEvent) -> dict[str, Any]:
     }
 
 
+def _db_workspace_row(workspace: Workspace) -> dict[str, Any]:
+    row = _workspace_row(workspace)
+    row["quotas"] = json.dumps(row["quotas"])
+    row["created_at"] = row["created_at"].isoformat()
+    row["updated_at"] = row["updated_at"].isoformat()
+    if row["deleted_at"] is not None:
+        row["deleted_at"] = row["deleted_at"].isoformat()
+    return row
+
+
+def _db_audit_row(event: WorkspaceAuditEvent) -> dict[str, Any]:
+    row = _audit_row(event)
+    row["details"] = json.dumps(row["details"])
+    row["created_at"] = row["created_at"].isoformat()
+    return row
+
+
 def test_postgres_workspace_repository_roundtrip(
     fake_connect: tuple[FakeConnection, str],
 ) -> None:
@@ -225,3 +245,159 @@ def test_postgres_workspace_repository_raises_on_duplicate_slug(
     workspace = Workspace(slug="acme", name="Acme")
     with pytest.raises(WorkspaceSlugConflictError, match="acme"):
         repo.create_workspace(workspace)
+
+
+def test_postgres_workspace_repository_lists_and_parses_rows(
+    fake_connect: tuple[FakeConnection, str],
+) -> None:
+    connection, dsn = fake_connect
+    repo = PostgresWorkspaceRepository(dsn)
+    connection.queries.clear()
+
+    active = Workspace(slug="acme", name="Acme")
+    inactive = Workspace(
+        id=uuid4(),
+        slug="globex",
+        name="Globex",
+        status=WorkspaceStatus.SUSPENDED,
+        quotas=active.quotas,
+        deleted_at=datetime.now(tz=UTC),
+        created_at=active.created_at,
+        updated_at=active.updated_at,
+    )
+    audit_event = WorkspaceAuditEvent(
+        workspace_id=active.id,
+        action="workspace.suspended",
+        actor=None,
+        subject=None,
+        resource_type=None,
+        resource_id=None,
+        details={"reason": "maintenance"},
+    )
+
+    connection._responses.extend(
+        [
+            {"rows": [_db_workspace_row(active)]},
+            {"rows": [_db_workspace_row(active), _db_workspace_row(inactive)]},
+            {"rows": [_db_audit_row(audit_event)]},
+        ]
+    )
+
+    active_only = repo.list_workspaces()
+    all_workspaces = repo.list_workspaces(include_inactive=True)
+    audit_events = repo.list_audit_events(active.id)
+
+    assert [workspace.slug for workspace in active_only] == ["acme"]
+    assert {workspace.slug for workspace in all_workspaces} == {"acme", "globex"}
+    assert audit_events[0].details == {"reason": "maintenance"}
+    assert "WHERE status = 'active'" in connection.queries[0][0]
+    assert "WHERE status = 'active'" not in connection.queries[1][0]
+
+
+def test_postgres_workspace_repository_missing_workspace_and_status_paths(
+    fake_connect: tuple[FakeConnection, str],
+) -> None:
+    connection, dsn = fake_connect
+    repo = PostgresWorkspaceRepository(dsn)
+    connection.queries.clear()
+
+    connection._responses.extend(
+        [
+            {"row": None},
+            {"rowcount": 0},
+            {"rowcount": 0},
+        ]
+    )
+
+    with pytest.raises(WorkspaceNotFoundError):
+        repo.get_workspace(uuid4())
+
+    with pytest.raises(WorkspaceNotFoundError):
+        repo.update_status(uuid4(), WorkspaceStatus.SUSPENDED)
+
+    with pytest.raises(WorkspaceNotFoundError):
+        repo.delete_workspace(uuid4())
+
+
+def test_postgres_workspace_repository_add_membership_errors(
+    fake_connect: tuple[FakeConnection, str],
+) -> None:
+    connection, dsn = fake_connect
+    repo = PostgresWorkspaceRepository(dsn)
+    connection.queries.clear()
+
+    workspace = Workspace(slug="acme", name="Acme")
+    membership = WorkspaceMembership(
+        workspace_id=workspace.id,
+        user_id="alice",
+        role=Role.OWNER,
+    )
+    connection._responses.extend(
+        [
+            {"row": None},
+            {"row": {"id": str(workspace.id)}},
+            {"row": {"id": str(uuid4())}},
+        ]
+    )
+
+    with pytest.raises(WorkspaceNotFoundError):
+        repo.add_membership(membership)
+
+    with pytest.raises(WorkspaceMembershipError):
+        repo.add_membership(membership)
+
+
+def test_postgres_workspace_repository_membership_lookup_errors(
+    fake_connect: tuple[FakeConnection, str],
+) -> None:
+    connection, dsn = fake_connect
+    repo = PostgresWorkspaceRepository(dsn)
+    connection.queries.clear()
+
+    workspace_id = uuid4()
+    connection._responses.extend(
+        [
+            {"rowcount": 0},
+            {"rowcount": 0},
+            {"row": None},
+        ]
+    )
+
+    with pytest.raises(WorkspaceMembershipError):
+        repo.remove_membership(workspace_id, "ghost")
+
+    with pytest.raises(WorkspaceMembershipError):
+        repo.update_membership_role(workspace_id, "ghost", Role.ADMIN)
+
+    with pytest.raises(WorkspaceMembershipError):
+        repo.get_membership(workspace_id, "ghost")
+
+
+def test_postgres_workspace_repository_membership_updates(
+    fake_connect: tuple[FakeConnection, str],
+) -> None:
+    connection, dsn = fake_connect
+    repo = PostgresWorkspaceRepository(dsn)
+    connection.queries.clear()
+
+    workspace = Workspace(slug="acme", name="Acme")
+    updated_membership = WorkspaceMembership(
+        workspace_id=workspace.id,
+        user_id="alice",
+        role=Role.ADMIN,
+    )
+    connection._responses.extend(
+        [
+            {"row": None},
+            {"rowcount": 1},
+            {"rowcount": 1},
+            {"row": _membership_row(updated_membership)},
+        ]
+    )
+
+    with pytest.raises(WorkspaceNotFoundError):
+        repo.get_workspace_by_slug("ghost")
+
+    repo.remove_membership(workspace.id, "alice")
+    updated = repo.update_membership_role(workspace.id, "alice", Role.ADMIN)
+    assert updated.role is Role.ADMIN

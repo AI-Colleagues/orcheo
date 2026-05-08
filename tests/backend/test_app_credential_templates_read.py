@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 from orcheo.models import CredentialKind, CredentialScope
 from orcheo.vault import WorkflowScopeError
+
+
+_MOCK_WORKSPACE = SimpleNamespace(
+    workspace_id=uuid4(),
+    user_id="test-user",
+    slug="test-workspace",
+    quotas=SimpleNamespace(
+        max_credentials=1000,
+        max_workflows=1000,
+        max_storage_rows=1_000_000,
+    ),
+)
 
 
 class _Repository:
@@ -31,7 +44,7 @@ async def test_list_credential_templates_success() -> None:
     template2_id = uuid4()
 
     class Vault:
-        def list_templates(self, context=None):
+        def list_templates(self, context=None, *, workspace_id=None):
             return [
                 CredentialTemplate(
                     id=template1_id,
@@ -57,7 +70,7 @@ async def test_list_credential_templates_success() -> None:
                 ),
             ]
 
-    result = await list_credential_templates(Vault(), _Repository())
+    result = await list_credential_templates(Vault(), _Repository(), _MOCK_WORKSPACE)
 
     assert len(result) == 2
     assert result[0].id == str(template1_id)
@@ -86,7 +99,9 @@ async def test_get_credential_template_success() -> None:
                 updated_at=datetime.now(tz=UTC),
             )
 
-    result = await get_credential_template(template_id, Vault(), _Repository())
+    result = await get_credential_template(
+        template_id, Vault(), _Repository(), _MOCK_WORKSPACE
+    )
 
     assert result.id == str(template_id)
 
@@ -104,7 +119,9 @@ async def test_get_credential_template_not_found() -> None:
             raise CredentialTemplateNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await get_credential_template(template_id, Vault(), _Repository())
+        await get_credential_template(
+            template_id, Vault(), _Repository(), _MOCK_WORKSPACE
+        )
 
     assert exc_info.value.status_code == 404
 
@@ -121,7 +138,9 @@ async def test_get_credential_template_scope_error() -> None:
             raise WorkflowScopeError("Access denied")
 
     with pytest.raises(HTTPException) as exc_info:
-        await get_credential_template(template_id, Vault(), _Repository())
+        await get_credential_template(
+            template_id, Vault(), _Repository(), _MOCK_WORKSPACE
+        )
 
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail == "Access denied"

@@ -2,12 +2,25 @@
 
 from __future__ import annotations
 import json
+from uuid import uuid4
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from orcheo.workspace import (
+    InMemoryWorkspaceRepository,
+    Role,
+    Workspace,
+    WorkspaceMembership,
+)
+from orcheo.workspace.models import WorkspaceContext
 from orcheo_backend.app import create_app
 from orcheo_backend.app.authentication import reset_authentication_state
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
+from orcheo_backend.app.workspace.dependencies import (
+    reset_workspace_state,
+    resolve_workspace_context,
+    set_workspace_repository,
+)
 from orcheo_sdk import HttpWorkflowExecutor, OrcheoClient
 
 
@@ -16,9 +29,27 @@ def test_http_executor_triggers_run_against_backend(
 ) -> None:
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
     reset_authentication_state()
+    reset_workspace_state()
+
+    workspace_id = uuid4()
+    workspace_repo = InMemoryWorkspaceRepository()
+    workspace_repo.create_workspace(
+        Workspace(id=workspace_id, slug="default", name="Default Workspace")
+    )
+    workspace_repo.add_membership(
+        WorkspaceMembership(workspace_id=workspace_id, user_id="sdk", role=Role.OWNER)
+    )
+    set_workspace_repository(workspace_repo)
 
     repository = InMemoryWorkflowRepository()
     app = create_app(repository)
+    workspace_context = WorkspaceContext(
+        workspace_id=workspace_id,
+        workspace_slug="default",
+        user_id="sdk",
+        role=Role.OWNER,
+    )
+    app.dependency_overrides[resolve_workspace_context] = lambda: workspace_context
 
     with TestClient(app) as api_client:
         transport = httpx.MockTransport(

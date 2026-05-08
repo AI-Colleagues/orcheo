@@ -24,6 +24,7 @@ def auth_env(tmp_path: Path) -> dict[str, str]:
         "ORCHEO_API_URL": "http://api.test",
         "ORCHEO_CONFIG_DIR": str(config_dir),
         "ORCHEO_CACHE_DIR": str(cache_dir),
+        "ORCHEO_SERVICE_TOKEN": "",
         "ORCHEO_HUMAN": "1",
         "NO_COLOR": "1",
     }

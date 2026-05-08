@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from uuid import uuid4
 import pytest
 from orcheo_backend.app.authentication import (
     AuthorizationPolicy,
@@ -74,6 +76,21 @@ def authenticated_context() -> RequestContext:
 def admin_policy(authenticated_context: RequestContext) -> AuthorizationPolicy:
     """Return an authorization policy granting admin token scopes."""
     return AuthorizationPolicy(authenticated_context)
+
+
+@pytest.fixture
+def mock_workspace() -> SimpleNamespace:
+    """Return a minimal workspace context object usable as WorkspaceContextDep."""
+    return SimpleNamespace(
+        workspace_id=uuid4(),
+        user_id="test-user",
+        slug="test-workspace",
+        quotas=SimpleNamespace(
+            max_credentials=1000,
+            max_workflows=1000,
+            max_storage_rows=1_000_000,
+        ),
+    )
 
 
 # Re-export integration fixtures so dependent tests can resolve them.

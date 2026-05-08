@@ -40,7 +40,7 @@ from orcheo.nodes.debug import DebugNode
 from orcheo.nodes.deep_agent import DeepAgentNode
 from orcheo.nodes.gemini import GeminiNode
 from orcheo.nodes.javascript_sandbox import JavaScriptSandboxNode
-from orcheo.nodes.lark import LarkSendMessageNode, LarkWorkspaceAccessTokenNode
+from orcheo.nodes.lark import LarkSendMessageNode, LarkTenantAccessTokenNode
 from orcheo.nodes.linkedin import LinkedInPostNode
 from orcheo.nodes.listeners import (
     DiscordBotListenerNode,
@@ -140,7 +140,7 @@ __all__ = [
     "TelegramEventsParserNode",
     "JavaScriptSandboxNode",
     "LarkSendMessageNode",
-    "LarkWorkspaceAccessTokenNode",
+    "LarkTenantAccessTokenNode",
     "LinkedInPostNode",
     "DeepAgentNode",
     "DebugNode",

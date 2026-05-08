@@ -52,19 +52,19 @@ class PluginInstallationStore(Protocol):
         self, plugin_name: str, *, workspace_id: str, enabled: bool
     ) -> None:
         """Persist whether one plugin is enabled for one workspace."""
-        ...
+        ...  # pragma: no cover
 
     async def get_plugin_enabled(
         self, plugin_name: str, *, workspace_id: str
     ) -> bool | None:
         """Return the workspace-scoped enabled flag for one plugin."""
-        ...
+        ...  # pragma: no cover
 
     async def list_plugin_states(
         self, *, workspace_id: str | None = None
     ) -> list[WorkspacePluginState]:
         """Return workspace plugin states, optionally filtered by workspace."""
-        ...
+        ...  # pragma: no cover
 
 
 class InMemoryPluginInstallationStore:

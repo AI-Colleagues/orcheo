@@ -22,6 +22,7 @@ from orcheo_backend.app.chatkit.workflow_executor import (
     _with_thread_id,
 )
 from orcheo_backend.app.history.models import RunHistoryError
+from orcheo_backend.app.repository import WorkflowNotFoundError
 from orcheo_backend.app.schemas.system import ExternalAgentProviderName
 
 
@@ -536,3 +537,119 @@ async def test_run_builds_step_callback_when_progress_callback_is_provided(
     assert build_step_callback_calls == [(history_store, "exec-1", progress_callback)]
     assert execution_args["step_callback"] is step_callback
     assert execution_args["workspace_id"] == "workspace-1"
+
+
+@pytest.mark.asyncio
+async def test_run_rejects_workspace_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """run should reject a workspace hint that does not match the repository."""
+
+    workflow = SimpleNamespace(chatkit=None)
+    version = SimpleNamespace(id=UUID(int=2), graph={"nodes": []}, runnable_config={})
+
+    class Repository:
+        async def get_workflow(self, workflow_id):
+            return workflow
+
+        async def get_latest_version(self, workflow_id):
+            return version
+
+        async def get_workflow_workspace_id(self, workflow_id):
+            return "workspace-a"
+
+    executor = WorkflowExecutor(
+        repository=Repository(), vault_provider=lambda: object()
+    )
+
+    with pytest.raises(WorkflowNotFoundError):
+        await executor.run(
+            UUID(int=1),
+            {"message": "hello"},
+            workspace_id="workspace-b",
+        )
+
+
+@pytest.mark.asyncio
+async def test_execute_graph_passes_workspace_id_to_initial_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_execute_graph should forward the workspace id into build_initial_state."""
+
+    captured: dict[str, object] = {}
+
+    class DummyCompiled:
+        async def ainvoke(self, payload, *, config):
+            captured["payload"] = payload
+            captured["config"] = config
+            return {"reply": "done"}
+
+    class DummyGraph:
+        def compile(self, *, checkpointer, store):
+            assert checkpointer == "checkpointer"
+            assert store == "graph-store"
+            return DummyCompiled()
+
+    class DummyAsyncContext:
+        def __init__(self, value: object) -> None:
+            self._value = value
+
+        async def __aenter__(self) -> object:
+            return self._value
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: {})
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_checkpointer",
+        lambda settings: DummyAsyncContext("checkpointer"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_graph_store",
+        lambda settings: DummyAsyncContext("graph-store"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "build_graph", lambda graph: DummyGraph()
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "build_initial_state",
+        lambda graph_config, inputs, runtime_config=None, workspace_id=None: {
+            "inputs": dict(inputs),
+            "workspace_id": workspace_id,
+        },
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "CredentialResolver",
+        lambda vault, context=None: object(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "credential_resolution",
+        lambda resolver: nullcontext(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "_external_agent_provider_environment",
+        lambda workspace_id=None: {"WORKSPACE_ID": workspace_id or ""},
+    )
+
+    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
+
+    result = await executor._execute_graph(
+        workflow_id=UUID(int=0),
+        graph_config={"nodes": []},
+        inputs={"message": "hello"},
+        config={"configurable": {"thread_id": "thread"}},
+        state_config={"configurable": {"thread_id": "thread"}},
+        step_callback=None,
+        workspace_id=str(UUID(int=1)),
+    )
+
+    assert result == {"reply": "done"}
+    assert captured["payload"] == {
+        "inputs": {"message": "hello"},
+        "workspace_id": str(UUID(int=1)),
+    }

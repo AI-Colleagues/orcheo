@@ -234,3 +234,25 @@ def test_inmemory_remove_template_missing() -> None:
     vault = InMemoryCredentialVault()
     with pytest.raises(CredentialTemplateNotFoundError):
         vault._remove_template(uuid4())
+
+
+def test_inmemory_iter_templates_filters_by_workspace() -> None:
+    vault = InMemoryCredentialVault()
+    vault.create_template(
+        name="Shared",
+        provider="service",
+        scopes=["read"],
+        actor="ops",
+        workspace_id="workspace-a",
+    )
+    vault.create_template(
+        name="Other",
+        provider="service",
+        scopes=["read"],
+        actor="ops",
+        workspace_id="workspace-b",
+    )
+
+    templates = list(vault._iter_templates(workspace_id="workspace-a"))
+
+    assert [template.name for template in templates] == ["Shared"]

@@ -39,3 +39,28 @@ async def test_ensure_trace_columns_upgrades_existing_table(tmp_path: Path) -> N
         "trace_completed_at",
         "trace_last_span_at",
     }.issubset(column_names)
+
+
+@pytest.mark.asyncio
+async def test_ensure_agentensor_workspace_column_adds_missing_column(
+    tmp_path: Path,
+) -> None:
+    """_ensure_agentensor_workspace_column should add workspace_id when absent."""
+
+    db_path = tmp_path / "history-agentensor-upgrade.sqlite"
+    async with aiosqlite.connect(db_path) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute(
+            """
+            CREATE TABLE agentensor_checkpoints (
+                id TEXT PRIMARY KEY,
+                workflow_id TEXT NOT NULL
+            )
+            """
+        )
+        await sqlite_utils._ensure_agentensor_workspace_column(conn)
+        cursor = await conn.execute("PRAGMA table_info(agentensor_checkpoints)")
+        rows = await cursor.fetchall()
+
+    column_names = {row["name"] for row in rows}
+    assert "workspace_id" in column_names

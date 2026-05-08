@@ -3,17 +3,17 @@
 from __future__ import annotations
 from unittest.mock import Mock
 import pytest
-from orcheo.workspace import InMemoryWorkspaceRepository, WorkspaceService
 from orcheo_backend.app import dependencies
 from orcheo_backend.app.authentication import RequestContext, authenticate_request
 from orcheo_backend.app.external_agent_runtime_store import ExternalAgentRuntimeStore
 from orcheo_backend.app.routers import system as system_router
 from orcheo_backend.app.schemas.system import ExternalAgentLoginSessionState
-from orcheo_backend.app.workspace import reset_workspace_state, set_workspace_repository
-from tests.backend.authentication_test_utils import create_test_client, reset_auth_state
-
-
-_WORKSPACE_STATE: dict[str, str | None] = {"workspace_id": None}
+from orcheo_backend.app.workspace import reset_workspace_state
+from tests.backend.authentication_test_utils import (
+    _TEST_WORKSPACE,
+    create_test_client,
+    reset_auth_state,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -34,24 +34,13 @@ def _reset_workspace() -> None:
     """Reset workspace state between router tests."""
     yield
     reset_workspace_state()
-    _WORKSPACE_STATE["workspace_id"] = None
 
 
 def _default_workspace_id() -> str:
-    current = _WORKSPACE_STATE["workspace_id"]
-    if current is not None:
-        return current
-    repo = InMemoryWorkspaceRepository()
-    set_workspace_repository(repo)
-    workspace, _ = WorkspaceService(repo).create_workspace(
-        slug="system", name="System Workspace", owner_user_id="alice"
-    )
-    _WORKSPACE_STATE["workspace_id"] = str(workspace.id)
-    return _WORKSPACE_STATE["workspace_id"]
+    return str(_TEST_WORKSPACE.workspace_id)
 
 
 def _workspace_client(subject: str = "alice"):
-    _default_workspace_id()
     client = create_test_client()
 
     async def _fake_auth() -> RequestContext:

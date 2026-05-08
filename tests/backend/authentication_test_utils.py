@@ -8,8 +8,11 @@ import tempfile
 from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
+from orcheo.workspace import InMemoryWorkspaceRepository
+from orcheo.workspace.models import Role, Workspace, WorkspaceContext
 from orcheo_backend.app import create_app
 from orcheo_backend.app.authentication import (
     ServiceTokenRecord,
@@ -19,6 +22,28 @@ from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from orcheo_backend.app.service_token_repository import (
     SqliteServiceTokenRepository,
 )
+from orcheo_backend.app.workspace.dependencies import (
+    reset_workspace_state,
+    resolve_workspace_context,
+    set_workspace_repository,
+)
+
+
+_TEST_WORKSPACE = WorkspaceContext(
+    workspace_id=uuid4(),
+    workspace_slug="test",
+    user_id="test-user",
+    role=Role.OWNER,
+)
+
+
+def _setup_test_workspace_repository() -> None:
+    """Populate an in-memory workspace repository with the shared test workspace."""
+    ws_repo = InMemoryWorkspaceRepository()
+    ws_repo.create_workspace(
+        Workspace(id=_TEST_WORKSPACE.workspace_id, slug="test", name="Test Workspace")
+    )
+    set_workspace_repository(ws_repo)
 
 
 def reset_auth_state(
@@ -57,14 +82,18 @@ def reset_auth_state(
         yield
     finally:
         monkeypatch.undo()
+        reset_workspace_state()
     reset_authentication_state()
 
 
 def create_test_client() -> TestClient:
     """Build a FastAPI test client wired to the in-memory repository."""
 
+    _setup_test_workspace_repository()
     repository = InMemoryWorkflowRepository()
-    return TestClient(create_app(repository=repository))
+    app = create_app(repository=repository)
+    app.dependency_overrides[resolve_workspace_context] = lambda: _TEST_WORKSPACE
+    return TestClient(app)
 
 
 def _setup_service_token(

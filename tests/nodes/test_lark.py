@@ -5,13 +5,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.lark import LarkSendMessageNode, LarkWorkspaceAccessTokenNode
+from orcheo.nodes.lark import LarkSendMessageNode, LarkTenantAccessTokenNode
 
 
 @pytest.mark.asyncio
 async def test_lark_tenant_access_token_node_returns_normalized_payload() -> None:
     """The standard Lark token node should normalize the auth response shape."""
-    node = LarkWorkspaceAccessTokenNode(
+    node = LarkTenantAccessTokenNode(
         name="get_lark_tenant_token",
         app_id="cli_app_id",
         app_secret="app_secret",
@@ -95,7 +95,7 @@ async def test_lark_send_message_replies_in_thread() -> None:
 
 @pytest.mark.asyncio
 async def test_lark_send_message_fetches_token_for_new_message() -> None:
-    """New-message sends should fetch a workspace token when no prior result exists."""
+    """New-message sends should fetch a tenant token when no prior result exists."""
     node = LarkSendMessageNode(
         name="send_lark",
         app_id="cli_app_id",

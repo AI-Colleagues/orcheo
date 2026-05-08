@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 import pytest
 from pydantic import BaseModel
+from orcheo.models.workflow import WorkflowRunStatus
 
 
 @pytest.fixture
@@ -14,11 +15,10 @@ def mock_run() -> MagicMock:
     run = MagicMock()
     run.id = uuid4()
     run.workflow_version_id = uuid4()
-    run.status = MagicMock()
-    run.status.value = "pending"
+    run.status = WorkflowRunStatus.PENDING
     run.input_payload = {"test": "data"}
     run.runnable_config = None
-    run.workspace_id = "workspace-1"
+    run.workspace_id = str(uuid4())
     return run
 
 

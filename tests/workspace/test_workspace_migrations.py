@@ -8,7 +8,9 @@ from orcheo.workspace import (
     add_workspace_id_column_sqlite,
     backfill_workspace_id_sqlite,
     ensure_default_workspace,
+    ensure_default_workspace_for_repository,
     ensure_workspace_index_sqlite,
+    ensure_workspace_schema,
     run_sqlite_backfill,
 )
 
@@ -71,3 +73,37 @@ def test_run_sqlite_backfill_no_db_returns_empty(tmp_path: Path) -> None:
     db = tmp_path / "ghost.sqlite"
     counts = run_sqlite_backfill(db, "workspace-1")
     assert counts == {}
+
+
+def test_ensure_default_workspace_for_repository_creates_default_workspace(
+    tmp_path: Path,
+) -> None:
+    repo = SqliteWorkspaceRepository(tmp_path / "default.sqlite")
+    workspace = ensure_default_workspace_for_repository(repo)
+    assert workspace.slug == "default"
+    assert ensure_default_workspace_for_repository(repo).id == workspace.id
+
+
+def test_ensure_workspace_schema_adds_deleted_at_column(tmp_path: Path) -> None:
+    db = tmp_path / "schema.sqlite"
+    with sqlite3.connect(db) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE workspaces (
+                id TEXT PRIMARY KEY,
+                slug TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                quotas TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+
+    ensure_workspace_schema(db)
+
+    with sqlite3.connect(db) as conn:
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(workspaces)")]
+
+    assert "deleted_at" in columns

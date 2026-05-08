@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 from orcheo.models import CredentialHealthStatus
 from orcheo.models.workflow import WorkflowRun
+from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo.vault.oauth import (
     CredentialHealthError,
     CredentialHealthReport,
@@ -93,6 +94,117 @@ async def test_create_workflow_run_success() -> None:
 
     assert result.id == run_id
     assert result.triggered_by == "user@example.com"
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_run_serializes_runnable_config() -> None:
+    """Create workflow run should serialize runnable config before dispatch."""
+
+    workflow_id = uuid4()
+    run_id = uuid4()
+    version_id = uuid4()
+    captured: dict[str, object] = {}
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def create_run(
+            self,
+            wf_id,
+            workflow_version_id=None,
+            triggered_by=None,
+            input_payload=None,
+            actor=None,
+            runnable_config=None,
+            workspace_id=None,
+        ):
+            captured.update(
+                {
+                    "wf_id": wf_id,
+                    "workflow_version_id": workflow_version_id,
+                    "triggered_by": triggered_by,
+                    "input_payload": input_payload,
+                    "runnable_config": runnable_config,
+                    "workspace_id": workspace_id,
+                }
+            )
+            return WorkflowRun(
+                id=run_id,
+                workflow_version_id=workflow_version_id,
+                triggered_by=triggered_by,
+                input_payload=input_payload,
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = WorkflowRunCreateRequest(
+        workflow_version_id=version_id,
+        triggered_by="user@example.com",
+        input_payload={"key": "value"},
+        runnable_config=RunnableConfigModel(
+            configurable={"thread_id": "preserve-me"},
+            tags=["alpha"],
+            metadata={"source": "test"},
+        ),
+    )
+
+    result = await create_workflow_run(
+        str(workflow_id), request, Repository(), _MOCK_WORKSPACE, None
+    )
+
+    assert result.id == run_id
+    assert captured["wf_id"] == workflow_id
+    assert captured["runnable_config"] == request.runnable_config.model_dump(
+        mode="json"
+    )
+    assert captured["workspace_id"] == str(_MOCK_WORKSPACE.workspace_id)
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_run_quota_error_returns_http_exception() -> None:
+    """Quota failures should be translated into structured HTTP errors."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def create_run(
+            self,
+            wf_id,
+            workflow_version_id=None,
+            triggered_by=None,
+            input_payload=None,
+            actor=None,
+            runnable_config=None,
+            workspace_id=None,
+        ):
+            del wf_id, workflow_version_id, triggered_by, input_payload, actor
+            del runnable_config, workspace_id
+            raise _quota_error()
+
+    request = WorkflowRunCreateRequest(
+        workflow_version_id=version_id,
+        triggered_by="user@example.com",
+        input_payload={},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_workflow_run(
+            str(workflow_id), request, Repository(), _MOCK_WORKSPACE, None
+        )
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.detail["error"]["code"] == "workspace.quota.concurrent_runs"
 
 
 @pytest.mark.asyncio()
@@ -213,6 +325,16 @@ async def test_create_workflow_run_credential_health_error() -> None:
         )
 
     assert exc_info.value.status_code == 422
+
+
+def _quota_error() -> object:
+    from orcheo_backend.app.errors import WorkspaceQuotaExceededError
+
+    return WorkspaceQuotaExceededError(
+        "Workspace reached its concurrent run limit",
+        code="workspace.quota.concurrent_runs",
+        details={"limit": 1, "current": 1},
+    )
 
 
 @pytest.mark.asyncio()

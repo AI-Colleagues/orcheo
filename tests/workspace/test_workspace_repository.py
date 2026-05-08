@@ -3,6 +3,7 @@
 from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
+from uuid import uuid4
 import pytest
 from orcheo.workspace import (
     InMemoryWorkspaceRepository,
@@ -151,3 +152,36 @@ def test_duplicate_membership_blocked(repository: object) -> None:
                 workspace_id=workspace.id, user_id="alice", role=Role.EDITOR
             )
         )
+
+
+def test_get_workspace_missing_raises(repository: object) -> None:
+    repo = repository  # type: ignore[assignment]
+    with pytest.raises(WorkspaceNotFoundError):
+        repo.get_workspace(uuid4())  # type: ignore[attr-defined]
+
+
+def test_missing_membership_lookup_and_role_update_raise(repository: object) -> None:
+    repo = repository  # type: ignore[assignment]
+    workspace = _make_workspace()
+    repo.create_workspace(workspace)  # type: ignore[attr-defined]
+
+    with pytest.raises(WorkspaceMembershipError):
+        repo.get_membership(workspace.id, "ghost")  # type: ignore[attr-defined]
+
+    with pytest.raises(WorkspaceMembershipError):
+        repo.update_membership_role(  # type: ignore[attr-defined]
+            workspace.id,
+            "ghost",
+            Role.ADMIN,
+        )
+
+
+def test_missing_workspace_update_and_delete_raise(repository: object) -> None:
+    repo = repository  # type: ignore[assignment]
+    missing_id = uuid4()
+
+    with pytest.raises(WorkspaceNotFoundError):
+        repo.update_status(missing_id, WorkspaceStatus.SUSPENDED)  # type: ignore[attr-defined]
+
+    with pytest.raises(WorkspaceNotFoundError):
+        repo.delete_workspace(missing_id)  # type: ignore[attr-defined]

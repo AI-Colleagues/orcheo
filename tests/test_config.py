@@ -112,7 +112,9 @@ def test_settings_invalid_graph_store_backend(
         config.get_settings(refresh=True)
 
 
-def test_postgres_backend_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_postgres_backend_requires_dsn(
+    monkeypatch: pytest.MonkeyPatch, no_dotenv_loader: None
+) -> None:
     """Using Postgres without a DSN should fail fast."""
 
     monkeypatch.setenv("ORCHEO_CHECKPOINT_BACKEND", "postgres")
@@ -122,7 +124,9 @@ def test_postgres_backend_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
         config.get_settings(refresh=True)
 
 
-def test_postgres_repository_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_postgres_repository_requires_dsn(
+    monkeypatch: pytest.MonkeyPatch, no_dotenv_loader: None
+) -> None:
     """Repository backends also require a DSN when Postgres is selected."""
 
     monkeypatch.setenv("ORCHEO_REPOSITORY_BACKEND", "postgres")
@@ -138,7 +142,9 @@ def test_postgres_repository_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> No
     assert settings.postgres_dsn == "postgresql://example"
 
 
-def test_postgres_workspace_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_postgres_workspace_requires_dsn(
+    monkeypatch: pytest.MonkeyPatch, no_dotenv_loader: None
+) -> None:
     """Workspace backends also require a DSN when Postgres is selected."""
 
     monkeypatch.setenv("ORCHEO_WORKSPACE_BACKEND", "postgres")
@@ -154,7 +160,9 @@ def test_postgres_workspace_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> Non
     assert settings.postgres_dsn == "postgresql://example"
 
 
-def test_postgres_chatkit_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_postgres_chatkit_requires_dsn(
+    monkeypatch: pytest.MonkeyPatch, no_dotenv_loader: None
+) -> None:
     """ChatKit postgres backend requires a DSN to be configured."""
 
     monkeypatch.setenv("ORCHEO_CHATKIT_BACKEND", "postgres")
@@ -170,7 +178,9 @@ def test_postgres_chatkit_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.postgres_dsn == "postgresql://example"
 
 
-def test_postgres_graph_store_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_postgres_graph_store_requires_dsn(
+    monkeypatch: pytest.MonkeyPatch, no_dotenv_loader: None
+) -> None:
     """Graph-store postgres backend also requires a DSN."""
 
     monkeypatch.setenv("ORCHEO_GRAPH_STORE_BACKEND", "postgres")
@@ -273,7 +283,9 @@ def test_invalid_vault_backend(monkeypatch: pytest.MonkeyPatch) -> None:
         config.get_settings(refresh=True)
 
 
-def test_postgres_vault_requires_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_postgres_vault_requires_dsn(
+    monkeypatch: pytest.MonkeyPatch, no_dotenv_loader: None
+) -> None:
     """Postgres vaults require a Postgres DSN."""
 
     monkeypatch.setenv("ORCHEO_VAULT_BACKEND", "postgres")

@@ -16,12 +16,14 @@ from orcheo_backend.app import (
     list_workflows,
     update_workflow,
 )
+from orcheo_backend.app.errors import WorkspaceQuotaExceededError
 from orcheo_backend.app.repository import (
     CronTriggerNotFoundError,
     WorkflowHandleConflictError,
     WorkflowNotFoundError,
     WorkflowVersionNotFoundError,
 )
+from orcheo_backend.app.routers import workflows as workflows_router
 from orcheo_backend.app.schemas.workflows import (
     WorkflowCanvasPayload,
     WorkflowCreateRequest,
@@ -29,7 +31,50 @@ from orcheo_backend.app.schemas.workflows import (
 )
 
 
-_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
+_MOCK_WORKSPACE = SimpleNamespace(
+    workspace_id=uuid4(),
+    user_id="test-user",
+    slug="test-workspace",
+    quotas=SimpleNamespace(
+        max_credentials=1000,
+        max_workflows=1000,
+        max_storage_rows=1_000_000,
+    ),
+)
+
+
+@pytest.fixture(autouse=True)
+def _patch_workspace_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub workspace governance helpers for endpoint-level tests."""
+
+    class _StubWorkspaceRepo:
+        def get_workspace(self, workspace_id):  # noqa: ARG002
+            return SimpleNamespace(
+                id=_MOCK_WORKSPACE.workspace_id,
+                slug="test-workspace",
+            )
+
+    async def _no_op_managed_workflow(repository, workspace_record):  # noqa: ARG001
+        return Workflow(
+            id=uuid4(),
+            name="Managed",
+            handle="orcheo-vibe-agent",
+            created_at=datetime.now(tz=UTC),
+            updated_at=datetime.now(tz=UTC),
+        )
+
+    async def _no_op_quota(repository, workspace):  # noqa: ARG001
+        return None
+
+    monkeypatch.setattr(
+        workflows_router, "get_workspace_repository", lambda: _StubWorkspaceRepo()
+    )
+    monkeypatch.setattr(
+        workflows_router, "ensure_managed_vibe_workflow", _no_op_managed_workflow
+    )
+    monkeypatch.setattr(
+        workflows_router, "ensure_workspace_workflow_quota", _no_op_quota
+    )
 
 
 @pytest.mark.asyncio()
@@ -67,13 +112,13 @@ async def test_list_workflows_returns_all() -> None:
 
     result = await list_workflows(Repository(), _MOCK_WORKSPACE, include_archived=False)
 
-    assert len(result) == 2
-    assert result[0].id == workflow1.id
-    assert result[1].id == workflow2.id
-    assert result[0].latest_version is None
-    assert result[1].latest_version is None
-    assert result[0].is_scheduled is False
-    assert result[1].is_scheduled is False
+    items_by_id = {item.id: item for item in result}
+    assert workflow1.id in items_by_id
+    assert workflow2.id in items_by_id
+    assert items_by_id[workflow1.id].latest_version is None
+    assert items_by_id[workflow2.id].latest_version is None
+    assert items_by_id[workflow1.id].is_scheduled is False
+    assert items_by_id[workflow2.id].is_scheduled is False
 
 
 @pytest.mark.asyncio()
@@ -118,7 +163,9 @@ async def test_list_workflows_fetches_metadata_concurrently() -> None:
 
     result = await list_workflows(Repository(), _MOCK_WORKSPACE, include_archived=False)
 
-    assert len(result) == 2
+    result_ids = {item.id for item in result}
+    assert workflow1.id in result_ids
+    assert workflow2.id in result_ids
 
 
 @pytest.mark.asyncio()
@@ -163,6 +210,149 @@ async def test_create_workflow_returns_new_workflow() -> None:
     assert result.id == workflow_id
     assert result.name == "Test Workflow"
     assert result.slug == "test-workflow"
+
+
+@pytest.mark.asyncio()
+async def test_resolve_workflow_id_rejects_workspace_mismatch() -> None:
+    """_resolve_workflow_id should hide workflows from other workspaces."""
+
+    workflow_id = uuid4()
+    other_workspace = uuid4()
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del workflow_ref, include_archived, workspace_id
+            return workflow_id
+
+        async def get_workflow(self, wf_id):
+            del wf_id
+            return Workflow(
+                id=workflow_id,
+                name="Test Workflow",
+                slug="test-workflow",
+                workspace_id=str(other_workspace),
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await workflows_router._resolve_workflow_id(
+            Repository(),
+            "workflow-ref",
+            workspace_id=str(uuid4()),
+        )
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_load_workflow_for_request_rejects_workspace_mismatch() -> None:
+    """_load_workflow_for_request should reject workflows from other workspaces."""
+
+    workflow_id = uuid4()
+    other_workspace = uuid4()
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del workflow_ref, include_archived, workspace_id
+            return workflow_id
+
+        async def get_workflow(self, wf_id):
+            del wf_id
+            return Workflow(
+                id=workflow_id,
+                name="Test Workflow",
+                slug="test-workflow",
+                workspace_id=str(other_workspace),
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await workflows_router._load_workflow_for_request(
+            Repository(),
+            "workflow-ref",
+            workspace_id=str(uuid4()),
+        )
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_translates_quota_exceeded() -> None:
+    """Create workflow should surface quota failures as HTTP errors."""
+
+    class Repository:
+        async def create_workflow(self, **kwargs):
+            del kwargs
+            return Workflow(
+                id=uuid4(),
+                name="unused",
+                slug="unused",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = WorkflowCreateRequest(name="Test Workflow", actor="admin")
+
+    async def _raise_quota(*args, **kwargs):  # noqa: ARG001
+        raise WorkspaceQuotaExceededError(
+            "Workspace reached its workflow quota",
+            code="workspace.quota.workflows",
+            details={"limit": 1, "current": 1},
+        )
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(workflows_router, "ensure_workspace_workflow_quota", _raise_quota)
+        with pytest.raises(HTTPException) as exc_info:
+            await create_workflow(request, Repository(), _MOCK_WORKSPACE)
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.detail["error"]["code"] == "workspace.quota.workflows"
+
+
+@pytest.mark.asyncio()
+async def test_update_workflow_translates_missing_workflow() -> None:
+    """Update workflow should convert repository not-found errors into HTTP 404s."""
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def update_workflow(self, workflow_id, **kwargs):
+            del workflow_id, kwargs
+            raise WorkflowNotFoundError("missing")
+
+    async def _fake_load(*args, **kwargs):  # noqa: ARG001
+        return Workflow(
+            id=workflow_id,
+            name="Test Workflow",
+            slug="test-workflow",
+            created_at=datetime.now(tz=UTC),
+            updated_at=datetime.now(tz=UTC),
+        )
+
+    request = WorkflowUpdateRequest(name="Updated")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(workflows_router, "_load_workflow_for_request", _fake_load)
+        with pytest.raises(HTTPException) as exc_info:
+            await update_workflow(
+                "workflow-ref",
+                request,
+                Repository(),
+                _MOCK_WORKSPACE,
+                policy=object(),
+            )
+
+    assert exc_info.value.status_code == 404
+
+
+def test_select_primary_workspace_handles_single_and_multiple_ids() -> None:
+    assert workflows_router._select_primary_workspace(frozenset({"one"})) == "one"
+    assert workflows_router._select_primary_workspace(frozenset({"one", "two"})) is None
 
 
 @pytest.mark.asyncio()
@@ -307,6 +497,16 @@ async def test_update_workflow_returns_updated() -> None:
             del workflow_ref, include_archived
             return workflow_id
 
+        async def get_workflow(self, wf_id, *, workspace_id=None):
+            del workspace_id
+            return Workflow(
+                id=wf_id,
+                name="Test Workflow",
+                slug="test-workflow",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
         async def update_workflow(
             self,
             wf_id,
@@ -359,6 +559,10 @@ async def test_update_workflow_not_found() -> None:
             del workflow_ref, include_archived
             return workflow_id
 
+        async def get_workflow(self, wf_id, *, workspace_id=None):
+            del wf_id, workspace_id
+            raise WorkflowNotFoundError("not found")
+
         async def update_workflow(
             self,
             wf_id,
@@ -397,6 +601,16 @@ async def test_update_workflow_translates_handle_conflicts() -> None:
         ):
             del workflow_ref, include_archived
             return workflow_id
+
+        async def get_workflow(self, wf_id, *, workspace_id=None):
+            del workspace_id
+            return Workflow(
+                id=wf_id,
+                name="Test Workflow",
+                slug="test-workflow",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
 
         async def update_workflow(
             self,
@@ -481,16 +695,7 @@ async def test_archive_workflow_not_found() -> None:
             return workflow_id
 
         async def get_workflow(self, wf_id, *, workspace_id=None):
-            del workspace_id
-            return Workflow(
-                id=wf_id,
-                name="Test Workflow",
-                slug="test-workflow",
-                created_at=datetime.now(tz=UTC),
-                updated_at=datetime.now(tz=UTC),
-            )
-
-        async def archive_workflow(self, wf_id, actor):
+            del wf_id, workspace_id
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
