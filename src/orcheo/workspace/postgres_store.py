@@ -5,7 +5,7 @@ import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 from psycopg import Connection, connect
 from psycopg.rows import dict_row
@@ -318,10 +318,10 @@ class PostgresWorkspaceRepository:
             slug=str(row["slug"]),
             name=str(row["name"]),
             status=WorkspaceStatus(str(row["status"])),
-            quotas=WorkspaceQuotas(**dict(quotas_payload)),
-            deleted_at=deleted_at,
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
+            quotas=WorkspaceQuotas(**cast(dict[str, Any], quotas_payload)),
+            deleted_at=cast(datetime, deleted_at) if deleted_at else None,
+            created_at=cast(datetime, row["created_at"]),
+            updated_at=cast(datetime, row["updated_at"]),
         )
 
     @staticmethod
@@ -331,7 +331,7 @@ class PostgresWorkspaceRepository:
             workspace_id=UUID(str(row["workspace_id"])),
             user_id=str(row["user_id"]),
             role=Role(str(row["role"])),
-            created_at=row["created_at"],
+            created_at=cast(datetime, row["created_at"]),
         )
 
     @staticmethod
@@ -351,6 +351,6 @@ class PostgresWorkspaceRepository:
             resource_id=(
                 None if row["resource_id"] is None else str(row["resource_id"])
             ),
-            details=dict(details),
-            created_at=row["created_at"],
+            details=cast(dict[str, Any], details),
+            created_at=cast(datetime, row["created_at"]),
         )

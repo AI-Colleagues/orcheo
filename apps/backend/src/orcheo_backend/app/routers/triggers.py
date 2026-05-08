@@ -161,7 +161,7 @@ async def _try_immediate_response(
     workspace_id = await repository.get_workflow_workspace_id(version.workflow_id)
     credential_context = CredentialAccessContext(
         workflow_id=version.workflow_id,
-        workspace_id=workspace_id,
+        workspace_id=UUID(workspace_id) if workspace_id else None,
     )
     resolver = CredentialResolver(vault, context=credential_context)
 
@@ -549,7 +549,9 @@ async def _invoke_workspace_webhook(  # noqa: C901
     except HTTPException:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Trigger '{trigger_id}' not found for workspace '{workspace_slug}'.",
+            detail=(
+                f"Trigger '{trigger_id}' not found for workspace '{workspace_slug}'."
+            ),
         ) from None
 
     try:

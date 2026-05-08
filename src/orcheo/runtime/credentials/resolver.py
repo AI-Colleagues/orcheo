@@ -74,9 +74,10 @@ class CredentialResolver:
             workspace_id = (
                 self._context.workspace_id if self._context is not None else None
             )
+            workspace_str = str(workspace_id) if workspace_id is not None else None
             metadata_items = self._vault.list_credentials(
                 context=self._context,
-                workspace_id=workspace_id,
+                workspace_id=workspace_str,
             )
         except CredentialNotFoundError as exc:  # pragma: no cover - defensive
             raise CredentialReferenceNotFoundError(str(exc)) from exc

@@ -266,7 +266,8 @@ class SqliteServiceTokenRepository(ServiceTokenRepository):
             conn.execute(
                 """
                 INSERT INTO service_token_audit_log
-                    (token_id, action, actor, ip_address, timestamp, details, workspace_id)
+                    (token_id, action, actor, ip_address, timestamp, details,
+                    workspace_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (

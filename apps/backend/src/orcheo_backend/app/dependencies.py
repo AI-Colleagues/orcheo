@@ -250,7 +250,10 @@ def credential_context_from_workflow(
     """Return a credential context for the provided workflow identifier."""
     if workflow_id is None and workspace_id is None:
         return None
-    return CredentialAccessContext(workflow_id=workflow_id, workspace_id=workspace_id)
+    return CredentialAccessContext(
+        workflow_id=workflow_id,
+        workspace_id=UUID(workspace_id) if workspace_id else None,
+    )
 
 
 async def resolve_workflow_workspace_id(

@@ -126,7 +126,7 @@ class OAuthCredentialService(CredentialHealthGuard):
         """Evaluate and refresh credentials prior to workflow execution."""
         context = CredentialAccessContext(
             workflow_id=workflow_id,
-            workspace_id=workspace_id,
+            workspace_id=UUID(workspace_id) if workspace_id else None,
         )
         credentials = self._vault.list_credentials(
             context=context,

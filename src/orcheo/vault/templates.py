@@ -141,9 +141,10 @@ class TemplateOperationsMixin:
         workspace_filter = (
             workspace_id if workspace_id is not None else access_context.workspace_id
         )
+        workspace_str = str(workspace_filter) if workspace_filter is not None else None
         return [
             template.model_copy(deep=True)
-            for template in self._iter_templates(workspace_id=workspace_filter)
+            for template in self._iter_templates(workspace_id=workspace_str)
             if self._template_matches_workspace(template.workspace_id, access_context)
             and template.scope.allows(access_context)
         ]

@@ -89,10 +89,8 @@ def _resolve_dsn() -> str:
     return _build_dsn(env)
 
 
-def _resolve_workspace(conn: object, slug: str) -> str:
-    row = conn.execute(  # type: ignore[union-attr]
-        "SELECT id FROM workspaces WHERE slug = %s", (slug,)
-    ).fetchone()
+def _resolve_workspace(conn: Any, slug: str) -> str:
+    row = conn.execute("SELECT id FROM workspaces WHERE slug = %s", (slug,)).fetchone()
     if row is None:
         raise SystemExit(
             f"ERROR: workspace {slug!r} not found in the workspaces table."
@@ -100,15 +98,15 @@ def _resolve_workspace(conn: object, slug: str) -> str:
     return row["id"]
 
 
-def _count_unscoped(conn: object, table: str) -> int:
-    row = conn.execute(  # type: ignore[union-attr]
+def _count_unscoped(conn: Any, table: str) -> int:
+    row = conn.execute(
         f"SELECT COUNT(*) AS n FROM {table} WHERE workspace_id IS NULL"  # noqa: S608
     ).fetchone()
     return row["n"] if row else 0
 
 
-def _assign(conn: object, table: str, workspace_id: str) -> int:
-    result = conn.execute(  # type: ignore[union-attr]
+def _assign(conn: Any, table: str, workspace_id: str) -> int:
+    result = conn.execute(
         f"UPDATE {table} SET workspace_id = %s WHERE workspace_id IS NULL",  # noqa: S608
         (workspace_id,),
     )

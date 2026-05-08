@@ -249,6 +249,7 @@ async def ensure_managed_vibe_workflow(
     except WorkflowNotFoundError:
         workflow_id = None
     else:
+        assert workflow_id is not None
         workflow = await repository.get_workflow(workflow_id)
         if workflow.is_archived:
             workflow = await repository.update_workflow(

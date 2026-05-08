@@ -112,7 +112,11 @@ class GovernanceAlertOperationsMixin:
     ) -> list[SecretGovernanceAlert]:
         """Return governance alerts permitted for the caller."""
         access_context = context or CredentialAccessContext()
-        workspace_id = access_context.workspace_id
+        workspace_id = (
+            str(access_context.workspace_id)
+            if access_context.workspace_id is not None
+            else None
+        )
         results: list[SecretGovernanceAlert] = []
         for alert in self._iter_alerts(workspace_id=workspace_id):
             if not self._alert_matches_workspace(alert.workspace_id, access_context):

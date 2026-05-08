@@ -373,7 +373,7 @@ class WorkflowExecutor:
         vault = self._vault_provider()
         credential_context = CredentialAccessContext(
             workflow_id=workflow_id,
-            workspace_id=workspace_id,
+            workspace_id=UUID(workspace_id) if workspace_id else None,
         )
         credential_resolver = CredentialResolver(vault, context=credential_context)
         external_agent_environ = _external_agent_provider_environment(workspace_id)
