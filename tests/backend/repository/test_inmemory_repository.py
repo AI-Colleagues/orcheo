@@ -12,6 +12,7 @@ from orcheo.models.base import _utcnow
 from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
+from orcheo_backend.app.errors import WorkspaceQuotaExceededError
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
     WorkflowNotFoundError,
@@ -126,6 +127,68 @@ async def test_inmemory_cron_dispatch_skips_missing_versions() -> None:
     runs = await repository.dispatch_due_cron_runs(
         now=datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
     )
+    assert runs == []
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_cron_dispatch_normalizes_naive_now() -> None:
+    """Naive dispatch timestamps are normalized to UTC before scheduling."""
+
+    repository = InMemoryWorkflowRepository()
+    captured_now: list[datetime] = []
+
+    def _collect_due_cron_dispatches(*, now: datetime) -> list[object]:
+        captured_now.append(now)
+        return []
+
+    repository._trigger_layer.collect_due_cron_dispatches = (  # type: ignore[method-assign]
+        _collect_due_cron_dispatches
+    )
+
+    runs = await repository.dispatch_due_cron_runs(now=datetime(2025, 1, 1, 12, 0))
+
+    assert runs == []
+    assert captured_now[0].tzinfo == UTC
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_manual_dispatch_skips_quota_exceeded_run() -> None:
+    """Manual dispatch skips runs that hit the workspace quota."""
+
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Quota",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+    )
+    version = await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+
+    def _raise_quota(**_: object) -> None:
+        raise WorkspaceQuotaExceededError(
+            "quota exceeded",
+            code="workspace.quota.runs",
+        )
+
+    repository._create_run_locked = _raise_quota  # type: ignore[method-assign]
+
+    from orcheo.triggers.manual import ManualDispatchRequest
+
+    runs = await repository.dispatch_manual_runs(
+        ManualDispatchRequest(
+            workflow_id=workflow.id,
+            runs=[{"workflow_version_id": version.id, "input_payload": {}}],
+        )
+    )
+
     assert runs == []
 
 

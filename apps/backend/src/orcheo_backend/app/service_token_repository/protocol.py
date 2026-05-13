@@ -19,6 +19,17 @@ class ServiceTokenRepository(Protocol):
         """Return all active (non-revoked, non-expired) service token records."""
         ...  # pragma: no cover
 
+    async def list_for_workspace(
+        self, workspace_id: str, *, now: datetime | None = None
+    ) -> list[ServiceTokenRecord]:
+        """Return active records bound to *workspace_id*.
+
+        Default implementations may filter ``list_active`` by workspace; specialised
+        backends can push the predicate into SQL via the
+        ``(workspace_id, identifier)`` index.
+        """
+        ...  # pragma: no cover
+
     async def find_by_id(self, identifier: str) -> ServiceTokenRecord | None:
         """Look up a service token by its identifier."""
         ...  # pragma: no cover

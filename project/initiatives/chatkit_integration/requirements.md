@@ -73,7 +73,7 @@ Publishing, unpublishing, and rotating workflows are initiated through the Orche
 - Incidents of unauthorized workflow access = 0 (detected via monitoring of public workflow misuse).
 
 ## Rollout & Risks
-- Rollout behind feature flag `chatkit_publish_enabled` default off; enable per-tenant.
+- Rollout behind feature flag `chatkit_publish_enabled` default off; enable per-workspace.
 - Potential risks: open public links being spammed, JWT misconfiguration. Mitigation: unpublish/login toggles, rate limiting, alerting on auth failures.
 
 ## Operational Ownership

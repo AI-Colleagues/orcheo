@@ -7,6 +7,10 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import WebSocket, WebSocketDisconnect
 from orcheo_backend.app import workflow_websocket
+from orcheo_backend.app.errors import (
+    WorkspaceQuotaExceededError,
+    WorkspaceRateLimitError,
+)
 from orcheo_backend.app.routers import websocket as websocket_routes
 
 
@@ -101,3 +105,140 @@ async def test_workflow_websocket_handles_client_disconnect(
 
     mock_websocket.accept.assert_awaited_once()
     close_mock.assert_awaited_once_with(mock_websocket)
+
+
+@pytest.mark.asyncio
+async def test_workflow_websocket_runs_execute_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_workflow messages should accept and dispatch the workflow executor."""
+
+    mock_websocket = AsyncMock(spec=WebSocket)
+    mock_websocket.receive_json.side_effect = [
+        {
+            "type": "run_workflow",
+            "graph_config": {"nodes": []},
+            "inputs": {"message": "hi"},
+            "execution_id": "exec-1",
+        }
+    ]
+    mock_websocket.state = SimpleNamespace(subprotocol="orcheo-auth")
+    backend_app_module = importlib.import_module("orcheo_backend.app")
+    execute_mock = AsyncMock()
+    monkeypatch.setattr(
+        backend_app_module,
+        "authenticate_websocket",
+        AsyncMock(return_value={"sub": "tester"}),
+    )
+    monkeypatch.setattr(
+        backend_app_module,
+        "get_repository",
+        lambda: SimpleNamespace(
+            resolve_workflow_ref=AsyncMock(return_value="workflow-1"),
+            get_workflow_workspace_id=AsyncMock(return_value=None),
+        ),
+    )
+    monkeypatch.setattr(backend_app_module, "execute_workflow", execute_mock)
+
+    await workflow_websocket(mock_websocket, "workflow-id")
+
+    mock_websocket.accept.assert_awaited_once_with(subprotocol="orcheo-auth")
+    execute_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_workflow_websocket_handles_rate_limit_and_quota(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace limits should be surfaced as websocket error payloads."""
+
+    mock_websocket = AsyncMock(spec=WebSocket)
+    mock_websocket.receive_json.side_effect = [
+        {
+            "type": "evaluate_workflow",
+            "graph_config": {"nodes": []},
+            "inputs": {},
+            "execution_id": "exec-2",
+        }
+    ]
+    mock_websocket.state = SimpleNamespace()
+    backend_app_module = importlib.import_module("orcheo_backend.app")
+    monkeypatch.setattr(
+        backend_app_module,
+        "authenticate_websocket",
+        AsyncMock(return_value={"sub": "tester"}),
+    )
+    monkeypatch.setattr(
+        backend_app_module,
+        "get_repository",
+        lambda: SimpleNamespace(
+            resolve_workflow_ref=AsyncMock(return_value="workflow-1"),
+            get_workflow_workspace_id=AsyncMock(return_value="workspace-1"),
+        ),
+    )
+    monkeypatch.setattr(
+        websocket_routes.get_workspace_governance(),
+        "check_api_rate_limit",
+        lambda workspace_id: (_ for _ in ()).throw(
+            WorkspaceRateLimitError(
+                "Too many requests for workspace workspace-1",
+                code="workspace.rate_limited",
+                retry_after=60,
+            )
+        ),
+    )
+
+    await workflow_websocket(mock_websocket, "workflow-id")
+
+    mock_websocket.send_json.assert_awaited_once()
+    sent_payload = mock_websocket.send_json.await_args.args[0]
+    assert sent_payload["code"] == "workspace.rate_limited"
+
+
+@pytest.mark.asyncio
+async def test_workflow_websocket_handles_quota_exceeded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_workflow messages should report quota errors."""
+
+    mock_websocket = AsyncMock(spec=WebSocket)
+    mock_websocket.receive_json.side_effect = [
+        {
+            "type": "train_workflow",
+            "graph_config": {"nodes": []},
+            "inputs": {},
+            "execution_id": "exec-3",
+        }
+    ]
+    mock_websocket.state = SimpleNamespace()
+    backend_app_module = importlib.import_module("orcheo_backend.app")
+    monkeypatch.setattr(
+        backend_app_module,
+        "authenticate_websocket",
+        AsyncMock(return_value={"sub": "tester"}),
+    )
+    monkeypatch.setattr(
+        backend_app_module,
+        "get_repository",
+        lambda: SimpleNamespace(
+            resolve_workflow_ref=AsyncMock(return_value="workflow-1"),
+            get_workflow_workspace_id=AsyncMock(return_value="workspace-1"),
+        ),
+    )
+    monkeypatch.setattr(
+        websocket_routes.get_workspace_governance(),
+        "check_api_rate_limit",
+        lambda workspace_id: (_ for _ in ()).throw(
+            WorkspaceQuotaExceededError(
+                "Workspace reached its concurrent run limit",
+                code="workspace.quota.concurrent_runs",
+                details={"limit": 1, "current": 1},
+            )
+        ),
+    )
+
+    await workflow_websocket(mock_websocket, "workflow-id")
+
+    mock_websocket.send_json.assert_awaited_once()
+    sent_payload = mock_websocket.send_json.await_args.args[0]
+    assert sent_payload["code"] == "workspace.quota.concurrent_runs"

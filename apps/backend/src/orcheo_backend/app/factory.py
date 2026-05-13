@@ -39,6 +39,7 @@ from orcheo_backend.app.dependencies import (
 from orcheo_backend.app.history import RunHistoryStore
 from orcheo_backend.app.listener_runtime_service import ListenerRuntimeService
 from orcheo_backend.app.logging_config import configure_logging
+from orcheo_backend.app.managed_workflows import ensure_managed_vibe_workflow
 from orcheo_backend.app.repository import WorkflowRepository
 from orcheo_backend.app.routers import (
     agentensor,
@@ -60,8 +61,14 @@ from orcheo_backend.app.routers import (
 from orcheo_backend.app.routers import (
     chatkit as chatkit_router,
 )
+from orcheo_backend.app.routers import (
+    workspaces as workspaces_router,
+)
 from orcheo_backend.app.service_token_endpoints import router as service_token_router
 from orcheo_backend.app.workflow_execution import configure_sensitive_logging
+from orcheo_backend.app.workspace import (
+    resolve_workspace_context,
+)
 
 
 load_dotenv()
@@ -83,7 +90,12 @@ async def _authentication_error_handler(request: Request, exc: Exception) -> Res
 def _build_api_router() -> APIRouter:
     router = APIRouter(prefix="/api")
 
-    protected_router = APIRouter(dependencies=[Depends(authenticate_request)])
+    protected_router = APIRouter(
+        dependencies=[
+            Depends(authenticate_request),
+            Depends(resolve_workspace_context),
+        ]
+    )
     protected_router.include_router(service_token_router)
     protected_router.include_router(workflows.router)
     protected_router.include_router(credentials.router)
@@ -97,11 +109,14 @@ def _build_api_router() -> APIRouter:
     protected_router.include_router(nodes.router)
     protected_router.include_router(agentensor.router)
     protected_router.include_router(system.router)
+    protected_router.include_router(workspaces_router.admin_router)
+    protected_router.include_router(workspaces_router.router)
 
     router.include_router(workflows.public_router)
     router.include_router(chatkit_router.router)
     router.include_router(auth.router)
     router.include_router(system.public_router)
+    router.include_router(workspaces_router.self_service_router)
     # Public webhook invocation routes - external services (Slack, GitHub, etc.)
     # cannot provide Orcheo auth tokens. Security is enforced via webhook-level
     # validation (HMAC signatures, shared secrets) configured per workflow.
@@ -153,6 +168,7 @@ def create_app(
         """Manage application lifespan with startup and shutdown logic."""
         load_auth_settings(refresh=True)
         load_enabled_plugins(force=True)
+        await ensure_managed_vibe_workflow(get_repository(), None)
         listener_runtime = ListenerRuntimeService(
             repository=get_repository(),
             vault=get_vault(),
@@ -211,6 +227,10 @@ def create_app(
             )
 
     application.include_router(api_router)
+    # Workspace-slug-prefixed webhook routes at /hooks/{workspace_slug}/{trigger_id}.
+    # Mounted at the application root (not under /api) so external services
+    # can reach them without an /api prefix.
+    application.include_router(triggers.workspace_webhook_router)
     application.include_router(chatkit_assets.router)
     application.include_router(websocket.router)
     application.state.listener_runtime_store = listener_runtime_store

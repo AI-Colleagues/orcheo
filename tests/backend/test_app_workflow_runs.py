@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 from orcheo.models import CredentialHealthStatus
 from orcheo.models.workflow import WorkflowRun
+from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo.vault.oauth import (
     CredentialHealthError,
     CredentialHealthReport,
@@ -23,6 +25,9 @@ from orcheo_backend.app.repository import (
     WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.schemas.workflows import WorkflowRunCreateRequest
+
+
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 
 
 def _health_error(workflow_id: UUID) -> CredentialHealthError:
@@ -52,18 +57,21 @@ async def test_create_workflow_run_success() -> None:
     version_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
         async def create_run(
             self,
             wf_id,
-            workflow_version_id,
-            triggered_by,
-            input_payload,
+            workflow_version_id=None,
+            triggered_by=None,
+            input_payload=None,
             actor=None,
             runnable_config=None,
+            workspace_id=None,
         ):
             return WorkflowRun(
                 id=run_id,
@@ -80,10 +88,123 @@ async def test_create_workflow_run_success() -> None:
         input_payload={"key": "value"},
     )
 
-    result = await create_workflow_run(str(workflow_id), request, Repository(), None)
+    result = await create_workflow_run(
+        str(workflow_id), request, Repository(), _MOCK_WORKSPACE, None
+    )
 
     assert result.id == run_id
     assert result.triggered_by == "user@example.com"
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_run_serializes_runnable_config() -> None:
+    """Create workflow run should serialize runnable config before dispatch."""
+
+    workflow_id = uuid4()
+    run_id = uuid4()
+    version_id = uuid4()
+    captured: dict[str, object] = {}
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def create_run(
+            self,
+            wf_id,
+            workflow_version_id=None,
+            triggered_by=None,
+            input_payload=None,
+            actor=None,
+            runnable_config=None,
+            workspace_id=None,
+        ):
+            captured.update(
+                {
+                    "wf_id": wf_id,
+                    "workflow_version_id": workflow_version_id,
+                    "triggered_by": triggered_by,
+                    "input_payload": input_payload,
+                    "runnable_config": runnable_config,
+                    "workspace_id": workspace_id,
+                }
+            )
+            return WorkflowRun(
+                id=run_id,
+                workflow_version_id=workflow_version_id,
+                triggered_by=triggered_by,
+                input_payload=input_payload,
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    request = WorkflowRunCreateRequest(
+        workflow_version_id=version_id,
+        triggered_by="user@example.com",
+        input_payload={"key": "value"},
+        runnable_config=RunnableConfigModel(
+            configurable={"thread_id": "preserve-me"},
+            tags=["alpha"],
+            metadata={"source": "test"},
+        ),
+    )
+
+    result = await create_workflow_run(
+        str(workflow_id), request, Repository(), _MOCK_WORKSPACE, None
+    )
+
+    assert result.id == run_id
+    assert captured["wf_id"] == workflow_id
+    assert captured["runnable_config"] == request.runnable_config.model_dump(
+        mode="json"
+    )
+    assert captured["workspace_id"] == str(_MOCK_WORKSPACE.workspace_id)
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_run_quota_error_returns_http_exception() -> None:
+    """Quota failures should be translated into structured HTTP errors."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def create_run(
+            self,
+            wf_id,
+            workflow_version_id=None,
+            triggered_by=None,
+            input_payload=None,
+            actor=None,
+            runnable_config=None,
+            workspace_id=None,
+        ):
+            del wf_id, workflow_version_id, triggered_by, input_payload, actor
+            del runnable_config, workspace_id
+            raise _quota_error()
+
+    request = WorkflowRunCreateRequest(
+        workflow_version_id=version_id,
+        triggered_by="user@example.com",
+        input_payload={},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_workflow_run(
+            str(workflow_id), request, Repository(), _MOCK_WORKSPACE, None
+        )
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.detail["error"]["code"] == "workspace.quota.concurrent_runs"
 
 
 @pytest.mark.asyncio()
@@ -94,18 +215,21 @@ async def test_create_workflow_run_workflow_not_found() -> None:
     version_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
         async def create_run(
             self,
             wf_id,
-            workflow_version_id,
-            triggered_by,
-            input_payload,
+            workflow_version_id=None,
+            triggered_by=None,
+            input_payload=None,
             actor=None,
             runnable_config=None,
+            workspace_id=None,
         ):
             raise WorkflowNotFoundError("not found")
 
@@ -116,7 +240,9 @@ async def test_create_workflow_run_workflow_not_found() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await create_workflow_run(str(workflow_id), request, Repository(), None)
+        await create_workflow_run(
+            str(workflow_id), request, Repository(), _MOCK_WORKSPACE, None
+        )
 
     assert exc_info.value.status_code == 404
 
@@ -129,18 +255,21 @@ async def test_create_workflow_run_version_not_found() -> None:
     version_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
         async def create_run(
             self,
             wf_id,
-            workflow_version_id,
-            triggered_by,
-            input_payload,
+            workflow_version_id=None,
+            triggered_by=None,
+            input_payload=None,
             actor=None,
             runnable_config=None,
+            workspace_id=None,
         ):
             raise WorkflowVersionNotFoundError("not found")
 
@@ -151,7 +280,9 @@ async def test_create_workflow_run_version_not_found() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await create_workflow_run(str(workflow_id), request, Repository(), None)
+        await create_workflow_run(
+            str(workflow_id), request, Repository(), _MOCK_WORKSPACE, None
+        )
 
     assert exc_info.value.status_code == 404
 
@@ -164,18 +295,21 @@ async def test_create_workflow_run_credential_health_error() -> None:
     version_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
         async def create_run(
             self,
             wf_id,
-            workflow_version_id,
-            triggered_by,
-            input_payload,
+            workflow_version_id=None,
+            triggered_by=None,
+            input_payload=None,
             actor=None,
             runnable_config=None,
+            workspace_id=None,
         ):
             raise _health_error(wf_id)
 
@@ -186,9 +320,21 @@ async def test_create_workflow_run_credential_health_error() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await create_workflow_run(str(workflow_id), request, Repository(), None)
+        await create_workflow_run(
+            str(workflow_id), request, Repository(), _MOCK_WORKSPACE, None
+        )
 
     assert exc_info.value.status_code == 422
+
+
+def _quota_error() -> object:
+    from orcheo_backend.app.errors import WorkspaceQuotaExceededError
+
+    return WorkspaceQuotaExceededError(
+        "Workspace reached its concurrent run limit",
+        code="workspace.quota.concurrent_runs",
+        details={"limit": 1, "current": 1},
+    )
 
 
 @pytest.mark.asyncio()
@@ -201,11 +347,13 @@ async def test_list_workflow_runs_success() -> None:
     version_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
-        async def list_runs_for_workflow(self, wf_id, *, limit=None):
+        async def list_runs_for_workflow(self, wf_id, *, limit=None, workspace_id=None):
             return [
                 WorkflowRun(
                     id=run1_id,
@@ -225,7 +373,9 @@ async def test_list_workflow_runs_success() -> None:
                 ),
             ]
 
-    result = await list_workflow_runs(str(workflow_id), Repository(), limit=50)
+    result = await list_workflow_runs(
+        str(workflow_id), Repository(), _MOCK_WORKSPACE, limit=50
+    )
 
     assert len(result) == 2
     assert result[0].id == run1_id
@@ -239,15 +389,19 @@ async def test_list_workflow_runs_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
-        async def list_runs_for_workflow(self, wf_id, *, limit=None):
+        async def list_runs_for_workflow(self, wf_id, *, limit=None, workspace_id=None):
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await list_workflow_runs(str(workflow_id), Repository(), limit=50)
+        await list_workflow_runs(
+            str(workflow_id), Repository(), _MOCK_WORKSPACE, limit=50
+        )
 
     assert exc_info.value.status_code == 404
 
@@ -260,7 +414,7 @@ async def test_get_workflow_run_success() -> None:
     version_id = uuid4()
 
     class Repository:
-        async def get_run(self, run_id):
+        async def get_run(self, run_id, *, workspace_id=None):
             return WorkflowRun(
                 id=run_id,
                 workflow_version_id=version_id,
@@ -270,7 +424,7 @@ async def test_get_workflow_run_success() -> None:
                 updated_at=datetime.now(tz=UTC),
             )
 
-    result = await get_workflow_run(run_id, Repository())
+    result = await get_workflow_run(run_id, Repository(), _MOCK_WORKSPACE)
 
     assert result.id == run_id
 
@@ -282,10 +436,10 @@ async def test_get_workflow_run_not_found() -> None:
     run_id = uuid4()
 
     class Repository:
-        async def get_run(self, run_id):
+        async def get_run(self, run_id, *, workspace_id=None):
             raise WorkflowRunNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await get_workflow_run(run_id, Repository())
+        await get_workflow_run(run_id, Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 404

@@ -114,7 +114,7 @@ Bundle Caddy as the public entrypoint for standard self-hosted stacks while keep
   - `wss://<host>/ws/...` -> backend
 - Ensure the generated runtime configuration keeps Canvas talking to the public backend origin and backend CORS aligned to that origin.
 - Preserve support for the workflow WebSocket endpoint already exposed by backend.
-- Avoid assuming path-prefix multi-tenancy for isolated stacks; same hostname + same path load balancing is only valid for replicas of one logical deployment with shared Postgres and Redis.
+- Avoid assuming path-prefix multi-workspace for isolated stacks; same hostname + same path load balancing is only valid for replicas of one logical deployment with shared Postgres and Redis.
 - Document the requirement that operators manage DNS and open inbound ports separately from Orcheo setup.
 - Keep the solution compatible with standard self-hosted Linux environments, including public cloud VMs and on-premise servers running Docker, which matches the Linux-based Orcheo stack images.
 

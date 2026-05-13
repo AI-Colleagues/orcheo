@@ -24,13 +24,15 @@ class SQLiteCredentialStoreMixin:
     ) -> None:
         payload = metadata.model_dump_json()
         with self._locked_connection() as conn:
+            # Name uniqueness is scoped per workspace (NULL workspace = global scope).
             cursor = conn.execute(
                 """
                 SELECT id
                   FROM credentials
                  WHERE lower(name) = lower(?)
+                   AND workspace_id = ?
                 """,
-                (metadata.name,),
+                (metadata.name, metadata.workspace_id),
             )
             rows = [row[0] for row in cursor.fetchall()]
             duplicates = [row_id for row_id in rows if row_id != str(metadata.id)]
@@ -42,16 +44,18 @@ class SQLiteCredentialStoreMixin:
                 INSERT OR REPLACE INTO credentials (
                     id,
                     workflow_id,
+                    workspace_id,
                     name,
                     provider,
                     created_at,
                     updated_at,
                     payload
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(metadata.id),
                     metadata.scope.scope_hint(),
+                    metadata.workspace_id,
                     metadata.name,
                     metadata.provider,
                     metadata.created_at.isoformat(),
@@ -66,29 +70,48 @@ class SQLiteCredentialStoreMixin:
     ) -> CredentialMetadata:
         with self._locked_connection() as conn:
             cursor = conn.execute(
-                "SELECT payload FROM credentials WHERE id = ?",
+                "SELECT payload, workspace_id FROM credentials WHERE id = ?",
                 (str(credential_id),),
             )
             row = cursor.fetchone()
         if row is None:
             msg = "Credential was not found."
             raise CredentialNotFoundError(msg)
-        return CredentialMetadata.model_validate_json(row[0])
+        metadata = CredentialMetadata.model_validate_json(row[0])
+        if metadata.workspace_id is None and row[1] is not None:
+            metadata.workspace_id = row[1]
+        return metadata
 
     def _iter_metadata(
         self: _SQLiteConnectionSupport,
+        *,
+        workspace_id: str | None = None,
     ) -> Iterable[CredentialMetadata]:
         with self._locked_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT payload
-                  FROM credentials
-              ORDER BY created_at ASC
-                """
-            )
+            if workspace_id is None:
+                cursor = conn.execute(
+                    """
+                    SELECT payload, workspace_id
+                      FROM credentials
+                  ORDER BY created_at ASC
+                    """
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT payload, workspace_id
+                      FROM credentials
+                     WHERE workspace_id = ?
+                  ORDER BY created_at ASC
+                    """,
+                    (str(workspace_id),),
+                )
             rows = cursor.fetchall()
         for row in rows:
-            yield CredentialMetadata.model_validate_json(row[0])
+            metadata = CredentialMetadata.model_validate_json(row[0])
+            if metadata.workspace_id is None and row[1] is not None:
+                metadata.workspace_id = row[1]
+            yield metadata
 
     def _remove_credential(self: _SQLiteConnectionSupport, credential_id: UUID) -> None:
         with self._locked_connection() as conn:

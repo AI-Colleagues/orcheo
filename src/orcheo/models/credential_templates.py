@@ -20,6 +20,7 @@ class CredentialTemplate(TimestampedAuditModel):
 
     name: str
     provider: str
+    workspace_id: str | None = None
     description: str | None = None
     scopes: list[str] = Field(default_factory=list)
     scope: CredentialScope = Field(default_factory=CredentialScope.unrestricted)
@@ -52,11 +53,13 @@ class CredentialTemplate(TimestampedAuditModel):
         scope: CredentialScope | None = None,
         kind: CredentialKind = CredentialKind.SECRET,
         issuance_policy: CredentialIssuancePolicy | None = None,
+        workspace_id: str | None = None,
     ) -> CredentialTemplate:
         """Return a new template populated with the provided defaults."""
         template = cls(
             name=name,
             provider=provider,
+            workspace_id=workspace_id,
             description=description,
             scopes=list(scopes),
             scope=scope or CredentialScope.unrestricted(),
@@ -96,4 +99,5 @@ class CredentialTemplate(TimestampedAuditModel):
             kind=self.kind,
             oauth_tokens=oauth_tokens,
             template_id=self.id,
+            workspace_id=self.workspace_id,
         )

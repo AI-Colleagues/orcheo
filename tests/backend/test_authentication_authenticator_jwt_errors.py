@@ -168,3 +168,80 @@ async def test_decode_claims_with_generic_invalid_token_error() -> None:
         await authenticator.authenticate(malformed_token)
 
     assert exc.value.code == "auth.invalid_token"
+
+
+@pytest.mark.asyncio
+async def test_decode_claims_with_invalid_issuer_error() -> None:
+    """_decode_claims translates InvalidIssuerError into auth.invalid_issuer."""
+
+    settings = AuthSettings(
+        mode="required",
+        jwt_secret="test-secret",
+        jwks_url=None,
+        jwks_static=(),
+        jwks_cache_ttl=300,
+        jwks_timeout=5.0,
+        allowed_algorithms=("HS256",),
+        audiences=(),
+        issuer="https://auth.example.com",
+        service_token_backend="sqlite",
+        service_token_db_path=None,
+        rate_limit_ip=0,
+        rate_limit_identity=0,
+        rate_limit_interval=60,
+    )
+
+    from orcheo_backend.app.service_token_repository import (
+        InMemoryServiceTokenRepository,
+    )
+
+    repository = InMemoryServiceTokenRepository()
+    token_manager = ServiceTokenManager(repository)
+    authenticator = Authenticator(settings, token_manager)
+
+    import jwt as jwt_lib
+
+    token = jwt_lib.encode(
+        {"sub": "test-user", "iss": "https://wrong.example.com"},
+        "test-secret",
+        algorithm="HS256",
+    )
+
+    with pytest.raises(AuthenticationError) as exc:
+        await authenticator.authenticate(token)
+
+    assert exc.value.code == "auth.invalid_issuer"
+
+
+def test_validate_issuer_rejects_non_string_claim() -> None:
+    """_validate_issuer rejects issuer claims that are not strings."""
+
+    settings = AuthSettings(
+        mode="required",
+        jwt_secret="test-secret",
+        jwks_url=None,
+        jwks_static=(),
+        jwks_cache_ttl=300,
+        jwks_timeout=5.0,
+        allowed_algorithms=("HS256",),
+        audiences=(),
+        issuer="https://auth.example.com",
+        service_token_backend="sqlite",
+        service_token_db_path=None,
+        rate_limit_ip=0,
+        rate_limit_identity=0,
+        rate_limit_interval=60,
+    )
+
+    from orcheo_backend.app.service_token_repository import (
+        InMemoryServiceTokenRepository,
+    )
+
+    repository = InMemoryServiceTokenRepository()
+    token_manager = ServiceTokenManager(repository)
+    authenticator = Authenticator(settings, token_manager)
+
+    with pytest.raises(AuthenticationError) as exc:
+        authenticator._jwt_authenticator._validate_issuer({"iss": 123})  # noqa: SLF001
+
+    assert exc.value.code == "auth.invalid_issuer"

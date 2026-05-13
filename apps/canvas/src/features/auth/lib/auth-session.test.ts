@@ -4,6 +4,7 @@ import {
   getAuthenticatedUserProfile,
   getAuthTokens,
   setAuthTokens,
+  setDevAuthSession,
 } from "./auth-session";
 
 const toBase64Url = (value: Record<string, unknown>): string => {
@@ -58,7 +59,7 @@ describe("getAuthenticatedUserProfile", () => {
         sub: "auth0|abc",
         preferred_username: "canvas-user",
         email: "canvas@example.com",
-        avatar_url: "https://example.com/avatar-access.png",
+        profile_picture: "https://example.com/avatar-access.png",
         role: "Editor",
       }),
       expiresAt: Date.now() + 5 * 60_000,
@@ -94,5 +95,21 @@ describe("getAuthenticatedUserProfile", () => {
 
     expect(getAuthenticatedUserProfile()).toBeNull();
     expect(getAuthTokens()).toBeNull();
+  });
+
+  it("uses the developer session when no JWT tokens are stored", () => {
+    setDevAuthSession({
+      provider: "local",
+      subject: "local@orcheo.local",
+      displayName: "Local Developer",
+    });
+
+    expect(getAuthenticatedUserProfile()).toEqual({
+      subject: "local@orcheo.local",
+      name: "Local Developer",
+      email: "local@orcheo.local",
+      avatar: null,
+      role: "member",
+    });
   });
 });

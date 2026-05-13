@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import uuid4
 import pytest
 from fastapi import HTTPException
-from orcheo.models.workflow import WorkflowVersion
+from orcheo.models.workflow import Workflow, WorkflowVersion
 from orcheo_backend.app import (
     diff_workflow_versions,
     get_workflow_version,
@@ -18,6 +19,35 @@ from orcheo_backend.app.repository import (
 from orcheo_backend.app.routers import workflows as workflow_router
 
 
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
+
+
+@pytest.fixture(autouse=True)
+def _stub_load_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replace `_load_workflow_for_request` so tests can stub Repository.resolve_workflow_ref alone."""
+
+    async def _load(
+        repository, workflow_ref, *, include_archived=True, workspace_id=None
+    ):  # noqa: ARG001
+        try:
+            workflow_id = await repository.resolve_workflow_ref(
+                workflow_ref,
+                include_archived=include_archived,
+                workspace_id=workspace_id,
+            )
+        except WorkflowNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return Workflow(
+            id=workflow_id,
+            name="Stub",
+            slug="stub",
+            created_at=datetime.now(tz=UTC),
+            updated_at=datetime.now(tz=UTC),
+        )
+
+    monkeypatch.setattr(workflow_router, "_load_workflow_for_request", _load)
+
+
 @pytest.mark.asyncio()
 async def test_list_workflow_versions_success() -> None:
     """List workflow versions endpoint returns versions."""
@@ -27,7 +57,9 @@ async def test_list_workflow_versions_success() -> None:
     version2_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
@@ -53,7 +85,9 @@ async def test_list_workflow_versions_success() -> None:
                 ),
             ]
 
-    result = await list_workflow_versions(str(workflow_id), Repository())
+    result = await list_workflow_versions(
+        str(workflow_id), Repository(), _MOCK_WORKSPACE
+    )
 
     assert len(result) == 2
     assert result[0].id == version1_id
@@ -69,15 +103,18 @@ async def test_list_workflow_versions_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
-            return workflow_id
+            raise WorkflowNotFoundError("not found")
 
         async def list_versions(self, wf_id):
+            del wf_id
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await list_workflow_versions(str(workflow_id), Repository())
+        await list_workflow_versions(str(workflow_id), Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 404
 
@@ -90,7 +127,9 @@ async def test_get_workflow_version_success() -> None:
     version_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
@@ -105,7 +144,9 @@ async def test_get_workflow_version_success() -> None:
                 updated_at=datetime.now(tz=UTC),
             )
 
-    result = await get_workflow_version(str(workflow_id), 1, Repository())
+    result = await get_workflow_version(
+        str(workflow_id), 1, Repository(), _MOCK_WORKSPACE
+    )
 
     assert result.id == version_id
     assert result.version == 1
@@ -119,7 +160,9 @@ async def test_get_workflow_version_workflow_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
@@ -127,7 +170,7 @@ async def test_get_workflow_version_workflow_not_found() -> None:
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await get_workflow_version(str(workflow_id), 1, Repository())
+        await get_workflow_version(str(workflow_id), 1, Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 404
 
@@ -139,7 +182,9 @@ async def test_get_workflow_version_version_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
@@ -147,7 +192,7 @@ async def test_get_workflow_version_version_not_found() -> None:
             raise WorkflowVersionNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await get_workflow_version(str(workflow_id), 1, Repository())
+        await get_workflow_version(str(workflow_id), 1, Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 404
 
@@ -164,14 +209,18 @@ async def test_diff_workflow_versions_success() -> None:
         diff = ["+ node1", "- node2"]
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
         async def diff_versions(self, wf_id, base, target):
             return Diff()
 
-    result = await diff_workflow_versions(str(workflow_id), 1, 2, Repository())
+    result = await diff_workflow_versions(
+        str(workflow_id), 1, 2, Repository(), _MOCK_WORKSPACE
+    )
 
     assert result.base_version == 1
     assert result.target_version == 2
@@ -188,7 +237,9 @@ async def test_list_workflow_versions_handles_mermaid_render_failure(
     version_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
@@ -210,7 +261,9 @@ async def test_list_workflow_versions_handles_mermaid_render_failure(
 
     monkeypatch.setattr(workflow_router, "_mermaid_from_graph", _raise_mermaid_failure)
 
-    result = await list_workflow_versions(str(workflow_id), Repository())
+    result = await list_workflow_versions(
+        str(workflow_id), Repository(), _MOCK_WORKSPACE
+    )
 
     assert len(result) == 1
     assert result[0].mermaid is None
@@ -223,7 +276,9 @@ async def test_diff_workflow_versions_workflow_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
@@ -231,7 +286,9 @@ async def test_diff_workflow_versions_workflow_not_found() -> None:
             raise WorkflowNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await diff_workflow_versions(str(workflow_id), 1, 2, Repository())
+        await diff_workflow_versions(
+            str(workflow_id), 1, 2, Repository(), _MOCK_WORKSPACE
+        )
 
     assert exc_info.value.status_code == 404
 
@@ -243,7 +300,9 @@ async def test_diff_workflow_versions_version_not_found() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, workflow_ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
             del workflow_ref, include_archived
             return workflow_id
 
@@ -251,7 +310,9 @@ async def test_diff_workflow_versions_version_not_found() -> None:
             raise WorkflowVersionNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await diff_workflow_versions(str(workflow_id), 1, 2, Repository())
+        await diff_workflow_versions(
+            str(workflow_id), 1, 2, Repository(), _MOCK_WORKSPACE
+        )
 
     assert exc_info.value.status_code == 404
 

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 import pytest
 from pydantic import BaseModel
+from orcheo.models.workflow import WorkflowRunStatus
 
 
 @pytest.fixture
@@ -14,10 +15,10 @@ def mock_run() -> MagicMock:
     run = MagicMock()
     run.id = uuid4()
     run.workflow_version_id = uuid4()
-    run.status = MagicMock()
-    run.status.value = "pending"
+    run.status = WorkflowRunStatus.PENDING
     run.input_payload = {"test": "data"}
     run.runnable_config = None
+    run.workspace_id = str(uuid4())
     return run
 
 
@@ -394,7 +395,7 @@ class TestExecuteRunAsync:
             "orcheo_backend.worker.tasks._load_and_validate_run",
             return_value=(None, {"status": "failed", "error": "Not found"}),
         ):
-            result = await _execute_run_async(str(uuid4()))
+            result = await _execute_run_async(str(uuid4()), "workspace-1")
 
         assert result["status"] == "failed"
 
@@ -413,7 +414,7 @@ class TestExecuteRunAsync:
                 "orcheo_backend.worker.tasks._mark_run_started",
                 return_value={"status": "skipped", "reason": "Already started"},
             ):
-                result = await _execute_run_async(str(mock_run.id))
+                result = await _execute_run_async(str(mock_run.id), "workspace-1")
 
         assert result["status"] == "skipped"
 
@@ -434,10 +435,112 @@ class TestExecuteRunAsync:
                     "orcheo_backend.worker.tasks._execute_workflow",
                     return_value={"status": "succeeded"},
                 ) as mock_execute:
-                    result = await _execute_run_async(str(mock_run.id))
+                    result = await _execute_run_async(str(mock_run.id), "workspace-1")
 
         assert result["status"] == "succeeded"
         mock_execute.assert_called_once_with(mock_run)
+
+
+class TestWorkspaceIdNonePaths:
+    """Cover the workspace_id is None branches in task helpers."""
+
+    @pytest.mark.asyncio
+    async def test_handle_execution_failure_with_none_workspace_skips_release_slot(
+        self,
+    ) -> None:
+        """Lines 458->463: workspace_id is None → release_run_slot not called."""
+        from orcheo_backend.worker.tasks import _handle_execution_failure
+
+        run = MagicMock()
+        run.id = uuid4()
+        run.workspace_id = None
+        exception = ValueError("boom")
+
+        mock_repo = AsyncMock()
+
+        with patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
+        ):
+            with patch("orcheo_backend.worker.tasks.logger"):
+                result = await _handle_execution_failure(run, exception)
+
+        assert result["status"] == "failed"
+        assert "boom" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_execute_workflow_with_none_workspace_skips_release_slot(
+        self, mock_version: MagicMock
+    ) -> None:
+        """Lines 305->309: workspace_id is None → release_run_slot branch not taken."""
+        from orcheo_backend.worker.tasks import _execute_workflow
+
+        run = MagicMock()
+        run.id = uuid4()
+        run.workflow_version_id = uuid4()
+        run.status = "PENDING"
+        run.input_payload = {}
+        run.runnable_config = None
+        run.workspace_id = None
+
+        mock_repo = AsyncMock()
+        mock_repo.get_version = AsyncMock(return_value=mock_version)
+        mock_repo.mark_run_succeeded = AsyncMock()
+        mock_history = AsyncMock()
+
+        async def _step_stream() -> Any:
+            yield {"node_a": {"status": "done"}}
+
+        mock_graph = MagicMock()
+        mock_compiled = MagicMock()
+        mock_compiled.astream = MagicMock(return_value=_step_stream())
+        mock_compiled.aget_state = AsyncMock(return_value=MagicMock(values={}))
+        mock_graph.compile = MagicMock(return_value=mock_compiled)
+
+        mock_checkpointer = MagicMock()
+        mock_checkpointer.__aenter__ = AsyncMock(return_value=mock_checkpointer)
+        mock_checkpointer.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch(
+                "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
+            ),
+            patch(
+                "orcheo_backend.app.dependencies.get_vault", return_value=MagicMock()
+            ),
+            patch(
+                "orcheo_backend.app.dependencies.get_history_store",
+                return_value=mock_history,
+            ),
+            patch("orcheo.graph.builder.build_graph", return_value=mock_graph),
+            patch(
+                "orcheo.persistence.create_checkpointer", return_value=mock_checkpointer
+            ),
+            patch(
+                "orcheo.persistence.create_graph_store", return_value=mock_checkpointer
+            ),
+            patch(
+                "orcheo_backend.app.workflow_execution._build_initial_state",
+                return_value={},
+            ),
+            patch("orcheo.config.get_settings"),
+            patch(
+                "orcheo.runtime.runnable_config.merge_runnable_configs"
+            ) as mock_merge,
+            patch("orcheo.runtime.credentials.credential_resolution"),
+        ):
+            mock_config = MagicMock()
+            mock_config.to_runnable_config = MagicMock(return_value={})
+            mock_config.to_state_config = MagicMock(return_value={})
+            mock_config.to_json_config = MagicMock(return_value={})
+            mock_config.tags = []
+            mock_config.callbacks = []
+            mock_config.metadata = {}
+            mock_config.run_name = None
+            mock_merge.return_value = mock_config
+
+            result = await _execute_workflow(run)
+
+        assert result["status"] == "succeeded"
 
 
 class TestDispatchCronTriggersAsync:

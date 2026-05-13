@@ -28,6 +28,7 @@ from orcheo_backend.app.schemas.listeners import (
     ListenerReplyRequest,
     ListenerStatusUpdateRequest,
 )
+from orcheo_backend.app.workspace import WorkspaceContextDep
 
 
 logger = logging.getLogger(__name__)
@@ -141,12 +142,16 @@ def _build_listener_alerts(
 async def list_workflow_listeners(
     workflow_ref: str,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
     runtime_store: ListenerRuntimeStoreDep,
 ) -> list[ListenerHealthResponse]:
     """Return listener subscriptions enriched with live runtime health."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    tid = str(workspace.workspace_id)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, workspace_id=tid
+    )
     try:
-        await repository.get_workflow(workflow_uuid)
+        await repository.get_workflow(workflow_uuid, workspace_id=tid)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
 
@@ -169,13 +174,17 @@ async def list_workflow_listeners(
 async def get_workflow_listener_metrics(
     workflow_ref: str,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
     runtime_store: ListenerRuntimeStoreDep,
     stall_threshold_seconds: int = Query(default=180, ge=1, le=3600),
 ) -> ListenerMetricsResponse:
     """Return aggregated listener metrics and derived alerts."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    tid = str(workspace.workspace_id)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, workspace_id=tid
+    )
     try:
-        await repository.get_workflow(workflow_uuid)
+        await repository.get_workflow(workflow_uuid, workspace_id=tid)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
 
@@ -251,10 +260,13 @@ async def pause_workflow_listener(
     subscription_id: UUID,
     request: ListenerStatusUpdateRequest,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
     runtime_store: ListenerRuntimeStoreDep,
 ) -> ListenerHealthResponse:
     """Pause one active listener subscription."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, workspace_id=str(workspace.workspace_id)
+    )
     await _get_workflow_listener(repository, workflow_uuid, subscription_id)
     updated = await repository.update_listener_subscription_status(
         subscription_id,
@@ -273,10 +285,13 @@ async def resume_workflow_listener(
     subscription_id: UUID,
     request: ListenerStatusUpdateRequest,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
     runtime_store: ListenerRuntimeStoreDep,
 ) -> ListenerHealthResponse:
     """Resume a paused or blocked listener subscription."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, workspace_id=str(workspace.workspace_id)
+    )
     await _get_workflow_listener(repository, workflow_uuid, subscription_id)
     updated = await repository.update_listener_subscription_status(
         subscription_id,

@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS service_tokens (
     revocation_reason TEXT,
     allowed_ip_ranges TEXT,
     rate_limit_override INTEGER,
+    workspace_id TEXT,
     FOREIGN KEY (rotated_to) REFERENCES service_tokens(identifier)
 );
 
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS service_token_audit_log (
     user_agent TEXT,
     timestamp TEXT NOT NULL,
     details TEXT,
+    workspace_id TEXT,
     FOREIGN KEY (token_id) REFERENCES service_tokens(identifier)
 );
 
@@ -54,7 +56,45 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp
 """
 
 
+def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    cursor = conn.execute(f'PRAGMA table_info("{table}")')
+    for row in cursor.fetchall():
+        if row[1] == column:
+            return True
+    return False
+
+
+def _ensure_workspace_id_column(conn: sqlite3.Connection, table: str) -> None:
+    """Idempotent additive migration for the nullable workspace_id column."""
+    cursor = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    )
+    if cursor.fetchone() is None:
+        return
+    if not _column_exists(conn, table, "workspace_id"):
+        conn.execute(f'ALTER TABLE "{table}" ADD COLUMN workspace_id TEXT')
+
+
 def ensure_schema(db_path: Path) -> None:
     """Create the required tables and indexes if they are missing."""
     with sqlite3.connect(db_path) as conn:
         conn.executescript(SCHEMA_SQL)
+        # Existing databases predate the workspace_id column; add it if missing.
+        _ensure_workspace_id_column(conn, "service_tokens")
+        _ensure_workspace_id_column(conn, "service_token_audit_log")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_service_tokens_workspace_id "
+            "ON service_tokens(workspace_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_service_tokens_workspace_identifier "
+            "ON service_tokens(workspace_id, identifier)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_service_tokens_workspace_hash "
+            "ON service_tokens(workspace_id, secret_hash)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_audit_log_workspace_id "
+            "ON service_token_audit_log(workspace_id)"
+        )

@@ -1,12 +1,35 @@
 """Tests for execution history REST endpoints exposed by the FastAPI app."""
 
 import asyncio
+from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
+from orcheo.workspace import InMemoryWorkspaceRepository
+from orcheo.workspace.models import Role, Workspace, WorkspaceContext
 from orcheo_backend.app import create_app
 from orcheo_backend.app.authentication import reset_authentication_state
 from orcheo_backend.app.history import InMemoryRunHistoryStore
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
+from orcheo_backend.app.workspace.dependencies import (
+    resolve_workspace_context,
+    set_workspace_repository,
+)
+
+
+_TEST_WORKSPACE = WorkspaceContext(
+    workspace_id=uuid4(),
+    workspace_slug="test",
+    user_id="test-user",
+    role=Role.OWNER,
+)
+
+
+def _setup_workspace() -> None:
+    ws_repo = InMemoryWorkspaceRepository()
+    ws_repo.create_workspace(
+        Workspace(id=_TEST_WORKSPACE.workspace_id, slug="test", name="Test Workspace")
+    )
+    set_workspace_repository(ws_repo)
 
 
 def test_execution_history_endpoints_return_steps(
@@ -34,6 +57,7 @@ def test_execution_history_endpoints_return_steps(
     asyncio.run(seed_history())
 
     app = create_app(repository, history_store=history_store)
+    app.dependency_overrides[resolve_workspace_context] = lambda: _TEST_WORKSPACE
     client = TestClient(app)
 
     history_response = client.get(f"/api/executions/{execution_id}/history")
@@ -65,6 +89,7 @@ def test_execution_history_not_found_returns_404(
     repository = InMemoryWorkflowRepository()
     history_store = InMemoryRunHistoryStore()
     app = create_app(repository, history_store=history_store)
+    app.dependency_overrides[resolve_workspace_context] = lambda: _TEST_WORKSPACE
     client = TestClient(app)
 
     response = client.get("/api/executions/missing/history")
@@ -83,6 +108,7 @@ def test_replay_execution_not_found_returns_404(
     repository = InMemoryWorkflowRepository()
     history_store = InMemoryRunHistoryStore()
     app = create_app(repository, history_store=history_store)
+    app.dependency_overrides[resolve_workspace_context] = lambda: _TEST_WORKSPACE
     client = TestClient(app)
 
     response = client.post("/api/executions/missing/replay", json={"from_step": 0})

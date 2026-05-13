@@ -140,7 +140,7 @@ export const WECOM_LARK_SHARED_LISTENER_WORKFLOW: Workflow = {
         type: "utility",
         backendType: "LarkTenantAccessTokenNode",
         description:
-          "Fetches a Lark tenant access token with the standard Lark auth node.",
+          "Fetches a Lark access token with the standard Lark auth node.",
       },
     },
     {

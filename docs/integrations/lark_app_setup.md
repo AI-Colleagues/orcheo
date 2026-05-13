@@ -21,7 +21,7 @@ For the shared WeCom/Lark template:
 
 Create an enterprise app in the Lark Open Platform.
 
-For international tenants, use the Lark global domain:
+For international deployments, use the Lark global domain:
 - `https://open.larksuite.com`
 
 The App ID should look like `cli_xxx`.

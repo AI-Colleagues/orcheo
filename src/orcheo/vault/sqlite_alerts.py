@@ -29,15 +29,17 @@ class SQLiteAlertStoreMixin:
                 INSERT OR REPLACE INTO governance_alerts (
                     id,
                     scope_hint,
+                    workspace_id,
                     acknowledged,
                     created_at,
                     updated_at,
                     payload
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(alert.id),
                     alert.scope.scope_hint(),
+                    alert.workspace_id,
                     1 if alert.is_acknowledged else 0,
                     alert.created_at.isoformat(),
                     alert.updated_at.isoformat(),
@@ -62,15 +64,28 @@ class SQLiteAlertStoreMixin:
 
     def _iter_alerts(
         self: _SQLiteConnectionSupport,
+        *,
+        workspace_id: str | None = None,
     ) -> Iterable[SecretGovernanceAlert]:
         with self._locked_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT payload
-                  FROM governance_alerts
-              ORDER BY created_at ASC
-                """
-            )
+            if workspace_id is None:
+                cursor = conn.execute(
+                    """
+                    SELECT payload
+                      FROM governance_alerts
+                  ORDER BY created_at ASC
+                    """
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT payload
+                      FROM governance_alerts
+                     WHERE workspace_id = ?
+                  ORDER BY created_at ASC
+                    """,
+                    (str(workspace_id),),
+                )
             rows = cursor.fetchall()
         for row in rows:
             yield SecretGovernanceAlert.model_validate_json(row[0])

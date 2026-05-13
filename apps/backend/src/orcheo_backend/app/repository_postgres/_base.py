@@ -50,12 +50,14 @@ CREATE TABLE IF NOT EXISTS workflows (
     is_archived BOOLEAN NOT NULL DEFAULT FALSE,
     payload JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    workspace_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS workflow_versions (
     id TEXT PRIMARY KEY,
     workflow_id TEXT NOT NULL,
+    workspace_id TEXT,
     version INTEGER NOT NULL,
     payload JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -72,7 +74,8 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
     triggered_by TEXT NOT NULL,
     payload JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    workspace_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_runs_workflow ON workflow_runs(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_runs_version ON workflow_runs(workflow_version_id);
@@ -186,12 +189,18 @@ class PostgresRepositoryBase:
         self._trigger_layer = TriggerLayer(health_guard=credential_service)
 
     async def _ensure_workflow_health(
-        self, workflow_id: UUID, *, actor: str | None = None
+        self,
+        workflow_id: UUID,
+        *,
+        actor: str | None = None,
+        workspace_id: str | None = None,
     ) -> None:
         if self._credential_service is None:
             return
         report = await self._credential_service.ensure_workflow_health(
-            workflow_id, actor=actor
+            workflow_id,
+            actor=actor,
+            workspace_id=workspace_id,
         )
         if not report.is_healthy:  # pragma: no branch
             raise CredentialHealthError(report)
@@ -287,6 +296,9 @@ class PostgresRepositoryBase:
                     "SELECT pg_advisory_xact_lock(%s, %s)",
                     (_INIT_LOCK_NAMESPACE, _INIT_LOCK_KEY),
                 )
+                # TODO: Replace this startup bootstrap with a versioned migration
+                # runner executed during deploy, then remove these implicit schema
+                # mutations once all environments are migrated.
                 # Execute schema statements one by one
                 for raw_stmt in POSTGRES_SCHEMA.strip().split(";"):
                     stmt = raw_stmt.strip()
@@ -294,6 +306,7 @@ class PostgresRepositoryBase:
                         await conn.execute(stmt)
                 await self._ensure_cron_schema_migrations(conn)
                 await self._ensure_workflow_schema_migrations(conn)
+                await self._ensure_workflow_versions_schema_migrations(conn)
 
             await self._hydrate_trigger_state()
             self._initialized = True
@@ -334,12 +347,15 @@ class PostgresRepositoryBase:
                 "ALTER TABLE workflows "
                 "ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE"
             )
+        if "workspace_id" not in existing_columns:
+            await conn.execute("ALTER TABLE workflows ADD COLUMN workspace_id TEXT")
 
         if missing_handle or missing_is_archived:
             cursor = await conn.execute("SELECT id, payload FROM workflows")
             rows = await cursor.fetchall()
             for row in rows:
-                workflow = Workflow.model_validate(row["payload"])
+                payload = dict(row["payload"])
+                workflow = Workflow.model_validate(payload)
                 await conn.execute(
                     """
                     UPDATE workflows
@@ -354,6 +370,19 @@ class PostgresRepositoryBase:
                     ),
                 )
 
+        # Add workspace_id column to workflow_runs if missing
+        cursor = await conn.execute(
+            """
+            SELECT column_name
+              FROM information_schema.columns
+             WHERE table_name = 'workflow_runs'
+            """
+        )
+        runs_rows = await cursor.fetchall()
+        runs_columns = {row["column_name"] for row in runs_rows}
+        if "workspace_id" not in runs_columns:
+            await conn.execute("ALTER TABLE workflow_runs ADD COLUMN workspace_id TEXT")
+
         # Create indexes after columns are guaranteed to exist
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_workflows_handle ON workflows(handle)"
@@ -362,6 +391,39 @@ class PostgresRepositoryBase:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle"
             " ON workflows(handle)"
             " WHERE is_archived = FALSE AND handle IS NOT NULL"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_workflows_workspace_id "
+            "ON workflows(workspace_id)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_runs_workspace_id "
+            "ON workflow_runs(workspace_id)"
+        )
+
+    async def _ensure_workflow_versions_schema_migrations(self, conn: Any) -> None:
+        """Add workspace_id to workflow_versions when upgrading existing databases.
+
+        TODO: Move this into the explicit versioned migration runner and stop
+        relying on repository startup to mutate schema in place.
+        """
+        cursor = await conn.execute(
+            """
+            SELECT column_name
+              FROM information_schema.columns
+             WHERE table_name = 'workflow_versions'
+            """
+        )
+        rows = await cursor.fetchall()
+        existing_columns = {row["column_name"] for row in rows}
+        if "workspace_id" not in existing_columns:
+            await conn.execute(
+                "ALTER TABLE workflow_versions ADD COLUMN workspace_id TEXT"
+            )
+
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_versions_workspace_id "
+            "ON workflow_versions(workspace_id)"
         )
 
     async def _hydrate_trigger_state(self) -> None:

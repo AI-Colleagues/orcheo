@@ -70,7 +70,7 @@ async def test_execute_workflow() -> None:
             inputs,
             execution_id,
             mock_websocket,
-            runnable_config,
+            runnable_config=runnable_config,
         )
     mock_browser_cleanup.assert_awaited_once_with(execution_id)
 

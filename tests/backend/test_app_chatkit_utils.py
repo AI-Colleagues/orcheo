@@ -3,6 +3,7 @@
 from __future__ import annotations
 from unittest.mock import MagicMock, patch
 import pytest
+from fastapi import HTTPException
 from orcheo_backend.app import (
     _resolve_chatkit_workspace_id,
     workflow_websocket,
@@ -12,6 +13,7 @@ from orcheo_backend.app.authentication import (
     AuthorizationPolicy,
     RequestContext,
 )
+from orcheo_backend.app.routers.chatkit import _resolve_jwt_workspace_id
 from orcheo_backend.app.schemas.chatkit import ChatKitSessionRequest
 
 
@@ -87,4 +89,50 @@ async def test_resolve_chatkit_workspace_id_from_policy() -> None:
         )
     )
 
-    assert _resolve_chatkit_workspace_id(multi_policy, request) is None
+    with pytest.raises(HTTPException) as exc_info:
+        _resolve_chatkit_workspace_id(multi_policy, request)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "chatkit.auth.workspace_required"
+
+
+def test_resolve_jwt_workspace_id_accepts_repository_workspace() -> None:
+    """JWT workspace resolution keeps the repository workspace when authorized."""
+
+    claims = {"workspace_ids": ["ws-a", "ws-b"]}
+
+    assert _resolve_jwt_workspace_id(claims, "ws-b") == "ws-b"
+
+
+def test_resolve_jwt_workspace_id_requires_workspace_selection() -> None:
+    """JWT workspace selection is required when the token authorizes workspaces."""
+
+    claims = {"workspace_ids": ["ws-a", "ws-b"]}
+
+    with pytest.raises(HTTPException) as exc_info:
+        _resolve_jwt_workspace_id(claims, None)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "chatkit.auth.workspace_required"
+
+
+def test_resolve_jwt_workspace_id_allows_blank_claim_without_authorized_workspaces() -> (
+    None
+):
+    """Blank JWT workspace claims are ignored when the token authorizes none."""
+
+    claims = {"workspace_ids": [], "workspace_id": "   "}
+
+    assert _resolve_jwt_workspace_id(claims, None) is None
+
+
+def test_resolve_jwt_workspace_id_rejects_blank_claim_when_authorized() -> None:
+    """Blank JWT workspace claims are rejected when the token scopes workspaces."""
+
+    claims = {"workspace_ids": ["ws-a"], "workspace_id": "   "}
+
+    with pytest.raises(HTTPException) as exc_info:
+        _resolve_jwt_workspace_id(claims, None)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "chatkit.auth.workspace_required"

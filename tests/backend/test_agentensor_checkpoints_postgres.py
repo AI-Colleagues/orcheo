@@ -425,6 +425,40 @@ async def test_list_checkpoints_no_limit(mock_postgres_deps: MagicMock) -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_checkpoints_with_workspace_filter(
+    mock_postgres_deps: MagicMock,
+) -> None:
+    """Verify list_checkpoints scopes queries to a workspace when requested."""
+
+    now_str = datetime.now(UTC).isoformat()
+    db_rows = [
+        {
+            "id": "cp1",
+            "workflow_id": "wf1",
+            "workspace_id": "workspace-1",
+            "config_version": 1,
+            "runnable_config": "{}",
+            "metrics": "{}",
+            "metadata": "{}",
+            "artifact_url": None,
+            "is_best": False,
+            "created_at": now_str,
+        }
+    ]
+    store = make_store(mock_postgres_deps, [db_rows])
+
+    checkpoints = await store.list_checkpoints(
+        "wf1",
+        workspace_id="workspace-1",
+    )
+
+    conn = store._pool._connection  # type: ignore
+    assert "workspace_id = %s" in conn.queries[0][0]
+    assert conn.queries[0][1] == ("wf1", "workspace-1")
+    assert len(checkpoints) == 1
+
+
+@pytest.mark.asyncio
 async def test_row_conversion_pre_parsed() -> None:
     # Test _row_to_checkpoint dealing with non-string types (already parsed)
     now = datetime.now(UTC)

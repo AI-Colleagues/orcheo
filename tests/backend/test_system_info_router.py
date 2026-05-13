@@ -7,6 +7,7 @@ import httpx
 import pytest
 from orcheo.plugins import PluginLoadReport, PluginLoadResult
 from orcheo_backend.app import plugin_inventory, versioning
+from orcheo_backend.app.routers import system as system_router
 from tests.backend.authentication_test_utils import create_test_client, reset_auth_state
 
 
@@ -184,6 +185,56 @@ def test_system_plugins_reports_backend_process_availability(
             "load_error": None,
         }
     ]
+
+
+@pytest.mark.asyncio()
+async def test_system_plugins_applies_workspace_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace-specific plugin states should override runtime defaults."""
+
+    monkeypatch.setattr(
+        system_router,
+        "list_runtime_plugins",
+        lambda: [
+            {
+                "name": "alpha",
+                "enabled": False,
+                "status": "installed",
+                "version": "1.0.0",
+                "exports": ["nodes"],
+                "loaded": False,
+                "load_error": None,
+            },
+            {
+                "name": "beta",
+                "enabled": True,
+                "status": "installed",
+                "version": "1.0.0",
+                "exports": ["nodes"],
+                "loaded": True,
+                "load_error": None,
+            },
+        ],
+    )
+
+    class PluginState:
+        def __init__(self, plugin_name: str, enabled: bool) -> None:
+            self.plugin_name = plugin_name
+            self.enabled = enabled
+
+    class PluginStore:
+        async def list_plugin_states(self, *, workspace_id: str):
+            assert workspace_id == "workspace-1"
+            return [PluginState("alpha", True)]
+
+    response = await system_router.get_system_plugins(
+        workspace=type("W", (), {"workspace_id": "workspace-1"})(),
+        plugin_store=PluginStore(),
+    )
+
+    assert response.plugins[0].enabled is True
+    assert response.plugins[1].enabled is True
 
 
 def test_robots_txt_is_public_when_auth_required(

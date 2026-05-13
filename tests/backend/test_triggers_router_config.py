@@ -1,6 +1,7 @@
 """Direct unit tests for trigger configuration router branches."""
 
 from __future__ import annotations
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
@@ -15,7 +16,11 @@ class _WebhookConfigMissingRepo:
         self._workflow_id = workflow_id
 
     async def resolve_workflow_ref(
-        self, workflow_ref: str, *, include_archived: bool = True
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+        workspace_id: str | None = None,
     ) -> UUID:
         del workflow_ref, include_archived
         return self._workflow_id
@@ -38,7 +43,11 @@ class _CronConfigMissingRepo:
         self._workflow_id = workflow_id
 
     async def resolve_workflow_ref(
-        self, workflow_ref: str, *, include_archived: bool = True
+        self,
+        workflow_ref: str,
+        *,
+        include_archived: bool = True,
+        workspace_id: str | None = None,
     ) -> UUID:
         del workflow_ref, include_archived
         return self._workflow_id
@@ -58,6 +67,9 @@ class _CronConfigMissingRepo:
         raise WorkflowNotFoundError("missing")
 
 
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
+
+
 @pytest.mark.asyncio()
 async def test_configure_webhook_trigger_translates_workflow_not_found() -> None:
     with pytest.raises(HTTPException) as excinfo:
@@ -65,6 +77,7 @@ async def test_configure_webhook_trigger_translates_workflow_not_found() -> None
             str(uuid4()),
             WebhookTriggerConfig(),
             _WebhookConfigMissingRepo(uuid4()),
+            _MOCK_WORKSPACE,
         )
 
     assert excinfo.value.status_code == 404
@@ -76,6 +89,7 @@ async def test_get_webhook_trigger_config_translates_workflow_not_found() -> Non
         await triggers_router.get_webhook_trigger_config(
             str(uuid4()),
             _WebhookConfigMissingRepo(uuid4()),
+            _MOCK_WORKSPACE,
         )
 
     assert excinfo.value.status_code == 404
@@ -88,6 +102,7 @@ async def test_configure_cron_trigger_translates_workflow_not_found() -> None:
             str(uuid4()),
             CronTriggerConfig(expression="0 9 * * *", timezone="UTC"),
             _CronConfigMissingRepo(uuid4()),
+            _MOCK_WORKSPACE,
         )
 
     assert excinfo.value.status_code == 404
@@ -99,6 +114,7 @@ async def test_get_cron_trigger_config_translates_workflow_not_found() -> None:
         await triggers_router.get_cron_trigger_config(
             str(uuid4()),
             _CronConfigMissingRepo(uuid4()),
+            _MOCK_WORKSPACE,
         )
 
     assert excinfo.value.status_code == 404
@@ -110,6 +126,7 @@ async def test_delete_cron_trigger_translates_workflow_not_found() -> None:
         await triggers_router.delete_cron_trigger(
             str(uuid4()),
             _CronConfigMissingRepo(uuid4()),
+            _MOCK_WORKSPACE,
         )
 
     assert excinfo.value.status_code == 404

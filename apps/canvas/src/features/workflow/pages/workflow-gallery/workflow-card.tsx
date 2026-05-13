@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils";
 import { ConfirmDeleteWorkflowDialog } from "@features/workflow/components/dialogs/confirm-delete-workflow-dialog";
 import { type Workflow } from "@features/workflow/data/workflow-data";
 import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
+import { VIBE_WORKFLOW_HANDLE } from "@features/vibe/constants";
 import { WorkflowThumbnail } from "./workflow-thumbnail";
 
 interface WorkflowCardProps {
@@ -62,6 +63,8 @@ export const WorkflowCard = ({
   ).toLocaleDateString();
   const workflowRouteRef = getWorkflowRouteRef(workflow);
   const isClickable = !isTemplate;
+  const canDeleteWorkflow =
+    !isTemplate && workflow.handle !== VIBE_WORKFLOW_HANDLE;
   const suppressCardOpenRef = useRef(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -203,18 +206,22 @@ export const WorkflowCard = ({
                       <Download className="mr-2 h-4 w-4" />
                       Export
                     </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      className="text-red-600"
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setIsDeleteDialogOpen(true);
-                      }}
-                    >
-                      <Trash className="mr-2 h-4 w-4" />
-                      Delete
-                    </DropdownMenuItem>
+                    {canDeleteWorkflow ? (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-red-600"
+                          onSelect={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setIsDeleteDialogOpen(true);
+                          }}
+                        >
+                          <Trash className="mr-2 h-4 w-4" />
+                          Delete
+                        </DropdownMenuItem>
+                      </>
+                    ) : null}
                   </>
                 )}
               </DropdownMenuContent>
@@ -333,7 +340,7 @@ export const WorkflowCard = ({
         </CardFooter>
       </Card>
 
-      {!isTemplate ? (
+      {canDeleteWorkflow ? (
         <ConfirmDeleteWorkflowDialog
           open={isDeleteDialogOpen}
           workflowName={workflow.name}

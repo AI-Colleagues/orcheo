@@ -218,14 +218,17 @@ class GraphStoreAppendMessageNode(TaskNode):
         description="Message content to append. Supports {{template}} resolution.",
     )
 
-    def _namespace_tuple(self) -> tuple[str, ...]:
+    def _namespace_tuple(self, workspace_id: str | None = None) -> tuple[str, ...]:
         """Convert the namespace list to a tuple, filtering blanks."""
         ns = tuple(
             entry.strip()
             for entry in self.namespace
             if isinstance(entry, str) and entry.strip()
         )
-        return ns or ("agent_chat_history",)
+        namespace = ns or ("agent_chat_history",)
+        if workspace_id is None:
+            return namespace
+        return (workspace_id, *namespace)
 
     @staticmethod
     def _extract_payload(item: Any) -> dict[str, Any]:
@@ -291,7 +294,13 @@ class GraphStoreAppendMessageNode(TaskNode):
             )
             return {"history_written": False}
 
-        namespace = self._namespace_tuple()
+        workspace_id = state.get("workspace_id") if isinstance(state, Mapping) else None
+        if not isinstance(workspace_id, str) or not workspace_id.strip():
+            workspace_id = None
+        else:
+            workspace_id = workspace_id.strip()
+
+        namespace = self._namespace_tuple(workspace_id)
 
         try:
             item = await store.aget(namespace, key)

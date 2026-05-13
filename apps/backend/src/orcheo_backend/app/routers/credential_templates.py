@@ -18,6 +18,7 @@ from orcheo_backend.app.dependencies import (
     RepositoryDep,
     VaultDep,
     WorkflowRefQuery,
+    WorkspaceContextDep,
     credential_context_from_workflow,
     resolve_optional_workflow_ref_id,
 )
@@ -41,14 +42,19 @@ router = APIRouter()
 async def list_credential_templates(
     vault: VaultDep,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
     workflow_id: WorkflowRefQuery = None,
 ) -> list[CredentialTemplateResponse]:
     """List credential templates visible to the caller."""
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
         repository, workflow_id
     )
-    context = credential_context_from_workflow(resolved_workflow_id)
-    templates = vault.list_templates(context=context)
+    context = credential_context_from_workflow(
+        resolved_workflow_id, workspace_id=str(workspace.workspace_id)
+    )
+    templates = vault.list_templates(
+        context=context, workspace_id=str(workspace.workspace_id)
+    )
     return [template_to_response(template) for template in templates]
 
 
@@ -60,6 +66,7 @@ async def list_credential_templates(
 def create_credential_template(
     request: CredentialTemplateCreateRequest,
     vault: VaultDep,
+    workspace: WorkspaceContextDep,
 ) -> CredentialTemplateResponse:
     """Create a new credential template."""
     scope = build_scope(request.scope)
@@ -73,6 +80,7 @@ def create_credential_template(
         scope=scope,
         kind=request.kind,
         issuance_policy=policy,
+        workspace_id=str(workspace.workspace_id),
     )
     return template_to_response(template)
 
@@ -85,13 +93,16 @@ async def get_credential_template(
     template_id: UUID,
     vault: VaultDep,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
     workflow_id: WorkflowRefQuery = None,
 ) -> CredentialTemplateResponse:
     """Return a single credential template."""
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
         repository, workflow_id
     )
-    context = credential_context_from_workflow(resolved_workflow_id)
+    context = credential_context_from_workflow(
+        resolved_workflow_id, workspace_id=str(workspace.workspace_id)
+    )
     try:
         template = vault.get_template(template_id=template_id, context=context)
         return template_to_response(template)
@@ -110,13 +121,16 @@ async def update_credential_template(
     request: CredentialTemplateUpdateRequest,
     vault: VaultDep,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
     workflow_id: WorkflowRefQuery = None,
 ) -> CredentialTemplateResponse:
     """Update credential template metadata."""
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
         repository, workflow_id
     )
-    context = credential_context_from_workflow(resolved_workflow_id)
+    context = credential_context_from_workflow(
+        resolved_workflow_id, workspace_id=str(workspace.workspace_id)
+    )
     scope = build_scope(request.scope)
     policy = build_policy(request.issuance_policy)
 
@@ -149,13 +163,16 @@ async def delete_credential_template(
     template_id: UUID,
     vault: VaultDep,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
     workflow_id: WorkflowRefQuery = None,
 ) -> Response:
     """Delete a credential template."""
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
         repository, workflow_id
     )
-    context = credential_context_from_workflow(resolved_workflow_id)
+    context = credential_context_from_workflow(
+        resolved_workflow_id, workspace_id=str(workspace.workspace_id)
+    )
     try:
         vault.delete_template(template_id, context=context)
     except CredentialTemplateNotFoundError as exc:
@@ -175,6 +192,7 @@ async def issue_credential_from_template(
     request: CredentialIssuanceRequest,
     repository: RepositoryDep,
     service: CredentialServiceDep,
+    workspace: WorkspaceContextDep,
 ) -> CredentialIssuanceResponse:
     """Issue a credential based on a stored template."""
     if service is None:
@@ -186,7 +204,9 @@ async def issue_credential_from_template(
     workflow_id = await resolve_optional_workflow_ref_id(
         repository, request.workflow_id
     )
-    context = credential_context_from_workflow(workflow_id)
+    context = credential_context_from_workflow(
+        workflow_id, workspace_id=str(workspace.workspace_id)
+    )
     tokens = build_oauth_tokens(request.oauth_tokens)
     try:
         metadata = service.issue_from_template(

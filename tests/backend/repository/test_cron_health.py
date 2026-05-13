@@ -32,7 +32,11 @@ class StubCredentialService:
         return None
 
     async def ensure_workflow_health(
-        self, workflow_id: UUID, *, actor: str | None = None
+        self,
+        workflow_id: UUID,
+        *,
+        actor: str | None = None,
+        workspace_id: str | None = None,
     ) -> CredentialHealthReport:
         self.checked_workflows.append(workflow_id)
         status = (

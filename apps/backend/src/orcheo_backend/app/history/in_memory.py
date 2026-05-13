@@ -38,6 +38,7 @@ class InMemoryRunHistoryStore:
         run_name: str | None = None,
         trace_id: str | None = None,
         trace_started_at: datetime | None = None,
+        workspace_id: str | None = None,
     ) -> RunHistoryRecord:
         """Initialise a history record for the provided execution."""
         async with self._lock:
@@ -87,6 +88,7 @@ class InMemoryRunHistoryStore:
             record = RunHistoryRecord(
                 workflow_id=workflow_id,
                 execution_id=execution_id,
+                workspace_id=workspace_id,
                 inputs=normalize_json_mapping(inputs),
                 runnable_config=config_mapping,
                 tags=tag_values,
@@ -156,6 +158,7 @@ class InMemoryRunHistoryStore:
         workflow_id: str,
         *,
         limit: int | None = None,
+        workspace_id: str | None = None,
     ) -> list[RunHistoryRecord]:
         """Return histories associated with the provided workflow."""
         async with self._lock:
@@ -163,6 +166,11 @@ class InMemoryRunHistoryStore:
                 record.model_copy(deep=True)
                 for record in self._histories.values()
                 if record.workflow_id == workflow_id
+                and (
+                    workspace_id is None
+                    or record.workspace_id is None
+                    or record.workspace_id == workspace_id
+                )
             ]
 
         records.sort(key=lambda record: record.started_at, reverse=True)

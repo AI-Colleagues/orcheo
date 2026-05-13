@@ -57,6 +57,7 @@ class SqliteRunHistoryStore:
         run_name: str | None = None,
         trace_id: str | None = None,
         trace_started_at: datetime | None = None,
+        workspace_id: str | None = None,
     ) -> RunHistoryRecord:
         """Initialise a history record for the provided execution."""
         await self._ensure_initialized()
@@ -116,6 +117,7 @@ class SqliteRunHistoryStore:
                         (
                             execution_id,
                             workflow_id,
+                            workspace_id,
                             payload,
                             config_payload,
                             tags_payload,
@@ -137,6 +139,7 @@ class SqliteRunHistoryStore:
             return RunHistoryRecord(
                 workflow_id=workflow_id,
                 execution_id=execution_id,
+                workspace_id=workspace_id,
                 inputs=json.loads(payload),
                 runnable_config=json.loads(config_payload),
                 tags=json.loads(tags_payload),
@@ -242,11 +245,16 @@ class SqliteRunHistoryStore:
         workflow_id: str,
         *,
         limit: int | None = None,
+        workspace_id: str | None = None,
     ) -> list[RunHistoryRecord]:
         """Return histories associated with the provided workflow."""
         await self._ensure_initialized()
         query = LIST_HISTORIES_SQL
         params: list[object] = [workflow_id]
+        if workspace_id is not None:
+            query += " AND workspace_id = ?"
+            params.append(workspace_id)
+        query += " ORDER BY started_at DESC"
         if limit is not None:
             query += " LIMIT ?"
             params.append(limit)

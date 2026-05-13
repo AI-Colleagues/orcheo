@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Avatar, AvatarFallback, AvatarImage } from "@/design-system/ui/avatar";
 import { Button } from "@/design-system/ui/button";
 import {
   DropdownMenu,
@@ -16,8 +17,11 @@ import {
   DialogTitle,
 } from "@/design-system/ui/dialog";
 import { HelpCircle, Key, LogOut, Settings, User } from "lucide-react";
+import {
+  clearAuthSession,
+  getAuthenticatedUserProfile,
+} from "@features/auth/lib/auth-session";
 import CredentialsVault from "@features/workflow/components/dialogs/credentials-vault";
-import { clearAuthSession } from "@features/auth/lib/auth-session";
 import { usePageContext } from "@/hooks/use-page-context";
 import type {
   Credential,
@@ -48,6 +52,15 @@ export default function AccountMenu({
   const [isVaultOpen, setIsVaultOpen] = useState(false);
   const { setVaultOpen } = usePageContext();
   const navigate = useNavigate();
+  const authUser = getAuthenticatedUserProfile();
+  const accountLabel = authUser?.name ?? "Account";
+  const accountInitials = accountLabel
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   const handleVaultOpenChange = useCallback(
     (open: boolean) => {
@@ -63,10 +76,23 @@ export default function AccountMenu({
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            size="icon"
-            className="rounded-full border-2 border-border"
+            className="h-10 w-10 rounded-full border-2 border-border p-0"
+            aria-label={
+              authUser ? `Account menu for ${authUser.name}` : "Account menu"
+            }
           >
-            <User className="h-5 w-5" />
+            {authUser ? (
+              <Avatar className="h-9 w-9">
+                {authUser.avatar ? (
+                  <AvatarImage src={authUser.avatar} alt={authUser.name} />
+                ) : null}
+                <AvatarFallback>
+                  {accountInitials || <User className="h-5 w-5" />}
+                </AvatarFallback>
+              </Avatar>
+            ) : (
+              <User className="h-5 w-5" />
+            )}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">

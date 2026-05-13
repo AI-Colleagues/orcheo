@@ -56,7 +56,7 @@ Current automation platforms force teams to choose between ease of use and advan
 
 **Non-goals**
 - Enterprise SSO and advanced RBAC controls.
-- Multi-tenancy, shared workspaces, or collaboration features beyond single-tenant usage.
+- Multi-workspace, shared workspaces, or collaboration features beyond single-workspace usage.
 - Marketplace monetization or community node distribution at launch.
 - Native mobile clients or deep on-premises deployment support in v1.0.
 

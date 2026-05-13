@@ -171,3 +171,42 @@ async def test_sqlite_store_load_threads_scoped_by_workflow_after_marker(
         context=ctx_a,
     )
     assert [thread.id for thread in second_page.data] == ["thr_a_1"]
+
+
+@pytest.mark.asyncio
+async def test_sqlite_store_load_threads_scoped_by_workspace_after_marker(
+    tmp_path: Path,
+) -> None:
+    """Pagination should remain workspace-scoped when resolving the after marker."""
+
+    db_path = tmp_path / "store.sqlite"
+    store = SqliteChatKitStore(db_path)
+
+    ctx: dict[str, object] = {
+        "workflow_id": "wf-aaa",
+        "workspace_id": "workspace-1",
+    }
+
+    for thread_id, hour in [("thr_a_0", 1), ("thr_a_1", 2), ("thr_b_0", 3)]:
+        thread = ThreadMetadata(
+            id=thread_id,
+            created_at=_timestamp(hour),
+            metadata={"workflow_id": ctx["workflow_id"]},
+        )
+        await store.save_thread(thread, ctx)
+
+    first_page = await store.load_threads(
+        limit=1,
+        after=None,
+        order="asc",
+        context=ctx,
+    )
+    assert [thread.id for thread in first_page.data] == ["thr_a_0"]
+
+    second_page = await store.load_threads(
+        limit=1,
+        after=first_page.data[-1].id,
+        order="asc",
+        context=ctx,
+    )
+    assert [thread.id for thread in second_page.data] == ["thr_a_1"]

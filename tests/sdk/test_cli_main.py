@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import io
+import os
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -221,6 +222,22 @@ def test_version_callback_package_not_found(
 def test_env_bool_falsey(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ORCHEO_TEST_BOOL", "0")
     assert main_mod._env_bool("ORCHEO_TEST_BOOL") is False
+
+
+def test_main_workspace_option_sets_process_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--workspace should populate ORCHEO_WORKSPACE for downstream API calls."""
+
+    monkeypatch.delenv("ORCHEO_WORKSPACE", raising=False)
+
+    def mock_app(*args: object, **kwargs: object) -> None:
+        assert os.environ["ORCHEO_WORKSPACE"] == "workspace-1"
+
+    monkeypatch.setattr(main_mod, "app", mock_app)
+    monkeypatch.setattr(main_mod.sys, "argv", ["orcheo", "--workspace", "workspace-1"])
+
+    run()
 
 
 def test_print_cli_error_machine_with_status_code(
@@ -826,6 +843,63 @@ def test_install_agent_skills_without_skill_mgr_falls_back_to_uv(
         "install",
         "AI-Colleagues/agent-skills/orcheo",
     ]
+
+
+def test_extract_workspace_from_argv_skips_non_workspace_args() -> None:
+    """Line 106->103: args that don't match --workspace= continue the loop."""
+    from orcheo_sdk.cli.main import _extract_workspace_from_argv
+
+    assert _extract_workspace_from_argv(["workflow", "list"]) is None
+    assert _extract_workspace_from_argv(["--workspace=acme"]) == "acme"
+
+
+def test_main_callback_sets_workspace_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Line 206: main() sets ORCHEO_WORKSPACE when workspace arg is non-empty."""
+    import click
+    from orcheo_sdk.cli import main as main_mod
+
+    monkeypatch.delenv("ORCHEO_WORKSPACE", raising=False)
+
+    ctx = typer.Context(click.Command("orcheo"))
+    settings = SimpleNamespace(
+        profile="default",
+        api_url="http://localhost:8000",
+        service_token="token",
+        chatkit_public_base_url="http://localhost:5173",
+    )
+    monkeypatch.setattr(main_mod, "resolve_settings", lambda **kwargs: settings)
+    monkeypatch.setattr(main_mod, "get_cache_dir", lambda: tmp_path / "cache")
+
+    class _DummyCache:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+    class _DummyClient:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+    monkeypatch.setattr(main_mod, "CacheManager", _DummyCache)
+    monkeypatch.setattr(main_mod, "ApiClient", _DummyClient)
+    monkeypatch.setattr(main_mod, "maybe_print_update_notice", lambda **kwargs: None)
+    monkeypatch.setattr(main_mod, "_is_completion_mode", lambda: False)
+
+    main_mod.main(
+        ctx,
+        profile=None,
+        version=False,
+        api_url=None,
+        service_token=None,
+        workspace="  acme  ",
+        offline=False,
+        cache_ttl_hours=24,
+        human=False,
+        no_update_check=True,
+    )
+
+    assert os.environ.get("ORCHEO_WORKSPACE") == "acme"
 
 
 def test_install_agent_skills_nonzero_exit_prints_warning(

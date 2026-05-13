@@ -620,6 +620,8 @@ async def test_postgres_manual_dispatch_request_handling(
         {"row": {"payload": _workflow_payload(workflow_id)}},
         # get latest version
         {"row": {"payload": _version_payload(version_id, workflow_id, version=1)}},
+        # get workflow workspace id
+        {"row": {"workspace_id": None}},
         # validate version belongs to workflow
         {"row": {"payload": _version_payload(version_id, workflow_id, version=1)}},
         # get version for run creation

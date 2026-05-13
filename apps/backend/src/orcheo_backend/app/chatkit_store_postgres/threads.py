@@ -67,20 +67,23 @@ class ThreadStoreMixin(BasePostgresStore):
             async with self._connection() as conn:
                 metadata_payload = self._merge_metadata_from_context(thread, context)
                 workflow_id = metadata_payload.get("workflow_id")
+                workspace_id = context.get("workspace_id") if context else None
                 await conn.execute(
                     """
                     INSERT INTO chat_threads (
                         id,
                         title,
                         workflow_id,
+                        workspace_id,
                         status_json,
                         metadata_json,
                         created_at,
                         updated_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT(id) DO UPDATE SET
                         title = excluded.title,
                         workflow_id = excluded.workflow_id,
+                        workspace_id = excluded.workspace_id,
                         status_json = excluded.status_json,
                         metadata_json = excluded.metadata_json,
                         updated_at = excluded.updated_at
@@ -89,6 +92,7 @@ class ThreadStoreMixin(BasePostgresStore):
                         thread.id,
                         thread.title,
                         str(workflow_id) if workflow_id else None,
+                        workspace_id,
                         serialize_thread_status(thread),
                         compact_json(metadata_payload),
                         ensure_datetime(thread.created_at),
@@ -106,6 +110,7 @@ class ThreadStoreMixin(BasePostgresStore):
         """Return a paginated collection of threads scoped to the workflow."""
         await self._ensure_initialized()
         workflow_id: str | None = context.get("workflow_id") if context else None
+        workspace_id: str | None = context.get("workspace_id") if context else None
         limit = max(limit, 1)
         ordering = "asc" if order.lower() == "asc" else "desc"
         comparator = ">" if ordering == "asc" else "<"
@@ -116,15 +121,22 @@ class ThreadStoreMixin(BasePostgresStore):
             conditions.append("workflow_id = %s")
             params.append(workflow_id)
 
+        if workspace_id is not None:
+            conditions.append("workspace_id = %s")
+            params.append(workspace_id)
+
         async with self._connection() as conn:
             if after:  # pragma: no branch
-                # Cursor lookup must be scoped to the same workflow to prevent
+                # Cursor lookup must be scoped to the same workflow/workspace to prevent
                 # information leakage and ensure consistent pagination
                 cursor_query = "SELECT created_at, id FROM chat_threads WHERE id = %s"
                 cursor_params = [after]
                 if workflow_id:
                     cursor_query += " AND workflow_id = %s"
                     cursor_params.append(workflow_id)
+                if workspace_id is not None:
+                    cursor_query += " AND workspace_id = %s"
+                    cursor_params.append(workspace_id)
 
                 cursor = await conn.execute(cursor_query, tuple(cursor_params))
                 marker = await cursor.fetchone()

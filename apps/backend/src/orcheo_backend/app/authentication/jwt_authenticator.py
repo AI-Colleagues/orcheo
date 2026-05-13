@@ -115,11 +115,9 @@ class JWTAuthenticator:
         }
         if self._settings.audiences:
             decode_args["audience"] = list(self._settings.audiences)
-        if self._settings.issuer:
-            decode_args["issuer"] = self._settings.issuer
 
         try:
-            return jwt.decode(token, key, **decode_args)
+            claims = jwt.decode(token, key, **decode_args)
         except ExpiredSignatureError as exc:
             raise AuthenticationError(
                 "Bearer token has expired",
@@ -142,6 +140,30 @@ class JWTAuthenticator:
                 "Invalid bearer token",
                 code="auth.invalid_token",
             ) from exc
+
+        self._validate_issuer(claims)
+        return claims
+
+    def _validate_issuer(self, claims: Mapping[str, Any]) -> None:
+        """Validate the issuer claim using a normalized URL comparison."""
+        expected = self._settings.issuer
+        if not expected:
+            return
+
+        issuer = claims.get("iss")
+        if not isinstance(issuer, str):
+            raise AuthenticationError(
+                "Bearer token has an invalid issuer",
+                code="auth.invalid_issuer",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
+
+        if issuer.rstrip("/") != expected.rstrip("/"):
+            raise AuthenticationError(
+                "Bearer token has an invalid issuer",
+                code="auth.invalid_issuer",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
 
     async def _resolve_signing_key(self, header: Mapping[str, Any]) -> Any | None:
         return await self._resolve_signing_key_func(header)

@@ -30,6 +30,19 @@ def test_build_initial_state_langgraph_script_mapping_uses_runtime_config() -> N
     assert state["config"] == runtime_config
 
 
+def test_build_initial_state_langgraph_script_overwrites_workspace_id() -> None:
+    inputs = {"message": "hello", "workspace_id": "spoofed"}
+
+    state = build_initial_state(
+        {"format": LANGGRAPH_SCRIPT_FORMAT},
+        inputs,
+        None,
+        workspace_id="trusted-workspace",
+    )
+
+    assert state["workspace_id"] == "trusted-workspace"
+
+
 def test_build_initial_state_langgraph_script_non_mapping_passthrough() -> None:
     payload = ["message"]
 

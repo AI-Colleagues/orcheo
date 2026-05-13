@@ -565,6 +565,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         *,
         actor: str = "chatkit",
         progress_callback: Callable[[Mapping[str, Any]], Awaitable[None]] | None = None,
+        workspace_id: str | None = None,
     ) -> tuple[str, Mapping[str, Any], WorkflowRun | None]:
         """Delegate execution to the workflow executor."""
         return await self._workflow_executor.run(
@@ -572,6 +573,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
             inputs,
             actor=actor,
             progress_callback=progress_callback,
+            workspace_id=workspace_id,
         )
 
     async def respond(
@@ -611,12 +613,14 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
 
         try:
             yield ProgressUpdateEvent(text="Agent is working...")
+            workspace_id = context.get("workspace_id")
             run_task = asyncio.create_task(
                 self._run_workflow(
                     workflow_id,
                     inputs,
                     actor=actor,
                     progress_callback=on_progress,
+                    workspace_id=workspace_id,
                 )
             )
             run_task.add_done_callback(lambda _: progress_queue.put_nowait(None))

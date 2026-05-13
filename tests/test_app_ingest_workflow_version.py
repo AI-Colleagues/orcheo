@@ -2,12 +2,14 @@
 
 import asyncio
 import textwrap
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.workspace.models import Role, WorkspaceContext
 from orcheo_backend.app import create_app, ingest_workflow_version
 from orcheo_backend.app.authentication import reset_authentication_state
 from orcheo_backend.app.repository import (
@@ -15,6 +17,7 @@ from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
 )
 from orcheo_backend.app.schemas.workflows import WorkflowVersionIngestRequest
+from orcheo_backend.app.workspace.dependencies import resolve_workspace_context
 
 
 def test_ingest_workflow_version_endpoint_creates_version(
@@ -38,6 +41,13 @@ def test_ingest_workflow_version_endpoint_creates_version(
     )
 
     app = create_app(repository)
+    workspace_context = WorkspaceContext(
+        workspace_id=uuid4(),
+        workspace_slug="default",
+        user_id="tester",
+        role=Role.OWNER,
+    )
+    app.dependency_overrides[resolve_workspace_context] = lambda: workspace_context
     client = TestClient(app)
 
     script = textwrap.dedent(
@@ -123,6 +133,13 @@ def test_ingest_workflow_version_missing_workflow_returns_404(
 
     repository = InMemoryWorkflowRepository()
     app = create_app(repository)
+    workspace_context = WorkspaceContext(
+        workspace_id=uuid4(),
+        workspace_slug="default",
+        user_id="tester",
+        role=Role.OWNER,
+    )
+    app.dependency_overrides[resolve_workspace_context] = lambda: workspace_context
     client = TestClient(app)
 
     missing_id = str(uuid4())
@@ -180,7 +197,11 @@ async def test_ingest_workflow_version_raises_not_found_error() -> None:
 
     class FailingRepository(InMemoryWorkflowRepository):
         async def resolve_workflow_ref(
-            self, workflow_ref: str, *, include_archived: bool = True
+            self,
+            workflow_ref: str,
+            *,
+            include_archived: bool = True,
+            workspace_id: str | None = None,
         ) -> UUID:
             del include_archived
             return UUID(str(workflow_ref))
@@ -200,8 +221,11 @@ async def test_ingest_workflow_version_raises_not_found_error() -> None:
     repository = FailingRepository()
     workflow_id = uuid4()
 
+    _mock_workspace = SimpleNamespace(workspace_id=uuid4())
     with pytest.raises(HTTPException) as exc_info:
-        await ingest_workflow_version(str(workflow_id), request, repository)
+        await ingest_workflow_version(
+            str(workflow_id), request, repository, _mock_workspace
+        )
 
     assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
     assert exc_info.value.detail == "Workflow not found"

@@ -61,8 +61,7 @@ async def test_http_dev_cookie_sets_context_with_defaults(
     context = await authenticate_request(request)
 
     assert context.identity_type == "developer"
-    # _try_dev_login_cookie prefixes with "dev:"
-    assert context.subject.startswith("dev:")
+    assert context.subject == "session-value"
     # Defaults include workflows and vault scopes
     assert "workflows:read" in context.scopes
     assert "vault:write" in context.scopes

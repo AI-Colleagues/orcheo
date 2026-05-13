@@ -4,7 +4,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, status
-from orcheo_backend.app.dependencies import ExternalAgentRuntimeStoreDep
+from orcheo_backend.app.dependencies import (
+    ExternalAgentRuntimeStoreDep,
+    PluginInstallationStoreDep,
+)
 from orcheo_backend.app.external_agent_runtime_store import (
     list_external_agent_providers,
 )
@@ -21,6 +24,7 @@ from orcheo_backend.app.schemas.system import (
     SystemPluginsResponse,
 )
 from orcheo_backend.app.versioning import get_system_info_payload
+from orcheo_backend.app.workspace import WorkspaceContextDep
 from orcheo_backend.worker.celery_app import celery_app
 
 
@@ -41,9 +45,23 @@ def get_system_info() -> SystemInfoResponse:
 
 
 @router.get("/system/plugins", response_model=SystemPluginsResponse)
-def get_system_plugins() -> SystemPluginsResponse:
-    """Return plugin availability for the current backend process."""
-    return SystemPluginsResponse.model_validate({"plugins": list_runtime_plugins()})
+async def get_system_plugins(
+    workspace: WorkspaceContextDep,
+    plugin_store: PluginInstallationStoreDep,
+) -> SystemPluginsResponse:
+    """Return plugin availability with per-workspace overrides."""
+    plugins = list_runtime_plugins()
+    workspace_states = {
+        state.plugin_name: state.enabled
+        for state in await plugin_store.list_plugin_states(
+            workspace_id=str(workspace.workspace_id)
+        )
+    }
+    for plugin in plugins:
+        name = str(plugin["name"])
+        if name in workspace_states:
+            plugin["enabled"] = workspace_states[name]
+    return SystemPluginsResponse.model_validate({"plugins": plugins})
 
 
 def _utcnow() -> datetime:
@@ -56,21 +74,29 @@ def _queue_worker_task(task_name: str, *args: str) -> None:
 
 @router.get("/system/external-agents", response_model=ExternalAgentsResponse)
 def get_external_agents(
+    workspace: WorkspaceContextDep,
     runtime_store: ExternalAgentRuntimeStoreDep,
 ) -> ExternalAgentsResponse:
     """Return worker-scoped status for the managed external agent providers."""
     return ExternalAgentsResponse(
-        providers=runtime_store.list_provider_statuses(),
+        providers=runtime_store.list_provider_statuses(
+            workspace_id=str(workspace.workspace_id)
+        ),
     )
 
 
 @router.post("/system/external-agents/refresh", response_model=ExternalAgentsResponse)
 def refresh_external_agents(
+    workspace: WorkspaceContextDep,
     runtime_store: ExternalAgentRuntimeStoreDep,
 ) -> ExternalAgentsResponse:
     """Queue a worker-side status refresh for all external agent providers."""
+    workspace_id = str(workspace.workspace_id)
     for provider_name in list_external_agent_providers():
-        current = runtime_store.get_provider_status(provider_name)
+        current = runtime_store.get_provider_status(
+            provider_name,
+            workspace_id=workspace_id,
+        )
         runtime_store.save_provider_status(
             current.model_copy(
                 update={
@@ -83,9 +109,10 @@ def refresh_external_agents(
         _queue_worker_task(
             "orcheo_backend.worker.tasks.refresh_external_agent_status",
             provider_name.value,
+            workspace_id,
         )
     return ExternalAgentsResponse(
-        providers=runtime_store.list_provider_statuses(),
+        providers=runtime_store.list_provider_statuses(workspace_id=workspace_id),
     )
 
 
@@ -95,10 +122,15 @@ def refresh_external_agents(
 )
 def start_external_agent_login(
     provider_name: ExternalAgentProviderName,
+    workspace: WorkspaceContextDep,
     runtime_store: ExternalAgentRuntimeStoreDep,
 ) -> ExternalAgentLoginSession:
     """Queue a worker-side OAuth login session for one provider."""
-    current = runtime_store.get_provider_status(provider_name)
+    workspace_id = str(workspace.workspace_id)
+    current = runtime_store.get_provider_status(
+        provider_name,
+        workspace_id=workspace_id,
+    )
 
     now = _utcnow()
     session = ExternalAgentLoginSession(
@@ -106,6 +138,7 @@ def start_external_agent_login(
         provider=provider_name,
         display_name=current.display_name,
         state=ExternalAgentLoginSessionState.PENDING,
+        workspace_id=workspace_id,
         created_at=now,
         updated_at=now,
         detail="Preparing the worker-side OAuth flow.",
@@ -126,6 +159,7 @@ def start_external_agent_login(
         "orcheo_backend.worker.tasks.start_external_agent_login",
         provider_name.value,
         session.session_id,
+        workspace_id,
     )
     return session
 
@@ -136,10 +170,15 @@ def start_external_agent_login(
 )
 def disconnect_external_agent(
     provider_name: ExternalAgentProviderName,
+    workspace: WorkspaceContextDep,
     runtime_store: ExternalAgentRuntimeStoreDep,
 ) -> ExternalAgentProviderStatus:
     """Queue worker-side logout and auth cleanup for one provider."""
-    current = runtime_store.get_provider_status(provider_name)
+    workspace_id = str(workspace.workspace_id)
+    current = runtime_store.get_provider_status(
+        provider_name,
+        workspace_id=workspace_id,
+    )
     updated = current.model_copy(
         update={
             "state": ExternalAgentProviderState.CHECKING,
@@ -152,6 +191,7 @@ def disconnect_external_agent(
     _queue_worker_task(
         "orcheo_backend.worker.tasks.disconnect_external_agent",
         provider_name.value,
+        workspace_id,
     )
     return updated
 
@@ -162,10 +202,14 @@ def disconnect_external_agent(
 )
 def get_external_agent_login_session(
     session_id: str,
+    workspace: WorkspaceContextDep,
     runtime_store: ExternalAgentRuntimeStoreDep,
 ) -> ExternalAgentLoginSession:
     """Return one worker-side external agent login session."""
-    session = runtime_store.get_login_session(session_id)
+    session = runtime_store.get_login_session(
+        session_id,
+        workspace_id=str(workspace.workspace_id),
+    )
     if session is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -181,10 +225,12 @@ def get_external_agent_login_session(
 def submit_external_agent_login_input(
     session_id: str,
     payload: ExternalAgentLoginInputRequest,
+    workspace: WorkspaceContextDep,
     runtime_store: ExternalAgentRuntimeStoreDep,
 ) -> ExternalAgentLoginSession:
     """Queue operator input for a worker-side external agent login session."""
-    session = runtime_store.get_login_session(session_id)
+    workspace_id = str(workspace.workspace_id)
+    session = runtime_store.get_login_session(session_id, workspace_id=workspace_id)
     if session is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -209,7 +255,7 @@ def submit_external_agent_login_input(
             detail="Login input must not be empty.",
         )
 
-    runtime_store.save_login_input(session_id, input_text)
+    runtime_store.save_login_input(session_id, input_text, workspace_id=workspace_id)
     updated = session.model_copy(
         update={
             "detail": "Auth code submitted to the worker. Waiting for completion.",

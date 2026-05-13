@@ -4,6 +4,7 @@ export const VIBE_SIDEBAR_MAX_WIDTH = 600;
 export const VIBE_SIDEBAR_COLLAPSED_WIDTH = 40;
 
 export const VIBE_AGENT_TAG = "orcheo-vibe-agent";
+export const VIBE_WORKFLOW_HANDLE = "orcheo-vibe-agent";
 export const VIBE_WORKFLOW_NAME = "Orcheo Vibe";
 export const VIBE_WORKFLOW_TEMPLATE_ID = "template-vibe-agent";
 

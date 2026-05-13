@@ -166,6 +166,8 @@ def _build_root_span(
         "orcheo.execution.id": record.execution_id,
         "orcheo.workflow.id": record.workflow_id,
     }
+    if record.workspace_id:
+        attributes["orcheo.workspace.id"] = record.workspace_id
     if runtime_thread_id:
         attributes["orcheo.execution.thread_id"] = runtime_thread_id
     if record.tags:
@@ -244,7 +246,7 @@ def _build_node_span(
     *,
     state_snapshot: _WorkflowStateSnapshot | None = None,
 ) -> TraceSpanResponse | None:
-    attributes = _node_attributes(node_key, payload)
+    attributes = _node_attributes(node_key, payload, workspace_id=record.workspace_id)
     span_id = _derive_child_span_id(record.execution_id, step.index, node_key)
     name = attributes.get("orcheo.node.display_name", node_key)
     start_time = step.at
@@ -448,12 +450,23 @@ def _compute_end_time(
     return start_time + timedelta(milliseconds=latency)
 
 
-def _node_attributes(node_key: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+def _node_attributes(
+    node_key: str,
+    payload: Mapping[str, Any],
+    *,
+    workspace_id: str | None = None,
+) -> dict[str, Any]:
     display_name = payload.get("display_name") or payload.get("name") or node_key
     attributes: dict[str, Any] = {
         "orcheo.node.id": str(payload.get("id", node_key)),
         "orcheo.node.display_name": str(display_name),
     }
+    if workspace_id is None:
+        payload_workspace_id = payload.get("workspace_id")
+        if isinstance(payload_workspace_id, str) and payload_workspace_id.strip():
+            workspace_id = payload_workspace_id.strip()
+    if workspace_id is not None:
+        attributes["orcheo.workspace.id"] = workspace_id
     kind = payload.get("kind") or payload.get("type")
     if kind is not None:
         attributes["orcheo.node.kind"] = str(kind)

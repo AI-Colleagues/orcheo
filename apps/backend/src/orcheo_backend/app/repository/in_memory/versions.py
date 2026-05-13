@@ -32,11 +32,13 @@ class WorkflowVersionMixin(InMemoryRepositoryState):
             workflow = self._workflows.get(workflow_id)
             if workflow is None:
                 raise WorkflowNotFoundError(str(workflow_id))
+            workspace_id = self._workflow_workspaces.get(workflow_id)
 
             version_ids = self._workflow_versions.setdefault(workflow_id, [])
             next_version_number = len(version_ids) + 1
             version = WorkflowVersion(
                 workflow_id=workflow_id,
+                workspace_id=workspace_id,
                 version=next_version_number,
                 graph=json.loads(json.dumps(graph)),
                 metadata=dict(metadata),

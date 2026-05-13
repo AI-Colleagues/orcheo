@@ -81,10 +81,33 @@ describe("Credential dialogs", () => {
     render(<AddCredentialDialog />);
 
     await user.click(screen.getByRole("button", { name: "Add Credential" }));
+    expect(screen.getByRole("combobox", { name: "Access" })).toHaveTextContent(
+      "Shared",
+    );
     await user.click(screen.getByRole("combobox", { name: "Access" }));
 
     expect(screen.getByRole("option", { name: "Scoped" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Shared" })).toBeInTheDocument();
+  });
+
+  it("submits shared access by default in the add dialog", async () => {
+    const user = userEvent.setup();
+    const onAddCredential = vi.fn().mockResolvedValue(undefined);
+
+    render(<AddCredentialDialog onAddCredential={onAddCredential} />);
+
+    await user.click(screen.getByRole("button", { name: "Add Credential" }));
+    await user.type(screen.getByLabelText("Name"), "Canvas Test Credential");
+    await user.type(screen.getByLabelText("Secret"), "test-secret-123");
+    await user.click(screen.getByRole("button", { name: "Save Credential" }));
+
+    expect(onAddCredential).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Canvas Test Credential",
+        access: "shared",
+        secrets: { secret: "test-secret-123" },
+      }),
+    );
   });
 
   it("uses a scrollable vault list container", () => {

@@ -145,7 +145,7 @@ Draft shape in Canvas state:
 {
   "runnable_config": {
     "configurable": {
-      "tenant": "team-a"
+      "workspace": "team-a"
     },
     "run_name": "workflow-v2",
     "tags": ["canvas", "prod"],

@@ -114,7 +114,7 @@ async def read_workspace(
 
 ## Open Questions
 - Which IdP will Orcheo standardize on for the hosted product (Auth0, Okta, custom Keycloak)?
-- Do we require multi-tenant isolation in tokens (workspace vs. organization) for early adopters? If enterprise organizations need multiple workspaces, consider introducing organization IDs in tokens with explicit sharing controls, billing attribution, and audit partitioning.
+- Do we require multi-workspace isolation in tokens (workspace vs. organization) for early adopters? If enterprise organizations need multiple workspaces, consider introducing organization IDs in tokens with explicit sharing controls, billing attribution, and audit partitioning.
 - Should ChatKit leverage the same IdP-issued tokens or a dedicated signing key for session minting?
 - How will on-prem/self-hosted deployments manage token signing keys and JWKS distribution?
 - What patterns best support cross-workspace collaboration (shared workflows, guest access) without breaking least-privilege guarantees?

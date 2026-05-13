@@ -71,7 +71,14 @@ class CredentialResolver:
         if self._metadata_by_id is not None and self._metadata_by_name is not None:
             return self._metadata_by_id, self._metadata_by_name
         try:
-            metadata_items = self._vault.list_credentials(context=self._context)
+            workspace_id = (
+                self._context.workspace_id if self._context is not None else None
+            )
+            workspace_str = str(workspace_id) if workspace_id is not None else None
+            metadata_items = self._vault.list_credentials(
+                context=self._context,
+                workspace_id=workspace_str,
+            )
         except CredentialNotFoundError as exc:  # pragma: no cover - defensive
             raise CredentialReferenceNotFoundError(str(exc)) from exc
         by_id: dict[UUID, CredentialMetadata] = {}

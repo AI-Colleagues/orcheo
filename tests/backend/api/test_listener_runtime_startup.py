@@ -5,14 +5,24 @@ import asyncio
 import time
 from importlib import import_module
 from unittest.mock import AsyncMock
+from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from orcheo.models import AesGcmCredentialCipher, CredentialScope
 from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo.vault import InMemoryCredentialVault
 from orcheo.vault.oauth import OAuthCredentialService
+from orcheo.workspace import (
+    InMemoryWorkspaceRepository,
+    Role,
+    Workspace,
+    WorkspaceMembership,
+)
+from orcheo.workspace.models import WorkspaceContext
 from orcheo_backend.app import create_app
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
+from orcheo_backend.app.workspace import reset_workspace_state, set_workspace_repository
+from orcheo_backend.app.workspace.dependencies import resolve_workspace_context
 
 
 def test_listener_runtime_starts_and_resolves_telegram_credentials(
@@ -118,27 +128,52 @@ def test_listener_runtime_starts_and_resolves_telegram_credentials(
         scope=CredentialScope.for_workflows(workflow.id),
     )
 
-    app = create_app(repository, credential_service=service)
-    with TestClient(app) as client:
-        deadline = time.time() + 1.0
-        response_payload: list[dict[str, object]] = []
-        while time.time() < deadline:
-            if calls:
-                response = client.get(f"/api/workflows/{workflow.id}/listeners")
-                if response.status_code == 200:
-                    response_payload = response.json()
-                    if response_payload and response_payload[0]["runtime_status"] in {
-                        "starting",
-                        "healthy",
-                    }:
-                        break
-            time.sleep(0.02)
+    workspace_id = uuid4()
+    workspace_repo = InMemoryWorkspaceRepository()
+    workspace_repo.create_workspace(
+        Workspace(id=workspace_id, slug="default", name="Default Workspace")
+    )
+    workspace_repo.add_membership(
+        WorkspaceMembership(
+            workspace_id=workspace_id, user_id="anonymous", role=Role.OWNER
+        )
+    )
+    reset_workspace_state()
+    set_workspace_repository(workspace_repo)
+    workspace_context = WorkspaceContext(
+        workspace_id=workspace_id,
+        workspace_slug="default",
+        user_id="anonymous",
+        role=Role.OWNER,
+    )
 
-        assert calls
-        assert "resolved-telegram-token" in calls
-        assert response_payload
-        assert response_payload[0]["runtime_status"] in {"starting", "healthy"}
-        assert response_payload[0]["assigned_runtime"] is not None
+    app = create_app(repository, credential_service=service)
+    app.dependency_overrides[resolve_workspace_context] = lambda: workspace_context
+    try:
+        with TestClient(app) as client:
+            deadline = time.time() + 1.0
+            response_payload: list[dict[str, object]] = []
+            while time.time() < deadline:
+                if calls:
+                    response = client.get(f"/api/workflows/{workflow.id}/listeners")
+                    if response.status_code == 200:
+                        response_payload = response.json()
+                        if response_payload and response_payload[0][
+                            "runtime_status"
+                        ] in {
+                            "starting",
+                            "healthy",
+                        }:
+                            break
+                time.sleep(0.02)
+
+            assert calls
+            assert "resolved-telegram-token" in calls
+            assert response_payload
+            assert response_payload[0]["runtime_status"] in {"starting", "healthy"}
+            assert response_payload[0]["assigned_runtime"] is not None
+    finally:
+        reset_workspace_state()
 
 
 def test_listener_runtime_blocks_missing_telegram_credentials_without_crashing(
@@ -213,20 +248,43 @@ def test_listener_runtime_blocks_missing_telegram_credentials_without_crashing(
         )
     )
 
-    app = create_app(repository, credential_service=service)
-    with TestClient(app) as client:
-        deadline = time.time() + 1.0
-        response_payload: list[dict[str, object]] = []
-        while time.time() < deadline:
-            response = client.get(f"/api/workflows/{workflow.id}/listeners")
-            if response.status_code == 200:
-                response_payload = response.json()
-                if response_payload and response_payload[0]["status"] == "blocked":
-                    break
-            time.sleep(0.02)
+    workspace_id = uuid4()
+    workspace_repo = InMemoryWorkspaceRepository()
+    workspace_repo.create_workspace(
+        Workspace(id=workspace_id, slug="default", name="Default Workspace")
+    )
+    workspace_repo.add_membership(
+        WorkspaceMembership(
+            workspace_id=workspace_id, user_id="anonymous", role=Role.OWNER
+        )
+    )
+    reset_workspace_state()
+    set_workspace_repository(workspace_repo)
+    workspace_context = WorkspaceContext(
+        workspace_id=workspace_id,
+        workspace_slug="default",
+        user_id="anonymous",
+        role=Role.OWNER,
+    )
 
-        assert response_payload
-        assert response_payload[0]["status"] == "blocked"
-        assert response_payload[0]["runtime_status"] == "unknown"
-        assert "telegram_token" in str(response_payload[0]["last_error"])
-        assert response_payload[0]["assigned_runtime"] is None
+    app = create_app(repository, credential_service=service)
+    app.dependency_overrides[resolve_workspace_context] = lambda: workspace_context
+    try:
+        with TestClient(app) as client:
+            deadline = time.time() + 1.0
+            response_payload: list[dict[str, object]] = []
+            while time.time() < deadline:
+                response = client.get(f"/api/workflows/{workflow.id}/listeners")
+                if response.status_code == 200:
+                    response_payload = response.json()
+                    if response_payload and response_payload[0]["status"] == "blocked":
+                        break
+                time.sleep(0.02)
+
+            assert response_payload
+            assert response_payload[0]["status"] == "blocked"
+            assert response_payload[0]["runtime_status"] == "unknown"
+            assert "telegram_token" in str(response_payload[0]["last_error"])
+            assert response_payload[0]["assigned_runtime"] is None
+    finally:
+        reset_workspace_state()

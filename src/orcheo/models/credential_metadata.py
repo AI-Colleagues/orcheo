@@ -35,6 +35,7 @@ class CredentialMetadata(TimestampedAuditModel):
 
     name: str
     provider: str
+    workspace_id: str | None = None
     scopes: list[str] = Field(default_factory=list)
     scope: CredentialScope = Field(default_factory=CredentialScope.unrestricted)
     encryption: EncryptionEnvelope
@@ -70,12 +71,14 @@ class CredentialMetadata(TimestampedAuditModel):
         kind: CredentialKind = CredentialKind.SECRET,
         oauth_tokens: OAuthTokenSecrets | None = None,
         template_id: UUID | None = None,
+        workspace_id: str | None = None,
     ) -> CredentialMetadata:
         """Construct a credential metadata record with encrypted secret."""
         encryption = cipher.encrypt(secret)
         metadata = cls(
             name=name,
             provider=provider,
+            workspace_id=workspace_id,
             scopes=list(scopes),
             scope=scope or CredentialScope.unrestricted(),
             encryption=encryption,

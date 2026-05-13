@@ -4,6 +4,7 @@ import importlib
 import json
 import sys
 from types import ModuleType
+from unittest.mock import AsyncMock
 import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
@@ -19,6 +20,7 @@ from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 
 backend_module = importlib.import_module("orcheo_backend.app")
+factory_module = importlib.import_module("orcheo_backend.app.factory")
 
 
 def test_install_app_module_proxy_is_idempotent(
@@ -94,6 +96,135 @@ def test_create_app_rejects_public_deployment_without_auth(
     ):
         with TestClient(create_app(InMemoryWorkflowRepository())):
             pass
+
+
+def test_create_app_lifespan_runs_startup_and_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The app lifespan should initialize and tear down the listener runtime."""
+
+    events: list[object] = []
+    repository = InMemoryWorkflowRepository()
+    sentinel_vault = object()
+    sentinel_runtime_store = object()
+
+    class FakeListenerRuntime:
+        def __init__(self, repository: object, vault: object, runtime_store: object):
+            events.append(("init", repository, vault, runtime_store))
+
+        async def start(self) -> None:
+            events.append("start")
+
+        async def stop(self) -> None:
+            events.append("stop")
+
+    monkeypatch.setattr(
+        factory_module,
+        "load_auth_settings",
+        lambda refresh=True: events.append(("load_auth", refresh)),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "load_enabled_plugins",
+        lambda force=True: events.append(("load_plugins", force)),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "ensure_managed_vibe_workflow",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        factory_module, "get_chatkit_server", lambda: events.append("chatkit")
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "ensure_chatkit_cleanup_task",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "cancel_chatkit_cleanup_task",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(factory_module, "ListenerRuntimeService", FakeListenerRuntime)
+    monkeypatch.setattr(factory_module, "get_vault", lambda: sentinel_vault)
+    monkeypatch.setattr(
+        factory_module,
+        "get_listener_runtime_store",
+        lambda: sentinel_runtime_store,
+    )
+    monkeypatch.setattr(factory_module, "get_repository", lambda: repository)
+
+    app = create_app(repository)
+
+    with TestClient(app):
+        pass
+
+    assert ("load_auth", True) in events
+    assert ("load_plugins", True) in events
+    assert any(event[0] == "init" for event in events if isinstance(event, tuple))
+    assert "start" in events
+    assert "stop" in events
+
+
+def test_create_app_lifespan_ignores_chatkit_startup_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The startup exception branch should be swallowed and still stop cleanly."""
+
+    events: list[object] = []
+    repository = InMemoryWorkflowRepository()
+    sentinel_vault = object()
+    sentinel_runtime_store = object()
+
+    class FakeListenerRuntime:
+        def __init__(self, repository: object, vault: object, runtime_store: object):
+            events.append(("init", repository, vault, runtime_store))
+
+        async def start(self) -> None:
+            events.append("start")
+
+        async def stop(self) -> None:
+            events.append("stop")
+
+    monkeypatch.setattr(factory_module, "load_auth_settings", lambda refresh=True: None)
+    monkeypatch.setattr(factory_module, "load_enabled_plugins", lambda force=True: None)
+    monkeypatch.setattr(
+        factory_module,
+        "ensure_managed_vibe_workflow",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "get_chatkit_server",
+        lambda: (_ for _ in ()).throw(RuntimeError("chatkit offline")),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "ensure_chatkit_cleanup_task",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "cancel_chatkit_cleanup_task",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(factory_module, "ListenerRuntimeService", FakeListenerRuntime)
+    monkeypatch.setattr(factory_module, "get_vault", lambda: sentinel_vault)
+    monkeypatch.setattr(
+        factory_module,
+        "get_listener_runtime_store",
+        lambda: sentinel_runtime_store,
+    )
+    monkeypatch.setattr(factory_module, "get_repository", lambda: repository)
+
+    app = create_app(repository)
+
+    with TestClient(app):
+        pass
+
+    assert "start" in events
+    assert "stop" in events
 
 
 def test_create_repository_inmemory_backend(monkeypatch: pytest.MonkeyPatch) -> None:

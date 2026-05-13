@@ -9,6 +9,7 @@ from orcheo.config.app_settings import AppSettings
 from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
 from orcheo.config.defaults import _DEFAULTS
 from orcheo.config.vault_settings import VaultSettings
+from orcheo.config.workspace_settings import MultiWorkspaceSettings
 
 
 def _build_loader() -> Dynaconf:
@@ -39,6 +40,12 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
             ),
             repository_sqlite_path=source.get(
                 "REPOSITORY_SQLITE_PATH", _DEFAULTS["REPOSITORY_SQLITE_PATH"]
+            ),
+            workspace_backend=source.get(
+                "WORKSPACE_BACKEND", _DEFAULTS["WORKSPACE_BACKEND"]
+            ),
+            workspace_sqlite_path=source.get(
+                "WORKSPACE_SQLITE_PATH", _DEFAULTS["WORKSPACE_SQLITE_PATH"]
             ),
             chatkit_backend=source.get("CHATKIT_BACKEND", _DEFAULTS["CHATKIT_BACKEND"]),
             chatkit_sqlite_path=source.get(
@@ -82,6 +89,20 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
                 aws_kms_key_id=source.get("VAULT_AWS_KMS_KEY_ID"),
                 token_ttl_seconds=source.get(
                     "VAULT_TOKEN_TTL_SECONDS", _DEFAULTS["VAULT_TOKEN_TTL_SECONDS"]
+                ),
+            ),
+            multi_workspace=MultiWorkspaceSettings(
+                enabled=source.get(
+                    "MULTI_WORKSPACE_ENABLED",
+                    _DEFAULTS["MULTI_WORKSPACE_ENABLED"],
+                ),
+                default_workspace_slug=source.get(
+                    "MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG",
+                    _DEFAULTS["MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG"],
+                ),
+                workspace_header=source.get(
+                    "MULTI_WORKSPACE_WORKSPACE_HEADER",
+                    _DEFAULTS["MULTI_WORKSPACE_WORKSPACE_HEADER"],
                 ),
             ),
             chatkit_rate_limits=rate_limits,
@@ -132,6 +153,8 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     )
     normalized.set("REPOSITORY_BACKEND", settings.repository_backend)
     normalized.set("REPOSITORY_SQLITE_PATH", settings.repository_sqlite_path)
+    normalized.set("WORKSPACE_BACKEND", settings.workspace_backend)
+    normalized.set("WORKSPACE_SQLITE_PATH", settings.workspace_sqlite_path)
     normalized.set("CHATKIT_BACKEND", settings.chatkit_backend)
     normalized.set("CHATKIT_SQLITE_PATH", settings.chatkit_sqlite_path)
     normalized.set("CHATKIT_STORAGE_PATH", settings.chatkit_storage_path)
@@ -157,6 +180,15 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("VAULT_AWS_REGION", settings.vault.aws_region)
     normalized.set("VAULT_AWS_KMS_KEY_ID", settings.vault.aws_kms_key_id)
     normalized.set("VAULT_TOKEN_TTL_SECONDS", settings.vault.token_ttl_seconds)
+    normalized.set("MULTI_WORKSPACE_ENABLED", settings.multi_workspace.enabled)
+    normalized.set(
+        "MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG",
+        settings.multi_workspace.default_workspace_slug,
+    )
+    normalized.set(
+        "MULTI_WORKSPACE_WORKSPACE_HEADER",
+        settings.multi_workspace.workspace_header,
+    )
     normalized.set("CHATKIT_RATE_LIMITS", settings.chatkit_rate_limits.model_dump())
     normalized.set("TRACING_EXPORTER", settings.tracing_exporter)
     normalized.set("TRACING_ENDPOINT", settings.tracing_endpoint)

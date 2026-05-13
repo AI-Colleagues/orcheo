@@ -152,3 +152,34 @@ async def test_create_chatkit_session_endpoint_workspace_error() -> None:
         await create_chatkit_session_endpoint(request, policy=policy, issuer=issuer)
 
     assert exc_info.value.status_code in (401, 403)
+
+
+@pytest.mark.asyncio()
+async def test_create_chatkit_session_endpoint_requires_workspace_selection() -> None:
+    """ChatKit session endpoint rejects ambiguous multi-workspace sessions."""
+
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="test-user",
+            identity_type="user",
+            scopes=frozenset({"chatkit:session"}),
+            workspace_ids=frozenset({"ws-allowed", "ws-other"}),
+        )
+    )
+
+    issuer = ChatKitSessionTokenIssuer(
+        ChatKitTokenSettings(
+            signing_key="test-key",
+            issuer="test-issuer",
+            audience="test-audience",
+            ttl_seconds=120,
+        )
+    )
+
+    request = ChatKitSessionRequest(workflow_id=None, metadata={})
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_chatkit_session_endpoint(request, policy=policy, issuer=issuer)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "chatkit.auth.workspace_required"

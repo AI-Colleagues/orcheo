@@ -11,7 +11,11 @@ from orcheo_backend.app.dependencies import (
     RepositoryDep,
     resolve_workflow_ref_id,
 )
-from orcheo_backend.app.errors import raise_conflict, raise_not_found
+from orcheo_backend.app.errors import (
+    WorkspaceQuotaExceededError,
+    raise_conflict,
+    raise_not_found,
+)
 from orcheo_backend.app.history import RunHistoryNotFoundError
 from orcheo_backend.app.history_utils import history_to_response
 from orcheo_backend.app.repository import (
@@ -30,6 +34,7 @@ from orcheo_backend.app.schemas.runs import (
 from orcheo_backend.app.schemas.traces import TraceResponse
 from orcheo_backend.app.schemas.workflows import WorkflowRunCreateRequest
 from orcheo_backend.app.trace_utils import build_trace_response
+from orcheo_backend.app.workspace import WorkspaceContextDep
 
 
 router = APIRouter()
@@ -44,10 +49,14 @@ async def create_workflow_run(
     workflow_ref: str,
     request: WorkflowRunCreateRequest,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
     _service: CredentialServiceDep,
 ) -> WorkflowRun:
     """Create a workflow execution run."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    tid = str(workspace.workspace_id)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, workspace_id=tid
+    )
     try:
         config_payload = (
             request.runnable_config.model_dump(mode="json")
@@ -60,6 +69,7 @@ async def create_workflow_run(
             triggered_by=request.triggered_by,
             input_payload=request.input_payload,
             runnable_config=config_payload,
+            workspace_id=tid,
         )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
@@ -70,6 +80,8 @@ async def create_workflow_run(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"message": str(exc), "failures": exc.report.failures},
         ) from exc
+    except WorkspaceQuotaExceededError as exc:
+        raise exc.as_http_exception() from exc
 
 
 _DEFAULT_RUNS_LIMIT = 50
@@ -82,12 +94,18 @@ _DEFAULT_RUNS_LIMIT = 50
 async def list_workflow_runs(
     workflow_ref: str,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
     limit: int = Query(_DEFAULT_RUNS_LIMIT, ge=1, le=200),
 ) -> list[WorkflowRun]:
     """List runs for a given workflow (most recent first)."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    tid = str(workspace.workspace_id)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, workspace_id=tid
+    )
     try:
-        return await repository.list_runs_for_workflow(workflow_uuid, limit=limit)
+        return await repository.list_runs_for_workflow(
+            workflow_uuid, limit=limit, workspace_id=tid
+        )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
 
@@ -96,10 +114,13 @@ async def list_workflow_runs(
 async def get_workflow_run(
     run_id: UUID,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
 ) -> WorkflowRun:
     """Retrieve a single workflow run."""
     try:
-        return await repository.get_run(run_id)
+        return await repository.get_run(
+            run_id, workspace_id=str(workspace.workspace_id)
+        )
     except WorkflowRunNotFoundError as exc:
         raise_not_found("Workflow run not found", exc)
 
@@ -184,11 +205,16 @@ async def list_workflow_execution_histories(
     workflow_ref: str,
     history_store: HistoryStoreDep,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
     limit: int = Query(50, ge=1, le=200),
 ) -> list[RunHistoryResponse]:
     """Return execution histories recorded for the workflow."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
-    records = await history_store.list_histories(str(workflow_uuid), limit=limit)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, workspace_id=str(workspace.workspace_id)
+    )
+    records = await history_store.list_histories(
+        str(workflow_uuid), limit=limit, workspace_id=str(workspace.workspace_id)
+    )
     return [history_to_response(record) for record in records]
 
 

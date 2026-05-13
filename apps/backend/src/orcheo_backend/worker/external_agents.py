@@ -112,14 +112,25 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def _worker_provider_environment(runtime_store: object) -> dict[str, str]:
+def _worker_provider_environment(
+    runtime_store: object,
+    workspace_id: str | None = None,
+) -> dict[str, str]:
     """Return provider auth env persisted in the shared runtime store."""
     merged: dict[str, str] = {}
     for provider_name in list_external_agent_providers():
         merged.update(
-            runtime_store.get_provider_environment(provider_name)  # type: ignore[attr-defined]
+            runtime_store.get_provider_environment(  # type: ignore[attr-defined]
+                provider_name,
+                workspace_id=workspace_id,
+            )
         )
-    merged.update(load_external_agent_vault_environment(get_vault()))
+    merged.update(
+        load_external_agent_vault_environment(
+            get_vault(),
+            workspace_id=workspace_id,
+        )
+    )
     return merged
 
 
@@ -131,26 +142,38 @@ def _codex_auth_file_path(environ: Mapping[str, str]) -> Path:
     return Path("~/.codex/auth.json").expanduser()
 
 
-def _persist_claude_oauth_token_to_vault(token: str) -> None:
+def _persist_claude_oauth_token_to_vault(
+    token: str,
+    *,
+    workspace_id: str | None = None,
+) -> None:
     """Persist a Claude OAuth token to the unrestricted worker vault."""
+    kwargs = {"workspace_id": workspace_id} if workspace_id is not None else {}
     upsert_external_agent_secret(
         get_vault(),
         credential_name=CLAUDE_CODE_OAUTH_TOKEN_CREDENTIAL_NAME,
         provider="claude_code",
         secret=token,
+        **kwargs,
     )
 
 
-def _persist_codex_auth_json_to_vault(environ: Mapping[str, str]) -> None:
+def _persist_codex_auth_json_to_vault(
+    environ: Mapping[str, str],
+    *,
+    workspace_id: str | None = None,
+) -> None:
     """Persist the current worker Codex auth.json content to the vault."""
     auth_file = _codex_auth_file_path(environ)
     if not auth_file.exists():
         return
+    kwargs = {"workspace_id": workspace_id} if workspace_id is not None else {}
     upsert_external_agent_secret(
         get_vault(),
         credential_name=CODEX_AUTH_JSON_CREDENTIAL_NAME,
         provider="codex",
         secret=auth_file.read_text(encoding="utf-8"),
+        **kwargs,
     )
 
 
@@ -173,7 +196,11 @@ def _gemini_auth_file_paths(
     }
 
 
-def _persist_gemini_auth_files_to_vault(environ: Mapping[str, str]) -> None:
+def _persist_gemini_auth_files_to_vault(
+    environ: Mapping[str, str],
+    *,
+    workspace_id: str | None = None,
+) -> None:
     """Persist any available Gemini auth files to the unrestricted vault."""
     vault = get_vault()
     provider = _gemini_provider()
@@ -181,34 +208,53 @@ def _persist_gemini_auth_files_to_vault(environ: Mapping[str, str]) -> None:
     if not bundled_payload:
         return
 
+    kwargs = {"workspace_id": workspace_id} if workspace_id is not None else {}
     upsert_external_agent_secret(
         vault,
         credential_name=GEMINI_AUTH_JSON_CREDENTIAL_NAME,
         provider="gemini",
         secret=bundled_payload,
+        **kwargs,
     )
     for credential_name in _gemini_auth_file_paths(environ):
-        delete_external_agent_secret(
-            vault,
-            credential_name=credential_name,
-        )
+        delete_external_agent_secret(vault, credential_name=credential_name, **kwargs)
 
 
 def _sync_authenticated_provider_to_vault(
     provider_id: ExternalAgentProviderName,
     environ: Mapping[str, str],
+    *,
+    workspace_id: str | None = None,
 ) -> None:
     """Persist restorable auth material for an already-authenticated provider."""
     if provider_id == ExternalAgentProviderName.CLAUDE_CODE:
         token = environ.get("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
         if token:  # pragma: no branch
-            _persist_claude_oauth_token_to_vault(token)
+            if workspace_id is None:
+                _persist_claude_oauth_token_to_vault(token)
+            else:
+                _persist_claude_oauth_token_to_vault(
+                    token,
+                    workspace_id=workspace_id,
+                )
         return
     if provider_id == ExternalAgentProviderName.CODEX:  # pragma: no branch
-        _persist_codex_auth_json_to_vault(environ)
+        if workspace_id is None:
+            _persist_codex_auth_json_to_vault(environ)
+        else:
+            _persist_codex_auth_json_to_vault(
+                environ,
+                workspace_id=workspace_id,
+            )
         return
     if provider_id == ExternalAgentProviderName.GEMINI:  # pragma: no branch
-        _persist_gemini_auth_files_to_vault(environ)
+        if workspace_id is None:
+            _persist_gemini_auth_files_to_vault(environ)
+        else:
+            _persist_gemini_auth_files_to_vault(
+                environ,
+                workspace_id=workspace_id,
+            )
 
 
 def _trim_recent_output(output: str) -> str:
@@ -791,6 +837,7 @@ def _provider_status(
     authenticated: bool,
     installed: bool,
     detail: str | None,
+    workspace_id: str | None = None,
     resolved_version: str | None = None,
     executable_path: str | None = None,
     checked_at: datetime | None = None,
@@ -798,13 +845,14 @@ def _provider_status(
     active_session_id: str | None = None,
 ) -> ExternalAgentProviderStatus:
     """Build a provider status payload from the current worker state."""
-    base = default_external_agent_status(provider_name)
+    base = default_external_agent_status(provider_name, workspace_id=workspace_id)
     return base.model_copy(
         update={
             "state": state,
             "authenticated": authenticated,
             "installed": installed,
             "detail": detail,
+            "workspace_id": workspace_id,
             "resolved_version": resolved_version,
             "executable_path": executable_path,
             "checked_at": checked_at,
@@ -897,12 +945,20 @@ def _logout_provider_cli(
 def _mark_provider_session_disconnected(
     runtime_store: object,
     provider_id: ExternalAgentProviderName,
+    *,
+    workspace_id: str | None = None,
 ) -> None:
     """Clear any active session state and queued input for one provider."""
-    current = runtime_store.get_provider_status(provider_id)  # type: ignore[attr-defined]
+    current = runtime_store.get_provider_status(  # type: ignore[attr-defined]
+        provider_id,
+        workspace_id=workspace_id,
+    )
     session_id = current.active_session_id
     if session_id:
-        session = runtime_store.get_login_session(session_id)  # type: ignore[attr-defined]
+        session = runtime_store.get_login_session(  # type: ignore[attr-defined]
+            session_id,
+            workspace_id=workspace_id,
+        )
         if session is not None and not is_terminal_login_state(session.state):
             runtime_store.save_login_session(  # type: ignore[attr-defined]
                 session.model_copy(
@@ -914,47 +970,74 @@ def _mark_provider_session_disconnected(
                     }
                 )
             )
-        runtime_store.clear_login_input(session_id)  # type: ignore[attr-defined]
-    runtime_store.clear_provider_session(provider_id)  # type: ignore[attr-defined]
+        runtime_store.clear_login_input(  # type: ignore[attr-defined]
+            session_id,
+            workspace_id=workspace_id,
+        )
+    runtime_store.clear_provider_session(  # type: ignore[attr-defined]
+        provider_id,
+        workspace_id=workspace_id,
+    )
 
 
 def _clear_provider_auth_state(
     provider_id: ExternalAgentProviderName,
     provider_environ: Mapping[str, str],
+    *,
+    workspace_id: str | None = None,
 ) -> None:
     """Delete Orcheo-managed auth material for one provider."""
     vault = get_vault()
     if provider_id == ExternalAgentProviderName.CLAUDE_CODE:
-        delete_external_agent_secret(
-            vault,
-            credential_name=CLAUDE_CODE_OAUTH_TOKEN_CREDENTIAL_NAME,
-        )
+        if workspace_id is None:
+            delete_external_agent_secret(
+                vault,
+                credential_name=CLAUDE_CODE_OAUTH_TOKEN_CREDENTIAL_NAME,
+            )
+        else:
+            delete_external_agent_secret(
+                vault,
+                credential_name=CLAUDE_CODE_OAUTH_TOKEN_CREDENTIAL_NAME,
+                workspace_id=workspace_id,
+            )
         return
 
     if provider_id == ExternalAgentProviderName.CODEX:
-        delete_external_agent_secret(
-            vault,
-            credential_name=CODEX_AUTH_JSON_CREDENTIAL_NAME,
-        )
+        if workspace_id is None:
+            delete_external_agent_secret(
+                vault,
+                credential_name=CODEX_AUTH_JSON_CREDENTIAL_NAME,
+            )
+        else:
+            delete_external_agent_secret(
+                vault,
+                credential_name=CODEX_AUTH_JSON_CREDENTIAL_NAME,
+                workspace_id=workspace_id,
+            )
         _delete_file_if_present(_codex_auth_file_path(provider_environ))
         return
 
     if provider_id == ExternalAgentProviderName.GEMINI:
+        kwargs = {"workspace_id": workspace_id} if workspace_id is not None else {}
         delete_external_agent_secret(
             vault,
             credential_name=GEMINI_AUTH_JSON_CREDENTIAL_NAME,
+            **kwargs,
         )
         delete_external_agent_secret(
             vault,
             credential_name=GEMINI_GOOGLE_ACCOUNTS_JSON_CREDENTIAL_NAME,
+            **kwargs,
         )
         delete_external_agent_secret(
             vault,
             credential_name=GEMINI_STATE_JSON_CREDENTIAL_NAME,
+            **kwargs,
         )
         delete_external_agent_secret(
             vault,
             credential_name=GEMINI_OAUTH_CREDS_JSON_CREDENTIAL_NAME,
+            **kwargs,
         )
         _delete_directory_if_present(
             _gemini_provider().gemini_home_path(provider_environ)
@@ -996,27 +1079,71 @@ def _delete_provider_runtime_installation(
     _delete_directory_if_present(manager.runtime_root / provider_name)
 
 
-async def disconnect_external_agent_async(provider_name: str) -> dict[str, str]:
+async def disconnect_external_agent_async(
+    provider_name: str,
+    workspace_id: str | None = None,
+) -> dict[str, str]:
     """Clear worker-scoped auth state for one provider and refresh readiness."""
     provider_id = ExternalAgentProviderName(provider_name)
     runtime_store = get_external_agent_runtime_store()
     manager = ExternalAgentRuntimeManager(
-        environ=_worker_provider_environment(runtime_store)
+        environ=_worker_provider_environment(
+            runtime_store,
+            workspace_id=workspace_id,
+        )
     )
     runtime, _ = manager.inspect_runtime(provider_name)
-    provider_environ = manager.environment_for_provider(provider_name)
+    provider_environ = manager.environment_for_provider(
+        provider_name,
+        workspace_id=workspace_id,
+    )
 
     _logout_provider_cli(provider_id, runtime, provider_environ)
-    _clear_provider_auth_state(provider_id, provider_environ)
-    manager.save_provider_environment(
-        provider_name,
-        _provider_environment_reset(provider_id),
-    )
+    if workspace_id is None:
+        _clear_provider_auth_state(provider_id, provider_environ)
+    else:
+        _clear_provider_auth_state(
+            provider_id,
+            provider_environ,
+            workspace_id=workspace_id,
+        )
+    if workspace_id is None:
+        manager.save_provider_environment(
+            provider_name,
+            _provider_environment_reset(provider_id),
+        )
+    else:
+        manager.save_provider_environment(
+            provider_name,
+            _provider_environment_reset(provider_id),
+            workspace_id=workspace_id,
+        )
     if provider_id == ExternalAgentProviderName.GEMINI:
         _delete_provider_runtime_installation(manager, provider_name)
-    runtime_store.save_provider_environment(provider_id, {})
-    _mark_provider_session_disconnected(runtime_store, provider_id)
-    return await refresh_external_agent_status_async(provider_name)
+    if workspace_id is None:
+        runtime_store.save_provider_environment(
+            provider_id,
+            {},
+        )
+    else:
+        runtime_store.save_provider_environment(
+            provider_id,
+            {},
+            workspace_id=workspace_id,
+        )
+    if workspace_id is None:
+        _mark_provider_session_disconnected(runtime_store, provider_id)
+        return await refresh_external_agent_status_async(provider_name)
+
+    _mark_provider_session_disconnected(
+        runtime_store,
+        provider_id,
+        workspace_id=workspace_id,
+    )
+    return await refresh_external_agent_status_async(
+        provider_name,
+        workspace_id=workspace_id,
+    )
 
 
 def _last_auth_ok_at(manifest: object | None) -> datetime | None:
@@ -1032,6 +1159,7 @@ def _save_ready_provider_status(
     executable_path: str,
     checked_at: datetime,
     last_auth_ok_at: datetime | None,
+    workspace_id: str | None = None,
 ) -> None:
     """Persist a ready/authenticated provider status."""
     runtime_store.save_provider_status(  # type: ignore[attr-defined]
@@ -1041,6 +1169,7 @@ def _save_ready_provider_status(
             authenticated=True,
             installed=True,
             detail="Ready on the worker.",
+            workspace_id=workspace_id,
             resolved_version=runtime_version,
             executable_path=executable_path,
             checked_at=checked_at,
@@ -1058,6 +1187,7 @@ def _save_needs_login_provider_status(
     executable_path: str,
     checked_at: datetime,
     last_auth_ok_at: datetime | None,
+    workspace_id: str | None = None,
 ) -> None:
     """Persist a worker status showing provider login is still required."""
     runtime_store.save_provider_status(  # type: ignore[attr-defined]
@@ -1067,6 +1197,7 @@ def _save_needs_login_provider_status(
             authenticated=False,
             installed=True,
             detail=detail,
+            workspace_id=workspace_id,
             resolved_version=runtime_version,
             executable_path=executable_path,
             checked_at=checked_at,
@@ -1080,14 +1211,21 @@ def _active_login_session_status(
     provider_id: ExternalAgentProviderName,
     *,
     checked_at: datetime,
+    workspace_id: str | None = None,
 ) -> ExternalAgentProviderStatus | None:
     """Return the in-flight provider status for one active login session."""
-    current = runtime_store.get_provider_status(provider_id)  # type: ignore[attr-defined]
+    current = runtime_store.get_provider_status(  # type: ignore[attr-defined]
+        provider_id,
+        workspace_id=workspace_id,
+    )
     session_id = current.active_session_id
     if not session_id:
         return None
 
-    session = runtime_store.get_login_session(session_id)  # type: ignore[attr-defined]
+    session = runtime_store.get_login_session(  # type: ignore[attr-defined]
+        session_id,
+        workspace_id=workspace_id,
+    )
     if session is None or is_terminal_login_state(session.state):
         return None
     if (checked_at - session.updated_at).total_seconds() > LOGIN_SESSION_STALE_SECONDS:
@@ -1107,6 +1245,7 @@ def _active_login_session_status(
         authenticated=False,
         installed=installed,
         detail=detail,
+        workspace_id=workspace_id,
         resolved_version=session.resolved_version or current.resolved_version,
         executable_path=session.executable_path or current.executable_path,
         checked_at=checked_at,
@@ -1115,22 +1254,32 @@ def _active_login_session_status(
     )
 
 
-async def refresh_external_agent_status_async(provider_name: str) -> dict[str, str]:
+async def refresh_external_agent_status_async(
+    provider_name: str,
+    workspace_id: str | None = None,
+) -> dict[str, str]:
     """Refresh one provider status without forcing a runtime install."""
     provider_id = ExternalAgentProviderName(provider_name)
     runtime_store = get_external_agent_runtime_store()
     manager = ExternalAgentRuntimeManager(
-        environ=_worker_provider_environment(runtime_store)
+        environ=_worker_provider_environment(
+            runtime_store,
+            workspace_id=workspace_id,
+        )
     )
     provider = manager.get_provider(provider_name)
     checked_at = _utcnow()
-    provider_environ = manager.environment_for_provider(provider_name)
+    provider_environ = manager.environment_for_provider(
+        provider_name,
+        workspace_id=workspace_id,
+    )
 
     try:
         active_session_status = _active_login_session_status(
             runtime_store,
             provider_id,
             checked_at=checked_at,
+            workspace_id=workspace_id,
         )
         if active_session_status is not None:
             runtime_store.save_provider_status(active_session_status)
@@ -1145,6 +1294,7 @@ async def refresh_external_agent_status_async(provider_name: str) -> dict[str, s
                     authenticated=False,
                     installed=False,
                     detail="Runtime not installed on the worker yet.",
+                    workspace_id=workspace_id,
                     checked_at=checked_at,
                 )
             )
@@ -1152,7 +1302,11 @@ async def refresh_external_agent_status_async(provider_name: str) -> dict[str, s
 
         probe = provider.probe_auth(runtime, environ=provider_environ)
         if probe.authenticated:
-            _sync_authenticated_provider_to_vault(provider_id, provider_environ)
+            _sync_authenticated_provider_to_vault(
+                provider_id,
+                provider_environ,
+                workspace_id=workspace_id,
+            )
             manifest = manager.mark_auth_success(provider_name)
             _save_ready_provider_status(
                 runtime_store,
@@ -1161,6 +1315,7 @@ async def refresh_external_agent_status_async(provider_name: str) -> dict[str, s
                 executable_path=str(runtime.executable_path),
                 checked_at=checked_at,
                 last_auth_ok_at=manifest.last_auth_ok_at,
+                workspace_id=workspace_id,
             )
             return {"status": "ready"}
 
@@ -1172,6 +1327,7 @@ async def refresh_external_agent_status_async(provider_name: str) -> dict[str, s
             executable_path=str(runtime.executable_path),
             checked_at=checked_at,
             last_auth_ok_at=_last_auth_ok_at(manifest),
+            workspace_id=workspace_id,
         )
         return {"status": "needs_login"}
     except Exception as exc:
@@ -1182,24 +1338,29 @@ async def refresh_external_agent_status_async(provider_name: str) -> dict[str, s
                 authenticated=False,
                 installed=False,
                 detail=str(exc),
+                workspace_id=workspace_id,
                 checked_at=checked_at,
             )
         )
         return {"status": "error", "detail": str(exc)}
 
 
-async def start_external_agent_login_async(  # noqa: C901, PLR0915
+async def start_external_agent_login_async(  # noqa: C901, PLR0912, PLR0915
     provider_name: str,
     session_id: str,
+    workspace_id: str | None = None,
 ) -> dict[str, str]:
     """Install the provider runtime if needed and run the interactive OAuth flow."""
     provider_id = ExternalAgentProviderName(provider_name)
     runtime_store = get_external_agent_runtime_store()
     manager = ExternalAgentRuntimeManager(
-        environ=_worker_provider_environment(runtime_store)
+        environ=_worker_provider_environment(
+            runtime_store,
+            workspace_id=workspace_id,
+        )
     )
     provider = manager.get_provider(provider_name)
-    session = runtime_store.get_login_session(session_id)
+    session = runtime_store.get_login_session(session_id, workspace_id=workspace_id)
     if session is None:
         return {"status": "missing_session"}
 
@@ -1214,7 +1375,13 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
         executable_path: str | None = None,
         completed: bool = False,
     ) -> ExternalAgentLoginSession:
-        current = runtime_store.get_login_session(session_id) or session
+        current = (
+            runtime_store.get_login_session(
+                session_id,
+                workspace_id=workspace_id,
+            )
+            or session
+        )
         updated = current.model_copy(
             update={
                 "state": state,
@@ -1224,6 +1391,7 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
                 "recent_output": recent_output,
                 "resolved_version": resolved_version,
                 "executable_path": executable_path,
+                "workspace_id": workspace_id or current.workspace_id,
                 "updated_at": _utcnow(),
                 "completed_at": _utcnow() if completed else None,
             }
@@ -1256,6 +1424,7 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
             executable_path=str(current_runtime.executable_path),
             checked_at=_utcnow(),
             last_auth_ok_at=manifest_last_auth_ok_at,
+            workspace_id=workspace_id,
         )
 
     try:
@@ -1273,6 +1442,7 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
                     installed=False,
                     detail="Installing the managed runtime on the worker.",
                     active_session_id=session_id,
+                    workspace_id=workspace_id,
                     checked_at=_utcnow(),
                 )
             )
@@ -1280,10 +1450,17 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
             runtime = resolution.runtime
             manifest = resolution.manifest
 
-        provider_environ = manager.environment_for_provider(provider_name)
+        provider_environ = manager.environment_for_provider(
+            provider_name,
+            workspace_id=workspace_id,
+        )
         probe = provider.probe_auth(runtime, environ=provider_environ)
         if probe.authenticated:
-            _sync_authenticated_provider_to_vault(provider_id, provider_environ)
+            _sync_authenticated_provider_to_vault(
+                provider_id,
+                provider_environ,
+                workspace_id=workspace_id,
+            )
             manifest = manager.mark_auth_success(provider_name)
             save_authenticated_session(runtime, "Already authenticated on the worker.")
             save_provider_ready(runtime, manifest.last_auth_ok_at)
@@ -1302,6 +1479,7 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
                 authenticated=False,
                 installed=True,
                 detail="Waiting for browser-based sign-in.",
+                workspace_id=workspace_id,
                 resolved_version=runtime.version,
                 executable_path=str(runtime.executable_path),
                 checked_at=_utcnow(),
@@ -1336,13 +1514,22 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
         def manage_login_input(clear: bool) -> str | None:
             """Read or clear queued operator input for the active login session."""
             if clear:
-                runtime_store.clear_login_input(session_id)
+                runtime_store.clear_login_input(
+                    session_id,
+                    workspace_id=workspace_id,
+                )
                 return None
-            return runtime_store.get_login_input(session_id)
+            return runtime_store.get_login_input(
+                session_id,
+                workspace_id=workspace_id,
+            )
 
         def heartbeat_session() -> None:
             """Keep the login session fresh while the worker process is alive."""
-            current = runtime_store.get_login_session(session_id)
+            current = runtime_store.get_login_session(
+                session_id,
+                workspace_id=workspace_id,
+            )
             if current is None or is_terminal_login_state(current.state):
                 return
             runtime_store.save_login_session(
@@ -1381,7 +1568,10 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
                 is_authenticated=lambda: (
                     provider.probe_auth(
                         runtime,
-                        environ=manager.environment_for_provider(provider_name),
+                        environ=manager.environment_for_provider(
+                            provider_name,
+                            workspace_id=workspace_id,
+                        ),
                     ).authenticated
                 ),
                 on_tick=heartbeat_session,
@@ -1398,16 +1588,35 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
 
         assert result is not None
         if result.auth_token:
-            _persist_claude_oauth_token_to_vault(result.auth_token)
+            if workspace_id is None:
+                _persist_claude_oauth_token_to_vault(result.auth_token)
+            else:
+                _persist_claude_oauth_token_to_vault(
+                    result.auth_token,
+                    workspace_id=workspace_id,
+                )
             provider_environ["CLAUDE_CODE_OAUTH_TOKEN"] = result.auth_token
         if provider_id == ExternalAgentProviderName.CODEX:
-            _persist_codex_auth_json_to_vault(provider_environ)
+            if workspace_id is None:
+                _persist_codex_auth_json_to_vault(provider_environ)
+            else:
+                _persist_codex_auth_json_to_vault(
+                    provider_environ,
+                    workspace_id=workspace_id,
+                )
         probe = provider.probe_auth(
             runtime,
             environ=provider_environ,
         )
         if probe.authenticated:
-            _sync_authenticated_provider_to_vault(provider_id, provider_environ)
+            if workspace_id is None:
+                _sync_authenticated_provider_to_vault(provider_id, provider_environ)
+            else:
+                _sync_authenticated_provider_to_vault(
+                    provider_id,
+                    provider_environ,
+                    workspace_id=workspace_id,
+                )
             manifest = manager.mark_auth_success(provider_name)
             save_session(
                 ExternalAgentLoginSessionState.AUTHENTICATED,
@@ -1450,6 +1659,7 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
             executable_path=str(runtime.executable_path),
             checked_at=_utcnow(),
             last_auth_ok_at=_last_auth_ok_at(manifest),
+            workspace_id=workspace_id,
         )
         return {"status": session_state.value}
     except RuntimeInstallError as exc:
@@ -1465,6 +1675,7 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
                 authenticated=False,
                 installed=False,
                 detail=f"Failed to install the managed runtime: {exc}",
+                workspace_id=workspace_id,
                 checked_at=_utcnow(),
             )
         )
@@ -1482,6 +1693,7 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0915
                 authenticated=False,
                 installed=False,
                 detail=str(exc),
+                workspace_id=workspace_id,
                 checked_at=_utcnow(),
             )
         )

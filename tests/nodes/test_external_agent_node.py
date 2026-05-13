@@ -19,6 +19,7 @@ from orcheo.external_agents.models import (
 )
 from orcheo.graph.state import State
 from orcheo.nodes.external_agent import ExternalAgentNode
+from orcheo.runtime.credentials import CredentialReferenceNotFoundError
 
 
 class DummyProvider:
@@ -92,14 +93,18 @@ class FakeRuntimeManager:
         self.mark_auth_called = False
         self.environment: dict[str, str] = {}
         self.auto_init_git_worktree: bool | None = None
+        self.workspace_id: str | None = None
 
     def validate_working_directory(
         self,
         candidate: str | Path,
         *,
+        workspace_id: str | None = None,
+        workspace_root: str | Path | None = None,
         auto_init_git_worktree: bool = False,
     ) -> Path:
         self.auto_init_git_worktree = auto_init_git_worktree
+        self.workspace_id = workspace_id
         if self.raise_validate_error:
             raise WorkingDirectoryValidationError("invalid workspace")
         return Path(candidate)
@@ -113,7 +118,11 @@ class FakeRuntimeManager:
     def get_provider(self, provider_name: str) -> DummyProvider:
         return self.provider
 
-    def environment_for_provider(self, provider_name: str) -> dict[str, str]:
+    def environment_for_provider(
+        self,
+        provider_name: str,
+        workspace_id: str | None = None,
+    ) -> dict[str, str]:
         return self.environment
 
     def mark_auth_success(self, provider_name: str) -> RuntimeManifest:
@@ -255,6 +264,60 @@ def test_resolve_working_directory_prefers_later_input_when_earlier_blank() -> N
         )
         == "/tmp/worktree"
     )
+
+
+def test_compute_run_updates_resolves_changed_values() -> None:
+    node = DummyExternalAgentNode(name="test")
+    node.system_prompt = "decode-me"
+    node.working_directory = "workspace"
+
+    def fake_decode(value: object, state: State) -> object:
+        del state
+        if value == "decode-me":
+            return "decoded"
+        return value
+
+    node._decode_value = fake_decode  # type: ignore[method-assign]
+
+    updates = node._compute_run_updates(_make_state())
+
+    assert updates["system_prompt"] == "decoded"
+
+
+def test_compute_run_updates_allows_optional_auth_placeholders() -> None:
+    class OptionalAuthNode(DummyExternalAgentNode):
+        optional_auth_fields = frozenset({"system_prompt"})
+
+    node = OptionalAuthNode(name="test")
+    node.system_prompt = "missing-secret"
+
+    def fake_decode(value: object, state: State) -> object:
+        del state
+        if value == "missing-secret":
+            raise CredentialReferenceNotFoundError("missing")
+        return value
+
+    node._decode_value = fake_decode  # type: ignore[method-assign]
+
+    updates = node._compute_run_updates(_make_state())
+
+    assert updates["system_prompt"] is None
+
+
+def test_compute_run_updates_raises_for_non_optional_auth_placeholders() -> None:
+    node = DummyExternalAgentNode(name="test")
+    node.system_prompt = "missing-secret"
+
+    def fake_decode(value: object, state: State) -> object:
+        del state
+        if value == "missing-secret":
+            raise CredentialReferenceNotFoundError("missing")
+        return value
+
+    node._decode_value = fake_decode  # type: ignore[method-assign]
+
+    with pytest.raises(CredentialReferenceNotFoundError):
+        node._compute_run_updates(_make_state())
 
 
 @pytest.mark.asyncio
@@ -482,6 +545,37 @@ async def test_run_succeeds_with_zero_exit(
 
     assert result["status"] == "succeeded"
     assert result["stdout"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_run_preserves_workspace_id_when_present(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    resolution = _make_runtime_resolution(tmp_path)
+    manager = FakeRuntimeManager(provider=DummyProvider(), resolution=resolution)
+    node = _make_node(manager)
+    state = _make_state({"prompt": "run", "workspace_id": "workspace-1"})
+
+    async def fake_execute(*args: object, **kwargs: object) -> ProcessExecutionResult:
+        return ProcessExecutionResult(
+            command=["dummy"],
+            stdout="ok",
+            stderr="",
+            exit_code=0,
+            timed_out=False,
+            duration_seconds=0,
+        )
+
+    monkeypatch.setattr(
+        "orcheo.nodes.external_agent.execute_process",
+        fake_execute,
+    )
+
+    state["workspace_id"] = "workspace-1"
+    result = await node.run(state, RunnableConfig())
+
+    assert result["status"] == "succeeded"
+    assert manager.workspace_id == "workspace-1"
 
 
 @pytest.mark.asyncio

@@ -42,8 +42,17 @@ class VersionDiff:
 class WorkflowRepository(Protocol):
     """Protocol describing workflow repository behaviour."""
 
-    async def list_workflows(self, *, include_archived: bool = False) -> list[Workflow]:
-        """Return workflows stored within the repository."""
+    async def list_workflows(
+        self,
+        *,
+        include_archived: bool = False,
+        workspace_id: str | None = None,
+    ) -> list[Workflow]:
+        """Return workflows stored within the repository.
+
+        When *workspace_id* is provided only workflows belonging to that workspace
+        are returned; omitting it returns all workflows (single-workspace mode).
+        """
 
     async def create_workflow(
         self,
@@ -55,19 +64,37 @@ class WorkflowRepository(Protocol):
         tags: Iterable[str] | None,
         draft_access: WorkflowDraftAccess,
         actor: str,
+        workspace_id: str | None = None,
     ) -> Workflow:
         """Persist and return a new workflow definition."""
 
-    async def get_workflow(self, workflow_id: UUID) -> Workflow:
-        """Return a single workflow by identifier."""
+    async def get_workflow(
+        self,
+        workflow_id: UUID,
+        *,
+        workspace_id: str | None = None,
+    ) -> Workflow:
+        """Return a single workflow by identifier.
+
+        When *workspace_id* is provided the workflow is only returned when it
+        belongs to that workspace; otherwise WorkflowNotFoundError is raised.
+        """
+
+    async def get_workflow_workspace_id(self, workflow_id: UUID) -> str | None:
+        """Return the workspace_id stored for the workflow, or None if unscoped."""
 
     async def resolve_workflow_ref(
         self,
         workflow_ref: str,
         *,
         include_archived: bool = True,
+        workspace_id: str | None = None,
     ) -> UUID:
-        """Resolve a user-facing workflow ref to the canonical UUID."""
+        """Resolve a user-facing workflow ref to the canonical UUID.
+
+        When *workspace_id* is provided resolution is limited to that workspace's
+        workflows.
+        """
 
     async def update_workflow(
         self,
@@ -152,20 +179,35 @@ class WorkflowRepository(Protocol):
         input_payload: dict[str, Any],
         actor: str | None = None,
         runnable_config: dict[str, Any] | None = None,
+        workspace_id: str | None = None,
     ) -> WorkflowRun:
         """Create a workflow run for the specified version."""
 
     async def list_runs_for_workflow(
-        self, workflow_id: UUID, *, limit: int | None = None
+        self,
+        workflow_id: UUID,
+        *,
+        limit: int | None = None,
+        workspace_id: str | None = None,
     ) -> list[WorkflowRun]:
         """Return runs associated with the given workflow.
 
         Results are ordered most-recent-first.  When *limit* is given only the
-        most recent *limit* runs are returned.
+        most recent *limit* runs are returned.  When *workspace_id* is provided
+        results are limited to that workspace.
         """
 
-    async def get_run(self, run_id: UUID) -> WorkflowRun:
-        """Return a workflow run by identifier."""
+    async def get_run(
+        self,
+        run_id: UUID,
+        *,
+        workspace_id: str | None = None,
+    ) -> WorkflowRun:
+        """Return a workflow run by identifier.
+
+        When *workspace_id* is provided the run is only returned when it belongs
+        to that workspace; otherwise WorkflowRunNotFoundError is raised.
+        """
 
     async def mark_run_started(self, run_id: UUID, *, actor: str) -> WorkflowRun:
         """Transition a run into the running state."""

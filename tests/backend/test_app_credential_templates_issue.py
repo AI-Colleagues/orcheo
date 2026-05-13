@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
@@ -22,9 +23,13 @@ class _Repository:
         workflow_ref: str,
         *,
         include_archived: bool = True,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
+
+
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 
 
 @pytest.mark.asyncio()
@@ -73,6 +78,7 @@ async def test_issue_credential_from_template_success() -> None:
         request,
         _Repository(),
         Service(),
+        _MOCK_WORKSPACE,
     )
 
     assert result.credential_id == str(cred_id)
@@ -97,6 +103,7 @@ async def test_issue_credential_from_template_not_configured() -> None:
             request,
             _Repository(),
             None,
+            _MOCK_WORKSPACE,
         )
 
     assert exc_info.value.status_code == 503
@@ -134,6 +141,7 @@ async def test_issue_credential_from_template_not_found() -> None:
             request,
             _Repository(),
             Service(),
+            _MOCK_WORKSPACE,
         )
 
     assert exc_info.value.status_code == 404
@@ -170,6 +178,7 @@ async def test_issue_credential_from_template_scope_error() -> None:
             request,
             _Repository(),
             Service(),
+            _MOCK_WORKSPACE,
         )
 
     assert exc_info.value.status_code == 403
@@ -206,6 +215,7 @@ async def test_issue_credential_from_template_validation_error() -> None:
             request,
             _Repository(),
             Service(),
+            _MOCK_WORKSPACE,
         )
 
     assert exc_info.value.status_code == 400

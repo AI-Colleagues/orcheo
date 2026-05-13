@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
@@ -11,6 +12,19 @@ from orcheo.vault import (
     DuplicateCredentialNameError,
     WorkflowScopeError,
 )
+from orcheo_backend.app.errors import WorkspaceQuotaExceededError
+
+
+_MOCK_WORKSPACE = SimpleNamespace(
+    workspace_id=uuid4(),
+    user_id="test-user",
+    slug="test-workspace",
+    quotas=SimpleNamespace(
+        max_credentials=1000,
+        max_workflows=1000,
+        max_storage_rows=1_000_000,
+    ),
+)
 
 
 class _Repository:
@@ -19,6 +33,7 @@ class _Repository:
         workflow_ref: str,
         *,
         include_archived: bool = True,
+        workspace_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
@@ -65,13 +80,13 @@ async def test_list_credentials_success() -> None:
     ]
 
     class Vault:
-        def list_credentials(self, context=None):
+        def list_credentials(self, context=None, *, workspace_id=None):
             return creds
 
-        def list_all_credentials(self):
+        def list_all_credentials(self, *, workspace_id=None):
             return creds
 
-    result = await list_credentials(Vault(), _Repository())
+    result = await list_credentials(Vault(), _Repository(), _MOCK_WORKSPACE)
 
     assert len(result) == 2
     assert result[0].id == str(cred1_id)
@@ -87,12 +102,14 @@ async def test_list_credentials_with_workflow_context() -> None:
     context_received = None
 
     class Vault:
-        def list_credentials(self, context=None):
+        def list_credentials(self, context=None, *, workspace_id=None):
             nonlocal context_received
             context_received = context
             return []
 
-    await list_credentials(Vault(), _Repository(), workflow_id=str(workflow_id))
+    await list_credentials(
+        Vault(), _Repository(), _MOCK_WORKSPACE, workflow_id=str(workflow_id)
+    )
 
     assert context_received is not None
     assert context_received.workflow_id == workflow_id
@@ -108,7 +125,21 @@ async def test_create_credential_success() -> None:
     cred_id = uuid4()
 
     class Vault:
-        def create_credential(self, name, provider, scopes, secret, actor, scope, kind):
+        def list_all_credentials(self, *, workspace_id=None):
+            return []
+
+        def create_credential(
+            self,
+            name,
+            provider,
+            scopes,
+            secret,
+            actor,
+            scope,
+            kind,
+            *,
+            workspace_id=None,
+        ):
             return CredentialMetadata(
                 id=cred_id,
                 name=name,
@@ -134,7 +165,7 @@ async def test_create_credential_success() -> None:
         kind=CredentialKind.SECRET,
     )
 
-    result = await create_credential(request, _Repository(), Vault())
+    result = await create_credential(request, _Repository(), Vault(), _MOCK_WORKSPACE)
 
     assert result.id == str(cred_id)
     assert result.name == "Test Cred"
@@ -147,7 +178,21 @@ async def test_create_credential_validation_error() -> None:
     from orcheo_backend.app.schemas.credentials import CredentialCreateRequest
 
     class Vault:
-        def create_credential(self, name, provider, scopes, secret, actor, scope, kind):
+        def list_all_credentials(self, *, workspace_id=None):
+            return []
+
+        def create_credential(
+            self,
+            name,
+            provider,
+            scopes,
+            secret,
+            actor,
+            scope,
+            kind,
+            *,
+            workspace_id=None,
+        ):
             raise ValueError("Invalid credential")
 
     request = CredentialCreateRequest(
@@ -161,9 +206,53 @@ async def test_create_credential_validation_error() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await create_credential(request, _Repository(), Vault())
+        await create_credential(request, _Repository(), Vault(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 422
+
+
+@pytest.mark.asyncio()
+async def test_create_credential_quota_exceeded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Create credential propagates workspace quota failures as HTTP errors."""
+
+    from orcheo_backend.app.routers.credentials import create_credential
+    from orcheo_backend.app.schemas.credentials import CredentialCreateRequest
+
+    class Vault:
+        def list_all_credentials(self, *, workspace_id=None):
+            return []
+
+    async def _raise_quota(*_: object, **__: object) -> None:
+        raise WorkspaceQuotaExceededError(
+            "Workspace quota reached",
+            code="workspace.quota.credentials",
+        )
+
+    request = CredentialCreateRequest(
+        name="Test Cred",
+        provider="slack",
+        scopes=[],
+        secret="test-secret",
+        actor="user",
+        access="shared",
+        kind=CredentialKind.SECRET,
+    )
+
+    from orcheo_backend.app.routers import credentials as credentials_router
+
+    monkeypatch.setattr(
+        credentials_router,
+        "ensure_workspace_credential_quota",
+        _raise_quota,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_credential(request, _Repository(), Vault(), _MOCK_WORKSPACE)
+
+    assert exc_info.value.status_code == 429
+    assert exc_info.value.detail["error"]["code"] == "workspace.quota.credentials"
 
 
 @pytest.mark.asyncio()
@@ -177,7 +266,21 @@ async def test_create_credential_returns_inferred_access() -> None:
     workflow_id = uuid4()
 
     class Vault:
-        def create_credential(self, name, provider, scopes, secret, actor, scope, kind):
+        def list_all_credentials(self, *, workspace_id=None):
+            return []
+
+        def create_credential(
+            self,
+            name,
+            provider,
+            scopes,
+            secret,
+            actor,
+            scope,
+            kind,
+            *,
+            workspace_id=None,
+        ):
             return CredentialMetadata(
                 id=cred_id,
                 name=name,
@@ -204,7 +307,7 @@ async def test_create_credential_returns_inferred_access() -> None:
         kind=CredentialKind.SECRET,
     )
 
-    result = await create_credential(request, _Repository(), Vault())
+    result = await create_credential(request, _Repository(), Vault(), _MOCK_WORKSPACE)
 
     assert result.access == "scoped"
 
@@ -274,7 +377,7 @@ async def test_reveal_credential_secret_not_found() -> None:
             raise CredentialNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await reveal_credential_secret(cred_id, Vault(), _Repository())
+        await reveal_credential_secret(cred_id, Vault(), _Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 404
 
@@ -290,7 +393,7 @@ async def test_reveal_credential_secret_scope_error() -> None:
             raise WorkflowScopeError("denied")
 
     with pytest.raises(HTTPException) as exc_info:
-        await reveal_credential_secret(cred_id, Vault(), _Repository())
+        await reveal_credential_secret(cred_id, Vault(), _Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 403
 
@@ -410,7 +513,7 @@ async def test_create_credential_scoped_access_requires_workflow_id() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await create_credential(request, _Repository(), Vault())
+        await create_credential(request, _Repository(), Vault(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 422
     assert exc_info.value.detail == (

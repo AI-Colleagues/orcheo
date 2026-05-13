@@ -9,6 +9,7 @@ import { Switch } from "@/design-system/ui/switch";
 import { toast } from "@/hooks/use-toast";
 import { ConfirmDeleteWorkflowDialog } from "@features/workflow/components/dialogs/confirm-delete-workflow-dialog";
 import { deleteWorkflow } from "@features/workflow/lib/workflow-storage";
+import { VIBE_WORKFLOW_HANDLE } from "@features/vibe/constants";
 import {
   fetchCronTriggerConfig,
   publishWorkflow,
@@ -31,6 +32,7 @@ import { WorkflowConfigSheet } from "@features/workflow/pages/workflow-canvas/co
 
 export interface WorkflowTabContentProps {
   workflowId: string | null;
+  workflowRouteRef?: string | null;
   workflowName: string;
   versions: WorkflowVersionRecord[];
   isLoading: boolean;
@@ -159,6 +161,7 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 
 export function WorkflowTabContent({
   workflowId,
+  workflowRouteRef,
   workflowName,
   versions,
   isLoading,
@@ -182,6 +185,8 @@ export function WorkflowTabContent({
   const [diagramError, setDiagramError] = useState<string | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeletePending, setIsDeletePending] = useState(false);
+  const canDeleteWorkflow =
+    Boolean(workflowId) && workflowRouteRef !== VIBE_WORKFLOW_HANDLE;
 
   useEffect(() => {
     if (!workflowId) {
@@ -528,7 +533,7 @@ export function WorkflowTabContent({
                 disabled={isSchedulePending || !canToggleSchedule}
               />
             </div>
-            {workflowId ? (
+            {canDeleteWorkflow ? (
               <Button
                 variant="destructive"
                 onClick={() => setIsDeleteDialogOpen(true)}
@@ -647,7 +652,7 @@ export function WorkflowTabContent({
         />
       </div>
 
-      {workflowId ? (
+      {canDeleteWorkflow ? (
         <ConfirmDeleteWorkflowDialog
           open={isDeleteDialogOpen}
           workflowName={workflowName}

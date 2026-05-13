@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ExternalAgentProviderStatus } from "@/lib/api";
 import { getWorkflowTemplateDefinition } from "@features/workflow/data/workflow-data";
-import {
-  createWorkflowFromTemplate,
-  listWorkflows,
-} from "@features/workflow/lib/workflow-storage";
+import { WORKFLOW_STORAGE_EVENT, listWorkflows } from "@features/workflow/lib/workflow-storage";
 import {
   fetchWorkflowVersions,
   request,
@@ -12,6 +9,7 @@ import {
 import { type ChatKitSupportedModel } from "@features/workflow/lib/workflow-storage.types";
 import {
   VIBE_AGENT_TAG,
+  VIBE_WORKFLOW_HANDLE,
   VIBE_WORKFLOW_NAME,
   VIBE_WORKFLOW_TEMPLATE_ID,
 } from "@features/vibe/constants";
@@ -30,7 +28,8 @@ interface VibeWorkflowState {
 
 const readCachedWorkflowId = (): string | null => {
   try {
-    return localStorage.getItem(WORKFLOW_ID_STORAGE_KEY);
+    const cached = localStorage.getItem(WORKFLOW_ID_STORAGE_KEY);
+    return cached && cached.trim() ? cached : null;
   } catch {
     return null;
   }
@@ -54,6 +53,18 @@ const clearCachedWorkflowId = (): void => {
 };
 
 let cachedWorkflowId: string | null = readCachedWorkflowId();
+
+export const syncCachedWorkflowIdFromStorage = (): string | null => {
+  cachedWorkflowId = readCachedWorkflowId();
+  return cachedWorkflowId;
+};
+
+export const __setCachedWorkflowIdForTesting = (
+  id: string | null,
+): string | null => {
+  cachedWorkflowId = id;
+  return cachedWorkflowId;
+};
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object"
@@ -90,7 +101,9 @@ export function useVibeWorkflow(
     error: null,
   });
   const provisioningRef = useRef(false);
-  const syncedModelsRef = useRef<string | null>(null);
+  const provisionedSignatureRef = useRef<string | null>(null);
+  const syncedModelsWorkflowIdRef = useRef<string | null>(null);
+  const syncedModelsSignatureRef = useRef<string | null>(null);
   const syncedTemplateRef = useRef<string | null>(null);
 
   const setWorkflowState = useCallback((nextState: VibeWorkflowState) => {
@@ -108,7 +121,10 @@ export function useVibeWorkflow(
 
   const syncSupportedModels = useCallback(
     async (workflowId: string, models: ChatKitSupportedModel[]) => {
-      if (syncedModelsRef.current === supportedModelsSignature) {
+      if (
+        syncedModelsWorkflowIdRef.current === workflowId &&
+        syncedModelsSignatureRef.current === supportedModelsSignature
+      ) {
         return;
       }
 
@@ -122,7 +138,8 @@ export function useVibeWorkflow(
         }),
       });
 
-      syncedModelsRef.current = supportedModelsSignature;
+      syncedModelsWorkflowIdRef.current = workflowId;
+      syncedModelsSignatureRef.current = supportedModelsSignature;
     },
     [supportedModelsSignature],
   );
@@ -182,23 +199,6 @@ export function useVibeWorkflow(
     async (models: ChatKitSupportedModel[]) => {
       if (provisioningRef.current) return;
 
-      if (cachedWorkflowId) {
-        try {
-          await Promise.all([
-            syncManagedTemplate(cachedWorkflowId),
-            syncSupportedModels(cachedWorkflowId, models),
-          ]);
-          setWorkflowState({
-            workflowId: cachedWorkflowId,
-            isProvisioning: false,
-            error: null,
-          });
-          return;
-        } catch {
-          clearCachedWorkflowId();
-        }
-      }
-
       provisioningRef.current = true;
       setState((prev) => {
         if (prev.isProvisioning && prev.error === null) {
@@ -208,11 +208,33 @@ export function useVibeWorkflow(
       });
 
       try {
-        const workflows = await listWorkflows();
+        const workflows = await listWorkflows({ forceRefresh: true });
+        const cachedWorkflow = cachedWorkflowId
+          ? workflows.find((workflow) => workflow.id === cachedWorkflowId)
+          : undefined;
+
+        if (cachedWorkflowId && !cachedWorkflow) {
+          clearCachedWorkflowId();
+        }
+
+        if (cachedWorkflow) {
+          await Promise.all([
+            syncManagedTemplate(cachedWorkflow.id),
+            syncSupportedModels(cachedWorkflow.id, models),
+          ]);
+          setWorkflowState({
+            workflowId: cachedWorkflow.id,
+            isProvisioning: false,
+            error: null,
+          });
+          return;
+        }
+
         const existing = workflows.find(
           (workflow) =>
-            workflow.name === VIBE_WORKFLOW_NAME &&
-            workflow.tags?.includes(VIBE_AGENT_TAG),
+            workflow.handle === VIBE_WORKFLOW_HANDLE ||
+            (workflow.name === VIBE_WORKFLOW_NAME &&
+              workflow.tags?.includes(VIBE_AGENT_TAG)),
         );
 
         if (existing) {
@@ -230,25 +252,10 @@ export function useVibeWorkflow(
           return;
         }
 
-        const created = await createWorkflowFromTemplate(
-          VIBE_WORKFLOW_TEMPLATE_ID,
-          {
-            name: VIBE_WORKFLOW_NAME,
-            tags: [VIBE_AGENT_TAG, "external-agent"],
-          },
-        );
-
-        if (!created) {
-          throw new Error("Failed to create Orcheo Vibe workflow");
-        }
-
-        cachedWorkflowId = created.id;
-        writeCachedWorkflowId(created.id);
-        await syncSupportedModels(created.id, models);
         setWorkflowState({
-          workflowId: created.id,
+          workflowId: null,
           isProvisioning: false,
-          error: null,
+          error: "Managed Orcheo Vibe workflow is unavailable.",
         });
       } catch (err) {
         const message =
@@ -267,7 +274,9 @@ export function useVibeWorkflow(
 
   useEffect(() => {
     if (!supportedModels || supportedModels.length === 0) {
-      syncedModelsRef.current = null;
+      provisionedSignatureRef.current = null;
+      syncedModelsWorkflowIdRef.current = null;
+      syncedModelsSignatureRef.current = null;
       syncedTemplateRef.current = null;
       setWorkflowState({
         workflowId: null,
@@ -276,7 +285,32 @@ export function useVibeWorkflow(
       });
       return;
     }
-    void provision(supportedModels);
+
+    if (provisionedSignatureRef.current !== supportedModelsSignature) {
+      provisionedSignatureRef.current = supportedModelsSignature;
+      void provision(supportedModels);
+    }
+
+    const targetWindow = typeof window !== "undefined" ? window : undefined;
+    if (!targetWindow) {
+      return;
+    }
+
+    const handleWorkflowStorageUpdate = () => {
+      void provision(supportedModels);
+    };
+
+    targetWindow.addEventListener(
+      WORKFLOW_STORAGE_EVENT,
+      handleWorkflowStorageUpdate,
+    );
+
+    return () => {
+      targetWindow.removeEventListener(
+        WORKFLOW_STORAGE_EVENT,
+        handleWorkflowStorageUpdate,
+      );
+    };
   }, [provision, setWorkflowState, supportedModels, supportedModelsSignature]);
 
   return state;

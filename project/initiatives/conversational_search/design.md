@@ -139,7 +139,7 @@ Key goals include: (1) delivering plug-and-play nodes for ingestion, retrieval, 
 
 - **SessionManagementNode**
   - Controls session lifecycle, concurrency, and cleanup
-  - Operational node for multi-tenant deployments
+  - Operational node for multi-workspace deployments
 
 - **MultiHopPlannerNode**
   - Plans sequential retrieval hops for complex questions
@@ -674,7 +674,7 @@ class BaseMemoryStore(ABC):
 - Session tokens validated on each conversation turn
 - Role-based access control for sensitive operations (memory deletion, policy override)
 - JWT validation uses issuer/audience checks, `kid`-pinned JWKS, and 5-minute clock-skew tolerance
-- Session tokens carry tenant + role claims; `SessionManagementNode` enforces TTL and idle timeouts
+- Session tokens carry workspace + role claims; `SessionManagementNode` enforces TTL and idle timeouts
 
 ### Data Privacy & Redaction
 - **MemoryPrivacyNode** applies configurable redaction patterns (PII, credentials)

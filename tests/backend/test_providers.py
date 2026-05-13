@@ -99,6 +99,7 @@ def test_create_repository_sqlite_backend_sets_history_store(
     credential_service = object()
     history_store_ref: dict[str, object] = {}
     checkpoint_store_ref: dict[str, object] = {}
+    plugin_installation_store_ref: dict[str, object] = {}
 
     class FakeStore:
         def __init__(self, path: str) -> None:
@@ -109,8 +110,15 @@ def test_create_repository_sqlite_backend_sets_history_store(
             self.path = path
             self.credential_service = credential_service
 
+    class FakePluginInstallationStore:
+        def __init__(self, path: str) -> None:
+            self.path = path
+
     monkeypatch.setattr(providers, "SqliteRunHistoryStore", FakeStore)
     monkeypatch.setattr(providers, "SqliteAgentensorCheckpointStore", FakeStore)
+    monkeypatch.setattr(
+        providers, "SqlitePluginInstallationStore", FakePluginInstallationStore
+    )
     monkeypatch.setattr(providers, "SqliteWorkflowRepository", FakeRepository)
 
     repository = providers.create_repository(
@@ -118,6 +126,7 @@ def test_create_repository_sqlite_backend_sets_history_store(
         credential_service=credential_service,
         history_store_ref=history_store_ref,
         checkpoint_store_ref=checkpoint_store_ref,
+        plugin_installation_store_ref=plugin_installation_store_ref,
     )
 
     assert isinstance(repository, FakeRepository)
@@ -127,6 +136,10 @@ def test_create_repository_sqlite_backend_sets_history_store(
     assert history_store_ref["store"].path == "/tmp/workflows.sqlite"
     assert isinstance(checkpoint_store_ref["store"], FakeStore)
     assert checkpoint_store_ref["store"].path == "/tmp/workflows.sqlite"
+    assert isinstance(
+        plugin_installation_store_ref["store"], FakePluginInstallationStore
+    )
+    assert plugin_installation_store_ref["store"].path == "/tmp/workflows.sqlite"
 
 
 def test_create_repository_inmemory_backend_sets_checkpoint(
@@ -136,11 +149,15 @@ def test_create_repository_inmemory_backend_sets_checkpoint(
     credential_service = object()
     history_store_ref: dict[str, object] = {}
     checkpoint_store_ref: dict[str, object] = {}
+    plugin_installation_store_ref: dict[str, object] = {}
 
     class FakeHistoryStore:
         pass
 
     class FakeCheckpointStore:
+        pass
+
+    class FakePluginInstallationStore:
         pass
 
     class FakeRepository:
@@ -151,6 +168,9 @@ def test_create_repository_inmemory_backend_sets_checkpoint(
     monkeypatch.setattr(
         providers, "InMemoryAgentensorCheckpointStore", FakeCheckpointStore
     )
+    monkeypatch.setattr(
+        providers, "InMemoryPluginInstallationStore", FakePluginInstallationStore
+    )
     monkeypatch.setattr(providers, "InMemoryWorkflowRepository", FakeRepository)
 
     repository = providers.create_repository(
@@ -158,10 +178,14 @@ def test_create_repository_inmemory_backend_sets_checkpoint(
         credential_service=credential_service,
         history_store_ref=history_store_ref,
         checkpoint_store_ref=checkpoint_store_ref,
+        plugin_installation_store_ref=plugin_installation_store_ref,
     )
 
     assert isinstance(history_store_ref["store"], FakeHistoryStore)
     assert isinstance(checkpoint_store_ref["store"], FakeCheckpointStore)
+    assert isinstance(
+        plugin_installation_store_ref["store"], FakePluginInstallationStore
+    )
     assert isinstance(repository, FakeRepository)
     assert repository.credential_service is credential_service
 
@@ -183,6 +207,7 @@ def test_create_repository_postgres_backend_sets_all_components(
     credential_service = object()
     history_store_ref: dict[str, object] = {}
     checkpoint_store_ref: dict[str, object] = {}
+    plugin_installation_store_ref: dict[str, object] = {}
 
     class FakeHistoryStore:
         def __init__(
@@ -201,6 +226,22 @@ def test_create_repository_postgres_backend_sets_all_components(
             self.pool_max_idle = pool_max_idle
 
     class FakeCheckpointStore:
+        def __init__(
+            self,
+            dsn: str,
+            *,
+            pool_min_size: int = 1,
+            pool_max_size: int = 10,
+            pool_timeout: float = 30.0,
+            pool_max_idle: float = 300.0,
+        ) -> None:
+            self.dsn = dsn
+            self.pool_min_size = pool_min_size
+            self.pool_max_size = pool_max_size
+            self.pool_timeout = pool_timeout
+            self.pool_max_idle = pool_max_idle
+
+    class FakePluginInstallationStore:
         def __init__(
             self,
             dsn: str,
@@ -238,6 +279,9 @@ def test_create_repository_postgres_backend_sets_all_components(
     monkeypatch.setattr(
         providers, "PostgresAgentensorCheckpointStore", FakeCheckpointStore
     )
+    monkeypatch.setattr(
+        providers, "PostgresPluginInstallationStore", FakePluginInstallationStore
+    )
     monkeypatch.setattr(providers, "PostgresWorkflowRepository", FakeRepository)
 
     repository = providers.create_repository(
@@ -245,6 +289,7 @@ def test_create_repository_postgres_backend_sets_all_components(
         credential_service=credential_service,
         history_store_ref=history_store_ref,
         checkpoint_store_ref=checkpoint_store_ref,
+        plugin_installation_store_ref=plugin_installation_store_ref,
     )
 
     # Check repository configuration
@@ -273,6 +318,14 @@ def test_create_repository_postgres_backend_sets_all_components(
     assert checkpoint_store.pool_max_size == 20
     assert checkpoint_store.pool_timeout == 15.0
     assert checkpoint_store.pool_max_idle == 500.0
+
+    plugin_store = plugin_installation_store_ref["store"]
+    assert isinstance(plugin_store, FakePluginInstallationStore)
+    assert plugin_store.dsn == "postgresql://test:test@localhost/testdb"
+    assert plugin_store.pool_min_size == 2
+    assert plugin_store.pool_max_size == 20
+    assert plugin_store.pool_timeout == 15.0
+    assert plugin_store.pool_max_idle == 500.0
 
 
 def test_create_vault_postgres_backend_with_all_settings(
@@ -409,3 +462,156 @@ def test_create_vault_postgres_backend_without_encryption_key_raises_error() -> 
         ValueError, match="ORCHEO_VAULT_ENCRYPTION_KEY must be set when using postgres"
     ):
         providers.create_vault(settings)
+
+
+def test_create_repository_sqlite_backend_without_plugin_store_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create_repository tolerates omitting the plugin store ref on sqlite."""
+
+    settings = DummySettings({"REPOSITORY_BACKEND": "sqlite"})
+    credential_service = object()
+    history_store_ref: dict[str, object] = {}
+    checkpoint_store_ref: dict[str, object] = {}
+
+    class FakeHistoryStore:
+        def __init__(self, path: str) -> None:
+            self.path = path
+
+    class FakeCheckpointStore:
+        def __init__(self, path: str) -> None:
+            self.path = path
+
+    class FakeRepository:
+        def __init__(self, path: str, *, credential_service: object) -> None:
+            self.path = path
+            self.credential_service = credential_service
+
+    monkeypatch.setattr(providers, "SqliteRunHistoryStore", FakeHistoryStore)
+    monkeypatch.setattr(
+        providers, "SqliteAgentensorCheckpointStore", FakeCheckpointStore
+    )
+    monkeypatch.setattr(providers, "SqliteWorkflowRepository", FakeRepository)
+
+    repository = providers.create_repository(
+        settings,
+        credential_service=credential_service,
+        history_store_ref=history_store_ref,
+        checkpoint_store_ref=checkpoint_store_ref,
+        plugin_installation_store_ref=None,
+    )
+
+    assert isinstance(repository, FakeRepository)
+    assert isinstance(history_store_ref["store"], FakeHistoryStore)
+    assert isinstance(checkpoint_store_ref["store"], FakeCheckpointStore)
+
+
+def test_create_repository_inmemory_backend_without_plugin_store_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create_repository tolerates omitting the plugin store ref on in-memory."""
+
+    settings = DummySettings({"REPOSITORY_BACKEND": "inmemory"})
+    credential_service = object()
+    history_store_ref: dict[str, object] = {}
+    checkpoint_store_ref: dict[str, object] = {}
+
+    class FakeHistoryStore:
+        pass
+
+    class FakeCheckpointStore:
+        pass
+
+    class FakeRepository:
+        def __init__(self, *, credential_service: object) -> None:
+            self.credential_service = credential_service
+
+    monkeypatch.setattr(providers, "InMemoryRunHistoryStore", FakeHistoryStore)
+    monkeypatch.setattr(
+        providers, "InMemoryAgentensorCheckpointStore", FakeCheckpointStore
+    )
+    monkeypatch.setattr(providers, "InMemoryWorkflowRepository", FakeRepository)
+
+    repository = providers.create_repository(
+        settings,
+        credential_service=credential_service,
+        history_store_ref=history_store_ref,
+        checkpoint_store_ref=checkpoint_store_ref,
+        plugin_installation_store_ref=None,
+    )
+
+    assert isinstance(repository, FakeRepository)
+    assert isinstance(history_store_ref["store"], FakeHistoryStore)
+    assert isinstance(checkpoint_store_ref["store"], FakeCheckpointStore)
+
+
+def test_create_repository_postgres_backend_without_plugin_store_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create_repository tolerates omitting the plugin store ref on postgres."""
+
+    settings = DummySettings(
+        {
+            "REPOSITORY_BACKEND": "postgres",
+            "POSTGRES_DSN": "postgresql://test:test@localhost/testdb",
+        }
+    )
+    credential_service = object()
+    history_store_ref: dict[str, object] = {}
+    checkpoint_store_ref: dict[str, object] = {}
+
+    class FakeHistoryStore:
+        def __init__(
+            self,
+            dsn: str,
+            *,
+            pool_min_size: int = 1,
+            pool_max_size: int = 10,
+            pool_timeout: float = 30.0,
+            pool_max_idle: float = 300.0,
+        ) -> None:
+            self.dsn = dsn
+
+    class FakeCheckpointStore:
+        def __init__(
+            self,
+            dsn: str,
+            *,
+            pool_min_size: int = 1,
+            pool_max_size: int = 10,
+            pool_timeout: float = 30.0,
+            pool_max_idle: float = 300.0,
+        ) -> None:
+            self.dsn = dsn
+
+    class FakeRepository:
+        def __init__(
+            self,
+            dsn: str,
+            *,
+            credential_service: object,
+            pool_min_size: int = 1,
+            pool_max_size: int = 10,
+            pool_timeout: float = 30.0,
+            pool_max_idle: float = 300.0,
+        ) -> None:
+            self.dsn = dsn
+            self.credential_service = credential_service
+
+    monkeypatch.setattr(providers, "PostgresRunHistoryStore", FakeHistoryStore)
+    monkeypatch.setattr(
+        providers, "PostgresAgentensorCheckpointStore", FakeCheckpointStore
+    )
+    monkeypatch.setattr(providers, "PostgresWorkflowRepository", FakeRepository)
+
+    repository = providers.create_repository(
+        settings,
+        credential_service=credential_service,
+        history_store_ref=history_store_ref,
+        checkpoint_store_ref=checkpoint_store_ref,
+        plugin_installation_store_ref=None,
+    )
+
+    assert isinstance(repository, FakeRepository)
+    assert isinstance(history_store_ref["store"], FakeHistoryStore)
+    assert isinstance(checkpoint_store_ref["store"], FakeCheckpointStore)

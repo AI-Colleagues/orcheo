@@ -33,7 +33,16 @@ class InMemoryCredentialVault(BaseCredentialVault):
         for stored_id, stored in self._store.items():
             if stored_id == metadata.id:
                 continue
-            if stored.name.casefold() == normalized:
+            if stored.name.casefold() != normalized:
+                continue
+            # Name uniqueness is scoped per workspace (NULL = global scope).
+            same_workspace = (
+                stored.workspace_id is None and metadata.workspace_id is None
+            )
+            same_workspace = (
+                same_workspace or stored.workspace_id == metadata.workspace_id
+            )
+            if same_workspace:
                 msg = f"Credential name '{metadata.name}' is already in use."
                 raise DuplicateCredentialNameError(msg)
         self._store[metadata.id] = metadata.model_copy(deep=True)
@@ -45,8 +54,15 @@ class InMemoryCredentialVault(BaseCredentialVault):
             msg = "Credential was not found."
             raise CredentialNotFoundError(msg) from exc
 
-    def _iter_metadata(self) -> Iterable[CredentialMetadata]:
+    def _iter_metadata(
+        self, *, workspace_id: str | None = None
+    ) -> Iterable[CredentialMetadata]:
         for metadata in self._store.values():
+            if workspace_id is not None and metadata.workspace_id not in {
+                None,
+                workspace_id,
+            }:
+                continue
             yield metadata.model_copy(deep=True)
 
     def _remove_credential(self, credential_id: UUID) -> None:
@@ -66,8 +82,15 @@ class InMemoryCredentialVault(BaseCredentialVault):
             msg = "Credential template was not found."
             raise CredentialTemplateNotFoundError(msg) from exc
 
-    def _iter_templates(self) -> Iterable[CredentialTemplate]:
+    def _iter_templates(
+        self, *, workspace_id: str | None = None
+    ) -> Iterable[CredentialTemplate]:
         for template in self._templates.values():
+            if workspace_id is not None and template.workspace_id not in {
+                None,
+                workspace_id,
+            }:
+                continue
             yield template.model_copy(deep=True)
 
     def _remove_template(self, template_id: UUID) -> None:
@@ -87,8 +110,15 @@ class InMemoryCredentialVault(BaseCredentialVault):
             msg = "Governance alert was not found."
             raise GovernanceAlertNotFoundError(msg) from exc
 
-    def _iter_alerts(self) -> Iterable[SecretGovernanceAlert]:
+    def _iter_alerts(
+        self, *, workspace_id: str | None = None
+    ) -> Iterable[SecretGovernanceAlert]:
         for alert in self._alerts.values():
+            if workspace_id is not None and alert.workspace_id not in {
+                None,
+                workspace_id,
+            }:
+                continue
             yield alert.model_copy(deep=True)
 
     def _remove_alert(self, alert_id: UUID) -> None:

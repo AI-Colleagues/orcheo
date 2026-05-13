@@ -10,6 +10,7 @@ from orcheo.external_agents.models import WorkingDirectoryValidationError
 DEFAULT_RUNTIME_DIR_NAME = "agent-runtimes"
 DEFAULT_RUNTIME_ROOT_UNDER_DATA = Path("/data") / DEFAULT_RUNTIME_DIR_NAME
 DEFAULT_RUNTIME_ROOT_UNDER_HOME = Path("~/.orcheo") / DEFAULT_RUNTIME_DIR_NAME
+DEFAULT_WORKSPACE_AGENT_ROOT = Path("/workspace/agents")
 RUNTIMES_DIR_NAME = "runtimes"
 STAGING_DIR_NAME = "staging"
 
@@ -44,9 +45,44 @@ def provider_manifest_path(runtime_root: Path, provider: str) -> Path:
     return provider_root(runtime_root, provider) / "manifest.json"
 
 
-def provider_environment_path(runtime_root: Path, provider: str) -> Path:
+def provider_environment_path(
+    runtime_root: Path,
+    provider: str,
+    *,
+    workspace_id: str | None = None,
+) -> Path:
     """Return the persisted provider environment path for ``provider``."""
-    return provider_root(runtime_root, provider) / "environment.json"
+    if workspace_id is None:
+        return provider_root(runtime_root, provider) / "environment.json"
+    return (
+        provider_root(runtime_root, provider)
+        / "workspaces"
+        / workspace_id
+        / "environment.json"
+    )
+
+
+def workspace_provider_environment_overrides(
+    provider: str,
+    *,
+    workspace_id: str | None = None,
+    workspace_root: str | Path | None = None,
+) -> dict[str, str]:
+    """Return workspace-specific auth cache roots for provider commands."""
+    if workspace_id is None or not workspace_id.strip():
+        return {}
+
+    root = (
+        Path(workspace_root).expanduser()
+        if workspace_root is not None
+        else DEFAULT_WORKSPACE_AGENT_ROOT / workspace_id.strip()
+    )
+    resolved_root = root.resolve(strict=False)
+    if provider == "codex":
+        return {"CODEX_HOME": str(resolved_root / ".codex")}
+    if provider == "gemini":
+        return {"HOME": str(resolved_root)}
+    return {}
 
 
 def provider_lock_path(runtime_root: Path, provider: str) -> Path:
@@ -148,6 +184,8 @@ def validate_working_directory(
     *,
     runtime_root: Path,
     home_directory: Path | None = None,
+    workspace_id: str | None = None,
+    workspace_root: str | Path | None = None,
     auto_init_git_worktree: bool = False,
 ) -> Path:
     """Validate a requested working directory for external agent execution."""
@@ -165,6 +203,23 @@ def validate_working_directory(
         runtime_root_resolved=runtime_root_resolved,
         home_resolved=home_resolved,
     )
+    if workspace_id is not None:
+        workspace_root_path = (
+            Path(workspace_root).expanduser()
+            if workspace_root is not None
+            else DEFAULT_WORKSPACE_AGENT_ROOT / workspace_id
+        )
+        workspace_root_resolved = workspace_root_path.resolve(
+            strict=not auto_init_git_worktree
+        )
+        if resolved != workspace_root_resolved and not resolved.is_relative_to(
+            workspace_root_resolved
+        ):
+            msg = (
+                "Refusing to run an external agent outside the connected "
+                f"workspace filesystem root '{workspace_root_resolved}'."
+            )
+            raise WorkingDirectoryValidationError(msg)
     _ensure_directory_exists(
         resolved,
         auto_init_git_worktree=auto_init_git_worktree,

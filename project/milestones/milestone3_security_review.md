@@ -11,7 +11,7 @@ Stakeholders included the backend lead (repository & runtime), security reviewer
 
 ## Methodology
 1. **Architecture review** – Cross-referenced the credential vault, trigger layer, and runtime diagrams with the implementation (see `../architecture/design.md`) to map trust boundaries (SDK callers, trigger entry points, worker queues) before enumerating threats.
-2. **Threat modeling** – Identified asset flows (secrets, OAuth refresh tokens, webhook payloads) and abuse cases (secret exfiltration, trigger replay, tenant bleed) and documented mitigations per component.
+2. **Threat modeling** – Identified asset flows (secrets, OAuth refresh tokens, webhook payloads) and abuse cases (secret exfiltration, trigger replay, workspace bleed) and documented mitigations per component.
 3. **Targeted penetration tests** – Exercised webhook validation, cron overlap protection, retry throttling, and vault rotation APIs using crafted requests and mocked contexts.
 4. **Secure code review** – Audited encryption, logging, and persistence logic for secret exposure, constant-time comparisons, and data isolation.
 5. **Remediation & regression tests** – Landed fixes and expanded coverage for sensitive header scrubbing while running full lint/test suites prior to sign-off.
@@ -30,7 +30,7 @@ Stakeholders included the backend lead (repository & runtime), security reviewer
 ### Execution & Runtime Surfaces
 - Repository operations gate trigger dispatch on credential health via the trigger layer guard, ensuring unhealthy credentials block execution (`apps/backend/src/orcheo_backend/app/repository_sqlite.py`).
 - Run history store confines payload mutations under an async lock, preventing concurrent writes from leaking cross-run data (`apps/backend/src/orcheo_backend/app/history.py`).
-- Threat model highlighted the absence of tenant-aware sandboxing in the LangGraph execution worker—captured as a follow-up for Milestone 6 hardening.
+- Threat model highlighted the absence of workspace-aware sandboxing in the LangGraph execution worker—captured as a follow-up for Milestone 6 hardening.
 
 ## Findings & Resolutions
 | ID | Severity | Finding | Resolution | Owner |
@@ -39,12 +39,12 @@ Stakeholders included the backend lead (repository & runtime), security reviewer
 | SR-002 | High | Shared secret headers were persisted into workflow run payloads, risking credential leakage. | Added header scrubbing before persistence and coverage at trigger-layer and webhook-state levels (`src/orcheo/triggers/webhook.py`, `src/orcheo/triggers/layer.py`, `tests/test_triggers_layer.py`). | Trigger maintainer |
 | SR-003 | Medium | Vault audit events lack export hooks for downstream SIEM ingestion. | Track follow-up task to add structured log streaming in Milestone 6. | Platform lead |
 | SR-004 | Medium | Rate limiting is process-local; distributed deployments need a shared limiter. | Follow-up backlog item to integrate Redis-backed limiter before production rollout. | Backend lead |
-| SR-005 | Medium | Execution workers lack tenant-aware sandbox boundaries for untrusted nodes. | Documented requirement to enforce per-run isolation as part of observability milestone. | Runtime lead |
+| SR-005 | Medium | Execution workers lack workspace-aware sandbox boundaries for untrusted nodes. | Documented requirement to enforce per-run isolation as part of observability milestone. | Runtime lead |
 
 ## Follow-up Actions
 - [ ] Design SIEM export pipeline for vault audit trails (SR-003).
 - [ ] Integrate distributed rate limiter for webhook triggers (SR-004).
-- [ ] Introduce tenant/workspace isolation at execution-worker layer (SR-005).
+- [ ] Introduce workspace/workspace isolation at execution-worker layer (SR-005).
 
 ## Exit Criteria & Sign-off
 - ✅ Roadmap item completed; see [Milestone 3 roadmap entry](../product/roadmap.md#milestone-3-–-credential-vault--security).

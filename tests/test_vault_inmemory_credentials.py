@@ -16,8 +16,10 @@ from orcheo.models import (
 )
 from orcheo.vault import (
     CredentialNotFoundError,
+    DuplicateCredentialNameError,
     InMemoryCredentialVault,
 )
+from orcheo.vault.errors import RotationPolicyError, WorkflowScopeError
 
 
 def test_vault_updates_oauth_tokens_and_health() -> None:
@@ -102,14 +104,30 @@ def test_delete_credential_removes_credential_and_alerts() -> None:
         credential_id=metadata.id,
         context=context,
     )
+    other = vault.create_credential(
+        name="Other",
+        provider="service",
+        scopes=["read"],
+        secret="secret-2",
+        actor="ops",
+        scope=CredentialScope.for_workflows(workflow_id),
+    )
+    vault.record_alert(
+        kind=GovernanceAlertKind.TOKEN_EXPIRING,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="other",
+        actor="ops",
+        credential_id=other.id,
+        context=context,
+    )
 
-    assert len(vault.list_credentials(context=context)) == 1
-    assert len(vault.list_alerts(context=context)) == 1
+    assert len(vault.list_credentials(context=context)) == 2
+    assert len(vault.list_alerts(context=context)) == 2
 
     vault.delete_credential(metadata.id, context=context)
 
-    assert len(vault.list_credentials(context=context)) == 0
-    assert len(vault.list_alerts(context=context)) == 0
+    assert len(vault.list_credentials(context=context)) == 1
+    assert len(vault.list_alerts(context=context)) == 1
 
 
 def test_inmemory_remove_credential_missing() -> None:
@@ -161,3 +179,177 @@ def test_update_credential_rejects_empty_provider() -> None:
 
     with pytest.raises(ValueError, match="provider cannot be empty"):
         vault.update_credential(credential_id=metadata.id, actor="ops", provider="  ")
+
+
+def test_update_credential_tracks_multiple_field_changes() -> None:
+    cipher = AesGcmCredentialCipher(key="update-credential")
+    vault = InMemoryCredentialVault(cipher=cipher)
+    workspace_id = uuid4()
+    metadata = vault.create_credential(
+        name="Service",
+        provider="svc",
+        scopes=["read"],
+        secret="secret-value",
+        actor="ops",
+    )
+
+    updated = vault.update_credential(
+        credential_id=metadata.id,
+        actor="ops",
+        name="Renamed",
+        provider="svc-new",
+        secret="rotated-secret",
+        scope=CredentialScope.for_workspaces(workspace_id),
+    )
+
+    assert updated.name == "Renamed"
+    assert updated.provider == "svc-new"
+    assert updated.reveal(cipher=cipher) == "rotated-secret"
+    assert updated.audit_log[-1].action == "credential_updated"
+
+    rotated_again = vault.update_credential(
+        credential_id=metadata.id,
+        actor="ops",
+        secret="rotated-again",
+        context=CredentialAccessContext(workspace_id=workspace_id),
+    )
+
+    assert rotated_again.reveal(cipher=cipher) == "rotated-again"
+
+
+def test_rotate_secret_rejects_identical_secret() -> None:
+    cipher = AesGcmCredentialCipher(key="rotate-secret")
+    vault = InMemoryCredentialVault(cipher=cipher)
+    metadata = vault.create_credential(
+        name="Service",
+        provider="svc",
+        scopes=["read"],
+        secret="secret-value",
+        actor="ops",
+    )
+
+    with pytest.raises(
+        RotationPolicyError, match="must differ from the previous value"
+    ):
+        vault.rotate_secret(
+            credential_id=metadata.id, secret="secret-value", actor="ops"
+        )
+
+
+def test_get_metadata_rejects_workspace_mismatch() -> None:
+    vault = InMemoryCredentialVault()
+    metadata = vault.create_credential(
+        name="Service",
+        provider="svc",
+        scopes=["read"],
+        secret="secret-value",
+        actor="ops",
+        workspace_id="workspace-a",
+    )
+
+    with pytest.raises(WorkflowScopeError, match="provided context"):
+        vault.reveal_secret(
+            credential_id=metadata.id,
+            context=CredentialAccessContext(workspace_id=uuid4()),
+        )
+
+
+def test_get_metadata_rejects_scope_mismatch() -> None:
+    workflow_id = uuid4()
+    vault = InMemoryCredentialVault()
+    metadata = vault.create_credential(
+        name="Service",
+        provider="svc",
+        scopes=["read"],
+        secret="secret-value",
+        actor="ops",
+        scope=CredentialScope.for_workflows(workflow_id),
+    )
+
+    with pytest.raises(WorkflowScopeError, match="provided context"):
+        vault.reveal_secret(
+            credential_id=metadata.id,
+            context=CredentialAccessContext(workflow_id=uuid4()),
+        )
+
+
+def test_list_all_credentials_filters_workspace() -> None:
+    vault = InMemoryCredentialVault()
+    vault.create_credential(
+        name="Global",
+        provider="svc",
+        scopes=["read"],
+        secret="global-secret",
+        actor="ops",
+    )
+    vault.create_credential(
+        name="Workspace A",
+        provider="svc",
+        scopes=["read"],
+        secret="workspace-a-secret",
+        actor="ops",
+        workspace_id="workspace-a",
+    )
+    vault.create_credential(
+        name="Workspace B",
+        provider="svc",
+        scopes=["read"],
+        secret="workspace-b-secret",
+        actor="ops",
+        workspace_id="workspace-b",
+    )
+
+    listed = vault.list_all_credentials(workspace_id="workspace-a")
+
+    assert [item.name for item in listed] == ["Global", "Workspace A"]
+
+
+def test_inmemory_rejects_duplicate_names_per_workspace() -> None:
+    vault = InMemoryCredentialVault()
+    vault.create_credential(
+        name="Service",
+        provider="svc",
+        scopes=["read"],
+        secret="secret-1",
+        actor="ops",
+        workspace_id="workspace-a",
+    )
+
+    with pytest.raises(DuplicateCredentialNameError):
+        vault.create_credential(
+            name="Service",
+            provider="svc",
+            scopes=["read"],
+            secret="secret-2",
+            actor="ops",
+            workspace_id="workspace-a",
+        )
+
+
+def test_inmemory_allows_duplicate_names_across_workspaces() -> None:
+    vault = InMemoryCredentialVault()
+    vault.create_credential(
+        name="Service",
+        provider="svc",
+        scopes=["read"],
+        secret="secret-1",
+        actor="ops",
+        workspace_id="workspace-a",
+    )
+    vault.create_credential(
+        name="Service",
+        provider="svc",
+        scopes=["read"],
+        secret="secret-2",
+        actor="ops",
+        workspace_id="workspace-b",
+    )
+
+    assert len(vault.list_all_credentials()) == 2
+
+
+def test_inmemory_load_missing_credential_raises() -> None:
+    vault = InMemoryCredentialVault()
+
+    with pytest.raises(CredentialNotFoundError):
+        vault._load_metadata(uuid4())

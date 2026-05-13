@@ -55,7 +55,11 @@ class DummyCredentialService:
         self.calls: list[tuple[UUID, str | None]] = []
 
     async def ensure_workflow_health(
-        self, workflow_id: UUID, *, actor: str | None = None
+        self,
+        workflow_id: UUID,
+        *,
+        actor: str | None = None,
+        workspace_id: str | None = None,
     ) -> SimpleNamespace:
         self.calls.append((workflow_id, actor))
         return self.report
@@ -196,6 +200,102 @@ def test_release_cron_run_delegates_to_trigger_layer() -> None:
     state._release_cron_run(run_id)
 
     assert stub.released == [run_id]
+
+
+@pytest.mark.asyncio()
+async def test_create_run_locked_releases_workspace_slot_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace reservations are released if run creation fails mid-flight."""
+
+    state, workflow_id, version_id = _build_state()
+    workspace_id = str(uuid4())
+    reserve_calls: list[tuple[str, int]] = []
+    release_calls: list[str] = []
+
+    class _WorkspaceRepo:
+        def get_workspace(self, workspace_uuid: UUID) -> SimpleNamespace:
+            assert str(workspace_uuid) == workspace_id
+            return SimpleNamespace(
+                quotas=SimpleNamespace(max_concurrent_runs=3),
+            )
+
+    class _Governance:
+        def reserve_run_slot(self, workspace: str, *, limit: int) -> None:
+            reserve_calls.append((workspace, limit))
+
+        def release_run_slot(self, workspace: str) -> None:
+            release_calls.append(workspace)
+
+    from importlib import import_module
+
+    workspace_module = import_module("orcheo_backend.app.workspace")
+    workspace_dependencies = import_module("orcheo_backend.app.workspace.dependencies")
+    governance_module = import_module("orcheo_backend.app.workspace_governance")
+    monkeypatch.setattr(
+        workspace_module,
+        "get_workspace_repository",
+        lambda: _WorkspaceRepo(),
+    )
+    monkeypatch.setattr(
+        workspace_dependencies,
+        "get_workspace_repository",
+        lambda: _WorkspaceRepo(),
+    )
+    monkeypatch.setattr(
+        governance_module,
+        "get_workspace_governance",
+        lambda: _Governance(),
+    )
+
+    def _boom(*_: object, **__: object) -> None:
+        raise RuntimeError("track failed")
+
+    state._trigger_layer.track_run = _boom  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="track failed"):
+        state._create_run_locked(
+            workflow_id=workflow_id,
+            workflow_version_id=version_id,
+            triggered_by="manual",
+            input_payload={},
+            actor="tester",
+            workspace_id=workspace_id,
+        )
+
+    assert reserve_calls == [(workspace_id, 3)]
+    assert release_calls == [workspace_id]
+
+
+@pytest.mark.asyncio()
+async def test_resolve_workflow_ref_prefers_archived_match_then_uuid() -> None:
+    """Archived matches and UUID references are resolved when workspace-scoped."""
+
+    state = InMemoryRepositoryState()
+    workflow_archived_a = Workflow(name="A", handle="shared-handle")
+    workflow_archived_a.is_archived = True
+    workflow_archived_a.updated_at = workflow_archived_a.updated_at.replace(year=2024)
+    workflow_archived_b = Workflow(name="B", handle="shared-handle")
+    workflow_archived_b.is_archived = True
+    workflow_archived_b.updated_at = workflow_archived_b.updated_at.replace(year=2025)
+    workflow_uuid = Workflow(name="Uuid Match")
+
+    state._workflows[workflow_archived_a.id] = workflow_archived_a
+    state._workflows[workflow_archived_b.id] = workflow_archived_b
+    state._workflows[workflow_uuid.id] = workflow_uuid
+    state._workflow_workspaces[workflow_archived_a.id] = "workspace-a"
+    state._workflow_workspaces[workflow_archived_b.id] = "workspace-b"
+    state._workflow_workspaces[workflow_uuid.id] = "workspace-b"
+    state._rebuild_handle_indexes_locked()
+
+    resolved_archived = await state.resolve_workflow_ref(
+        "shared-handle",
+        workspace_id="workspace-b",
+    )
+    resolved_uuid = await state.resolve_workflow_ref(str(workflow_uuid.id))
+
+    assert resolved_archived == workflow_archived_b.id
+    assert resolved_uuid == workflow_uuid.id
 
 
 @pytest.mark.asyncio
