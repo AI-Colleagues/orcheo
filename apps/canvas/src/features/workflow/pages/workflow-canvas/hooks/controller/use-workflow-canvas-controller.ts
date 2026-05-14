@@ -1,5 +1,3 @@
-import { useParams } from "react-router-dom";
-
 import type {
   CanvasEdge,
   CanvasNode,
@@ -13,9 +11,13 @@ import { buildWorkflowLayoutProps } from "./build-layout-props";
 export function useWorkflowCanvasController(
   initialNodes: CanvasNode[],
   initialEdges: CanvasEdge[],
+  workflowId?: string,
 ) {
-  const { workflowId } = useParams<{ workflowId?: string }>();
-  const core = useWorkflowCanvasCore({ initialNodes, initialEdges });
+  const core = useWorkflowCanvasCore({
+    initialNodes,
+    initialEdges,
+    workflowId,
+  });
   const resources = useWorkflowCanvasResources(core, workflowId ?? undefined);
   const execution = useWorkflowCanvasExecution(core, resources);
   useWorkflowCanvasLifecycle(core, workflowId ?? undefined);

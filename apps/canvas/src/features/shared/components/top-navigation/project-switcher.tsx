@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/design-system/ui/button";
 import {
   DropdownMenu,
@@ -16,9 +16,18 @@ import {
   type StoredWorkflow,
   WORKFLOW_STORAGE_EVENT,
 } from "@features/workflow/lib/workflow-storage";
+import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
+import {
+  getWorkspaceGalleryPath,
+  getWorkspaceWorkflowPath,
+  getWorkspaceSlugFromPathname,
+} from "@/lib/workspace-routing";
 
 export default function ProjectSwitcher() {
   const [workflows, setWorkflows] = useState<StoredWorkflow[]>([]);
+  const { pathname } = useLocation();
+  const workspaceSlug =
+    getWorkspaceSlugFromPathname(pathname) ?? getSelectedWorkspaceSlug();
 
   useEffect(() => {
     let isMounted = true;
@@ -75,7 +84,7 @@ export default function ProjectSwitcher() {
   return (
     <div className="flex items-center gap-4 lg:gap-6">
       <Link
-        to="/"
+        to={getWorkspaceGalleryPath(workspaceSlug)}
         className="flex items-center gap-2 whitespace-nowrap font-semibold"
       >
         <img src="/favicon.ico" alt="Orcheo Logo" className="h-6 w-6" />
@@ -98,7 +107,10 @@ export default function ProjectSwitcher() {
             recentWorkflows.map((workflow) => (
               <DropdownMenuItem key={workflow.id}>
                 <Link
-                  to={`/workflow-canvas/${getWorkflowRouteRef(workflow)}`}
+                  to={getWorkspaceWorkflowPath(
+                    workspaceSlug,
+                    getWorkflowRouteRef(workflow),
+                  )}
                   className="flex w-full items-center"
                 >
                   {workflow.name}
@@ -110,12 +122,18 @@ export default function ProjectSwitcher() {
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem>
-            <Link to="/" className="flex w-full items-center">
+            <Link
+              to={getWorkspaceGalleryPath(workspaceSlug)}
+              className="flex w-full items-center"
+            >
               View all colleagues
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem>
-            <Link to="/workflow-canvas" className="flex w-full items-center">
+            <Link
+              to={getWorkspaceWorkflowPath(workspaceSlug, "new")}
+              className="flex w-full items-center"
+            >
               <Plus className="mr-2 h-4 w-4" />
               Create New Project
             </Link>

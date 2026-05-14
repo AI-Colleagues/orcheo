@@ -21,6 +21,7 @@ import {
   getSelectedWorkspaceSlug,
   setSelectedWorkspaceSlug,
 } from "@/lib/workspace-session";
+import { getWorkspaceGalleryPath } from "@/lib/workspace-routing";
 import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
 
 interface WorkspaceBootstrapGateProps {
@@ -135,7 +136,7 @@ export function WorkspaceBootstrapGate({
     try {
       const created = await createWorkspace({ name, slug });
       setSelectedWorkspaceSlug(created.slug);
-      window.location.reload();
+      window.location.assign(getWorkspaceGalleryPath(created.slug));
     } catch (error) {
       toast({
         title: "Failed to create workspace",

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
 import {
@@ -28,6 +29,10 @@ import {
   getSelectedWorkspaceSlug,
   setSelectedWorkspaceSlug,
 } from "@/lib/workspace-session";
+import {
+  getWorkspaceGalleryPath,
+  getWorkspaceSlugFromPathname,
+} from "@/lib/workspace-routing";
 import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
 
 const slugify = (value: string): string =>
@@ -47,6 +52,11 @@ export default function ActiveWorkspaceIndicator() {
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSlug, setWorkspaceSlugState] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const { pathname } = useLocation();
+  const routeWorkspaceSlug = useMemo(
+    () => getWorkspaceSlugFromPathname(pathname),
+    [pathname],
+  );
   const suggestedWorkspaceName = useMemo(() => {
     if (!authUser?.name) {
       return "";
@@ -65,7 +75,7 @@ export default function ActiveWorkspaceIndicator() {
         }
         setWorkspaces(membershipsPayload.memberships);
 
-        const currentSlug = getSelectedWorkspaceSlug();
+        const currentSlug = routeWorkspaceSlug ?? getSelectedWorkspaceSlug();
         if (membershipsPayload.memberships.length === 0) {
           setWorkspaceName((current) => current || suggestedWorkspaceName);
           setWorkspaceSlugState("");
@@ -113,9 +123,9 @@ export default function ActiveWorkspaceIndicator() {
     return () => {
       active = false;
     };
-  }, [suggestedWorkspaceName]);
+  }, [routeWorkspaceSlug, suggestedWorkspaceName]);
 
-  const selectedWorkspaceSlug = getSelectedWorkspaceSlug();
+  const selectedWorkspaceSlug = routeWorkspaceSlug ?? getSelectedWorkspaceSlug();
   const currentWorkspace = selectedWorkspaceSlug
     ? workspaces.find((workspace) => workspace.slug === selectedWorkspaceSlug) ??
       null
@@ -123,7 +133,7 @@ export default function ActiveWorkspaceIndicator() {
 
   const handleSelectWorkspace = (slug: string) => {
     setSelectedWorkspaceSlug(slug);
-    window.location.reload();
+    window.location.assign(getWorkspaceGalleryPath(slug));
   };
 
   const handleCreateWorkspace = async () => {
@@ -150,7 +160,7 @@ export default function ActiveWorkspaceIndicator() {
       setWorkspaceName("");
       setWorkspaceSlugState("");
       setSelectedWorkspaceSlug(created.slug);
-      window.location.reload();
+      window.location.assign(getWorkspaceGalleryPath(created.slug));
     } catch (error) {
       toast({
         title: "Failed to create workspace",

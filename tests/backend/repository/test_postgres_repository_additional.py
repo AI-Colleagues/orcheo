@@ -437,6 +437,7 @@ async def test_persistence_ensure_handle_available_locked_create_path_avoids_nul
 
     query, params = repo._pool._connection.queries[0]
     assert "id !=" not in query
+    assert "workspace_id IS NULL" in query
     assert params == ("shared-handle",)
 
 

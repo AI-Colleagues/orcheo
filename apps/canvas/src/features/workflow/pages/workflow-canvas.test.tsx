@@ -105,10 +105,10 @@ const DEFAULT_INITIAL_NODES = [
 
 const renderCanvas = (initialNodes = DEFAULT_INITIAL_NODES) => {
   return render(
-    <MemoryRouter initialEntries={["/workflow-canvas"]}>
+    <MemoryRouter initialEntries={["/global-org/new"]}>
       <Routes>
         <Route
-          path="/workflow-canvas"
+          path="/:workspaceSlug/new"
           element={<WorkflowCanvas initialNodes={initialNodes} />}
         />
       </Routes>

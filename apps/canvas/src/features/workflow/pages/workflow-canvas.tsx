@@ -11,19 +11,22 @@ import type {
 interface WorkflowCanvasProps {
   initialNodes?: CanvasNode[];
   initialEdges?: CanvasEdge[];
+  workflowId?: string;
 }
 
 export default function WorkflowCanvas({
   initialNodes = [],
   initialEdges = [],
+  workflowId,
 }: WorkflowCanvasProps) {
   const { layoutProps } = useWorkflowCanvasController(
     initialNodes,
     initialEdges,
+    workflowId,
   );
 
   const { setPageContext } = usePageContext();
-  const workflowId = layoutProps.workflowProps.workflowId ?? null;
+  const activeWorkflowId = layoutProps.workflowProps.workflowId ?? null;
   const workflowName =
     layoutProps.topNavigationProps.currentWorkflow.name ?? null;
   const activeTab = layoutProps.tabsProps.activeTab;
@@ -31,11 +34,11 @@ export default function WorkflowCanvas({
   useEffect(() => {
     setPageContext({
       page: "canvas",
-      workflowId,
+      workflowId: activeWorkflowId,
       workflowName,
       activeTab,
     });
-  }, [setPageContext, workflowId, workflowName, activeTab]);
+  }, [setPageContext, activeWorkflowId, workflowName, activeTab]);
 
   return <WorkflowCanvasLayout {...layoutProps} />;
 }

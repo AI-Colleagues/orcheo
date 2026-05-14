@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
 import type { ReactFlowInstance } from "@xyflow/react";
 
 import { getBackendBaseUrl } from "@/lib/config";
@@ -58,13 +57,14 @@ export interface WorkflowCanvasCore {
 interface UseWorkflowCanvasCoreArgs {
   initialNodes: CanvasNode[];
   initialEdges: CanvasEdge[];
+  workflowId?: string;
 }
 
 export function useWorkflowCanvasCore({
   initialNodes,
   initialEdges,
+  workflowId,
 }: UseWorkflowCanvasCoreArgs): WorkflowCanvasCore {
-  const { workflowId } = useParams<{ workflowId?: string }>();
   const history = useWorkflowCanvasHistory({ initialNodes, initialEdges });
   const metadata = useWorkflowMetadataState();
   const validation = useWorkflowValidationState();

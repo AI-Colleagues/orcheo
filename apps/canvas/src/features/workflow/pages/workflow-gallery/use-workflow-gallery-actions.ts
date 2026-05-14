@@ -11,6 +11,8 @@ import {
 } from "@features/workflow/lib/workflow-storage";
 import { fetchWorkflowVersions } from "@features/workflow/lib/workflow-storage-api";
 import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
+import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
+import { getWorkspaceWorkflowPath } from "@/lib/workspace-routing";
 import { type WorkflowGalleryTab } from "./types";
 
 interface WorkflowGalleryActionsArgs {
@@ -85,7 +87,9 @@ export const useWorkflowGalleryActions = (
 
   const handleOpenWorkflow = useCallback(
     (workflowId: string) => {
-      navigate(`/workflow-canvas/${workflowId}`);
+      navigate(
+        getWorkspaceWorkflowPath(getSelectedWorkspaceSlug(), workflowId),
+      );
     },
     [navigate],
   );

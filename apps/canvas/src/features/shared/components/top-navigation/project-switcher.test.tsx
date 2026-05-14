@@ -13,6 +13,10 @@ vi.mock("@features/workflow/lib/workflow-storage", () => ({
   WORKFLOW_STORAGE_EVENT: "orcheo:workflow-storage.updated",
 }));
 
+vi.mock("@/lib/workspace-session", () => ({
+  getSelectedWorkspaceSlug: () => "global-org",
+}));
+
 const buildStoredWorkflow = (
   id: string,
   name: string,
@@ -79,7 +83,7 @@ describe("ProjectSwitcher", () => {
 
     expect(
       screen.getByRole("link", { name: "Simple Agent Copy" }),
-    ).toHaveAttribute("href", "/workflow-canvas/simple-agent-copy");
+    ).toHaveAttribute("href", "/global-org/simple-agent-copy");
   });
 
   it("shows an empty state when no colleagues exist", async () => {

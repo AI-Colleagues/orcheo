@@ -77,8 +77,7 @@ def _resolve_chatkit_public_base_url() -> str | None:
 
 def _apply_share_url(workflow: Workflow, public_base_url: str | None) -> Workflow:
     if public_base_url and workflow.is_public:
-        workflow_ref = workflow.handle or str(workflow.id)
-        workflow.share_url = f"{public_base_url}/chat/{workflow_ref}"
+        workflow.share_url = f"{public_base_url}/chat/{workflow.id}"
     else:
         workflow.share_url = None
     return workflow
@@ -268,19 +267,10 @@ async def _resolve_workflow_id(
         workflow_id = await repository.resolve_workflow_ref(
             workflow_ref,
             include_archived=include_archived,
+            workspace_id=workspace_id,
         )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
-    if workspace_id is not None and workflow_ref != MANAGED_VIBE_WORKFLOW_HANDLE:
-        try:
-            workflow = await repository.get_workflow(workflow_id)
-        except WorkflowNotFoundError as exc:
-            raise_not_found("Workflow not found", exc)
-        workflow_workspace_id = (
-            str(workflow.workspace_id) if workflow.workspace_id is not None else None
-        )
-        if workflow_workspace_id is not None and workflow_workspace_id != workspace_id:
-            raise_not_found("Workflow not found", WorkflowNotFoundError(workflow_ref))
     return str(workflow_id)
 
 
@@ -312,18 +302,15 @@ async def _load_workflow_for_request(
         repository,
         workflow_ref,
         include_archived=include_archived,
+        workspace_id=workspace_id,
     )
     try:
-        workflow = await repository.get_workflow(workflow_id)
+        workflow = await repository.get_workflow(
+            workflow_id,
+            workspace_id=workspace_id,
+        )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
-
-    if workspace_id is not None and workflow.handle != MANAGED_VIBE_WORKFLOW_HANDLE:
-        workflow_workspace_id = (
-            str(workflow.workspace_id) if workflow.workspace_id is not None else None
-        )
-        if workflow_workspace_id is not None and workflow_workspace_id != workspace_id:
-            raise_not_found("Workflow not found", WorkflowNotFoundError(workflow_ref))
 
     return workflow
 
