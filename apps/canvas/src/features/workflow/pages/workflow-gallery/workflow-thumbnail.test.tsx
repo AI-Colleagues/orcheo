@@ -3,6 +3,10 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 
 import { WorkflowThumbnail } from "./workflow-thumbnail";
 
+const themeMock = vi.hoisted(() => ({
+  useColorScheme: vi.fn(() => "light" as const),
+}));
+
 const workflowDataMock = vi.hoisted(() => ({
   getWorkflowTemplateDefinition: vi.fn(),
 }));
@@ -37,6 +41,10 @@ vi.mock("@features/workflow/data/workflow-data", async (importOriginal) => {
   };
 });
 
+vi.mock("@/hooks/use-color-scheme", () => ({
+  useColorScheme: themeMock.useColorScheme,
+}));
+
 vi.mock("@features/workflow/lib/mermaid-renderer", () => ({
   buildMermaidCacheKey: mermaidRendererMock.buildMermaidCacheKey,
   buildMermaidRenderId: mermaidRendererMock.buildMermaidRenderId,
@@ -64,6 +72,7 @@ const baseWorkflow = {
 
 afterEach(() => {
   cleanup();
+  themeMock.useColorScheme.mockReturnValue("light");
   workflowDataMock.getWorkflowTemplateDefinition.mockReset();
   mermaidRendererMock.buildMermaidCacheKey.mockReset();
   mermaidRendererMock.buildMermaidRenderId.mockReset();
@@ -82,6 +91,31 @@ describe("WorkflowThumbnail", () => {
     ).not.toBeNull();
     expect(container.querySelector(".workflow-thumbnail-mermaid")).toBeNull();
     expect(mermaidRendererMock.renderMermaidSvg).not.toHaveBeenCalled();
+  });
+
+  it("switches the fallback palette with the canvas theme", () => {
+    themeMock.useColorScheme.mockReturnValue("dark");
+
+    const { container } = render(
+      <WorkflowThumbnail
+        workflow={{
+          ...baseWorkflow,
+          nodes: [
+            {
+              id: "trigger-1",
+              type: "trigger",
+              position: { x: 0, y: 0 },
+              data: { label: "Trigger" },
+            },
+          ],
+        }}
+      />,
+    );
+
+    const rect = container.querySelector(".workflow-thumbnail-fallback rect");
+    expect(rect).not.toBeNull();
+    expect(rect?.getAttribute("fill")).toBe("#fbbf24");
+    expect(rect?.getAttribute("stroke")).toBe("#f59e0b");
   });
 
   it("renders Mermaid thumbnail when latest version contains Mermaid source", async () => {

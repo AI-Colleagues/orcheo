@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Workflow } from "@features/workflow/data/workflow-data";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { cn } from "@/lib/utils";
 import {
   buildMermaidCacheKey,
   buildMermaidRenderId,
@@ -8,13 +10,54 @@ import {
 } from "@features/workflow/lib/mermaid-renderer";
 import { resolveWorkflowVersionMermaidSource } from "@features/workflow/lib/workflow-storage-helpers";
 
-const NODE_COLORS: Record<string, string> = {
-  trigger: "#f59e0b",
-  api: "#3b82f6",
-  function: "#8b5cf6",
-  data: "#10b981",
-  ai: "#6366f1",
-  python: "#f97316",
+type ThumbnailPalette = {
+  nodeFill: Record<string, string>;
+  nodeStroke: Record<string, string>;
+  edgeStroke: string;
+  backgroundClassName: string;
+};
+
+const THUMBNAIL_PALETTE: Record<"light" | "dark", ThumbnailPalette> = {
+  light: {
+    nodeFill: {
+      trigger: "#f59e0b",
+      api: "#3b82f6",
+      function: "#8b5cf6",
+      data: "#10b981",
+      ai: "#6366f1",
+      python: "#f97316",
+    },
+    nodeStroke: {
+      trigger: "#d97706",
+      api: "#2563eb",
+      function: "#7c3aed",
+      data: "#059669",
+      ai: "#4f46e5",
+      python: "#ea580c",
+    },
+    edgeStroke: "#94a3b8",
+    backgroundClassName: "from-background/90 via-muted/30 to-background/80",
+  },
+  dark: {
+    nodeFill: {
+      trigger: "#fbbf24",
+      api: "#60a5fa",
+      function: "#a78bfa",
+      data: "#34d399",
+      ai: "#818cf8",
+      python: "#fb923c",
+    },
+    nodeStroke: {
+      trigger: "#f59e0b",
+      api: "#93c5fd",
+      function: "#c4b5fd",
+      data: "#6ee7b7",
+      ai: "#a5b4fc",
+      python: "#fdba74",
+    },
+    edgeStroke: "#cbd5e1",
+    backgroundClassName: "from-slate-950 via-slate-900 to-slate-950",
+  },
 };
 
 interface WorkflowThumbnailProps {
@@ -25,6 +68,7 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
   const [diagramSvg, setDiagramSvg] = useState<string | null>(null);
   const [diagramError, setDiagramError] = useState<string | null>(null);
   const [hasEnteredViewport, setHasEnteredViewport] = useState(false);
+  const colorScheme = useColorScheme();
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const latestVersion = workflow.versions?.at(-1);
@@ -161,11 +205,15 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
   const showFallbackThumbnail = Boolean(
     !mermaidSource || diagramError || !hasEnteredViewport,
   );
+  const palette = THUMBNAIL_PALETTE[colorScheme];
 
   return (
     <div
       ref={containerRef}
-      className="relative h-24 w-full overflow-hidden rounded-md bg-muted/30"
+      className={cn(
+        "relative h-24 w-full overflow-hidden rounded-md border border-border/60 bg-gradient-to-br shadow-inner",
+        palette.backgroundClassName,
+      )}
     >
       {showMermaidThumbnail ? (
         <div
@@ -176,7 +224,7 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
 
       {showLoadingThumbnail ? (
         <div
-          className="workflow-thumbnail-loading absolute inset-0 animate-pulse bg-muted/40"
+          className="workflow-thumbnail-loading absolute inset-0 animate-pulse bg-muted/40 dark:bg-muted/20"
           aria-hidden="true"
         />
       ) : null}
@@ -191,7 +239,8 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
           {workflow.nodes.slice(0, 5).map((node, index) => {
             const x = 30 + (index % 3) * 70;
             const y = 30 + Math.floor(index / 3) * 40;
-            const color = NODE_COLORS[node.type] ?? "#99a1b3";
+            const fill = palette.nodeFill[node.type] ?? palette.edgeStroke;
+            const stroke = palette.nodeStroke[node.type] ?? palette.edgeStroke;
 
             return (
               <g key={node.id}>
@@ -201,9 +250,9 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
                   width={30}
                   height={20}
                   rx={4}
-                  fill={color}
-                  fillOpacity={0.3}
-                  stroke={color}
+                  fill={fill}
+                  fillOpacity={0.24}
+                  stroke={stroke}
                   strokeWidth={1}
                 />
               </g>
@@ -236,7 +285,7 @@ export const WorkflowThumbnail = ({ workflow }: WorkflowThumbnailProps) => {
               <path
                 key={edge.id}
                 d={`M${sourceX},${sourceY} C${sourceX + 20},${sourceY} ${targetX - 20},${targetY} ${targetX},${targetY}`}
-                stroke="#99a1b3"
+                stroke={palette.edgeStroke}
                 strokeWidth={1}
                 fill="none"
               />
