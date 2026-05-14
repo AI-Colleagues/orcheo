@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 import { Play, Square } from "lucide-react";
 import { NodeProps, Handle, Position } from "@xyflow/react";
+import { WORKFLOW_NODE_CARD_SIZE_CLASSNAME } from "./node-card-size";
 
 export type StartEndNodeData = {
   label: string;
@@ -23,7 +24,8 @@ const StartEndNode = ({ data, selected }: NodeProps) => {
   return (
     <div
       className={cn(
-        "group relative rounded-xl border-2 shadow-sm transition-all duration-200 h-16 w-16 aspect-square flex items-center justify-center",
+        "group relative rounded-xl border-2 shadow-sm transition-all duration-200 flex items-center justify-center",
+        WORKFLOW_NODE_CARD_SIZE_CLASSNAME,
         nodeColors[type],
         selected && "ring-2 ring-primary ring-offset-2",
       )}

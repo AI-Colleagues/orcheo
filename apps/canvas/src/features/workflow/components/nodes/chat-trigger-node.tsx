@@ -10,6 +10,7 @@ import { NodeProps, Handle, Position } from "@xyflow/react";
 import { cn } from "@/lib/utils";
 import { MessageSquare } from "lucide-react";
 import NodeLabel from "@features/workflow/components/nodes/node-label";
+import { WORKFLOW_NODE_CARD_SIZE_CLASSNAME } from "./node-card-size";
 
 export type ChatTriggerNodeData = {
   label: string;
@@ -41,7 +42,8 @@ const ChatTriggerNode = ({ data, selected, id }: NodeProps) => {
     <div className="flex flex-col items-center">
       <div
         className={cn(
-          "relative group rounded-lg border p-3 shadow-sm bg-background w-[180px]",
+          "relative group rounded-lg border p-3 shadow-sm bg-background",
+          WORKFLOW_NODE_CARD_SIZE_CLASSNAME,
           selected
             ? "border-primary ring-2 ring-primary ring-opacity-20"
             : "border-border",

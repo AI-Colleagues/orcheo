@@ -3,6 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WorkflowCard } from "./workflow-card";
+import {
+  WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME,
+  WORKFLOW_GALLERY_CARD_ASPECT_RATIO,
+} from "./workflow-card-size";
 
 vi.mock("@/hooks/use-toast", () => ({
   toast: vi.fn(),
@@ -80,6 +84,13 @@ afterEach(() => {
 });
 
 describe("WorkflowCard", () => {
+  it("uses the portrait gallery aspect ratio", () => {
+    expect(WORKFLOW_GALLERY_CARD_ASPECT_RATIO).toBeCloseTo(
+      53.98 / 85.6,
+      6,
+    );
+  });
+
   it("opens workflow when a colleague card body is clicked", async () => {
     const user = userEvent.setup();
     const handlers = createHandlers();
@@ -93,7 +104,10 @@ describe("WorkflowCard", () => {
       />,
     );
 
-    await user.click(screen.getByTestId("workflow-card"));
+    const card = screen.getByTestId("workflow-card");
+    expect(card.className).toContain(WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME);
+
+    await user.click(card);
 
     expect(handlers.onOpenWorkflow).toHaveBeenCalledTimes(1);
     expect(handlers.onOpenWorkflow).toHaveBeenCalledWith(

@@ -8,6 +8,7 @@ import {
   deriveOutputHandles,
 } from "./workflow-node-handle-config";
 import { WorkflowNodeHandles } from "./workflow-node-handles";
+import { WORKFLOW_NODE_CARD_SIZE_CLASSNAME } from "./node-card-size";
 import { getNodeColor, getStatusIcon } from "./workflow-node-style";
 import type { WorkflowNodeProps } from "./workflow-node.types";
 
@@ -81,7 +82,8 @@ const WorkflowNode = ({ id, data, selected }: WorkflowNodeProps) => {
           "ring-2 ring-sky-400/70 ring-offset-2",
         isSearchActive && "ring-4 ring-sky-500 ring-offset-2",
         isDisabled && "opacity-60",
-        "h-16 w-16 rounded-xl cursor-pointer",
+        WORKFLOW_NODE_CARD_SIZE_CLASSNAME,
+        "rounded-xl cursor-pointer",
       )}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}

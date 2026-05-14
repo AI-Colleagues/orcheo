@@ -15,6 +15,7 @@ import {
   TooltipTrigger,
 } from "@/design-system/ui/tooltip";
 import NodeLabel from "@features/workflow/components/nodes/node-label";
+import { WORKFLOW_NODE_CARD_SIZE_CLASSNAME } from "./node-card-size";
 
 export type GroupNodeData = {
   label: string;
@@ -74,7 +75,7 @@ const GroupNode = ({ data, selected, id }: NodeProps) => {
           selected && "ring-2 ring-primary ring-offset-2",
           isExpanded
             ? "min-w-[250px] min-h-[150px]"
-            : "h-16 w-16 aspect-square",
+            : WORKFLOW_NODE_CARD_SIZE_CLASSNAME,
         )}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
