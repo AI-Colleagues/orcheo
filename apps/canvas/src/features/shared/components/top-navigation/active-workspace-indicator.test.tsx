@@ -1,5 +1,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 
 let selectedWorkspaceSlug: string | null = null;
 
@@ -31,7 +33,9 @@ describe("ActiveWorkspaceIndicator", () => {
     cleanup();
   });
 
-  it("renders the active workspace slug when available", async () => {
+  it("renders the active workspace name when available", async () => {
+    const user = userEvent.setup();
+
     vi.mocked(global.fetch).mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes("/api/workspaces/me")) {
@@ -53,22 +57,34 @@ describe("ActiveWorkspaceIndicator", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    render(<ActiveWorkspaceIndicator />);
+    render(
+      <MemoryRouter>
+        <ActiveWorkspaceIndicator />
+      </MemoryRouter>,
+    );
 
     await waitFor(() => {
       expect(screen.getByText("Workspace")).toBeInTheDocument();
-      expect(screen.getByText("acme")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /workspace/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("menuitem", { name: "Acme" })).toBeInTheDocument();
     });
   });
 
   it("stays visible while the workspace cannot be resolved", async () => {
     vi.mocked(global.fetch).mockRejectedValue(new Error("unavailable"));
 
-    render(<ActiveWorkspaceIndicator />);
+    render(
+      <MemoryRouter>
+        <ActiveWorkspaceIndicator />
+      </MemoryRouter>,
+    );
 
     await waitFor(() => {
       expect(screen.getByText("Workspace")).toBeInTheDocument();
-      expect(screen.getByText("No workspace")).toBeInTheDocument();
     });
   });
 
@@ -84,14 +100,63 @@ describe("ActiveWorkspaceIndicator", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    render(<ActiveWorkspaceIndicator />);
+    render(
+      <MemoryRouter>
+        <ActiveWorkspaceIndicator />
+      </MemoryRouter>,
+    );
 
     await waitFor(() => {
-      expect(screen.getByText("No workspace")).toBeInTheDocument();
+      expect(screen.getByText("Workspace")).toBeInTheDocument();
     });
 
     expect(
       screen.queryByRole("dialog", { name: /create workspace/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("fills the workspace slug from the name until manually overridden", async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(global.fetch).mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/api/workspaces/me")) {
+        return {
+          ok: true,
+          json: async () => ({ memberships: [] }),
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    render(
+      <MemoryRouter>
+        <ActiveWorkspaceIndicator />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Workspace")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /workspace/i }));
+
+    await user.click(await screen.findByRole("menuitem", { name: /create workspace/i }));
+
+    const nameInput = await screen.findByLabelText(/^name$/i);
+    const slugInput = screen.getByLabelText(/workspace url name/i);
+
+    await user.clear(nameInput);
+    await user.type(nameInput, "Acme Research");
+
+    expect(slugInput).toHaveValue("acme-research");
+
+    await user.clear(slugInput);
+    await user.type(slugInput, "acme-labs");
+
+    await user.clear(nameInput);
+    await user.type(nameInput, "New Acme");
+
+    expect(slugInput).toHaveValue("acme-labs");
   });
 });

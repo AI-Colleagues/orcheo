@@ -24,6 +24,7 @@ import {
   getMyWorkspaces,
   type WorkspaceMembershipSummary,
 } from "@/lib/api";
+import { slugifyWorkspace } from "@/lib/workspace-slug";
 import {
   clearSelectedWorkspaceSlug,
   getSelectedWorkspaceSlug,
@@ -35,14 +36,6 @@ import {
 } from "@/lib/workspace-routing";
 import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
 
-const slugify = (value: string): string =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-
 export default function ActiveWorkspaceIndicator() {
   const authUser = useMemo(() => getAuthenticatedUserProfile(), []);
   const [workspaces, setWorkspaces] = useState<WorkspaceMembershipSummary[]>(
@@ -51,6 +44,7 @@ export default function ActiveWorkspaceIndicator() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSlug, setWorkspaceSlugState] = useState("");
+  const [workspaceSlugIsManual, setWorkspaceSlugIsManual] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const { pathname } = useLocation();
   const routeWorkspaceSlug = useMemo(
@@ -79,6 +73,7 @@ export default function ActiveWorkspaceIndicator() {
         if (membershipsPayload.memberships.length === 0) {
           setWorkspaceName((current) => current || suggestedWorkspaceName);
           setWorkspaceSlugState("");
+          setWorkspaceSlugIsManual(false);
           if (currentSlug) {
             clearSelectedWorkspaceSlug();
           }
@@ -125,6 +120,13 @@ export default function ActiveWorkspaceIndicator() {
     };
   }, [routeWorkspaceSlug, suggestedWorkspaceName]);
 
+  useEffect(() => {
+    if (workspaceSlugIsManual) {
+      return;
+    }
+    setWorkspaceSlugState(slugifyWorkspace(workspaceName));
+  }, [workspaceName, workspaceSlugIsManual]);
+
   const selectedWorkspaceSlug = routeWorkspaceSlug ?? getSelectedWorkspaceSlug();
   const currentWorkspace = selectedWorkspaceSlug
     ? workspaces.find((workspace) => workspace.slug === selectedWorkspaceSlug) ??
@@ -138,7 +140,7 @@ export default function ActiveWorkspaceIndicator() {
 
   const handleCreateWorkspace = async () => {
     const name = workspaceName.trim();
-    const slug = slugify(workspaceSlug || workspaceName);
+    const slug = workspaceSlug.trim() || slugifyWorkspace(name);
 
     if (!name || !slug) {
       toast({
@@ -159,6 +161,7 @@ export default function ActiveWorkspaceIndicator() {
       setCreateDialogOpen(false);
       setWorkspaceName("");
       setWorkspaceSlugState("");
+      setWorkspaceSlugIsManual(false);
       setSelectedWorkspaceSlug(created.slug);
       window.location.assign(getWorkspaceGalleryPath(created.slug));
     } catch (error) {
@@ -185,13 +188,10 @@ export default function ActiveWorkspaceIndicator() {
             <Badge variant="secondary" className="text-[10px] uppercase">
               Workspace
             </Badge>
-            <span className="max-w-[10rem] truncate font-medium">
-              {currentWorkspace?.slug ?? "No workspace"}
-            </span>
             <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-72">
+        <DropdownMenuContent align="start" className="w-72">
           {workspaces.length > 0 ? (
             workspaces.map((workspace) => (
               <DropdownMenuItem
@@ -201,12 +201,7 @@ export default function ActiveWorkspaceIndicator() {
                 }}
                 className="flex items-center justify-between"
               >
-                <span className="flex flex-col">
-                  <span className="font-medium">{workspace.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {workspace.slug}
-                  </span>
-                </span>
+                <span className="font-medium">{workspace.name}</span>
                 {workspace.slug === currentWorkspace?.slug ? (
                   <Check className="h-4 w-4" />
                 ) : null}
@@ -248,18 +243,23 @@ export default function ActiveWorkspaceIndicator() {
                 autoFocus
               />
             </div>
-          <div className="grid gap-2">
-            <Label htmlFor="workspace-slug">Workspace URL name</Label>
-            <Input
-              id="workspace-slug"
-              value={workspaceSlug}
-              onChange={(event) => setWorkspaceSlugState(event.target.value)}
-              placeholder="acme"
-            />
-            <p className="text-xs text-muted-foreground">
-              Used in links to your workspace. Keep it short and easy to share.
-            </p>
-          </div>
+            <div className="grid gap-2">
+              <Label htmlFor="workspace-slug">Workspace URL name</Label>
+              <Input
+                id="workspace-slug"
+                value={workspaceSlug}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setWorkspaceSlugState(nextValue);
+                  setWorkspaceSlugIsManual(nextValue.trim().length > 0);
+                }}
+                placeholder="acme"
+              />
+              <p className="text-xs text-muted-foreground">
+                Used in links to your workspace. Keep it short and easy to
+                share.
+              </p>
+            </div>
             <Button onClick={handleCreateWorkspace} disabled={isCreating}>
               {isCreating ? "Creating…" : "Create workspace"}
             </Button>

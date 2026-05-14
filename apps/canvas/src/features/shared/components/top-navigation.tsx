@@ -3,17 +3,14 @@ import { Link } from "react-router-dom";
 import { Bell } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
 import { cn } from "@/lib/utils";
-import ProjectSwitcher from "@/features/shared/components/top-navigation/project-switcher";
 import ActiveWorkspaceIndicator from "@/features/shared/components/top-navigation/active-workspace-indicator";
 import VersionStatus from "@/features/shared/components/top-navigation/version-status";
-import WorkflowBreadcrumbs from "@/features/shared/components/top-navigation/workflow-breadcrumbs";
 import CommandPaletteButton from "@/features/shared/components/top-navigation/command-palette-button";
 import AccountMenu from "@/features/shared/components/top-navigation/account-menu";
-import useWindowWidth from "@/features/shared/components/top-navigation/use-window-width";
+import CanvasBrand from "@/features/shared/components/top-navigation/canvas-brand";
 import type { TopNavigationProps } from "@/features/shared/components/top-navigation/top-navigation-types";
 
 export default function TopNavigation({
-  currentWorkflow,
   className,
   credentials = [],
   isCredentialsLoading = false,
@@ -22,8 +19,6 @@ export default function TopNavigation({
   onDeleteCredential,
   onRevealCredentialSecret,
 }: TopNavigationProps) {
-  const windowWidth = useWindowWidth();
-
   return (
     <header
       className={cn(
@@ -31,17 +26,12 @@ export default function TopNavigation({
         className,
       )}
     >
-      <ProjectSwitcher />
-
-      {currentWorkflow && (
-        <WorkflowBreadcrumbs
-          currentWorkflow={currentWorkflow}
-          windowWidth={windowWidth}
-        />
-      )}
+      <div className="flex min-w-0 flex-1 items-center gap-3 lg:gap-6">
+        <CanvasBrand />
+        <ActiveWorkspaceIndicator />
+      </div>
 
       <div className="ml-auto flex items-center gap-2">
-        <ActiveWorkspaceIndicator />
         <VersionStatus />
         <CommandPaletteButton />
         <Button variant="outline" size="sm" asChild>

@@ -19,7 +19,7 @@ describe("App", () => {
   it("renders the Orcheo navigation", () => {
     render(<App />);
     expect(
-      screen.getByRole("link", { name: /Orcheo Logo Orcheo/i }),
+      screen.getByRole("link", { name: /Orcheo.*by AI Colleagues/i }),
     ).toBeInTheDocument();
   });
 });

@@ -52,7 +52,6 @@ export interface WorkflowLayoutProps {
   topNavigationProps: {
     currentWorkflow: {
       name: string;
-      path: string[];
       onNameChange?: (name: string) => void;
     };
     credentials: WorkflowCanvasResources["credentials"]["credentials"];
@@ -168,7 +167,6 @@ export function buildWorkflowLayoutProps(
     topNavigationProps: {
       currentWorkflow: {
         name: core.metadata.workflowName,
-        path: ["Projects", "Workflows"],
         onNameChange: core.metadata.setWorkflowName,
       },
       credentials: resources.credentials.credentials,
