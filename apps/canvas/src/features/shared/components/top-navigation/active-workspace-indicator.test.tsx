@@ -6,7 +6,6 @@ let selectedWorkspaceSlug: string | null = null;
 vi.mock("@/lib/workspace-session", () => ({
   clearSelectedWorkspaceSlug: () => {
     selectedWorkspaceSlug = null;
-    window.dispatchEvent(new Event("orcheo-workspace-selection-changed"));
   },
   getSelectedWorkspaceSlug: () => selectedWorkspaceSlug,
   getWorkspaceHeaderName: () => "X-Orcheo-Workspace",
@@ -16,9 +15,7 @@ vi.mock("@/lib/workspace-session", () => ({
       : {},
   setSelectedWorkspaceSlug: (slug: string | null) => {
     selectedWorkspaceSlug = slug?.trim() ? slug.trim() : null;
-    window.dispatchEvent(new Event("orcheo-workspace-selection-changed"));
   },
-  WORKSPACE_SELECTION_CHANGED_EVENT: "orcheo-workspace-selection-changed",
 }));
 
 import ActiveWorkspaceIndicator from "@/features/shared/components/top-navigation/active-workspace-indicator";

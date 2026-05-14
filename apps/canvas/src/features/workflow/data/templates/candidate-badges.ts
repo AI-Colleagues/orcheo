@@ -28,7 +28,7 @@ const cloneBaseWorkflow = (spec: CandidateBadgeSpec): Workflow => {
     owner: {
       id: `${spec.id}-owner`,
       name: spec.name,
-      avatar: "",
+      avatar: spec.emoji,
     },
     tags: [...PYTHON_AGENT_WORKFLOW.tags],
     nodes: PYTHON_AGENT_WORKFLOW.nodes.map((node) => ({

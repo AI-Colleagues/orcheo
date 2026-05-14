@@ -110,32 +110,16 @@ export default function ActiveWorkspaceIndicator() {
 
     void load();
 
-    const handleSelectionChange = () => {
-      void load();
-    };
-    window.addEventListener(
-      "orcheo-workspace-selection-changed",
-      handleSelectionChange,
-    );
-
     return () => {
       active = false;
-      window.removeEventListener(
-        "orcheo-workspace-selection-changed",
-        handleSelectionChange,
-      );
     };
   }, [suggestedWorkspaceName]);
 
-  const currentWorkspace = useMemo(() => {
-    const selectedSlug = getSelectedWorkspaceSlug();
-    if (selectedSlug) {
-      return (
-        workspaces.find((workspace) => workspace.slug === selectedSlug) ?? null
-      );
-    }
-    return workspaces[0] ?? null;
-  }, [workspaces]);
+  const selectedWorkspaceSlug = getSelectedWorkspaceSlug();
+  const currentWorkspace = selectedWorkspaceSlug
+    ? workspaces.find((workspace) => workspace.slug === selectedWorkspaceSlug) ??
+      null
+    : workspaces[0] ?? null;
 
   const handleSelectWorkspace = (slug: string) => {
     setSelectedWorkspaceSlug(slug);
@@ -202,8 +186,7 @@ export default function ActiveWorkspaceIndicator() {
             workspaces.map((workspace) => (
               <DropdownMenuItem
                 key={workspace.workspace_id}
-                onSelect={(event) => {
-                  event.preventDefault();
+                onClick={() => {
                   handleSelectWorkspace(workspace.slug);
                 }}
                 className="flex items-center justify-between"
@@ -225,8 +208,7 @@ export default function ActiveWorkspaceIndicator() {
             </DropdownMenuItem>
           )}
           <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
+            onClick={() => {
               setCreateDialogOpen(true);
             }}
           >

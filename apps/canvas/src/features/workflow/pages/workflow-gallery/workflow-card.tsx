@@ -79,6 +79,15 @@ const getSeededIndex = (seed: string, length: number) => {
   return Math.abs(state) % length;
 };
 
+const getWorkflowTemplateEmoji = (workflow: Workflow) => {
+  const templateId = workflow.versions?.at(-1)?.templateId;
+  if (!templateId) {
+    return undefined;
+  }
+
+  return getCandidateBadgeDefinition(templateId)?.emoji;
+};
+
 interface WorkflowCardProps {
   workflow: Workflow;
   isTemplate: boolean;
@@ -110,6 +119,7 @@ export const WorkflowCard = ({
     : undefined;
   const headerLabel = isTemplate ? "Candidate" : workspaceLabel;
   const workflowSlug = workflow.handle ?? workflow.id;
+  const workflowAvatarEmoji = getWorkflowTemplateEmoji(workflow);
 
   const suppressCardOpenRef = useRef(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -274,7 +284,8 @@ export const WorkflowCard = ({
               aria-hidden="true"
               className="select-none text-[3.5rem] leading-none"
             >
-              {candidateBadge?.emoji ??
+              {workflowAvatarEmoji ??
+                candidateBadge?.emoji ??
                 COLLEAGUE_EMOJIS[
                   getSeededIndex(workflowSlug, COLLEAGUE_EMOJIS.length)
                 ]}

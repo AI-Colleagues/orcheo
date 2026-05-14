@@ -43,6 +43,25 @@ const candidateWorkflow = {
   edges: [],
 } satisfies Parameters<typeof WorkflowCard>[0]["workflow"];
 
+const onboardedCandidateWorkflow = {
+  ...colleagueWorkflow,
+  id: "workflow-onboarded-insight",
+  name: "Insight Analyst",
+  description:
+    "Detects themes from text data using advanced thematic coding frameworks.",
+  owner: {
+    id: "owner-2",
+    name: "Owner",
+    avatar: "https://example.com/owner-avatar.png",
+  },
+  versions: [
+    {
+      id: "version-1",
+      templateId: "template-insight-analyst",
+    },
+  ],
+} satisfies Parameters<typeof WorkflowCard>[0]["workflow"];
+
 const managedWorkflow = {
   ...colleagueWorkflow,
   handle: "orcheo-vibe-agent",
@@ -135,6 +154,21 @@ describe("WorkflowCard", () => {
 
     expect(handlers.onUseTemplate).toHaveBeenCalledTimes(1);
     expect(handlers.onUseTemplate).toHaveBeenCalledWith(candidateWorkflow.id);
+  });
+
+  it("keeps the candidate emoji after onboarding", () => {
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard
+        workflow={onboardedCandidateWorkflow}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
+    );
+
+    expect(screen.getByText("👨‍🎓")).toBeInTheDocument();
   });
 
   it("keeps dropdown export actions from triggering navigation", async () => {
