@@ -212,7 +212,7 @@ export default function VersionStatus() {
 
   const versionSummary = useMemo(() => {
     const backend = systemInfo?.backend.current_version ?? "unknown";
-    return `Canvas ${canvasVersion} · Backend ${backend}`;
+    return `Orcheo ${canvasVersion} · Backend ${backend}`;
   }, [canvasVersion, systemInfo]);
 
   const updateLines = useMemo(() => {
@@ -226,7 +226,7 @@ export default function VersionStatus() {
     if (canvasUpdateAvailable) {
       const canvasCurrent = systemInfo.canvas.current_version ?? canvasVersion;
       lines.push(
-        `Canvas: ${canvasCurrent} → ${systemInfo.canvas.latest_version}`,
+        `Orcheo: ${canvasCurrent} → ${systemInfo.canvas.latest_version}`,
       );
     }
     return lines;

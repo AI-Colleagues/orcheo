@@ -16,8 +16,8 @@ const user = {
 
 const ai = {
   id: "ai-1",
-  name: "Orcheo Canvas Support",
-  avatar: "https://avatar.vercel.sh/orcheo-canvas",
+  name: "Orcheo Support",
+  avatar: "https://avatar.vercel.sh/orcheo-support",
   isAI: true,
 };
 
@@ -32,7 +32,7 @@ export default function HelpSupport() {
       {
         id: "msg-1",
         content:
-          "Hello! I'm the Orcheo Canvas support assistant. How can I help you today?",
+          "Hello! I'm the Orcheo support assistant. How can I help you today?",
         sender: ai,
         timestamp: new Date(Date.now() - 60000),
       },

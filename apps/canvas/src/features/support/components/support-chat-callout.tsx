@@ -23,7 +23,7 @@ export function SupportChatCallout({
           </p>
         </div>
         <ChatInterface
-          title="Orcheo Canvas Support"
+          title="Orcheo Support"
           initialMessages={initialMessages}
           user={user}
           ai={ai}

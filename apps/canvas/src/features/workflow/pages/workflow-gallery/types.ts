@@ -1,4 +1,4 @@
-export type WorkflowGalleryTab = "all" | "favorites" | "shared" | "templates";
+export type WorkflowGalleryTab = "all" | "pinned" | "templates";
 
 export type WorkflowGallerySort = "updated" | "created" | "name";
 

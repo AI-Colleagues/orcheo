@@ -14,7 +14,7 @@ export function ProfileApiKeysTab() {
       <CardHeader>
         <CardTitle>API Keys</CardTitle>
         <CardDescription>
-          Manage your API keys for programmatic access to Orcheo Canvas.
+          Manage your API keys for programmatic access to Orcheo.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

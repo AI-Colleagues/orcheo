@@ -1,4 +1,4 @@
-# Orcheo Canvas
+# Orcheo
 
 Front‑end workspace for the Orcheo workflow canvas prototype. The app is built with Vite, React 19, TypeScript, Tailwind, and shadcn/ui components.
 

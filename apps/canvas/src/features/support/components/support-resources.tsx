@@ -53,7 +53,7 @@ const documentationLinks: ResourceLink[] = [
 
 const tutorialLinks: ResourceLink[] = [
   {
-    label: "Introduction to Orcheo Canvas",
+    label: "Introduction to Orcheo",
     to: "#",
     icon: <PlayCircle className="h-4 w-4" />,
     badge: "New",
@@ -113,7 +113,7 @@ const resourceSections: ResourceSection[] = [
   },
   {
     title: "Community",
-    description: "Connect with other Orcheo Canvas users",
+    description: "Connect with other Orcheo users",
     cta: "Join Our Community",
     links: communityLinks,
   },

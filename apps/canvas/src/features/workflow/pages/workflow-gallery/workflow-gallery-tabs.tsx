@@ -20,6 +20,7 @@ interface WorkflowGalleryTabsProps {
   sortedWorkflows: Workflow[];
   tabCounts: WorkflowGalleryTabCounts;
   isTemplateView: boolean;
+  workspaceLabel: string;
   searchQuery: string;
   onImportStarterPack: () => void;
   onOpenWorkflow: (workflowId: string) => void;
@@ -38,6 +39,7 @@ export const WorkflowGalleryTabs = ({
   sortedWorkflows,
   tabCounts,
   isTemplateView,
+  workspaceLabel,
   searchQuery,
   onImportStarterPack,
   onOpenWorkflow,
@@ -56,25 +58,19 @@ export const WorkflowGalleryTabs = ({
       <div className="mb-6 flex items-center justify-between">
         <TabsList>
           <TabsTrigger value="all" className="gap-2">
-            <span>All</span>
+            <span>AI Colleagues</span>
             <span className="text-xs text-muted-foreground">
               {tabCounts.all}
             </span>
           </TabsTrigger>
-          <TabsTrigger value="favorites" className="gap-2">
-            <span>Favorites</span>
+          <TabsTrigger value="pinned" className="gap-2">
+            <span>Starred</span>
             <span className="text-xs text-muted-foreground">
-              {tabCounts.favorites}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger value="shared" className="gap-2">
-            <span>Shared with me</span>
-            <span className="text-xs text-muted-foreground">
-              {tabCounts.shared}
+              {tabCounts.pinned}
             </span>
           </TabsTrigger>
           <TabsTrigger value="templates" className="gap-2">
-            <span>Templates</span>
+            <span>Candidates</span>
             <span className="text-xs text-muted-foreground">
               {tabCounts.templates}
             </span>
@@ -89,7 +85,7 @@ export const WorkflowGalleryTabs = ({
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
             <div>
-              <h3 className="text-lg font-medium">Loading workflows</h3>
+              <h3 className="text-lg font-medium">Loading colleagues</h3>
               <p className="text-sm text-muted-foreground">
                 Pulling your workspace from storage.
               </p>
@@ -100,11 +96,11 @@ export const WorkflowGalleryTabs = ({
             <div className="mb-4 rounded-full bg-muted p-4">
               <Zap className="h-8 w-8 text-muted-foreground" />
             </div>
-            <h3 className="mb-2 text-lg font-medium">No workflows found</h3>
+            <h3 className="mb-2 text-lg font-medium">No colleagues found</h3>
             <p className="mb-6 max-w-md text-muted-foreground">
               {searchQuery
-                ? `No workflows match your search for "${searchQuery}"`
-                : "Import starter workflows or use templates to get started."}
+                ? `No colleagues match your search for "${searchQuery}"`
+                : "Import starter colleagues or onboard candidates to get started."}
             </p>
             <div className="flex flex-col items-center gap-3">
               {!isTemplateView ? (
@@ -121,6 +117,7 @@ export const WorkflowGalleryTabs = ({
                 key={workflow.id}
                 workflow={workflow}
                 isTemplate={isTemplateView}
+                workspaceLabel={workspaceLabel}
                 onOpenWorkflow={onOpenWorkflow}
                 onUseTemplate={onUseTemplate}
                 onExportWorkflow={onExportWorkflow}

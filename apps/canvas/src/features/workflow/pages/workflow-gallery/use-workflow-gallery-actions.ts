@@ -108,8 +108,8 @@ export const useWorkflowGalleryActions = (
         const workflow = await createWorkflowFromTemplate(templateId);
         if (!workflow) {
           toast({
-            title: "Template unavailable",
-            description: "We couldn't find that template. Please try another.",
+            title: "Candidate unavailable",
+            description: "We couldn't find that candidate. Please try another.",
             variant: "destructive",
           });
           return;
@@ -118,14 +118,14 @@ export const useWorkflowGalleryActions = (
         state.setSelectedTab("all");
 
         toast({
-          title: "Template copied",
-          description: `"${workflow.name}" has been added to your workspace.`,
+          title: "Candidate onboarded",
+          description: `"${workflow.name}" has been onboarded to your workspace.`,
         });
 
         handleOpenWorkflow(getWorkflowRouteRef(workflow));
       } catch (error) {
         toast({
-          title: "Failed to create workflow from template",
+          title: "Failed to onboard candidate",
           description:
             error instanceof Error ? error.message : "Unknown error occurred",
           variant: "destructive",
@@ -146,22 +146,22 @@ export const useWorkflowGalleryActions = (
         (result) => result.status === "fulfilled" && result.value,
       ).length;
 
-      if (importedCount === 0) {
-        toast({
-          title: "Starter pack unavailable",
-          description:
-            "No starter workflows were imported. Please try again later.",
-          variant: "destructive",
-        });
-        return;
-      }
+        if (importedCount === 0) {
+          toast({
+            title: "Starter pack unavailable",
+            description:
+              "No starter colleagues were imported. Please try again later.",
+            variant: "destructive",
+          });
+          return;
+        }
 
       state.setSelectedTab("all");
 
-      toast({
-        title: "Starter pack imported",
-        description: `${importedCount} Python workflow${importedCount === 1 ? "" : "s"} added to your workspace.`,
-      });
+        toast({
+          title: "Starter pack imported",
+          description: `${importedCount} Python colleague${importedCount === 1 ? "" : "s"} added to your workspace.`,
+        });
     } catch (error) {
       toast({
         title: "Failed to import starter pack",
@@ -185,16 +185,16 @@ export const useWorkflowGalleryActions = (
       URL.revokeObjectURL(url);
 
       toast({
-        title: "Workflow exported",
+        title: "Colleague exported",
         description: `Downloaded ${fileBaseName}.py`,
       });
     } catch (error) {
-      toast({
-        title: "Export failed",
-        description:
-          error instanceof Error ? error.message : "Unable to export workflow.",
-        variant: "destructive",
-      });
+        toast({
+          title: "Export failed",
+          description:
+            error instanceof Error ? error.message : "Unable to export colleague.",
+          variant: "destructive",
+        });
     }
   }, []);
 
@@ -203,12 +203,12 @@ export const useWorkflowGalleryActions = (
       try {
         await deleteWorkflow(workflowId);
         toast({
-          title: "Workflow deleted",
+          title: "Colleague deleted",
           description: `"${workflowName}" has been removed from your workspace.`,
         });
       } catch (error) {
         toast({
-          title: "Failed to delete workflow",
+          title: "Failed to delete colleague",
           description:
             error instanceof Error ? error.message : "Unknown error occurred",
           variant: "destructive",

@@ -45,7 +45,7 @@ describe("ProjectSwitcher", () => {
     cleanup();
   });
 
-  it("shows recent workflows from storage instead of hardcoded project names", async () => {
+  it("shows recent colleagues from storage instead of hardcoded project names", async () => {
     vi.mocked(listWorkflows).mockResolvedValueOnce([
       buildStoredWorkflow(
         "workflow-1",
@@ -82,7 +82,7 @@ describe("ProjectSwitcher", () => {
     ).toHaveAttribute("href", "/workflow-canvas/simple-agent-copy");
   });
 
-  it("shows an empty state when no workflows exist", async () => {
+  it("shows an empty state when no colleagues exist", async () => {
     vi.mocked(listWorkflows).mockResolvedValueOnce([]);
 
     const user = userEvent.setup();
@@ -96,7 +96,7 @@ describe("ProjectSwitcher", () => {
     await user.click(screen.getByRole("button", { name: /my projects/i }));
 
     await waitFor(() => {
-      expect(screen.getByText("No workflows yet")).toBeInTheDocument();
+      expect(screen.getByText("No colleagues yet")).toBeInTheDocument();
     });
   });
 });

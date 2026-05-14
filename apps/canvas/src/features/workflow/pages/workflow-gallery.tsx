@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import TopNavigation from "@features/shared/components/top-navigation";
+import { getActiveWorkspace } from "@/lib/api";
 import useCredentialVault from "@/hooks/use-credential-vault";
 import { usePageContext } from "@/hooks/use-page-context";
 import { WorkflowGalleryHeader } from "@/features/workflow/pages/workflow-gallery/workflow-gallery-header";
@@ -8,9 +9,33 @@ import { useWorkflowGallery } from "@/features/workflow/pages/workflow-gallery/u
 
 export default function WorkflowGallery() {
   const { setPageContext } = usePageContext();
+  const [workspaceLabel, setWorkspaceLabel] = useState("AI Colleagues");
   useEffect(() => {
     setPageContext({ page: "gallery" });
   }, [setPageContext]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadWorkspaceLabel = async () => {
+      try {
+        const workspace = await getActiveWorkspace();
+        if (active && workspace.name.trim()) {
+          setWorkspaceLabel(workspace.name.trim());
+        }
+      } catch {
+        if (active) {
+          setWorkspaceLabel("AI Colleagues");
+        }
+      }
+    };
+
+    void loadWorkspaceLabel();
+
+    return () => {
+      active = false;
+    };
+  }, []);
   const {
     credentials,
     isLoading: isCredentialsLoading,
@@ -82,11 +107,12 @@ export default function WorkflowGallery() {
             selectedTab={selectedTab}
             onSelectedTabChange={setSelectedTab}
             isLoading={isLoadingWorkflows}
-            sortedWorkflows={sortedWorkflows}
-            tabCounts={tabCounts}
-            isTemplateView={isTemplateView}
-            searchQuery={searchQuery}
-            onImportStarterPack={handleImportStarterPack}
+          sortedWorkflows={sortedWorkflows}
+          tabCounts={tabCounts}
+          isTemplateView={isTemplateView}
+          workspaceLabel={workspaceLabel}
+          searchQuery={searchQuery}
+          onImportStarterPack={handleImportStarterPack}
             onOpenWorkflow={handleOpenWorkflow}
             onUseTemplate={handleUseTemplate}
             onExportWorkflow={handleExportWorkflow}

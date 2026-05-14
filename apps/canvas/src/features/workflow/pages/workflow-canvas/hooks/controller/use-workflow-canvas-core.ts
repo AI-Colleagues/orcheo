@@ -123,8 +123,8 @@ export function useWorkflowCanvasCore({
   const ai = useMemo(
     () => ({
       id: "ai-1",
-      name: "Orcheo Canvas Assistant",
-      avatar: "https://avatar.vercel.sh/orcheo-canvas",
+      name: "Orcheo Assistant",
+      avatar: "https://avatar.vercel.sh/orcheo-assistant",
     }),
     [],
   );

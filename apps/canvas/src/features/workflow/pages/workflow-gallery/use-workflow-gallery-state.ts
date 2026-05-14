@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/hooks/use-toast";
 import {
-  SAMPLE_WORKFLOWS,
+  GALLERY_TEMPLATE_WORKFLOWS,
   type Workflow,
 } from "@features/workflow/data/workflow-data";
 import {
@@ -97,9 +97,9 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
           return;
         }
 
-        console.error("Failed to load workflows", error);
+        console.error("Failed to load colleagues", error);
         toast({
-          title: "Unable to load workflows",
+          title: "Unable to load colleagues",
           description:
             error instanceof Error ? error.message : "Unknown error occurred",
           variant: "destructive",
@@ -131,8 +131,7 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
     };
   }, []);
 
-  const templates = useMemo(() => SAMPLE_WORKFLOWS, []);
-  const defaultOwnerId = templates[0]?.owner.id ?? "user-1";
+  const templates = useMemo(() => GALLERY_TEMPLATE_WORKFLOWS, []);
   const isTemplateView = selectedTab === "templates";
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
 
@@ -153,36 +152,26 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
   const tabCounts = useMemo<WorkflowGalleryTabCounts>(() => {
     return {
       all: searchableWorkflows.length,
-      favorites: searchableWorkflows.filter((workflow) =>
+      pinned: searchableWorkflows.filter((workflow) =>
         workflow.tags.includes("favorite"),
-      ).length,
-      shared: searchableWorkflows.filter(
-        (workflow) => workflow.owner?.id !== defaultOwnerId,
       ).length,
       templates: searchableTemplates.length,
     };
-  }, [defaultOwnerId, searchableTemplates, searchableWorkflows]);
+  }, [searchableTemplates, searchableWorkflows]);
 
   const filteredWorkflows = useMemo(() => {
     if (isTemplateView) {
       return searchableTemplates;
     }
 
-    if (selectedTab === "favorites") {
+    if (selectedTab === "pinned") {
       return searchableWorkflows.filter((workflow) =>
         workflow.tags.includes("favorite"),
       );
     }
 
-    if (selectedTab === "shared") {
-      return searchableWorkflows.filter(
-        (workflow) => workflow.owner?.id !== defaultOwnerId,
-      );
-    }
-
     return searchableWorkflows;
   }, [
-    defaultOwnerId,
     isTemplateView,
     searchableTemplates,
     searchableWorkflows,

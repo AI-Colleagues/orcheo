@@ -31,9 +31,9 @@ interface FaqItem {
 const faqItems: FaqItem[] = [
   {
     id: "item-1",
-    question: "What is Orcheo Canvas and how does it work?",
+    question: "What is Orcheo and how does it work?",
     answer:
-      "Orcheo Canvas is the monitoring and management interface for Orcheo workflows. Use it to inspect execution history, manage credentials, and configure workflow settings. Workflows are authored via the SDK or AI coding agents.",
+      "Orcheo is the monitoring and management interface for Orcheo workflows. Use it to inspect execution history, manage credentials, and configure workflow settings. Workflows are authored via the SDK or AI coding agents.",
   },
   {
     id: "item-2",
@@ -67,7 +67,7 @@ function FaqAccordion() {
       <CardHeader>
         <CardTitle>Frequently Asked Questions</CardTitle>
         <CardDescription>
-          Find answers to common questions about Orcheo Canvas
+          Find answers to common questions about Orcheo
         </CardDescription>
       </CardHeader>
       <CardContent>

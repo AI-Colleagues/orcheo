@@ -30,7 +30,7 @@ export function buildVibeContextString(ctx: PageContext): string {
 
   switch (ctx.page) {
     case "gallery":
-      parts.push("The user is on Canvas Gallery.");
+      parts.push("The user is on Gallery.");
       break;
 
     case "canvas": {
@@ -77,7 +77,7 @@ export function buildVibeContextString(ctx: PageContext): string {
       break;
 
     default:
-      parts.push("The user is on Orcheo Canvas.");
+      parts.push("The user is on Orcheo.");
       break;
   }
 

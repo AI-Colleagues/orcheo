@@ -34,7 +34,7 @@ export default function CommandPaletteButton() {
         <DialogHeader>
           <DialogTitle>Search</DialogTitle>
           <DialogDescription>
-            Search for workflows, nodes, or actions
+            Search for colleagues, nodes, or actions
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center border-b py-2">

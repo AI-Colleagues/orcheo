@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 
 import { toast } from "@/hooks/use-toast";
 import {
-  SAMPLE_WORKFLOWS,
+  GALLERY_TEMPLATE_WORKFLOWS,
   getWorkflowTemplateDefinition,
   type WorkflowNode as PersistedWorkflowNode,
   type WorkflowEdge as PersistedWorkflowEdge,
@@ -190,7 +190,9 @@ export function useWorkflowLoader<TNode, TEdge>({
         return;
       }
 
-      const template = SAMPLE_WORKFLOWS.find((w) => w.id === workflowId);
+      const template = GALLERY_TEMPLATE_WORKFLOWS.find(
+        (w) => w.id === workflowId,
+      );
       if (template) {
         const templateDefinition = getWorkflowTemplateDefinition(template.id);
         const placeholderNames = collectCredentialPlaceholderNames({

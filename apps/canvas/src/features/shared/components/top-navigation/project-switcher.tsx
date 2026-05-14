@@ -79,7 +79,7 @@ export default function ProjectSwitcher() {
         className="flex items-center gap-2 whitespace-nowrap font-semibold"
       >
         <img src="/favicon.ico" alt="Orcheo Logo" className="h-6 w-6" />
-        <span>Orcheo Canvas</span>
+        <span>Orcheo</span>
       </Link>
 
       <DropdownMenu>
@@ -92,7 +92,7 @@ export default function ProjectSwitcher() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-56">
-          <DropdownMenuLabel>Recent Workflows</DropdownMenuLabel>
+          <DropdownMenuLabel>Recent Colleagues</DropdownMenuLabel>
           <DropdownMenuSeparator />
           {recentWorkflows.length > 0 ? (
             recentWorkflows.map((workflow) => (
@@ -106,12 +106,12 @@ export default function ProjectSwitcher() {
               </DropdownMenuItem>
             ))
           ) : (
-            <DropdownMenuItem disabled>No workflows yet</DropdownMenuItem>
+            <DropdownMenuItem disabled>No colleagues yet</DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem>
             <Link to="/" className="flex w-full items-center">
-              View all workflows
+              View all colleagues
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem>
