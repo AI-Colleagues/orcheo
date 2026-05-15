@@ -23,10 +23,6 @@ interface WorkflowGalleryStateSlice {
   setSelectedTab: (value: WorkflowGalleryTab) => void;
   sortBy: WorkflowGallerySort;
   setSortBy: (value: WorkflowGallerySort) => void;
-  newFolderName: string;
-  setNewFolderName: (value: string) => void;
-  showNewFolderDialog: boolean;
-  setShowNewFolderDialog: (value: boolean) => void;
   showFilterPopover: boolean;
   setShowFilterPopover: (value: boolean) => void;
   filters: WorkflowGalleryFilters;
@@ -74,8 +70,6 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTab, setSelectedTab] = useState<WorkflowGalleryTab>("all");
   const [sortBy, setSortBy] = useState<WorkflowGallerySort>("updated");
-  const [newFolderName, setNewFolderName] = useState("");
-  const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
   const [showFilterPopover, setShowFilterPopover] = useState(false);
   const [filters, setFilters] =
     useState<WorkflowGalleryFilters>(DEFAULT_FILTERS);
@@ -204,10 +198,6 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
     setSelectedTab,
     sortBy,
     setSortBy,
-    newFolderName,
-    setNewFolderName,
-    showNewFolderDialog,
-    setShowNewFolderDialog,
     showFilterPopover,
     setShowFilterPopover,
     filters,

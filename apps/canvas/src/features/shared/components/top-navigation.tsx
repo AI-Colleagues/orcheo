@@ -5,7 +5,6 @@ import { Button } from "@/design-system/ui/button";
 import { cn } from "@/lib/utils";
 import ActiveWorkspaceIndicator from "@/features/shared/components/top-navigation/active-workspace-indicator";
 import VersionStatus from "@/features/shared/components/top-navigation/version-status";
-import CommandPaletteButton from "@/features/shared/components/top-navigation/command-palette-button";
 import AccountMenu from "@/features/shared/components/top-navigation/account-menu";
 import CanvasBrand from "@/features/shared/components/top-navigation/canvas-brand";
 import type { TopNavigationProps } from "@/features/shared/components/top-navigation/top-navigation-types";
@@ -33,7 +32,6 @@ export default function TopNavigation({
 
       <div className="ml-auto flex items-center gap-2">
         <VersionStatus />
-        <CommandPaletteButton />
         <Button variant="outline" size="sm" asChild>
           <Link to="/workflow-remediations">Remediations</Link>
         </Button>

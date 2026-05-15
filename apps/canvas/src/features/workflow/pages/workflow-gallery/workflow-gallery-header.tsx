@@ -8,7 +8,6 @@ import {
   SelectValue,
 } from "@/design-system/ui/select";
 import { Search, ArrowUpDown, Clock } from "lucide-react";
-import { WorkflowCreateFolderDialog } from "./workflow-create-dialogs";
 import { WorkflowFilterPopover } from "./workflow-filter-popover";
 import { type WorkflowGalleryFilters, type WorkflowGallerySort } from "./types";
 
@@ -21,11 +20,6 @@ interface WorkflowGalleryHeaderProps {
   onFiltersChange: (filters: WorkflowGalleryFilters) => void;
   showFilterPopover: boolean;
   onFilterPopoverChange: (open: boolean) => void;
-  showNewFolderDialog: boolean;
-  onNewFolderDialogChange: (open: boolean) => void;
-  newFolderName: string;
-  onFolderNameChange: (value: string) => void;
-  onCreateFolder: () => void;
   onApplyFilters: () => void;
 }
 
@@ -38,11 +32,6 @@ export const WorkflowGalleryHeader = ({
   onFiltersChange,
   showFilterPopover,
   onFilterPopoverChange,
-  showNewFolderDialog,
-  onNewFolderDialogChange,
-  newFolderName,
-  onFolderNameChange,
-  onCreateFolder,
   onApplyFilters,
 }: WorkflowGalleryHeaderProps) => {
   const handleSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -62,16 +51,6 @@ export const WorkflowGalleryHeader = ({
       </div>
 
       <div className="flex items-center gap-2 md:order-2">
-        <WorkflowCreateFolderDialog
-          open={showNewFolderDialog}
-          onOpenChange={onNewFolderDialogChange}
-          folderName={newFolderName}
-          onFolderNameChange={onFolderNameChange}
-          onCreateFolder={onCreateFolder}
-        />
-      </div>
-
-      <div className="flex items-center gap-2 md:order-3">
         <Select
           value={sortBy}
           onValueChange={(value) => onSortChange(value as WorkflowGallerySort)}

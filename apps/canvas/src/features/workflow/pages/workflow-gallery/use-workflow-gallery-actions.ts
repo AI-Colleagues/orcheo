@@ -16,10 +16,7 @@ import { getWorkspaceWorkflowPath } from "@/lib/workspace-routing";
 import { type WorkflowGalleryTab } from "./types";
 
 interface WorkflowGalleryActionsArgs {
-  newFolderName: string;
-  setNewFolderName: (value: string) => void;
   setSelectedTab: (value: WorkflowGalleryTab) => void;
-  setShowNewFolderDialog: (value: boolean) => void;
   setShowFilterPopover: (value: boolean) => void;
 }
 
@@ -94,18 +91,6 @@ export const useWorkflowGalleryActions = (
     [navigate],
   );
 
-  const handleCreateFolder = useCallback(() => {
-    toast({
-      title: "Folder creation coming soon",
-      description: state.newFolderName
-        ? `We'll create "${state.newFolderName}" once persistence is wired up.`
-        : "Folder creation will be available in a future update.",
-    });
-
-    state.setNewFolderName("");
-    state.setShowNewFolderDialog(false);
-  }, [state]);
-
   const handleUseTemplate = useCallback(
     async (templateId: string) => {
       try {
@@ -150,22 +135,22 @@ export const useWorkflowGalleryActions = (
         (result) => result.status === "fulfilled" && result.value,
       ).length;
 
-        if (importedCount === 0) {
-          toast({
-            title: "Starter pack unavailable",
-            description:
-              "No starter colleagues were imported. Please try again later.",
-            variant: "destructive",
-          });
-          return;
-        }
+      if (importedCount === 0) {
+        toast({
+          title: "Starter pack unavailable",
+          description:
+            "No starter colleagues were imported. Please try again later.",
+          variant: "destructive",
+        });
+        return;
+      }
 
       state.setSelectedTab("all");
 
-        toast({
-          title: "Starter pack imported",
-          description: `${importedCount} Python colleague${importedCount === 1 ? "" : "s"} added to your workspace.`,
-        });
+      toast({
+        title: "Starter pack imported",
+        description: `${importedCount} Python colleague${importedCount === 1 ? "" : "s"} added to your workspace.`,
+      });
     } catch (error) {
       toast({
         title: "Failed to import starter pack",
@@ -193,12 +178,14 @@ export const useWorkflowGalleryActions = (
         description: `Downloaded ${fileBaseName}.py`,
       });
     } catch (error) {
-        toast({
-          title: "Export failed",
-          description:
-            error instanceof Error ? error.message : "Unable to export colleague.",
-          variant: "destructive",
-        });
+      toast({
+        title: "Export failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Unable to export colleague.",
+        variant: "destructive",
+      });
     }
   }, []);
 
@@ -233,7 +220,6 @@ export const useWorkflowGalleryActions = (
 
   return {
     handleOpenWorkflow,
-    handleCreateFolder,
     handleUseTemplate,
     handleImportStarterPack,
     handleExportWorkflow,
