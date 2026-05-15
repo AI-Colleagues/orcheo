@@ -4,7 +4,6 @@ const RESERVED_PATH_SEGMENTS = new Set([
   "login",
   "profile",
   "settings",
-  "workflow-canvas",
   "workflow-remediations",
 ]);
 
@@ -18,6 +17,28 @@ export const getWorkspaceGalleryPath = (
 ): string => {
   const slug = trimPathSegment(workspaceSlug);
   return slug ? `/${slug}` : "/";
+};
+
+export const getWorkspacePathWithSlug = (
+  pathname: string,
+  workspaceSlug: string,
+): string => {
+  const slug = trimPathSegment(workspaceSlug);
+  if (!slug) {
+    return getWorkspaceGalleryPath(slug);
+  }
+
+  const pathSegments = pathname.split("/").filter(Boolean);
+  if (pathSegments.length === 0) {
+    return getWorkspaceGalleryPath(slug);
+  }
+
+  const [firstSegment, ...rest] = pathSegments;
+  if (RESERVED_PATH_SEGMENTS.has(firstSegment.toLowerCase())) {
+    return getWorkspaceGalleryPath(slug);
+  }
+
+  return `/${[slug, ...rest].join("/")}`;
 };
 
 export const getWorkspaceWorkflowPath = (

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
 import {
@@ -32,12 +32,14 @@ import {
 } from "@/lib/workspace-session";
 import {
   getWorkspaceGalleryPath,
+  getWorkspacePathWithSlug,
   getWorkspaceSlugFromPathname,
 } from "@/lib/workspace-routing";
 import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
 
 export default function ActiveWorkspaceIndicator() {
   const authUser = useMemo(() => getAuthenticatedUserProfile(), []);
+  const navigate = useNavigate();
   const [workspaces, setWorkspaces] = useState<WorkspaceMembershipSummary[]>(
     [],
   );
@@ -97,7 +99,12 @@ export default function ActiveWorkspaceIndicator() {
         if (nextSelected.slug !== currentSlug) {
           setSelectedWorkspaceSlug(nextSelected.slug);
           if (currentSlug) {
-            window.location.reload();
+            navigate(
+              routeWorkspaceSlug
+                ? getWorkspacePathWithSlug(pathname, nextSelected.slug)
+                : getWorkspaceGalleryPath(nextSelected.slug),
+              { replace: true },
+            );
           }
         }
       } catch (error) {
@@ -118,7 +125,7 @@ export default function ActiveWorkspaceIndicator() {
     return () => {
       active = false;
     };
-  }, [routeWorkspaceSlug, suggestedWorkspaceName]);
+  }, [navigate, pathname, routeWorkspaceSlug, suggestedWorkspaceName]);
 
   useEffect(() => {
     if (workspaceSlugIsManual) {

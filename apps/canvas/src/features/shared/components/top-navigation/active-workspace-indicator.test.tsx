@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 
 let selectedWorkspaceSlug: string | null = null;
 
@@ -21,6 +21,12 @@ vi.mock("@/lib/workspace-session", () => ({
 }));
 
 import ActiveWorkspaceIndicator from "@/features/shared/components/top-navigation/active-workspace-indicator";
+
+function PathProbe() {
+  const { pathname } = useLocation();
+
+  return <div data-testid="pathname">{pathname}</div>;
+}
 
 describe("ActiveWorkspaceIndicator", () => {
   beforeEach(() => {
@@ -161,5 +167,41 @@ describe("ActiveWorkspaceIndicator", () => {
     await user.type(nameInput, "New Acme");
 
     expect(slugInput).toHaveValue("acme-labs");
+  });
+
+  it("navigates to the matching workspace route without reloading", async () => {
+    vi.mocked(global.fetch).mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/api/workspaces/me")) {
+        return {
+          ok: true,
+          json: async () => ({
+            memberships: [
+              {
+                workspace_id: "workspace-1",
+                slug: "acme",
+                name: "Acme",
+                role: "owner",
+                status: "active",
+              },
+            ],
+          }),
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/stale-workspace/flow-123"]}>
+        <PathProbe />
+        <ActiveWorkspaceIndicator />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pathname")).toHaveTextContent(
+        "/acme/flow-123",
+      );
+    });
   });
 });

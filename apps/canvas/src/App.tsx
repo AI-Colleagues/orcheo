@@ -23,10 +23,7 @@ import {
   getSelectedWorkspaceSlug,
   setSelectedWorkspaceSlug,
 } from "@/lib/workspace-session";
-import {
-  getWorkspaceGalleryPath,
-  getWorkspaceWorkflowPath,
-} from "@/lib/workspace-routing";
+import { getWorkspaceGalleryPath } from "@/lib/workspace-routing";
 
 const syncWorkspaceSlug = (workspaceSlug?: string) => {
   if (!workspaceSlug) {
@@ -64,18 +61,6 @@ function WorkspaceCanvasRoute() {
   return <WorkflowCanvas workflowId={workflowId === "new" ? undefined : workflowId} />;
 }
 
-function LegacyWorkflowCanvasRedirect() {
-  const { workflowId } = useParams<{ workflowId?: string }>();
-  const workspaceSlug = getSelectedWorkspaceSlug();
-  if (!workspaceSlug) {
-    return <Navigate to="/" replace />;
-  }
-  const target = workflowId
-    ? getWorkspaceWorkflowPath(workspaceSlug, workflowId)
-    : getWorkspaceWorkflowPath(workspaceSlug, "new");
-  return <Navigate to={target} replace />;
-}
-
 export default function OrcheoCanvasApp() {
   return (
     <Router>
@@ -96,11 +81,6 @@ export default function OrcheoCanvasApp() {
                 <Route
                   path="/:workspaceSlug/:workflowId"
                   element={<WorkspaceCanvasRoute />}
-                />
-                <Route path="/workflow-canvas" element={<LegacyWorkflowCanvasRedirect />} />
-                <Route
-                  path="/workflow-canvas/:workflowId"
-                  element={<LegacyWorkflowCanvasRedirect />}
                 />
 
                 <Route
