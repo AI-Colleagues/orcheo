@@ -19,7 +19,7 @@ export default function TopNavigation({
   return (
     <header
       className={cn(
-        "flex h-14 items-center border-b border-border bg-background px-4 lg:px-6",
+        "flex h-14 shrink-0 items-center border-b border-border bg-background px-4 lg:px-6",
         className,
       )}
     >

@@ -16,7 +16,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/design-system/ui/dialog";
-import { HelpCircle, Key, LogOut, Settings, User } from "lucide-react";
+import { Key, LogOut, Settings, User } from "lucide-react";
 import {
   clearAuthSession,
   getAuthenticatedUserProfile,
@@ -123,12 +123,6 @@ export default function AccountMenu({
               <Key className="mr-2 h-4 w-4" />
             <span>Credential Vault</span>
             </button>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link to="/help-support" className="flex w-full items-center gap-0">
-              <HelpCircle className="mr-2 h-4 w-4" />
-              <span>Help & Support</span>
-            </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem

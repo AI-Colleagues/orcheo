@@ -4,5 +4,4 @@ export interface ProfileUser {
   avatar: string;
   role: string;
   joinDate?: string;
-  twoFactorEnabled: boolean;
 }

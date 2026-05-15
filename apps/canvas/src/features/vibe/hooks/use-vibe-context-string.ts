@@ -68,10 +68,6 @@ export function buildVibeContextString(ctx: PageContext): string {
       parts.push("The user is on Profile.");
       break;
 
-    case "help":
-      parts.push("The user is on Help & Support.");
-      break;
-
     default:
       parts.push("The user is on Orcheo.");
       break;

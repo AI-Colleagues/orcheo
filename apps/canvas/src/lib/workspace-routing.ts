@@ -1,7 +1,6 @@
 const RESERVED_PATH_SEGMENTS = new Set([
   "auth",
   "chat",
-  "help-support",
   "login",
   "profile",
   "settings",

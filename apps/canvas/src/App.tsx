@@ -18,7 +18,6 @@ import RequireAuth from "@features/auth/components/require-auth";
 import OAuthCallback from "@features/auth/pages/oauth-callback";
 import Profile from "@features/account/pages/profile";
 import Settings from "@features/account/pages/settings";
-import HelpSupport from "@features/support/pages/help-support";
 import PublicChatPage from "@features/chatkit/pages/public-chat";
 import {
   getSelectedWorkspaceSlug,
@@ -112,8 +111,6 @@ export default function OrcheoCanvasApp() {
                 <Route path="/profile" element={<Profile />} />
 
                 <Route path="/settings" element={<Settings />} />
-
-                <Route path="/help-support" element={<HelpSupport />} />
               </Route>
             </Route>
           </Routes>
