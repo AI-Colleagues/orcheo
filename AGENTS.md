@@ -105,7 +105,6 @@ Available when environment is active (defined in `pyproject.toml` scripts):
 ## Commit & Pull Request Guidelines
 - Commits: concise, imperative subject; include scope/ticket where helpful (e.g., `AF-12 Add RSSNode`). Keep changes focused.
 - PRs: clear description, rationale, and testing notes; link issues; include screenshots for UI (if any); update docs/examples when behavior changes.
-- CI must pass: lint, type check, tests, and coverage thresholds.
 
 ## Security & Configuration Tips
 - Load secrets from `.env` (via `python-dotenv`); never commit secrets.

@@ -17,7 +17,6 @@ import { type WorkflowGalleryTab } from "./types";
 
 interface WorkflowGalleryActionsArgs {
   setSelectedTab: (value: WorkflowGalleryTab) => void;
-  setShowFilterPopover: (value: boolean) => void;
 }
 
 const STARTER_TEMPLATE_IDS = ["template-python-agent"];
@@ -209,21 +208,11 @@ export const useWorkflowGalleryActions = (
     [],
   );
 
-  const handleApplyFilters = useCallback(() => {
-    toast({
-      title: "Filters applied",
-      description:
-        "Filter changes will affect the gallery once data wiring is complete.",
-    });
-    state.setShowFilterPopover(false);
-  }, [state]);
-
   return {
     handleOpenWorkflow,
     handleUseTemplate,
     handleImportStarterPack,
     handleExportWorkflow,
     handleDeleteWorkflow,
-    handleApplyFilters,
   };
 };

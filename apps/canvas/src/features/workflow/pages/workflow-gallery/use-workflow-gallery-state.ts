@@ -10,8 +10,6 @@ import {
   WORKFLOW_STORAGE_EVENT,
 } from "@features/workflow/lib/workflow-storage";
 import {
-  type WorkflowGalleryFilters,
-  type WorkflowGallerySort,
   type WorkflowGalleryTab,
   type WorkflowGalleryTabCounts,
 } from "./types";
@@ -21,36 +19,12 @@ interface WorkflowGalleryStateSlice {
   setSearchQuery: (value: string) => void;
   selectedTab: WorkflowGalleryTab;
   setSelectedTab: (value: WorkflowGalleryTab) => void;
-  sortBy: WorkflowGallerySort;
-  setSortBy: (value: WorkflowGallerySort) => void;
-  showFilterPopover: boolean;
-  setShowFilterPopover: (value: boolean) => void;
-  filters: WorkflowGalleryFilters;
-  setFilters: (value: WorkflowGalleryFilters) => void;
   isLoadingWorkflows: boolean;
   sortedWorkflows: Workflow[];
   tabCounts: WorkflowGalleryTabCounts;
   isTemplateView: boolean;
   templates: Workflow[];
 }
-
-const DEFAULT_FILTERS: WorkflowGalleryFilters = {
-  owner: {
-    me: true,
-    shared: true,
-  },
-  status: {
-    active: true,
-    draft: true,
-    archived: false,
-  },
-  tags: {
-    favorite: false,
-    template: false,
-    production: false,
-    development: false,
-  },
-};
 
 const matchesWorkflowSearch = (
   workflow: Workflow,
@@ -69,10 +43,6 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
   const [isLoadingWorkflows, setIsLoadingWorkflows] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTab, setSelectedTab] = useState<WorkflowGalleryTab>("all");
-  const [sortBy, setSortBy] = useState<WorkflowGallerySort>("updated");
-  const [showFilterPopover, setShowFilterPopover] = useState(false);
-  const [filters, setFilters] =
-    useState<WorkflowGalleryFilters>(DEFAULT_FILTERS);
 
   useEffect(() => {
     let isMounted = true;
@@ -172,38 +142,13 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
     selectedTab,
   ]);
 
-  const sortedWorkflows = useMemo(() => {
-    return [...filteredWorkflows].sort((a, b) => {
-      if (sortBy === "name") {
-        return a.name.localeCompare(b.name);
-      }
-      if (sortBy === "updated") {
-        return (
-          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-        );
-      }
-      if (sortBy === "created") {
-        return (
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-      }
-      return 0;
-    });
-  }, [filteredWorkflows, sortBy]);
-
   return {
     searchQuery,
     setSearchQuery,
     selectedTab,
     setSelectedTab,
-    sortBy,
-    setSortBy,
-    showFilterPopover,
-    setShowFilterPopover,
-    filters,
-    setFilters,
     isLoadingWorkflows,
-    sortedWorkflows,
+    sortedWorkflows: filteredWorkflows,
     tabCounts,
     isTemplateView,
     templates,

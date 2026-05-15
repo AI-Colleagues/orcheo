@@ -48,28 +48,16 @@ export default function WorkflowGallery() {
   const {
     searchQuery,
     setSearchQuery,
-    sortBy,
-    setSortBy,
-    filters,
-    setFilters,
-    showFilterPopover,
-    setShowFilterPopover,
-    showNewFolderDialog,
-    setShowNewFolderDialog,
-    newFolderName,
-    setNewFolderName,
     selectedTab,
     setSelectedTab,
     isLoadingWorkflows,
     sortedWorkflows,
     tabCounts,
     isTemplateView,
-    handleCreateFolder,
     handleUseTemplate,
     handleImportStarterPack,
     handleExportWorkflow,
     handleDeleteWorkflow,
-    handleApplyFilters,
     handleOpenWorkflow,
   } = useWorkflowGallery();
 
@@ -85,22 +73,7 @@ export default function WorkflowGallery() {
       />
 
       <main className="flex flex-1 min-h-0 flex-col overflow-hidden">
-        <WorkflowGalleryHeader
-          searchQuery={searchQuery}
-          onSearchQueryChange={setSearchQuery}
-          sortBy={sortBy}
-          onSortChange={setSortBy}
-          filters={filters}
-          onFiltersChange={setFilters}
-          showFilterPopover={showFilterPopover}
-          onFilterPopoverChange={setShowFilterPopover}
-          showNewFolderDialog={showNewFolderDialog}
-          onNewFolderDialogChange={setShowNewFolderDialog}
-          newFolderName={newFolderName}
-          onFolderNameChange={setNewFolderName}
-          onCreateFolder={handleCreateFolder}
-          onApplyFilters={handleApplyFilters}
-        />
+        <WorkflowGalleryHeader />
 
         <div className="flex-1 overflow-auto">
           <WorkflowGalleryTabs
@@ -112,6 +85,7 @@ export default function WorkflowGallery() {
             isTemplateView={isTemplateView}
             workspaceLabel={workspaceLabel}
             searchQuery={searchQuery}
+            onSearchQueryChange={setSearchQuery}
             onImportStarterPack={handleImportStarterPack}
             onOpenWorkflow={handleOpenWorkflow}
             onUseTemplate={handleUseTemplate}

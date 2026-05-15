@@ -23,6 +23,7 @@ describe("WorkflowGalleryTabs", () => {
         isTemplateView={false}
         workspaceLabel="AI Company"
         searchQuery=""
+        onSearchQueryChange={vi.fn()}
         onImportStarterPack={vi.fn()}
         onOpenWorkflow={vi.fn()}
         onUseTemplate={vi.fn()}
@@ -57,6 +58,7 @@ describe("WorkflowGalleryTabs", () => {
         isTemplateView
         workspaceLabel="AI Company"
         searchQuery=""
+        onSearchQueryChange={vi.fn()}
         onImportStarterPack={vi.fn()}
         onOpenWorkflow={vi.fn()}
         onUseTemplate={vi.fn()}
@@ -80,6 +82,7 @@ describe("WorkflowGalleryTabs", () => {
         isTemplateView={false}
         workspaceLabel="AI Company"
         searchQuery=""
+        onSearchQueryChange={vi.fn()}
         onImportStarterPack={vi.fn()}
         onOpenWorkflow={vi.fn()}
         onUseTemplate={vi.fn()}
@@ -93,5 +96,8 @@ describe("WorkflowGalleryTabs", () => {
     ).toBeTruthy();
     expect(screen.getByRole("tab", { name: /starred 3/i })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /candidates 20/i })).toBeTruthy();
+    expect(
+      screen.getByPlaceholderText(/search colleagues/i),
+    ).toBeTruthy();
   });
 });

@@ -17,7 +17,6 @@ import {
 } from "@/design-system/ui/dropdown-menu";
 import { Input } from "@/design-system/ui/input";
 import { Label } from "@/design-system/ui/label";
-import { Badge } from "@/design-system/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import {
   createWorkspace,
@@ -25,6 +24,7 @@ import {
   type WorkspaceMembershipSummary,
 } from "@/lib/api";
 import { slugifyWorkspace } from "@/lib/workspace-slug";
+import { cn } from "@/lib/utils";
 import {
   clearSelectedWorkspaceSlug,
   getSelectedWorkspaceSlug,
@@ -180,16 +180,16 @@ export default function ActiveWorkspaceIndicator() {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
-            variant="outline"
-            className="inline-flex items-center gap-2 border-dashed bg-background/80"
-            disabled={false}
+          <button
+            type="button"
+            className={cn(
+              "inline-flex h-9 w-fit items-center gap-2 whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background",
+              "focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+            )}
           >
-            <Badge variant="secondary" className="text-[10px] uppercase">
-              Workspace
-            </Badge>
-            <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />
-          </Button>
+            <span className="truncate">Workspace</span>
+            <ChevronsUpDown className="h-4 w-4 opacity-50" />
+          </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-72">
           {workspaces.length > 0 ? (

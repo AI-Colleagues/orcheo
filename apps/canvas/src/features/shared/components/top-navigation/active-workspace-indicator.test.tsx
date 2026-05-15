@@ -67,7 +67,10 @@ describe("ActiveWorkspaceIndicator", () => {
       expect(screen.getByText("Workspace")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: /workspace/i }));
+    const trigger = screen.getByRole("button", { name: /workspace/i });
+    expect(trigger).toHaveClass("h-9", "rounded-md", "border-input", "bg-transparent");
+
+    await user.click(trigger);
 
     await waitFor(() => {
       expect(screen.getByRole("menuitem", { name: "Acme" })).toBeInTheDocument();

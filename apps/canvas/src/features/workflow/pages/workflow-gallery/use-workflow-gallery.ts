@@ -5,7 +5,6 @@ export const useWorkflowGallery = () => {
   const state = useWorkflowGalleryState();
   const actions = useWorkflowGalleryActions({
     setSelectedTab: state.setSelectedTab,
-    setShowFilterPopover: state.setShowFilterPopover,
   });
 
   return {

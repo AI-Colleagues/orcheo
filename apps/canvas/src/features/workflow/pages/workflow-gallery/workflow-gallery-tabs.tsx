@@ -1,3 +1,5 @@
+import { ChangeEvent } from "react";
+import { Input } from "@/design-system/ui/input";
 import { Button } from "@/design-system/ui/button";
 import {
   Tabs,
@@ -5,7 +7,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/design-system/ui/tabs";
-import { Loader2, Zap } from "lucide-react";
+import { Loader2, Search, Zap } from "lucide-react";
 import { type Workflow } from "@features/workflow/data/workflow-data";
 import { WorkflowCard } from "./workflow-card";
 import {
@@ -22,6 +24,7 @@ interface WorkflowGalleryTabsProps {
   isTemplateView: boolean;
   workspaceLabel: string;
   searchQuery: string;
+  onSearchQueryChange: (value: string) => void;
   onImportStarterPack: () => void;
   onOpenWorkflow: (workflowId: string) => void;
   onUseTemplate: (workflowId: string) => void;
@@ -41,12 +44,17 @@ export const WorkflowGalleryTabs = ({
   isTemplateView,
   workspaceLabel,
   searchQuery,
+  onSearchQueryChange,
   onImportStarterPack,
   onOpenWorkflow,
   onUseTemplate,
   onExportWorkflow,
   onDeleteWorkflow,
 }: WorkflowGalleryTabsProps) => {
+  const handleSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
+    onSearchQueryChange(event.target.value);
+  };
+
   return (
     <Tabs
       value={selectedTab}
@@ -55,27 +63,39 @@ export const WorkflowGalleryTabs = ({
       }
       className="px-4"
     >
-      <div className="mb-6 flex items-center justify-between">
-        <TabsList>
-          <TabsTrigger value="all" className="gap-2">
-            <span>AI Colleagues</span>
-            <span className="text-xs text-muted-foreground">
-              {tabCounts.all}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger value="pinned" className="gap-2">
-            <span>Starred</span>
-            <span className="text-xs text-muted-foreground">
-              {tabCounts.pinned}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger value="templates" className="gap-2">
-            <span>Candidates</span>
-            <span className="text-xs text-muted-foreground">
-              {tabCounts.templates}
-            </span>
-          </TabsTrigger>
-        </TabsList>
+      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:gap-4">
+          <TabsList className="flex h-auto flex-wrap justify-start gap-1">
+            <TabsTrigger value="all" className="gap-2">
+              <span>AI Colleagues</span>
+              <span className="text-xs text-muted-foreground">
+                {tabCounts.all}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="pinned" className="gap-2">
+              <span>Starred</span>
+              <span className="text-xs text-muted-foreground">
+                {tabCounts.pinned}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="templates" className="gap-2">
+              <span>Candidates</span>
+              <span className="text-xs text-muted-foreground">
+                {tabCounts.templates}
+              </span>
+            </TabsTrigger>
+          </TabsList>
+
+          <div className="relative w-full md:w-[320px]">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search colleagues..."
+              className="pl-10"
+              value={searchQuery}
+              onChange={handleSearchChange}
+            />
+          </div>
+        </div>
       </div>
 
       <TabsContent value={selectedTab} className="mt-0">
