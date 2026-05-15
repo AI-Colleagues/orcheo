@@ -13,7 +13,6 @@ import type {
   NodeRuntimeCacheEntry,
   NodeStatus,
 } from "@features/workflow/pages/workflow-canvas/helpers/types";
-import type { ValidationError } from "@features/workflow/pages/workflow-canvas/helpers/types";
 
 interface UseNodeInspectorHandlersParams {
   nodesRef: MutableRefObject<CanvasNode[]>;
@@ -22,7 +21,6 @@ interface UseNodeInspectorHandlersParams {
   recordSnapshot: (options?: { force?: boolean }) => void;
   setNodesState: (nodes: CanvasNode[]) => void;
   setEdgesState: (edges: CanvasEdge[]) => void;
-  setValidationErrors: React.Dispatch<React.SetStateAction<ValidationError[]>>;
   setSearchMatches: React.Dispatch<React.SetStateAction<string[]>>;
   setActiveChatNodeId: React.Dispatch<React.SetStateAction<string | null>>;
   setChatTitle: React.Dispatch<React.SetStateAction<string>>;
@@ -41,7 +39,6 @@ export function useNodeInspectorHandlers({
   recordSnapshot,
   setNodesState,
   setEdgesState,
-  setValidationErrors,
   setSearchMatches,
   setActiveChatNodeId,
   setChatTitle,
@@ -130,26 +127,6 @@ export function useNodeInspectorHandlers({
         isRestoringRef.current = false;
       }
 
-      setValidationErrors((errors) =>
-        errors.map((error) => {
-          let modified = false;
-          const nextError = { ...error };
-          if (error.nodeId === nodeId) {
-            nextError.nodeId = newId;
-            modified = true;
-          }
-          if (error.sourceId === nodeId) {
-            nextError.sourceId = newId;
-            modified = true;
-          }
-          if (error.targetId === nodeId) {
-            nextError.targetId = newId;
-            modified = true;
-          }
-          return modified ? nextError : error;
-        }),
-      );
-
       setSearchMatches((matches) =>
         matches.map((match) => (match === nodeId ? newId : match)),
       );
@@ -178,7 +155,6 @@ export function useNodeInspectorHandlers({
       recordSnapshot,
       setNodesState,
       setEdgesState,
-      setValidationErrors,
       setSearchMatches,
       setActiveChatNodeId,
       setChatTitle,

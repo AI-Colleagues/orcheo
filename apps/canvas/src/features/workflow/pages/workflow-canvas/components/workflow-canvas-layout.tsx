@@ -4,12 +4,10 @@ import { Tabs, TabsContent } from "@/design-system/ui/tabs";
 import TopNavigation from "@features/shared/components/top-navigation";
 import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
 import { CanvasChatBubble } from "@features/chatkit/components/canvas-chat-bubble";
-import type { ReadinessTabContentProps } from "@features/workflow/pages/workflow-canvas/components/readiness-tab-content";
 import type { SettingsTabContentProps } from "@features/workflow/pages/workflow-canvas/components/settings-tab-content";
 import type { WorkflowTabContentProps } from "@features/workflow/pages/workflow-canvas/components/workflow-tab-content";
 
 import { TraceTabContent } from "@features/workflow/pages/workflow-canvas/components/trace-tab-content";
-import { ReadinessTabContent } from "@features/workflow/pages/workflow-canvas/components/readiness-tab-content";
 import { SettingsTabContent } from "@features/workflow/pages/workflow-canvas/components/settings-tab-content";
 import { WorkflowTabContent } from "@features/workflow/pages/workflow-canvas/components/workflow-tab-content";
 import type {
@@ -55,11 +53,9 @@ interface WorkflowCanvasLayoutProps {
   tabsProps: {
     activeTab: string;
     onTabChange: (value: string) => void;
-    readinessAlertCount: number;
   };
   workflowProps: WorkflowTabContentProps;
   traceProps: React.ComponentProps<typeof TraceTabContent>;
-  readinessProps: ReadinessTabContentProps;
   settingsProps: SettingsTabContentProps;
   chat: ChatState | null;
 }
@@ -69,7 +65,6 @@ export function WorkflowCanvasLayout({
   tabsProps,
   workflowProps,
   traceProps,
-  readinessProps,
   settingsProps,
   chat,
 }: WorkflowCanvasLayoutProps) {
@@ -80,7 +75,6 @@ export function WorkflowCanvasLayout({
       <WorkflowTabs
         activeTab={tabsProps.activeTab}
         onTabChange={tabsProps.onTabChange}
-        readinessAlertCount={tabsProps.readinessAlertCount}
       />
 
       <div className="flex-1 flex flex-col min-h-0">
@@ -106,12 +100,6 @@ export function WorkflowCanvasLayout({
                 key={`trace-tab-${tabsProps.activeTab}`}
                 {...traceProps}
               />
-            ) : null}
-          </TabsContent>
-
-          <TabsContent value="readiness" className="m-0 p-4 overflow-auto">
-            {tabsProps.activeTab === "readiness" ? (
-              <ReadinessTabContent {...readinessProps} />
             ) : null}
           </TabsContent>
 

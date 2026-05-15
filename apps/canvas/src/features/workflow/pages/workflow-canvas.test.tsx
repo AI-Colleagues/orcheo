@@ -129,12 +129,14 @@ describe("WorkflowCanvas tabs", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("keeps trace/readiness/settings tabs available", async () => {
+  it("keeps trace/settings tabs available", async () => {
     renderCanvas();
 
     expect(await screen.findByRole("tab", { name: /trace/i })).toBeVisible();
-    expect(screen.getByRole("tab", { name: /readiness/i })).toBeVisible();
     expect(screen.getByRole("tab", { name: /settings/i })).toBeVisible();
+    expect(
+      screen.queryByRole("tab", { name: /readiness/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders workflow mermaid empty state when no versions exist", async () => {

@@ -8,10 +8,6 @@ const describeCanvasTab = (ctx: PageContext): string | null => {
       return workflowId
         ? `The user is viewing traces for workflow ${workflowId}.`
         : "The user is viewing traces.";
-    case "readiness":
-      return workflowId
-        ? `The user is viewing readiness for workflow ${workflowId}.`
-        : "The user is viewing readiness.";
     case "settings":
       return workflowId
         ? `The user is viewing workflow settings for workflow ${workflowId}.`

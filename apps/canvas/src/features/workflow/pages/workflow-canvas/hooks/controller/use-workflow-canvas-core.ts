@@ -13,9 +13,7 @@ import { useWorkflowSearch } from "@features/workflow/pages/workflow-canvas/hook
 import { useWorkflowNodeState } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-node-state";
 import { useWorkflowChat } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-chat";
 import { useWorkflowMetadataState } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-metadata-state";
-import { useWorkflowValidationState } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-validation-state";
 import { useWorkflowExecutionState } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-execution-state";
-import { useSubworkflowState } from "@features/workflow/pages/workflow-canvas/hooks/use-subworkflow-state";
 import { useCanvasUiState } from "@features/workflow/pages/workflow-canvas/hooks/use-canvas-ui-state";
 import { useRuntimeCacheSync } from "@features/workflow/pages/workflow-canvas/hooks/use-runtime-cache-sync";
 
@@ -29,9 +27,7 @@ export interface WorkflowCanvasCore {
   routeWorkflowId: string | null;
   history: ReturnType<typeof useWorkflowCanvasHistory>;
   metadata: ReturnType<typeof useWorkflowMetadataState>;
-  validation: ReturnType<typeof useWorkflowValidationState>;
   execution: ReturnType<typeof useWorkflowExecutionState>;
-  subworkflowState: ReturnType<typeof useSubworkflowState>;
   ui: ReturnType<typeof useCanvasUiState>;
   reactFlowWrapper: React.MutableRefObject<HTMLDivElement | null>;
   reactFlowInstance: React.MutableRefObject<ReactFlowInstance<
@@ -67,9 +63,7 @@ export function useWorkflowCanvasCore({
 }: UseWorkflowCanvasCoreArgs): WorkflowCanvasCore {
   const history = useWorkflowCanvasHistory({ initialNodes, initialEdges });
   const metadata = useWorkflowMetadataState();
-  const validation = useWorkflowValidationState();
   const execution = useWorkflowExecutionState();
-  const subworkflowState = useSubworkflowState();
   const ui = useCanvasUiState();
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
@@ -158,7 +152,6 @@ export function useWorkflowCanvasCore({
     setEdgesState: history.setEdgesState,
     recordSnapshot: history.recordSnapshot,
     setNodeRuntimeCache,
-    setValidationErrors: validation.setValidationErrors,
     setSearchMatches: search.setSearchMatches,
     setSelectedNodeId: ui.setSelectedNodeId,
     setActiveChatNodeId: chat.setActiveChatNodeId,
@@ -170,9 +163,7 @@ export function useWorkflowCanvasCore({
     routeWorkflowId: workflowId ?? null,
     history,
     metadata,
-    validation,
     execution,
-    subworkflowState,
     ui,
     reactFlowWrapper,
     reactFlowInstance,

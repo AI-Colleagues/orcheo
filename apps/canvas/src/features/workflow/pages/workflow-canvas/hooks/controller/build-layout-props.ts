@@ -1,4 +1,3 @@
-import type { ReadinessTabContentProps } from "@features/workflow/pages/workflow-canvas/components/readiness-tab-content";
 import type { SettingsTabContentProps } from "@features/workflow/pages/workflow-canvas/components/settings-tab-content";
 import type { TraceTabContentProps } from "@features/workflow/pages/workflow-canvas/components/trace-tab-content";
 import type { WorkflowTabContentProps } from "@features/workflow/pages/workflow-canvas/components/workflow-tab-content";
@@ -64,11 +63,9 @@ export interface WorkflowLayoutProps {
   tabsProps: {
     activeTab: string;
     onTabChange: (value: string) => void;
-    readinessAlertCount: number;
   };
   workflowProps: WorkflowTabContentProps;
   traceProps: TraceTabContentProps;
-  readinessProps: ReadinessTabContentProps;
   settingsProps: SettingsTabContentProps;
   chat: {
     isChatOpen: boolean;
@@ -128,19 +125,6 @@ export function buildWorkflowLayoutProps(
     onSelectTrace: (traceId) => core.execution.setActiveExecutionId(traceId),
   };
 
-  const readinessProps: ReadinessTabContentProps = {
-    subworkflows: core.subworkflowState.subworkflows,
-    onCreateSubworkflow: execution.handleCreateSubworkflow,
-    onInsertSubworkflow: execution.handleInsertSubworkflow,
-    onDeleteSubworkflow: execution.handleDeleteSubworkflow,
-    validationErrors: core.validation.validationErrors,
-    onRunValidation: execution.runPublishValidation,
-    onDismissValidation: execution.handleDismissValidation,
-    onFixValidation: execution.handleFixValidation,
-    isValidating: core.validation.isValidating,
-    lastValidationRun: core.validation.lastValidationRun,
-  };
-
   const settingsProps: SettingsTabContentProps = {
     workflowId: core.metadata.currentWorkflowId,
     workflowName: core.metadata.workflowName,
@@ -180,11 +164,9 @@ export function buildWorkflowLayoutProps(
     tabsProps: {
       activeTab: core.ui.activeTab,
       onTabChange: core.ui.setActiveTab,
-      readinessAlertCount: core.validation.validationErrors.length,
     },
     workflowProps,
     traceProps,
-    readinessProps,
     settingsProps,
     chat: {
       isChatOpen: core.chat.isChatOpen,
