@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { WORKFLOW_STORAGE_EVENT, saveWorkflow } from "./workflow-storage";
-import {
-  getFetchMock,
-  jsonResponse,
-  queueResponses,
-  setupFetchMock,
-} from "./workflow-storage.test-helpers";
+import { jsonResponse } from "@/testing/mocks/backend/request-utils";
+import { createFetchMockHarness } from "@/testing/mocks/fetch-mock";
+
+const { getFetchMock, queueResponses, setupFetchMock } =
+  createFetchMockHarness();
 
 setupFetchMock();
 

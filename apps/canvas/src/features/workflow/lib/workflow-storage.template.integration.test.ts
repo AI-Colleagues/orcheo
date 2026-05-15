@@ -4,13 +4,12 @@ import {
   WORKFLOW_STORAGE_EVENT,
   createWorkflowFromTemplate,
 } from "./workflow-storage";
-import {
-  getFetchMock,
-  jsonResponse,
-  queueResponses,
-  setupFetchMock,
-} from "./workflow-storage.test-helpers";
+import { jsonResponse } from "@/testing/mocks/backend/request-utils";
+import { createFetchMockHarness } from "@/testing/mocks/fetch-mock";
 import { VIBE_WORKFLOW_HANDLE } from "@features/vibe/constants";
+
+const { getFetchMock, queueResponses, setupFetchMock } =
+  createFetchMockHarness();
 
 setupFetchMock();
 
