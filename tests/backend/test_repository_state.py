@@ -272,10 +272,14 @@ async def test_resolve_workflow_ref_prefers_archived_match_then_uuid() -> None:
     """Archived matches and UUID references are resolved when workspace-scoped."""
 
     state = InMemoryRepositoryState()
-    workflow_archived_a = Workflow(name="A", handle="shared-handle")
+    workflow_archived_a = Workflow(
+        name="A", handle="shared-handle", workspace_id="workspace-a"
+    )
     workflow_archived_a.is_archived = True
     workflow_archived_a.updated_at = workflow_archived_a.updated_at.replace(year=2024)
-    workflow_archived_b = Workflow(name="B", handle="shared-handle")
+    workflow_archived_b = Workflow(
+        name="B", handle="shared-handle", workspace_id="workspace-b"
+    )
     workflow_archived_b.is_archived = True
     workflow_archived_b.updated_at = workflow_archived_b.updated_at.replace(year=2025)
     workflow_uuid = Workflow(name="Uuid Match")

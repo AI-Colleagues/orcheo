@@ -53,7 +53,9 @@ async def test_resolve_workflow_ref_no_archived_match_for_workspace() -> None:
     state = InMemoryRepositoryState()
 
     # Create an archived workflow in workspace-A
-    wf = Workflow(name="archived-wf", handle="shared-handle")
+    wf = Workflow(
+        name="archived-wf", handle="shared-handle", workspace_id="workspace-a"
+    )
     wf.is_archived = True
     state._workflows[wf.id] = wf
     state._workflow_workspaces[wf.id] = "workspace-a"
@@ -74,9 +76,9 @@ async def test_resolve_workflow_ref_archived_list_skips_wrong_workspace() -> Non
     state = InMemoryRepositoryState()
 
     # Create two archived workflows with the same handle in different workspaces
-    wf_a = Workflow(name="A", handle="shared-handle")
+    wf_a = Workflow(name="A", handle="shared-handle", workspace_id="workspace-a")
     wf_a.is_archived = True
-    wf_b = Workflow(name="B", handle="shared-handle")
+    wf_b = Workflow(name="B", handle="shared-handle", workspace_id="workspace-b")
     wf_b.is_archived = True
 
     state._workflows[wf_a.id] = wf_a

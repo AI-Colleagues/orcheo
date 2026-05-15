@@ -223,11 +223,13 @@ async def test_resolve_workflow_id_rejects_workspace_mismatch() -> None:
         async def resolve_workflow_ref(
             self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
-            del workflow_ref, include_archived, workspace_id
+            del include_archived
+            if workspace_id is not None and workspace_id != str(other_workspace):
+                raise WorkflowNotFoundError(str(workflow_ref))
             return workflow_id
 
-        async def get_workflow(self, wf_id):
-            del wf_id
+        async def get_workflow(self, wf_id, *, workspace_id=None):
+            del wf_id, workspace_id
             return Workflow(
                 id=workflow_id,
                 name="Test Workflow",
@@ -261,13 +263,16 @@ async def test_load_workflow_for_request_rejects_workspace_mismatch() -> None:
             del workflow_ref, include_archived, workspace_id
             return workflow_id
 
-        async def get_workflow(self, wf_id):
+        async def get_workflow(self, wf_id, *, workspace_id=None):
             del wf_id
+            stored = str(other_workspace)
+            if workspace_id is not None and stored != workspace_id:
+                raise WorkflowNotFoundError(str(workflow_id))
             return Workflow(
                 id=workflow_id,
                 name="Test Workflow",
                 slug="test-workflow",
-                workspace_id=str(other_workspace),
+                workspace_id=stored,
                 created_at=datetime.now(tz=UTC),
                 updated_at=datetime.now(tz=UTC),
             )

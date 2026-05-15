@@ -43,7 +43,9 @@ class _InvalidPublishRepo:
         del include_archived
         return UUID(str(workflow_ref))
 
-    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+    async def get_workflow(
+        self, workflow_id: UUID, *, workspace_id: str | None = None
+    ) -> Workflow:
         return Workflow(id=workflow_id, name="Stub")
 
     async def publish_workflow(self, workflow_id: UUID, **kwargs: object) -> Workflow:
@@ -61,7 +63,9 @@ class _InvalidRevokeRepo:
         del include_archived
         return UUID(str(workflow_ref))
 
-    async def get_workflow(self, workflow_id: UUID) -> Workflow:
+    async def get_workflow(
+        self, workflow_id: UUID, *, workspace_id: str | None = None
+    ) -> Workflow:
         return Workflow(id=workflow_id, name="Stub")
 
     async def revoke_publish(self, workflow_id: UUID, **kwargs: object) -> Workflow:
@@ -97,8 +101,10 @@ class _RevokeRepo:
         del workflow_ref, include_archived
         return self.workflow.id
 
-    async def get_workflow(self, workflow_id: UUID) -> Workflow:
-        del workflow_id
+    async def get_workflow(
+        self, workflow_id: UUID, *, workspace_id: str | None = None
+    ) -> Workflow:
+        del workflow_id, workspace_id
         return self.workflow
 
     async def revoke_publish(self, workflow_id: UUID, **kwargs: object) -> Workflow:
