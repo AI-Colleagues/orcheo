@@ -18,7 +18,7 @@ from orcheo_backend.app.repository import (
 
 @pytest.mark.asyncio
 async def test_ensure_managed_vibe_workflow_creates_seed() -> None:
-    """A missing managed workflow is created with one initial version."""
+    """A missing managed workflow is created for the requested workspace."""
 
     repository = InMemoryWorkflowRepository()
     workspace = Workspace(slug="default", name="Default Workspace")
@@ -32,6 +32,7 @@ async def test_ensure_managed_vibe_workflow_creates_seed() -> None:
     assert "orcheo-vibe-agent" in workflow.tags
     assert "external-agent" in workflow.tags
     assert all(not tag.startswith("workspace:") for tag in workflow.tags)
+    assert workflow.workspace_id == str(workspace.id)
 
     versions = await repository.list_versions(workflow.id)
     assert len(versions) == 1
@@ -43,13 +44,13 @@ async def test_ensure_managed_vibe_workflow_creates_seed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ensure_managed_vibe_workflow_reuses_existing_handle() -> None:
-    """An existing managed workflow is reused regardless of workspace scope."""
+async def test_ensure_managed_vibe_workflow_is_workspace_scoped() -> None:
+    """The managed workflow handle can exist independently per workspace."""
 
     repository = InMemoryWorkflowRepository()
     original_workspace = Workspace(slug="alpha", name="Alpha Workspace")
     current_workspace = Workspace(slug="beta", name="Beta Workspace")
-    workflow = await repository.create_workflow(
+    original_workflow = await repository.create_workflow(
         name="Custom Vibe",
         handle=MANAGED_VIBE_WORKFLOW_HANDLE,
         slug="custom-vibe",
@@ -60,14 +61,16 @@ async def test_ensure_managed_vibe_workflow_reuses_existing_handle() -> None:
         workspace_id=str(original_workspace.id),
     )
 
-    reused = await ensure_managed_vibe_workflow(repository, current_workspace)
+    current_workflow = await ensure_managed_vibe_workflow(repository, current_workspace)
 
-    assert reused.id == workflow.id
-    assert reused.description == "User custom description"
+    assert current_workflow.id != original_workflow.id
+    assert current_workflow.workspace_id == str(current_workspace.id)
+    assert current_workflow.handle == MANAGED_VIBE_WORKFLOW_HANDLE
 
-    versions = await repository.list_versions(workflow.id)
-    assert len(versions) == 1
-    assert versions[0].version == 1
+    current_versions = await repository.list_versions(current_workflow.id)
+    assert len(current_versions) == 1
+    assert current_versions[0].version == 1
+    assert await repository.list_versions(original_workflow.id) == []
 
 
 @pytest.mark.asyncio
@@ -111,7 +114,13 @@ async def test_ensure_managed_vibe_workflow_recovers_from_handle_conflict() -> N
             self.get_calls = 0
             self.update_calls = 0
 
-        async def resolve_workflow_ref(self, handle: str, *, include_archived: bool):
+        async def resolve_workflow_ref(
+            self,
+            handle: str,
+            *,
+            include_archived: bool,
+            workspace_id: str | None = None,
+        ):
             self.resolve_calls += 1
             if self.resolve_calls == 1:
                 raise WorkflowNotFoundError(handle)

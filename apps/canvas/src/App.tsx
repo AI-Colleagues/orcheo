@@ -1,4 +1,11 @@
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { useLayoutEffect } from "react";
+import {
+  BrowserRouter as Router,
+  Navigate,
+  Route,
+  Routes,
+  useParams,
+} from "react-router-dom";
 import { Toaster } from "@/design-system/ui/toaster";
 import { BrowserContextProvider } from "@/hooks/browser-context-provider";
 import { VibeProvider } from "@features/vibe/context/vibe-provider";
@@ -11,8 +18,48 @@ import RequireAuth from "@features/auth/components/require-auth";
 import OAuthCallback from "@features/auth/pages/oauth-callback";
 import Profile from "@features/account/pages/profile";
 import Settings from "@features/account/pages/settings";
-import HelpSupport from "@features/support/pages/help-support";
 import PublicChatPage from "@features/chatkit/pages/public-chat";
+import {
+  getSelectedWorkspaceSlug,
+  setSelectedWorkspaceSlug,
+} from "@/lib/workspace-session";
+import { getWorkspaceGalleryPath } from "@/lib/workspace-routing";
+
+const syncWorkspaceSlug = (workspaceSlug?: string) => {
+  if (!workspaceSlug) {
+    return;
+  }
+  setSelectedWorkspaceSlug(workspaceSlug);
+};
+
+function WorkspaceHomeRedirect() {
+  const workspaceSlug = getSelectedWorkspaceSlug();
+  if (!workspaceSlug) {
+    return <WorkflowGallery />;
+  }
+  return <Navigate to={getWorkspaceGalleryPath(workspaceSlug)} replace />;
+}
+
+function WorkspaceGalleryRoute() {
+  const { workspaceSlug } = useParams<{ workspaceSlug?: string }>();
+  useLayoutEffect(() => {
+    syncWorkspaceSlug(workspaceSlug);
+  }, [workspaceSlug]);
+
+  return <WorkflowGallery />;
+}
+
+function WorkspaceCanvasRoute() {
+  const { workspaceSlug, workflowId } = useParams<{
+    workspaceSlug?: string;
+    workflowId?: string;
+  }>();
+  useLayoutEffect(() => {
+    syncWorkspaceSlug(workspaceSlug);
+  }, [workspaceSlug]);
+
+  return <WorkflowCanvas workflowId={workflowId === "new" ? undefined : workflowId} />;
+}
 
 export default function OrcheoCanvasApp() {
   return (
@@ -27,12 +74,13 @@ export default function OrcheoCanvasApp() {
 
             <Route element={<RequireAuth />}>
               <Route element={<VibeAuthenticatedLayout />}>
-                <Route path="/" element={<WorkflowGallery />} />
+                <Route path="/" element={<WorkspaceHomeRedirect />} />
+                <Route path="/:workspaceSlug" element={<WorkspaceGalleryRoute />} />
 
-                <Route path="/workflow-canvas" element={<WorkflowCanvas />} />
+                <Route path="/:workspaceSlug/new" element={<WorkspaceCanvasRoute />} />
                 <Route
-                  path="/workflow-canvas/:workflowId"
-                  element={<WorkflowCanvas />}
+                  path="/:workspaceSlug/:workflowId"
+                  element={<WorkspaceCanvasRoute />}
                 />
 
                 <Route
@@ -43,8 +91,6 @@ export default function OrcheoCanvasApp() {
                 <Route path="/profile" element={<Profile />} />
 
                 <Route path="/settings" element={<Settings />} />
-
-                <Route path="/help-support" element={<HelpSupport />} />
               </Route>
             </Route>
           </Routes>

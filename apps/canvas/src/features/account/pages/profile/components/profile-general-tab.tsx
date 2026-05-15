@@ -12,7 +12,6 @@ import {
 import { Input } from "@/design-system/ui/input";
 import { Label } from "@/design-system/ui/label";
 import { Separator } from "@/design-system/ui/separator";
-
 import type { ProfileUser } from "../types";
 
 interface ProfileGeneralTabProps {
@@ -83,43 +82,6 @@ export function ProfileGeneralTab({ user }: ProfileGeneralTabProps) {
         </CardContent>
         <CardFooter>
           <Button>Save Changes</Button>
-        </CardFooter>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Preferences</CardTitle>
-          <CardDescription>
-            Manage your notification preferences and timezone settings.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="timezone">Timezone</Label>
-            <select
-              id="timezone"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="UTC">UTC (Coordinated Universal Time)</option>
-              <option value="America/New_York">
-                Eastern Time (US & Canada)
-              </option>
-              <option value="America/Chicago">
-                Central Time (US & Canada)
-              </option>
-              <option value="America/Denver">
-                Mountain Time (US & Canada)
-              </option>
-              <option value="America/Los_Angeles">
-                Pacific Time (US & Canada)
-              </option>
-              <option value="Europe/London">London (GMT/BST)</option>
-              <option value="Europe/Paris">Paris, Berlin, Rome (CET)</option>
-            </select>
-          </div>
-        </CardContent>
-        <CardFooter>
-          <Button>Save Preferences</Button>
         </CardFooter>
       </Card>
     </div>

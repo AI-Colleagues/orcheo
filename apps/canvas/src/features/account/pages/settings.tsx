@@ -9,9 +9,6 @@ import useCredentialVault from "@/hooks/use-credential-vault";
 import { usePageContext } from "@/hooks/use-page-context";
 import AgentSettingsTab from "@features/account/components/settings/agent-settings-tab";
 import AppearanceSettingsTab from "@features/account/components/settings/appearance-settings-tab";
-import ApplicationSettingsTab from "@features/account/components/settings/application-settings-tab";
-import NotificationSettingsTab from "@features/account/components/settings/notification-settings-tab";
-import TeamBillingSettingsTab from "@features/account/components/settings/team-billing-settings-tab";
 import TopNavigation from "@features/shared/components/top-navigation";
 
 export default function Settings() {
@@ -29,7 +26,7 @@ export default function Settings() {
   } = useCredentialVault();
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-y-auto">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <TopNavigation
         credentials={credentials}
         isCredentialsLoading={isCredentialsLoading}
@@ -39,35 +36,25 @@ export default function Settings() {
         onRevealCredentialSecret={onRevealCredentialSecret}
       />
 
-      <div className="flex-1 space-y-4 p-8 pt-6 mx-auto w-full max-w-7xl">
-        <div className="flex items-center justify-between space-y-2">
-          <h2 className="text-3xl font-bold tracking-tight">Settings</h2>
+      <main className="flex-1 min-h-0 overflow-auto">
+        <div className="mx-auto flex w-full max-w-7xl flex-col space-y-4 p-8 pt-6">
+          <div className="flex items-center justify-between space-y-2">
+            <h2 className="text-3xl font-bold tracking-tight">Settings</h2>
+          </div>
+          <Tabs defaultValue="appearance" className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="appearance">Appearance</TabsTrigger>
+              <TabsTrigger value="agent">Agents</TabsTrigger>
+            </TabsList>
+            <TabsContent value="appearance" className="space-y-4">
+              <AppearanceSettingsTab />
+            </TabsContent>
+            <TabsContent value="agent" className="space-y-4">
+              <AgentSettingsTab />
+            </TabsContent>
+          </Tabs>
         </div>
-        <Tabs defaultValue="appearance" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="appearance">Appearance</TabsTrigger>
-            <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="application">Application</TabsTrigger>
-            <TabsTrigger value="teams">Teams & Billing</TabsTrigger>
-            <TabsTrigger value="agent">Agents</TabsTrigger>
-          </TabsList>
-          <TabsContent value="appearance" className="space-y-4">
-            <AppearanceSettingsTab />
-          </TabsContent>
-          <TabsContent value="notifications" className="space-y-4">
-            <NotificationSettingsTab />
-          </TabsContent>
-          <TabsContent value="application" className="space-y-4">
-            <ApplicationSettingsTab />
-          </TabsContent>
-          <TabsContent value="teams" className="space-y-4">
-            <TeamBillingSettingsTab />
-          </TabsContent>
-          <TabsContent value="agent" className="space-y-4">
-            <AgentSettingsTab />
-          </TabsContent>
-        </Tabs>
-      </div>
+      </main>
     </div>
   );
 }

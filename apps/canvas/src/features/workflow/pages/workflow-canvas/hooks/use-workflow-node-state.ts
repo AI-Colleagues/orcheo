@@ -1,8 +1,10 @@
 import { useWorkflowNodeDeletion } from "./use-workflow-node-deletion";
 import { useWorkflowStickyNotes } from "./use-workflow-sticky-notes";
 import { useDecoratedNodes } from "./use-decorated-nodes";
-import type { CanvasNode } from "@features/workflow/pages/workflow-canvas/helpers/types";
-import type { ValidationError } from "@features/workflow/components/canvas/connection-validator";
+import type {
+  CanvasEdge,
+  CanvasNode,
+} from "@features/workflow/pages/workflow-canvas/helpers/types";
 
 type NodeRuntimeCacheEntry = Record<string, unknown>;
 
@@ -21,7 +23,6 @@ type UseWorkflowNodeStateArgs = {
   setNodeRuntimeCache: React.Dispatch<
     React.SetStateAction<Record<string, NodeRuntimeCacheEntry>>
   >;
-  setValidationErrors: React.Dispatch<React.SetStateAction<ValidationError[]>>;
   setSearchMatches: React.Dispatch<React.SetStateAction<string[]>>;
   setSelectedNodeId: React.Dispatch<React.SetStateAction<string | null>>;
   setActiveChatNodeId: React.Dispatch<React.SetStateAction<string | null>>;
@@ -42,7 +43,6 @@ export const useWorkflowNodeState = ({
   setEdgesState,
   recordSnapshot,
   setNodeRuntimeCache,
-  setValidationErrors,
   setSearchMatches,
   setSelectedNodeId,
   setActiveChatNodeId,
@@ -57,7 +57,6 @@ export const useWorkflowNodeState = ({
       setEdgesState,
       recordSnapshot,
       setNodeRuntimeCache,
-      setValidationErrors,
       setSearchMatches,
       setSelectedNodeId,
       setActiveChatNodeId,

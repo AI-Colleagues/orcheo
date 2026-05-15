@@ -1,36 +1,8 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Workflow } from "@features/workflow/data/workflow-data";
 import { listWorkflows } from "@features/workflow/lib/workflow-storage";
 import type { StoredWorkflow } from "@features/workflow/lib/workflow-storage.types";
 import { useWorkflowGalleryState } from "./use-workflow-gallery-state";
-
-vi.mock("@features/workflow/data/workflow-data", () => ({
-  SAMPLE_WORKFLOWS: [
-    {
-      id: "template-1",
-      name: "Agent Template",
-      description: "Starter template",
-      createdAt: "2026-01-05T00:00:00.000Z",
-      updatedAt: "2026-01-06T00:00:00.000Z",
-      owner: { id: "user-1", name: "Owner", avatar: "" },
-      tags: ["template"],
-      nodes: [],
-      edges: [],
-    },
-    {
-      id: "template-2",
-      name: "Notifier Template",
-      description: "Another starter",
-      createdAt: "2026-01-07T00:00:00.000Z",
-      updatedAt: "2026-01-08T00:00:00.000Z",
-      owner: { id: "user-1", name: "Owner", avatar: "" },
-      tags: ["template"],
-      nodes: [],
-      edges: [],
-    },
-  ] satisfies Workflow[],
-}));
 
 vi.mock("@features/workflow/lib/workflow-storage", () => ({
   listWorkflows: vi.fn(),
@@ -84,7 +56,7 @@ describe("useWorkflowGalleryState", () => {
     mockedListWorkflows.mockResolvedValue(STORED_WORKFLOWS);
   });
 
-  it("computes tab counts for workspace workflows and templates", async () => {
+  it("computes tab counts for workspace workflows and candidates", async () => {
     const { result } = renderHook(() => useWorkflowGalleryState());
 
     await waitFor(() => {
@@ -93,21 +65,19 @@ describe("useWorkflowGalleryState", () => {
 
     expect(result.current.tabCounts).toEqual({
       all: 3,
-      favorites: 1,
-      shared: 1,
-      templates: 2,
+      pinned: 1,
+      templates: 20,
     });
 
     act(() => {
-      result.current.setSearchQuery("agent");
+      result.current.setSearchQuery("market");
     });
 
     await waitFor(() => {
       expect(result.current.tabCounts).toEqual({
-        all: 1,
-        favorites: 1,
-        shared: 0,
-        templates: 1,
+        all: 0,
+        pinned: 0,
+        templates: 3,
       });
     });
   });

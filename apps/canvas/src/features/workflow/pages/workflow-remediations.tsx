@@ -22,6 +22,8 @@ import {
   type RemediationStatusFilter,
 } from "./workflow-remediations.helpers";
 import { cn } from "@/lib/utils";
+import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
+import { getWorkspaceWorkflowPath } from "@/lib/workspace-routing";
 
 const STATUS_FILTERS: Array<{
   label: string;
@@ -177,6 +179,7 @@ export default function WorkflowRemediationsPage() {
   const selectedWorkflowName = selectedRemediation
     ? getWorkflowName(selectedRemediation, workflowsById)
     : null;
+  const workspaceSlug = getSelectedWorkspaceSlug();
 
   return (
     <WorkflowPageLayout header={<TopNavigation />}>
@@ -196,7 +199,7 @@ export default function WorkflowRemediationsPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button asChild variant="outline">
-              <Link to="/workflow-canvas">
+              <Link to={getWorkspaceWorkflowPath(workspaceSlug, "new")}>
                 <ExternalLink className="mr-2 h-4 w-4" />
                 Open canvas
               </Link>
@@ -361,7 +364,12 @@ export default function WorkflowRemediationsPage() {
                   </div>
 
                   <Button asChild variant="outline">
-                    <Link to={`/workflow-canvas/${selectedRemediation.workflow_id}`}>
+                    <Link
+                      to={getWorkspaceWorkflowPath(
+                        workspaceSlug,
+                        selectedRemediation.workflow_id,
+                      )}
+                    >
                       <ExternalLink className="mr-2 h-4 w-4" />
                       Open workflow
                     </Link>

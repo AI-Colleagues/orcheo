@@ -102,6 +102,7 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
                 normalized_handle,
                 workflow_id=None,
                 is_archived=False,
+                workspace_id=workspace_id,
             )
             tid = (
                 ensure_workspace_id(workspace_id) if workspace_id is not None else None
@@ -191,6 +192,7 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
             workflow_id = await self._resolve_workflow_ref_locked(
                 workflow_ref,
                 include_archived=include_archived,
+                workspace_id=workspace_id,
             )
             if workspace_id is not None:
                 tid = ensure_workspace_id(workspace_id)
@@ -235,6 +237,7 @@ class WorkflowRepositoryMixin(SqlitePersistenceMixin):
                     normalized_handle,
                     workflow_id=workflow_id,
                     is_archived=next_is_archived,
+                    workspace_id=workflow.workspace_id,
                 )
                 metadata["handle"] = {
                     "from": workflow.handle,

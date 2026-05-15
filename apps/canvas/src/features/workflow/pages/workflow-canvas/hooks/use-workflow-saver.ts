@@ -22,6 +22,8 @@ import {
 } from "@features/workflow/lib/workflow-storage";
 import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
 import type { WorkflowRunnableConfig } from "@features/workflow/lib/workflow-storage.types";
+import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
+import { getWorkspaceWorkflowPath } from "@/lib/workspace-routing";
 
 interface WorkflowSaverOptions {
   createSnapshot: () => { nodes: CanvasNode[]; edges: CanvasEdge[] };
@@ -124,14 +126,18 @@ export function useWorkflowSaver(
       });
 
       const nextWorkflowRouteRef = getWorkflowRouteRef(saved);
+      const workspaceSlug = getSelectedWorkspaceSlug();
       if (
         !workflowIdFromRoute ||
         (workflowIdFromRoute !== saved.id &&
           workflowIdFromRoute !== nextWorkflowRouteRef)
       ) {
-        navigate(`/workflow-canvas/${nextWorkflowRouteRef}`, {
-          replace: !!workflowIdFromRoute,
-        });
+        navigate(
+          getWorkspaceWorkflowPath(workspaceSlug, nextWorkflowRouteRef),
+          {
+            replace: !!workflowIdFromRoute,
+          },
+        );
       }
 
       return saved;

@@ -1,11 +1,8 @@
 export type { Workflow, WorkflowEdge, WorkflowNode } from "./workflow-types";
-export { NODE_TYPES } from "./node-types";
 export {
   assertWorkflowTemplateCompatibility,
-  TEMPLATE_OWNER,
+  GALLERY_TEMPLATE_WORKFLOWS,
   SAMPLE_WORKFLOWS,
   WORKFLOW_TEMPLATE_DEFINITIONS,
   getWorkflowTemplateDefinition,
-  PYTHON_AGENT_WORKFLOW,
-  TELEGRAM_HEARTBEAT_WORKFLOW,
 } from "./templates";

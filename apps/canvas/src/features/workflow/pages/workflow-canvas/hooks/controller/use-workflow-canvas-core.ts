@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
 import type { ReactFlowInstance } from "@xyflow/react";
 
 import { getBackendBaseUrl } from "@/lib/config";
@@ -14,9 +13,7 @@ import { useWorkflowSearch } from "@features/workflow/pages/workflow-canvas/hook
 import { useWorkflowNodeState } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-node-state";
 import { useWorkflowChat } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-chat";
 import { useWorkflowMetadataState } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-metadata-state";
-import { useWorkflowValidationState } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-validation-state";
 import { useWorkflowExecutionState } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-execution-state";
-import { useSubworkflowState } from "@features/workflow/pages/workflow-canvas/hooks/use-subworkflow-state";
 import { useCanvasUiState } from "@features/workflow/pages/workflow-canvas/hooks/use-canvas-ui-state";
 import { useRuntimeCacheSync } from "@features/workflow/pages/workflow-canvas/hooks/use-runtime-cache-sync";
 
@@ -30,9 +27,7 @@ export interface WorkflowCanvasCore {
   routeWorkflowId: string | null;
   history: ReturnType<typeof useWorkflowCanvasHistory>;
   metadata: ReturnType<typeof useWorkflowMetadataState>;
-  validation: ReturnType<typeof useWorkflowValidationState>;
   execution: ReturnType<typeof useWorkflowExecutionState>;
-  subworkflowState: ReturnType<typeof useSubworkflowState>;
   ui: ReturnType<typeof useCanvasUiState>;
   reactFlowWrapper: React.MutableRefObject<HTMLDivElement | null>;
   reactFlowInstance: React.MutableRefObject<ReactFlowInstance<
@@ -58,18 +53,17 @@ export interface WorkflowCanvasCore {
 interface UseWorkflowCanvasCoreArgs {
   initialNodes: CanvasNode[];
   initialEdges: CanvasEdge[];
+  workflowId?: string;
 }
 
 export function useWorkflowCanvasCore({
   initialNodes,
   initialEdges,
+  workflowId,
 }: UseWorkflowCanvasCoreArgs): WorkflowCanvasCore {
-  const { workflowId } = useParams<{ workflowId?: string }>();
   const history = useWorkflowCanvasHistory({ initialNodes, initialEdges });
   const metadata = useWorkflowMetadataState();
-  const validation = useWorkflowValidationState();
   const execution = useWorkflowExecutionState();
-  const subworkflowState = useSubworkflowState();
   const ui = useCanvasUiState();
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
@@ -123,8 +117,8 @@ export function useWorkflowCanvasCore({
   const ai = useMemo(
     () => ({
       id: "ai-1",
-      name: "Orcheo Canvas Assistant",
-      avatar: "https://avatar.vercel.sh/orcheo-canvas",
+      name: "Orcheo Assistant",
+      avatar: "https://avatar.vercel.sh/orcheo-assistant",
     }),
     [],
   );
@@ -158,7 +152,6 @@ export function useWorkflowCanvasCore({
     setEdgesState: history.setEdgesState,
     recordSnapshot: history.recordSnapshot,
     setNodeRuntimeCache,
-    setValidationErrors: validation.setValidationErrors,
     setSearchMatches: search.setSearchMatches,
     setSelectedNodeId: ui.setSelectedNodeId,
     setActiveChatNodeId: chat.setActiveChatNodeId,
@@ -170,9 +163,7 @@ export function useWorkflowCanvasCore({
     routeWorkflowId: workflowId ?? null,
     history,
     metadata,
-    validation,
     execution,
-    subworkflowState,
     ui,
     reactFlowWrapper,
     reactFlowInstance,

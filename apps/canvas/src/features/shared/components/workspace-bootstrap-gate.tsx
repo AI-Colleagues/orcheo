@@ -16,24 +16,18 @@ import {
   getMyWorkspaces,
   type WorkspaceMembershipSummary,
 } from "@/lib/api";
+import { slugifyWorkspace } from "@/lib/workspace-slug";
 import {
   clearSelectedWorkspaceSlug,
   getSelectedWorkspaceSlug,
   setSelectedWorkspaceSlug,
 } from "@/lib/workspace-session";
+import { getWorkspaceGalleryPath } from "@/lib/workspace-routing";
 import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
 
 interface WorkspaceBootstrapGateProps {
   children: ReactNode;
 }
-
-const slugify = (value: string): string =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
 
 export function WorkspaceBootstrapGate({
   children,
@@ -51,6 +45,7 @@ export function WorkspaceBootstrapGate({
   const [isLoading, setIsLoading] = useState(Boolean(authUser));
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSlug, setWorkspaceSlugState] = useState("");
+  const [workspaceSlugIsManual, setWorkspaceSlugIsManual] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
@@ -72,8 +67,10 @@ export function WorkspaceBootstrapGate({
         const currentSlug = getSelectedWorkspaceSlug();
 
         if (payload.memberships.length === 0) {
-          setWorkspaceName((current) => current || suggestedWorkspaceName);
-          setWorkspaceSlugState("");
+          const nextWorkspaceName = workspaceName.trim() || suggestedWorkspaceName;
+          setWorkspaceName(nextWorkspaceName);
+          setWorkspaceSlugState(slugifyWorkspace(nextWorkspaceName));
+          setWorkspaceSlugIsManual(false);
           if (currentSlug) {
             clearSelectedWorkspaceSlug();
           }
@@ -112,6 +109,13 @@ export function WorkspaceBootstrapGate({
   }, [authUser, suggestedWorkspaceName]);
 
   useEffect(() => {
+    if (workspaceSlugIsManual) {
+      return;
+    }
+    setWorkspaceSlugState(slugifyWorkspace(workspaceName));
+  }, [workspaceName, workspaceSlugIsManual]);
+
+  useEffect(() => {
     if (workspaceName.trim()) {
       return;
     }
@@ -120,7 +124,7 @@ export function WorkspaceBootstrapGate({
 
   const handleCreateWorkspace = async () => {
     const name = workspaceName.trim();
-    const slug = slugify(workspaceSlug || workspaceName);
+    const slug = workspaceSlug.trim() || slugifyWorkspace(name);
 
     if (!name || !slug) {
       toast({
@@ -135,7 +139,7 @@ export function WorkspaceBootstrapGate({
     try {
       const created = await createWorkspace({ name, slug });
       setSelectedWorkspaceSlug(created.slug);
-      window.location.reload();
+      window.location.assign(getWorkspaceGalleryPath(created.slug));
     } catch (error) {
       toast({
         title: "Failed to create workspace",
@@ -207,7 +211,11 @@ export function WorkspaceBootstrapGate({
             <Input
               id="workspace-slug"
               value={workspaceSlug}
-              onChange={(event) => setWorkspaceSlugState(event.target.value)}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                setWorkspaceSlugState(nextValue);
+                setWorkspaceSlugIsManual(nextValue.trim().length > 0);
+              }}
               placeholder="acme"
             />
             <p className="text-xs text-muted-foreground">

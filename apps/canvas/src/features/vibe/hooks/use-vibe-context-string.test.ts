@@ -4,7 +4,7 @@ import { buildVibeContextString } from "./use-vibe-context-string";
 describe("buildVibeContextString", () => {
   it("describes the gallery view", () => {
     expect(buildVibeContextString({ page: "gallery" })).toBe(
-      "The user is on Canvas Gallery.",
+      "The user is on Gallery.",
     );
   });
 

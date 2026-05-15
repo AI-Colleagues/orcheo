@@ -8,6 +8,8 @@ from orcheo.workspace import (
     Role,
     Workspace,
     WorkspaceContext,
+    WorkspaceMembership,
+    WorkspaceService,
 )
 from orcheo_backend.app.errors import WorkspaceRateLimitError
 from orcheo_backend.app.workspace import dependencies as workspace_dependencies
@@ -120,13 +122,10 @@ async def test_resolve_workspace_context_legacy_single_tenant(
     default_ws = Workspace(slug="default", name="Default Workspace")
     repo.create_workspace(default_ws)
 
-    class _Service:
-        repository = repo
-
     monkeypatch.setattr(
         workspace_dependencies,
         "get_workspace_service",
-        lambda: _Service(),
+        lambda: WorkspaceService(repo),
     )
     monkeypatch.setattr(
         workspace_dependencies,
@@ -271,13 +270,10 @@ async def test_resolve_from_authorized_workspaces_success(
         lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
     )
 
-    class _Service:
-        repository = repo
-
     monkeypatch.setattr(
         workspace_dependencies,
         "get_workspace_service",
-        lambda: _Service(),
+        lambda: WorkspaceService(repo),
     )
     monkeypatch.setattr(
         workspace_dependencies,
@@ -298,6 +294,59 @@ async def test_resolve_from_authorized_workspaces_success(
     assert result.workspace_id == ws_id
     assert result.workspace_slug == "acme"
     assert result.role == Role.OWNER
+
+
+@pytest.mark.asyncio()
+async def test_resolve_workspace_context_user_identity_uses_membership_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """User JWTs should resolve through memberships even when workspace_ids exist."""
+
+    ws_id = uuid4()
+    workspace = Workspace(id=ws_id, slug="acme", name="Acme Corp")
+    repo = InMemoryWorkspaceRepository()
+    repo.create_workspace(workspace)
+    repo.add_membership(
+        WorkspaceMembership(
+            workspace_id=ws_id,
+            user_id="user-1",
+            role=Role.OWNER,
+        )
+    )
+
+    monkeypatch.setattr(
+        workspace_dependencies,
+        "get_settings",
+        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+    )
+
+    monkeypatch.setattr(
+        workspace_dependencies,
+        "get_workspace_service",
+        lambda: WorkspaceService(repo),
+    )
+    monkeypatch.setattr(
+        workspace_dependencies,
+        "get_workspace_governance",
+        lambda refresh=False: SimpleNamespace(  # noqa: ARG005
+            check_api_rate_limit=lambda workspace_id: None
+        ),
+    )
+
+    request = SimpleNamespace(
+        headers={"X-Orcheo-Workspace": "acme"}, state=SimpleNamespace()
+    )
+    auth = SimpleNamespace(
+        is_authenticated=True,
+        identity_type="user",
+        subject="user-1",
+        workspace_ids=frozenset({str(uuid4())}),
+    )
+
+    result = await workspace_dependencies.resolve_workspace_context(request, auth)
+    assert result.workspace_id == ws_id
+    assert result.workspace_slug == "acme"
+    assert result.user_id == "user-1"
 
 
 @pytest.mark.asyncio()

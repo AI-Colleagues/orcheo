@@ -325,8 +325,7 @@ export const resolveWorkflowShareUrl = (
   }
 
   const base = getBackendBaseUrl().replace(/\/+$/, "");
-  const workflowRef = workflow.handle ?? workflow.id;
-  return `${base}/chat/${workflowRef}`;
+  return `${base}/chat/${workflow.id}`;
 };
 
 const extractCronConfigFromGraphIndex = (

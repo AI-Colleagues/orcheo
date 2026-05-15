@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/hooks/use-toast";
 import {
-  SAMPLE_WORKFLOWS,
+  GALLERY_TEMPLATE_WORKFLOWS,
   type Workflow,
 } from "@features/workflow/data/workflow-data";
 import {
@@ -10,8 +10,6 @@ import {
   WORKFLOW_STORAGE_EVENT,
 } from "@features/workflow/lib/workflow-storage";
 import {
-  type WorkflowGalleryFilters,
-  type WorkflowGallerySort,
   type WorkflowGalleryTab,
   type WorkflowGalleryTabCounts,
 } from "./types";
@@ -21,40 +19,12 @@ interface WorkflowGalleryStateSlice {
   setSearchQuery: (value: string) => void;
   selectedTab: WorkflowGalleryTab;
   setSelectedTab: (value: WorkflowGalleryTab) => void;
-  sortBy: WorkflowGallerySort;
-  setSortBy: (value: WorkflowGallerySort) => void;
-  newFolderName: string;
-  setNewFolderName: (value: string) => void;
-  showNewFolderDialog: boolean;
-  setShowNewFolderDialog: (value: boolean) => void;
-  showFilterPopover: boolean;
-  setShowFilterPopover: (value: boolean) => void;
-  filters: WorkflowGalleryFilters;
-  setFilters: (value: WorkflowGalleryFilters) => void;
   isLoadingWorkflows: boolean;
   sortedWorkflows: Workflow[];
   tabCounts: WorkflowGalleryTabCounts;
   isTemplateView: boolean;
   templates: Workflow[];
 }
-
-const DEFAULT_FILTERS: WorkflowGalleryFilters = {
-  owner: {
-    me: true,
-    shared: true,
-  },
-  status: {
-    active: true,
-    draft: true,
-    archived: false,
-  },
-  tags: {
-    favorite: false,
-    template: false,
-    production: false,
-    development: false,
-  },
-};
 
 const matchesWorkflowSearch = (
   workflow: Workflow,
@@ -73,12 +43,6 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
   const [isLoadingWorkflows, setIsLoadingWorkflows] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTab, setSelectedTab] = useState<WorkflowGalleryTab>("all");
-  const [sortBy, setSortBy] = useState<WorkflowGallerySort>("updated");
-  const [newFolderName, setNewFolderName] = useState("");
-  const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
-  const [showFilterPopover, setShowFilterPopover] = useState(false);
-  const [filters, setFilters] =
-    useState<WorkflowGalleryFilters>(DEFAULT_FILTERS);
 
   useEffect(() => {
     let isMounted = true;
@@ -97,9 +61,9 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
           return;
         }
 
-        console.error("Failed to load workflows", error);
+        console.error("Failed to load colleagues", error);
         toast({
-          title: "Unable to load workflows",
+          title: "Unable to load colleagues",
           description:
             error instanceof Error ? error.message : "Unknown error occurred",
           variant: "destructive",
@@ -131,8 +95,7 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
     };
   }, []);
 
-  const templates = useMemo(() => SAMPLE_WORKFLOWS, []);
-  const defaultOwnerId = templates[0]?.owner.id ?? "user-1";
+  const templates = useMemo(() => GALLERY_TEMPLATE_WORKFLOWS, []);
   const isTemplateView = selectedTab === "templates";
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
 
@@ -153,78 +116,39 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
   const tabCounts = useMemo<WorkflowGalleryTabCounts>(() => {
     return {
       all: searchableWorkflows.length,
-      favorites: searchableWorkflows.filter((workflow) =>
+      pinned: searchableWorkflows.filter((workflow) =>
         workflow.tags.includes("favorite"),
-      ).length,
-      shared: searchableWorkflows.filter(
-        (workflow) => workflow.owner?.id !== defaultOwnerId,
       ).length,
       templates: searchableTemplates.length,
     };
-  }, [defaultOwnerId, searchableTemplates, searchableWorkflows]);
+  }, [searchableTemplates, searchableWorkflows]);
 
   const filteredWorkflows = useMemo(() => {
     if (isTemplateView) {
       return searchableTemplates;
     }
 
-    if (selectedTab === "favorites") {
+    if (selectedTab === "pinned") {
       return searchableWorkflows.filter((workflow) =>
         workflow.tags.includes("favorite"),
       );
     }
 
-    if (selectedTab === "shared") {
-      return searchableWorkflows.filter(
-        (workflow) => workflow.owner?.id !== defaultOwnerId,
-      );
-    }
-
     return searchableWorkflows;
   }, [
-    defaultOwnerId,
     isTemplateView,
     searchableTemplates,
     searchableWorkflows,
     selectedTab,
   ]);
 
-  const sortedWorkflows = useMemo(() => {
-    return [...filteredWorkflows].sort((a, b) => {
-      if (sortBy === "name") {
-        return a.name.localeCompare(b.name);
-      }
-      if (sortBy === "updated") {
-        return (
-          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-        );
-      }
-      if (sortBy === "created") {
-        return (
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-      }
-      return 0;
-    });
-  }, [filteredWorkflows, sortBy]);
-
   return {
     searchQuery,
     setSearchQuery,
     selectedTab,
     setSelectedTab,
-    sortBy,
-    setSortBy,
-    newFolderName,
-    setNewFolderName,
-    showNewFolderDialog,
-    setShowNewFolderDialog,
-    showFilterPopover,
-    setShowFilterPopover,
-    filters,
-    setFilters,
     isLoadingWorkflows,
-    sortedWorkflows,
+    sortedWorkflows: filteredWorkflows,
     tabCounts,
     isTemplateView,
     templates,

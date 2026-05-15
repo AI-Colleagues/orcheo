@@ -34,8 +34,8 @@ class InMemoryRepositoryState:
         self._lock = asyncio.Lock()
         self._workflows: dict[UUID, Workflow] = {}
         self._workflow_workspaces: dict[UUID, str] = {}
-        self._active_workflow_handles: dict[str, UUID] = {}
-        self._archived_workflow_handles: dict[str, list[UUID]] = {}
+        self._active_workflow_handles: dict[str | None, dict[str, UUID]] = {}
+        self._archived_workflow_handles: dict[str | None, dict[str, list[UUID]]] = {}
         self._workflow_versions: dict[UUID, list[UUID]] = {}
         self._versions: dict[UUID, WorkflowVersion] = {}
         self._runs: dict[UUID, WorkflowRun] = {}
@@ -214,21 +214,20 @@ class InMemoryRepositoryState:
         """Rebuild handle indexes from workflow state. Caller must hold the lock."""
         self._active_workflow_handles.clear()
         self._archived_workflow_handles.clear()
-        archived_pairs: list[tuple[str, UUID, Any]] = []
 
         for workflow in self._workflows.values():
             if workflow.handle is None:
                 continue
+            workspace_id = workflow.workspace_id
             if workflow.is_archived:
-                archived_pairs.append(
-                    (workflow.handle, workflow.id, workflow.updated_at)
-                )
+                self._archived_workflow_handles.setdefault(workspace_id, {}).setdefault(
+                    workflow.handle,
+                    [],
+                ).append(workflow.id)
                 continue
-            self._active_workflow_handles[workflow.handle] = workflow.id
-
-        archived_pairs.sort(key=lambda item: item[2], reverse=True)
-        for handle, workflow_id, _ in archived_pairs:
-            self._archived_workflow_handles.setdefault(handle, []).append(workflow_id)
+            self._active_workflow_handles.setdefault(workspace_id, {})[
+                workflow.handle
+            ] = workflow.id
 
     def _ensure_handle_available_locked(
         self,
@@ -236,13 +235,17 @@ class InMemoryRepositoryState:
         *,
         workflow_id: UUID | None,
         is_archived: bool,
+        workspace_id: str | None = None,
     ) -> None:
         """Ensure the provided handle is valid for assignment."""
         if handle is None:
             return
 
+        del is_archived
         for existing in self._workflows.values():
             if existing.id == workflow_id or existing.handle != handle:
+                continue
+            if existing.workspace_id != workspace_id:
                 continue
             if not existing.is_archived:
                 msg = f"Workflow handle '{handle}' is already in use."
@@ -261,30 +264,35 @@ class InMemoryRepositoryState:
             raise WorkflowNotFoundError("workflow ref is empty")
 
         async with self._lock:
+            scope_keys: list[str | None]
+            if workspace_id is not None:
+                scope_keys = [workspace_id, None]
+            else:
+                scope_keys = [None, *self._active_workflow_handles.keys()]
 
-            def _workspace_matches(wf_id: UUID) -> bool:
-                if workspace_id is None:
-                    return True
-                stored = self._workflow_workspaces.get(wf_id)
-                return stored is None or stored == workspace_id
-
-            active_match = self._active_workflow_handles.get(normalized_ref)
-            if active_match is not None and _workspace_matches(active_match):
-                return active_match
+            for scope_key in scope_keys:
+                active_handles = self._active_workflow_handles.get(scope_key, {})
+                active_match = active_handles.get(normalized_ref)
+                if active_match is not None:
+                    return active_match
 
             if include_archived:
-                archived_matches = self._archived_workflow_handles.get(normalized_ref)
-                if archived_matches:
-                    for wf_id in archived_matches:
-                        if _workspace_matches(wf_id):
-                            return wf_id
+                for scope_key in scope_keys:
+                    archived_handles = self._archived_workflow_handles.get(
+                        scope_key, {}
+                    )
+                    archived_matches = archived_handles.get(normalized_ref)
+                    if archived_matches:
+                        return archived_matches[0]
 
             if workflow_ref_is_uuid(normalized_ref):
                 workflow_uuid = UUID(normalized_ref)
-                if workflow_uuid in self._workflows and _workspace_matches(
-                    workflow_uuid
-                ):
-                    return workflow_uuid
+                if workflow_uuid in self._workflows:
+                    if workspace_id is None:
+                        return workflow_uuid
+                    stored_workspace = self._workflow_workspaces.get(workflow_uuid)
+                    if stored_workspace is None or stored_workspace == workspace_id:
+                        return workflow_uuid
 
         raise WorkflowNotFoundError(normalized_ref)
 

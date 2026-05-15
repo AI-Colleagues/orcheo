@@ -238,13 +238,14 @@ async def ensure_managed_vibe_workflow(
     workspace: Workspace | None,
 ) -> Workflow:
     """Ensure the backend-owned Orcheo Vibe workflow exists and is active."""
-    del workspace
+    workspace_id = str(workspace.id) if workspace is not None else None
     workflow: Workflow | None = None
 
     try:
         workflow_id = await repository.resolve_workflow_ref(
             MANAGED_VIBE_WORKFLOW_HANDLE,
             include_archived=True,
+            workspace_id=workspace_id,
         )
     except WorkflowNotFoundError:
         workflow_id = None
@@ -272,12 +273,13 @@ async def ensure_managed_vibe_workflow(
                 tags=[*MANAGED_VIBE_WORKFLOW_TAGS],
                 draft_access=WorkflowDraftAccess.AUTHENTICATED,
                 actor=MANAGED_VIBE_WORKFLOW_ACTOR,
-                workspace_id=None,
+                workspace_id=workspace_id,
             )
         except WorkflowHandleConflictError:
             workflow_id = await repository.resolve_workflow_ref(
                 MANAGED_VIBE_WORKFLOW_HANDLE,
                 include_archived=True,
+                workspace_id=workspace_id,
             )
             workflow = await repository.get_workflow(workflow_id)
             if workflow.is_archived:

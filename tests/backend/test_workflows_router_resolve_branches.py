@@ -13,7 +13,10 @@ from fastapi import HTTPException
 from orcheo.models.workflow import Workflow, WorkflowDraftAccess
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from orcheo_backend.app.repository.errors import WorkflowNotFoundError
-from orcheo_backend.app.routers.workflows import _resolve_workflow_id
+from orcheo_backend.app.routers.workflows import (
+    _load_workflow_for_request,
+    _resolve_workflow_id,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -28,14 +31,18 @@ async def test_resolve_workflow_id_get_workflow_not_found_raises_404() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def resolve_workflow_ref(self, ref, *, include_archived=True):
+        async def resolve_workflow_ref(
+            self, ref, *, include_archived=True, workspace_id=None
+        ):
             return workflow_id
 
-        async def get_workflow(self, wid: UUID) -> Workflow:
+        async def get_workflow(
+            self, wid: UUID, *, workspace_id: str | None = None
+        ) -> Workflow:
             raise WorkflowNotFoundError(str(wid))
 
     with pytest.raises(HTTPException) as exc_info:
-        await _resolve_workflow_id(
+        await _load_workflow_for_request(
             Repository(),  # type: ignore[arg-type]
             "some-ref",
             workspace_id="ws-1",

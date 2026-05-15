@@ -100,6 +100,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                 normalized_handle,
                 workflow_id=None,
                 is_archived=False,
+                workspace_id=workspace_id,
             )
             workflow = Workflow(
                 name=name,
@@ -187,6 +188,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
             workflow_id = await self._resolve_workflow_ref_locked(
                 workflow_ref,
                 include_archived=include_archived,
+                workspace_id=workspace_id,
             )
             if workspace_id is not None:
                 row_tid = await self._get_workflow_workspace_id_locked(workflow_id)
@@ -230,6 +232,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                     normalized_handle,
                     workflow_id=workflow_id,
                     is_archived=next_is_archived,
+                    workspace_id=workflow.workspace_id,
                 )
                 metadata["handle"] = {
                     "from": workflow.handle,

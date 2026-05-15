@@ -437,6 +437,7 @@ async def test_persistence_ensure_handle_available_locked_create_path_avoids_nul
 
     query, params = repo._pool._connection.queries[0]
     assert "id !=" not in query
+    assert "workspace_id IS NULL" in query
     assert params == ("shared-handle",)
 
 
@@ -1788,6 +1789,88 @@ async def test_versions_get_version(
 
     version = await repo.get_version(version_id)
     assert version.id == version_id
+
+
+@pytest.mark.asyncio
+async def test_persistence_ensure_handle_available_locked_workspace_create_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Handle validation uses workspace-scoped query (no id exclusion) on create."""
+    responses: list[Any] = [{"rows": []}]
+    repo = make_repository(monkeypatch, responses)
+
+    await repo._ensure_handle_available_locked(
+        "scoped-handle",
+        workflow_id=None,
+        is_archived=False,
+        workspace_id="ws-a",
+    )
+
+    query, params = repo._pool._connection.queries[0]  # noqa: SLF001
+    assert "workspace_id = %s" in query
+    assert "id !=" not in query
+    assert params == ("scoped-handle", "ws-a")
+
+
+@pytest.mark.asyncio
+async def test_persistence_ensure_handle_available_locked_workspace_update_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Handle validation uses workspace-scoped query with id exclusion on update."""
+    workflow_id = uuid4()
+    responses: list[Any] = [{"rows": []}]
+    repo = make_repository(monkeypatch, responses)
+
+    await repo._ensure_handle_available_locked(
+        "scoped-handle",
+        workflow_id=workflow_id,
+        is_archived=False,
+        workspace_id="ws-a",
+    )
+
+    query, params = repo._pool._connection.queries[0]  # noqa: SLF001
+    assert "workspace_id = %s" in query
+    assert "id !=" in query
+    assert params == ("scoped-handle", "ws-a", str(workflow_id))
+
+
+@pytest.mark.asyncio
+async def test_persistence_resolve_workflow_ref_locked_workspace_falls_back_to_global_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the workspace-scoped query finds nothing, resolution falls back to the
+    global (NULL-workspace) scope."""
+    workflow_id = uuid4()
+    responses: list[Any] = [
+        {"row": None},  # workspace-scoped iteration: miss
+        {"row": {"id": str(workflow_id)}},  # global-scope iteration: hit
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    resolved = await repo._resolve_workflow_ref_locked(  # noqa: SLF001
+        "some-handle", workspace_id="ws-a"
+    )
+
+    assert resolved == workflow_id
+    assert len(repo._pool._connection.queries) == 2  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_persistence_resolve_workflow_ref_locked_workspace_not_found_in_both_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When neither workspace-scoped nor global-scope queries find a match,
+    WorkflowNotFoundError is raised."""
+    responses: list[Any] = [
+        {"row": None},  # workspace-scoped iteration: miss
+        {"row": None},  # global-scope iteration: miss
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repo._resolve_workflow_ref_locked(  # noqa: SLF001
+            "missing-handle", workspace_id="ws-a"
+        )
 
 
 @pytest.mark.asyncio

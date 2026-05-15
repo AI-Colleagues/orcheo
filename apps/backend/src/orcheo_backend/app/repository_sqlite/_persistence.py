@@ -76,6 +76,7 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
         *,
         workflow_id: UUID | None,
         is_archived: bool,
+        workspace_id: str | None = None,
     ) -> None:
         """Ensure the provided handle can be assigned."""
         if handle is None:
@@ -83,15 +84,28 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
 
         workflow_id_str = str(workflow_id) if workflow_id is not None else None
         async with self._connection() as conn:
-            cursor = await conn.execute(
-                """
-                SELECT id, is_archived
-                  FROM workflows
-                 WHERE handle = ?
-                   AND (? IS NULL OR id != ?)
-                """,
-                (handle, workflow_id_str, workflow_id_str),
-            )
+            if workspace_id is None:
+                cursor = await conn.execute(
+                    """
+                    SELECT id, is_archived
+                      FROM workflows
+                     WHERE handle = ?
+                       AND workspace_id IS NULL
+                       AND (? IS NULL OR id != ?)
+                    """,
+                    (handle, workflow_id_str, workflow_id_str),
+                )
+            else:
+                cursor = await conn.execute(
+                    """
+                    SELECT id, is_archived
+                      FROM workflows
+                     WHERE handle = ?
+                       AND workspace_id = ?
+                       AND (? IS NULL OR id != ?)
+                    """,
+                    (handle, workspace_id, workflow_id_str, workflow_id_str),
+                )
             rows = await cursor.fetchall()
 
         for row in rows:
@@ -104,6 +118,7 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
         workflow_ref: str,
         *,
         include_archived: bool = True,
+        workspace_id: str | None = None,
     ) -> UUID:
         """Resolve a workflow ref using handle-first semantics."""
         normalized_ref = workflow_ref.strip().lower()
@@ -112,36 +127,102 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
 
         should_match_uuid = int(workflow_ref_is_uuid(normalized_ref))
         async with self._connection() as conn:
-            cursor = await conn.execute(
-                """
-                SELECT id
-                  FROM workflows
-                 WHERE (
-                           handle = ?
-                       AND (? = 1 OR is_archived = 0)
-                       )
-                    OR (? = 1 AND id = ?)
-              ORDER BY
-                    CASE
-                        WHEN handle = ? AND is_archived = 0 THEN 0
-                        WHEN handle = ? AND is_archived = 1 THEN 1
-                        ELSE 2
-                    END,
-                    updated_at DESC
-                 LIMIT 1
-                """,
-                (
-                    normalized_ref,
-                    int(include_archived),
-                    should_match_uuid,
-                    normalized_ref,
-                    normalized_ref,
-                    normalized_ref,
-                ),
-            )
-            row = await cursor.fetchone()
-            if row is not None:
-                return UUID(row["id"])
+            if workspace_id is not None:
+                for scope_workspace_id in (workspace_id, None):
+                    if scope_workspace_id is None:
+                        cursor = await conn.execute(
+                            """
+                            SELECT id
+                              FROM workflows
+                             WHERE (
+                                       handle = ?
+                                   AND workspace_id IS NULL
+                                   AND (? = 1 OR is_archived = 0)
+                                   )
+                                OR (? = 1 AND id = ? AND workspace_id IS NULL)
+                          ORDER BY
+                                CASE
+                                    WHEN handle = ? AND is_archived = 0 THEN 0
+                                    WHEN handle = ? AND is_archived = 1 THEN 1
+                                    ELSE 2
+                                END,
+                                updated_at DESC
+                             LIMIT 1
+                            """,
+                            (
+                                normalized_ref,
+                                int(include_archived),
+                                should_match_uuid,
+                                normalized_ref,
+                                normalized_ref,
+                                normalized_ref,
+                            ),
+                        )
+                    else:
+                        cursor = await conn.execute(
+                            """
+                            SELECT id
+                              FROM workflows
+                             WHERE (
+                                       handle = ?
+                                   AND workspace_id = ?
+                                   AND (? = 1 OR is_archived = 0)
+                                   )
+                                OR (? = 1 AND id = ? AND workspace_id = ?)
+                          ORDER BY
+                                CASE
+                                    WHEN handle = ? AND is_archived = 0 THEN 0
+                                    WHEN handle = ? AND is_archived = 1 THEN 1
+                                    ELSE 2
+                                END,
+                                updated_at DESC
+                             LIMIT 1
+                            """,
+                            (
+                                normalized_ref,
+                                scope_workspace_id,
+                                int(include_archived),
+                                should_match_uuid,
+                                normalized_ref,
+                                scope_workspace_id,
+                                normalized_ref,
+                                normalized_ref,
+                            ),
+                        )
+                    row = await cursor.fetchone()
+                    if row is not None:
+                        return UUID(row["id"])
+            else:
+                cursor = await conn.execute(
+                    """
+                    SELECT id
+                      FROM workflows
+                     WHERE (
+                               handle = ?
+                           AND (? = 1 OR is_archived = 0)
+                           )
+                        OR (? = 1 AND id = ?)
+                  ORDER BY
+                        CASE
+                            WHEN handle = ? AND is_archived = 0 THEN 0
+                            WHEN handle = ? AND is_archived = 1 THEN 1
+                            ELSE 2
+                        END,
+                        updated_at DESC
+                     LIMIT 1
+                    """,
+                    (
+                        normalized_ref,
+                        int(include_archived),
+                        should_match_uuid,
+                        normalized_ref,
+                        normalized_ref,
+                        normalized_ref,
+                    ),
+                )
+                row = await cursor.fetchone()
+                if row is not None:
+                    return UUID(row["id"])
 
         raise WorkflowNotFoundError(normalized_ref)
 

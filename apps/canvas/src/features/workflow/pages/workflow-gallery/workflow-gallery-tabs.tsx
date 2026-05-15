@@ -1,3 +1,5 @@
+import { ChangeEvent } from "react";
+import { Input } from "@/design-system/ui/input";
 import { Button } from "@/design-system/ui/button";
 import {
   Tabs,
@@ -5,7 +7,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/design-system/ui/tabs";
-import { Loader2, Zap } from "lucide-react";
+import { Loader2, Search, Zap } from "lucide-react";
 import { type Workflow } from "@features/workflow/data/workflow-data";
 import { WorkflowCard } from "./workflow-card";
 import {
@@ -20,7 +22,9 @@ interface WorkflowGalleryTabsProps {
   sortedWorkflows: Workflow[];
   tabCounts: WorkflowGalleryTabCounts;
   isTemplateView: boolean;
+  workspaceLabel: string;
   searchQuery: string;
+  onSearchQueryChange: (value: string) => void;
   onImportStarterPack: () => void;
   onOpenWorkflow: (workflowId: string) => void;
   onUseTemplate: (workflowId: string) => void;
@@ -38,13 +42,19 @@ export const WorkflowGalleryTabs = ({
   sortedWorkflows,
   tabCounts,
   isTemplateView,
+  workspaceLabel,
   searchQuery,
+  onSearchQueryChange,
   onImportStarterPack,
   onOpenWorkflow,
   onUseTemplate,
   onExportWorkflow,
   onDeleteWorkflow,
 }: WorkflowGalleryTabsProps) => {
+  const handleSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
+    onSearchQueryChange(event.target.value);
+  };
+
   return (
     <Tabs
       value={selectedTab}
@@ -53,33 +63,39 @@ export const WorkflowGalleryTabs = ({
       }
       className="px-4"
     >
-      <div className="mb-6 flex items-center justify-between">
-        <TabsList>
-          <TabsTrigger value="all" className="gap-2">
-            <span>All</span>
-            <span className="text-xs text-muted-foreground">
-              {tabCounts.all}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger value="favorites" className="gap-2">
-            <span>Favorites</span>
-            <span className="text-xs text-muted-foreground">
-              {tabCounts.favorites}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger value="shared" className="gap-2">
-            <span>Shared with me</span>
-            <span className="text-xs text-muted-foreground">
-              {tabCounts.shared}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger value="templates" className="gap-2">
-            <span>Templates</span>
-            <span className="text-xs text-muted-foreground">
-              {tabCounts.templates}
-            </span>
-          </TabsTrigger>
-        </TabsList>
+      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:gap-4">
+          <TabsList className="flex h-auto flex-wrap justify-start gap-1">
+            <TabsTrigger value="all" className="gap-2">
+              <span>AI Colleagues</span>
+              <span className="text-xs text-muted-foreground">
+                {tabCounts.all}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="pinned" className="gap-2">
+              <span>Starred</span>
+              <span className="text-xs text-muted-foreground">
+                {tabCounts.pinned}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="templates" className="gap-2">
+              <span>Candidates</span>
+              <span className="text-xs text-muted-foreground">
+                {tabCounts.templates}
+              </span>
+            </TabsTrigger>
+          </TabsList>
+
+          <div className="relative w-full md:w-[320px]">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search colleagues..."
+              className="pl-10"
+              value={searchQuery}
+              onChange={handleSearchChange}
+            />
+          </div>
+        </div>
       </div>
 
       <TabsContent value={selectedTab} className="mt-0">
@@ -89,7 +105,7 @@ export const WorkflowGalleryTabs = ({
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
             <div>
-              <h3 className="text-lg font-medium">Loading workflows</h3>
+              <h3 className="text-lg font-medium">Loading colleagues</h3>
               <p className="text-sm text-muted-foreground">
                 Pulling your workspace from storage.
               </p>
@@ -100,11 +116,11 @@ export const WorkflowGalleryTabs = ({
             <div className="mb-4 rounded-full bg-muted p-4">
               <Zap className="h-8 w-8 text-muted-foreground" />
             </div>
-            <h3 className="mb-2 text-lg font-medium">No workflows found</h3>
+            <h3 className="mb-2 text-lg font-medium">No colleagues found</h3>
             <p className="mb-6 max-w-md text-muted-foreground">
               {searchQuery
-                ? `No workflows match your search for "${searchQuery}"`
-                : "Import starter workflows or use templates to get started."}
+                ? `No colleagues match your search for "${searchQuery}"`
+                : "Import starter colleagues or onboard candidates to get started."}
             </p>
             <div className="flex flex-col items-center gap-3">
               {!isTemplateView ? (
@@ -121,6 +137,7 @@ export const WorkflowGalleryTabs = ({
                 key={workflow.id}
                 workflow={workflow}
                 isTemplate={isTemplateView}
+                workspaceLabel={workspaceLabel}
                 onOpenWorkflow={onOpenWorkflow}
                 onUseTemplate={onUseTemplate}
                 onExportWorkflow={onExportWorkflow}

@@ -45,7 +45,13 @@ async def test_ensure_managed_vibe_workflow_conflict_with_non_archived_workflow(
             self._resolve_calls = 0
             self.update_calls = 0
 
-        async def resolve_workflow_ref(self, handle: str, *, include_archived: bool):
+        async def resolve_workflow_ref(
+            self,
+            handle: str,
+            *,
+            include_archived: bool,
+            workspace_id: str | None = None,
+        ):
             self._resolve_calls += 1
             if self._resolve_calls == 1:
                 raise WorkflowNotFoundError(handle)

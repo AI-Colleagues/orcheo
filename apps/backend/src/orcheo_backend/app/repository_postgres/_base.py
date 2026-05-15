@@ -387,10 +387,21 @@ class PostgresRepositoryBase:
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_workflows_handle ON workflows(handle)"
         )
+        await conn.execute("DROP INDEX IF EXISTS idx_workflows_active_handle")
+        await conn.execute("DROP INDEX IF EXISTS idx_workflows_active_handle_global")
         await conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle"
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle_global"
             " ON workflows(handle)"
-            " WHERE is_archived = FALSE AND handle IS NOT NULL"
+            " WHERE workspace_id IS NULL"
+            "   AND is_archived = FALSE"
+            "   AND handle IS NOT NULL"
+        )
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle_workspace"
+            " ON workflows(workspace_id, handle)"
+            " WHERE workspace_id IS NOT NULL"
+            "   AND is_archived = FALSE"
+            "   AND handle IS NOT NULL"
         )
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_workflows_workspace_id "

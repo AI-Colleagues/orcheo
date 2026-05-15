@@ -67,6 +67,7 @@ from orcheo_backend.app.routers import (
 from orcheo_backend.app.service_token_endpoints import router as service_token_router
 from orcheo_backend.app.workflow_execution import configure_sensitive_logging
 from orcheo_backend.app.workspace import (
+    get_workspace_service,
     resolve_workspace_context,
 )
 
@@ -168,7 +169,9 @@ def create_app(
         """Manage application lifespan with startup and shutdown logic."""
         load_auth_settings(refresh=True)
         load_enabled_plugins(force=True)
-        await ensure_managed_vibe_workflow(get_repository(), None)
+        workspace_service = get_workspace_service()
+        for workspace in workspace_service.list_workspaces(include_inactive=False):
+            await ensure_managed_vibe_workflow(get_repository(), workspace)
         listener_runtime = ListenerRuntimeService(
             repository=get_repository(),
             vault=get_vault(),

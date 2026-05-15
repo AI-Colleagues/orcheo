@@ -1,6 +1,5 @@
 const WORKSPACE_SLUG_KEY = "orcheo_canvas_workspace_slug";
 const DEFAULT_WORKSPACE_HEADER = "X-Orcheo-Workspace";
-const WORKSPACE_SELECTION_EVENT = "orcheo-workspace-selection-changed";
 
 const safeLocalStorageGet = (key: string): string | null => {
   if (typeof window === "undefined") {
@@ -54,10 +53,6 @@ export const setSelectedWorkspaceSlug = (slug: string | null): void => {
   } else {
     safeLocalStorageSet(WORKSPACE_SLUG_KEY, normalizeSlug(slug));
   }
-
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(WORKSPACE_SELECTION_EVENT));
-  }
 };
 
 export const clearSelectedWorkspaceSlug = (): void => {
@@ -74,6 +69,3 @@ export const getWorkspaceSelectionHeaders = (): Record<string, string> => {
     [getWorkspaceHeaderName()]: slug,
   };
 };
-
-export const WORKSPACE_SELECTION_CHANGED_EVENT =
-  WORKSPACE_SELECTION_EVENT;

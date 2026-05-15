@@ -12,7 +12,6 @@ export interface PageContext {
     | "execution"
     | "settings"
     | "profile"
-    | "help"
     | "other";
   workflowId?: string | null;
   workflowName?: string | null;

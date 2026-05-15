@@ -1,0 +1,8 @@
+const ID_1_WIDTH_MM = 53.98;
+const ID_1_HEIGHT_MM = 85.6;
+
+export const WORKFLOW_GALLERY_CARD_ASPECT_RATIO =
+  ID_1_WIDTH_MM / ID_1_HEIGHT_MM;
+
+export const WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME =
+  "aspect-[121/192]" as const;

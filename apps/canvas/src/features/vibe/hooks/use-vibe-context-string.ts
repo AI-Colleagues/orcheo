@@ -8,10 +8,6 @@ const describeCanvasTab = (ctx: PageContext): string | null => {
       return workflowId
         ? `The user is viewing traces for workflow ${workflowId}.`
         : "The user is viewing traces.";
-    case "readiness":
-      return workflowId
-        ? `The user is viewing readiness for workflow ${workflowId}.`
-        : "The user is viewing readiness.";
     case "settings":
       return workflowId
         ? `The user is viewing workflow settings for workflow ${workflowId}.`
@@ -30,7 +26,7 @@ export function buildVibeContextString(ctx: PageContext): string {
 
   switch (ctx.page) {
     case "gallery":
-      parts.push("The user is on Canvas Gallery.");
+      parts.push("The user is on Gallery.");
       break;
 
     case "canvas": {
@@ -72,12 +68,8 @@ export function buildVibeContextString(ctx: PageContext): string {
       parts.push("The user is on Profile.");
       break;
 
-    case "help":
-      parts.push("The user is on Help & Support.");
-      break;
-
     default:
-      parts.push("The user is on Orcheo Canvas.");
+      parts.push("The user is on Orcheo.");
       break;
   }
 

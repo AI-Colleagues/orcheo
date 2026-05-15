@@ -55,7 +55,7 @@ describe("VersionStatus", () => {
     render(<VersionStatus />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Canvas 1.2.3/)).toBeInTheDocument();
+      expect(screen.getByText(/Orcheo 1.2.3/)).toBeInTheDocument();
       expect(screen.getByText(/Backend 0.18.0/)).toBeInTheDocument();
       expect(screen.getByText(/Update available/)).toBeInTheDocument();
     });
@@ -149,7 +149,7 @@ describe("VersionStatus", () => {
         screen.getAllByText(/Backend: 0.18.0 → 0.19.0/).length,
       ).toBeGreaterThan(0);
       expect(
-        screen.getAllByText(/Canvas: 1.2.3 → 1.2.4/).length,
+        screen.getAllByText(/Orcheo: 1.2.3 → 1.2.4/).length,
       ).toBeGreaterThan(0);
       expect(
         screen.getAllByText(/orcheo install upgrade/).length,

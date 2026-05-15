@@ -19,9 +19,11 @@ describe("WorkflowGalleryTabs", () => {
         onSelectedTabChange={vi.fn()}
         isLoading
         sortedWorkflows={[]}
-        tabCounts={{ all: 0, favorites: 0, shared: 0, templates: 0 }}
+        tabCounts={{ all: 0, pinned: 0, templates: 0 }}
         isTemplateView={false}
+        workspaceLabel="AI Company"
         searchQuery=""
+        onSearchQueryChange={vi.fn()}
         onImportStarterPack={vi.fn()}
         onOpenWorkflow={vi.fn()}
         onUseTemplate={vi.fn()}
@@ -30,7 +32,7 @@ describe("WorkflowGalleryTabs", () => {
       />,
     );
 
-    expect(screen.getByText(/loading workflows/i)).toBeTruthy();
+    expect(screen.getByText(/loading colleagues/i)).toBeTruthy();
     expect(screen.queryByText(/import starter pack/i)).toBeNull();
   });
 
@@ -52,9 +54,11 @@ describe("WorkflowGalleryTabs", () => {
             edges: [],
           },
         ]}
-        tabCounts={{ all: 1, favorites: 0, shared: 0, templates: 1 }}
+        tabCounts={{ all: 1, pinned: 0, templates: 1 }}
         isTemplateView
+        workspaceLabel="AI Company"
         searchQuery=""
+        onSearchQueryChange={vi.fn()}
         onImportStarterPack={vi.fn()}
         onOpenWorkflow={vi.fn()}
         onUseTemplate={vi.fn()}
@@ -63,7 +67,7 @@ describe("WorkflowGalleryTabs", () => {
       />,
     );
 
-    expect(screen.queryByText(/loading workflows/i)).toBeNull();
+    expect(screen.queryByText(/loading colleagues/i)).toBeNull();
     expect(screen.getByTestId("workflow-card")).toBeTruthy();
   });
 
@@ -74,9 +78,11 @@ describe("WorkflowGalleryTabs", () => {
         onSelectedTabChange={vi.fn()}
         isLoading={false}
         sortedWorkflows={[]}
-        tabCounts={{ all: 12, favorites: 3, shared: 2, templates: 6 }}
+        tabCounts={{ all: 12, pinned: 3, templates: 20 }}
         isTemplateView={false}
+        workspaceLabel="AI Company"
         searchQuery=""
+        onSearchQueryChange={vi.fn()}
         onImportStarterPack={vi.fn()}
         onOpenWorkflow={vi.fn()}
         onUseTemplate={vi.fn()}
@@ -85,9 +91,13 @@ describe("WorkflowGalleryTabs", () => {
       />,
     );
 
-    expect(screen.getByRole("tab", { name: /all 12/i })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /favorites 3/i })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /shared with me 2/i })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /templates 6/i })).toBeTruthy();
+    expect(
+      screen.getByRole("tab", { name: /ai colleagues 12/i }),
+    ).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /starred 3/i })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /candidates 20/i })).toBeTruthy();
+    expect(
+      screen.getByPlaceholderText(/search colleagues/i),
+    ).toBeTruthy();
   });
 });

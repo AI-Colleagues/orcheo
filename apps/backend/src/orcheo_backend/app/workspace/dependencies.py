@@ -154,7 +154,8 @@ async def resolve_workspace_context(
     service = get_workspace_service()
     requested_slug = _read_workspace_header(request)
 
-    if auth.workspace_ids:
+    identity_type = getattr(auth, "identity_type", "service")
+    if auth.workspace_ids and identity_type != "user":
         context = _resolve_from_authorized_workspaces(
             repository=service.repository,
             workspace_ids=auth.workspace_ids,

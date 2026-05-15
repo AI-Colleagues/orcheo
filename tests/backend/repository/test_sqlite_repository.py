@@ -1977,3 +1977,48 @@ async def test_sqlite_disable_listener_subscriptions_locked_without_conn(
         assert all(s.status.value == "disabled" for s in refreshed)
     finally:
         await repository.reset()
+
+
+@pytest.mark.asyncio()
+async def test_sqlite_resolve_workflow_ref_post_check_rejects_workspace_mismatch(
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The post-check in resolve_workflow_ref raises WorkflowNotFoundError when the
+    resolved workflow's workspace_id is non-NULL and differs from the requested one."""
+    db_path = tmp_path / "post-check.sqlite"
+    repository = SqliteWorkflowRepository(db_path)
+
+    resolved_id = uuid4()
+    workspace_a = str(uuid4())
+    workspace_b = str(uuid4())
+
+    try:
+        await repository._ensure_initialized()  # noqa: SLF001
+
+        async def _fake_resolve(
+            workflow_ref: str,
+            *,
+            include_archived: bool = True,
+            workspace_id: str | None = None,
+        ) -> UUID:
+            return resolved_id
+
+        async def _fake_workspace_id(workflow_id: UUID) -> str:
+            return workspace_a
+
+        monkeypatch.setattr(
+            repository,
+            "_resolve_workflow_ref_locked",
+            _fake_resolve,
+        )
+        monkeypatch.setattr(
+            repository,
+            "_get_workflow_workspace_id_locked",
+            _fake_workspace_id,
+        )
+
+        with pytest.raises(WorkflowNotFoundError):
+            await repository.resolve_workflow_ref("some-ref", workspace_id=workspace_b)
+    finally:
+        await repository.reset()

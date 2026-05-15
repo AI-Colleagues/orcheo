@@ -1,17 +1,20 @@
 import { useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, SyntheticEvent } from "react";
+import {
+  Download,
+  MoreHorizontal,
+  Star,
+  UserPlus,
+  Trash,
+} from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/design-system/ui/button";
-import { Badge } from "@/design-system/ui/badge";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardFooter,
   CardHeader,
-  CardTitle,
 } from "@/design-system/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/design-system/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,28 +22,77 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/design-system/ui/dropdown-menu";
-import {
-  AlertCircle,
-  CheckCircle,
-  Clock,
-  Copy,
-  Download,
-  FolderPlus,
-  MoreHorizontal,
-  Pencil,
-  Star,
-  Trash,
-} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConfirmDeleteWorkflowDialog } from "@features/workflow/components/dialogs/confirm-delete-workflow-dialog";
+import { getCandidateBadgeDefinition } from "@features/workflow/data/templates/candidate-badges";
 import { type Workflow } from "@features/workflow/data/workflow-data";
 import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
 import { VIBE_WORKFLOW_HANDLE } from "@features/vibe/constants";
-import { WorkflowThumbnail } from "./workflow-thumbnail";
+import { WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME } from "./workflow-card-size";
+
+const COLLEAGUE_EMOJIS = [
+  // Office & business
+  "👩‍💼", "👨‍💼", "🧑‍💼",
+  // Tech
+  "👩‍💻", "👨‍💻", "🧑‍💻",
+  // Science & research
+  "👩‍🔬", "👨‍🔬", "🧑‍🔬",
+  // Creative & design
+  "👩‍🎨", "👨‍🎨", "🧑‍🎨",
+  // Education
+  "👩‍🏫", "👨‍🏫", "🧑‍🏫",
+  // Trades & engineering
+  "👩‍🔧", "👨‍🔧", "🧑‍🔧",
+  // Manufacturing
+  "👩‍🏭", "👨‍🏭", "🧑‍🏭",
+  // Healthcare
+  "👩‍⚕️", "👨‍⚕️", "🧑‍⚕️",
+  // Law & justice
+  "👩‍⚖️", "👨‍⚖️", "🧑‍⚖️",
+  // Culinary
+  "👩‍🍳", "👨‍🍳", "🧑‍🍳",
+  // Agriculture & nature
+  "👩‍🌾", "👨‍🌾", "🧑‍🌾",
+  // Space & exploration
+  "👩‍🚀", "👨‍🚀", "🧑‍🚀",
+  // Emergency & rescue
+  "👩‍🚒", "👨‍🚒", "🧑‍🚒",
+  // Security & military
+  "👮‍♀️", "👮‍♂️", "👮",
+  "💂‍♀️", "💂‍♂️", "💂",
+  // Music & performance
+  "👩‍🎤", "👨‍🎤", "🧑‍🎤",
+  // Aviation
+  "👩‍✈️", "👨‍✈️", "🧑‍✈️",
+  // Sports & fitness
+  "⛹️‍♀️", "⛹️‍♂️", "⛹️",
+  "🏋️‍♀️", "🏋️‍♂️", "🏋️",
+];
+
+const getSeededIndex = (seed: string, length: number) => {
+  let state = 2166136261;
+
+  for (let index = 0; index < seed.length; index += 1) {
+    state ^= seed.charCodeAt(index);
+    state = Math.imul(state, 16777619);
+  }
+
+  return Math.abs(state) % length;
+};
+
+const getWorkflowTemplateEmoji = (workflow: Workflow) => {
+  const templateId = workflow.versions?.at(-1)?.templateId;
+  if (!templateId) {
+    return undefined;
+  }
+
+  return getCandidateBadgeDefinition(templateId)?.emoji;
+};
 
 interface WorkflowCardProps {
   workflow: Workflow;
   isTemplate: boolean;
+  workspaceLabel: string;
   onOpenWorkflow: (workflowId: string) => void;
   onUseTemplate: (workflowId: string) => void;
   onExportWorkflow: (workflow: Workflow) => void;
@@ -53,18 +105,23 @@ interface WorkflowCardProps {
 export const WorkflowCard = ({
   workflow,
   isTemplate,
+  workspaceLabel,
   onOpenWorkflow,
   onUseTemplate,
   onExportWorkflow,
   onDeleteWorkflow,
 }: WorkflowCardProps) => {
-  const updatedLabel = new Date(
-    workflow.updatedAt || workflow.createdAt,
-  ).toLocaleDateString();
   const workflowRouteRef = getWorkflowRouteRef(workflow);
   const isClickable = !isTemplate;
   const canDeleteWorkflow =
     !isTemplate && workflow.handle !== VIBE_WORKFLOW_HANDLE;
+  const candidateBadge = isTemplate
+    ? getCandidateBadgeDefinition(workflow.id)
+    : undefined;
+  const headerLabel = isTemplate ? "Candidate" : workspaceLabel;
+  const workflowSlug = workflow.handle ?? workflow.id;
+  const workflowAvatarEmoji = getWorkflowTemplateEmoji(workflow);
+
   const suppressCardOpenRef = useRef(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -78,29 +135,31 @@ export const WorkflowCard = ({
   };
 
   const handleCardOpen = (event: MouseEvent<HTMLDivElement>) => {
-    if (isClickable) {
-      if (isMenuOpen) {
-        return;
-      }
-      if (suppressCardOpenRef.current) {
-        return;
-      }
-      const target = event.target as HTMLElement;
-      if (target.closest('[data-card-action="true"]')) {
-        return;
-      }
-      onOpenWorkflow(workflowRouteRef);
+    if (!isClickable) {
+      return;
     }
+    if (isMenuOpen || suppressCardOpenRef.current) {
+      return;
+    }
+
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-card-action="true"]')) {
+      return;
+    }
+
+    onOpenWorkflow(workflowRouteRef);
   };
 
   const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!isClickable) {
       return;
     }
+
     const target = event.target as HTMLElement;
     if (target.closest('[data-card-action="true"]')) {
       return;
     }
+
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       onOpenWorkflow(workflowRouteRef);
@@ -126,8 +185,9 @@ export const WorkflowCard = ({
     <>
       <Card
         className={cn(
-          "overflow-hidden",
-          isClickable && "cursor-pointer transition-colors hover:bg-muted/20",
+          "flex w-full flex-col overflow-hidden border-border/70 bg-card text-card-foreground shadow-[0_16px_48px_rgba(15,23,42,0.08)] transition-transform duration-200 hover:-translate-y-1 dark:shadow-[0_16px_48px_rgba(0,0,0,0.45)]",
+          WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME,
+          isClickable && "cursor-pointer",
         )}
         data-testid="workflow-card"
         onClick={handleCardOpen}
@@ -135,209 +195,174 @@ export const WorkflowCard = ({
         role={isClickable ? "button" : undefined}
         tabIndex={isClickable ? 0 : undefined}
       >
-        <CardHeader className="px-3 pb-2 pt-3">
-          <div className="flex items-start justify-between">
-            <CardTitle className="text-base">{workflow.name}</CardTitle>
-            <DropdownMenu
-              open={isMenuOpen}
-              onOpenChange={(open) => {
-                setIsMenuOpen(open);
-                if (!open) {
-                  suppressCardOpen();
-                }
-              }}
-            >
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={stopPropagation}
-                  onPointerDown={stopPropagation}
-                  aria-label="Workflow actions"
-                  data-card-action="true"
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {isTemplate ? (
-                  <>
-                    <DropdownMenuItem
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        onUseTemplate(workflow.id);
-                      }}
-                    >
-                      <Copy className="mr-2 h-4 w-4" />
-                      Use template
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        onExportWorkflow(workflow);
-                      }}
-                    >
-                      <Download className="mr-2 h-4 w-4" />
-                      Export
-                    </DropdownMenuItem>
-                  </>
-                ) : (
-                  <>
-                    <DropdownMenuItem
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        onOpenWorkflow(workflowRouteRef);
-                      }}
-                    >
-                      <Pencil className="mr-2 h-4 w-4" />
-                      Edit
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        onExportWorkflow(workflow);
-                      }}
-                    >
-                      <Download className="mr-2 h-4 w-4" />
-                      Export
-                    </DropdownMenuItem>
-                    {canDeleteWorkflow ? (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          className="text-red-600"
-                          onSelect={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            setIsDeleteDialogOpen(true);
-                          }}
-                        >
-                          <Trash className="mr-2 h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </>
-                    ) : null}
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+        <CardHeader className="relative flex h-12 items-center justify-center overflow-hidden border-b border-border/70 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 px-4 py-0 text-center text-slate-50 dark:border-border/60 dark:from-slate-100 dark:via-slate-50 dark:to-slate-200 dark:text-slate-950">
+          <div
+            className="absolute inset-0 opacity-25 dark:opacity-40"
+            aria-hidden="true"
+            style={{
+              backgroundImage:
+                "radial-gradient(rgba(255, 255, 255, 0.16) 1px, transparent 1px)",
+              backgroundSize: "30px 18px",
+            }}
+          />
+
+          <div className="relative z-10 flex items-center gap-2">
+            <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-white/70 dark:text-slate-700">
+              {headerLabel}
+            </span>
           </div>
 
-          <CardDescription className="line-clamp-1">
-            {workflow.description || "No description provided"}
-          </CardDescription>
-          {!isTemplate && (
-            <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-              {workflow.handle && (
-                <code className="rounded bg-muted px-1.5 py-0.5">
-                  handle: {workflow.handle}
-                </code>
+          <DropdownMenu
+            open={isMenuOpen}
+            onOpenChange={(open) => {
+              setIsMenuOpen(open);
+              if (!open) {
+                suppressCardOpen();
+              }
+            }}
+          >
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-2 top-2 z-10 h-7 w-7 text-white/75 hover:bg-white/10 hover:text-white dark:text-slate-700 dark:hover:bg-slate-950/10 dark:hover:text-slate-950"
+                onClick={stopPropagation}
+                onPointerDown={stopPropagation}
+                aria-label="Workflow actions"
+                data-card-action="true"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {isTemplate ? (
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onExportWorkflow(workflow);
+                  }}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Export
+                </DropdownMenuItem>
+              ) : (
+                <>
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onExportWorkflow(workflow);
+                    }}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Export
+                  </DropdownMenuItem>
+                  {canDeleteWorkflow ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-red-600"
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setIsDeleteDialogOpen(true);
+                        }}
+                      >
+                        <Trash className="mr-2 h-4 w-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
+                </>
               )}
-              <code className="rounded bg-muted px-1.5 py-0.5">
-                id: {workflow.id}
-              </code>
-            </div>
-          )}
-
-          {isTemplate && workflow.sourceExample && (
-            <p className="mt-1 line-clamp-1 text-xs text-muted-foreground/80">
-              Based on {workflow.sourceExample}
-            </p>
-          )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </CardHeader>
 
-        <CardContent className="px-3 pb-2">
-          <WorkflowThumbnail workflow={workflow} />
-          <div className="mt-2 flex flex-wrap gap-1">
-            {workflow.tags.slice(0, 2).map((tag) => (
-              <Badge key={tag} variant="secondary" className="text-xs">
-                {tag}
-              </Badge>
-            ))}
-            {workflow.tags.length > 2 && (
-              <Badge variant="secondary" className="text-xs">
-                +{workflow.tags.length - 2} more
-              </Badge>
-            )}
-          </div>
-        </CardContent>
-
-        <CardFooter className="flex justify-between px-3 pb-3 pt-2 text-xs text-muted-foreground">
-          <div className="flex items-center">
-            <Avatar className="mr-1 h-5 w-5">
-              <AvatarImage src={workflow.owner.avatar} />
-              <AvatarFallback>{workflow.owner.name.charAt(0)}</AvatarFallback>
-            </Avatar>
-            <div className="flex items-center gap-1">
-              <span>{updatedLabel}</span>
-              {workflow.lastRun?.status === "success" && (
-                <CheckCircle className="h-3 w-3 text-green-500" />
-              )}
-              {workflow.lastRun?.status === "error" && (
-                <AlertCircle className="h-3 w-3 text-red-500" />
-              )}
-              {workflow.lastRun?.status === "running" && (
-                <Clock className="h-3 w-3 animate-pulse text-blue-500" />
-              )}
+        <CardContent className="flex flex-1 min-h-0 flex-col items-center px-5 py-3 text-center">
+          <div className="relative flex w-full shrink-0 items-start justify-center">
+            <div className="absolute left-0 top-0 flex items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-2 py-1 text-muted-foreground shadow-sm dark:bg-slate-950/20">
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-800 shadow-[0_0_6px_rgba(15,23,42,0.32)] dark:bg-slate-200 dark:shadow-[0_0_6px_rgba(226,232,240,0.28)]" />
+              <span className="font-mono text-[9px] font-bold uppercase tracking-[0.1em] text-slate-700 dark:text-slate-300">
+                AI
+              </span>
             </div>
-          </div>
 
-          <div className="flex gap-1">
-            {isTemplate ? (
+            <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-4 border-slate-900 bg-slate-100 shadow-[0_4px_16px_rgba(15,23,42,0.18)] dark:border-slate-100 dark:bg-slate-800 dark:shadow-[0_4px_16px_rgba(0,0,0,0.35)]">
+              <span
+                aria-hidden="true"
+                className="select-none text-[3.5rem] leading-none"
+              >
+                {workflowAvatarEmoji ??
+                  candidateBadge?.emoji ??
+                  COLLEAGUE_EMOJIS[
+                    getSeededIndex(workflowSlug, COLLEAGUE_EMOJIS.length)
+                  ]}
+              </span>
+            </div>
+
+            {!isTemplate ? (
               <Button
-                size="sm"
-                className="h-7 px-3 text-xs"
+                variant="ghost"
+                size="icon"
+                className="absolute right-0 top-0 h-8 w-8"
+                aria-label="Star workflow"
                 data-card-action="true"
                 onClick={(event) => {
                   stopPropagation(event);
-                  onUseTemplate(workflow.id);
+                  toast({
+                    title: "Starred workflows coming soon",
+                    description: `We'll remember ${workflow.name} as a starred workflow soon.`,
+                  });
                 }}
                 onPointerDown={stopPropagation}
               >
-                <FolderPlus className="mr-1 h-3 w-3" />
-                Use template
+                <Star className="h-3 w-3" />
               </Button>
-            ) : (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  aria-label="Favorite workflow"
-                  data-card-action="true"
-                  onClick={(event) => {
-                    stopPropagation(event);
-                    toast({
-                      title: "Favorites coming soon",
-                      description: `We'll remember ${workflow.name} as a favorite soon.`,
-                    });
-                  }}
-                  onPointerDown={stopPropagation}
-                >
-                  <Star className="h-3 w-3" />
-                </Button>
-                <Button
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  data-card-action="true"
-                  onClick={(event) => {
-                    stopPropagation(event);
-                    onOpenWorkflow(workflowRouteRef);
-                  }}
-                  onPointerDown={stopPropagation}
-                >
-                  <Pencil className="mr-1 h-3 w-3" />
-                  Edit
-                </Button>
-              </>
-            )}
+            ) : null}
           </div>
-        </CardFooter>
+
+          <div className="mt-4 shrink-0 text-[1.35rem] font-semibold tracking-[-0.025em] text-card-foreground">
+            {workflow.name}
+          </div>
+
+          <div className="mt-1 shrink-0 font-mono text-[10px] tracking-[0.04em] text-muted-foreground">
+            @{workflowSlug}
+          </div>
+
+          <div className="mt-3 flex min-h-0 w-full flex-1 flex-col items-center justify-start">
+            <div className="h-px w-8 rounded-full bg-border/80" />
+
+            {candidateBadge ? (
+              <div className="mt-1 shrink-0 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {candidateBadge.subtitle}
+              </div>
+            ) : null}
+
+            <p className="mt-1 w-full flex-1 overflow-hidden text-[13px] leading-7 text-muted-foreground">
+              {workflow.description || "No description provided"}
+            </p>
+          </div>
+        </CardContent>
+
+        {isTemplate ? (
+          <CardFooter className="flex items-center justify-end gap-2 px-4 py-1.5">
+            <Button
+              size="sm"
+              className="h-8 px-3 text-xs"
+              data-card-action="true"
+              onClick={(event) => {
+                stopPropagation(event);
+                onUseTemplate(workflow.id);
+              }}
+              onPointerDown={stopPropagation}
+            >
+              <UserPlus className="mr-1 h-3 w-3" />
+              Onboard
+            </Button>
+          </CardFooter>
+        ) : null}
       </Card>
 
       {canDeleteWorkflow ? (

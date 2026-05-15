@@ -16,7 +16,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/design-system/ui/dialog";
-import { HelpCircle, Key, LogOut, Settings, User } from "lucide-react";
+import { Key, LogOut, Settings, User } from "lucide-react";
 import {
   clearAuthSession,
   getAuthenticatedUserProfile,
@@ -98,48 +98,47 @@ export default function AccountMenu({
         <DropdownMenuContent align="end">
           <DropdownMenuLabel>My Account</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
-            <Link to="/profile" className="flex w-full items-center">
+          <DropdownMenuItem asChild>
+            <Link to="/profile" className="flex w-full items-center gap-0">
               <User className="mr-2 h-4 w-4" />
               <span>Profile</span>
             </Link>
           </DropdownMenuItem>
-          <DropdownMenuItem>
-            <Link to="/settings" className="flex w-full items-center">
+          <DropdownMenuItem asChild>
+            <Link to="/settings" className="flex w-full items-center gap-0">
               <Settings className="mr-2 h-4 w-4" />
               <span>Settings</span>
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              handleVaultOpenChange(true);
-            }}
-            className="cursor-pointer"
+            asChild
           >
-            <div className="flex w-full items-center">
+            <button
+              type="button"
+              className="flex w-full items-center gap-0"
+              onClick={() => {
+              handleVaultOpenChange(true);
+              }}
+            >
               <Key className="mr-2 h-4 w-4" />
-              <span>Credential Vault</span>
-            </div>
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <Link to="/help-support" className="flex w-full items-center">
-              <HelpCircle className="mr-2 h-4 w-4" />
-              <span>Help & Support</span>
-            </Link>
+            <span>Credential Vault</span>
+            </button>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onSelect={() => {
-              clearAuthSession();
-              navigate("/login", { replace: true });
-            }}
-            className="cursor-pointer"
+            asChild
           >
-            <div className="flex w-full items-center">
+            <button
+              type="button"
+              className="flex w-full items-center gap-0"
+              onClick={() => {
+                clearAuthSession();
+                navigate("/login", { replace: true });
+              }}
+            >
               <LogOut className="mr-2 h-4 w-4" />
-              <span>Log out</span>
-            </div>
+            <span>Log out</span>
+            </button>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

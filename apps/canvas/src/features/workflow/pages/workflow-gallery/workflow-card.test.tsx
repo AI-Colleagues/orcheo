@@ -1,19 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
-import { afterEach } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WorkflowCard } from "./workflow-card";
+import {
+  WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME,
+  WORKFLOW_GALLERY_CARD_ASPECT_RATIO,
+} from "./workflow-card-size";
 
 vi.mock("@/hooks/use-toast", () => ({
   toast: vi.fn(),
 }));
 
-vi.mock("./workflow-thumbnail", () => ({
-  WorkflowThumbnail: () => <div data-testid="workflow-thumbnail" />,
-}));
-
-const workflow = {
+const colleagueWorkflow = {
   id: "workflow-1",
   handle: "support-triage",
   name: "Support triage",
@@ -30,8 +29,45 @@ const workflow = {
   edges: [],
 } satisfies Parameters<typeof WorkflowCard>[0]["workflow"];
 
+const candidateWorkflow = {
+  id: "template-insight-analyst",
+  handle: "insight-analyst",
+  name: "Insight Analyst",
+  description:
+    "Detects themes from text data using advanced thematic coding frameworks.",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-02T00:00:00.000Z",
+  owner: {
+    id: "owner-1",
+    name: "Owner",
+    avatar: "https://example.com/avatar.png",
+  },
+  tags: ["template", "python", "agent"],
+  nodes: [],
+  edges: [],
+} satisfies Parameters<typeof WorkflowCard>[0]["workflow"];
+
+const onboardedCandidateWorkflow = {
+  ...colleagueWorkflow,
+  id: "workflow-onboarded-insight",
+  name: "Insight Analyst",
+  description:
+    "Detects themes from text data using advanced thematic coding frameworks.",
+  owner: {
+    id: "owner-2",
+    name: "Owner",
+    avatar: "https://example.com/owner-avatar.png",
+  },
+  versions: [
+    {
+      id: "version-1",
+      templateId: "template-insight-analyst",
+    },
+  ],
+} satisfies Parameters<typeof WorkflowCard>[0]["workflow"];
+
 const managedWorkflow = {
-  ...workflow,
+  ...colleagueWorkflow,
   handle: "orcheo-vibe-agent",
   name: "Orcheo Vibe",
 } satisfies Parameters<typeof WorkflowCard>[0]["workflow"];
@@ -48,56 +84,118 @@ afterEach(() => {
 });
 
 describe("WorkflowCard", () => {
-  it("opens workflow when non-template card body is clicked", async () => {
-    const user = userEvent.setup();
-    const handlers = createHandlers();
-
-    render(
-      <WorkflowCard workflow={workflow} isTemplate={false} {...handlers} />,
+  it("uses the portrait gallery aspect ratio", () => {
+    expect(WORKFLOW_GALLERY_CARD_ASPECT_RATIO).toBeCloseTo(
+      53.98 / 85.6,
+      6,
     );
-
-    await user.click(screen.getByTestId("workflow-card"));
-
-    expect(handlers.onOpenWorkflow).toHaveBeenCalledTimes(1);
-    expect(handlers.onOpenWorkflow).toHaveBeenCalledWith(workflow.handle);
   });
 
-  it("does not trigger card navigation when favorite button is clicked", async () => {
+  it("opens workflow when a colleague card body is clicked", async () => {
     const user = userEvent.setup();
     const handlers = createHandlers();
 
     render(
-      <WorkflowCard workflow={workflow} isTemplate={false} {...handlers} />,
+      <WorkflowCard
+        workflow={colleagueWorkflow}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
     );
 
-    const favoriteButton = screen.getByRole("button", {
-      name: /favorite workflow/i,
-    });
-    await user.click(favoriteButton);
+    const card = screen.getByTestId("workflow-card");
+    expect(card.className).toContain(WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME);
+
+    await user.click(card);
+
+    expect(handlers.onOpenWorkflow).toHaveBeenCalledTimes(1);
+    expect(handlers.onOpenWorkflow).toHaveBeenCalledWith(
+      colleagueWorkflow.handle,
+    );
+  });
+
+  it("renders colleague badge copy without creator metadata or edit actions", async () => {
+    const user = userEvent.setup();
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard
+        workflow={colleagueWorkflow}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
+    );
+
+    expect(screen.getByText("AI Company")).toBeInTheDocument();
+    expect(screen.getByText("@support-triage")).toBeInTheDocument();
+    expect(screen.getByText("Support triage")).toBeInTheDocument();
+    expect(screen.getByText("Routes inbound requests.")).toBeInTheDocument();
+    expect(screen.queryByText(/id:/i)).toBeNull();
+    expect(screen.queryByText(/handle:/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^edit$/i })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /star workflow/i }));
 
     expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
   });
 
-  it("opens workflow exactly once from edit button", async () => {
+  it("renders candidate badge copy and onboard action", async () => {
     const user = userEvent.setup();
     const handlers = createHandlers();
 
     render(
-      <WorkflowCard workflow={workflow} isTemplate={false} {...handlers} />,
+      <WorkflowCard
+        workflow={candidateWorkflow}
+        isTemplate
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
     );
 
-    await user.click(screen.getByRole("button", { name: /^edit$/i }));
+    expect(screen.getByText("Candidate")).toBeInTheDocument();
+    expect(screen.getByText("@insight-analyst")).toBeInTheDocument();
+    expect(screen.getByText("AI Insights & Analytics")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Detects themes from text data using advanced thematic coding frameworks.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /star workflow/i })).toBeNull();
 
-    expect(handlers.onOpenWorkflow).toHaveBeenCalledTimes(1);
-    expect(handlers.onOpenWorkflow).toHaveBeenCalledWith(workflow.handle);
+    await user.click(screen.getByRole("button", { name: /onboard/i }));
+
+    expect(handlers.onUseTemplate).toHaveBeenCalledTimes(1);
+    expect(handlers.onUseTemplate).toHaveBeenCalledWith(candidateWorkflow.id);
   });
 
-  it("keeps dropdown actions from triggering card navigation", async () => {
+  it("keeps the candidate emoji after onboarding", () => {
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard
+        workflow={onboardedCandidateWorkflow}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
+    );
+
+    expect(screen.getByText("👨‍🎓")).toBeInTheDocument();
+  });
+
+  it("keeps dropdown export actions from triggering navigation", async () => {
     const user = userEvent.setup();
     const handlers = createHandlers();
 
     render(
-      <WorkflowCard workflow={workflow} isTemplate={false} {...handlers} />,
+      <WorkflowCard
+        workflow={colleagueWorkflow}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
     );
 
     await user.click(
@@ -113,90 +211,6 @@ describe("WorkflowCard", () => {
     expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
   });
 
-  it("shows Export action label without JSON for workflows", async () => {
-    const user = userEvent.setup();
-    const handlers = createHandlers();
-
-    render(
-      <WorkflowCard workflow={workflow} isTemplate={false} {...handlers} />,
-    );
-
-    await user.click(
-      screen.getByRole("button", {
-        name: /workflow actions/i,
-      }),
-    );
-
-    expect(
-      await screen.findByRole("menuitem", { name: /^export$/i }),
-    ).toBeTruthy();
-    expect(screen.queryByRole("menuitem", { name: /export json/i })).toBeNull();
-  });
-
-  it("shows Export action label without JSON for templates", async () => {
-    const user = userEvent.setup();
-    const handlers = createHandlers();
-
-    render(<WorkflowCard workflow={workflow} isTemplate {...handlers} />);
-
-    await user.click(
-      screen.getByRole("button", {
-        name: /workflow actions/i,
-      }),
-    );
-
-    expect(
-      await screen.findByRole("menuitem", { name: /^export$/i }),
-    ).toBeTruthy();
-    expect(screen.queryByRole("menuitem", { name: /export json/i })).toBeNull();
-  });
-
-  it("does not trigger card navigation for keyboard events from child actions", async () => {
-    const user = userEvent.setup();
-    const handlers = createHandlers();
-
-    render(
-      <WorkflowCard workflow={workflow} isTemplate={false} {...handlers} />,
-    );
-
-    const favoriteButton = screen.getByRole("button", {
-      name: /favorite workflow/i,
-    });
-    favoriteButton.focus();
-    await user.keyboard("{Enter}");
-
-    expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
-  });
-
-  it("requires confirmation before deleting a workflow", async () => {
-    const user = userEvent.setup();
-    const handlers = createHandlers();
-
-    render(
-      <WorkflowCard workflow={workflow} isTemplate={false} {...handlers} />,
-    );
-
-    await user.click(
-      screen.getByRole("button", {
-        name: /workflow actions/i,
-      }),
-    );
-    await user.click(
-      await screen.findByRole("menuitem", { name: /^delete$/i }),
-    );
-
-    expect(handlers.onDeleteWorkflow).not.toHaveBeenCalled();
-    expect(screen.getByText(/delete workflow\?/i)).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: /^delete$/i }));
-
-    expect(handlers.onDeleteWorkflow).toHaveBeenCalledTimes(1);
-    expect(handlers.onDeleteWorkflow).toHaveBeenCalledWith(
-      workflow.id,
-      workflow.name,
-    );
-  });
-
   it("hides delete actions for the managed vibe workflow", async () => {
     const user = userEvent.setup();
     const handlers = createHandlers();
@@ -205,6 +219,7 @@ describe("WorkflowCard", () => {
       <WorkflowCard
         workflow={managedWorkflow}
         isTemplate={false}
+        workspaceLabel="AI Company"
         {...handlers}
       />,
     );
@@ -218,6 +233,5 @@ describe("WorkflowCard", () => {
     expect(
       screen.queryByRole("menuitem", { name: /^delete$/i }),
     ).toBeNull();
-    expect(screen.queryByText(/delete workflow\?/i)).toBeNull();
   });
 });

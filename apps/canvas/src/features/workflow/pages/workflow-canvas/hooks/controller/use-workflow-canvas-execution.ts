@@ -20,16 +20,6 @@ import { useNodeCreation } from "@features/workflow/pages/workflow-canvas/hooks/
 import { useWorkflowKeybindings } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-keybindings";
 import { useNodeInspectorHandlers } from "@features/workflow/pages/workflow-canvas/hooks/use-node-inspector-handlers";
 import { useExecutionTrace } from "@features/workflow/pages/workflow-canvas/hooks/use-execution-trace";
-import {
-  createHandleCreateSubworkflow,
-  createHandleDeleteSubworkflow,
-  createHandleInsertSubworkflow,
-} from "@features/workflow/pages/workflow-canvas/handlers/subworkflows";
-import {
-  createHandleDismissValidation,
-  createHandleFixValidation,
-  createRunPublishValidation,
-} from "@features/workflow/pages/workflow-canvas/handlers/validation";
 import type { CanvasEdge } from "@features/workflow/pages/workflow-canvas/helpers/types";
 import {
   createExecutionRecord,
@@ -48,12 +38,6 @@ export interface WorkflowCanvasExecution {
   nodeCreation: ReturnType<typeof useNodeCreation>;
   inspectorHandlers: ReturnType<typeof useNodeInspectorHandlers>;
   trace: ReturnType<typeof useExecutionTrace>;
-  runPublishValidation: ReturnType<typeof createRunPublishValidation>;
-  handleDismissValidation: ReturnType<typeof createHandleDismissValidation>;
-  handleFixValidation: ReturnType<typeof createHandleFixValidation>;
-  handleCreateSubworkflow: ReturnType<typeof createHandleCreateSubworkflow>;
-  handleDeleteSubworkflow: ReturnType<typeof createHandleDeleteSubworkflow>;
-  handleInsertSubworkflow: ReturnType<typeof createHandleInsertSubworkflow>;
   handleConnect: (connection: Connection) => void;
   edgeHoverHandlers: {
     onEnter: (_event: React.MouseEvent<Element>, edge: CanvasEdge) => void;
@@ -245,7 +229,6 @@ export function useWorkflowCanvasExecution(
     recordSnapshot: core.history.recordSnapshot,
     setNodesState: core.history.setNodesState,
     setEdgesState: core.history.setEdgesState,
-    setValidationErrors: core.validation.setValidationErrors,
     setSearchMatches: core.search.setSearchMatches,
     setActiveChatNodeId: core.chat.setActiveChatNodeId,
     setChatTitle: core.chat.setChatTitle,
@@ -254,79 +237,6 @@ export function useWorkflowCanvasExecution(
     handleOpenChat: core.chat.handleOpenChat,
     activeChatNodeId: core.chat.activeChatNodeId,
   });
-
-  const handleCreateSubworkflow = useMemo(
-    () =>
-      createHandleCreateSubworkflow({
-        getSelectedNodes: () =>
-          core.history.nodesRef.current.filter((node) => node.selected),
-        setSubworkflows: core.subworkflowState.setSubworkflows,
-      }),
-    [core.history.nodesRef, core.subworkflowState.setSubworkflows],
-  );
-
-  const handleDeleteSubworkflow = useMemo(
-    () =>
-      createHandleDeleteSubworkflow({
-        setSubworkflows: core.subworkflowState.setSubworkflows,
-      }),
-    [core.subworkflowState.setSubworkflows],
-  );
-
-  const handleInsertSubworkflow = useMemo(
-    () =>
-      createHandleInsertSubworkflow({
-        nodesRef: core.history.nodesRef,
-        setNodes: core.history.setNodes,
-        setEdges: core.history.setEdges,
-        setSubworkflows: core.subworkflowState.setSubworkflows,
-        convertPersistedNodesToCanvas: core.convertPersistedNodesToCanvas,
-        convertPersistedEdgesToCanvas,
-        setSelectedNodeId: core.ui.setSelectedNodeId,
-        setActiveTab: core.ui.setActiveTab,
-        reactFlowInstance: core.reactFlowInstance,
-      }),
-    [
-      core.convertPersistedNodesToCanvas,
-      core.history.nodesRef,
-      core.history.setEdges,
-      core.history.setNodes,
-      core.reactFlowInstance,
-      core.subworkflowState.setSubworkflows,
-      core.ui,
-    ],
-  );
-
-  const runPublishValidation = useMemo(
-    () =>
-      createRunPublishValidation({
-        getNodes: () => core.history.nodesRef.current,
-        getEdges: () => core.history.edgesRef.current,
-        setValidationErrors: core.validation.setValidationErrors,
-        setIsValidating: core.validation.setIsValidating,
-        setLastValidationRun: core.validation.setLastValidationRun,
-      }),
-    [core.history.edgesRef, core.history.nodesRef, core.validation],
-  );
-
-  const handleDismissValidation = useMemo(
-    () =>
-      createHandleDismissValidation({
-        setValidationErrors: core.validation.setValidationErrors,
-      }),
-    [core.validation.setValidationErrors],
-  );
-
-  const handleFixValidation = useMemo(
-    () =>
-      createHandleFixValidation({
-        getNodes: () => core.history.nodesRef.current,
-        setActiveTab: core.ui.setActiveTab,
-        setSelectedNodeId: core.ui.setSelectedNodeId,
-        reactFlowInstance: core.reactFlowInstance,
-      }),
-    [core.history.nodesRef, core.reactFlowInstance, core.ui],
-  );
 
   const handleConnect = (params: Connection) => {
     const id = `edge-${params.source}-${params.target}`;
@@ -371,12 +281,6 @@ export function useWorkflowCanvasExecution(
     nodeCreation,
     inspectorHandlers,
     trace,
-    runPublishValidation,
-    handleDismissValidation,
-    handleFixValidation,
-    handleCreateSubworkflow,
-    handleDeleteSubworkflow,
-    handleInsertSubworkflow,
     handleConnect,
     edgeHoverHandlers,
   };

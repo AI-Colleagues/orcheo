@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ExternalAgentProviderStatus } from "@/lib/api";
 import { getWorkflowTemplateDefinition } from "@features/workflow/data/workflow-data";
-import { WORKFLOW_STORAGE_EVENT, listWorkflows } from "@features/workflow/lib/workflow-storage";
+import {
+  WORKFLOW_STORAGE_EVENT,
+  listWorkflows,
+} from "@features/workflow/lib/workflow-storage";
 import {
   fetchWorkflowVersions,
   request,
 } from "@features/workflow/lib/workflow-storage-api";
-import { type ChatKitSupportedModel } from "@features/workflow/lib/workflow-storage.types";
+import {
+  type ApiWorkflow,
+  type ChatKitSupportedModel,
+} from "@features/workflow/lib/workflow-storage.types";
 import {
   VIBE_AGENT_TAG,
   VIBE_WORKFLOW_HANDLE,
@@ -18,7 +24,8 @@ import { buildVibeSupportedModels } from "@features/vibe/lib/vibe-models";
 const VIBE_TEMPLATE = getWorkflowTemplateDefinition(VIBE_WORKFLOW_TEMPLATE_ID);
 const TEMPLATE_SYNC_ACTOR = "canvas-app";
 const TEMPLATE_SUMMARY = { added: 0, removed: 0, modified: 0 };
-const WORKFLOW_ID_STORAGE_KEY = "orcheo:vibe-workflow-id";
+const WORKFLOW_ID_STORAGE_KEY_PREFIX = "orcheo:vibe-workflow-id";
+const GLOBAL_WORKSPACE_KEY = "__global__";
 
 interface VibeWorkflowState {
   workflowId: string | null;
@@ -26,44 +33,59 @@ interface VibeWorkflowState {
   error: string | null;
 }
 
-const readCachedWorkflowId = (): string | null => {
+const normalizeWorkspaceKey = (workspaceSlug: string | null | undefined): string =>
+  workspaceSlug?.trim() || GLOBAL_WORKSPACE_KEY;
+
+const getWorkflowStorageKey = (
+  workspaceSlug: string | null | undefined,
+): string => `${WORKFLOW_ID_STORAGE_KEY_PREFIX}:${normalizeWorkspaceKey(workspaceSlug)}`;
+
+const readCachedWorkflowId = (
+  workspaceSlug: string | null | undefined,
+): string | null => {
   try {
-    const cached = localStorage.getItem(WORKFLOW_ID_STORAGE_KEY);
+    const cached = localStorage.getItem(getWorkflowStorageKey(workspaceSlug));
     return cached && cached.trim() ? cached : null;
   } catch {
     return null;
   }
 };
 
-const writeCachedWorkflowId = (id: string): void => {
+const writeCachedWorkflowId = (
+  id: string,
+  workspaceSlug: string | null | undefined,
+): void => {
   try {
-    localStorage.setItem(WORKFLOW_ID_STORAGE_KEY, id);
+    localStorage.setItem(getWorkflowStorageKey(workspaceSlug), id);
   } catch {
     // Silently ignore storage errors.
   }
 };
 
-const clearCachedWorkflowId = (): void => {
-  cachedWorkflowId = null;
+const clearCachedWorkflowId = (
+  workspaceSlug: string | null | undefined,
+): void => {
   try {
-    localStorage.removeItem(WORKFLOW_ID_STORAGE_KEY);
+    localStorage.removeItem(getWorkflowStorageKey(workspaceSlug));
   } catch {
     // Silently ignore storage errors.
   }
 };
 
-let cachedWorkflowId: string | null = readCachedWorkflowId();
-
-export const syncCachedWorkflowIdFromStorage = (): string | null => {
-  cachedWorkflowId = readCachedWorkflowId();
-  return cachedWorkflowId;
-};
+export const syncCachedWorkflowIdFromStorage = (
+  workspaceSlug: string | null | undefined = null,
+): string | null => readCachedWorkflowId(workspaceSlug);
 
 export const __setCachedWorkflowIdForTesting = (
   id: string | null,
+  workspaceSlug: string | null | undefined = null,
 ): string | null => {
-  cachedWorkflowId = id;
-  return cachedWorkflowId;
+  if (id === null) {
+    clearCachedWorkflowId(workspaceSlug);
+  } else {
+    writeCachedWorkflowId(id, workspaceSlug);
+  }
+  return id;
 };
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
@@ -86,6 +108,7 @@ const resolveTemplateId = (metadata: unknown): string | null => {
 
 export function useVibeWorkflow(
   readyProviders: ExternalAgentProviderStatus[],
+  workspaceSlug: string | null | undefined = null,
 ): VibeWorkflowState {
   const supportedModels = useMemo(
     () => buildVibeSupportedModels(readyProviders),
@@ -95,11 +118,15 @@ export function useVibeWorkflow(
     () => JSON.stringify(supportedModels ?? []),
     [supportedModels],
   );
-  const [state, setState] = useState<VibeWorkflowState>({
-    workflowId: cachedWorkflowId,
+  const workspaceKey = useMemo(
+    () => normalizeWorkspaceKey(workspaceSlug),
+    [workspaceSlug],
+  );
+  const [state, setState] = useState<VibeWorkflowState>(() => ({
+    workflowId: syncCachedWorkflowIdFromStorage(workspaceSlug),
     isProvisioning: false,
     error: null,
-  });
+  }));
   const provisioningRef = useRef(false);
   const provisionedSignatureRef = useRef<string | null>(null);
   const syncedModelsWorkflowIdRef = useRef<string | null>(null);
@@ -209,12 +236,13 @@ export function useVibeWorkflow(
 
       try {
         const workflows = await listWorkflows({ forceRefresh: true });
+        const cachedWorkflowId = readCachedWorkflowId(workspaceSlug);
         const cachedWorkflow = cachedWorkflowId
           ? workflows.find((workflow) => workflow.id === cachedWorkflowId)
           : undefined;
 
         if (cachedWorkflowId && !cachedWorkflow) {
-          clearCachedWorkflowId();
+          clearCachedWorkflowId(workspaceSlug);
         }
 
         if (cachedWorkflow) {
@@ -238,8 +266,7 @@ export function useVibeWorkflow(
         );
 
         if (existing) {
-          cachedWorkflowId = existing.id;
-          writeCachedWorkflowId(existing.id);
+          writeCachedWorkflowId(existing.id, workspaceSlug);
           await Promise.all([
             syncManagedTemplate(existing.id),
             syncSupportedModels(existing.id, models),
@@ -269,8 +296,22 @@ export function useVibeWorkflow(
         provisioningRef.current = false;
       }
     },
-    [setWorkflowState, syncManagedTemplate, syncSupportedModels],
+    [setWorkflowState, syncManagedTemplate, syncSupportedModels, workspaceSlug],
   );
+
+  useEffect(() => {
+    const cachedWorkflowId = syncCachedWorkflowIdFromStorage(workspaceSlug);
+    provisioningRef.current = false;
+    provisionedSignatureRef.current = null;
+    syncedModelsWorkflowIdRef.current = null;
+    syncedModelsSignatureRef.current = null;
+    syncedTemplateRef.current = null;
+    setWorkflowState({
+      workflowId: cachedWorkflowId,
+      isProvisioning: false,
+      error: null,
+    });
+  }, [setWorkflowState, workspaceKey, workspaceSlug]);
 
   useEffect(() => {
     if (!supportedModels || supportedModels.length === 0) {

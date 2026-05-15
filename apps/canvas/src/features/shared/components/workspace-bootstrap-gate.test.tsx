@@ -1,6 +1,8 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import { WorkspaceBootstrapGate } from "./workspace-bootstrap-gate";
+import { slugifyWorkspace } from "@/lib/workspace-slug";
 
 const { getAuthenticatedUserProfileMock, getMyWorkspacesMock } = vi.hoisted(
   () => ({
@@ -64,5 +66,32 @@ describe("WorkspaceBootstrapGate", () => {
     expect(
       (screen.getByLabelText(/workspace name/i) as HTMLInputElement).value,
     ).toBe("Morgan Lee's workspace");
+  });
+
+  it("suggests a slug from the workspace name until manually edited", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <WorkspaceBootstrapGate>
+        <div>Workspace content</div>
+      </WorkspaceBootstrapGate>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/workspace name/i)).toBeInTheDocument();
+    });
+
+    const slugInput = screen.getByLabelText(/workspace url name/i);
+
+    await waitFor(() => {
+      expect(slugInput).toHaveValue(
+        slugifyWorkspace("Morgan Lee's workspace"),
+      );
+    });
+
+    await user.clear(slugInput);
+    await user.type(slugInput, "acme-labs");
+
+    expect(slugInput).toHaveValue("acme-labs");
   });
 });

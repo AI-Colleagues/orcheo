@@ -7,7 +7,6 @@ import type {
 export interface TopNavigationProps {
   currentWorkflow?: {
     name: string;
-    path?: string[];
     onNameChange?: (name: string) => void;
   };
   className?: string;

@@ -32,13 +32,6 @@ vi.mock(
 );
 
 vi.mock(
-  "@features/workflow/pages/workflow-canvas/components/readiness-tab-content",
-  () => ({
-    ReadinessTabContent: () => <div>readiness-panel</div>,
-  }),
-);
-
-vi.mock(
   "@features/workflow/pages/workflow-canvas/components/settings-tab-content",
   () => ({
     SettingsTabContent: () => <div>settings-panel</div>,
@@ -61,11 +54,9 @@ describe("WorkflowCanvasLayout", () => {
         tabsProps={{
           activeTab: "workflow",
           onTabChange: vi.fn(),
-          readinessAlertCount: 0,
         }}
         workflowProps={{} as never}
         traceProps={{} as never}
-        readinessProps={{} as never}
         settingsProps={{} as never}
         chat={
           {
@@ -130,11 +121,9 @@ describe("WorkflowCanvasLayout", () => {
         tabsProps={{
           activeTab: "trace",
           onTabChange: vi.fn(),
-          readinessAlertCount: 0,
         }}
         workflowProps={{} as never}
         traceProps={{} as never}
-        readinessProps={{} as never}
         settingsProps={{} as never}
         chat={null}
       />,

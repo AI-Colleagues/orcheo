@@ -85,6 +85,7 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
                 normalized_handle,
                 workflow_id=None,
                 is_archived=False,
+                workspace_id=workspace_id,
             )
             workflow = Workflow(
                 name=name,
@@ -176,6 +177,7 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
                     normalized_handle,
                     workflow_id=workflow_id,
                     is_archived=next_is_archived,
+                    workspace_id=workflow.workspace_id,
                 )
                 metadata["handle"] = {
                     "from": workflow.handle,

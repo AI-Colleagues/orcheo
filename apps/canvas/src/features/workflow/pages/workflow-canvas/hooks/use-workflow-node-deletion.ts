@@ -5,7 +5,6 @@ import type {
   CanvasEdge,
   CanvasNode,
 } from "@features/workflow/pages/workflow-canvas/helpers/types";
-import type { ValidationError } from "@features/workflow/components/canvas/connection-validator";
 
 type NodeRuntimeCacheEntry = Record<string, unknown>;
 
@@ -18,7 +17,6 @@ type UseWorkflowNodeDeletionArgs = {
   setNodeRuntimeCache: React.Dispatch<
     React.SetStateAction<Record<string, NodeRuntimeCacheEntry>>
   >;
-  setValidationErrors: React.Dispatch<React.SetStateAction<ValidationError[]>>;
   setSearchMatches: React.Dispatch<React.SetStateAction<string[]>>;
   setSelectedNodeId: React.Dispatch<React.SetStateAction<string | null>>;
   setActiveChatNodeId: React.Dispatch<React.SetStateAction<string | null>>;
@@ -33,7 +31,6 @@ export const useWorkflowNodeDeletion = ({
   setEdgesState,
   recordSnapshot,
   setNodeRuntimeCache,
-  setValidationErrors,
   setSearchMatches,
   setSelectedNodeId,
   setActiveChatNodeId,
@@ -98,21 +95,6 @@ export const useWorkflowNodeDeletion = ({
         throw error;
       }
 
-      setValidationErrors((errors) =>
-        errors.filter((error) => {
-          if (error.nodeId && uniqueIds.includes(error.nodeId)) {
-            return false;
-          }
-          if (error.sourceId && uniqueIds.includes(error.sourceId)) {
-            return false;
-          }
-          if (error.targetId && uniqueIds.includes(error.targetId)) {
-            return false;
-          }
-          return true;
-        }),
-      );
-
       setSearchMatches((matches) =>
         matches.filter((match) => !uniqueIds.includes(match)),
       );
@@ -148,7 +130,6 @@ export const useWorkflowNodeDeletion = ({
       setNodesState,
       setSearchMatches,
       setSelectedNodeId,
-      setValidationErrors,
     ],
   );
 
