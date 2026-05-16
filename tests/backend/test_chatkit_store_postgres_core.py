@@ -124,21 +124,16 @@ def _item_row(item: UserMessageItem, *, ordinal: int) -> dict[str, Any]:
 
 
 @pytest.mark.asyncio
-async def test_postgres_chatkit_schema_migrates_workspace_index() -> None:
+async def test_postgres_chatkit_schema_creates_workspace_index() -> None:
     class SchemaConnection:
-        def __init__(self, columns: list[str]) -> None:
-            self.columns = columns
+        def __init__(self) -> None:
             self.statements: list[str] = []
 
         async def execute(self, stmt: str, params: Any | None = None) -> FakeCursor:
             self.statements.append(stmt.strip())
-            if "information_schema.columns" in stmt:
-                return FakeCursor(
-                    rows=[{"column_name": column} for column in self.columns]
-                )
             return FakeCursor()
 
-    conn = SchemaConnection(columns=["id", "workflow_id"])
+    conn = SchemaConnection()
     await ensure_schema(conn)
 
     expected = [
@@ -147,45 +142,12 @@ async def test_postgres_chatkit_schema_migrates_workspace_index() -> None:
         if stmt.strip()
     ]
     assert conn.statements[: len(expected)] == expected
-    assert "ALTER TABLE chat_threads ADD COLUMN workspace_id TEXT" in conn.statements
     assert (
         "CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace_id ON chat_threads(workspace_id)"
         in conn.statements
     )
-    alter_position = conn.statements.index(
-        "ALTER TABLE chat_threads ADD COLUMN workspace_id TEXT"
-    )
-    index_position = conn.statements.index(
-        "CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace_id ON chat_threads(workspace_id)"
-    )
-    assert alter_position < index_position
-
-
-@pytest.mark.asyncio
-async def test_postgres_chatkit_schema_skips_existing_workspace_column() -> None:
-    class SchemaConnection:
-        def __init__(self, columns: list[str]) -> None:
-            self.columns = columns
-            self.statements: list[str] = []
-
-        async def execute(self, stmt: str, params: Any | None = None) -> FakeCursor:
-            self.statements.append(stmt.strip())
-            if "information_schema.columns" in stmt:
-                return FakeCursor(
-                    rows=[{"column_name": column} for column in self.columns]
-                )
-            return FakeCursor()
-
-    conn = SchemaConnection(columns=["id", "workflow_id", "workspace_id"])
-    await ensure_schema(conn)
-
     assert not any(
-        stmt == "ALTER TABLE chat_threads ADD COLUMN workspace_id TEXT"
-        for stmt in conn.statements
-    )
-    assert (
-        "CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace_id ON chat_threads(workspace_id)"
-        in conn.statements
+        stmt.startswith("ALTER TABLE chat_threads") for stmt in conn.statements
     )
 
 

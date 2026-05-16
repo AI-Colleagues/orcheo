@@ -114,8 +114,8 @@ def test_postgres_vault_initialization() -> None:
     assert len(conn.queries) == conn_queries_count  # No new queries
 
 
-def test_postgres_vault_initialization_adds_workspace_indexes_after_columns() -> None:
-    """Legacy databases should add workspace columns before workspace indexes."""
+def test_postgres_vault_initialization_creates_workspace_indexes() -> None:
+    """Vault bootstrap should create workspace indexes directly."""
     cipher = AesGcmCredentialCipher(key="test-key")
     conn = FakeConnection(responses=[])
     pool = FakePool(conn)
@@ -126,43 +126,22 @@ def test_postgres_vault_initialization_adds_workspace_indexes_after_columns() ->
     vault._ensure_initialized()
 
     queries = [query for query, _ in conn.queries]
-
-    credential_column = next(
-        index
-        for index, query in enumerate(queries)
-        if "ALTER TABLE credentials ADD COLUMN IF NOT EXISTS workspace_id TEXT" in query
+    assert any(
+        "CREATE INDEX IF NOT EXISTS idx_credentials_workspace_id" in q for q in queries
     )
-    credential_index = next(
-        index
-        for index, query in enumerate(queries)
-        if "CREATE INDEX IF NOT EXISTS idx_credentials_workspace_id " in query
+    assert any(
+        "CREATE INDEX IF NOT EXISTS idx_credentials_workspace_name_lower" in q
+        for q in queries
     )
-    template_column = next(
-        index
-        for index, query in enumerate(queries)
-        if "ALTER TABLE credential_templates ADD COLUMN IF NOT EXISTS workspace_id TEXT"
-        in query
+    assert any(
+        "CREATE INDEX IF NOT EXISTS idx_templates_workspace_id" in q for q in queries
     )
-    template_index = next(
-        index
-        for index, query in enumerate(queries)
-        if "CREATE INDEX IF NOT EXISTS idx_templates_workspace_id" in query
+    assert any(
+        "CREATE INDEX IF NOT EXISTS idx_alerts_workspace_id" in q for q in queries
     )
-    alert_column = next(
-        index
-        for index, query in enumerate(queries)
-        if "ALTER TABLE governance_alerts ADD COLUMN IF NOT EXISTS workspace_id TEXT"
-        in query
-    )
-    alert_index = next(
-        index
-        for index, query in enumerate(queries)
-        if "CREATE INDEX IF NOT EXISTS idx_alerts_workspace_id" in query
-    )
-
-    assert credential_column < credential_index
-    assert template_column < template_index
-    assert alert_column < alert_index
+    assert not any(q.startswith("ALTER TABLE credentials") for q in queries)
+    assert not any(q.startswith("ALTER TABLE credential_templates") for q in queries)
+    assert not any(q.startswith("ALTER TABLE governance_alerts") for q in queries)
 
 
 def test_postgres_vault_initialization_race_condition() -> None:

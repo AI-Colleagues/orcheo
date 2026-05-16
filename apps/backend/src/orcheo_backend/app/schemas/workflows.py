@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, model_validator
 from orcheo.graph.ingestion import DEFAULT_SCRIPT_SIZE_LIMIT
-from orcheo.models.workflow import (
+from orcheo.models import (
     Workflow,
     WorkflowChatKitConfig,
     WorkflowDraftAccess,

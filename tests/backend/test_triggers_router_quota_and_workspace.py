@@ -259,7 +259,7 @@ async def test_invoke_workspace_webhook_immediate_response_with_should_queue(
             super().__init__(workflow_id)
 
         async def get_latest_version(self, wid):
-            from orcheo.models.workflow import WorkflowVersion
+            from orcheo.models import WorkflowVersion
 
             return WorkflowVersion(
                 workflow_id=wid, version=1, graph={}, created_by="tester"
@@ -409,7 +409,7 @@ async def test_invoke_workspace_webhook_no_run_no_immediate_returns_accepted(
             super().__init__(workflow_id)
 
         async def get_latest_version(self, wid):
-            from orcheo.models.workflow import WorkflowVersion
+            from orcheo.models import WorkflowVersion
 
             return WorkflowVersion(
                 workflow_id=wid, version=1, graph={}, created_by="tester"

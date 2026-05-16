@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 from uuid import UUID
 from orcheo.listeners import ListenerCursor, ListenerDedupeRecord, ListenerSubscription
-from orcheo.models.workflow import (
+from orcheo.models import (
     Workflow,
     WorkflowRun,
     WorkflowRunRemediation,

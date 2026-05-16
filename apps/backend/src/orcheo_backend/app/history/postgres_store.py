@@ -70,16 +70,6 @@ CREATE INDEX IF NOT EXISTS idx_history_steps_execution
     ON execution_history_steps(execution_id, step_index);
 """
 
-# Applied after POSTGRES_HISTORY_SCHEMA to bring existing databases up to date.
-# ADD COLUMN IF NOT EXISTS is a no-op when the column already exists (new databases).
-POSTGRES_HISTORY_MIGRATIONS = [
-    "ALTER TABLE execution_history ADD COLUMN IF NOT EXISTS workspace_id TEXT",
-    (
-        "CREATE INDEX IF NOT EXISTS idx_execution_history_workspace_id "
-        "ON execution_history(workspace_id)"
-    ),
-]
-
 
 class PostgresRunHistoryStore:
     """PostgreSQL-backed store for execution histories."""
@@ -162,8 +152,10 @@ class PostgresRunHistoryStore:
                         stmt = raw_stmt.strip()
                         if stmt:
                             await conn.execute(stmt)
-                    for stmt in POSTGRES_HISTORY_MIGRATIONS:
-                        await conn.execute(stmt)
+                    await conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_execution_history_workspace_id "
+                        "ON execution_history(workspace_id)"
+                    )
                     await conn.commit()
                 except Exception:
                     await conn.rollback()

@@ -17,7 +17,7 @@ from orcheo.models import (
     EncryptionEnvelope,
     OAuthTokenSecrets,
 )
-from orcheo.models.workflow import OAuthTokenPayload
+from orcheo.models import OAuthTokenPayload
 
 
 def test_credential_template_scope_normalization_handles_duplicates() -> None:

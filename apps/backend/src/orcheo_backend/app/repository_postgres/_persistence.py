@@ -5,7 +5,7 @@ import json
 from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
-from orcheo.models.workflow import Workflow, WorkflowRun, WorkflowVersion
+from orcheo.models import Workflow, WorkflowRun, WorkflowVersion
 from orcheo.models.workflow_refs import workflow_ref_is_uuid
 from orcheo.runtime.runnable_config import merge_runnable_configs
 from orcheo_backend.app.repository import (

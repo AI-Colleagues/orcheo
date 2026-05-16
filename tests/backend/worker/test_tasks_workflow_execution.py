@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 import pytest
 from pydantic import BaseModel
-from orcheo.models.workflow import WorkflowRunStatus
+from orcheo.models import WorkflowRunStatus
 
 
 @pytest.fixture

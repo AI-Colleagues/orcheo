@@ -4,7 +4,7 @@ from __future__ import annotations
 from textwrap import dedent
 from typing import Any
 from orcheo.graph.ingestion import ingest_langgraph_script
-from orcheo.models.workflow import Workflow, WorkflowDraftAccess
+from orcheo.models import Workflow, WorkflowDraftAccess
 from orcheo.workspace import Workspace
 from orcheo_backend.app.repository import (
     WorkflowHandleConflictError,

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 import pytest
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
-from orcheo.models.workflow import (
+from orcheo.models import (
     WorkflowDraftAccess,
     WorkflowRunRemediationClassification,
     WorkflowRunRemediationStatus,

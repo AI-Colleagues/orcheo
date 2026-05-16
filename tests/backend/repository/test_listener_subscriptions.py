@@ -7,7 +7,7 @@ from orcheo.listeners import (
     ListenerDispatchPayload,
     ListenerSubscriptionStatus,
 )
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowRepository,

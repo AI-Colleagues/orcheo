@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo_backend.app.errors import WorkspaceQuotaExceededError
 from orcheo_backend.app.repository import InMemoryWorkflowRepository

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo_backend.app.authentication import RequestContext
 from orcheo_backend.app.repository.errors import WorkflowNotFoundError
 from orcheo_backend.app.routers import workflows as workflow_router

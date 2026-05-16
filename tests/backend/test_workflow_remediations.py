@@ -9,7 +9,7 @@ from typing import Any
 from uuid import UUID
 import pytest
 from orcheo.graph.ingestion import ingest_langgraph_script
-from orcheo.models.workflow import (
+from orcheo.models import (
     WorkflowDraftAccess,
     WorkflowRunRemediationClassification,
     WorkflowRunRemediationStatus,

@@ -9,7 +9,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 import pytest
-from orcheo.models.workflow import (
+from orcheo.models import (
     WorkflowRun,
     WorkflowRunRemediation,
     WorkflowRunRemediationClassification,

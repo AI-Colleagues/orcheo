@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 
-from orcheo.models.workflow import Workflow, WorkflowDraftAccess
+from orcheo.models import Workflow, WorkflowDraftAccess
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from orcheo_backend.app.repository.errors import WorkflowNotFoundError
 from orcheo_backend.app.routers.workflows import (

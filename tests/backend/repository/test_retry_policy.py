@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 import pytest
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo.triggers.retry import RetryPolicyConfig
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,

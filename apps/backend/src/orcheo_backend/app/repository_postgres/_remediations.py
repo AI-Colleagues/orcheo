@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 from uuid import UUID
-from orcheo.models.workflow import (
+from orcheo.models import (
     WorkflowRunRemediation,
     WorkflowRunRemediationClassification,
     WorkflowRunRemediationStatus,
