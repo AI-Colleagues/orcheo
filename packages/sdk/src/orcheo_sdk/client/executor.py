@@ -9,15 +9,6 @@ from httpx import Response
 from orcheo_sdk.client.orcheo_client import OrcheoClient
 
 
-class WorkflowExecutionError(RuntimeError):
-    """Raised when the SDK fails to trigger a workflow run."""
-
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
-        """Initialize the execution error with optional status context."""
-        super().__init__(message)
-        self.status_code = status_code
-
-
 def _default_sleep(delay: float) -> None:
     from time import sleep  # pragma: no cover - import for delegated sleep
 
@@ -74,31 +65,26 @@ class HttpWorkflowExecutor:
                 status_code = exc.response.status_code
                 if not self._should_retry(status_code) or attempt == self.max_retries:
                     msg = f"Failed to trigger workflow run (status {status_code})"
-                    raise WorkflowExecutionError(msg, status_code=status_code) from exc
+                    raise RuntimeError(msg) from exc
             except httpx.HTTPError as exc:
                 last_exception = exc
                 if attempt == self.max_retries:
-                    raise WorkflowExecutionError(
-                        "Failed to trigger workflow run"
-                    ) from exc
+                    raise RuntimeError("Failed to trigger workflow run") from exc
 
             attempt += 1
             if attempt <= self.max_retries and delay > 0:
                 self.sleep(delay)
                 delay *= 2
 
-        raise WorkflowExecutionError(
+        raise RuntimeError(
             "Failed to trigger workflow run"
         ) from last_exception  # pragma: no cover - defensive fallback
 
-    def get_credential_health(
-        self, workflow_id: str, *, headers: Mapping[str, str] | None = None
-    ) -> dict[str, Any]:
-        """Fetch the credential health report for a workflow."""
-        url = self.client.credential_health_url(workflow_id)
-        response = self._get(url, self._build_headers(headers))
-        response.raise_for_status()
-        return response.json()
+    def _build_headers(self, overrides: Mapping[str, str] | None) -> dict[str, str]:
+        headers = self.client.prepare_headers(overrides or {})
+        if self.auth_token and "Authorization" not in headers:
+            headers["Authorization"] = f"Bearer {self.auth_token}"
+        return headers
 
     def validate_credentials(
         self,
@@ -108,17 +94,18 @@ class HttpWorkflowExecutor:
         headers: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         """Trigger credential validation and return the backend response."""
-        url = self.client.credential_validation_url(workflow_id)
+        workflow_id = workflow_id.strip()
+        if not workflow_id:
+            msg = "workflow_id cannot be empty"
+            raise ValueError(msg)
+        url = (
+            f"{self.client.base_url.rstrip('/')}/api/workflows/"
+            f"{workflow_id}/credentials/validate"
+        )
         payload = {"actor": actor}
         response = self._post(url, payload, self._build_headers(headers))
         response.raise_for_status()
         return response.json()
-
-    def _build_headers(self, overrides: Mapping[str, str] | None) -> dict[str, str]:
-        headers = self.client.prepare_headers(overrides or {})
-        if self.auth_token and "Authorization" not in headers:
-            headers["Authorization"] = f"Bearer {self.auth_token}"
-        return headers
 
     def _post(
         self,

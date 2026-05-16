@@ -15,7 +15,15 @@ def test_workflow_upload_python_workflow_object_is_rejected(
     """SDK Workflow object composition is rejected by Python-only ingest path."""
     py_file = tmp_path / "workflow.py"
     py_file.write_text(
-        "from orcheo_sdk import Workflow\nworkflow = Workflow(name='TestWorkflow')",
+        "\n".join(
+            [
+                "class FakeWorkflow:",
+                "    def to_deployment_payload(self):",
+                "        return {'name': 'TestWorkflow'}",
+                "",
+                "workflow = FakeWorkflow()",
+            ]
+        ),
         encoding="utf-8",
     )
 

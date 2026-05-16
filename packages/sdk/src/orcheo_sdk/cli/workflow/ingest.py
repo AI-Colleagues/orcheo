@@ -270,7 +270,7 @@ def _load_workflow_from_python(path: Path) -> dict[str, Any]:
     if hasattr(module, "workflow"):
         workflow = module.workflow
         if not hasattr(workflow, "to_deployment_payload"):
-            msg = "'workflow' variable must be an orcheo_sdk.Workflow instance."
+            msg = "'workflow' variable must provide a to_deployment_payload() method."
             raise CLIError(msg)
 
         try:

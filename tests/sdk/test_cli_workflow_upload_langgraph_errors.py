@@ -73,7 +73,7 @@ def test_workflow_upload_with_blank_name_error(
     """Test workflow upload rejects empty rename values."""
     py_file = tmp_path / "workflow.py"
     py_file.write_text(
-        "from orcheo_sdk import Workflow\nworkflow = Workflow(name='Original')",
+        "workflow = object()",
         encoding="utf-8",
     )
 

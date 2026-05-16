@@ -72,7 +72,7 @@ def test_workflow_upload_invalid_runnable_config(
 ) -> None:
     """Test workflow upload rejects invalid JSON config payloads."""
     py_file = tmp_path / "workflow.py"
-    py_file.write_text("from orcheo_sdk import Workflow\nworkflow = Workflow(name='t')")
+    py_file.write_text("workflow = object()", encoding="utf-8")
 
     result = runner.invoke(
         app,

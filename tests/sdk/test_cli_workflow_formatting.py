@@ -47,7 +47,7 @@ def test_load_workflow_from_python_wrong_type(
 ) -> None:
     """Test loading Python file with wrong workflow type fails."""
     py_file = tmp_path / "wrong_type.py"
-    py_file.write_text("workflow = 'not a Workflow instance'", encoding="utf-8")
+    py_file.write_text("workflow = 'not a workflow object'", encoding="utf-8")
 
     result = runner.invoke(
         app,
@@ -56,7 +56,7 @@ def test_load_workflow_from_python_wrong_type(
     )
     assert result.exit_code != 0
     assert isinstance(result.exception, CLIError)
-    assert "must be an orcheo_sdk.Workflow instance" in str(result.exception)
+    assert "must provide a to_deployment_payload() method" in str(result.exception)
 
 
 def test_load_workflow_from_python_adds_managed_plugin_site_packages(
