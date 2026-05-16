@@ -305,6 +305,44 @@ async def test_create_workflow_chatkit_session_uses_active_workspace_when_ambigu
 
 
 @pytest.mark.asyncio()
+async def test_create_workflow_chatkit_session_allows_workspace_draft_with_match() -> (
+    None
+):
+    workflow = Workflow(
+        name="Canvas Workflow",
+        tags=["workspace:ws-1"],
+        draft_access=WorkflowDraftAccess.WORKSPACE,
+    )
+    repo = _WorkflowRepo(workflow)
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="canvas-user",
+            identity_type="user",
+            scopes=frozenset({"workflows:read", "workflows:execute"}),
+            workspace_ids=frozenset({"ws-1"}),
+        )
+    )
+
+    response = await workflows.create_workflow_chatkit_session(
+        str(workflow.id),
+        repo,
+        _MOCK_WORKSPACE,
+        policy=policy,
+        issuer=_issuer(),
+    )
+
+    decoded = jwt.decode(
+        response.client_secret,
+        "canvas-chatkit-key",
+        algorithms=["HS256"],
+        audience="chatkit-client",
+        issuer="canvas-backend",
+    )
+
+    assert decoded["chatkit"]["workflow_id"] == str(workflow.id)
+
+
+@pytest.mark.asyncio()
 async def test_create_workflow_chatkit_session_requires_workspace_match() -> None:
     workflow = Workflow(
         name="Canvas Workflow",

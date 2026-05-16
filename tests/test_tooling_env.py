@@ -1,6 +1,12 @@
 from pathlib import Path
+from unittest.mock import patch
 import pytest
-from orcheo.tooling.env import _extract_path_values, main, seed_env_file
+from orcheo.tooling.env import (
+    _create_state_directories,
+    _extract_path_values,
+    main,
+    seed_env_file,
+)
 
 
 def write_env_example(tmp_path: Path, content: str) -> Path:
@@ -85,3 +91,16 @@ def test_main_seeds_environment(tmp_path: Path) -> None:
 
     assert result == 0
     assert (tmp_path / ".env").exists()
+
+
+def test_create_state_directories_skips_existing_directories(tmp_path: Path) -> None:
+    example = write_env_example(
+        tmp_path,
+        "ORCHEO_CHATKIT_STORAGE_PATH=.orcheo/chatkit\nORCHEO_MCP_STDIO_LOG=.orcheo/mcp.log\n",
+    )
+    (tmp_path / ".orcheo" / "chatkit").mkdir(parents=True)
+
+    with patch.object(
+        Path, "mkdir", side_effect=AssertionError("mkdir should not be called")
+    ):
+        _create_state_directories(example, tmp_path)

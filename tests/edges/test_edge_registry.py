@@ -143,3 +143,14 @@ def test_unregister_removes_registered_edge() -> None:
 
     assert registry.get_edge("TargetEdge") is None
     assert registry.get_metadata("TargetEdge") is None
+
+
+def test_register_rejects_duplicate_edge_name() -> None:
+    """register raises when the same edge name is registered twice."""
+    registry = EdgeRegistry()
+    metadata = EdgeMetadata(name="duplicate", description="")
+
+    registry.register(metadata)(lambda state: state)
+
+    with pytest.raises(ValueError, match="already registered"):
+        registry.register(metadata)(lambda state: state)

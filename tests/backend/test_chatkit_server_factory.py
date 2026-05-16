@@ -126,6 +126,29 @@ def test_create_chatkit_server_postgres(monkeypatch: pytest.MonkeyPatch) -> None
     assert args[0] == "postgresql://test"
 
 
+def test_create_chatkit_server_rejects_non_postgres_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ChatKit server creation should reject non-postgres backends."""
+
+    monkeypatch.setattr(
+        chatkit_server_module,
+        "_resolve_chatkit_backend",
+        lambda settings: "sqlite",
+    )
+    monkeypatch.setattr(
+        chatkit_server_module,
+        "get_settings",
+        lambda: {"CHATKIT_BACKEND": "postgres"},
+    )
+
+    with pytest.raises(ValueError, match="ChatKit backend must be 'postgres'"):
+        create_chatkit_server(
+            repository=MagicMock(),
+            vault_provider=lambda: object(),
+        )
+
+
 def test_coerce_config_set() -> None:
     default = {"default"}
     assert _coerce_config_set(None, default) == default

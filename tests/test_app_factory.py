@@ -6,7 +6,7 @@ import sys
 from types import ModuleType
 from unittest.mock import AsyncMock
 import pytest
-from fastapi import Request
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from orcheo_backend.app import _create_repository, create_app, get_repository
 from orcheo_backend.app._app_module import _AppModule, install_app_module_proxy
@@ -75,6 +75,63 @@ def test_create_app_allows_dependency_override() -> None:
 
     override = app.dependency_overrides[get_repository]
     assert override() is repository
+
+
+def test_configure_dependency_overrides_applies_all_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_configure_dependency_overrides wires each optional singleton override."""
+
+    app = FastAPI()
+    repository = object()
+    history_store = object()
+    checkpoint_store = object()
+    plugin_store = object()
+    vault = object()
+    credential_service = type("CredentialService", (), {"_vault": vault})()
+
+    monkeypatch.setitem(dependencies_module._repository_ref, "repository", None)
+    monkeypatch.setitem(dependencies_module._history_store_ref, "store", None)
+    monkeypatch.setitem(dependencies_module._checkpoint_store_ref, "store", None)
+    monkeypatch.setitem(
+        dependencies_module._plugin_installation_store_ref, "store", None
+    )
+    monkeypatch.setitem(dependencies_module._credential_service_ref, "service", None)
+    monkeypatch.setitem(dependencies_module._vault_ref, "vault", None)
+
+    listener_runtime_store = factory_module._configure_dependency_overrides(
+        app,
+        repository,
+        history_store=history_store,
+        checkpoint_store=checkpoint_store,
+        plugin_installation_store=plugin_store,
+        credential_service=credential_service,
+    )
+
+    assert dependencies_module._repository_ref["repository"] is repository
+    assert dependencies_module._history_store_ref["store"] is history_store
+    assert dependencies_module._checkpoint_store_ref["store"] is checkpoint_store
+    assert dependencies_module._plugin_installation_store_ref["store"] is plugin_store
+    assert dependencies_module._credential_service_ref["service"] is credential_service
+    assert dependencies_module._vault_ref["vault"] is vault
+    assert app.dependency_overrides[dependencies_module.get_repository]() is repository
+    assert (
+        app.dependency_overrides[dependencies_module.get_history_store]()
+        is history_store
+    )
+    assert (
+        app.dependency_overrides[dependencies_module.get_checkpoint_store]()
+        is checkpoint_store
+    )
+    assert (
+        app.dependency_overrides[dependencies_module.get_plugin_installation_store]()
+        is plugin_store
+    )
+    assert (
+        app.dependency_overrides[dependencies_module.get_credential_service]()
+        is credential_service
+    )
+    assert app.state.listener_runtime_store is listener_runtime_store
 
 
 def test_create_app_rejects_public_deployment_without_auth(
@@ -228,6 +285,104 @@ def test_create_app_lifespan_ignores_chatkit_startup_failures(
     assert "stop" in events
 
 
+@pytest.mark.asyncio
+async def test_app_lifespan_bootstraps_repository_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The lifespan should create the repository when the singleton is empty."""
+
+    events: list[object] = []
+    sentinel_repository = object()
+    sentinel_vault = object()
+    sentinel_runtime_store = object()
+
+    class FakeListenerRuntime:
+        def __init__(self, repository: object, vault: object, runtime_store: object):
+            events.append(("init", repository, vault, runtime_store))
+
+        async def start(self) -> None:
+            events.append("start")
+
+        async def stop(self) -> None:
+            events.append("stop")
+
+    class FakeWorkspaceService:
+        def list_workspaces(self, include_inactive: bool) -> list[object]:
+            events.append(("workspaces", include_inactive))
+            return [object()]
+
+    monkeypatch.setitem(factory_module._repository_ref, "repository", None)
+
+    def stub_create_repository() -> object:
+        factory_module._repository_ref["repository"] = sentinel_repository
+        return sentinel_repository
+
+    monkeypatch.setattr(factory_module, "_create_repository", stub_create_repository)
+    monkeypatch.setattr(
+        "orcheo.tracing.configure_tracing",
+        lambda: events.append("tracing"),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "load_auth_settings",
+        lambda refresh=True: events.append(("load_auth", refresh)),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "load_enabled_plugins",
+        lambda force=True: events.append(("load_plugins", force)),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "get_workspace_service",
+        lambda: FakeWorkspaceService(),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "ensure_managed_vibe_workflow",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(factory_module, "get_repository", lambda: sentinel_repository)
+    monkeypatch.setattr(factory_module, "get_vault", lambda: sentinel_vault)
+    monkeypatch.setattr(
+        factory_module,
+        "get_listener_runtime_store",
+        lambda: sentinel_runtime_store,
+    )
+    monkeypatch.setattr(factory_module, "ListenerRuntimeService", FakeListenerRuntime)
+    monkeypatch.setattr(
+        factory_module,
+        "get_chatkit_server",
+        lambda: events.append("chatkit"),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "ensure_chatkit_cleanup_task",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "cancel_chatkit_cleanup_task",
+        AsyncMock(return_value=None),
+    )
+
+    app = FastAPI()
+
+    async with factory_module._app_lifespan(app):
+        assert app.state.listener_runtime is not None
+
+    assert ("load_auth", True) in events
+    assert ("load_plugins", True) in events
+    assert ("workspaces", False) in events
+    assert "tracing" in events
+    assert "chatkit" in events
+    assert any(event[0] == "init" for event in events if isinstance(event, tuple))
+    assert "start" in events
+    assert "stop" in events
+    assert factory_module.ensure_managed_vibe_workflow.await_count == 1
+    assert factory_module._repository_ref["repository"] is sentinel_repository
+
+
 def test_create_repository_postgres_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -264,6 +419,16 @@ def test_create_repository_invalid_backend(monkeypatch: pytest.MonkeyPatch) -> N
 
     with pytest.raises(ValueError, match="Repository backend must be 'postgres'"):
         _create_repository()
+
+
+@pytest.mark.asyncio
+async def test_robots_txt_returns_crawl_policy() -> None:
+    """The robots.txt endpoint should expose the crawl policy."""
+
+    response = await factory_module._robots_txt()
+
+    assert response.status_code == 200
+    assert response.body == b"User-agent: *\nDisallow: /\n"
 
 
 def test_load_allowed_origins_reads_json_list(monkeypatch: pytest.MonkeyPatch) -> None:

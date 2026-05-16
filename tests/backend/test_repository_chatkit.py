@@ -75,6 +75,48 @@ def test_apply_chatkit_start_screen_prompts_update_clears_values() -> None:
     assert workflow.chatkit is None
 
 
+def test_apply_chatkit_start_screen_prompts_update_keeps_supported_models() -> None:
+    workflow = Workflow(
+        name="Prompts",
+        chatkit=WorkflowChatKitConfig(
+            start_screen_prompts=[_base_prompt("Hello", "Hi")],
+            supported_models=[_base_model("a")],
+        ),
+    )
+    metadata: dict[str, object] = {}
+
+    apply_chatkit_start_screen_prompts_update(
+        workflow,
+        metadata,
+        clear_chatkit_start_screen_prompts=True,
+    )
+
+    assert metadata["chatkit_start_screen_prompts"] == {
+        "from": _dump_payload([ChatKitStartScreenPrompt(label="Hello", prompt="Hi")]),
+        "to": None,
+    }
+    assert workflow.chatkit is not None
+    assert workflow.chatkit.start_screen_prompts is None
+    assert workflow.chatkit.supported_models is not None
+
+
+def test_apply_chatkit_start_screen_prompts_update_noop_without_prompts() -> None:
+    workflow = Workflow(
+        name="Prompts",
+        chatkit=WorkflowChatKitConfig(supported_models=[_base_model("a")]),
+    )
+    metadata: dict[str, object] = {}
+
+    apply_chatkit_start_screen_prompts_update(
+        workflow,
+        metadata,
+        clear_chatkit_start_screen_prompts=True,
+    )
+
+    assert metadata == {}
+    assert workflow.chatkit is not None
+
+
 def test_apply_chatkit_start_screen_prompts_update_ignores_matching_payload() -> None:
     workflow = Workflow(name="Prompts")
     existing = _base_prompt("Hello", "Hi")
@@ -133,6 +175,50 @@ def test_apply_chatkit_supported_models_update_clears_values() -> None:
         "to": None,
     }
     assert workflow.chatkit is None
+
+
+def test_apply_chatkit_supported_models_update_keeps_start_screen_prompts() -> None:
+    workflow = Workflow(
+        name="Models",
+        chatkit=WorkflowChatKitConfig(
+            start_screen_prompts=[_base_prompt("Hello", "Hi")],
+            supported_models=[_base_model("a")],
+        ),
+    )
+    metadata: dict[str, object] = {}
+
+    apply_chatkit_supported_models_update(
+        workflow,
+        metadata,
+        clear_chatkit_supported_models=True,
+    )
+
+    assert metadata["chatkit_supported_models"] == {
+        "from": _dump_models([ChatKitSupportedModel(id="a")]),
+        "to": None,
+    }
+    assert workflow.chatkit is not None
+    assert workflow.chatkit.supported_models is None
+    assert workflow.chatkit.start_screen_prompts is not None
+
+
+def test_apply_chatkit_supported_models_update_noop_without_models() -> None:
+    workflow = Workflow(
+        name="Models",
+        chatkit=WorkflowChatKitConfig(
+            start_screen_prompts=[_base_prompt("Hello", "Hi")]
+        ),
+    )
+    metadata: dict[str, object] = {}
+
+    apply_chatkit_supported_models_update(
+        workflow,
+        metadata,
+        clear_chatkit_supported_models=True,
+    )
+
+    assert metadata == {}
+    assert workflow.chatkit is not None
 
 
 def test_apply_chatkit_supported_models_update_ignores_matching_payload() -> None:

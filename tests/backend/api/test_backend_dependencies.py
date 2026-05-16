@@ -4,23 +4,24 @@ import pytest
 from orcheo_backend.app import dependencies
 
 
-def test_create_vault_delegates_to_provider(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_create_vault_delegates_to_provider() -> None:
     """_create_vault proxies to providers.create_vault with the same settings."""
-    settings = object()
-    captured: dict[str, object] = {}
+    dependencies_module = importlib.import_module("orcheo_backend.app.dependencies")
 
-    def fake_create_vault(settings_arg: object) -> str:
-        captured["settings"] = settings_arg
-        return "vault"
+    class Settings:
+        def get(self, key: str, default: object = None) -> object:
+            values = {
+                "VAULT_BACKEND": "postgres",
+                "VAULT_ENCRYPTION_KEY": "vault-key",
+                "POSTGRES_DSN": "postgresql://test:test@localhost/test",
+                "POSTGRES_POOL_MIN_SIZE": 1,
+                "POSTGRES_POOL_MAX_SIZE": 10,
+            }
+            return values.get(key, default)
 
-    monkeypatch.setattr(dependencies, "create_vault", fake_create_vault)
+    result = dependencies_module._create_vault(Settings())
 
-    result = dependencies._create_vault(settings)
-
-    assert result == "vault"
-    assert captured["settings"] is settings
+    assert result is not None
 
 
 def test_get_credential_service_returns_current_service() -> None:

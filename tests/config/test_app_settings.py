@@ -118,3 +118,47 @@ def test_apply_runtime_defaults_restores_invalid_retention_days() -> None:
     settings._apply_runtime_defaults()
 
     assert settings.chatkit_retention_days == _DEFAULTS["CHATKIT_RETENTION_DAYS"]
+
+
+def test_validate_postgres_dsn_clears_value_when_no_postgres_backend() -> None:
+    settings = AppSettings.model_construct(
+        checkpoint_backend="sqlite",
+        graph_store_backend="sqlite",
+        repository_backend="sqlite",
+        workspace_backend="sqlite",
+        chatkit_backend="sqlite",
+        vault=VaultSettings.model_construct(backend="sqlite"),
+        postgres_dsn="postgresql://example",
+    )
+
+    settings._validate_postgres_dsn()
+
+    assert settings.postgres_dsn is None
+
+
+def test_vault_settings_clear_optional_aws_fields_for_postgres() -> None:
+    settings = VaultSettings(
+        encryption_key="test-vault-encryption-key",
+        aws_region="us-east-1",
+        aws_kms_key_id="kms-key",
+    )
+
+    assert settings.aws_region is None
+    assert settings.aws_kms_key_id is None
+
+
+def test_vault_settings_validate_backend_requirements_keeps_non_postgres_values() -> (
+    None
+):
+    settings = VaultSettings.model_construct(
+        backend="sqlite",
+        encryption_key=None,
+        aws_region="us-east-1",
+        aws_kms_key_id="kms-key",
+        token_ttl_seconds=3600,
+    )
+
+    settings._validate_backend_requirements()
+
+    assert settings.aws_region == "us-east-1"
+    assert settings.aws_kms_key_id == "kms-key"

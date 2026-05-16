@@ -74,6 +74,44 @@ def test_vault_manages_templates_and_alerts() -> None:
         vault.acknowledge_alert(alert.id, actor="bob")
 
 
+def test_delete_template_keeps_alerts_for_other_templates() -> None:
+    cipher = AesGcmCredentialCipher(key="template-delete")
+    vault = InMemoryCredentialVault(cipher=cipher)
+
+    template = vault.create_template(
+        name="Slack",
+        provider="slack",
+        scopes=["chat:write"],
+        actor="alice",
+    )
+    other_template = vault.create_template(
+        name="Teams",
+        provider="teams",
+        scopes=["chat:write"],
+        actor="alice",
+    )
+    vault.record_alert(
+        kind=GovernanceAlertKind.TOKEN_EXPIRING,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="Slack alert",
+        actor="monitor",
+        template_id=template.id,
+    )
+    vault.record_alert(
+        kind=GovernanceAlertKind.TOKEN_EXPIRING,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="Teams alert",
+        actor="monitor",
+        template_id=other_template.id,
+    )
+
+    vault.delete_template(template.id)
+
+    alerts = vault.list_alerts(include_acknowledged=True)
+    assert len(alerts) == 1
+    assert alerts[0].template_id == other_template.id
+
+
 def test_template_update_tracks_all_changes() -> None:
     cipher = AesGcmCredentialCipher(key="template-update")
     vault = InMemoryCredentialVault(cipher=cipher)
@@ -182,6 +220,25 @@ def test_get_template_enforces_scope() -> None:
         )
 
 
+def test_get_template_rejects_workspace_mismatch() -> None:
+    cipher = AesGcmCredentialCipher(key="template-workspace")
+    vault = InMemoryCredentialVault(cipher=cipher)
+    workspace_id = uuid4()
+    template = vault.create_template(
+        name="Restricted",
+        provider="internal",
+        scopes=["read"],
+        actor="ops",
+        workspace_id=str(workspace_id),
+    )
+
+    with pytest.raises(WorkflowScopeError):
+        vault.get_template(
+            template_id=template.id,
+            context=CredentialAccessContext(workspace_id=uuid4()),
+        )
+
+
 def test_record_template_issuance_validates_scope() -> None:
     cipher = AesGcmCredentialCipher(key="issuance-scope")
     vault = InMemoryCredentialVault(cipher=cipher)
@@ -200,6 +257,27 @@ def test_record_template_issuance_validates_scope() -> None:
             actor="ops",
             credential_id=uuid4(),
             context=CredentialAccessContext(workflow_id=uuid4()),
+        )
+
+
+def test_update_template_rejects_workspace_mismatch() -> None:
+    cipher = AesGcmCredentialCipher(key="update-template-workspace")
+    vault = InMemoryCredentialVault(cipher=cipher)
+    workspace_id = uuid4()
+    template = vault.create_template(
+        name="Restricted",
+        provider="service",
+        scopes=["read"],
+        actor="ops",
+        workspace_id=str(workspace_id),
+    )
+
+    with pytest.raises(WorkflowScopeError):
+        vault.update_template(
+            template.id,
+            actor="ops",
+            description="updated",
+            context=CredentialAccessContext(workspace_id=uuid4()),
         )
 
 
