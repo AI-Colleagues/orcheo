@@ -1098,7 +1098,7 @@ describe("workflow-storage API integration - template creation", () => {
     expect(ingestBody.script).toContain("TelegramBotListenerNode");
     expect(ingestBody.script).toContain("DiscordBotListenerNode");
     expect(ingestBody.script).toContain("QQBotListenerNode");
-    expect(ingestBody.script).toContain("Switch(");
+    expect(ingestBody.script).toContain("SwitchEdge(");
     expect(ingestBody.metadata?.template?.validatedProviderApi).toBe(
       "private-bot-listener-suite-2026-03-11",
     );

@@ -14,7 +14,6 @@ This guide is for developers contributing to the Orcheo project.
 Evaluation nodes now live under `orcheo.nodes.evaluation`.
 
 - Preferred import path: `from orcheo.nodes.evaluation import ...`
-- Compatibility shim remains available: `orcheo.nodes.conversational_search.evaluation`
 
 Use the new import path for all new code and examples.
 

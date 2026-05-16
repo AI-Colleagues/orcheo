@@ -219,14 +219,7 @@ This deployment targets platforms such as Fly.io, Railway, or Kubernetes where P
    export ORCHEO_VAULT_AWS_KMS_KEY_ID=1234abcd-12ab-34cd-56ef-1234567890ab
    export ORCHEO_VAULT_TOKEN_TTL_SECONDS=900
    ```
-3. **Run database migrations (if any)**
-   - Use the migration helper to move SQLite data into PostgreSQL when needed:
-     ```bash
-     uv run python -m orcheo.tooling.postgres_migration export --output ./migration
-     uv run python -m orcheo.tooling.postgres_migration import --input ./migration
-     uv run python -m orcheo.tooling.postgres_migration validate --input ./migration
-     ```
-4. **Deploy the application**
+3. **Deploy the application**
    - **Docker image**: Build with `docker build -t orcheo-app .` and push to your registry.
    - **Fly.io example**:
      ```bash
@@ -235,7 +228,7 @@ This deployment targets platforms such as Fly.io, Railway, or Kubernetes where P
      fly deploy
      ```
   - Ensure the container command starts uvicorn: `uvicorn orcheo_backend.app:app --host 0.0.0.0 --port ${PORT}`.
-5. **Health checks**
+4. **Health checks**
    - Expose `/docs` and `/openapi.json` for HTTP checks.
    - Use `/ws/workflow/{workflow_id}` for synthetic workflow runs during smoke tests.
 

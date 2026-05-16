@@ -48,7 +48,7 @@ MANAGED_VIBE_WORKFLOW_SCRIPT = dedent(
     from langchain_core.messages import AIMessage
     from langchain_core.runnables import RunnableConfig
     from langgraph.graph import END, START, StateGraph
-    from orcheo.edges.branching import Switch, SwitchCase
+    from orcheo.edges.branching import SwitchCase, SwitchEdge
     from orcheo.graph.state import State
     from orcheo.nodes.base import TaskNode
     from orcheo.nodes.claude_code import ClaudeCodeNode
@@ -206,7 +206,7 @@ MANAGED_VIBE_WORKFLOW_SCRIPT = dedent(
         graph.add_edge(START, "prepare_prompt")
         graph.add_conditional_edges(
             "prepare_prompt",
-            Switch(
+            SwitchEdge(
                 name="provider_route",
                 value="{{inputs.model}}",
                 cases=[

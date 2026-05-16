@@ -60,64 +60,20 @@ def test_chatkit_prompt_icon_accepts_non_empty_value() -> None:
     assert prompt.icon == "spark"
 
 
-def test_backfill_chatkit_config_leaves_non_mappings_alone() -> None:
-    assert Workflow._backfill_chatkit_config("text") == "text"
+def test_chatkit_config_is_preserved_when_provided_explicitly() -> None:
+    workflow = Workflow(
+        name="Example",
+        chatkit={
+            "start_screen_prompts": [ChatKitStartScreenPrompt(label="L", prompt="P")],
+            "supported_models": [ChatKitSupportedModel(id="m")],
+        },
+    )
 
-
-def test_backfill_chatkit_config_cleans_legacy_fields() -> None:
-    data = {
-        "chatkit": {"supported_models": []},
-        "chatkit_start_screen_prompts": [{"label": "L", "prompt": "P"}],
-        "chatkit_supported_models": [{"id": "m"}],
-    }
-
-    normalized = Workflow._backfill_chatkit_config(data)
-
-    assert "chatkit_start_screen_prompts" not in normalized
-    assert "chatkit_supported_models" not in normalized
-    assert "chatkit" in normalized
-
-
-def test_backfill_chatkit_config_wraps_legacy_fields() -> None:
-    data = {
-        "chatkit_start_screen_prompts": [{"label": "L", "prompt": "P"}],
-        "chatkit_supported_models": [{"id": "m"}],
-    }
-
-    normalized = Workflow._backfill_chatkit_config(data)
-
-    assert normalized["chatkit"]["start_screen_prompts"] == [
-        {"label": "L", "prompt": "P"}
-    ]
-    assert normalized["chatkit"]["supported_models"] == [{"id": "m"}]
-
-
-def test_set_chatkit_field_is_noop_when_value_none() -> None:
-    workflow = Workflow(name="Example")
-
-    workflow._set_chatkit_field("supported_models", None)
-
-    assert workflow.chatkit is None
-
-
-def test_chatkit_field_accessors_create_and_clear_config() -> None:
-    workflow = Workflow(name="Example")
-
-    assert workflow.chatkit_start_screen_prompts is None
-    assert workflow.chatkit_supported_models is None
-
-    prompts = [ChatKitStartScreenPrompt(label="L", prompt="P")]
-    models = [ChatKitSupportedModel(id="m")]
-    workflow.chatkit_start_screen_prompts = prompts
-    workflow.chatkit_supported_models = models
-
-    assert workflow.chatkit_start_screen_prompts == prompts
-    assert workflow.chatkit_supported_models == models
-
-    workflow.chatkit_start_screen_prompts = None
-    workflow.chatkit_supported_models = None
-
-    assert workflow.chatkit is None
+    assert workflow.chatkit is not None
+    assert workflow.chatkit.start_screen_prompts is not None
+    assert workflow.chatkit.start_screen_prompts[0].label == "L"
+    assert workflow.chatkit.supported_models is not None
+    assert workflow.chatkit.supported_models[0].id == "m"
 
 
 def test_publish_rejects_already_public_workflow() -> None:

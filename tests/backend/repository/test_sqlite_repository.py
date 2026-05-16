@@ -419,58 +419,6 @@ async def test_sqlite_ensure_workflow_versions_schema_migrations_keeps_existing_
 
 
 @pytest.mark.asyncio()
-async def test_sqlite_workflow_schema_migration_accepts_legacy_publish_fields(
-    tmp_path: pathlib.Path,
-) -> None:
-    """The workflow migration tolerates removed publish-token fields."""
-
-    db_path = tmp_path / "legacy-publish-fields.sqlite"
-    repo_base = SqliteWorkflowRepository(db_path)
-    workflow = Workflow(name="Legacy Published Flow", handle="legacy-published-flow")
-    payload = workflow.model_dump(mode="json")
-    payload["publish_token_hash"] = "old-hash"
-    payload["publish_token_rotated_at"] = None
-
-    async with aiosqlite.connect(str(db_path)) as conn:
-        conn.row_factory = aiosqlite.Row
-        await conn.execute(
-            """
-            CREATE TABLE workflows (
-                id TEXT PRIMARY KEY,
-                payload TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            """
-        )
-        await conn.execute(
-            """
-            INSERT INTO workflows (id, payload, created_at, updated_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                str(workflow.id),
-                json.dumps(payload),
-                workflow.created_at.isoformat(),
-                workflow.updated_at.isoformat(),
-            ),
-        )
-        await conn.commit()
-
-        await repo_base._ensure_workflow_schema_migrations(conn)
-
-        cursor = await conn.execute(
-            "SELECT handle, is_archived FROM workflows WHERE id = ?",
-            (str(workflow.id),),
-        )
-        row = await cursor.fetchone()
-
-    assert row is not None
-    assert row["handle"] == "legacy-published-flow"
-    assert row["is_archived"] == 0
-
-
-@pytest.mark.asyncio()
 async def test_sqlite_deserialize_workflow_uses_workspace_id(
     tmp_path: pathlib.Path,
 ) -> None:

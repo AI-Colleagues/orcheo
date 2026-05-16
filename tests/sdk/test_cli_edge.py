@@ -32,17 +32,6 @@ def test_edge_show_displays_schema(runner: CliRunner, env: dict[str, str]) -> No
     result = runner.invoke(app, ["edge", "show", "IfElseEdge"], env=env)
     assert result.exit_code == 0
     assert "IfElseEdge" in result.stdout
-    assert "Aliases: IfElse" in result.stdout
-
-
-def test_edge_show_legacy_alias_resolves_to_canonical_name(
-    runner: CliRunner, env: dict[str, str]
-) -> None:
-    """Legacy edge names remain supported for direct lookup."""
-    result = runner.invoke(app, ["edge", "show", "IfElse"], env=env)
-    assert result.exit_code == 0
-    assert "IfElseEdge" in result.stdout
-    assert "Aliases: IfElse" in result.stdout
 
 
 def test_edge_show_nonexistent_error(runner: CliRunner, env: dict[str, str]) -> None:
@@ -119,11 +108,11 @@ def test_edge_show_machine_mode(runner: CliRunner, machine_env: dict[str, str]) 
     """Machine mode outputs JSON for edge show."""
     import json
 
-    result = runner.invoke(app, ["edge", "show", "IfElse"], env=machine_env)
+    result = runner.invoke(app, ["edge", "show", "IfElseEdge"], env=machine_env)
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert data["name"] == "IfElseEdge"
-    assert data["aliases"] == ["IfElse"]
+    assert "aliases" not in data
 
 
 def test_edge_show_with_schema(runner: CliRunner, env: dict[str, str]) -> None:

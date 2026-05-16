@@ -16,8 +16,6 @@ def _describe_graph_format(graph_json: Mapping[str, Any]) -> str:
     graph_format = graph_json.get("format")
     if isinstance(graph_format, str) and graph_format.strip():
         return graph_format
-    if any(key in graph_json for key in ("nodes", "edges", "edge_nodes")):
-        return "legacy-json-graph"
     return "unknown"
 
 

@@ -1,5 +1,5 @@
 from langgraph.graph import END, START, StateGraph
-from orcheo.edges import Switch, SwitchCase
+from orcheo.edges import SwitchCase, SwitchEdge
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
 from orcheo.nodes.communication import MessageDiscordNode, MessageQQNode
@@ -105,7 +105,7 @@ def orcheo_workflow() -> StateGraph:
     graph.add_edge("qq_listener", "agent_reply")
     graph.add_conditional_edges(
         "agent_reply",
-        Switch(
+        SwitchEdge(
             name="reply_route",
             value="{{inputs.platform}}",
             cases=[

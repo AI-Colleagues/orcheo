@@ -188,7 +188,7 @@ def _synthesize_default_context(
     service: WorkspaceService,
     user_id: str,
 ) -> WorkspaceContext:
-    """Build a default workspace context for legacy single-tenant mode."""
+    """Build a default workspace context for single-tenant mode."""
     default_workspace = ensure_default_workspace(service.repository)
     return WorkspaceContext(
         workspace_id=default_workspace.id,

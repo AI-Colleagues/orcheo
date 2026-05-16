@@ -6,12 +6,9 @@ Edges handle routing decisions, while nodes handle data transformations.
 
 from orcheo.edges.base import BaseEdge
 from orcheo.edges.branching import (
-    IfElse,
     IfElseEdge,
-    Switch,
     SwitchCase,
     SwitchEdge,
-    While,
     WhileEdge,
 )
 from orcheo.edges.conditions import ComparisonOperator, Condition
@@ -23,9 +20,6 @@ __all__ = [
     "IfElseEdge",
     "SwitchEdge",
     "WhileEdge",
-    "IfElse",
-    "Switch",
-    "While",
     "SwitchCase",
     "Condition",
     "ComparisonOperator",

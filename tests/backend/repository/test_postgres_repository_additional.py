@@ -277,26 +277,6 @@ async def test_base_repository_ensure_workflow_health_no_service(
 
 
 @pytest.mark.asyncio
-async def test_persistence_deserialize_workflow_with_deprecated_fields(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify that _deserialize_workflow strips deprecated fields."""
-    workflow_id = uuid4()
-    payload = _workflow_payload(
-        workflow_id,
-        publish_token_hash="old_hash",
-        publish_token_rotated_at="2024-01-01T00:00:00Z",
-    )
-
-    repo = make_repository(monkeypatch, [])
-    workflow = repo._deserialize_workflow(payload)
-
-    # Deprecated fields should not be present
-    assert not hasattr(workflow, "publish_token_hash")
-    assert not hasattr(workflow, "publish_token_rotated_at")
-
-
-@pytest.mark.asyncio
 async def test_persistence_deserialize_workflow_version_explicit_workspace_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

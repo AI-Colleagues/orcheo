@@ -46,8 +46,8 @@ def test_build_edge_nodes_success() -> None:
     assert isinstance(result["my_decision"], edge_class)
 
 
-def test_build_edge_nodes_accepts_legacy_alias_type() -> None:
-    """Legacy edge aliases continue to load existing workflow definitions."""
+def test_build_edge_nodes_rejects_legacy_alias_type() -> None:
+    """Legacy edge aliases are rejected by the builder."""
     edges_config = [
         {
             "name": "my_decision",
@@ -56,9 +56,8 @@ def test_build_edge_nodes_accepts_legacy_alias_type() -> None:
         }
     ]
 
-    result = build_edges(edges_config)
-
-    assert result["my_decision"].__class__.__name__ == "IfElseEdge"
+    with pytest.raises(ValueError, match="Unknown edge type: IfElse"):
+        build_edges(edges_config)
 
 
 @pytest.mark.parametrize(

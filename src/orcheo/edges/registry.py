@@ -28,19 +28,6 @@ class EdgeRegistry:
         """Initialize an empty edge registry."""
         self._edges: dict[str, Callable] = {}
         self._metadata: dict[str, EdgeMetadata] = {}
-        self._aliases: dict[str, str] = {}
-
-    def _resolve_name(self, name: str) -> str | None:
-        """Return the canonical name for a registered edge or alias."""
-        if name in self._edges:
-            return name
-        return self._aliases.get(name)
-
-    def _ensure_name_available(self, name: str) -> None:
-        """Raise when ``name`` conflicts with an existing edge or alias."""
-        if name in self._edges or name in self._aliases:
-            msg = f"Edge '{name}' is already registered."
-            raise ValueError(msg)
 
     def register(self, metadata: EdgeMetadata) -> Callable[[Callable], Callable]:
         """Register a new edge with its metadata.
@@ -53,25 +40,14 @@ class EdgeRegistry:
         """
 
         def decorator(func: Callable) -> Callable:
-            self._ensure_name_available(metadata.name)
+            if metadata.name in self._edges:
+                msg = f"Edge '{metadata.name}' is already registered."
+                raise ValueError(msg)
             self._edges[metadata.name] = func
             self._metadata[metadata.name] = metadata
             return func
 
         return decorator
-
-    def register_alias(self, alias: str, canonical_name: str) -> None:
-        """Register a legacy alias that resolves to ``canonical_name``."""
-        resolved = self._resolve_name(canonical_name)
-        if resolved is None:
-            msg = (
-                f"Cannot register alias '{alias}' for unknown edge '{canonical_name}'."
-            )
-            raise ValueError(msg)
-        if alias == resolved:
-            return
-        self._ensure_name_available(alias)
-        self._aliases[alias] = resolved
 
     def get_edge(self, name: str) -> Callable | None:
         """Get an edge implementation by name.
@@ -82,33 +58,15 @@ class EdgeRegistry:
         Returns:
             Edge implementation function or None if not found
         """
-        resolved = self._resolve_name(name)
-        if resolved is None:
-            return None
-        return self._edges.get(resolved)
+        return self._edges.get(name)
 
     def get_metadata(self, name: str) -> EdgeMetadata | None:
         """Return metadata for the edge identified by ``name`` if available."""
-        resolved = self._resolve_name(name)
-        if resolved is None:
-            return None
-        return self._metadata.get(resolved)
+        return self._metadata.get(name)
 
     def list_metadata(self) -> list[EdgeMetadata]:
         """Return all registered edge metadata entries sorted by name."""
         return sorted(self._metadata.values(), key=lambda item: item.name.lower())
-
-    def get_aliases(self, name: str) -> list[str]:
-        """Return the legacy aliases registered for ``name``."""
-        resolved = self._resolve_name(name)
-        if resolved is None:
-            return []
-        aliases = [
-            alias
-            for alias, canonical_name in self._aliases.items()
-            if canonical_name == resolved
-        ]
-        return sorted(aliases, key=str.lower)
 
     def get_metadata_by_callable(self, obj: Callable) -> EdgeMetadata | None:
         """Return metadata associated with a registered callable."""
@@ -120,19 +78,9 @@ class EdgeRegistry:
         return None
 
     def unregister(self, name: str) -> None:
-        """Remove one registered edge and any aliases targeting it."""
-        resolved = self._resolve_name(name)
-        if resolved is None:
-            return
-        self._edges.pop(resolved, None)
-        self._metadata.pop(resolved, None)
-        aliases = [
-            alias
-            for alias, canonical_name in self._aliases.items()
-            if canonical_name == resolved or alias == name
-        ]
-        for alias in aliases:
-            self._aliases.pop(alias, None)
+        """Remove one registered edge."""
+        self._edges.pop(name, None)
+        self._metadata.pop(name, None)
 
 
 # Global registry instance

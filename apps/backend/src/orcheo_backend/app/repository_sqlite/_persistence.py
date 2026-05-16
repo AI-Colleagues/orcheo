@@ -26,11 +26,8 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
     def _deserialize_workflow(
         payload_json: str, *, workspace_id: str | None = None
     ) -> Workflow:
-        """Return a Workflow instance while stripping deprecated fields."""
+        """Return a Workflow instance from serialized JSON."""
         payload = json.loads(payload_json)
-        payload.pop("publish_token_hash", None)
-        payload.pop("publish_token_rotated_at", None)
-        payload.pop("tenant_id", None)
         if workspace_id is not None:
             payload["workspace_id"] = workspace_id
         return Workflow.model_validate(payload)
@@ -39,9 +36,8 @@ class SqlitePersistenceMixin(SqliteRepositoryBase):
     def _deserialize_workflow_version(
         payload_json: str, *, workspace_id: str | None = None
     ) -> WorkflowVersion:
-        """Return a WorkflowVersion instance while stripping deprecated fields."""
+        """Return a WorkflowVersion instance from serialized JSON."""
         payload = json.loads(payload_json)
-        payload.pop("tenant_id", None)
         if workspace_id is not None:
             payload["workspace_id"] = workspace_id
         return WorkflowVersion.model_validate(payload)

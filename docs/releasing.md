@@ -47,7 +47,7 @@ cut a release.
    - `orcheo plugin install "git+https://github.com/AI-Colleagues/orcheo-plugin-lark-listener.git"`
    - successful validation of the shared Canvas template
      `template-wecom-lark-shared-listener`
-   - plugin edge compatibility and legacy alias coverage remain green
+   - plugin edge compatibility checks remain green
 5. **Commit** the changes and open a pull request. Merge once CI is green.
 6. **Tag the release** from the merged commit using the naming convention in the table
    below, then push the tag.

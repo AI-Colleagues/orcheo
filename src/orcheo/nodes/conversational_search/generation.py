@@ -364,7 +364,6 @@ class StreamingGeneratorNode(TaskNode):
         """Stream a generated response into framed chunks with retries."""
         inputs = state.get("inputs", {})
 
-        # Support both prompt-based (legacy) and message-based usage
         prompt = inputs.get(self.prompt_key)
         message = inputs.get("message")
         query = prompt or message

@@ -26,15 +26,12 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
     def _deserialize_workflow(
         payload: dict[str, Any] | str, *, workspace_id: str | None = None
     ) -> Workflow:
-        """Return a Workflow instance while stripping deprecated fields."""
+        """Return a Workflow instance from serialized JSON."""
         data: dict[str, Any]
         if isinstance(payload, str):
             data = json.loads(payload)
         else:
             data = payload
-        data.pop("publish_token_hash", None)
-        data.pop("publish_token_rotated_at", None)
-        data.pop("tenant_id", None)
         if workspace_id is not None:
             data["workspace_id"] = workspace_id
         return Workflow.model_validate(data)
@@ -43,13 +40,12 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
     def _deserialize_workflow_version(
         payload: dict[str, Any] | str, *, workspace_id: str | None = None
     ) -> WorkflowVersion:
-        """Return a WorkflowVersion instance while stripping deprecated fields."""
+        """Return a WorkflowVersion instance from serialized JSON."""
         data: dict[str, Any]
         if isinstance(payload, str):
             data = json.loads(payload)
         else:
             data = payload
-        data.pop("tenant_id", None)
         if workspace_id is not None:
             data["workspace_id"] = workspace_id
         return WorkflowVersion.model_validate(data)

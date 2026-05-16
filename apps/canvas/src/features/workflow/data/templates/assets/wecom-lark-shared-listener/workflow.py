@@ -1,7 +1,7 @@
 from langgraph.graph import END, START, StateGraph
 from orcheo_plugin_lark_listener import LarkListenerPluginNode
 from orcheo_plugin_wecom_listener import WeComListenerPluginNode, WeComWsReplyNode
-from orcheo.edges import Switch, SwitchCase
+from orcheo.edges import SwitchCase, SwitchEdge
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode, AgentReplyExtractorNode
 from orcheo.nodes.lark import LarkSendMessageNode, LarkTenantAccessTokenNode
@@ -77,7 +77,7 @@ def orcheo_workflow() -> StateGraph:
 
     graph.add_conditional_edges(
         START,
-        Switch(
+        SwitchEdge(
             name="listener_entry_route",
             value="{{inputs.platform}}",
             cases=[
@@ -96,7 +96,7 @@ def orcheo_workflow() -> StateGraph:
     graph.add_edge("agent_reply", "extract_reply")
     graph.add_conditional_edges(
         "extract_reply",
-        Switch(
+        SwitchEdge(
             name="reply_route",
             value="{{inputs.platform}}",
             cases=[

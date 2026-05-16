@@ -148,50 +148,6 @@ class Workflow(TimestampedAuditModel):
     share_url: str | None = None
     chatkit: WorkflowChatKitConfig | None = None
 
-    @model_validator(mode="before")
-    @classmethod
-    def _backfill_draft_access(cls, data: object) -> object:
-        """Infer legacy draft access from workspace tags when absent."""
-        if not isinstance(data, Mapping):
-            return data
-        if data.get("draft_access") is not None:
-            return data
-        tags = data.get("tags")
-        if not isinstance(tags, list):
-            return data
-        if any(
-            isinstance(tag, str) and tag.lower().startswith("workspace:") and ":" in tag
-            for tag in tags
-        ):
-            return {**data, "draft_access": WorkflowDraftAccess.WORKSPACE}
-        return data
-
-    @model_validator(mode="before")
-    @classmethod
-    def _backfill_chatkit_config(cls, data: object) -> object:
-        """Fold legacy top-level ChatKit fields into the typed config object."""
-        if not isinstance(data, Mapping):
-            return data
-        normalized = dict(data)
-        if normalized.get("chatkit") is not None:
-            normalized.pop("chatkit_start_screen_prompts", None)
-            normalized.pop("chatkit_supported_models", None)
-            return normalized
-
-        chatkit_payload: dict[str, Any] = {}
-        if "chatkit_start_screen_prompts" in normalized:
-            chatkit_payload["start_screen_prompts"] = normalized.pop(
-                "chatkit_start_screen_prompts"
-            )
-        if "chatkit_supported_models" in normalized:
-            chatkit_payload["supported_models"] = normalized.pop(
-                "chatkit_supported_models"
-            )
-        if not chatkit_payload:
-            return normalized
-        normalized["chatkit"] = chatkit_payload
-        return normalized
-
     @field_validator("name", mode="before")
     @classmethod
     def _normalize_name(cls, value: object) -> str:
@@ -237,53 +193,6 @@ class Workflow(TimestampedAuditModel):
             raise ValueError(msg)
         object.__setattr__(self, "slug", _slugify(slug_source))
         return self
-
-    @property
-    def chatkit_start_screen_prompts(self) -> list[ChatKitStartScreenPrompt] | None:
-        """Compatibility accessor for the typed ChatKit config."""
-        if self.chatkit is None:
-            return None
-        return self.chatkit.start_screen_prompts
-
-    @chatkit_start_screen_prompts.setter
-    def chatkit_start_screen_prompts(
-        self,
-        value: list[ChatKitStartScreenPrompt] | None,
-    ) -> None:
-        """Compatibility setter for ChatKit starter prompts."""
-        self._set_chatkit_field("start_screen_prompts", value)
-
-    @property
-    def chatkit_supported_models(self) -> list[ChatKitSupportedModel] | None:
-        """Compatibility accessor for the typed ChatKit config."""
-        if self.chatkit is None:
-            return None
-        return self.chatkit.supported_models
-
-    @chatkit_supported_models.setter
-    def chatkit_supported_models(
-        self,
-        value: list[ChatKitSupportedModel] | None,
-    ) -> None:
-        """Compatibility setter for ChatKit supported models."""
-        self._set_chatkit_field("supported_models", value)
-
-    def _set_chatkit_field(
-        self,
-        field_name: str,
-        value: list[ChatKitStartScreenPrompt] | list[ChatKitSupportedModel] | None,
-    ) -> None:
-        """Assign a single ChatKit field while collapsing empty config objects."""
-        chatkit = self.chatkit
-        if chatkit is None:
-            if value is None:
-                return
-            chatkit = WorkflowChatKitConfig()
-            object.__setattr__(self, "chatkit", chatkit)
-
-        setattr(chatkit, field_name, value)
-        if chatkit.start_screen_prompts is None and chatkit.supported_models is None:
-            object.__setattr__(self, "chatkit", None)
 
     # -- Publish management -------------------------------------------------
     def publish(

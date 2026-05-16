@@ -32,7 +32,7 @@ def ensure_default_workspace(
     slug: str = DEFAULT_WORKSPACE_SLUG,
     name: str = "Default Workspace",
 ) -> Workspace:
-    """Return or create the legacy default workspace used by migrations."""
+    """Return or create the default workspace."""
     try:
         return repository.get_workspace_by_slug(slug)
     except Exception:  # noqa: BLE001 - any "not found" surface is acceptable here

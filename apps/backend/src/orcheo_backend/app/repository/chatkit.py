@@ -6,7 +6,17 @@ from orcheo.models.workflow import (
     ChatKitStartScreenPrompt,
     ChatKitSupportedModel,
     Workflow,
+    WorkflowChatKitConfig,
 )
+
+
+def _ensure_chatkit(workflow: Workflow) -> WorkflowChatKitConfig:
+    """Return the mutable ChatKit config attached to ``workflow``."""
+    chatkit = workflow.chatkit
+    if chatkit is None:
+        chatkit = WorkflowChatKitConfig()
+        workflow.chatkit = chatkit
+    return chatkit
 
 
 def apply_chatkit_start_screen_prompts_update(
@@ -17,22 +27,26 @@ def apply_chatkit_start_screen_prompts_update(
     clear_chatkit_start_screen_prompts: bool = False,
 ) -> None:
     """Apply ChatKit starter-prompt changes to a workflow and audit metadata."""
+    chatkit = workflow.chatkit
     if clear_chatkit_start_screen_prompts:
-        if workflow.chatkit_start_screen_prompts is not None:  # pragma: no branch
+        if chatkit is not None and chatkit.start_screen_prompts is not None:
             metadata["chatkit_start_screen_prompts"] = {
                 "from": [
                     prompt.model_dump(mode="json")
-                    for prompt in workflow.chatkit_start_screen_prompts
+                    for prompt in chatkit.start_screen_prompts
                 ],
                 "to": None,
             }
-            workflow.chatkit_start_screen_prompts = None
+            chatkit.start_screen_prompts = None
+            if chatkit.supported_models is None:
+                workflow.chatkit = None
         return
 
     if chatkit_start_screen_prompts is None:
         return
 
-    current_prompts = workflow.chatkit_start_screen_prompts
+    chatkit = _ensure_chatkit(workflow)
+    current_prompts = chatkit.start_screen_prompts
     current_payload = (
         [prompt.model_dump(mode="json") for prompt in current_prompts]
         if current_prompts is not None
@@ -48,7 +62,7 @@ def apply_chatkit_start_screen_prompts_update(
         "from": current_payload,
         "to": next_payload,
     }
-    workflow.chatkit_start_screen_prompts = [
+    chatkit.start_screen_prompts = [
         prompt.model_copy(deep=True) for prompt in chatkit_start_screen_prompts
     ]
 
@@ -61,22 +75,25 @@ def apply_chatkit_supported_models_update(
     clear_chatkit_supported_models: bool = False,
 ) -> None:
     """Apply ChatKit supported-model changes to a workflow and audit metadata."""
+    chatkit = workflow.chatkit
     if clear_chatkit_supported_models:
-        if workflow.chatkit_supported_models is not None:  # pragma: no branch
+        if chatkit is not None and chatkit.supported_models is not None:
             metadata["chatkit_supported_models"] = {
                 "from": [
-                    model.model_dump(mode="json")
-                    for model in workflow.chatkit_supported_models
+                    model.model_dump(mode="json") for model in chatkit.supported_models
                 ],
                 "to": None,
             }
-            workflow.chatkit_supported_models = None
+            chatkit.supported_models = None
+            if chatkit.start_screen_prompts is None:
+                workflow.chatkit = None
         return
 
     if chatkit_supported_models is None:
         return
 
-    current_models = workflow.chatkit_supported_models
+    chatkit = _ensure_chatkit(workflow)
+    current_models = chatkit.supported_models
     current_payload = (
         [model.model_dump(mode="json") for model in current_models]
         if current_models is not None
@@ -90,6 +107,6 @@ def apply_chatkit_supported_models_update(
         "from": current_payload,
         "to": next_payload,
     }
-    workflow.chatkit_supported_models = [
+    chatkit.supported_models = [
         model.model_copy(deep=True) for model in chatkit_supported_models
     ]

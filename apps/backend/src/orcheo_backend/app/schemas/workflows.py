@@ -49,25 +49,6 @@ class WorkflowUpdateRequest(BaseModel):
     clear_chatkit_supported_models: bool = False
     actor: str = Field(default="system")
 
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce_legacy_chatkit_fields(cls, data: object) -> object:
-        if not isinstance(data, dict):
-            return data
-        if data.get("chatkit") is not None:
-            return data
-
-        chatkit_payload: dict[str, object] = {}
-        if "chatkit_start_screen_prompts" in data:
-            chatkit_payload["start_screen_prompts"] = data.get(
-                "chatkit_start_screen_prompts"
-            )
-        if "chatkit_supported_models" in data:
-            chatkit_payload["supported_models"] = data.get("chatkit_supported_models")
-        if not chatkit_payload:
-            return data
-        return {**data, "chatkit": chatkit_payload}
-
     @field_validator("handle", mode="before")
     @classmethod
     def _normalize_handle(cls, value: object) -> str | None:

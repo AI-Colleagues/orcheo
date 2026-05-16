@@ -191,7 +191,7 @@ class SparseEmbeddingSpec(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Legacy registration helpers (kept for backwards compatibility)
+# Embedding registration helpers
 # ---------------------------------------------------------------------------
 
 BM25Mode = Literal["documents", "queries"]

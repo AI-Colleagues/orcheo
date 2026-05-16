@@ -125,7 +125,7 @@ def test_register_node_duplicate_raises() -> None:
 
 
 def test_register_edge_success() -> None:
-    """register_edge adds edge and aliases to registry."""
+    """register_edge adds edge to registry and bookkeeping."""
     api, _, edge_reg, *_ = _make_api_with_fresh_registries()
     try:
 
@@ -133,11 +133,10 @@ def test_register_edge_success() -> None:
             return state
 
         meta = EdgeMetadata(name="TestEdge", description="A test edge")
-        api.register_edge(meta, my_edge, aliases=("OldTestEdge",))
+        api.register_edge(meta, my_edge)
 
         assert "TestEdge" in api.registrations.edges
         assert edge_reg.get_edge("TestEdge") is my_edge
-        assert edge_reg.get_edge("OldTestEdge") is my_edge
     finally:
         _restore_registries()
 
@@ -155,23 +154,6 @@ def test_register_edge_duplicate_raises() -> None:
 
         with pytest.raises(ValueError, match="ExistingEdge"):
             api.register_edge(meta, my_edge)
-    finally:
-        _restore_registries()
-
-
-def test_register_edge_with_aliases(monkeypatch: Any) -> None:
-    """register_edge registers all provided aliases (line 58)."""
-    api, _, edge_reg, *_ = _make_api_with_fresh_registries()
-    try:
-
-        def new_edge(state: Any) -> Any:
-            return state
-
-        meta = EdgeMetadata(name="NewEdge", description="")
-        api.register_edge(meta, new_edge, aliases=("LegacyEdge", "OldEdge"))
-
-        assert edge_reg.get_edge("LegacyEdge") is new_edge
-        assert edge_reg.get_edge("OldEdge") is new_edge
     finally:
         _restore_registries()
 

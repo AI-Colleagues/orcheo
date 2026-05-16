@@ -8,14 +8,6 @@ from orcheo.workspace.errors import (
     WorkspacePermissionError,
     WorkspaceSlugConflictError,
 )
-from orcheo.workspace.migrations import (
-    WORKSPACE_ID_BACKFILL_TABLES,
-    add_workspace_id_column_sqlite,
-    backfill_workspace_id_sqlite,
-    ensure_default_workspace_for_repository,
-    ensure_workspace_index_sqlite,
-    run_sqlite_backfill,
-)
 from orcheo.workspace.models import (
     DEFAULT_WORKSPACE_SLUG,
     Role,
@@ -51,12 +43,6 @@ from orcheo.workspace.sqlite_store import (
 
 __all__ = [
     "DEFAULT_WORKSPACE_SLUG",
-    "WORKSPACE_ID_BACKFILL_TABLES",
-    "add_workspace_id_column_sqlite",
-    "backfill_workspace_id_sqlite",
-    "ensure_default_workspace_for_repository",
-    "ensure_workspace_index_sqlite",
-    "run_sqlite_backfill",
     "InMemoryMembershipCache",
     "InMemoryWorkspaceRepository",
     "MembershipCache",

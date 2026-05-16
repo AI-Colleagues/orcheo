@@ -11,7 +11,7 @@ def test_build_graph_rejects_legacy_json_payload() -> None:
 
     with pytest.raises(
         builder.UnsupportedWorkflowGraphFormatError,
-        match="legacy-json-graph",
+        match="unknown",
     ):
         builder.build_graph({"nodes": [{"name": "foo", "type": "missing"}]})
 

@@ -64,9 +64,6 @@ def show_edge(ctx: typer.Context, name: NameArgument) -> None:
 
     state.console.print(f"[bold]{data['name']}[/bold] ({data['category']})")
     state.console.print(data["description"])
-    aliases = data.get("aliases") or []
-    if aliases:
-        state.console.print(f"Aliases: {', '.join(aliases)}")
 
     schema = data.get("schema")
     if schema is not None:
