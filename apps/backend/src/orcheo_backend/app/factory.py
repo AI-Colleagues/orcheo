@@ -13,7 +13,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from orcheo.agentensor.checkpoints import AgentensorCheckpointStore
 from orcheo.plugins import load_enabled_plugins
-from orcheo.tracing import configure_tracing
 from orcheo.vault.oauth import OAuthCredentialService
 from orcheo_backend.app.authentication import (
     AuthenticationError,
@@ -84,7 +83,6 @@ from orcheo_backend.app.workspace import (
 
 load_dotenv()
 configure_logging()
-configure_tracing()
 
 configure_sensitive_logging(
     enable_sensitive_debug=sensitive_logging_enabled(),
@@ -106,8 +104,11 @@ async def _robots_txt() -> PlainTextResponse:
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifespan with startup and shutdown logic."""
+    from orcheo.tracing import configure_tracing
+
     if not _repository_ref.get("repository"):
         _create_repository()
+    configure_tracing()
     load_auth_settings(refresh=True)
     load_enabled_plugins(force=True)
     workspace_service = get_workspace_service()
