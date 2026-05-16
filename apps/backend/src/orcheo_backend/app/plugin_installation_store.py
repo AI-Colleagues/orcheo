@@ -85,6 +85,7 @@ class PostgresPluginInstallationStore:
         self._pool_max_idle = pool_max_idle
         self._pool: Any | None = None
         self._init_lock = asyncio.Lock()
+        self._schema_lock = asyncio.Lock()
         self._initialized = False
 
     async def _get_pool(self) -> Any:
@@ -114,7 +115,7 @@ class PostgresPluginInstallationStore:
     async def _ensure_initialized(self) -> None:
         if self._initialized:
             return
-        async with self._init_lock:
+        async with self._schema_lock:
             if self._initialized:
                 return
             pool = await self._get_pool()

@@ -1,6 +1,7 @@
 """Core coverage tests for plugin installation stores."""
 
 from __future__ import annotations
+import asyncio
 from typing import Any
 import pytest
 from orcheo_backend.app import plugin_installation_store as plugin_store
@@ -207,12 +208,42 @@ async def test_postgres_store_ensure_initialized_race_returns_early(
         async def __aexit__(self, exc_type, exc, tb) -> None:
             return None
 
-    store._init_lock = SideEffectLock()  # type: ignore[assignment]
+    store._schema_lock = SideEffectLock()  # type: ignore[assignment]
 
     await store._ensure_initialized()
 
     assert store._initialized is True
     assert connection.queries == []
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_ensure_initialized_can_create_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_ensure_initialized should not deadlock while lazily creating the pool."""
+
+    connection = FakeConnection([])
+
+    class FakeAsyncConnectionPool:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self._pool = FakePool(connection)
+
+        async def open(self) -> None:
+            await self._pool.open()
+
+        def connection(self) -> FakeConnection:
+            return self._pool.connection()
+
+    monkeypatch.setattr(plugin_store, "_AsyncConnectionPool", FakeAsyncConnectionPool)
+    monkeypatch.setattr(plugin_store, "_DictRowFactory", object())
+
+    store = PostgresPluginInstallationStore("postgresql://example")
+
+    await asyncio.wait_for(store._ensure_initialized(), timeout=1.0)
+
+    assert store._initialized is True
+    assert connection.commits == 1
+    assert connection.queries
 
 
 @pytest.mark.asyncio
