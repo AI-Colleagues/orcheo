@@ -1,6 +1,7 @@
 """Tests for ChatKit router helper utilities that don't hit persistence."""
 
 from __future__ import annotations
+import importlib
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -151,6 +152,22 @@ def test_rate_limit_reraises_authentication_error() -> None:
     with pytest.raises(HTTPException) as excinfo:
         chatkit._rate_limit(DummyLimiter(), "key", now=datetime.now(tz=UTC))
     assert excinfo.value.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+
+def test_chatkit_router_import_does_not_require_vault_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Router import should stay lazy about settings-backed rate limits."""
+
+    monkeypatch.delenv("ORCHEO_VAULT_ENCRYPTION_KEY", raising=False)
+
+    reloaded = importlib.reload(chatkit)
+
+    rate_limiters = reloaded._get_rate_limiters()
+    assert rate_limiters.ip is not None
+    assert rate_limiters.jwt is not None
+    assert rate_limiters.workflow is not None
+    assert rate_limiters.session is not None
 
 
 def test_with_root_path_prepends_slash_to_relative_path() -> None:

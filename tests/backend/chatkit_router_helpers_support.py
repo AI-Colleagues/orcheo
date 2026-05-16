@@ -39,10 +39,11 @@ def make_chatkit_request(
 @pytest.fixture
 def reset_chatkit_limiters() -> None:
     """Reset chatkit rate limiters once for dependent fixtures."""
-    chatkit._IP_RATE_LIMITER.reset()  # type: ignore[attr-defined]
-    chatkit._JWT_RATE_LIMITER.reset()  # type: ignore[attr-defined]
-    chatkit._WORKFLOW_RATE_LIMITER.reset()  # type: ignore[attr-defined]
-    chatkit._SESSION_RATE_LIMITER.reset()  # type: ignore[attr-defined]
+    chatkit._reset_rate_limiters()
+    chatkit._get_rate_limiters().ip.reset()
+    chatkit._get_rate_limiters().jwt.reset()
+    chatkit._get_rate_limiters().workflow.reset()
+    chatkit._get_rate_limiters().session.reset()
 
 
 __all__ = [

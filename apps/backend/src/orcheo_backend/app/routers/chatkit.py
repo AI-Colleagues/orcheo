@@ -10,7 +10,7 @@ from functools import lru_cache
 from importlib import import_module
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Literal, cast
+from typing import Any, Literal, NamedTuple, cast
 from uuid import UUID, uuid4
 import jwt
 from chatkit.server import StreamingResult
@@ -79,6 +79,7 @@ def _coerce_rate_limit(config: Mapping[str, Any], key: str, default: int) -> int
 
 
 def _build_rate_limiter(
+    config: Mapping[str, Any],
     *,
     limit_key: str,
     interval_key: str,
@@ -87,7 +88,6 @@ def _build_rate_limiter(
     code: str,
     message_template: str,
 ) -> SlidingWindowRateLimiter:
-    config = _load_rate_limit_config()
     limit = _coerce_rate_limit(config, limit_key, default_limit)
     interval = _coerce_rate_limit(config, interval_key, default_interval)
     return SlidingWindowRateLimiter(
@@ -98,38 +98,106 @@ def _build_rate_limiter(
     )
 
 
-_IP_RATE_LIMITER = _build_rate_limiter(
-    limit_key="ip_limit",
-    interval_key="ip_interval_seconds",
-    default_limit=120,
-    default_interval=60,
-    code="chatkit.rate_limit.ip",
-    message_template="Too many ChatKit requests from {key}",
-)
-_JWT_RATE_LIMITER = _build_rate_limiter(
-    limit_key="jwt_limit",
-    interval_key="jwt_interval_seconds",
-    default_limit=120,
-    default_interval=60,
-    code="chatkit.rate_limit.identity",
-    message_template="Too many ChatKit requests for identity {key}",
-)
-_WORKFLOW_RATE_LIMITER = _build_rate_limiter(
-    limit_key="publish_limit",
-    interval_key="publish_interval_seconds",
-    default_limit=60,
-    default_interval=60,
-    code="chatkit.rate_limit.publish",
-    message_template="Too many ChatKit requests for workflow {key}",
-)
-_SESSION_RATE_LIMITER = _build_rate_limiter(
-    limit_key="session_limit",
-    interval_key="session_interval_seconds",
-    default_limit=60,
-    default_interval=60,
-    code="chatkit.rate_limit.session",
-    message_template="Too many ChatKit requests for session {key}",
-)
+class _ChatKitRateLimiters(NamedTuple):
+    ip: SlidingWindowRateLimiter
+    jwt: SlidingWindowRateLimiter
+    workflow: SlidingWindowRateLimiter
+    session: SlidingWindowRateLimiter
+
+
+_RATE_LIMITER_CACHE: dict[str, Any] = {
+    "signature": None,
+    "limiters": None,
+}
+
+
+def _rate_limiter_signature(
+    config: Mapping[str, Any],
+) -> tuple[tuple[str, int, int], ...]:
+    """Return a hashable signature for the ChatKit rate limit configuration."""
+    return (
+        (
+            "ip",
+            _coerce_rate_limit(config, "ip_limit", 120),
+            _coerce_rate_limit(config, "ip_interval_seconds", 60),
+        ),
+        (
+            "jwt",
+            _coerce_rate_limit(config, "jwt_limit", 120),
+            _coerce_rate_limit(config, "jwt_interval_seconds", 60),
+        ),
+        (
+            "workflow",
+            _coerce_rate_limit(config, "publish_limit", 60),
+            _coerce_rate_limit(config, "publish_interval_seconds", 60),
+        ),
+        (
+            "session",
+            _coerce_rate_limit(config, "session_limit", 60),
+            _coerce_rate_limit(config, "session_interval_seconds", 60),
+        ),
+    )
+
+
+def _build_rate_limiters(config: Mapping[str, Any]) -> _ChatKitRateLimiters:
+    """Construct all ChatKit rate limiters from the supplied configuration."""
+    return _ChatKitRateLimiters(
+        ip=_build_rate_limiter(
+            config,
+            limit_key="ip_limit",
+            interval_key="ip_interval_seconds",
+            default_limit=120,
+            default_interval=60,
+            code="chatkit.rate_limit.ip",
+            message_template="Too many ChatKit requests from {key}",
+        ),
+        jwt=_build_rate_limiter(
+            config,
+            limit_key="jwt_limit",
+            interval_key="jwt_interval_seconds",
+            default_limit=120,
+            default_interval=60,
+            code="chatkit.rate_limit.identity",
+            message_template="Too many ChatKit requests for identity {key}",
+        ),
+        workflow=_build_rate_limiter(
+            config,
+            limit_key="publish_limit",
+            interval_key="publish_interval_seconds",
+            default_limit=60,
+            default_interval=60,
+            code="chatkit.rate_limit.publish",
+            message_template="Too many ChatKit requests for workflow {key}",
+        ),
+        session=_build_rate_limiter(
+            config,
+            limit_key="session_limit",
+            interval_key="session_interval_seconds",
+            default_limit=60,
+            default_interval=60,
+            code="chatkit.rate_limit.session",
+            message_template="Too many ChatKit requests for session {key}",
+        ),
+    )
+
+
+def _get_rate_limiters() -> _ChatKitRateLimiters:
+    """Return the cached ChatKit rate limiters, rebuilding when config changes."""
+    config = _load_rate_limit_config()
+    signature = _rate_limiter_signature(config)
+    cached_signature = _RATE_LIMITER_CACHE["signature"]
+    cached_limiters = _RATE_LIMITER_CACHE["limiters"]
+    if cached_limiters is None or cached_signature != signature:
+        cached_limiters = _build_rate_limiters(config)
+        _RATE_LIMITER_CACHE["signature"] = signature
+        _RATE_LIMITER_CACHE["limiters"] = cached_limiters
+    return cached_limiters
+
+
+def _reset_rate_limiters() -> None:
+    """Clear cached rate limiters for tests and configuration refreshes."""
+    _RATE_LIMITER_CACHE["signature"] = None
+    _RATE_LIMITER_CACHE["limiters"] = None
 
 
 @dataclass(slots=True)
@@ -380,7 +448,7 @@ async def authenticate_chatkit_invocation(
 
     now = datetime.now(tz=UTC)
     client_host = request.client.host if request.client else None
-    _rate_limit(_IP_RATE_LIMITER, client_host, now=now)
+    _rate_limit(_get_rate_limiters().ip, client_host, now=now)
 
     jwt_result = await _authenticate_jwt_request(
         request=request,
@@ -880,7 +948,7 @@ async def _authenticate_jwt_request(
             )
 
     identity = chatkit_claims.get("token_id") or claims.get("sub")
-    _rate_limit(_JWT_RATE_LIMITER, str(identity) if identity else None, now=now)
+    _rate_limit(_get_rate_limiters().jwt, str(identity) if identity else None, now=now)
 
     try:
         workflow = await repository.get_workflow(workflow_id)
@@ -923,7 +991,7 @@ async def _authenticate_publish_request(
             auth_mode="publish",
         )
 
-    _rate_limit(_WORKFLOW_RATE_LIMITER, str(workflow_id), now=now)
+    _rate_limit(_get_rate_limiters().workflow, str(workflow_id), now=now)
 
     session_subject = _extract_session_subject(request)
     if workflow.require_login and not session_subject:
@@ -937,7 +1005,7 @@ async def _authenticate_publish_request(
             auth_mode="publish",
         )
 
-    _rate_limit(_SESSION_RATE_LIMITER, session_subject, now=now)
+    _rate_limit(_get_rate_limiters().session, session_subject, now=now)
 
     workspace_id = await repository.get_workflow_workspace_id(workflow_id)
     actor = f"workflow:{workflow_id}"
