@@ -19,7 +19,7 @@ from langgraph.graph import END, StateGraph
 from orcheo.edges import Condition, IfElseEdge
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.mongodb import (
+from orcheo.nodes.integrations.databases.mongodb import (
     MongoDBAggregateNode,
     MongoDBFindNode,
     MongoDBUpdateManyNode,

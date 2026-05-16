@@ -5,16 +5,13 @@ import asyncio
 import logging
 import sqlite3
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import Any, Literal, cast
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
 
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 

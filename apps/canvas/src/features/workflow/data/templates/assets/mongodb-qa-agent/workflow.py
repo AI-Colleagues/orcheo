@@ -7,7 +7,7 @@ from orcheo.nodes.conversational_search import (
     SearchResultFormatterNode,
     TextEmbeddingNode,
 )
-from orcheo.nodes.mongodb import MongoDBHybridSearchNode
+from orcheo.nodes.integrations.databases.mongodb import MongoDBHybridSearchNode
 
 
 class HybridSearchInput(BaseModel):

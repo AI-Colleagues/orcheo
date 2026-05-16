@@ -39,6 +39,17 @@ from orcheo.nodes.data import (
 from orcheo.nodes.debug import DebugNode
 from orcheo.nodes.deep_agent import DeepAgentNode
 from orcheo.nodes.gemini import GeminiNode
+from orcheo.nodes.integrations.databases.mongodb import (
+    MongoDBAggregateNode,
+    MongoDBEnsureSearchIndexNode,
+    MongoDBEnsureVectorIndexNode,
+    MongoDBFindNode,
+    MongoDBHybridSearchNode,
+    MongoDBInsertManyNode,
+    MongoDBNode,
+    MongoDBUpdateManyNode,
+    MongoDBUpsertManyNode,
+)
 from orcheo.nodes.javascript_sandbox import JavaScriptSandboxNode
 from orcheo.nodes.lark import LarkSendMessageNode, LarkTenantAccessTokenNode
 from orcheo.nodes.linkedin import LinkedInPostNode
@@ -51,17 +62,6 @@ from orcheo.nodes.logic import (
     DelayNode,
     ForLoopNode,
     SetVariableNode,
-)
-from orcheo.nodes.mongodb import (
-    MongoDBAggregateNode,
-    MongoDBEnsureSearchIndexNode,
-    MongoDBEnsureVectorIndexNode,
-    MongoDBFindNode,
-    MongoDBHybridSearchNode,
-    MongoDBInsertManyNode,
-    MongoDBNode,
-    MongoDBUpdateManyNode,
-    MongoDBUpsertManyNode,
 )
 from orcheo.nodes.registry import NodeMetadata, NodeRegistry, registry
 from orcheo.nodes.slack import SlackEventsParserNode, SlackNode

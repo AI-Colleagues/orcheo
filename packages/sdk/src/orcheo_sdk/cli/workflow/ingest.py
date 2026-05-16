@@ -32,14 +32,6 @@ def _normalize_workflow_name(name: str | None) -> str | None:
     return normalized
 
 
-def _normalize_workflow_handle(value: str | None) -> str | None:
-    """Normalize a workflow handle for API compatibility."""
-    if value is None:
-        return None
-    normalized = _generate_slug(value)
-    return normalize_workflow_handle(normalized)
-
-
 def _fetch_workflow_for_upload(
     state: CLIState,
     workflow_ref: str,
@@ -191,7 +183,7 @@ def _upload_langgraph_script(
     derived_name = path.stem.replace("_", "-")
     workflow_name = name_override or derived_name
     workflow_slug = _generate_slug(workflow_name) if name_override else derived_name
-    normalized_workflow_handle = _normalize_workflow_handle(workflow_handle)
+    normalized_workflow_handle = normalize_workflow_handle(workflow_handle)
     workflow_ref = workflow_id or normalized_workflow_handle
     allow_create_if_missing = (
         workflow_id is None and normalized_workflow_handle is not None

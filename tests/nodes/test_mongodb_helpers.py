@@ -15,7 +15,7 @@ from pymongo.errors import (
     ServerSelectionTimeoutError,
 )
 from orcheo.graph.state import State
-from orcheo.nodes.mongodb import (
+from orcheo.nodes.integrations.databases.mongodb import (
     MongoDBHybridSearchNode,
     MongoDBNode,
     MongoDBUpdateManyNode,
@@ -76,14 +76,11 @@ def test_limit_validator_rejects_invalid_values() -> None:
         MongoDBNode._validate_limit(-1)
 
 
-def test_resolve_filter_prefers_filter_and_falls_back_to_empty() -> None:
+def test_resolve_filter_prefers_explicit_filter() -> None:
     node = _build_node(operation="find", filter={"status": "ok"})
     assert node._resolve_filter() == {"status": "ok"}
 
     node.filter = None
-    node.query = {"status": "fallback"}
-    assert node._resolve_filter() == {"status": "fallback"}
-
     node.query = [{"status": "list"}]
     assert node._resolve_filter() == {}
 
@@ -102,10 +99,6 @@ def test_resolve_update_handles_explicit_and_query_updates() -> None:
     assert node._resolve_update() == {"$set": {"count": 1}}
 
     node.update = None
-    node.query = {"update": {"$set": {"count": 2}}}
-    assert node._resolve_update() == {"$set": {"count": 2}}
-
-    node.query = {"other": "value"}
     with pytest.raises(ValueError, match="update is required for update operations"):
         node._resolve_update()
 
@@ -129,35 +122,11 @@ def test_resolve_pipeline_handles_variants_and_errors() -> None:
     node.pipeline = None
     node.query = [{"$match": {"value": 2}}]
     assert node._resolve_pipeline() == [{"$match": {"value": 2}}]
-
-    node.query = {"pipeline": [{"$match": {"value": 3}}]}
-    assert node._resolve_pipeline() == [{"$match": {"value": 3}}]
-
     node.query = {"foo": "bar"}
     with pytest.raises(
         ValueError, match="pipeline is required for aggregate operations"
     ):
         node._resolve_pipeline()
-
-
-def test_resolve_update_uses_query_candidate_when_update_missing() -> None:
-    node = _build_node(
-        operation="update_one",
-        query={"update": {"$set": {"count": 5}}},
-    )
-    node.update = None
-
-    assert node._resolve_update() == {"$set": {"count": 5}}
-
-
-def test_resolve_pipeline_uses_query_candidate_when_missing() -> None:
-    node = _build_node(
-        operation="aggregate",
-        query={"pipeline": [{"$match": {"state": "active"}}]},
-    )
-    node.pipeline = None
-
-    assert node._resolve_pipeline() == [{"$match": {"state": "active"}}]
 
 
 def test_resolve_projection_handles_dict_list_and_templates() -> None:

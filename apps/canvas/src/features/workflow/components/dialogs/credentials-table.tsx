@@ -113,11 +113,7 @@ export function CredentialsTable({
     }
     const normalizedQuery = searchQuery.toLowerCase();
     return credentials.filter((credential) => {
-      const provider = (
-        credential.provider ??
-        credential.type ??
-        ""
-      ).toLowerCase();
+      const provider = (credential.provider ?? "").toLowerCase();
       return (
         credential.name.toLowerCase().includes(normalizedQuery) ||
         provider.includes(normalizedQuery)
@@ -291,8 +287,7 @@ export function CredentialsTable({
               const isLoadingSecret =
                 loadingSecretState[credential.id] === true;
               const currentCopyState = copyState[credential.id] ?? "idle";
-              const provider =
-                credential.provider ?? credential.type ?? "unknown";
+              const provider = credential.provider ?? "unknown";
               const hasSecret =
                 secret !== undefined ||
                 inlineSecret !== undefined ||

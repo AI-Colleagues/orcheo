@@ -9,7 +9,7 @@ Configurable inputs (config.json):
 
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
-from orcheo.nodes.mongodb import (
+from orcheo.nodes.integrations.databases.mongodb import (
     MongoDBEnsureSearchIndexNode,
     MongoDBEnsureVectorIndexNode,
 )

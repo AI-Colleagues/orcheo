@@ -7,7 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from orcheo.nodes.ai import AgentNode
-from orcheo.nodes.mongodb import MongoDBNode
+from orcheo.nodes.integrations.databases.mongodb import MongoDBNode
 
 
 @pytest.fixture
@@ -51,17 +51,24 @@ class MongoTestContext:
     mongo_client: MagicMock
 
     def build_node(
-        self, *, operation: str, query: dict[str, Any] | None = None
+        self,
+        *,
+        operation: str,
+        query: dict[str, Any] | list[dict[str, Any]] | None = None,
+        **overrides: Any,
     ) -> MongoDBNode:
         """Create a MongoDBNode with sensible defaults for tests."""
 
-        return MongoDBNode(
+        payload: dict[str, Any] = dict(
             name="test_node",
             database="test_db",
             collection="test_coll",
             operation=operation,
-            query=query or {},
         )
+        if query is not None:
+            payload["query"] = query
+        payload.update(overrides)
+        return MongoDBNode(**payload)
 
 
 @pytest.fixture

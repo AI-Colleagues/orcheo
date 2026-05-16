@@ -168,10 +168,7 @@ export function useCredentialVault(
           },
           body: JSON.stringify({
             name: credential.name,
-            provider:
-              credential.provider?.trim() ||
-              credential.type?.trim() ||
-              "custom",
+            provider: credential.provider?.trim() || "custom",
             secret,
             actor: actorName,
             access: credential.access,

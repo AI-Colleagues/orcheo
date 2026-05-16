@@ -7,7 +7,7 @@ import pytest
 from langchain_core.runnables import RunnableConfig
 from pymongo.results import BulkWriteResult
 from orcheo.graph.state import State
-from orcheo.nodes.mongodb import MongoDBUpsertManyNode
+from orcheo.nodes.integrations.databases.mongodb import MongoDBUpsertManyNode
 from tests.nodes.conftest import MongoTestContext
 
 

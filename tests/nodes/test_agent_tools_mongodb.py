@@ -5,7 +5,10 @@ import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.nodes.agent_tools import tools
 from orcheo.nodes.agent_tools.context import tool_execution_context
-from orcheo.nodes.mongodb import MongoDBFindNode, MongoDBNode
+from orcheo.nodes.integrations.databases.mongodb import (
+    MongoDBFindNode,
+    MongoDBNode,
+)
 
 
 @pytest.mark.asyncio

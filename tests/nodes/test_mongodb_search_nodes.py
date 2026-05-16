@@ -13,7 +13,7 @@ from orcheo.nodes.integrations.databases.mongodb.search import (
     _extract_index_definition,
     _resolve_index_payload,
 )
-from orcheo.nodes.mongodb import (
+from orcheo.nodes.integrations.databases.mongodb import (
     MongoDBEnsureSearchIndexNode,
     MongoDBEnsureVectorIndexNode,
     MongoDBHybridSearchNode,

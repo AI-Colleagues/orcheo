@@ -339,7 +339,7 @@ class MongoDBNode(MongoDBClientNode):
         "watch",
     ]
     query: dict | list[dict[str, Any]] = Field(default_factory=dict)
-    """Legacy query payload passed directly to the operation."""
+    """Generic payload passed directly to single-argument operations."""
     filter: dict[str, Any] | str | None = Field(
         default=None, description="Filter document for query/update operations"
     )
@@ -383,18 +383,12 @@ class MongoDBNode(MongoDBClientNode):
         return value
 
     def _resolve_filter(self) -> dict[str, Any]:
-        """Resolve a filter document from structured or legacy inputs.
-
-        Prefers the structured ``filter`` field, falls back to ``query`` when
-        provided as a dict, otherwise defaults to an empty filter.
-        """
+        """Resolve a filter document from structured inputs."""
         if self.filter is not None:
             if isinstance(self.filter, str):
                 msg = "filter must resolve to a dict before execution"
                 raise ValueError(msg)
             return dict(self.filter)
-        if isinstance(self.query, dict):
-            return dict(self.query)
         return {}
 
     def _resolve_update(self) -> dict[str, Any]:
@@ -404,10 +398,6 @@ class MongoDBNode(MongoDBClientNode):
                 msg = "update must resolve to a dict before execution"
                 raise ValueError(msg)
             return dict(self.update)
-        if isinstance(self.query, dict):  # pragma: no branch
-            candidate = self.query.get("update")
-            if isinstance(candidate, dict):
-                return dict(candidate)
         msg = "update is required for update operations"
         raise ValueError(msg)
 
@@ -417,10 +407,6 @@ class MongoDBNode(MongoDBClientNode):
             return list(self.pipeline)
         if isinstance(self.query, list):
             return list(self.query)
-        if isinstance(self.query, dict):  # pragma: no branch
-            candidate = self.query.get("pipeline")
-            if isinstance(candidate, list):
-                return list(candidate)
         msg = "pipeline is required for aggregate operations"
         raise ValueError(msg)
 

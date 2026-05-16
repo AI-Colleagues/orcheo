@@ -6,7 +6,10 @@ from langchain_core.tools import tool
 from orcheo.graph.state import State
 from orcheo.nodes.agent_tools.context import get_active_tool_config
 from orcheo.nodes.agent_tools.registry import ToolMetadata, tool_registry
-from orcheo.nodes.mongodb import MongoDBFindNode, MongoDBNode
+from orcheo.nodes.integrations.databases.mongodb import (
+    MongoDBFindNode,
+    MongoDBNode,
+)
 
 
 @tool_registry.register(
