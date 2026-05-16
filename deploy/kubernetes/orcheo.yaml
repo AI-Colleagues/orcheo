@@ -37,12 +37,6 @@ spec:
           ports:
             - containerPort: 8000
           env:
-            - name: ORCHEO_REPOSITORY_BACKEND
-              value: postgres
-            - name: ORCHEO_CHECKPOINT_BACKEND
-              value: postgres
-            - name: ORCHEO_CHATKIT_BACKEND
-              value: postgres
             - name: ORCHEO_HOST
               value: 0.0.0.0
             - name: ORCHEO_PORT
