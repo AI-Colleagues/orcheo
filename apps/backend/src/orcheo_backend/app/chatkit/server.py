@@ -138,9 +138,6 @@ def _refresh_widget_policy(settings: Any | None = None) -> None:
     _ALLOWED_WIDGET_ACTION_TYPES.update(allowed_action_types)
 
 
-_refresh_widget_policy()
-
-
 class _WidgetCandidate(NamedTuple):
     """Intermediate representation of a widget payload."""
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import builtins
+import importlib
 from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -501,6 +502,19 @@ def test_refresh_widget_policy_respects_attribute_config() -> None:
 
     assert server_module._WIDGET_TYPES == {"AttributeCard"}
     assert server_module._ALLOWED_WIDGET_ACTION_TYPES == {"tap"}
+
+
+def test_server_module_import_does_not_require_vault_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Importing the server module should stay lazy about settings loading."""
+
+    monkeypatch.delenv("ORCHEO_VAULT_ENCRYPTION_KEY", raising=False)
+
+    reloaded = importlib.reload(server_module)
+
+    assert reloaded._WIDGET_TYPES == {"Card", "ListView"}
+    assert reloaded._ALLOWED_WIDGET_ACTION_TYPES == {"submit"}
 
 
 @pytest.mark.asyncio
