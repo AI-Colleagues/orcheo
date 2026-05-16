@@ -3,13 +3,15 @@
 from __future__ import annotations
 import json
 import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, cast
+from typing import cast
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
+from orcheo.agentensor.checkpoints import AgentensorCheckpointStore
 from orcheo.plugins import load_enabled_plugins
 from orcheo.tracing import configure_tracing
 from orcheo.vault.oauth import OAuthCredentialService
@@ -25,14 +27,21 @@ from orcheo_backend.app.chatkit_runtime import (
     sensitive_logging_enabled,
 )
 from orcheo_backend.app.dependencies import (
+    ListenerRuntimeStore,
+    _create_repository,
+    _repository_ref,
+    get_checkpoint_store,
     get_credential_service,
     get_history_store,
     get_listener_runtime_store,
+    get_plugin_installation_store,
     get_repository,
     get_vault,
+    set_checkpoint_store,
     set_credential_service,
     set_history_store,
     set_listener_runtime_store,
+    set_plugin_installation_store,
     set_repository,
     set_vault,
 )
@@ -40,6 +49,7 @@ from orcheo_backend.app.history import RunHistoryStore
 from orcheo_backend.app.listener_runtime_service import ListenerRuntimeService
 from orcheo_backend.app.logging_config import configure_logging
 from orcheo_backend.app.managed_workflows import ensure_managed_vibe_workflow
+from orcheo_backend.app.plugin_installation_store import PluginInstallationStore
 from orcheo_backend.app.repository import WorkflowRepository
 from orcheo_backend.app.routers import (
     agentensor,
@@ -86,6 +96,40 @@ async def _authentication_error_handler(request: Request, exc: Exception) -> Res
     auth_error = cast(AuthenticationError, exc)
     http_exc = auth_error.as_http_exception()
     return await http_exception_handler(request, http_exc)
+
+
+async def _robots_txt() -> PlainTextResponse:
+    """Expose crawl policy for public backend deployments."""
+    return PlainTextResponse("User-agent: *\nDisallow: /\n")
+
+
+@asynccontextmanager
+async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Manage application lifespan with startup and shutdown logic."""
+    if not _repository_ref.get("repository"):
+        _create_repository()
+    load_auth_settings(refresh=True)
+    load_enabled_plugins(force=True)
+    workspace_service = get_workspace_service()
+    for workspace in workspace_service.list_workspaces(include_inactive=False):
+        await ensure_managed_vibe_workflow(get_repository(), workspace)
+    listener_runtime = ListenerRuntimeService(
+        repository=get_repository(),
+        vault=get_vault(),
+        runtime_store=get_listener_runtime_store(),
+    )
+    app.state.listener_runtime = listener_runtime
+    try:
+        get_chatkit_server()
+        await ensure_chatkit_cleanup_task()
+    except Exception:
+        pass
+    await listener_runtime.start()
+    try:
+        yield
+    finally:
+        await listener_runtime.stop()
+        await cancel_chatkit_cleanup_task()
 
 
 def _build_api_router() -> APIRouter:
@@ -156,65 +200,36 @@ def _load_allowed_origins() -> list[str]:
     return origins or list(_DEFAULT_ALLOWED_ORIGINS)
 
 
-def create_app(
+def _configure_dependency_overrides(
+    application: FastAPI,
     repository: WorkflowRepository | None = None,
     *,
     history_store: RunHistoryStore | None = None,
+    checkpoint_store: AgentensorCheckpointStore | None = None,
+    plugin_installation_store: PluginInstallationStore | None = None,
     credential_service: OAuthCredentialService | None = None,
-) -> FastAPI:
-    """Instantiate and configure the FastAPI application."""
-
-    @asynccontextmanager
-    async def lifespan(app: FastAPI) -> Any:
-        """Manage application lifespan with startup and shutdown logic."""
-        load_auth_settings(refresh=True)
-        load_enabled_plugins(force=True)
-        workspace_service = get_workspace_service()
-        for workspace in workspace_service.list_workspaces(include_inactive=False):
-            await ensure_managed_vibe_workflow(get_repository(), workspace)
-        listener_runtime = ListenerRuntimeService(
-            repository=get_repository(),
-            vault=get_vault(),
-            runtime_store=get_listener_runtime_store(),
-        )
-        app.state.listener_runtime = listener_runtime
-        try:
-            get_chatkit_server()
-            await ensure_chatkit_cleanup_task()
-        except Exception:
-            pass
-        await listener_runtime.start()
-        try:
-            yield
-        finally:
-            await listener_runtime.stop()
-            await cancel_chatkit_cleanup_task()
-
-    application = FastAPI(lifespan=lifespan)
-
-    @application.get("/robots.txt", include_in_schema=False)
-    async def robots_txt() -> PlainTextResponse:
-        """Expose crawl policy for public backend deployments."""
-        return PlainTextResponse("User-agent: *\nDisallow: /\n")
-
-    allowed_origins = _load_allowed_origins()
-
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=allowed_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
+) -> ListenerRuntimeStore:
+    """Apply optional dependency overrides used by tests and integrations."""
     if repository is not None:
         set_repository(repository)  # pragma: no mutate - override for tests
         application.dependency_overrides[get_repository] = lambda: repository
     if history_store is not None:
         set_history_store(history_store)
         application.dependency_overrides[get_history_store] = lambda: history_store
+    if checkpoint_store is not None:
+        set_checkpoint_store(checkpoint_store)
+        application.dependency_overrides[get_checkpoint_store] = (
+            lambda: checkpoint_store
+        )
+    if plugin_installation_store is not None:
+        set_plugin_installation_store(plugin_installation_store)
+        application.dependency_overrides[get_plugin_installation_store] = (
+            lambda: plugin_installation_store
+        )
+
     listener_runtime_store = get_listener_runtime_store()
     set_listener_runtime_store(listener_runtime_store)
+
     if credential_service is not None:
         set_credential_service(credential_service)
         set_vault(getattr(credential_service, "_vault", None))
@@ -229,6 +244,12 @@ def create_app(
                 inferred_service
             )
 
+    application.state.listener_runtime_store = listener_runtime_store
+    return listener_runtime_store
+
+
+def _configure_application(application: FastAPI) -> None:
+    """Install routes, handlers, and middleware on the FastAPI app."""
     application.include_router(api_router)
     # Workspace-slug-prefixed webhook routes at /hooks/{workspace_slug}/{trigger_id}.
     # Mounted at the application root (not under /api) so external services
@@ -236,11 +257,39 @@ def create_app(
     application.include_router(triggers.workspace_webhook_router)
     application.include_router(chatkit_assets.router)
     application.include_router(websocket.router)
-    application.state.listener_runtime_store = listener_runtime_store
     application.add_exception_handler(
         AuthenticationError, _authentication_error_handler
     )
 
+
+def create_app(
+    repository: WorkflowRepository | None = None,
+    *,
+    history_store: RunHistoryStore | None = None,
+    checkpoint_store: AgentensorCheckpointStore | None = None,
+    plugin_installation_store: PluginInstallationStore | None = None,
+    credential_service: OAuthCredentialService | None = None,
+) -> FastAPI:
+    """Instantiate and configure the FastAPI application."""
+    application = FastAPI(lifespan=_app_lifespan)
+    application.add_api_route("/robots.txt", _robots_txt, include_in_schema=False)
+    allowed_origins = _load_allowed_origins()
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    _configure_dependency_overrides(
+        application,
+        repository,
+        history_store=history_store,
+        checkpoint_store=checkpoint_store,
+        plugin_installation_store=plugin_installation_store,
+        credential_service=credential_service,
+    )
+    _configure_application(application)
     return application
 
 

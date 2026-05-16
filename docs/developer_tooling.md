@@ -31,7 +31,7 @@ Make on contributor machines.
 
 `uv run orcheo-seed-env` invokes `orcheo.tooling.env.seed_env_file`, which copies the
 example environment file into place and creates local state directories used by
-SQLite and the credential vault. Pass `--force` to overwrite an existing `.env`:
+ChatKit and the credential vault. Pass `--force` to overwrite an existing `.env`:
 
 ```bash
 uv run orcheo-seed-env -- --force

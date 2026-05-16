@@ -34,11 +34,6 @@ from orcheo.workspace.scoping import (
     workspace_scoped_sql,
 )
 from orcheo.workspace.service import WorkspaceService, ensure_default_workspace
-from orcheo.workspace.sqlite_store import (
-    SQLITE_WORKSPACE_SCHEMA_SQL,
-    SqliteWorkspaceRepository,
-    ensure_workspace_schema,
-)
 
 
 __all__ = [
@@ -49,8 +44,6 @@ __all__ = [
     "POSTGRES_WORKSPACE_SCHEMA",
     "PostgresWorkspaceRepository",
     "Role",
-    "SQLITE_WORKSPACE_SCHEMA_SQL",
-    "SqliteWorkspaceRepository",
     "WorkspaceAuditEvent",
     "Workspace",
     "WorkspaceContext",
@@ -70,7 +63,6 @@ __all__ = [
     "coerce_workspace_id",
     "ensure_default_workspace",
     "ensure_workspace_id",
-    "ensure_workspace_schema",
     "normalize_slug",
     "workspace_scoped_sql",
 ]

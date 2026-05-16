@@ -130,30 +130,19 @@ def test_load_auth_settings_with_jwks_alternative_key(
     assert len(settings.jwks_static) == 1
 
 
-def test_load_auth_settings_with_repository_path_fallback(
+def test_load_auth_settings_with_service_token_db_path_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test default service token DB path using repository path (lines 998-1001)."""
+    """Service token DB path should come directly from AUTH_SERVICE_TOKEN_DB_PATH."""
     import tempfile
-    from pathlib import Path
 
-    # Create a temp directory and file
-    temp_dir = Path(tempfile.mkdtemp())
-    repo_path = temp_dir / "workflows.sqlite"
-    repo_path.touch()
-
-    # Set up repository path without service token DB path
-    # Note: Code at line 996 uses settings.get("ORCHEO_REPOSITORY_SQLITE_PATH")
-    # which doesn't follow dynaconf conventions, but we test it as written
-    monkeypatch.setenv("ORCHEO_ORCHEO_REPOSITORY_SQLITE_PATH", str(repo_path))
-    monkeypatch.delenv("ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH", raising=False)
+    temp_dir = tempfile.mkdtemp()
+    db_path = f"{temp_dir}/service_tokens.db"
+    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH", db_path)
 
     settings = load_auth_settings(refresh=True)
 
-    # Should default to service_tokens.sqlite in same directory as workflows DB
-    assert settings.service_token_db_path is not None
-    assert settings.service_token_db_path.endswith("service_tokens.sqlite")
-    assert str(temp_dir) in settings.service_token_db_path
+    assert settings.service_token_db_path == db_path
 
 
 def test_parse_bool_unrecognized_string_uses_default() -> None:

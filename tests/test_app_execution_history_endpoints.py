@@ -8,8 +8,62 @@ from orcheo.workspace import InMemoryWorkspaceRepository
 from orcheo.workspace.models import Role, Workspace, WorkspaceContext
 from orcheo_backend.app import create_app
 from orcheo_backend.app.authentication import reset_authentication_state
-from orcheo_backend.app.history import InMemoryRunHistoryStore
+from orcheo_backend.app.history import RunHistoryNotFoundError, RunHistoryRecord
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
+
+
+class _FakeHistoryStore:
+    """Minimal dict-backed history store for endpoint tests."""
+
+    def __init__(self) -> None:
+        self._records: dict[str, RunHistoryRecord] = {}
+
+    async def start_run(
+        self, *, workflow_id: str, execution_id: str, inputs=None, **kwargs
+    ) -> RunHistoryRecord:
+        record = RunHistoryRecord(
+            workflow_id=workflow_id,
+            execution_id=execution_id,
+            inputs=dict(inputs) if inputs else {},
+        )
+        self._records[execution_id] = record
+        return record.model_copy(deep=True)
+
+    async def append_step(self, execution_id: str, payload) -> object:
+        return self._records[execution_id].append_step(dict(payload))
+
+    async def mark_completed(self, execution_id: str) -> RunHistoryRecord:
+        self._records[execution_id].mark_completed()
+        return self._records[execution_id].model_copy(deep=True)
+
+    async def mark_failed(self, execution_id: str, error: str) -> RunHistoryRecord:
+        self._records[execution_id].mark_failed(error)
+        return self._records[execution_id].model_copy(deep=True)
+
+    async def mark_cancelled(
+        self, execution_id: str, *, reason=None
+    ) -> RunHistoryRecord:
+        self._records[execution_id].mark_cancelled(reason=reason)
+        return self._records[execution_id].model_copy(deep=True)
+
+    async def get_history(self, execution_id: str) -> RunHistoryRecord:
+        record = self._records.get(execution_id)
+        if record is None:
+            raise RunHistoryNotFoundError(f"History not found: {execution_id}")
+        return record.model_copy(deep=True)
+
+    async def list_histories(self, workflow_id: str, *, limit=None, workspace_id=None):
+        records = [
+            r.model_copy(deep=True)
+            for r in self._records.values()
+            if r.workflow_id == workflow_id
+        ]
+        return records[:limit] if limit else records
+
+    async def clear(self) -> None:
+        self._records.clear()
+
+
 from orcheo_backend.app.workspace.dependencies import (
     resolve_workspace_context,
     set_workspace_repository,
@@ -41,7 +95,7 @@ def test_execution_history_endpoints_return_steps(
     reset_authentication_state()
 
     repository = InMemoryWorkflowRepository()
-    history_store = InMemoryRunHistoryStore()
+    history_store = _FakeHistoryStore()
 
     execution_id = "exec-123"
 
@@ -87,7 +141,7 @@ def test_execution_history_not_found_returns_404(
     reset_authentication_state()
 
     repository = InMemoryWorkflowRepository()
-    history_store = InMemoryRunHistoryStore()
+    history_store = _FakeHistoryStore()
     app = create_app(repository, history_store=history_store)
     app.dependency_overrides[resolve_workspace_context] = lambda: _TEST_WORKSPACE
     client = TestClient(app)
@@ -106,7 +160,7 @@ def test_replay_execution_not_found_returns_404(
     reset_authentication_state()
 
     repository = InMemoryWorkflowRepository()
-    history_store = InMemoryRunHistoryStore()
+    history_store = _FakeHistoryStore()
     app = create_app(repository, history_store=history_store)
     app.dependency_overrides[resolve_workspace_context] = lambda: _TEST_WORKSPACE
     client = TestClient(app)

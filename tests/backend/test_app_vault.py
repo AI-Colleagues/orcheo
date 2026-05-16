@@ -1,103 +1,73 @@
 """Tests covering vault creation and key management helpers."""
 
 from __future__ import annotations
-import os
-from pathlib import Path
 from types import SimpleNamespace
+
 import pytest
-from orcheo.vault import FileCredentialVault
-from orcheo_backend.app import _create_vault, _ensure_file_vault_key
+
+from orcheo.models import AesGcmCredentialCipher
+from orcheo_backend.app import _create_vault
 
 
-def test_create_vault_supports_file_backend(tmp_path: Path) -> None:
-    """File-backed vaults expand the configured path and return an instance."""
+def test_create_vault_rejects_inmemory_backend() -> None:
+    """Non-postgres vault backends are rejected."""
 
-    path = tmp_path / "orcheo" / "vault.sqlite"
     settings = SimpleNamespace(
-        vault=SimpleNamespace(
-            backend="file",
-            local_path=str(path),
-            encryption_key="unit-test-key",
-        )
+        vault=SimpleNamespace(backend="inmemory", encryption_key=None)
     )
 
-    vault = _create_vault(settings)  # type: ignore[arg-type]
-
-    assert isinstance(vault, FileCredentialVault)
-    assert vault._path == path.expanduser()  # type: ignore[attr-defined]
+    with pytest.raises(ValueError, match="Vault backend must be 'postgres'\\."):
+        _create_vault(settings)  # type: ignore[arg-type]
 
 
-def test_create_vault_generates_encryption_key(tmp_path: Path) -> None:
-    """Missing encryption keys are generated and stored alongside the database."""
-
-    path = tmp_path / "vault.sqlite"
-    settings = SimpleNamespace(
-        vault=SimpleNamespace(
-            backend="file",
-            local_path=str(path),
-            encryption_key=None,
-        )
-    )
-
-    vault = _create_vault(settings)  # type: ignore[arg-type]
-
-    assert isinstance(vault, FileCredentialVault)
-    key_path = path.with_name(f"{path.stem}.key")
-    assert key_path.exists()
-    key_contents = key_path.read_text(encoding="utf-8").strip()
-    assert len(key_contents) == 64
-
-    _create_vault(settings)  # type: ignore[arg-type]
-
-    assert key_path.read_text(encoding="utf-8").strip() == key_contents
-
-
-def test_ensure_file_vault_key_returns_existing_value(tmp_path: Path) -> None:
-    path = tmp_path / "vault.sqlite"
-    key_path = path.with_name(f"{path.stem}.key")
-    key_path.write_text(" existing-key ", encoding="utf-8")
-
-    key = _ensure_file_vault_key(path, None)
-
-    assert key == "existing-key"
-    assert key_path.read_text(encoding="utf-8") == " existing-key "
-
-
-def test_ensure_file_vault_key_regenerates_when_existing_blank(tmp_path: Path) -> None:
-    path = tmp_path / "vault.sqlite"
-    key_path = path.with_name(f"{path.stem}.key")
-    key_path.write_text("   \n", encoding="utf-8")
-
-    key = _ensure_file_vault_key(path, None)
-
-    assert len(key) == 64
-    assert key_path.read_text(encoding="utf-8").strip() == key
-
-
-def test_ensure_file_vault_key_handles_chmod_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_create_vault_supports_postgres_backend(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    path = tmp_path / "vault.sqlite"
-    calls: list[tuple[Path, int]] = []
+    """Postgres vaults require a DSN and encryption key."""
 
-    def raise_permission_error(target: Path, mode: int) -> None:
-        calls.append((target, mode))
-        raise PermissionError("chmod not permitted")
+    settings = SimpleNamespace(
+        vault=SimpleNamespace(
+            backend="postgres",
+            encryption_key="unit-test-key",
+        ),
+        postgres_dsn="postgresql://example",
+        postgres_pool_min_size=2,
+        postgres_pool_max_size=5,
+    )
 
-    monkeypatch.setattr(os, "chmod", raise_permission_error)
+    captured: dict[str, object] = {}
 
-    key = _ensure_file_vault_key(path, None)
+    class FakePostgresVault:
+        def __init__(
+            self,
+            dsn: str,
+            *,
+            cipher: object,
+            pool_min_size: int,
+            pool_max_size: int,
+        ) -> None:
+            captured["dsn"] = dsn
+            captured["cipher"] = cipher
+            captured["pool_min_size"] = pool_min_size
+            captured["pool_max_size"] = pool_max_size
 
-    key_path = path.with_name(f"{path.stem}.key")
-    assert key_path.exists()
-    assert len(key) == 64
-    assert calls and calls[0][0] == key_path
+    monkeypatch.setattr(
+        "orcheo.vault.postgres.PostgresCredentialVault",
+        FakePostgresVault,
+    )
+
+    vault = _create_vault(settings)  # type: ignore[arg-type]
+
+    assert isinstance(vault, FakePostgresVault)
+    assert captured["dsn"] == "postgresql://example"
+    assert captured["pool_min_size"] == 2
+    assert captured["pool_max_size"] == 5
 
 
 def test_create_vault_rejects_unsupported_backend() -> None:
     """Unsupported vault backends raise a clear error message."""
 
-    settings = SimpleNamespace(vault=SimpleNamespace(backend="aws_kms"))
+    settings = SimpleNamespace(vault=SimpleNamespace(backend="file"))
 
-    with pytest.raises(ValueError, match="not supported"):
+    with pytest.raises(ValueError, match="Vault backend must be 'postgres'\\."):
         _create_vault(settings)  # type: ignore[arg-type]

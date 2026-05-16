@@ -4,11 +4,11 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 import pytest
-from orcheo_backend.app.authentication import (
-    get_authenticator,
-    reset_authentication_state,
+from orcheo_backend.app.authentication import reset_authentication_state
+from tests.backend.authentication_test_utils import (
+    _build_test_authenticator,
+    reset_auth_state,
 )
-from tests.backend.authentication_test_utils import reset_auth_state
 
 
 @pytest.fixture(autouse=True)
@@ -27,7 +27,7 @@ def test_bootstrap_token_grants_default_admin_scopes(
     monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
     reset_authentication_state()
 
-    authenticator = get_authenticator()
+    authenticator = _build_test_authenticator()
     context = None
 
     async def _authenticate() -> None:
@@ -61,7 +61,7 @@ def test_bootstrap_token_respects_custom_scopes(
     )
     reset_authentication_state()
 
-    authenticator = get_authenticator()
+    authenticator = _build_test_authenticator()
     context = None
 
     async def _authenticate() -> None:
@@ -84,7 +84,7 @@ def test_bootstrap_token_has_no_workspace_restrictions(
     monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
     reset_authentication_state()
 
-    authenticator = get_authenticator()
+    authenticator = _build_test_authenticator()
     context = None
 
     async def _authenticate() -> None:
@@ -106,7 +106,7 @@ def test_bootstrap_token_defaults_to_no_expiration(
     monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
     reset_authentication_state()
 
-    authenticator = get_authenticator()
+    authenticator = _build_test_authenticator()
     context = None
 
     async def _authenticate() -> None:
@@ -131,7 +131,7 @@ def test_bootstrap_token_honours_future_expiration(
     monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT", expires_at.isoformat())
     reset_authentication_state()
 
-    authenticator = get_authenticator()
+    authenticator = _build_test_authenticator()
     context = None
 
     async def _authenticate() -> None:

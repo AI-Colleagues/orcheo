@@ -8,6 +8,7 @@ from orcheo.config import loader as config_loader
 from orcheo.config.app_settings import AppSettings
 from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
 from orcheo.config.defaults import _DEFAULTS
+from orcheo.config.vault_settings import VaultSettings
 
 
 def _build_loader_without_dotenv() -> Dynaconf:
@@ -30,41 +31,37 @@ def no_dotenv_loader(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, N
 def test_settings_defaults(
     monkeypatch: pytest.MonkeyPatch, no_dotenv_loader: None
 ) -> None:
-    """Default settings fall back to SQLite and localhost server."""
+    """Default settings fall back to PostgreSQL-backed persistence and localhost."""
 
     monkeypatch.delenv("ORCHEO_CHECKPOINT_BACKEND", raising=False)
-    monkeypatch.delenv("ORCHEO_SQLITE_PATH", raising=False)
     monkeypatch.delenv("ORCHEO_CHATKIT_BACKEND", raising=False)
+    monkeypatch.delenv("ORCHEO_WORKSPACE_BACKEND", raising=False)
     monkeypatch.delenv("ORCHEO_HOST", raising=False)
     monkeypatch.delenv("ORCHEO_PORT", raising=False)
     monkeypatch.delenv("ORCHEO_VAULT_BACKEND", raising=False)
     monkeypatch.delenv("ORCHEO_VAULT_ENCRYPTION_KEY", raising=False)
-    monkeypatch.delenv("ORCHEO_VAULT_LOCAL_PATH", raising=False)
     monkeypatch.delenv("ORCHEO_VAULT_AWS_REGION", raising=False)
     monkeypatch.delenv("ORCHEO_VAULT_AWS_KMS_KEY_ID", raising=False)
     monkeypatch.delenv("ORCHEO_VAULT_TOKEN_TTL_SECONDS", raising=False)
     monkeypatch.delenv("ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD", raising=False)
     monkeypatch.delenv("ORCHEO_TRACING_PREVIEW_MAX_LENGTH", raising=False)
+    monkeypatch.setenv("ORCHEO_VAULT_ENCRYPTION_KEY", "test-vault-encryption-key")
 
     settings = config.get_settings(refresh=True)
 
-    assert settings.checkpoint_backend == "sqlite"
-    assert settings.sqlite_path == "~/.orcheo/checkpoints.sqlite"
-    assert settings.graph_store_backend == "sqlite"
-    assert settings.graph_store_sqlite_path == str(_DEFAULTS["GRAPH_STORE_SQLITE_PATH"])
-    assert settings.chatkit_backend == "sqlite"
-    assert settings.chatkit_sqlite_path == "~/.orcheo/chatkit.sqlite"
+    assert settings.checkpoint_backend == "postgres"
+    assert settings.graph_store_backend == "postgres"
+    assert settings.chatkit_backend == "postgres"
+    assert settings.repository_backend == "postgres"
+    assert settings.workspace_backend == "postgres"
+    assert settings.vault_backend == "postgres"
     assert settings.postgres_pool_min_size == 1
     assert settings.postgres_pool_max_size == 10
     assert settings.postgres_pool_timeout == 30.0
     assert settings.postgres_pool_max_idle == 300.0
     assert settings.host == "0.0.0.0"
     assert settings.port == 8000
-    assert settings.vault_backend == "file"
-    assert settings.vault_encryption_key is None
-    assert settings.vault_local_path == "~/.orcheo/vault.sqlite"
-    assert settings.vault_aws_region is None
-    assert settings.vault_aws_kms_key_id is None
+    assert settings.vault_encryption_key == "test-vault-encryption-key"
     assert settings.vault_token_ttl_seconds == 3600
     assert settings.tracing_high_token_threshold == 1000
     assert settings.tracing_preview_max_length == 512
@@ -211,51 +208,29 @@ def test_postgres_pool_settings_are_loaded(monkeypatch: pytest.MonkeyPatch) -> N
     assert settings.postgres_pool_max_idle == 60.0
 
 
-def test_graph_store_sqlite_path_must_be_absolute(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Graph-store sqlite paths reject non-absolute values."""
-
-    monkeypatch.setenv("ORCHEO_GRAPH_STORE_BACKEND", "sqlite")
-    monkeypatch.setenv("ORCHEO_GRAPH_STORE_SQLITE_PATH", "relative/path.sqlite")
-
-    with pytest.raises(ValueError):
-        config.get_settings(refresh=True)
-
-
-def test_graph_store_sqlite_path_rejects_tilde(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Graph-store sqlite paths reject tilde-prefixed values."""
-
-    monkeypatch.setenv("ORCHEO_GRAPH_STORE_BACKEND", "sqlite")
-    monkeypatch.setenv("ORCHEO_GRAPH_STORE_SQLITE_PATH", "~/graph_store.sqlite")
-
-    with pytest.raises(ValueError):
-        config.get_settings(refresh=True)
-
-
 def test_normalize_backend_none() -> None:
     """Explicit `None` backend values should fall back to defaults."""
 
     source = Dynaconf(settings_files=[], load_dotenv=False, environments=False)
     source.set("CHECKPOINT_BACKEND", None)
+    source.set("POSTGRES_DSN", "postgresql://example")
+    source.set("VAULT_ENCRYPTION_KEY", "test-vault-encryption-key")
 
     normalized = config._normalize_settings(source)
 
-    assert normalized.checkpoint_backend == "sqlite"
+    assert normalized.checkpoint_backend == "postgres"
 
 
 def test_get_settings_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_settings refresh flag should reload cached values."""
 
-    monkeypatch.setenv("ORCHEO_SQLITE_PATH", "initial.db")
+    monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://initial")
     settings = config.get_settings(refresh=True)
-    assert settings.sqlite_path == "initial.db"
+    assert settings.postgres_dsn == "postgresql://initial"
 
-    monkeypatch.setenv("ORCHEO_SQLITE_PATH", "updated.db")
+    monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://updated")
     refreshed = config.get_settings(refresh=True)
-    assert refreshed.sqlite_path == "updated.db"
+    assert refreshed.postgres_dsn == "postgresql://updated"
 
 
 def test_tracing_settings_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -320,61 +295,29 @@ def test_postgres_vault_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert settings.vault_backend == "postgres"
     assert settings.vault_encryption_key == "enc-key"
-    assert settings.vault_local_path is None
     assert settings.vault_aws_region is None
     assert settings.vault_aws_kms_key_id is None
     assert settings.postgres_dsn == "postgresql://example"
 
 
-def test_file_vault_allows_missing_encryption_key(
-    monkeypatch: pytest.MonkeyPatch, no_dotenv_loader: None
+def test_inmemory_vault_backend_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """File-based vaults fall back to automatic key management."""
+    """In-memory vault backends are no longer supported."""
 
-    monkeypatch.setenv("ORCHEO_VAULT_BACKEND", "file")
-    monkeypatch.delenv("ORCHEO_VAULT_ENCRYPTION_KEY", raising=False)
-
-    settings = config.get_settings(refresh=True)
-
-    assert settings.vault_backend == "file"
-    assert settings.vault_encryption_key is None
-    assert settings.vault_local_path == "~/.orcheo/vault.sqlite"
-
-
-def test_file_vault_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    """File-based vault should populate default path when available."""
-
-    monkeypatch.setenv("ORCHEO_VAULT_BACKEND", "file")
-    monkeypatch.setenv("ORCHEO_VAULT_ENCRYPTION_KEY", "dummy-key")
-    monkeypatch.delenv("ORCHEO_VAULT_LOCAL_PATH", raising=False)
-
-    settings = config.get_settings(refresh=True)
-
-    assert settings.vault_backend == "file"
-    assert settings.vault_local_path == "~/.orcheo/vault.sqlite"
-    assert settings.vault_encryption_key == "dummy-key"
-
-
-def test_aws_vault_requires_region_and_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """AWS KMS-backed vaults need region and key identifiers."""
-
-    monkeypatch.setenv("ORCHEO_VAULT_BACKEND", "aws_kms")
-    monkeypatch.setenv("ORCHEO_VAULT_ENCRYPTION_KEY", "enc-key")
-    monkeypatch.delenv("ORCHEO_VAULT_AWS_REGION", raising=False)
-    monkeypatch.delenv("ORCHEO_VAULT_AWS_KMS_KEY_ID", raising=False)
+    monkeypatch.setenv("ORCHEO_VAULT_BACKEND", "inmemory")
 
     with pytest.raises(ValueError):
         config.get_settings(refresh=True)
 
-    monkeypatch.setenv("ORCHEO_VAULT_AWS_REGION", "us-west-2")
-    monkeypatch.setenv("ORCHEO_VAULT_AWS_KMS_KEY_ID", "kms-key-id")
 
-    settings = config.get_settings(refresh=True)
+def test_vault_rejects_unsupported_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unsupported vault backends should fail validation."""
 
-    assert settings.vault_backend == "aws_kms"
-    assert settings.vault_aws_region == "us-west-2"
-    assert settings.vault_aws_kms_key_id == "kms-key-id"
-    assert settings.vault_local_path is None
+    monkeypatch.setenv("ORCHEO_VAULT_BACKEND", "file")
+
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)
 
 
 def test_vault_token_ttl_validation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -390,38 +333,16 @@ def test_vault_token_ttl_validation(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.vault_token_ttl_seconds == 900
 
 
-def test_aws_vault_requires_encryption_key(
+def test_postgres_vault_requires_encryption_key_again(
     monkeypatch: pytest.MonkeyPatch, no_dotenv_loader: None
 ) -> None:
-    """AWS KMS vaults must provide an encryption key."""
+    """Postgres vaults must provide an encryption key."""
 
-    monkeypatch.setenv("ORCHEO_VAULT_BACKEND", "aws_kms")
+    monkeypatch.setenv("ORCHEO_VAULT_BACKEND", "postgres")
     monkeypatch.delenv("ORCHEO_VAULT_ENCRYPTION_KEY", raising=False)
-    monkeypatch.setenv("ORCHEO_VAULT_AWS_REGION", "us-east-1")
-    monkeypatch.setenv("ORCHEO_VAULT_AWS_KMS_KEY_ID", "key-id")
 
     with pytest.raises(ValueError):
         config.get_settings(refresh=True)
-
-
-def test_inmemory_vault_clears_optional_fields(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """In-memory vault should strip persistence-specific options."""
-
-    monkeypatch.setenv("ORCHEO_VAULT_BACKEND", "inmemory")
-    monkeypatch.setenv("ORCHEO_VAULT_ENCRYPTION_KEY", "ignored")
-    monkeypatch.setenv("ORCHEO_VAULT_LOCAL_PATH", "custom/path.sqlite")
-    monkeypatch.setenv("ORCHEO_VAULT_AWS_REGION", "us-east-1")
-    monkeypatch.setenv("ORCHEO_VAULT_AWS_KMS_KEY_ID", "key-id")
-
-    settings = config.get_settings(refresh=True)
-
-    assert settings.vault_backend == "inmemory"
-    assert settings.vault_encryption_key is None
-    assert settings.vault_local_path is None
-    assert settings.vault_aws_region is None
-    assert settings.vault_aws_kms_key_id is None
 
 
 def test_numeric_fields_accept_str_coercible_objects() -> None:
@@ -435,6 +356,8 @@ def test_numeric_fields_accept_str_coercible_objects() -> None:
             return str(self._value)
 
     source = Dynaconf(settings_files=[], load_dotenv=False, environments=False)
+    source.set("POSTGRES_DSN", "postgresql://example")
+    source.set("VAULT_ENCRYPTION_KEY", "test-vault-encryption-key")
     source.set("PORT", Intish(4711))
     source.set("VAULT_TOKEN_TTL_SECONDS", Intish(1234))
 
@@ -448,6 +371,8 @@ def test_chatkit_retention_coerces_string_values() -> None:
     """Chatkit retention days should accept string representations of integers."""
 
     source = Dynaconf(settings_files=[], load_dotenv=False, environments=False)
+    source.set("POSTGRES_DSN", "postgresql://example")
+    source.set("VAULT_ENCRYPTION_KEY", "test-vault-encryption-key")
     source.set("CHATKIT_RETENTION_DAYS", "21")
 
     normalized = config._normalize_settings(source)
@@ -459,6 +384,8 @@ def test_chatkit_upload_size_coerces_string_values() -> None:
     """ChatKit max upload size should accept string representations of integers."""
 
     source = Dynaconf(settings_files=[], load_dotenv=False, environments=False)
+    source.set("POSTGRES_DSN", "postgresql://example")
+    source.set("VAULT_ENCRYPTION_KEY", "test-vault-encryption-key")
     source.set("CHATKIT_MAX_UPLOAD_SIZE_BYTES", "1024")
 
     normalized = config._normalize_settings(source)
@@ -470,6 +397,8 @@ def test_chatkit_rate_limit_settings_are_loaded() -> None:
     """ChatKit rate limit configuration should surface defaults and overrides."""
 
     source = Dynaconf(settings_files=[], load_dotenv=False, environments=False)
+    source.set("POSTGRES_DSN", "postgresql://example")
+    source.set("VAULT_ENCRYPTION_KEY", "test-vault-encryption-key")
     source.set("CHATKIT_RATE_LIMIT_IP_LIMIT", "200")
     source.set("CHATKIT_RATE_LIMIT_PUBLISH_INTERVAL", "90")
 
@@ -484,7 +413,11 @@ def test_chatkit_rate_limit_settings_are_loaded() -> None:
 def test_app_settings_wraps_chatkit_rate_limit_mapping() -> None:
     """chatkit_rate_limits is coerced into ChatKitRateLimitSettings."""
 
-    settings = AppSettings(chatkit_rate_limits={"unexpected": "value"})
+    settings = AppSettings(
+        chatkit_rate_limits={"unexpected": "value"},
+        postgres_dsn="postgresql://example",
+        vault=VaultSettings(encryption_key="test-vault-encryption-key"),
+    )
 
     assert isinstance(settings.chatkit_rate_limits, ChatKitRateLimitSettings)
 
@@ -492,7 +425,10 @@ def test_app_settings_wraps_chatkit_rate_limit_mapping() -> None:
 def test_app_settings_recovers_invalid_chatkit_rate_limits() -> None:
     """Model validator should replace unexpected chatkit_rate_limits types."""
 
-    settings = AppSettings()
+    settings = AppSettings(
+        postgres_dsn="postgresql://example",
+        vault=VaultSettings(encryption_key="test-vault-encryption-key"),
+    )
     settings.chatkit_rate_limits = {"unexpected": "value"}
 
     # Manually invoke the model validator to simulate a defensive re-run.
@@ -505,7 +441,11 @@ def test_app_settings_rejects_unknown_tracing_exporter() -> None:
     """Tracing exporter validator must reject unsupported options."""
 
     with pytest.raises(ValueError):
-        AppSettings(tracing_exporter="zipkin")
+        AppSettings(
+            tracing_exporter="zipkin",
+            postgres_dsn="postgresql://example",
+            vault=VaultSettings(encryption_key="test-vault-encryption-key"),
+        )
 
 
 def test_app_settings_coerces_tracing_endpoint_and_ratio() -> None:
@@ -515,7 +455,12 @@ def test_app_settings_coerces_tracing_endpoint_and_ratio() -> None:
         def __str__(self) -> str:
             return "0.5"
 
-    settings = AppSettings(tracing_endpoint=12345, tracing_sample_ratio=Ratio())
+    settings = AppSettings(
+        tracing_endpoint=12345,
+        tracing_sample_ratio=Ratio(),
+        postgres_dsn="postgresql://example",
+        vault=VaultSettings(encryption_key="test-vault-encryption-key"),
+    )
 
     assert settings.tracing_endpoint == "12345"
     assert settings.tracing_sample_ratio == 0.5
@@ -525,14 +470,26 @@ def test_app_settings_enforces_sample_ratio_range() -> None:
     """Tracing sample ratio must fall within [0, 1]."""
 
     with pytest.raises(ValueError):
-        AppSettings(tracing_sample_ratio=2)
+        AppSettings(
+            tracing_sample_ratio=2,
+            postgres_dsn="postgresql://example",
+            vault=VaultSettings(encryption_key="test-vault-encryption-key"),
+        )
 
 
 def test_app_settings_coerces_tracing_insecure_strings() -> None:
     """String values for tracing_insecure should be interpreted leniently."""
 
-    settings_true = AppSettings(tracing_insecure="YES")
-    settings_false = AppSettings(tracing_insecure="off")
+    settings_true = AppSettings(
+        tracing_insecure="YES",
+        postgres_dsn="postgresql://example",
+        vault=VaultSettings(encryption_key="test-vault-encryption-key"),
+    )
+    settings_false = AppSettings(
+        tracing_insecure="off",
+        postgres_dsn="postgresql://example",
+        vault=VaultSettings(encryption_key="test-vault-encryption-key"),
+    )
 
     assert settings_true.tracing_insecure is True
     assert settings_false.tracing_insecure is False
@@ -541,8 +498,16 @@ def test_app_settings_coerces_tracing_insecure_strings() -> None:
 def test_app_settings_coerces_tracing_insecure_with_bool_cast() -> None:
     """Non-string, non-bool values should fall back to Python's truthiness."""
 
-    settings_truthy = AppSettings(tracing_insecure=5)
-    settings_falsey = AppSettings(tracing_insecure=0)
+    settings_truthy = AppSettings(
+        tracing_insecure=5,
+        postgres_dsn="postgresql://example",
+        vault=VaultSettings(encryption_key="test-vault-encryption-key"),
+    )
+    settings_falsey = AppSettings(
+        tracing_insecure=0,
+        postgres_dsn="postgresql://example",
+        vault=VaultSettings(encryption_key="test-vault-encryption-key"),
+    )
 
     assert settings_truthy.tracing_insecure is True
     assert settings_falsey.tracing_insecure is False
@@ -551,8 +516,16 @@ def test_app_settings_coerces_tracing_insecure_with_bool_cast() -> None:
 def test_app_settings_tracing_insecure_handles_unknown_strings() -> None:
     """Unexpected string values should fall back to truthy evaluation."""
 
-    settings_truthy = AppSettings(tracing_insecure="maybe")
-    settings_falsey = AppSettings(tracing_insecure="")
+    settings_truthy = AppSettings(
+        tracing_insecure="maybe",
+        postgres_dsn="postgresql://example",
+        vault=VaultSettings(encryption_key="test-vault-encryption-key"),
+    )
+    settings_falsey = AppSettings(
+        tracing_insecure="",
+        postgres_dsn="postgresql://example",
+        vault=VaultSettings(encryption_key="test-vault-encryption-key"),
+    )
 
     assert settings_truthy.tracing_insecure is True
     assert settings_falsey.tracing_insecure is False
@@ -571,6 +544,8 @@ def test_app_settings_coerces_thresholds_from_custom_objects() -> None:
     settings = AppSettings(
         tracing_high_token_threshold=Numeric("2048"),
         tracing_preview_max_length=Numeric("1024"),
+        postgres_dsn="postgresql://example",
+        vault=VaultSettings(encryption_key="test-vault-encryption-key"),
     )
 
     assert settings.tracing_high_token_threshold == 2048
@@ -580,7 +555,10 @@ def test_app_settings_coerces_thresholds_from_custom_objects() -> None:
 def test_app_settings_validator_restores_tracing_defaults() -> None:
     """Model validator should backfill tracing defaults when values unset."""
 
-    settings = AppSettings()
+    settings = AppSettings(
+        postgres_dsn="postgresql://example",
+        vault=VaultSettings(encryption_key="test-vault-encryption-key"),
+    )
     settings.tracing_exporter = ""
     settings.tracing_service_name = ""
     settings.tracing_high_token_threshold = 0

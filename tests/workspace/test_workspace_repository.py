@@ -1,14 +1,11 @@
-"""Tests for the workspace repositories (in-memory and SQLite)."""
+"""Tests for the in-memory workspace repository."""
 
 from __future__ import annotations
-from collections.abc import Iterator
-from pathlib import Path
 from uuid import uuid4
 import pytest
 from orcheo.workspace import (
     InMemoryWorkspaceRepository,
     Role,
-    SqliteWorkspaceRepository,
     Workspace,
     WorkspaceAuditEvent,
     WorkspaceMembership,
@@ -19,12 +16,9 @@ from orcheo.workspace import (
 )
 
 
-@pytest.fixture(params=["in_memory", "sqlite"])
-def repository(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[object]:
-    if request.param == "in_memory":
-        yield InMemoryWorkspaceRepository()
-    else:
-        yield SqliteWorkspaceRepository(tmp_path / "workspaces.sqlite")
+@pytest.fixture
+def repository() -> InMemoryWorkspaceRepository:
+    return InMemoryWorkspaceRepository()
 
 
 def _make_workspace(slug: str = "acme", name: str = "Acme Inc") -> Workspace:

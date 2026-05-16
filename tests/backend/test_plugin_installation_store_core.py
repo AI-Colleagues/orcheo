@@ -1,13 +1,11 @@
 """Core coverage tests for plugin installation stores."""
 
 from __future__ import annotations
-from pathlib import Path
 from typing import Any
 import pytest
 from orcheo_backend.app import plugin_installation_store as plugin_store
 from orcheo_backend.app.plugin_installation_store import (
     PostgresPluginInstallationStore,
-    SqlitePluginInstallationStore,
 )
 
 
@@ -84,59 +82,6 @@ class FakePool:
 
     def connection(self) -> FakeConnection:
         return self._connection
-
-
-@pytest.mark.asyncio
-async def test_sqlite_store_ensure_initialized_runs_schema_once(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """SQLite initialization should call the schema helper only once."""
-
-    calls: list[Path] = []
-
-    async def fake_ensure_schema(database_path: Path) -> None:
-        calls.append(database_path)
-
-    monkeypatch.setattr(plugin_store, "ensure_sqlite_schema", fake_ensure_schema)
-
-    store = SqlitePluginInstallationStore(tmp_path / "plugins.sqlite")
-    await store._ensure_initialized()
-    await store._ensure_initialized()
-
-    assert calls == [tmp_path / "plugins.sqlite"]
-    assert store._initialized is True
-
-
-@pytest.mark.asyncio
-async def test_sqlite_store_ensure_initialized_race_returns_early(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """The SQLite initializer should return early if another task wins the race."""
-
-    calls: list[Path] = []
-
-    async def fake_ensure_schema(database_path: Path) -> None:
-        calls.append(database_path)
-
-    monkeypatch.setattr(plugin_store, "ensure_sqlite_schema", fake_ensure_schema)
-
-    store = SqlitePluginInstallationStore(tmp_path / "plugins.sqlite")
-
-    class SideEffectLock:
-        async def __aenter__(self) -> None:
-            store._initialized = True
-
-        async def __aexit__(self, exc_type, exc, tb) -> None:
-            return None
-
-    store._init_lock = SideEffectLock()  # type: ignore[assignment]
-
-    await store._ensure_initialized()
-
-    assert calls == []
-    assert store._initialized is True
 
 
 @pytest.mark.asyncio

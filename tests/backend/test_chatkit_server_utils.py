@@ -348,27 +348,6 @@ async def test_hydrate_widget_items_records_metrics_on_error() -> None:
     )
 
 
-def test_resolve_chatkit_sqlite_path_uses_dynaconf_and_mappings() -> None:
-    dynaconf = Dynaconf(settings_files=[], load_dotenv=False)
-    dynaconf.set("CHATKIT_SQLITE_PATH", "~/dynaconf.sqlite")
-    dynaconf_path = server_module._resolve_chatkit_sqlite_path(dynaconf)
-    assert dynaconf_path == server_module.Path("~/dynaconf.sqlite").expanduser()
-
-    mapping_path = server_module._resolve_chatkit_sqlite_path(
-        {"CHATKIT_SQLITE_PATH": "~/map.sqlite"}
-    )
-    assert mapping_path == server_module.Path("~/map.sqlite").expanduser()
-
-    class ConfigObject:
-        chatkit_sqlite_path = "~/attr.sqlite"
-
-    object_path = server_module._resolve_chatkit_sqlite_path(ConfigObject())
-    assert object_path == server_module.Path("~/attr.sqlite").expanduser()
-
-    default_path = server_module._resolve_chatkit_sqlite_path(object())
-    assert default_path == server_module.Path("~/.orcheo/chatkit.sqlite").expanduser()
-
-
 def test_workflow_id_from_thread_reads_metadata() -> None:
     thread = ThreadMetadata(
         id="thread",

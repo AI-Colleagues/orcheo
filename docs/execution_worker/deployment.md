@@ -37,7 +37,7 @@ CELERY_LOG_LEVEL=info
 
 # Application settings (inherited from existing Orcheo config)
 # ORCHEO_AUTH_MODE=jwt
-# ORCHEO_DATABASE_URL=sqlite:///./orcheo.db
+# ORCHEO_DATABASE_URL=postgresql://orcheo:change-me@localhost:5432/orcheo
 
 # Workflow autofix remediation (enabled by default)
 ORCHEO_WORKFLOW_AUTOFIX_ENABLED=true

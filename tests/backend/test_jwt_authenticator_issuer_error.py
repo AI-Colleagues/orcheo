@@ -21,7 +21,7 @@ def _settings(**overrides: object) -> AuthSettings:
         allowed_algorithms=("HS256",),
         audiences=("test-audience",),
         issuer=None,
-        service_token_backend="sqlite",
+        service_token_backend="inmemory",
         service_token_db_path=None,
         rate_limit_ip=0,
         rate_limit_identity=0,

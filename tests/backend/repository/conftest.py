@@ -2,37 +2,34 @@
 
 from __future__ import annotations
 from collections.abc import AsyncIterator, Generator
-from pathlib import Path
 from unittest.mock import patch
 import pytest
 import pytest_asyncio
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
-    SqliteWorkflowRepository,
     WorkflowRepository,
 )
 
 
 @pytest.fixture(autouse=True)
-def mock_celery_enqueue() -> Generator[None, None, None]:
+def mock_celery_enqueue(request: pytest.FixtureRequest) -> Generator[None, None, None]:
     """Disable Celery enqueue for all repository tests to avoid Redis hangs."""
+    if request.node.get_closest_marker("no_mock_celery"):
+        yield
+        return
     with patch(
-        "orcheo_backend.app.repository_sqlite._triggers._enqueue_run_for_execution"
+        "orcheo_backend.app.repository_postgres._triggers._enqueue_run_for_execution"
     ):
         yield
 
 
-@pytest_asyncio.fixture(params=["memory", "sqlite"])
+@pytest_asyncio.fixture
 async def repository(
-    request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+    request: pytest.FixtureRequest,
 ) -> AsyncIterator[WorkflowRepository]:
-    """Yield a repository instance backed by either the in-memory or SQLite backend."""
+    """Yield an in-memory repository instance for backend tests."""
 
-    if request.param == "memory":
-        repo: WorkflowRepository = InMemoryWorkflowRepository()
-    else:
-        db_root = Path(tmp_path_factory.mktemp("repo"))
-        repo = SqliteWorkflowRepository(db_root / "workflows.sqlite")
+    repo: WorkflowRepository = InMemoryWorkflowRepository()
 
     try:
         yield repo

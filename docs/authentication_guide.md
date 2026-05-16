@@ -141,7 +141,7 @@ To prevent long-lived secrets, set `ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT` to e
 
 ### Managing Service Tokens
 
-All service token management is done through the CLI or API. Tokens are stored in a SQLite database with SHA256-hashed secrets.
+All service token management is done through the CLI or API. Tokens are stored in the configured service-token repository with SHA256-hashed secrets.
 
 #### Creating a Service Token
 
@@ -309,14 +309,15 @@ deploy:
 
 ### Service Token Configuration
 
-The service token database location is controlled by:
+The service token backend is controlled by:
 
 ```bash
-# Custom database path
-export ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH=/path/to/service_tokens.sqlite
+# Use the Postgres-backed repository
+export ORCHEO_AUTH_SERVICE_TOKEN_BACKEND=postgres
+export ORCHEO_POSTGRES_DSN=postgresql://user:pass@host:5432/orcheo
 ```
 
-If not specified, tokens are stored in `~/.orcheo/service_tokens.sqlite` (or alongside your workflow repository database).
+If not specified, tokens stay in the in-memory repository for the life of the process.
 
 ## JWT Authentication
 

@@ -12,6 +12,7 @@ from orcheo_backend.app.authentication import (
 )
 from tests.backend.authentication_test_utils import (
     _setup_service_token,
+    _install_test_authenticator,
     create_test_client,
     reset_auth_state,
 )
@@ -145,6 +146,7 @@ async def test_authenticate_request_sets_request_state(
         scopes=["workflows:read"],
         workspace_ids=["ws-1"],
     )
+    _install_test_authenticator(monkeypatch)
     reset_authentication_state()
 
     scope = {

@@ -3,6 +3,7 @@
 import pytest
 from orcheo.config.app_settings import AppSettings
 from orcheo.config.defaults import _DEFAULTS
+from orcheo.config.vault_settings import VaultSettings
 
 
 def test_coerce_widget_set_returns_defaults_for_invalid_inputs() -> None:
@@ -70,14 +71,14 @@ def test_coerce_postgres_pool_float_defaults_and_valid_values() -> None:
 def test_coerce_graph_store_backend_defaults_and_valid_values() -> None:
     """Graph store backend coercion should mirror checkpoint backend behavior."""
 
-    assert AppSettings._coerce_graph_store_backend(None) == "sqlite"
+    assert AppSettings._coerce_graph_store_backend(None) == "postgres"
     assert AppSettings._coerce_graph_store_backend("POSTGRES") == "postgres"
 
 
 def test_coerce_workspace_backend_defaults_and_validation() -> None:
     """Workspace backend coercion should accept supported values only."""
 
-    assert AppSettings._coerce_workspace_backend(None) == "inmemory"
+    assert AppSettings._coerce_workspace_backend(None) == "postgres"
     assert AppSettings._coerce_workspace_backend("POSTGRES") == "postgres"
 
     with pytest.raises(ValueError, match="ORCHEO_WORKSPACE_BACKEND"):
@@ -109,7 +110,10 @@ def test_coerce_port_and_tracing_helpers_reject_invalid_values() -> None:
 
 
 def test_apply_runtime_defaults_restores_invalid_retention_days() -> None:
-    settings = AppSettings()
+    settings = AppSettings(
+        postgres_dsn="postgresql://example",
+        vault=VaultSettings(encryption_key="test-vault-encryption-key"),
+    )
     settings.chatkit_retention_days = 0
     settings._apply_runtime_defaults()
 

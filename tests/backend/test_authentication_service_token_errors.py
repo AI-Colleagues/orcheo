@@ -97,7 +97,7 @@ async def test_authenticate_service_token_reraises_revoked_error() -> None:
         allowed_algorithms=(),
         audiences=(),
         issuer=None,
-        service_token_backend="sqlite",
+        service_token_backend="inmemory",
         service_token_db_path=None,
         rate_limit_ip=0,
         rate_limit_identity=0,

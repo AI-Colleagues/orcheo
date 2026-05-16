@@ -68,7 +68,6 @@ from orcheo.nodes.slack import SlackEventsParserNode, SlackNode
 from orcheo.nodes.storage import (
     GraphStoreAppendMessageNode,
     PostgresNode,
-    SQLiteNode,
     get_graph_store,
 )
 from orcheo.nodes.sub_workflow import SubWorkflowNode
@@ -126,7 +125,6 @@ __all__ = [
     "GraphStoreAppendMessageNode",
     "get_graph_store",
     "PostgresNode",
-    "SQLiteNode",
     "SlackNode",
     "SlackEventsParserNode",
     "EmailNode",

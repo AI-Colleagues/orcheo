@@ -306,7 +306,11 @@ async def test_create_workflow_chatkit_session_uses_active_workspace_when_ambigu
 
 @pytest.mark.asyncio()
 async def test_create_workflow_chatkit_session_requires_workspace_match() -> None:
-    workflow = Workflow(name="Canvas Workflow", tags=["workspace:ws-allowed"])
+    workflow = Workflow(
+        name="Canvas Workflow",
+        tags=["workspace:ws-allowed"],
+        draft_access=WorkflowDraftAccess.WORKSPACE,
+    )
     repo = _WorkflowRepo(workflow)
     policy = AuthorizationPolicy(
         RequestContext(

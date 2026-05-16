@@ -8,15 +8,11 @@ from orcheo.agentensor.checkpoints import AgentensorCheckpointStore
 from orcheo.models import CredentialAccessContext
 from orcheo.vault import BaseCredentialVault
 from orcheo.vault.oauth import OAuthCredentialService
-from orcheo_backend.app.agentensor.checkpoint_store import (
-    InMemoryAgentensorCheckpointStore,
-)
 from orcheo_backend.app.errors import raise_not_found
 from orcheo_backend.app.external_agent_runtime_store import ExternalAgentRuntimeStore
-from orcheo_backend.app.history import InMemoryRunHistoryStore, RunHistoryStore
+from orcheo_backend.app.history import RunHistoryStore
 from orcheo_backend.app.listener_runtime import ListenerRuntimeStore
 from orcheo_backend.app.plugin_installation_store import (
-    InMemoryPluginInstallationStore,
     PluginInstallationStore,
 )
 from orcheo_backend.app.providers import (
@@ -29,10 +25,8 @@ from orcheo_backend.app.workspace import WorkspaceContextDep, WorkspaceServiceDe
 
 
 _repository_ref: dict[str, WorkflowRepository] = {}
-_history_store_ref: dict[str, RunHistoryStore] = {"store": InMemoryRunHistoryStore()}
-_checkpoint_store_ref: dict[str, object] = {
-    "store": InMemoryAgentensorCheckpointStore()
-}
+_history_store_ref: dict[str, RunHistoryStore] = {}
+_checkpoint_store_ref: dict[str, object] = {}
 _listener_runtime_store_ref: dict[str, ListenerRuntimeStore] = {
     "store": ListenerRuntimeStore()
 }
@@ -41,9 +35,7 @@ _external_agent_runtime_store_ref: dict[str, ExternalAgentRuntimeStore | None] =
 }
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
 _vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
-_plugin_installation_store_ref: dict[str, PluginInstallationStore] = {
-    "store": InMemoryPluginInstallationStore()
-}
+_plugin_installation_store_ref: dict[str, PluginInstallationStore] = {}
 
 
 def _create_vault(settings: object) -> BaseCredentialVault:
@@ -122,7 +114,11 @@ def set_repository(repository: WorkflowRepository) -> None:
 
 def get_history_store() -> RunHistoryStore:
     """Return the execution history store singleton."""
-    return _history_store_ref["store"]
+    store = _history_store_ref.get("store")
+    if store is None:
+        msg = "History store has not been initialized."
+        raise RuntimeError(msg)
+    return store
 
 
 HistoryStoreDep = Annotated[RunHistoryStore, Depends(get_history_store)]
@@ -131,23 +127,23 @@ HistoryStoreDep = Annotated[RunHistoryStore, Depends(get_history_store)]
 def set_history_store(store: RunHistoryStore) -> None:
     """Override the history store singleton (primarily for testing)."""
     _history_store_ref["store"] = store
-    if store is None:  # pragma: no cover - defensive
-        _history_store_ref["store"] = InMemoryRunHistoryStore()
 
 
 def get_checkpoint_store() -> AgentensorCheckpointStore:
     """Return the checkpoint store singleton."""
-    return cast(AgentensorCheckpointStore, _checkpoint_store_ref["store"])
+    store = _checkpoint_store_ref.get("store")
+    if store is None:
+        msg = "Checkpoint store has not been initialized."
+        raise RuntimeError(msg)
+    return cast(AgentensorCheckpointStore, store)
 
 
 CheckpointStoreDep = Annotated[AgentensorCheckpointStore, Depends(get_checkpoint_store)]
 
 
-def set_checkpoint_store(store: AgentensorCheckpointStore | None) -> None:
+def set_checkpoint_store(store: AgentensorCheckpointStore) -> None:
     """Override the checkpoint store singleton (primarily for testing)."""
-    _checkpoint_store_ref["store"] = cast(
-        object, store if store is not None else InMemoryAgentensorCheckpointStore()
-    )
+    _checkpoint_store_ref["store"] = store
 
 
 def get_listener_runtime_store() -> ListenerRuntimeStore:
@@ -222,7 +218,11 @@ def set_vault(vault: BaseCredentialVault | None) -> None:
 
 def get_plugin_installation_store() -> PluginInstallationStore:
     """Return the plugin installation store singleton."""
-    return _plugin_installation_store_ref["store"]
+    store = _plugin_installation_store_ref.get("store")
+    if store is None:
+        msg = "Plugin installation store has not been initialized."
+        raise RuntimeError(msg)
+    return store
 
 
 PluginInstallationStoreDep = Annotated[
@@ -230,11 +230,9 @@ PluginInstallationStoreDep = Annotated[
 ]
 
 
-def set_plugin_installation_store(store: PluginInstallationStore | None) -> None:
+def set_plugin_installation_store(store: PluginInstallationStore) -> None:
     """Override the plugin installation store singleton (primarily for testing)."""
-    _plugin_installation_store_ref["store"] = (
-        store if store is not None else InMemoryPluginInstallationStore()
-    )
+    _plugin_installation_store_ref["store"] = store
 
 
 WorkflowIdQuery = Annotated[UUID | None, Query()]

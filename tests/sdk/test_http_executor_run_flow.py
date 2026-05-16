@@ -14,7 +14,13 @@ from orcheo.workspace import (
 )
 from orcheo.workspace.models import WorkspaceContext
 from orcheo_backend.app import create_app
-from orcheo_backend.app.authentication import reset_authentication_state
+from orcheo_backend.app.authentication import (
+    AuthorizationPolicy,
+    authenticate_request,
+    RequestContext,
+    get_authorization_policy,
+    reset_authentication_state,
+)
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from orcheo_backend.app.workspace.dependencies import (
     reset_workspace_state,
@@ -49,6 +55,10 @@ def test_http_executor_triggers_run_against_backend(
         user_id="sdk",
         role=Role.OWNER,
     )
+    app.dependency_overrides[get_authorization_policy] = lambda: AuthorizationPolicy(
+        RequestContext.anonymous()
+    )
+    app.dependency_overrides[authenticate_request] = lambda: RequestContext.anonymous()
     app.dependency_overrides[resolve_workspace_context] = lambda: workspace_context
 
     with TestClient(app) as api_client:

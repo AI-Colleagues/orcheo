@@ -602,22 +602,35 @@ async def test_heartbeat_loop_sends_pings(monkeypatch: pytest.MonkeyPatch) -> No
     repository = RecordingRepository()
     adapter = make_adapter(repository)
     payloads: list[dict[str, Any]] = []
+    stop_event = asyncio.Event()
+    wait_for_calls = 0
 
     async def recorder(
         self: QQGatewayAdapter, websocket: Any, payload: dict[str, Any]
     ) -> None:
         payloads.append(payload)
+        stop_event.set()
+
+    async def fake_wait_for(
+        awaitable: Any, timeout: float
+    ) -> None:  # pragma: no cover - exercised via heartbeat loop
+        nonlocal wait_for_calls
+        wait_for_calls += 1
+        if wait_for_calls == 1:
+            close = getattr(awaitable, "close", None)
+            if callable(close):
+                close()
+            raise TimeoutError
+        await awaitable
 
     adapter._sequence = 123
     monkeypatch.setattr(QQGatewayAdapter, "_send_gateway_payload", recorder)
-    stop_event = asyncio.Event()
+    monkeypatch.setattr(qq_module.asyncio, "wait_for", fake_wait_for)
     task = asyncio.create_task(
         adapter._heartbeat_loop(
             websocket=None, stop_event=stop_event, interval_seconds=0.001
         )
     )
-    await asyncio.sleep(0.01)
-    stop_event.set()
     await task
     assert any(payload.get("op") == 1 for payload in payloads)
 

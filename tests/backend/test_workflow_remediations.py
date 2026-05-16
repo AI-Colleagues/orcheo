@@ -14,10 +14,63 @@ from orcheo.models.workflow import (
     WorkflowRunRemediationClassification,
     WorkflowRunRemediationStatus,
 )
-from orcheo_backend.app.history import InMemoryRunHistoryStore
+from orcheo_backend.app.history import RunHistoryNotFoundError, RunHistoryRecord
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
+
+
+class _FakeHistoryStore:
+    """Minimal dict-backed history store for remediation tests."""
+
+    def __init__(self) -> None:
+        self._records: dict[str, RunHistoryRecord] = {}
+
+    async def start_run(
+        self, *, workflow_id: str, execution_id: str, inputs=None, **kwargs
+    ) -> RunHistoryRecord:
+        record = RunHistoryRecord(
+            workflow_id=workflow_id,
+            execution_id=execution_id,
+            inputs=dict(inputs) if inputs else {},
+        )
+        self._records[execution_id] = record
+        return record.model_copy(deep=True)
+
+    async def append_step(self, execution_id: str, payload) -> object:
+        return self._records[execution_id].append_step(dict(payload))
+
+    async def mark_completed(self, execution_id: str) -> RunHistoryRecord:
+        self._records[execution_id].mark_completed()
+        return self._records[execution_id].model_copy(deep=True)
+
+    async def mark_failed(self, execution_id: str, error: str) -> RunHistoryRecord:
+        self._records[execution_id].mark_failed(error)
+        return self._records[execution_id].model_copy(deep=True)
+
+    async def mark_cancelled(
+        self, execution_id: str, *, reason=None
+    ) -> RunHistoryRecord:
+        self._records[execution_id].mark_cancelled(reason=reason)
+        return self._records[execution_id].model_copy(deep=True)
+
+    async def get_history(self, execution_id: str) -> RunHistoryRecord:
+        record = self._records.get(execution_id)
+        if record is None:
+            raise RunHistoryNotFoundError(f"History not found: {execution_id}")
+        return record.model_copy(deep=True)
+
+    async def list_histories(self, workflow_id: str, *, limit=None, workspace_id=None):
+        records = [
+            r.model_copy(deep=True)
+            for r in self._records.values()
+            if r.workflow_id == workflow_id
+        ]
+        return records[:limit] if limit else records
+
+    async def clear(self) -> None:
+        self._records.clear()
+
+
 from orcheo_backend.app.repository.errors import WorkflowRunRemediationNotFoundError
-from orcheo_backend.app.repository_sqlite import SqliteWorkflowRepository
 from orcheo_backend.app.workflow_remediation import (
     WorkflowAutofixSettings,
     attempt_workflow_remediation_async,
@@ -191,238 +244,6 @@ async def test_in_memory_remediation_repository_claim_next_respects_max_attempts
     )
 
 
-@pytest.mark.asyncio
-async def test_sqlite_remediation_repository_lifecycle(tmp_path: Path) -> None:
-    repository = SqliteWorkflowRepository(tmp_path / "workflows.sqlite")
-    workflow_id, version_id, run_id = await _seed_repository(repository)
-
-    candidate = await repository.create_remediation_candidate(
-        workflow_id=workflow_id,
-        workflow_version_id=version_id,
-        run_id=run_id,
-        fingerprint="sqlite-fp",
-        version_checksum="checksum",
-        graph_format="langgraph_script",
-        context={"workflow_source": SCRIPT},
-    )
-    claimed = await repository.claim_next_remediation_candidate(actor="worker")
-    assert claimed is not None
-    assert claimed.id == candidate.id
-
-    dismissed = await repository.dismiss_remediation_candidate(
-        candidate.id,
-        actor="tester",
-        reason="handled manually",
-    )
-    assert dismissed.status is WorkflowRunRemediationStatus.DISMISSED
-    assert await repository.claim_next_remediation_candidate(actor="worker") is None
-
-
-@pytest.mark.asyncio
-async def test_sqlite_remediation_repository_filters_and_lookup(
-    tmp_path: Path,
-) -> None:
-    repository = SqliteWorkflowRepository(tmp_path / "workflows.sqlite")
-    workflow_id, version_id, run_id = await _seed_repository(repository)
-    candidate = await repository.create_remediation_candidate(
-        workflow_id=workflow_id,
-        workflow_version_id=version_id,
-        run_id=run_id,
-        fingerprint="sqlite-filter-fp",
-        version_checksum="checksum",
-        graph_format="langgraph_script",
-        context={"workflow_source": SCRIPT},
-    )
-
-    listed = await repository.list_remediation_candidates(
-        workflow_id=workflow_id,
-        workflow_version_id=version_id,
-        run_id=run_id,
-        status=WorkflowRunRemediationStatus.PENDING,
-        limit=1,
-    )
-    assert [item.id for item in listed] == [candidate.id]
-
-    all_candidates = await repository.list_remediation_candidates()
-    assert [item.id for item in all_candidates] == [candidate.id]
-
-    fetched = await repository.get_remediation_candidate(candidate.id)
-    assert fetched.id == candidate.id
-
-    with pytest.raises(WorkflowRunRemediationNotFoundError):
-        await repository.get_remediation_candidate(UUID(int=3))
-
-
-@pytest.mark.asyncio
-async def test_sqlite_remediation_repository_duplicate_and_empty_claims(
-    tmp_path: Path,
-) -> None:
-    repository = SqliteWorkflowRepository(tmp_path / "workflows.sqlite")
-    workflow_id, version_id, run_id = await _seed_repository(repository)
-    first = await repository.create_remediation_candidate(
-        workflow_id=workflow_id,
-        workflow_version_id=version_id,
-        run_id=run_id,
-        fingerprint="sqlite-duplicate-fp",
-        version_checksum="checksum",
-        graph_format="langgraph_script",
-        context={"workflow_source": SCRIPT},
-    )
-    duplicate = await repository.create_remediation_candidate(
-        workflow_id=workflow_id,
-        workflow_version_id=version_id,
-        run_id=run_id,
-        fingerprint="sqlite-duplicate-fp",
-        version_checksum="checksum",
-        graph_format="langgraph_script",
-        context={"workflow_source": SCRIPT},
-    )
-
-    assert duplicate.id == first.id
-    assert (
-        await repository.claim_next_remediation_candidate(
-            actor="worker", max_attempts=0
-        )
-        is None
-    )
-    claimed = await repository.claim_next_remediation_candidate(actor="worker")
-    assert claimed is not None
-    assert claimed.status is WorkflowRunRemediationStatus.CLAIMED
-
-
-@pytest.mark.asyncio
-async def test_sqlite_remediation_repository_mark_fixed_and_failed(
-    tmp_path: Path,
-) -> None:
-    repository = SqliteWorkflowRepository(tmp_path / "workflows.sqlite")
-    workflow_id, version_id, run_id = await _seed_repository(repository)
-    fixed_candidate = await repository.create_remediation_candidate(
-        workflow_id=workflow_id,
-        workflow_version_id=version_id,
-        run_id=run_id,
-        fingerprint="sqlite-fixed-fp",
-        version_checksum="checksum",
-        graph_format="langgraph_script",
-        context={"workflow_source": SCRIPT},
-    )
-    await repository.claim_next_remediation_candidate(actor="worker")
-    fixed = await repository.mark_remediation_fixed(
-        fixed_candidate.id,
-        created_version_id=version_id,
-        classification=WorkflowRunRemediationClassification.WORKFLOW_FIXABLE,
-        developer_note="fixed",
-        artifacts={"path": "workflow.py"},
-        validation_result={"ok": True},
-    )
-    assert fixed.status is WorkflowRunRemediationStatus.FIXED
-
-    failed_candidate = await repository.create_remediation_candidate(
-        workflow_id=workflow_id,
-        workflow_version_id=version_id,
-        run_id=run_id,
-        fingerprint="sqlite-failed-fp",
-        version_checksum="checksum",
-        graph_format="langgraph_script",
-        context={"workflow_source": SCRIPT},
-    )
-    await repository.claim_next_remediation_candidate(actor="worker")
-    failed = await repository.mark_remediation_failed(
-        failed_candidate.id,
-        error="boom",
-        artifacts={"trace": "payload"},
-        validation_result={"ok": False},
-    )
-    assert failed.status is WorkflowRunRemediationStatus.FAILED
-
-
-@pytest.mark.asyncio
-async def test_sqlite_remediation_repository_mark_note_only(
-    tmp_path: Path,
-) -> None:
-    repository = SqliteWorkflowRepository(tmp_path / "workflows.sqlite")
-    workflow_id, version_id, run_id = await _seed_repository(repository)
-    candidate = await repository.create_remediation_candidate(
-        workflow_id=workflow_id,
-        workflow_version_id=version_id,
-        run_id=run_id,
-        fingerprint="sqlite-note-fp",
-        version_checksum="checksum",
-        graph_format="langgraph_script",
-        context={"workflow_source": SCRIPT},
-    )
-    await repository.claim_next_remediation_candidate(actor="worker")
-    note_only = await repository.mark_remediation_note_only(
-        candidate.id,
-        classification=WorkflowRunRemediationClassification.RUNTIME_OR_PLATFORM,
-        developer_note="review later",
-        artifacts={"summary": "note"},
-    )
-
-    assert note_only.status is WorkflowRunRemediationStatus.NOTE_ONLY
-
-
-@pytest.mark.asyncio
-async def test_sqlite_claim_next_remediation_candidate_handles_failed_update(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repository = SqliteWorkflowRepository(tmp_path / "workflows.sqlite")
-    workflow_id, version_id, run_id = await _seed_repository(repository)
-    candidate = await repository.create_remediation_candidate(
-        workflow_id=workflow_id,
-        workflow_version_id=version_id,
-        run_id=run_id,
-        fingerprint="sqlite-race-fp",
-        version_checksum="checksum",
-        graph_format="langgraph_script",
-        context={"workflow_source": SCRIPT},
-    )
-
-    class FakeCursor:
-        def __init__(
-            self, *, row: dict[str, Any] | None = None, rowcount: int = 1
-        ) -> None:
-            self._row = row
-            self.rowcount = rowcount
-
-        async def fetchone(self) -> dict[str, Any] | None:
-            return self._row
-
-        async def fetchall(self) -> list[Any]:
-            return []
-
-    class FakeConnection:
-        def __init__(self) -> None:
-            self.calls: list[tuple[str, Any | None]] = []
-
-        async def execute(self, query: str, params: Any | None = None) -> FakeCursor:
-            self.calls.append((query.strip(), params))
-            if len(self.calls) == 1:
-                return FakeCursor(
-                    row={"payload": json.dumps(candidate.model_dump(mode="json"))}
-                )
-            return FakeCursor(rowcount=0)
-
-        async def __aenter__(self) -> FakeConnection:
-            return self
-
-        async def __aexit__(self, *_: Any) -> None:
-            return None
-
-    connection = FakeConnection()
-
-    @asynccontextmanager
-    async def fake_connection() -> Any:
-        yield connection
-
-    monkeypatch.setattr(repository, "_connection", fake_connection)
-
-    claimed = await repository.claim_next_remediation_candidate(actor="worker")
-
-    assert claimed is None
-    assert connection.calls[0][1] == (WorkflowRunRemediationStatus.PENDING.value,)
-
-
 def test_redaction_preserves_vault_placeholders_and_masks_tokens() -> None:
     payload = {
         "api_key": "sk-thisisaverysecretapikeyvalue",
@@ -461,7 +282,7 @@ def test_error_fingerprint_normalizes_literals() -> None:
 @pytest.mark.asyncio
 async def test_failed_run_creates_redacted_candidate() -> None:
     repository = InMemoryWorkflowRepository()
-    history_store = InMemoryRunHistoryStore()
+    history_store = _FakeHistoryStore()
     workflow_id, _, run_id = await _seed_repository(repository)
     run = await repository.mark_run_started(run_id, actor="tester")
     await history_store.start_run(

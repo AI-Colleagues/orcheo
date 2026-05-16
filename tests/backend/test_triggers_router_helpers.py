@@ -226,6 +226,18 @@ class _DummyMergedConfig:
         return {"execution_id": execution_id}
 
 
+class _DummyRepository:
+    def __init__(
+        self, workspace_id: str = "00000000-0000-0000-0000-000000000000"
+    ) -> None:
+        self.workspace_id = workspace_id
+        self.seen_workflow_id: object | None = None
+
+    async def get_workflow_workspace_id(self, workflow_id: object) -> str:
+        self.seen_workflow_id = workflow_id
+        return self.workspace_id
+
+
 @pytest.mark.asyncio()
 async def test_try_immediate_response_returns_json_response(
     monkeypatch: pytest.MonkeyPatch,
@@ -246,6 +258,7 @@ async def test_try_immediate_response_returns_json_response(
     }
     compiled = _DummyCompiled(final_state)
     graph = _DummyGraph(compiled)
+    monkeypatch.setattr(triggers, "get_repository", lambda: _DummyRepository())
     monkeypatch.setattr(triggers, "build_graph", lambda graph_config: graph)
     monkeypatch.setattr(
         triggers, "create_checkpointer", lambda settings: _DummyCheckpointer()
@@ -297,6 +310,7 @@ async def test_try_immediate_response_returns_json_string_response(
         }
     }
     compiled = _DummyCompiled(final_state)
+    monkeypatch.setattr(triggers, "get_repository", lambda: _DummyRepository())
     monkeypatch.setattr(triggers, "build_graph", lambda graph: _DummyGraph(compiled))
     monkeypatch.setattr(
         triggers, "create_checkpointer", lambda settings: _DummyCheckpointer()
@@ -341,6 +355,7 @@ async def test_try_immediate_response_returns_plain_text(
         }
     }
     compiled = _DummyCompiled(final_state)
+    monkeypatch.setattr(triggers, "get_repository", lambda: _DummyRepository())
     monkeypatch.setattr(triggers, "build_graph", lambda graph: _DummyGraph(compiled))
     monkeypatch.setattr(
         triggers, "create_checkpointer", lambda settings: _DummyCheckpointer()
@@ -377,6 +392,7 @@ async def test_try_immediate_response_returns_none_when_no_immediate_response(
 
     final_state = {"results": {"node": {"status": "ok"}}}
     compiled = _DummyCompiled(final_state)
+    monkeypatch.setattr(triggers, "get_repository", lambda: _DummyRepository())
     monkeypatch.setattr(triggers, "build_graph", lambda graph: _DummyGraph(compiled))
     monkeypatch.setattr(
         triggers, "create_checkpointer", lambda settings: _DummyCheckpointer()
@@ -413,6 +429,7 @@ async def test_try_immediate_response_returns_none_on_error(
     def _raise_error(*_args: object, **_kwargs: object) -> object:
         raise RuntimeError("boom")
 
+    monkeypatch.setattr(triggers, "get_repository", lambda: _DummyRepository())
     monkeypatch.setattr(triggers, "build_graph", _raise_error)
     monkeypatch.setattr(triggers, "get_settings", lambda: object())
 

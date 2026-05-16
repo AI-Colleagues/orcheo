@@ -1,65 +1,12 @@
 from __future__ import annotations
-import hashlib
-import json
-import sqlite3
-import tempfile
-from datetime import UTC, datetime
-from pathlib import Path
 import jwt
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
-from orcheo_backend.app.authentication import (
-    ServiceTokenRecord,
-    reset_authentication_state,
-)
+from orcheo_backend.app.authentication import reset_authentication_state
 from orcheo_backend.app.chatkit_tokens import reset_chatkit_token_state
-from orcheo_backend.app.service_token_repository import SqliteServiceTokenRepository
 from .shared import create_workflow_with_version
-
-
-def _setup_service_token(
-    monkeypatch: pytest.MonkeyPatch,
-    token_secret: str,
-    *,
-    identifier: str | None = None,
-    scopes: list[str] | None = None,
-) -> None:
-    """Set up a service token for testing."""
-
-    temp_dir = tempfile.mkdtemp()
-    db_path = str(Path(temp_dir) / "test_tokens.sqlite")
-    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH", db_path)
-
-    _ = SqliteServiceTokenRepository(db_path)
-    token_hash = hashlib.sha256(token_secret.encode("utf-8")).hexdigest()
-    record = ServiceTokenRecord(
-        identifier=identifier or "test-token",
-        secret_hash=token_hash,
-        scopes=frozenset(scopes or []),
-        workspace_ids=frozenset(),
-        issued_at=datetime.now(tz=UTC),
-    )
-
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        """
-        INSERT INTO service_tokens (
-            identifier, secret_hash, scopes, workspace_ids,
-            created_at, issued_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (
-            record.identifier,
-            record.secret_hash,
-            json.dumps(sorted(record.scopes)) if record.scopes else None,
-            json.dumps(sorted(record.workspace_ids)) if record.workspace_ids else None,
-            datetime.now(tz=UTC).isoformat(),
-            record.issued_at.isoformat() if record.issued_at else None,
-        ),
-    )
-    conn.commit()
-    conn.close()
+from tests.backend.authentication_test_utils import _setup_service_token
 
 
 def test_chatkit_session_returns_configured_secret(

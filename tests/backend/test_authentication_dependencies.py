@@ -258,10 +258,47 @@ def test_get_authenticator_postgres_backend_without_dsn(
     monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_BACKEND", "postgres")
     monkeypatch.delenv("ORCHEO_POSTGRES_DSN", raising=False)
 
-    from orcheo_backend.app.authentication.dependencies import get_authenticator
+    from unittest.mock import Mock, patch
+    from orcheo_backend.app.authentication.settings import AuthSettings
+    from orcheo_backend.app import (
+        service_token_repository as service_token_repository_module,
+    )
 
-    with pytest.raises(ValueError, match="ORCHEO_POSTGRES_DSN must be set"):
-        get_authenticator(refresh=True)
+    auth_settings = AuthSettings(
+        mode="optional",
+        jwt_secret=None,
+        jwks_url=None,
+        jwks_static=(),
+        jwks_cache_ttl=300,
+        jwks_timeout=5.0,
+        allowed_algorithms=("RS256", "HS256"),
+        audiences=(),
+        issuer=None,
+        rate_limit_ip=1,
+        rate_limit_identity=1,
+        rate_limit_interval=60,
+        service_token_backend="postgres",
+        service_token_db_path=None,
+    )
+
+    with (
+        patch(
+            "orcheo_backend.app.authentication.dependencies.load_auth_settings",
+            return_value=auth_settings,
+        ),
+        patch(
+            "orcheo_backend.app.authentication.dependencies.get_settings",
+            return_value=Mock(get=Mock(return_value=None)),
+        ),
+        patch.object(
+            service_token_repository_module,
+            "PostgresServiceTokenRepository",
+        ),
+    ):
+        from orcheo_backend.app.authentication.dependencies import get_authenticator
+
+        with pytest.raises(ValueError, match="ORCHEO_POSTGRES_DSN must be set"):
+            get_authenticator(refresh=True)
 
 
 def test_get_authenticator_postgres_backend_with_dsn(
@@ -273,6 +310,30 @@ def test_get_authenticator_postgres_backend_with_dsn(
     monkeypatch.setenv("ORCHEO_POSTGRES_DSN", test_dsn)
 
     from unittest.mock import Mock, patch
+    from orcheo_backend.app.authentication.settings import AuthSettings
+    from orcheo_backend.app import (
+        service_token_repository as service_token_repository_module,
+    )
+    from orcheo_backend.app.service_token_repository import (
+        postgres_repository as postgres_repository_module,
+    )
+
+    auth_settings = AuthSettings(
+        mode="optional",
+        jwt_secret=None,
+        jwks_url=None,
+        jwks_static=(),
+        jwks_cache_ttl=300,
+        jwks_timeout=5.0,
+        allowed_algorithms=("RS256", "HS256"),
+        audiences=(),
+        issuer=None,
+        rate_limit_ip=1,
+        rate_limit_identity=1,
+        rate_limit_interval=60,
+        service_token_backend="postgres",
+        service_token_db_path=None,
+    )
 
     mock_repo = Mock()
     mock_settings = Mock()
@@ -280,9 +341,19 @@ def test_get_authenticator_postgres_backend_with_dsn(
 
     with (
         patch(
-            "orcheo_backend.app.service_token_repository.PostgresServiceTokenRepository",
+            "orcheo_backend.app.authentication.dependencies.load_auth_settings",
+            return_value=auth_settings,
+        ),
+        patch.object(
+            service_token_repository_module,
+            "PostgresServiceTokenRepository",
             return_value=mock_repo,
         ) as mock_postgres_repo,
+        patch.object(
+            postgres_repository_module,
+            "PostgresServiceTokenRepository",
+            return_value=mock_repo,
+        ),
         patch(
             "orcheo_backend.app.authentication.dependencies.get_settings",
             return_value=mock_settings,

@@ -1,19 +1,11 @@
 """Default values shared across configuration models."""
 
-from pathlib import Path
-
-
 _DEFAULTS: dict[str, object] = {
-    "CHECKPOINT_BACKEND": "sqlite",
-    "SQLITE_PATH": "~/.orcheo/checkpoints.sqlite",
-    "GRAPH_STORE_BACKEND": "sqlite",
-    "GRAPH_STORE_SQLITE_PATH": str(Path.home() / ".orcheo" / "graph_store.sqlite"),
-    "REPOSITORY_BACKEND": "sqlite",
-    "REPOSITORY_SQLITE_PATH": "~/.orcheo/workflows.sqlite",
-    "WORKSPACE_BACKEND": "inmemory",
-    "WORKSPACE_SQLITE_PATH": "~/.orcheo/workspaces.sqlite",
-    "CHATKIT_BACKEND": "sqlite",
-    "CHATKIT_SQLITE_PATH": "~/.orcheo/chatkit.sqlite",
+    "CHECKPOINT_BACKEND": "postgres",
+    "GRAPH_STORE_BACKEND": "postgres",
+    "REPOSITORY_BACKEND": "postgres",
+    "WORKSPACE_BACKEND": "postgres",
+    "CHATKIT_BACKEND": "postgres",
     "CHATKIT_STORAGE_PATH": "~/.orcheo/chatkit",
     "CHATKIT_PUBLIC_BASE_URL": None,
     "CHATKIT_MAX_UPLOAD_SIZE_BYTES": 5_000_000,
@@ -25,9 +17,8 @@ _DEFAULTS: dict[str, object] = {
     "POSTGRES_POOL_MAX_IDLE": 300.0,
     "HOST": "0.0.0.0",
     "PORT": 8000,
-    "VAULT_BACKEND": "file",
+    "VAULT_BACKEND": "postgres",
     "VAULT_ENCRYPTION_KEY": None,
-    "VAULT_LOCAL_PATH": "~/.orcheo/vault.sqlite",
     "VAULT_AWS_REGION": None,
     "VAULT_AWS_KMS_KEY_ID": None,
     "VAULT_TOKEN_TTL_SECONDS": 3600,

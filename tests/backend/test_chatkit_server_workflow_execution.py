@@ -1,11 +1,13 @@
 """Tests for ChatKit server workflow execution pathways."""
 
 from __future__ import annotations
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from chatkit.errors import CustomStreamError
 from chatkit.types import ThreadMetadata
+from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel
 from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo_backend.app.chatkit import OrcheoChatKitServer
@@ -14,6 +16,32 @@ from tests.backend.chatkit_test_utils import (
     create_chatkit_test_server,
     create_workflow_with_graph,
 )
+
+
+class _DummyAsyncContext:
+    def __init__(self, value: object) -> None:
+        self._value = value
+
+    async def __aenter__(self) -> object:
+        return self._value
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+
+@contextmanager
+def _patched_workflow_executor_persistence() -> None:
+    with (
+        patch(
+            "orcheo_backend.app.chatkit.workflow_executor.create_checkpointer",
+            lambda settings: _DummyAsyncContext(InMemorySaver()),
+        ),
+        patch(
+            "orcheo_backend.app.chatkit.workflow_executor.create_graph_store",
+            lambda settings: _DummyAsyncContext(object()),
+        ),
+    ):
+        yield
 
 
 @pytest.mark.asyncio
@@ -57,7 +85,9 @@ def build_graph():
     )
 
     server = create_chatkit_test_server(repository)
-    reply, state, run = await server._run_workflow(workflow.id, {"message": "Test"})
+
+    with _patched_workflow_executor_persistence():
+        reply, state, run = await server._run_workflow(workflow.id, {"message": "Test"})
 
     assert reply == "Echo: Test"
     assert isinstance(state, dict)
@@ -105,8 +135,9 @@ def build_graph():
 
     server = create_chatkit_test_server(repository)
 
-    with pytest.raises(CustomStreamError, match="without producing a reply"):
-        await server._run_workflow(workflow.id, {})
+    with _patched_workflow_executor_persistence():
+        with pytest.raises(CustomStreamError, match="without producing a reply"):
+            await server._run_workflow(workflow.id, {})
 
 
 @pytest.mark.asyncio
@@ -129,7 +160,10 @@ async def test_chatkit_server_run_workflow_with_basemodel_state() -> None:
         mock_graph.compile.return_value = mock_compiled
         mock_build.return_value = mock_graph
 
-        reply, state, run = await server._run_workflow(workflow.id, {"message": "Test"})
+        with _patched_workflow_executor_persistence():
+            reply, state, run = await server._run_workflow(
+                workflow.id, {"message": "Test"}
+            )
 
     assert reply == "Test reply"
     assert isinstance(state, dict)
@@ -159,7 +193,8 @@ async def test_chatkit_server_run_workflow_with_repository_create_run_failure() 
     original_create_run = server._repository.create_run
     server._repository.create_run = AsyncMock(side_effect=Exception("DB error"))
 
-    reply, state, run = await server._run_workflow(workflow.id, {"message": "Test"})
+    with _patched_workflow_executor_persistence():
+        reply, state, run = await server._run_workflow(workflow.id, {"message": "Test"})
 
     assert reply == "Echo: Test"
     assert isinstance(state, dict)

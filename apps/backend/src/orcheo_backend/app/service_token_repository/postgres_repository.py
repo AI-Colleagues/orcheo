@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 from orcheo_backend.app.authentication import ServiceTokenRecord
 from orcheo_backend.app.service_token_repository.protocol import ServiceTokenRepository
-from orcheo_backend.app.service_token_repository.sqlite_serialization import (
+from orcheo_backend.app.service_token_repository.serialization import (
     serialize_datetime,
     serialize_string_set,
 )

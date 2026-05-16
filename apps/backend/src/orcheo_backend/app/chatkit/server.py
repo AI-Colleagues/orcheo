@@ -8,7 +8,6 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any, NamedTuple
 from uuid import UUID
 
@@ -64,7 +63,6 @@ from orcheo_backend.app.chatkit.messages import (
 from orcheo_backend.app.chatkit.workflow_executor import WorkflowExecutor
 from orcheo_backend.app.chatkit.telemetry import chatkit_telemetry
 from orcheo_backend.app.chatkit_store_postgres import PostgresChatKitStore
-from orcheo_backend.app.chatkit_store_sqlite import SqliteChatKitStore
 from orcheo_backend.app.repository import (
     Workflow,
     WorkflowNotFoundError,
@@ -794,26 +792,6 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         yield ThreadItemDoneEvent(item=assistant_item)
 
 
-def _resolve_chatkit_sqlite_path(settings: Any) -> Path:
-    """Return the configured ChatKit SQLite path with a consistent strategy."""
-    default_path = Path("~/.orcheo/chatkit.sqlite")
-    candidate: Any | None = None
-
-    if isinstance(settings, Dynaconf):
-        candidate = settings.get("CHATKIT_SQLITE_PATH")
-    elif isinstance(settings, Mapping):
-        candidate = settings.get("CHATKIT_SQLITE_PATH")
-    else:
-        candidate = getattr(settings, "chatkit_sqlite_path", None)
-        if candidate is None:
-            candidate = getattr(settings, "CHATKIT_SQLITE_PATH", None)
-
-    if not candidate:
-        return default_path.expanduser()
-
-    return Path(str(candidate)).expanduser()
-
-
 def _resolve_chatkit_backend(settings: Any) -> str:
     """Return the configured ChatKit persistence backend."""
     candidate: Any | None = None
@@ -827,9 +805,9 @@ def _resolve_chatkit_backend(settings: Any) -> str:
         if candidate is None:
             candidate = getattr(settings, "CHATKIT_BACKEND", None)
 
-    backend = str(candidate or "sqlite").lower()
-    if backend not in {"sqlite", "postgres"}:
-        msg = "CHATKIT_BACKEND must be either 'sqlite' or 'postgres'."
+    backend = str(candidate or "postgres").lower()
+    if backend != "postgres":
+        msg = "CHATKIT_BACKEND must be 'postgres'."
         raise ValueError(msg)
     return backend
 
@@ -889,21 +867,20 @@ def create_chatkit_server(
     _refresh_widget_policy(settings)
     if store is None:
         backend = _resolve_chatkit_backend(settings)
-        if backend == "postgres":
-            dsn = _resolve_chatkit_postgres_dsn(settings)
-            pool_min_size, pool_max_size, pool_timeout, pool_max_idle = (
-                _resolve_chatkit_pool_settings(settings)
-            )
-            store = PostgresChatKitStore(
-                dsn,
-                pool_min_size=int(pool_min_size),
-                pool_max_size=int(pool_max_size),
-                pool_timeout=float(pool_timeout),
-                pool_max_idle=float(pool_max_idle),
-            )
-        else:
-            sqlite_path = _resolve_chatkit_sqlite_path(settings)
-            store = SqliteChatKitStore(sqlite_path)
+        if backend != "postgres":
+            msg = "ChatKit backend must be 'postgres'."
+            raise ValueError(msg)
+        dsn = _resolve_chatkit_postgres_dsn(settings)
+        pool_min_size, pool_max_size, pool_timeout, pool_max_idle = (
+            _resolve_chatkit_pool_settings(settings)
+        )
+        store = PostgresChatKitStore(
+            dsn,
+            pool_min_size=int(pool_min_size),
+            pool_max_size=int(pool_max_size),
+            pool_timeout=float(pool_timeout),
+            pool_max_idle=float(pool_max_idle),
+        )
     return OrcheoChatKitServer(
         store=store,
         repository=repository,

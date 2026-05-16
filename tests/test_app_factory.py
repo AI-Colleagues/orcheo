@@ -20,6 +20,7 @@ from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 
 backend_module = importlib.import_module("orcheo_backend.app")
+dependencies_module = importlib.import_module("orcheo_backend.app.dependencies")
 factory_module = importlib.import_module("orcheo_backend.app.factory")
 
 
@@ -87,7 +88,7 @@ def test_create_app_rejects_public_deployment_without_auth(
     monkeypatch.setenv("ORCHEO_AUTH_JWKS_STATIC", "")
     monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH", "")
     monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", "")
-    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_BACKEND", "sqlite")
+    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_BACKEND", "postgres")
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "optional")
 
     with pytest.raises(
@@ -227,17 +228,30 @@ def test_create_app_lifespan_ignores_chatkit_startup_failures(
     assert "stop" in events
 
 
-def test_create_repository_inmemory_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The application factory instantiates the in-memory repository."""
+def test_create_repository_postgres_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The application factory delegates repository creation to postgres wiring."""
 
     class DummySettings:
-        repository_backend = "inmemory"
-        repository_sqlite_path = "ignored.sqlite"
+        repository_backend = "postgres"
 
     monkeypatch.setattr(backend_module, "get_settings", lambda: DummySettings())
+    sentinel_service = object()
+    sentinel_repository = object()
+    monkeypatch.setattr(
+        dependencies_module,
+        "_ensure_credential_service",
+        lambda settings=None: sentinel_service,  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        dependencies_module,
+        "create_repository",
+        lambda *args, **kwargs: sentinel_repository,  # noqa: ARG005
+    )
 
     repository = _create_repository()
-    assert isinstance(repository, InMemoryWorkflowRepository)
+    assert repository is sentinel_repository
 
 
 def test_create_repository_invalid_backend(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -245,11 +259,10 @@ def test_create_repository_invalid_backend(monkeypatch: pytest.MonkeyPatch) -> N
 
     class DummySettings:
         repository_backend = "invalid_backend"
-        repository_sqlite_path = "ignored.sqlite"
 
     monkeypatch.setattr(backend_module, "get_settings", lambda: DummySettings())
 
-    with pytest.raises(ValueError, match="Unsupported repository backend"):
+    with pytest.raises(ValueError, match="Repository backend must be 'postgres'"):
         _create_repository()
 
 

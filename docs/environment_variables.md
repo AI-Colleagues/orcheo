@@ -8,17 +8,12 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
-| `ORCHEO_CHECKPOINT_BACKEND` | `sqlite` | `sqlite` or `postgres` | Selects the checkpoint persistence backend consumed by `config/loader.py`. |
-| `ORCHEO_SQLITE_PATH` | `~/.orcheo/checkpoints.sqlite` | Filesystem path (absolute or `~`-expanded) | Location of the SQLite checkpoints database when `sqlite` backend is active (see `config/defaults.py`). |
-| `ORCHEO_GRAPH_STORE_BACKEND` | `sqlite` | `sqlite` or `postgres` | Selects the LangGraph store backend used for graph memory/state storage (`config/loader.py`, `persistence.py`). |
-| `ORCHEO_GRAPH_STORE_SQLITE_PATH` | `~/.orcheo/graph_store.sqlite` | Absolute filesystem path (must not begin with `~`) | SQLite file path used when `ORCHEO_GRAPH_STORE_BACKEND=sqlite` (`config/app_settings.py`). |
-| `ORCHEO_POSTGRES_DSN` | _none_ | PostgreSQL DSN (e.g. `postgresql://user:pass@host:port/db`) | Connection string required when any backend is set to `postgres` (checkpoint, graph store, repository, chatkit, or vault; see `config/loader.py`). |
-| `ORCHEO_REPOSITORY_BACKEND` | `sqlite` | `sqlite`, `postgres`, or `inmemory` | Chooses the workflow repository implementation (`config/loader.py`). |
-| `ORCHEO_REPOSITORY_SQLITE_PATH` | `~/.orcheo/workflows.sqlite` | Filesystem path | Location of the workflow repository SQLite file (`config/loader.py`). |
-| `ORCHEO_WORKSPACE_BACKEND` | `inmemory` | `inmemory`, `sqlite`, or `postgres` | Chooses the workspace repository implementation used for workspaces and memberships (`config/loader.py`, `app/workspace/dependencies.py`). |
-| `ORCHEO_WORKSPACE_SQLITE_PATH` | `~/.orcheo/workspaces.sqlite` | Filesystem path | Location of the persistent workspace repository SQLite file when `ORCHEO_WORKSPACE_BACKEND=sqlite` (`config/loader.py`). |
-| `ORCHEO_CHATKIT_BACKEND` | `sqlite` | `sqlite` or `postgres` | Selects the ChatKit persistence backend used by `chatkit/server.py`. |
-| `ORCHEO_CHATKIT_SQLITE_PATH` | `~/.orcheo/chatkit.sqlite` | Filesystem path | Storage for ChatKit conversation history when using SQLite persistence (`config/loader.py` and `chatkit/server.py`). |
+| `ORCHEO_CHECKPOINT_BACKEND` | `postgres` | `postgres` | Selects the checkpoint persistence backend consumed by `config/loader.py`. |
+| `ORCHEO_GRAPH_STORE_BACKEND` | `postgres` | `postgres` | Selects the LangGraph store backend used for graph memory/state storage (`config/loader.py`, `persistence.py`). |
+| `ORCHEO_POSTGRES_DSN` | _none_ | PostgreSQL DSN (e.g. `postgresql://user:pass@host:port/db`) | Connection string required when any backend is set to `postgres` (checkpoint, graph store, repository, workspace, auth service tokens, chatkit, or vault; see `config/loader.py`). |
+| `ORCHEO_REPOSITORY_BACKEND` | `postgres` | `postgres` | Chooses the workflow repository implementation (`config/loader.py`). |
+| `ORCHEO_WORKSPACE_BACKEND` | `postgres` | `postgres` | Chooses the workspace repository implementation used for workspaces and memberships (`config/loader.py`, `app/workspace/dependencies.py`). |
+| `ORCHEO_CHATKIT_BACKEND` | `postgres` | `postgres` | Selects the ChatKit persistence backend used by `chatkit/server.py`. |
 | `ORCHEO_CHATKIT_STORAGE_PATH` | `~/.orcheo/chatkit` | Directory path | Filesystem root for ChatKit attachments (`config/loader.py`). |
 | `ORCHEO_CHATKIT_MAX_UPLOAD_SIZE_BYTES` | `5000000` | Positive integer | Maximum upload size (bytes) accepted by the ChatKit upload endpoint (`routers/chatkit.py`, `config/loader.py`). |
 | `ORCHEO_CHATKIT_CDN_BASE_URL` | `https://cdn.platform.openai.com/` | HTTP(S) URL | Overrides the upstream CDN base used by the ChatKit asset proxy routes (`chatkit_asset_proxy.py`). |
@@ -39,8 +34,6 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD` | `1000` | Positive integer | Token usage threshold that emits `token.chunk` events (`tracing/workflow.py`). |
 | `ORCHEO_TRACING_PREVIEW_MAX_LENGTH` | `512` | Positive integer ≥ 16 | Maximum characters retained for prompt/response previews (`tracing/workflow.py`). |
 | `ORCHEO_CHATKIT_PUBLIC_BASE_URL` | _none_ | HTTP(S) URL | Optional frontend origin used when generating ChatKit share links in the backend API responses and the CLI/MCP; defaults to `ORCHEO_API_URL` with any `/api` suffix removed when unset in the CLI/MCP (`publish.py`). One-off overrides can be supplied via `orcheo workflow publish --chatkit-public-base-url`. |
-
-Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does not enqueue webhook/cron/manual triggers for execution. These runs remain `PENDING` unless you execute them manually (for example, via the websocket runner).
 
 ## Canvas frontend configuration
 
@@ -67,11 +60,8 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
-| `ORCHEO_VAULT_BACKEND` | `file` | `file`, `inmemory`, `aws_kms`, or `postgres` | Chooses the credential vault backend (`config/loader.py`, `config/vault_settings.py`). |
-| `ORCHEO_VAULT_LOCAL_PATH` | `~/.orcheo/vault.sqlite` | Filesystem path | Location of the file-backed vault database when `file` backend is selected (`config/loader.py`). |
-| `ORCHEO_VAULT_ENCRYPTION_KEY` | _none_ | String (ideally 128+ bits) | Optional pre-shared key used to encrypt secrets (required for `aws_kms`, used elsewhere when present). |
-| `ORCHEO_VAULT_AWS_REGION` | _none_ | AWS region identifier (e.g. `us-east-1`) | Region targeted when `ORCHEO_VAULT_BACKEND=aws_kms` (`config/loader.py`). |
-| `ORCHEO_VAULT_AWS_KMS_KEY_ID` | _none_ | KMS key identifier | Key ID for AWS KMS vaults (`config/loader.py`). |
+| `ORCHEO_VAULT_BACKEND` | `postgres` | `postgres` | Chooses the credential vault backend (`config/loader.py`, `config/vault_settings.py`). |
+| `ORCHEO_VAULT_ENCRYPTION_KEY` | _none_ | String (ideally 128+ bits) | Pre-shared key required when `ORCHEO_VAULT_BACKEND=postgres`. |
 | `ORCHEO_VAULT_TOKEN_TTL_SECONDS` | `3600` | Positive integer | Lifetime (seconds) for vault access tokens (`config/loader.py`). |
 | `ORCHEO_MULTI_WORKSPACE_ENABLED` | `false` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Enables workspace-aware request resolution, scoped repository lookups, and workspace-aware websocket/runnable execution (`config/loader.py`). |
 | `ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG` | `default` | Slug string | Default workspace slug used by explicit resolver overrides. The runtime no longer bootstraps a shared default workspace at startup (`config/loader.py`). |
@@ -103,7 +93,7 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `ORCHEO_AUTH_ALLOWED_ALGORITHMS` | `RS256, HS256` | Comma/JSON list of JWT algorithm names | Restricts acceptable signing algorithms (`authentication/settings.py`). |
 | `ORCHEO_AUTH_AUDIENCE` | _none_ | Comma/JSON list of strings | Acceptable JWT audiences (`authentication/settings.py`). |
 | `ORCHEO_AUTH_ISSUER` | _none_ | String | Expected JWT issuer claim (`authentication/settings.py`). |
-| `ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH` | Derived from `ORCHEO_REPOSITORY_SQLITE_PATH` (defaults to `~/.orcheo/service_tokens.sqlite`) | Filesystem path | Override the service token SQLite file (`authentication/settings.py`). |
+| `ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH` | _none_ | Filesystem path | Override the service token store path when needed (`authentication/settings.py`). |
 | `ORCHEO_AUTH_RATE_LIMIT_IP` | `0` | Integer ≥ 0 | Per-IP HTTP rate limit for authentication endpoints (`authentication/settings.py`). |
 | `ORCHEO_AUTH_RATE_LIMIT_IDENTITY` | `0` | Integer ≥ 0 | Rate limit keyed by identity (`authentication/settings.py`). |
 | `ORCHEO_AUTH_RATE_LIMIT_INTERVAL` | `60` | Integer > 0 | Interval (seconds) governing the authentication rate limits (`authentication/settings.py`). |

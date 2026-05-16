@@ -1547,6 +1547,7 @@ async def test_triggers_get_cron_trigger_config(
 
 
 @pytest.mark.asyncio
+@pytest.mark.no_mock_celery
 async def test_triggers_enqueue_run_uses_apply_async(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1572,6 +1573,7 @@ async def test_triggers_enqueue_run_uses_apply_async(
 
 
 @pytest.mark.asyncio
+@pytest.mark.no_mock_celery
 async def test_triggers_enqueue_run_logs_when_enqueue_fails(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -2245,6 +2247,7 @@ async def test_runs_create_run_archived_workflow_raises(
 
 
 @pytest.mark.asyncio
+@pytest.mark.no_mock_celery
 async def test_triggers_enqueue_run_for_execution_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2283,6 +2286,7 @@ async def test_triggers_enqueue_run_for_execution_success(
 
 
 @pytest.mark.asyncio
+@pytest.mark.no_mock_celery
 async def test_triggers_enqueue_run_for_execution_fallback_preserves_workspace_headers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

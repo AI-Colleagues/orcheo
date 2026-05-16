@@ -12,7 +12,7 @@ def write_env_example(tmp_path: Path, content: str) -> Path:
 def test_seed_env_creates_file_and_directories(tmp_path: Path) -> None:
     write_env_example(
         tmp_path,
-        "ORCHEO_SQLITE_PATH=.orcheo/orcheo.sqlite3\nORCHEO_VAULT_LOCAL_PATH=.orcheo/vault.sqlite\n",
+        "ORCHEO_CHATKIT_STORAGE_PATH=.orcheo/chatkit\nORCHEO_MCP_STDIO_LOG=.orcheo/mcp.log\n",
     )
 
     env_path = seed_env_file(project_root=tmp_path)
@@ -33,7 +33,7 @@ def test_seed_env_creates_directory_path(tmp_path: Path) -> None:
 
 
 def test_seed_env_skips_when_file_exists(tmp_path: Path) -> None:
-    write_env_example(tmp_path, "ORCHEO_SQLITE_PATH=.orcheo/orcheo.sqlite3\n")
+    write_env_example(tmp_path, "ORCHEO_CHATKIT_STORAGE_PATH=.orcheo/chatkit\n")
     env_path = tmp_path / ".env"
     env_path.write_text("EXISTING=1\n")
 
@@ -43,7 +43,9 @@ def test_seed_env_skips_when_file_exists(tmp_path: Path) -> None:
 
 
 def test_seed_env_overwrites_when_forced(tmp_path: Path) -> None:
-    example = write_env_example(tmp_path, "ORCHEO_SQLITE_PATH=.orcheo/orcheo.sqlite3\n")
+    example = write_env_example(
+        tmp_path, "ORCHEO_CHATKIT_STORAGE_PATH=.orcheo/chatkit\n"
+    )
     env_path = tmp_path / ".env"
     env_path.write_text("EXISTING=1\n")
 
@@ -63,7 +65,7 @@ def test_extract_path_values_filters_non_paths(tmp_path: Path) -> None:
         """
 # comment line
 ORCHEO_HOST=0.0.0.0
-ORCHEO_SQLITE_PATH=.orcheo/orcheo.sqlite3
+ORCHEO_CHATKIT_STORAGE_PATH=.orcheo/chatkit
 ORCHEO_VAULT_DIR=.orcheo/vault
 ORCHEO_ABS_PATH=/var/lib/orcheo
 SECRET_PATH=$RUNTIME_SECRET
@@ -73,11 +75,11 @@ MALFORMED_LINE
 
     values = _extract_path_values(example)
 
-    assert values == {Path(".orcheo/orcheo.sqlite3"), Path(".orcheo/vault")}
+    assert values == {Path(".orcheo/chatkit"), Path(".orcheo/vault")}
 
 
 def test_main_seeds_environment(tmp_path: Path) -> None:
-    write_env_example(tmp_path, "ORCHEO_SQLITE_PATH=.orcheo/orcheo.sqlite3\n")
+    write_env_example(tmp_path, "ORCHEO_CHATKIT_STORAGE_PATH=.orcheo/chatkit\n")
 
     result = main(["--root", str(tmp_path), "--force"])
 

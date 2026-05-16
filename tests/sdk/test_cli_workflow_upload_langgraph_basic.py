@@ -179,7 +179,7 @@ def test_workflow_upload_langgraph_script_with_frontmatter_handle(
         """
 # /// orcheo
 # name = "Simple Agent"
-# handle = "simple_agent"
+# handle = "simple-agent"
 # description = "A simple AI agent workflow with a configurable model picker."
 # config = "./config.json"
 # entrypoint = "build_graph"

@@ -5,12 +5,11 @@ import importlib
 import pytest
 
 
-def test_repository_module_exposes_sqlite_repository() -> None:
-    """Accessing SqliteWorkflowRepository triggers the lazy import."""
+def test_repository_module_exports_workflow_repository() -> None:
+    """The repository package exposes the workflow repository protocol."""
     repository = importlib.import_module("orcheo_backend.app.repository")
-    sqlite_module = importlib.import_module("orcheo_backend.app.repository_sqlite")
-
-    assert repository.SqliteWorkflowRepository is sqlite_module.SqliteWorkflowRepository
+    assert repository.WorkflowRepository is not None
+    assert repository.InMemoryWorkflowRepository is not None
 
 
 def test_repository_module_rejects_unknown_attribute() -> None:

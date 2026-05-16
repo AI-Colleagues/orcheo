@@ -10,7 +10,6 @@ from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.vault.oauth import CredentialHealthReport, CredentialHealthResult
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
-    SqliteWorkflowRepository,
     WorkflowRepository,
 )
 
@@ -62,18 +61,11 @@ class StubCredentialService:
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize("backend", ["memory", "sqlite"])
-async def test_cron_dispatch_skips_unhealthy_workflows(
-    backend: str, tmp_path_factory: pytest.TempPathFactory
-) -> None:
+async def test_cron_dispatch_skips_unhealthy_workflows() -> None:
     """Cron dispatch continues processing plans when health checks fail."""
 
     service = StubCredentialService()
-    if backend == "memory":
-        repository: WorkflowRepository = InMemoryWorkflowRepository(service)
-    else:
-        db_path = tmp_path_factory.mktemp("repo-health") / "workflows.sqlite"
-        repository = SqliteWorkflowRepository(db_path, credential_service=service)
+    repository: WorkflowRepository = InMemoryWorkflowRepository(service)
 
     try:
         unhealthy = await repository.create_workflow(

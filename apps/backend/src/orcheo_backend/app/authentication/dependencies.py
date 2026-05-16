@@ -30,21 +30,14 @@ def get_authenticator(*, refresh: bool = False) -> Authenticator:
         settings = load_auth_settings(refresh=refresh)
 
         from orcheo_backend.app.service_token_repository import (
-            InMemoryServiceTokenRepository,
             PostgresServiceTokenRepository,
-            SqliteServiceTokenRepository,
         )
 
-        if settings.service_token_backend == "postgres":
-            dsn = get_settings().get("POSTGRES_DSN")
-            if not dsn:
-                msg = "ORCHEO_POSTGRES_DSN must be set when using the postgres backend."
-                raise ValueError(msg)
-            repository: Any = PostgresServiceTokenRepository(dsn)
-        elif settings.service_token_db_path:
-            repository = SqliteServiceTokenRepository(settings.service_token_db_path)
-        else:
-            repository = InMemoryServiceTokenRepository()
+        dsn = get_settings().get("POSTGRES_DSN")
+        if not dsn:
+            msg = "ORCHEO_POSTGRES_DSN must be set when using the postgres backend."
+            raise ValueError(msg)
+        repository: Any = PostgresServiceTokenRepository(dsn)
 
         token_manager = ServiceTokenManager(repository)
         _token_manager_cache["manager"] = token_manager

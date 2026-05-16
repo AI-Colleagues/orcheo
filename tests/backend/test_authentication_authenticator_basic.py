@@ -51,7 +51,7 @@ async def test_authenticator_with_static_jwks() -> None:
         allowed_algorithms=("RS256",),
         audiences=(),
         issuer=None,
-        service_token_backend="sqlite",
+        service_token_backend="inmemory",
         service_token_db_path=None,
         rate_limit_ip=0,
         rate_limit_identity=0,

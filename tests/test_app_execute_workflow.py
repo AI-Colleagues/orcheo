@@ -8,7 +8,83 @@ import pytest
 from fastapi import WebSocket
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo_backend.app import execute_workflow
-from orcheo_backend.app.history import InMemoryRunHistoryStore
+from orcheo_backend.app.history import RunHistoryNotFoundError, RunHistoryRecord
+
+
+class _FakeHistoryStore:
+    """Minimal dict-backed history store for tests that assert on recorded state."""
+
+    def __init__(self) -> None:
+        self._records: dict[str, RunHistoryRecord] = {}
+
+    async def start_run(
+        self,
+        *,
+        workflow_id: str,
+        execution_id: str,
+        inputs=None,
+        runnable_config=None,
+        tags=None,
+        callbacks=None,
+        metadata=None,
+        run_name=None,
+        trace_id=None,
+        trace_started_at=None,
+        workspace_id=None,
+    ) -> RunHistoryRecord:
+        record = RunHistoryRecord(
+            workflow_id=workflow_id,
+            execution_id=execution_id,
+            inputs=dict(inputs) if inputs else {},
+            runnable_config=dict(runnable_config) if runnable_config else {},
+            tags=list(tags) if tags else [],
+            callbacks=list(callbacks) if callbacks else [],
+            metadata=dict(metadata) if metadata else {},
+            run_name=run_name,
+            trace_id=trace_id,
+            trace_started_at=trace_started_at,
+            trace_last_span_at=trace_started_at,
+        )
+        if record.trace_started_at is None:
+            record.trace_started_at = record.started_at
+        if record.trace_last_span_at is None:
+            record.trace_last_span_at = record.trace_started_at
+        self._records[execution_id] = record
+        return record.model_copy(deep=True)
+
+    async def append_step(self, execution_id: str, payload) -> object:
+        return self._records[execution_id].append_step(dict(payload))
+
+    async def mark_completed(self, execution_id: str) -> RunHistoryRecord:
+        self._records[execution_id].mark_completed()
+        return self._records[execution_id].model_copy(deep=True)
+
+    async def mark_failed(self, execution_id: str, error: str) -> RunHistoryRecord:
+        self._records[execution_id].mark_failed(error)
+        return self._records[execution_id].model_copy(deep=True)
+
+    async def mark_cancelled(
+        self, execution_id: str, *, reason=None
+    ) -> RunHistoryRecord:
+        self._records[execution_id].mark_cancelled(reason=reason)
+        return self._records[execution_id].model_copy(deep=True)
+
+    async def get_history(self, execution_id: str) -> RunHistoryRecord:
+        record = self._records.get(execution_id)
+        if record is None:
+            raise RunHistoryNotFoundError(f"History not found: {execution_id}")
+        return record.model_copy(deep=True)
+
+    async def list_histories(self, workflow_id: str, *, limit=None, workspace_id=None):
+        records = [
+            r.model_copy(deep=True)
+            for r in self._records.values()
+            if r.workflow_id == workflow_id
+        ]
+        return records[:limit] if limit else records
+
+    async def clear(self) -> None:
+        self._records.clear()
 
 
 @pytest.mark.asyncio
@@ -52,7 +128,7 @@ async def test_execute_workflow() -> None:
     async def fake_graph_store(_settings):
         yield mock_store
 
-    history_store = InMemoryRunHistoryStore()
+    history_store = _FakeHistoryStore()
 
     with (
         patch("orcheo_backend.app.create_checkpointer", fake_checkpointer),
@@ -136,7 +212,7 @@ async def test_execute_workflow_langgraph_script_uses_raw_inputs() -> None:
     async def fake_graph_store(_settings):
         yield object()
 
-    history_store = InMemoryRunHistoryStore()
+    history_store = _FakeHistoryStore()
 
     with (
         patch("orcheo_backend.app.create_checkpointer", fake_checkpointer),
@@ -195,7 +271,7 @@ async def test_execute_workflow_failure_records_error() -> None:
     async def fake_graph_store(_settings):
         yield object()
 
-    history_store = InMemoryRunHistoryStore()
+    history_store = _FakeHistoryStore()
 
     with (
         patch("orcheo_backend.app.create_checkpointer", fake_checkpointer),
@@ -253,7 +329,7 @@ async def test_execute_workflow_cancelled_records_reason() -> None:
     async def fake_graph_store(_settings):
         yield object()
 
-    history_store = InMemoryRunHistoryStore()
+    history_store = _FakeHistoryStore()
 
     with (
         patch("orcheo_backend.app.create_checkpointer", fake_checkpointer),

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 from functools import lru_cache
-from pathlib import Path
 from dynaconf import Dynaconf
 from pydantic import ValidationError
 from orcheo.config.app_settings import AppSettings
@@ -28,29 +27,16 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
         rate_limits = ChatKitRateLimitSettings.from_mapping(source)
         settings = AppSettings(
             checkpoint_backend=source.get("CHECKPOINT_BACKEND"),
-            sqlite_path=source.get("SQLITE_PATH", _DEFAULTS["SQLITE_PATH"]),
             graph_store_backend=source.get(
                 "GRAPH_STORE_BACKEND", _DEFAULTS["GRAPH_STORE_BACKEND"]
-            ),
-            graph_store_sqlite_path=source.get(
-                "GRAPH_STORE_SQLITE_PATH", _DEFAULTS["GRAPH_STORE_SQLITE_PATH"]
             ),
             repository_backend=source.get(
                 "REPOSITORY_BACKEND", _DEFAULTS["REPOSITORY_BACKEND"]
             ),
-            repository_sqlite_path=source.get(
-                "REPOSITORY_SQLITE_PATH", _DEFAULTS["REPOSITORY_SQLITE_PATH"]
-            ),
             workspace_backend=source.get(
                 "WORKSPACE_BACKEND", _DEFAULTS["WORKSPACE_BACKEND"]
             ),
-            workspace_sqlite_path=source.get(
-                "WORKSPACE_SQLITE_PATH", _DEFAULTS["WORKSPACE_SQLITE_PATH"]
-            ),
             chatkit_backend=source.get("CHATKIT_BACKEND", _DEFAULTS["CHATKIT_BACKEND"]),
-            chatkit_sqlite_path=source.get(
-                "CHATKIT_SQLITE_PATH", _DEFAULTS["CHATKIT_SQLITE_PATH"]
-            ),
             chatkit_storage_path=source.get(
                 "CHATKIT_STORAGE_PATH", _DEFAULTS["CHATKIT_STORAGE_PATH"]
             ),
@@ -82,9 +68,6 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
             vault=VaultSettings(
                 backend=source.get("VAULT_BACKEND", _DEFAULTS["VAULT_BACKEND"]),
                 encryption_key=source.get("VAULT_ENCRYPTION_KEY"),
-                local_path=source.get(
-                    "VAULT_LOCAL_PATH", _DEFAULTS["VAULT_LOCAL_PATH"]
-                ),
                 aws_region=source.get("VAULT_AWS_REGION"),
                 aws_kms_key_id=source.get("VAULT_AWS_KMS_KEY_ID"),
                 token_ttl_seconds=source.get(
@@ -145,18 +128,10 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
         environments=False,
     )
     normalized.set("CHECKPOINT_BACKEND", settings.checkpoint_backend)
-    normalized.set("SQLITE_PATH", settings.sqlite_path)
     normalized.set("GRAPH_STORE_BACKEND", settings.graph_store_backend)
-    normalized.set(
-        "GRAPH_STORE_SQLITE_PATH",
-        str(Path(settings.graph_store_sqlite_path).resolve(strict=False)),
-    )
     normalized.set("REPOSITORY_BACKEND", settings.repository_backend)
-    normalized.set("REPOSITORY_SQLITE_PATH", settings.repository_sqlite_path)
     normalized.set("WORKSPACE_BACKEND", settings.workspace_backend)
-    normalized.set("WORKSPACE_SQLITE_PATH", settings.workspace_sqlite_path)
     normalized.set("CHATKIT_BACKEND", settings.chatkit_backend)
-    normalized.set("CHATKIT_SQLITE_PATH", settings.chatkit_sqlite_path)
     normalized.set("CHATKIT_STORAGE_PATH", settings.chatkit_storage_path)
     normalized.set("CHATKIT_PUBLIC_BASE_URL", settings.chatkit_public_base_url)
     normalized.set(
@@ -176,7 +151,6 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("PORT", settings.port)
     normalized.set("VAULT_BACKEND", settings.vault.backend)
     normalized.set("VAULT_ENCRYPTION_KEY", settings.vault.encryption_key)
-    normalized.set("VAULT_LOCAL_PATH", settings.vault.local_path)
     normalized.set("VAULT_AWS_REGION", settings.vault.aws_region)
     normalized.set("VAULT_AWS_KMS_KEY_ID", settings.vault.aws_kms_key_id)
     normalized.set("VAULT_TOKEN_TTL_SECONDS", settings.vault.token_ttl_seconds)

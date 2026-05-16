@@ -2,7 +2,7 @@
 
 This guide captures reference deployment flows for running Orcheo locally during development and hosting the service for teams. Each recipe lists the required environment variables, supporting services, and common verification steps.
 
-## Local Development (SQLite, single process)
+## Local Development (PostgreSQL)
 
 This setup mirrors the default configuration that the tests exercise. It is ideal when you want to iterate on nodes, run the FastAPI server, and execute LangGraph workflows from the command line.
 
@@ -16,7 +16,7 @@ This setup mirrors the default configuration that the tests exercise. It is idea
    ```
    - For multi-workspace installs, set `ORCHEO_MULTI_WORKSPACE_ENABLED=true` once the backfill and repo-retrofit release has been verified.
    - There is no bootstrapped default workspace anymore; users must already belong to a workspace or create one through the self-service API after login.
-   - Keep `ORCHEO_WORKSPACE_BACKEND=sqlite` and `ORCHEO_WORKSPACE_SQLITE_PATH` pointed at shared durable storage so memberships and workspace metadata survive backend restarts.
+   - Keep `ORCHEO_WORKSPACE_BACKEND=postgres` and `ORCHEO_POSTGRES_DSN` pointed at a durable database so memberships and workspace metadata survive backend restarts.
 3. **Start the API server**
    ```bash
    make dev-server
@@ -24,11 +24,11 @@ This setup mirrors the default configuration that the tests exercise. It is idea
 4. **Run an example workflow**
    - Send a websocket message to `ws://localhost:8000/ws/workflow/<workflow_id>` with a payload matching the schema in `tests/test_main.py`.
 
-**Verification**: Run `uv run pytest` to validate the environment. The test suite opens an SQLite connection through the same helper used by the server.
+**Verification**: Run `uv run pytest` to validate the environment. The test suite uses the same backend factories as the server.
 
-_Vault note_: The default `.env.example` now stores credentials in an encrypted SQLite vault at `.orcheo/vault.sqlite`. The backend generates and caches the AES key alongside the database on first start. Switch `ORCHEO_VAULT_BACKEND` to `inmemory` for ephemeral secrets or set `ORCHEO_VAULT_ENCRYPTION_KEY` to supply a managed key.
+_Vault note_: Set `ORCHEO_VAULT_BACKEND=postgres` and `ORCHEO_VAULT_ENCRYPTION_KEY` before starting the backend so credential encryption is configured from the first run.
 
-_Repository note_: Local development now defaults to a SQLite-backed workflow repository stored at `~/.orcheo/workflows.sqlite`. Override `ORCHEO_REPOSITORY_BACKEND` to `inmemory` if you prefer ephemeral state or set `ORCHEO_REPOSITORY_SQLITE_PATH` to relocate the database file. The in-memory backend does not enqueue webhook/cron/manual triggers for execution, so runs remain `PENDING` unless you drive execution manually.
+_Repository note_: Local development uses the PostgreSQL workflow repository. Set `ORCHEO_REPOSITORY_BACKEND=postgres` and `ORCHEO_POSTGRES_DSN` so runs, triggers, and workflow state persist durably.
 
 ### Workspace Rollout
 
@@ -48,9 +48,9 @@ Use this sequence when enabling workspace scoping on an existing installation.
    - If any cross-workspace regression appears, switch the flag back to `false`, restart the stack, and keep the data in place for inspection.
    - Because memberships are explicit now, rollback only restores the old routing behavior; it does not recreate or depend on a shared default workspace.
 
-## Docker Compose (SQLite, multi-container)
+## Docker Compose (PostgreSQL, multi-container)
 
-Use this recipe when you want an isolated environment that mimics production without provisioning a database. It pairs the FastAPI app with a volume-mounted SQLite database.
+Use this recipe when you want an isolated environment that mimics production with a dedicated PostgreSQL database.
 
 1. **Create `docker-compose.yml`**
    ```yaml
@@ -61,31 +61,41 @@ Use this recipe when you want an isolated environment that mimics production wit
        environment:
          ORCHEO_HOST: 0.0.0.0
          ORCHEO_PORT: "8000"
-         ORCHEO_CHECKPOINT_BACKEND: sqlite
-         ORCHEO_SQLITE_PATH: /data/orcheo.sqlite3
-         ORCHEO_REPOSITORY_BACKEND: sqlite
-         ORCHEO_REPOSITORY_SQLITE_PATH: /data/workflows.sqlite3
-         ORCHEO_VAULT_BACKEND: file
+         ORCHEO_CHECKPOINT_BACKEND: postgres
+         ORCHEO_GRAPH_STORE_BACKEND: postgres
+         ORCHEO_REPOSITORY_BACKEND: postgres
+         ORCHEO_WORKSPACE_BACKEND: postgres
+         ORCHEO_CHATKIT_BACKEND: postgres
+         ORCHEO_VAULT_BACKEND: postgres
          ORCHEO_VAULT_ENCRYPTION_KEY: change-me
-         ORCHEO_VAULT_LOCAL_PATH: /data/vault.sqlite
-         ORCHEO_VAULT_TOKEN_TTL_SECONDS: "3600"
+         ORCHEO_POSTGRES_DSN: postgresql://orcheo:orcheo@postgres:5432/orcheo
        ports:
          - "8000:8000"
+       depends_on:
+         - postgres
+     postgres:
+       image: postgres:16
+       environment:
+         POSTGRES_USER: orcheo
+         POSTGRES_PASSWORD: orcheo
+         POSTGRES_DB: orcheo
+       ports:
+         - "5432:5432"
        volumes:
-         - orcheo-data:/data
+         - postgres-data:/var/lib/postgresql/data
    volumes:
-     orcheo-data:
+     postgres-data:
    ```
 2. **Build and start**
    ```bash
    docker compose up --build
    ```
 3. **Connect**
-   Access the API via `http://localhost:8000`. The checkpoint database is stored inside the named volume so runs persist across container restarts.
+   Access the API via `http://localhost:8000`. The Postgres database is stored inside the named volume so runs persist across container restarts.
 
 **Verification**: `docker compose exec orcheo uv run pytest tests/test_main.py` confirms the container is healthy.
 
-_Vault note_: The compose example writes encrypted secrets to `/data/vault.sqlite`. Rotate `ORCHEO_VAULT_ENCRYPTION_KEY` regularly and back up the volume alongside the checkpoint database.
+_Vault note_: Rotate `ORCHEO_VAULT_ENCRYPTION_KEY` regularly and back up the Postgres volume alongside the database.
 
 ## Reachable Self-Hosted Host (Bundled Caddy)
 
@@ -209,14 +219,12 @@ This deployment targets platforms such as Fly.io, Railway, or Kubernetes where P
    ```bash
    export ORCHEO_CHECKPOINT_BACKEND=postgres
    export ORCHEO_POSTGRES_DSN=postgresql://user:pass@host:5432/orcheo
-   export ORCHEO_REPOSITORY_BACKEND=inmemory
+   export ORCHEO_REPOSITORY_BACKEND=postgres
    export ORCHEO_CHATKIT_BACKEND=postgres
    export ORCHEO_HOST=0.0.0.0
    export ORCHEO_PORT=8000
-   export ORCHEO_VAULT_BACKEND=aws_kms
-   export ORCHEO_VAULT_ENCRYPTION_KEY=alias/orcheo-runtime
-   export ORCHEO_VAULT_AWS_REGION=us-west-2
-   export ORCHEO_VAULT_AWS_KMS_KEY_ID=1234abcd-12ab-34cd-56ef-1234567890ab
+   export ORCHEO_VAULT_BACKEND=postgres
+   export ORCHEO_VAULT_ENCRYPTION_KEY=change-me
    export ORCHEO_VAULT_TOKEN_TTL_SECONDS=900
    ```
 3. **Deploy the application**

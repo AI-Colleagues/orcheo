@@ -6,7 +6,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from ipaddress import ip_address
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 from orcheo.config import get_settings
@@ -90,7 +89,7 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
     audiences = _parse_str_sequence(settings.get("AUTH_AUDIENCE"))
     issuer = _normalize_issuer(settings.get("AUTH_ISSUER"))
     service_token_backend = _coerce_mode_backend(
-        settings.get("AUTH_SERVICE_TOKEN_BACKEND", "sqlite")
+        settings.get("AUTH_SERVICE_TOKEN_BACKEND", "postgres")
     )
     service_token_db_path = _resolve_service_token_db_path(settings)
     rate_limit_ip = _parse_int(settings.get("AUTH_RATE_LIMIT_IP"), 0)
@@ -107,7 +106,6 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
         jwt_secret=jwt_secret,
         jwks_url=jwks_url,
         jwks_static=jwks_static,
-        service_token_backend=service_token_backend,
         service_token_db_path=service_token_db_path,
         bootstrap_service_token=bootstrap_service_token,
     )
@@ -157,18 +155,7 @@ def _normalize_issuer(value: Any) -> str | None:
 
 
 def _resolve_service_token_db_path(settings: Any) -> str | None:
-    service_token_db_path = _coerce_optional_str(
-        settings.get("AUTH_SERVICE_TOKEN_DB_PATH")
-    )
-    if service_token_db_path:
-        return service_token_db_path
-
-    repo_path = settings.get("ORCHEO_REPOSITORY_SQLITE_PATH")
-    if not repo_path:
-        return None
-
-    db_path = Path(str(repo_path)).expanduser()
-    return str(db_path.parent / "service_tokens.sqlite")
+    return _coerce_optional_str(settings.get("AUTH_SERVICE_TOKEN_DB_PATH"))
 
 
 def _load_bootstrap_token_settings(
@@ -288,7 +275,6 @@ def _has_auth_credentials(
     jwt_secret: str | None,
     jwks_url: str | None,
     jwks_static: Sequence[Mapping[str, Any]],
-    service_token_backend: str,
     service_token_db_path: str | None,
     bootstrap_service_token: str | None,
 ) -> bool:
@@ -297,7 +283,6 @@ def _has_auth_credentials(
         or jwks_url
         or jwks_static
         or service_token_db_path
-        or service_token_backend == "postgres"
         or bootstrap_service_token
     )
 
@@ -430,9 +415,9 @@ def _coerce_mode(value: Any) -> str:
 def _coerce_mode_backend(value: Any) -> str:
     if isinstance(value, str):
         lowered = value.strip().lower()
-        if lowered in {"sqlite", "postgres", "inmemory"}:
+        if lowered == "postgres":
             return lowered
-    return "sqlite"
+    raise ValueError("ORCHEO_AUTH_SERVICE_TOKEN_BACKEND must be 'postgres'.")
 
 
 def _parse_bool(value: Any, default: bool) -> bool:

@@ -19,7 +19,7 @@ from orcheo_backend.app.workspace import errors as workspace_errors
 def test_get_workspace_repository_selects_all_backends(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Repository selection should handle postgres, sqlite, and in-memory backends."""
+    """Repository selection should only accept postgres backends."""
 
     created: list[tuple[str, tuple[object, ...]]] = []
 
@@ -27,22 +27,9 @@ def test_get_workspace_repository_selects_all_backends(
         def __init__(self, dsn: str) -> None:
             created.append(("postgres", (dsn,)))
 
-    class _SqliteRepo:
-        def __init__(self, path: str) -> None:
-            created.append(("sqlite", (path,)))
-
     monkeypatch.setattr(
         workspace_dependencies, "PostgresWorkspaceRepository", _PostgresRepo
     )
-    monkeypatch.setattr(
-        workspace_dependencies, "SqliteWorkspaceRepository", _SqliteRepo
-    )
-    monkeypatch.setattr(
-        workspace_dependencies,
-        "InMemoryWorkspaceRepository",
-        lambda: created.append(("memory", ())) or InMemoryWorkspaceRepository(),
-    )
-
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
@@ -61,20 +48,11 @@ def test_get_workspace_repository_selects_all_backends(
         "get_settings",
         lambda refresh=False: {  # noqa: ARG005
             "WORKSPACE_BACKEND": "sqlite",
-            "WORKSPACE_SQLITE_PATH": "/tmp/workspaces.sqlite",
+            "POSTGRES_DSN": "postgres://dsn",
         },
     )
-    workspace_dependencies.get_workspace_repository()
-    assert created[-1][0] == "sqlite"
-
-    workspace_dependencies.reset_workspace_state()
-    monkeypatch.setattr(
-        workspace_dependencies,
-        "get_settings",
-        lambda refresh=False: {"WORKSPACE_BACKEND": "inmemory"},  # noqa: ARG005
-    )
-    workspace_dependencies.get_workspace_repository()
-    assert created[-1][0] == "memory"
+    with pytest.raises(ValueError, match="ORCHEO_WORKSPACE_BACKEND must be 'postgres'"):
+        workspace_dependencies.get_workspace_repository()
 
 
 def test_get_workspace_repository_requires_dsn_for_postgres(

@@ -50,7 +50,7 @@ def test_resolve_chatkit_backend_inputs() -> None:
 
 
 def test_resolve_chatkit_backend_invalid() -> None:
-    with pytest.raises(ValueError, match="must be either 'sqlite' or 'postgres'"):
+    with pytest.raises(ValueError, match="must be 'postgres'"):
         _resolve_chatkit_backend({"CHATKIT_BACKEND": "invalid"})
 
 

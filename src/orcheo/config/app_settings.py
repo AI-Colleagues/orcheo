@@ -1,7 +1,6 @@
 """Application-level configuration models."""
 
 from __future__ import annotations
-from pathlib import Path
 from typing import cast
 from pydantic import BaseModel, Field, field_validator, model_validator
 from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
@@ -23,30 +22,17 @@ class AppSettings(BaseModel):
     checkpoint_backend: CheckpointBackend = Field(
         default=cast(CheckpointBackend, _DEFAULTS["CHECKPOINT_BACKEND"])
     )
-    sqlite_path: str = Field(default=cast(str, _DEFAULTS["SQLITE_PATH"]))
     graph_store_backend: GraphStoreBackend = Field(
         default=cast(GraphStoreBackend, _DEFAULTS["GRAPH_STORE_BACKEND"])
-    )
-    graph_store_sqlite_path: str = Field(
-        default=cast(str, _DEFAULTS["GRAPH_STORE_SQLITE_PATH"])
     )
     repository_backend: RepositoryBackend = Field(
         default=cast(RepositoryBackend, _DEFAULTS["REPOSITORY_BACKEND"])
     )
-    repository_sqlite_path: str = Field(
-        default=cast(str, _DEFAULTS["REPOSITORY_SQLITE_PATH"])
-    )
     workspace_backend: WorkspaceBackend = Field(
         default=cast(WorkspaceBackend, _DEFAULTS["WORKSPACE_BACKEND"])
     )
-    workspace_sqlite_path: str = Field(
-        default=cast(str, _DEFAULTS["WORKSPACE_SQLITE_PATH"])
-    )
     chatkit_backend: ChatKitBackend = Field(
         default=cast(ChatKitBackend, _DEFAULTS["CHATKIT_BACKEND"])
-    )
-    chatkit_sqlite_path: str = Field(
-        default=cast(str, _DEFAULTS["CHATKIT_SQLITE_PATH"])
     )
     chatkit_storage_path: str = Field(
         default=cast(str, _DEFAULTS["CHATKIT_STORAGE_PATH"])
@@ -129,8 +115,8 @@ class AppSettings(BaseModel):
             if value is not None
             else cast(str, _DEFAULTS["CHECKPOINT_BACKEND"])
         )
-        if candidate not in {"sqlite", "postgres"}:
-            msg = "ORCHEO_CHECKPOINT_BACKEND must be either 'sqlite' or 'postgres'."
+        if candidate != "postgres":
+            msg = "ORCHEO_CHECKPOINT_BACKEND must be 'postgres'."
             raise ValueError(msg)
         return cast(CheckpointBackend, candidate)
 
@@ -142,10 +128,8 @@ class AppSettings(BaseModel):
             if value is not None
             else cast(str, _DEFAULTS["REPOSITORY_BACKEND"])
         )
-        if candidate not in {"inmemory", "sqlite", "postgres"}:
-            msg = (
-                "ORCHEO_REPOSITORY_BACKEND must be 'inmemory', 'sqlite', or 'postgres'."
-            )
+        if candidate != "postgres":
+            msg = "ORCHEO_REPOSITORY_BACKEND must be 'postgres'."
             raise ValueError(msg)
         return cast(RepositoryBackend, candidate)
 
@@ -157,10 +141,8 @@ class AppSettings(BaseModel):
             if value is not None
             else cast(str, _DEFAULTS["WORKSPACE_BACKEND"])
         )
-        if candidate not in {"inmemory", "sqlite", "postgres"}:
-            msg = (
-                "ORCHEO_WORKSPACE_BACKEND must be 'inmemory', 'sqlite', or 'postgres'."
-            )
+        if candidate != "postgres":
+            msg = "ORCHEO_WORKSPACE_BACKEND must be 'postgres'."
             raise ValueError(msg)
         return cast(WorkspaceBackend, candidate)
 
@@ -172,8 +154,8 @@ class AppSettings(BaseModel):
             if value is not None
             else cast(str, _DEFAULTS["GRAPH_STORE_BACKEND"])
         )
-        if candidate not in {"sqlite", "postgres"}:
-            msg = "ORCHEO_GRAPH_STORE_BACKEND must be either 'sqlite' or 'postgres'."
+        if candidate != "postgres":
+            msg = "ORCHEO_GRAPH_STORE_BACKEND must be 'postgres'."
             raise ValueError(msg)
         return cast(GraphStoreBackend, candidate)
 
@@ -185,34 +167,14 @@ class AppSettings(BaseModel):
             if value is not None
             else cast(str, _DEFAULTS["CHATKIT_BACKEND"])
         )
-        if candidate not in {"sqlite", "postgres"}:
-            msg = "ORCHEO_CHATKIT_BACKEND must be either 'sqlite' or 'postgres'."
+        if candidate != "postgres":
+            msg = "ORCHEO_CHATKIT_BACKEND must be 'postgres'."
             raise ValueError(msg)
         return cast(ChatKitBackend, candidate)
 
-    @field_validator("sqlite_path", "host", mode="before")
+    @field_validator("host", mode="before")
     @classmethod
     def _coerce_str(cls, value: object) -> str:
-        return str(value) if value is not None else ""
-
-    @field_validator("repository_sqlite_path", mode="before")
-    @classmethod
-    def _coerce_repo_sqlite_path(cls, value: object) -> str:
-        return str(value) if value is not None else ""
-
-    @field_validator("workspace_sqlite_path", mode="before")
-    @classmethod
-    def _coerce_workspace_sqlite_path(cls, value: object) -> str:
-        return str(value) if value is not None else ""
-
-    @field_validator("graph_store_sqlite_path", mode="before")
-    @classmethod
-    def _coerce_graph_store_sqlite_path(cls, value: object) -> str:
-        return str(value) if value is not None else ""
-
-    @field_validator("chatkit_sqlite_path", mode="before")
-    @classmethod
-    def _coerce_chatkit_sqlite_path(cls, value: object) -> str:
         return str(value) if value is not None else ""
 
     @field_validator("chatkit_storage_path", mode="before")
@@ -431,16 +393,6 @@ class AppSettings(BaseModel):
         self.postgres_dsn = None
 
     def _apply_runtime_defaults(self) -> None:
-        self.sqlite_path = self.sqlite_path or cast(str, _DEFAULTS["SQLITE_PATH"])
-        self.graph_store_sqlite_path = self.graph_store_sqlite_path or cast(
-            str, _DEFAULTS["GRAPH_STORE_SQLITE_PATH"]
-        )
-        self.repository_sqlite_path = self.repository_sqlite_path or cast(
-            str, _DEFAULTS["REPOSITORY_SQLITE_PATH"]
-        )
-        self.chatkit_sqlite_path = self.chatkit_sqlite_path or cast(
-            str, _DEFAULTS["CHATKIT_SQLITE_PATH"]
-        )
         self.chatkit_storage_path = self.chatkit_storage_path or cast(
             str, _DEFAULTS["CHATKIT_STORAGE_PATH"]
         )
@@ -462,26 +414,10 @@ class AppSettings(BaseModel):
                 int, _DEFAULTS["TRACING_PREVIEW_MAX_LENGTH"]
             )
 
-    def _validate_graph_store_path(self) -> None:
-        if self.graph_store_backend != "sqlite":
-            return
-        if self.graph_store_sqlite_path.strip().startswith("~"):
-            msg = (
-                "ORCHEO_GRAPH_STORE_SQLITE_PATH must be an absolute path and "
-                "must not start with '~'."
-            )
-            raise ValueError(msg)
-        graph_store_path = Path(self.graph_store_sqlite_path)
-        if not graph_store_path.is_absolute():
-            msg = "ORCHEO_GRAPH_STORE_SQLITE_PATH must be an absolute filesystem path."
-            raise ValueError(msg)
-        self.graph_store_sqlite_path = str(graph_store_path.resolve(strict=False))
-
     @model_validator(mode="after")
     def _validate_postgres_requirements(self) -> AppSettings:
         self._validate_postgres_dsn()
         self._apply_runtime_defaults()
-        self._validate_graph_store_path()
         return self
 
 

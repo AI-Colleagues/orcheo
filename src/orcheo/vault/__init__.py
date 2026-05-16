@@ -10,7 +10,6 @@ from orcheo.vault.errors import (
     VaultError,
     WorkflowScopeError,
 )
-from orcheo.vault.file import FileCredentialVault
 from orcheo.vault.in_memory import InMemoryCredentialVault
 from orcheo.vault.postgres import PostgresCredentialVault
 
@@ -25,6 +24,5 @@ __all__ = [
     "RotationPolicyError",
     "BaseCredentialVault",
     "InMemoryCredentialVault",
-    "FileCredentialVault",
     "PostgresCredentialVault",
 ]

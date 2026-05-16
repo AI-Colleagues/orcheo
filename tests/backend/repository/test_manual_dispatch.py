@@ -4,7 +4,6 @@ import pytest
 from orcheo.models.workflow import WorkflowDraftAccess
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
 from orcheo_backend.app.repository import (
-    SqliteWorkflowRepository,
     WorkflowNotFoundError,
     WorkflowRepository,
     WorkflowVersionNotFoundError,
@@ -171,60 +170,3 @@ async def test_manual_dispatch_rejects_unknown_versions(
                 ],
             )
         )
-
-
-@pytest.mark.asyncio()
-async def test_sqlite_manual_dispatch_rejects_foreign_versions(
-    tmp_path_factory: pytest.TempPathFactory,
-) -> None:
-    """Manual dispatch guards against versions from other workflows."""
-
-    db_path = tmp_path_factory.mktemp("repo") / "manual.sqlite"
-    repository = SqliteWorkflowRepository(db_path)
-
-    try:
-        workflow = await repository.create_workflow(
-            name="Primary",
-            slug=None,
-            description=None,
-            tags=None,
-            draft_access=WorkflowDraftAccess.PERSONAL,
-            actor="author",
-        )
-        await repository.create_version(
-            workflow.id,
-            graph={},
-            metadata={},
-            notes=None,
-            created_by="author",
-        )
-        other_workflow = await repository.create_workflow(
-            name="Foreign",
-            slug=None,
-            description=None,
-            tags=None,
-            draft_access=WorkflowDraftAccess.PERSONAL,
-            actor="author",
-        )
-        other_version = await repository.create_version(
-            other_workflow.id,
-            graph={},
-            metadata={},
-            notes=None,
-            created_by="author",
-        )
-
-        with pytest.raises(WorkflowVersionNotFoundError):
-            await repository.dispatch_manual_runs(
-                ManualDispatchRequest(
-                    workflow_id=workflow.id,
-                    actor="operator",
-                    runs=[
-                        ManualDispatchItem(
-                            workflow_version_id=other_version.id,
-                        )
-                    ],
-                )
-            )
-    finally:
-        await repository.reset()

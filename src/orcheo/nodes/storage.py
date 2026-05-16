@@ -3,7 +3,6 @@
 from __future__ import annotations
 import asyncio
 import logging
-import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal, cast
 from langchain_core.runnables import RunnableConfig
@@ -119,58 +118,6 @@ class PostgresNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the SQL query asynchronously."""
-        return await asyncio.to_thread(self._execute)
-
-
-@registry.register(
-    NodeMetadata(
-        name="SQLiteNode",
-        description="Execute SQL statements against a SQLite database.",
-        category="storage",
-    )
-)
-class SQLiteNode(TaskNode):
-    """Node providing simple SQLite access suitable for local workflows."""
-
-    database: str = Field(default=":memory:", description="SQLite database path")
-    query: str = Field(description="SQL query to execute")
-    parameters: Mapping[str, Any] | Sequence[Any] | None = Field(
-        default=None, description="Parameters bound to the SQL query"
-    )
-    fetch: Literal["none", "one", "all"] = Field(
-        default="all", description="Fetch strategy for returning result rows"
-    )
-
-    def _execute(self) -> dict[str, Any]:
-        """Execute the SQL query returning structured results."""
-        connection = sqlite3.connect(self.database)
-        connection.row_factory = sqlite3.Row
-        try:
-            cursor = connection.execute(self.query, self.parameters or [])
-            connection.commit()
-
-            if self.fetch == "none":
-                return {"rows": [], "rowcount": cursor.rowcount}
-
-            if self.fetch == "one":
-                row = cursor.fetchone()
-                if row is None:
-                    return {"rows": [], "rowcount": cursor.rowcount}
-                return {
-                    "rows": [dict(row)],
-                    "rowcount": cursor.rowcount,
-                }
-
-            rows = cursor.fetchall()
-            return {
-                "rows": [dict(item) for item in rows],
-                "rowcount": cursor.rowcount,
-            }
-        finally:
-            connection.close()
-
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Execute the SQLite query asynchronously."""
         return await asyncio.to_thread(self._execute)
 
 
@@ -336,5 +283,4 @@ __all__ = [
     "get_graph_store",
     "GraphStoreAppendMessageNode",
     "PostgresNode",
-    "SQLiteNode",
 ]

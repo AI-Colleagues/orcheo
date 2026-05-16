@@ -95,12 +95,12 @@ make celery-beat
 
 ## Workflow Repository Configuration
 
-The FastAPI backend supports pluggable workflow repositories so local development can persist state without depending on Postgres. By default the app uses a SQLite database located at `~/.orcheo/workflows.sqlite`.
+The FastAPI backend uses PostgreSQL for workflow persistence. Set `ORCHEO_REPOSITORY_BACKEND=postgres` and `ORCHEO_POSTGRES_DSN` to connect the API to your database.
 
 Environment variables:
 
-- `ORCHEO_REPOSITORY_BACKEND`: accepts `sqlite` (default) or `inmemory` for ephemeral testing
-- `ORCHEO_REPOSITORY_SQLITE_PATH`: override the SQLite file path when using the SQLite backend
+- `ORCHEO_REPOSITORY_BACKEND`: `postgres`
+- `ORCHEO_POSTGRES_DSN`: required when the repository backend is `postgres`
 
 Refer to `.env.example` for sample values and to [Deployment Guide](deployment.md) for deployment-specific guidance.
 
