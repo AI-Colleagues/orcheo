@@ -6,6 +6,14 @@ import warnings
 from pathlib import Path
 from types import SimpleNamespace
 import pytest
+
+for key, value in (
+    ("OPENAI_API_KEY", "sk-test-orcheo"),
+    ("ORCHEO_POSTGRES_DSN", "postgresql://test:test@localhost/test"),
+    ("ORCHEO_VAULT_ENCRYPTION_KEY", "test-vault-encryption-key"),
+):
+    os.environ.setdefault(key, value)
+
 from orcheo.models import AesGcmCredentialCipher
 from orcheo.vault import InMemoryCredentialVault
 from orcheo.workspace import InMemoryWorkspaceRepository
