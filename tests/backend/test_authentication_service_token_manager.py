@@ -15,6 +15,20 @@ def _reset_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     yield from reset_auth_state(monkeypatch)
 
 
+class _CountingServiceTokenRepository(InMemoryServiceTokenRepository):
+    """Track repository calls for cache behavior assertions."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.list_active_calls = 0
+
+    async def list_active(
+        self, *, now: datetime | None = None
+    ) -> list[ServiceTokenRecord]:
+        self.list_active_calls += 1
+        return await super().list_active(now=now)
+
+
 @pytest.mark.asyncio
 async def test_service_token_manager_with_custom_clock() -> None:
     """ServiceTokenManager can use a custom clock function."""
@@ -104,3 +118,18 @@ def test_service_token_rotation_expiry_with_non_none_expires_at() -> None:
     expected = now + timedelta(seconds=300)
     assert result is not None
     assert abs((result - expected).total_seconds()) < 1
+
+
+@pytest.mark.asyncio
+async def test_service_token_manager_all_uses_cache_on_repeated_calls() -> None:
+    """all() should reuse the cached active token list while it is fresh."""
+
+    repository = _CountingServiceTokenRepository()
+    await repository.create(ServiceTokenRecord(identifier="token-1", secret_hash="h1"))
+    manager = ServiceTokenManager(repository, clock=lambda: datetime.now(tz=UTC))
+
+    first = await manager.all()
+    second = await manager.all()
+
+    assert first == second
+    assert repository.list_active_calls == 1

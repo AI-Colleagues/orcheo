@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from orcheo.models.workflow import Workflow, WorkflowVersion
+from orcheo.models import Workflow, WorkflowVersion
 from orcheo_backend.app.repository.errors import WorkflowNotFoundError
 from orcheo_backend.app.repository.in_memory.state import InMemoryRepositoryState
 

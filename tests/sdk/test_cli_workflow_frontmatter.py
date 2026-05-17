@@ -88,6 +88,10 @@ def test_workflow_frontmatter_is_not_empty_when_populated() -> None:
     """Any populated field should make the dataclass non-empty."""
     assert not frontmatter.WorkflowFrontmatter(name="x").is_empty
     assert not frontmatter.WorkflowFrontmatter(description="x").is_empty
+    assert not frontmatter.WorkflowFrontmatter(emoji="x").is_empty
+    assert not frontmatter.WorkflowFrontmatter(subtitle="x").is_empty
+    assert not frontmatter.WorkflowFrontmatter(notes="x").is_empty
+    assert not frontmatter.WorkflowFrontmatter(metadata={"a": "b"}).is_empty
 
 
 def test_parse_returns_empty_when_no_block() -> None:
@@ -105,6 +109,8 @@ def test_parse_extracts_all_fields() -> None:
         '# description = "Human summary"\n'
         '# config = "./wf.config.json"\n'
         '# entrypoint = "build_graph"\n'
+        '# emoji = "🤖"\n'
+        '# subtitle = "AI Assistant"\n'
         "# ///\n"
         "print('hello')\n"
     )
@@ -114,7 +120,36 @@ def test_parse_extracts_all_fields() -> None:
     assert fm.description == "Human summary"
     assert fm.config_path == "./wf.config.json"
     assert fm.entrypoint == "build_graph"
+    assert fm.emoji == "🤖"
+    assert fm.subtitle == "AI Assistant"
     assert not fm.is_empty
+
+
+def test_parse_extracts_notes_and_metadata_table() -> None:
+    source = (
+        "# /// orcheo\n"
+        '# name = "Templated"\n'
+        '# notes = "Use with care."\n'
+        "#\n"
+        "# [metadata]\n"
+        '# validated_provider_api = "telegram-bot-api"\n'
+        '# required_plugins = ["telegram-plugin"]\n'
+        "# ///\n"
+        "print('hello')\n"
+    )
+    fm = frontmatter.parse_workflow_frontmatter(source)
+    assert fm.notes == "Use with care."
+    assert fm.metadata == {
+        "validated_provider_api": "telegram-bot-api",
+        "required_plugins": ["telegram-plugin"],
+    }
+    assert not fm.is_empty
+
+
+def test_parse_rejects_non_table_metadata() -> None:
+    source = '# /// orcheo\n# metadata = "nope"\n# ///\n'
+    with pytest.raises(frontmatter.CLIError, match="must be a table"):
+        frontmatter.parse_workflow_frontmatter(source)
 
 
 def test_parse_accepts_handle_alias() -> None:

@@ -20,7 +20,6 @@ The project is a monorepo containing:
 - Docs & examples: `docs/`, `examples/`, experimental `playground/`.
 - Contributors: `CONTRIBUTORS.md` — list of project contributors.
 - Config: `pyproject.toml` (tooling), `.pre-commit-config.yaml`, `.env` (local secrets), `Makefile` (common tasks).
-- Deploy: `deploy/systemd/` — systemd unit files for production deployment.
 
 ## Architecture
 

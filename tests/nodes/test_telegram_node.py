@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage
 from pydantic import BaseModel
 from telegram import Message
 from orcheo.graph.state import State
-from orcheo.nodes.telegram import (
+from orcheo.nodes.connectors.telegram import (
     MessageTelegram,
     TelegramEventsParserNode,
     escape_markdown,

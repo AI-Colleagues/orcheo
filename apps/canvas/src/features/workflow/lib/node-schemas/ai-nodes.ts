@@ -42,7 +42,7 @@ export const aiNodeSchemas: Record<string, RJSFSchema> = {
         type: "string",
         title: "Checkpointer",
         description: "Checkpointer used to save the agent's state",
-        enum: ["memory", "sqlite", "postgres"],
+        enum: ["postgres"],
       },
       structuredOutput: {
         type: "object",

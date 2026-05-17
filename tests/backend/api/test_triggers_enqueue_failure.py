@@ -33,7 +33,7 @@ class TestEnqueueRunFunction:
 
     def test_enqueue_run_success_logs_info(self) -> None:
         """Test that successful enqueue logs an info message."""
-        from orcheo.models.workflow import WorkflowRun, WorkflowRunStatus
+        from orcheo.models import WorkflowRun, WorkflowRunStatus
 
         run = WorkflowRun(
             id=uuid4(),
@@ -51,7 +51,7 @@ class TestEnqueueRunFunction:
         mock_tasks_module.execute_run = mock_execute_run
 
         with patch(
-            "orcheo_backend.app.repository_sqlite._triggers.logger"
+            "orcheo_backend.app.repository_postgres._triggers.logger"
         ) as mock_logger:
             # Patch the import mechanism to return our mock
             original_import = builtins.__import__
@@ -67,7 +67,7 @@ class TestEnqueueRunFunction:
             try:
                 with patch.object(builtins, "__import__", side_effect=mock_import):
                     # Import and call the function
-                    from orcheo_backend.app.repository_sqlite._triggers import (
+                    from orcheo_backend.app.repository_postgres._triggers import (
                         _enqueue_run_for_execution,
                     )
 
@@ -89,7 +89,7 @@ class TestEnqueueRunFunction:
 
     def test_enqueue_run_exception_logs_warning(self) -> None:
         """Test that exception during enqueue logs a warning."""
-        from orcheo.models.workflow import WorkflowRun, WorkflowRunStatus
+        from orcheo.models import WorkflowRun, WorkflowRunStatus
 
         run = WorkflowRun(
             id=uuid4(),
@@ -108,7 +108,7 @@ class TestEnqueueRunFunction:
         mock_tasks_module.execute_run = mock_execute_run
 
         with patch(
-            "orcheo_backend.app.repository_sqlite._triggers.logger"
+            "orcheo_backend.app.repository_postgres._triggers.logger"
         ) as mock_logger:
             original_import = builtins.__import__
 
@@ -121,7 +121,7 @@ class TestEnqueueRunFunction:
 
             try:
                 with patch.object(builtins, "__import__", side_effect=mock_import):
-                    from orcheo_backend.app.repository_sqlite._triggers import (
+                    from orcheo_backend.app.repository_postgres._triggers import (
                         _enqueue_run_for_execution,
                     )
 

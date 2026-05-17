@@ -5,7 +5,7 @@ import asyncio
 import pytest
 from orcheo.listeners import ListenerHealthSnapshot, ListenerSupervisor
 from orcheo.listeners.models import ListenerSubscriptionStatus
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo.runtime.credentials import CredentialReferenceNotFoundError
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 

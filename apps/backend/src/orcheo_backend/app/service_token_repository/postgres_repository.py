@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 from orcheo_backend.app.authentication import ServiceTokenRecord
 from orcheo_backend.app.service_token_repository.protocol import ServiceTokenRepository
-from orcheo_backend.app.service_token_repository.sqlite_serialization import (
+from orcheo_backend.app.service_token_repository.serialization import (
     serialize_datetime,
     serialize_string_set,
 )
@@ -51,8 +51,6 @@ CREATE TABLE IF NOT EXISTS service_tokens (
     workspace_id TEXT
 );
 
-ALTER TABLE service_tokens ADD COLUMN IF NOT EXISTS workspace_id TEXT;
-
 CREATE INDEX IF NOT EXISTS idx_service_tokens_hash
     ON service_tokens(secret_hash);
 CREATE INDEX IF NOT EXISTS idx_service_tokens_expires
@@ -77,8 +75,6 @@ CREATE TABLE IF NOT EXISTS service_token_audit_log (
     details JSONB,
     workspace_id TEXT
 );
-
-ALTER TABLE service_token_audit_log ADD COLUMN IF NOT EXISTS workspace_id TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_token
     ON service_token_audit_log(token_id);

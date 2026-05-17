@@ -7,10 +7,8 @@ from uuid import UUID
 from fastapi import Depends, Request
 from orcheo.config import get_settings
 from orcheo.workspace import (
-    InMemoryWorkspaceRepository,
     PostgresWorkspaceRepository,
     Role,
-    SqliteWorkspaceRepository,
     Workspace,
     WorkspaceContext,
     WorkspaceMembershipError,
@@ -76,25 +74,19 @@ def reset_workspace_state() -> None:
 
 
 def get_workspace_repository() -> WorkspaceRepository:
-    """Return the configured workspace repository, falling back to in-memory."""
+    """Return the configured workspace repository."""
     repository = _workspace_repository_ref.get("repository")
     if repository is None:
         settings = get_settings()
-        backend = str(settings.get("WORKSPACE_BACKEND", "inmemory")).lower()
-        if backend == "postgres":
-            dsn = settings.get("POSTGRES_DSN")
-            if not dsn:
-                msg = "ORCHEO_POSTGRES_DSN must be set when using the postgres backend."
-                raise ValueError(msg)
-            repository = PostgresWorkspaceRepository(str(dsn))
-        elif backend == "sqlite":
-            repository = SqliteWorkspaceRepository(
-                str(
-                    settings.get("WORKSPACE_SQLITE_PATH", "~/.orcheo/workspaces.sqlite")
-                )
-            )
-        else:
-            repository = InMemoryWorkspaceRepository()
+        backend = str(settings.get("WORKSPACE_BACKEND", "postgres")).lower()
+        if backend != "postgres":
+            msg = "ORCHEO_WORKSPACE_BACKEND must be 'postgres'."
+            raise ValueError(msg)
+        dsn = settings.get("POSTGRES_DSN")
+        if not dsn:
+            msg = "ORCHEO_POSTGRES_DSN must be set when using the postgres backend."
+            raise ValueError(msg)
+        repository = PostgresWorkspaceRepository(str(dsn))
         _workspace_repository_ref["repository"] = repository
     return repository
 
@@ -188,7 +180,7 @@ def _synthesize_default_context(
     service: WorkspaceService,
     user_id: str,
 ) -> WorkspaceContext:
-    """Build a default workspace context for legacy single-tenant mode."""
+    """Build a default workspace context for single-tenant mode."""
     default_workspace = ensure_default_workspace(service.repository)
     return WorkspaceContext(
         workspace_id=default_workspace.id,

@@ -14,7 +14,6 @@ class VaultSettings(BaseModel):
         default=cast(VaultBackend, _DEFAULTS["VAULT_BACKEND"])
     )
     encryption_key: str | None = None
-    local_path: str | None = None
     aws_region: str | None = None
     aws_kms_key_id: str | None = None
     token_ttl_seconds: int = Field(
@@ -29,15 +28,12 @@ class VaultSettings(BaseModel):
             if value is not None
             else cast(str, _DEFAULTS["VAULT_BACKEND"])
         )
-        if candidate not in {"inmemory", "file", "aws_kms", "postgres"}:
-            msg = (
-                "ORCHEO_VAULT_BACKEND must be one of 'inmemory', 'file', 'aws_kms', "
-                "or 'postgres'."
-            )
+        if candidate != "postgres":
+            msg = "ORCHEO_VAULT_BACKEND must be 'postgres'."
             raise ValueError(msg)
         return cast(VaultBackend, candidate)
 
-    @field_validator("encryption_key", "local_path", "aws_region", "aws_kms_key_id")
+    @field_validator("encryption_key", "aws_region", "aws_kms_key_id")
     @classmethod
     def _coerce_optional_str(cls, value: object) -> str | None:
         if value is None:
@@ -68,42 +64,15 @@ class VaultSettings(BaseModel):
             msg = "ORCHEO_VAULT_TOKEN_TTL_SECONDS must be greater than zero."
             raise ValueError(msg)
 
-        if self.backend == "file":
-            self.local_path = self.local_path or cast(
-                str, _DEFAULTS["VAULT_LOCAL_PATH"]
-            )
-            self.aws_region = None
-            self.aws_kms_key_id = None
-        elif self.backend == "aws_kms":
-            if not self.encryption_key:
-                msg = (
-                    "ORCHEO_VAULT_ENCRYPTION_KEY must be set when using the aws_kms "
-                    "vault backend."
-                )
-                raise ValueError(msg)
-            if not self.aws_region or not self.aws_kms_key_id:
-                msg = (
-                    "ORCHEO_VAULT_AWS_REGION and ORCHEO_VAULT_AWS_KMS_KEY_ID must be "
-                    "set when using the aws_kms vault backend."
-                )
-                raise ValueError(msg)
-            self.local_path = None
-        elif self.backend == "postgres":
+        if self.backend == "postgres":
             if not self.encryption_key:
                 msg = (
                     "ORCHEO_VAULT_ENCRYPTION_KEY must be set when using the postgres "
                     "vault backend."
                 )
                 raise ValueError(msg)
-            self.local_path = None
             self.aws_region = None
             self.aws_kms_key_id = None
-        else:  # inmemory
-            self.encryption_key = None
-            self.local_path = None
-            self.aws_region = None
-            self.aws_kms_key_id = None
-
         return self
 
 

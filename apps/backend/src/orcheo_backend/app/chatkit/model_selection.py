@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from typing import Any
-from orcheo.models.workflow import Workflow
+from orcheo.models import Workflow
 
 
 CHATKIT_MODEL_CONFIG_KEY = "chatkit_model"

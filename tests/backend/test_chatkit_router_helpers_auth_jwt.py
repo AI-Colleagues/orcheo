@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException, status
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
     WorkflowNotFoundError,

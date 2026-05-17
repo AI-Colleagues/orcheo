@@ -60,3 +60,15 @@ def test_configure_logging_renders_extra_fields(
     assert payload["event"] == "wecom_customer_service"
     assert payload["status"] == "received"
     assert payload["open_kf_id"] == "kf_123"
+
+
+def test_configure_logging_uses_console_renderer_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reloading with the default format should exercise the console branch."""
+    monkeypatch.delenv("LOG_FORMAT", raising=False)
+    monkeypatch.setenv("LOG_LEVEL", "info")
+
+    reloaded = importlib.reload(logging_config)
+
+    assert reloaded.get_logger().name == "orcheo_backend.app"

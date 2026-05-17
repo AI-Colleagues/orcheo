@@ -5,7 +5,6 @@ import pytest
 from fastapi import WebSocket, WebSocketDisconnect
 from orcheo_backend.app import workflow_websocket
 from orcheo_backend.app.authentication import reset_authentication_state
-from orcheo_backend.app.history import InMemoryRunHistoryStore
 
 
 class _Repository:
@@ -58,7 +57,7 @@ async def test_workflow_websocket_routes_requests(
         ) as mock_execute,
         patch(
             "orcheo_backend.app._history_store_ref",
-            {"store": InMemoryRunHistoryStore()},
+            {"store": AsyncMock()},
         ),
     ):
         await workflow_websocket(mock_websocket, "test-workflow")
@@ -114,7 +113,7 @@ async def test_workflow_websocket_routes_evaluation_requests(
         ) as mock_execute,
         patch(
             "orcheo_backend.app._history_store_ref",
-            {"store": InMemoryRunHistoryStore()},
+            {"store": AsyncMock()},
         ),
     ):
         await workflow_websocket(mock_websocket, "workflow-abc")
@@ -168,7 +167,7 @@ async def test_workflow_websocket_routes_training_requests(
         ) as mock_execute,
         patch(
             "orcheo_backend.app._history_store_ref",
-            {"store": InMemoryRunHistoryStore()},
+            {"store": AsyncMock()},
         ),
     ):
         await workflow_websocket(mock_websocket, "workflow-train")
@@ -212,7 +211,7 @@ async def test_workflow_websocket_ignores_client_disconnect(
         ),
         patch(
             "orcheo_backend.app._history_store_ref",
-            {"store": InMemoryRunHistoryStore()},
+            {"store": AsyncMock()},
         ),
     ):
         await workflow_websocket(mock_websocket, "disconnect-workflow")

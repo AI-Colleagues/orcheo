@@ -1,7 +1,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setCandidateBadges } from "@features/workflow/data/templates/candidate-badges";
 import { WorkflowCard } from "./workflow-card";
 import {
   WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME,
@@ -81,6 +82,20 @@ const createHandlers = () => ({
 
 afterEach(() => {
   cleanup();
+});
+
+beforeEach(() => {
+  setCandidateBadges([
+    {
+      id: "template-insight-analyst",
+      name: "Insight Analyst",
+      handle: "insight-analyst",
+      subtitle: "AI Insights & Analytics",
+      description:
+        "Detects themes from text data using advanced thematic coding frameworks.",
+      emoji: "👨‍🎓",
+    },
+  ]);
 });
 
 describe("WorkflowCard", () => {

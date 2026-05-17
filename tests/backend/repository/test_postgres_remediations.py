@@ -5,7 +5,7 @@ import json
 from typing import Any
 from uuid import UUID, uuid4
 import pytest
-from orcheo.models.workflow import (
+from orcheo.models import (
     WorkflowRunRemediation,
     WorkflowRunRemediationClassification,
     WorkflowRunRemediationStatus,

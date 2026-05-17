@@ -11,7 +11,7 @@ from orcheo.listeners.registry import (
     ListenerMetadata,
     listener_registry,
 )
-from orcheo.nodes.agent_tools.registry import ToolMetadata, tool_registry
+from orcheo.nodes.ai.tools.registry import ToolMetadata, tool_registry
 from orcheo.nodes.registry import NodeMetadata, registry
 from orcheo.triggers.registry import TriggerMetadata, trigger_registry
 
@@ -47,15 +47,12 @@ class PluginAPI:
         self,
         metadata: EdgeMetadata,
         cls: Callable[..., Any],
-        aliases: tuple[str, ...] = (),
     ) -> None:
-        """Register a plugin-provided edge and optional aliases."""
+        """Register a plugin-provided edge."""
         if edge_registry.get_edge(metadata.name) is not None:
             msg = f"Edge '{metadata.name}' is already registered."
             raise ValueError(msg)
         edge_registry.register(metadata)(cls)
-        for alias in aliases:
-            edge_registry.register_alias(alias, metadata.name)
         self.registrations.edges.append(metadata.name)
 
     def register_agent_tool(

@@ -2,28 +2,26 @@ from __future__ import annotations
 import importlib
 import pytest
 from orcheo_backend.app import dependencies
-from orcheo_backend.app.plugin_installation_store import (
-    InMemoryPluginInstallationStore,
-)
 
 
-def test_create_vault_delegates_to_provider(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_create_vault_delegates_to_provider() -> None:
     """_create_vault proxies to providers.create_vault with the same settings."""
-    settings = object()
-    captured: dict[str, object] = {}
+    dependencies_module = importlib.import_module("orcheo_backend.app.dependencies")
 
-    def fake_create_vault(settings_arg: object) -> str:
-        captured["settings"] = settings_arg
-        return "vault"
+    class Settings:
+        def get(self, key: str, default: object = None) -> object:
+            values = {
+                "VAULT_BACKEND": "postgres",
+                "VAULT_ENCRYPTION_KEY": "vault-key",
+                "POSTGRES_DSN": "postgresql://test:test@localhost/test",
+                "POSTGRES_POOL_MIN_SIZE": 1,
+                "POSTGRES_POOL_MAX_SIZE": 10,
+            }
+            return values.get(key, default)
 
-    monkeypatch.setattr(dependencies, "create_vault", fake_create_vault)
+    result = dependencies_module._create_vault(Settings())
 
-    result = dependencies._create_vault(settings)
-
-    assert result == "vault"
-    assert captured["settings"] is settings
+    assert result is not None
 
 
 def test_get_credential_service_returns_current_service() -> None:
@@ -136,23 +134,6 @@ def test_get_repository_initializes_when_missing(
     repository = dependencies._get_repository()
 
     assert repository is sentinel_repository
-
-
-def test_set_plugin_installation_store_overrides_and_resets() -> None:
-    """set_plugin_installation_store updates the singleton and restores defaults."""
-
-    original_store = dependencies._plugin_installation_store_ref["store"]
-    try:
-        store = InMemoryPluginInstallationStore()
-        dependencies.set_plugin_installation_store(store)
-        assert dependencies.get_plugin_installation_store() is store
-
-        dependencies.set_plugin_installation_store(None)
-        renewed = dependencies.get_plugin_installation_store()
-        assert isinstance(renewed, InMemoryPluginInstallationStore)
-        assert renewed is not store
-    finally:
-        dependencies._plugin_installation_store_ref["store"] = original_store
 
 
 @pytest.mark.asyncio

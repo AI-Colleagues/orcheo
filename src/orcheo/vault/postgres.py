@@ -100,23 +100,12 @@ class PostgresCredentialVault(BaseCredentialVault):
                     if stmt.strip():
                         conn.execute(stmt)
                 conn.execute(
-                    "ALTER TABLE credentials ADD COLUMN IF NOT EXISTS workspace_id TEXT"
-                )
-                conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_credentials_workspace_id "
                     "ON credentials(workspace_id)"
                 )
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_credentials_workspace_name_lower "
                     "ON credentials(workspace_id, lower(name))"
-                )
-                conn.execute(
-                    "ALTER TABLE credential_templates ADD COLUMN "
-                    "IF NOT EXISTS workspace_id TEXT"
-                )
-                conn.execute(
-                    "ALTER TABLE governance_alerts ADD COLUMN "
-                    "IF NOT EXISTS workspace_id TEXT"
                 )
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_templates_workspace_id "

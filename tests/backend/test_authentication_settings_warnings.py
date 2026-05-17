@@ -51,8 +51,7 @@ def test_required_mode_without_credentials_warns(
     monkeypatch.delenv("ORCHEO_AUTH_JWKS_STATIC", raising=False)
     monkeypatch.delenv("ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH", raising=False)
     monkeypatch.delenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", raising=False)
-    monkeypatch.delenv("ORCHEO_REPOSITORY_SQLITE_PATH", raising=False)
-    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_BACKEND", "sqlite")
+    monkeypatch.setenv("ORCHEO_AUTH_SERVICE_TOKEN_BACKEND", "postgres")
     caplog.set_level(logging.WARNING)
 
     load_auth_settings(refresh=True)
@@ -90,10 +89,10 @@ def test_local_urls_do_not_force_required_mode(
     """Localhost-only configuration should not trigger public exposure."""
 
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "optional")
-    monkeypatch.setenv("ORCHEO_CHATKIT_PUBLIC_BASE_URL", "http://localhost:5173")
+    monkeypatch.setenv("ORCHEO_CHATKIT_PUBLIC_BASE_URL", "http://localhost:2026")
     monkeypatch.setenv(
         "ORCHEO_CORS_ALLOW_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173",
+        "http://localhost:2026,http://127.0.0.1:2026",
     )
 
     settings = load_auth_settings(refresh=True)
@@ -148,7 +147,7 @@ def test_auth_settings_enforce_disabled_mode() -> None:
         allowed_algorithms=(),
         audiences=(),
         issuer=None,
-        service_token_backend="sqlite",
+        service_token_backend="inmemory",
         service_token_db_path=None,
         bootstrap_service_token=None,
         bootstrap_token_scopes=frozenset(),
@@ -173,7 +172,7 @@ def test_auth_settings_enforce_required_mode() -> None:
         allowed_algorithms=(),
         audiences=(),
         issuer=None,
-        service_token_backend="sqlite",
+        service_token_backend="inmemory",
         service_token_db_path=None,
         bootstrap_service_token=None,
         bootstrap_token_scopes=frozenset(),
@@ -198,7 +197,7 @@ def test_auth_settings_enforce_optional_with_credentials() -> None:
         allowed_algorithms=(),
         audiences=(),
         issuer=None,
-        service_token_backend="sqlite",
+        service_token_backend="inmemory",
         service_token_db_path=None,
         bootstrap_service_token=None,
         bootstrap_token_scopes=frozenset(),

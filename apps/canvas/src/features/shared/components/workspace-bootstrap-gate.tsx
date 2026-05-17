@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
 import {
@@ -47,6 +47,11 @@ export function WorkspaceBootstrapGate({
   const [workspaceSlug, setWorkspaceSlugState] = useState("");
   const [workspaceSlugIsManual, setWorkspaceSlugIsManual] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const workspaceNameRef = useRef(workspaceName);
+
+  useEffect(() => {
+    workspaceNameRef.current = workspaceName;
+  }, [workspaceName]);
 
   useEffect(() => {
     if (!authUser) {
@@ -67,7 +72,8 @@ export function WorkspaceBootstrapGate({
         const currentSlug = getSelectedWorkspaceSlug();
 
         if (payload.memberships.length === 0) {
-          const nextWorkspaceName = workspaceName.trim() || suggestedWorkspaceName;
+          const nextWorkspaceName =
+            workspaceNameRef.current.trim() || suggestedWorkspaceName;
           setWorkspaceName(nextWorkspaceName);
           setWorkspaceSlugState(slugifyWorkspace(nextWorkspaceName));
           setWorkspaceSlugIsManual(false);

@@ -7,14 +7,74 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 import pytest
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
-from orcheo.models.workflow import (
+from orcheo.models import (
     WorkflowDraftAccess,
     WorkflowRunRemediationClassification,
     WorkflowRunRemediationStatus,
     WorkflowRunStatus,
 )
-from orcheo_backend.app.history import InMemoryRunHistoryStore
+from orcheo_backend.app.history import (
+    RunHistoryRecord,
+    RunHistoryNotFoundError,
+    RunHistoryStore,
+)
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
+
+
+class _FakeHistoryStore:
+    """Minimal in-test history store backed by RunHistoryRecord."""
+
+    def __init__(self) -> None:
+        self._records: dict[str, RunHistoryRecord] = {}
+
+    async def start_run(
+        self, *, workflow_id: str, execution_id: str, inputs=None, **kwargs
+    ) -> RunHistoryRecord:
+        record = RunHistoryRecord(
+            workflow_id=workflow_id,
+            execution_id=execution_id,
+            inputs=dict(inputs) if inputs else {},
+        )
+        self._records[execution_id] = record
+        return record.model_copy(deep=True)
+
+    async def append_step(self, execution_id: str, payload) -> object:
+        return self._records[execution_id].append_step(dict(payload))
+
+    async def mark_completed(self, execution_id: str) -> RunHistoryRecord:
+        self._records[execution_id].mark_completed()
+        return self._records[execution_id].model_copy(deep=True)
+
+    async def mark_failed(self, execution_id: str, error: str) -> RunHistoryRecord:
+        self._records[execution_id].mark_failed(error)
+        return self._records[execution_id].model_copy(deep=True)
+
+    async def mark_cancelled(
+        self, execution_id: str, *, reason=None
+    ) -> RunHistoryRecord:
+        self._records[execution_id].mark_cancelled(reason=reason)
+        return self._records[execution_id].model_copy(deep=True)
+
+    async def get_history(self, execution_id: str) -> RunHistoryRecord:
+        record = self._records.get(execution_id)
+        if record is None:
+            raise RunHistoryNotFoundError(f"History not found: {execution_id}")
+        return record.model_copy(deep=True)
+
+    async def list_histories(
+        self, workflow_id: str, *, limit=None, workspace_id=None
+    ) -> list[RunHistoryRecord]:
+        records = [
+            r.model_copy(deep=True)
+            for r in self._records.values()
+            if r.workflow_id == workflow_id
+        ]
+        return records[:limit] if limit else records
+
+    async def clear(self) -> None:
+        self._records.clear()
+
+
 from orcheo_backend.app.workflow_remediation import (
     WorkflowAutofixSettings,
     attempt_workflow_remediation_async,
@@ -161,7 +221,7 @@ def test_error_fingerprint_normalizes_literal_values() -> None:
 @pytest.mark.asyncio()
 async def test_create_candidate_for_failed_run_captures_redacted_context() -> None:
     repository, version, run = await _seed_repository()
-    history_store = InMemoryRunHistoryStore()
+    history_store = _FakeHistoryStore()
     await history_store.start_run(
         workflow_id=str(version.workflow_id),
         execution_id=str(run.id),

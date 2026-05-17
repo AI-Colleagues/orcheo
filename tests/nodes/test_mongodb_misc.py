@@ -32,7 +32,7 @@ def test_run_method(mongo_context: MongoTestContext) -> None:
     """The run method should execute operations and format responses."""
 
     mongo_context.collection.find.return_value = [{"_id": "1", "name": "doc1"}]
-    node = mongo_context.build_node(operation="find", query={"status": "active"})
+    node = mongo_context.build_node(operation="find", filter={"status": "active"})
 
     state = State(messages=[], inputs={}, results={})
     config = cast(RunnableConfig, {})

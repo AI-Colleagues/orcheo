@@ -284,6 +284,6 @@ async def test_get_run_correct_workspace_succeeds(
 
 
 def _draft_access() -> object:
-    from orcheo.models.workflow import WorkflowDraftAccess
+    from orcheo.models import WorkflowDraftAccess
 
     return WorkflowDraftAccess.AUTHENTICATED

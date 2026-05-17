@@ -6,7 +6,7 @@ from difflib import unified_diff
 from typing import Any
 from uuid import UUID
 from orcheo.listeners import compile_listener_subscriptions
-from orcheo.models.workflow import WorkflowVersion
+from orcheo.models import WorkflowVersion
 from orcheo_backend.app.repository import (
     VersionDiff,
     WorkflowVersionNotFoundError,

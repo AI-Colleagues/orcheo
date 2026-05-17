@@ -24,7 +24,7 @@ context without leaving Canvas.
   saved and has a stable `workflowId`. The hook surfaces the error
   “Save the workflow before opening ChatKit.” when no ID exists (`use-workflow-chat.ts:68-77`).
 4. **Backend reachability** – ensure the editor can reach the backend base URL
-  returned by `getBackendBaseUrl()` (typically `http://localhost:8000` in dev)
+  returned by `getBackendBaseUrl()` (typically `http://localhost:2025` in dev)
   so JWT refresh calls succeed.
 5. **IdP login (local or hosted)** – configure Canvas OIDC settings
   (`VITE_ORCHEO_AUTH_ISSUER`, `VITE_ORCHEO_AUTH_CLIENT_ID`, and optionally

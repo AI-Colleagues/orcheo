@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import builtins
+import importlib
 from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -348,27 +349,6 @@ async def test_hydrate_widget_items_records_metrics_on_error() -> None:
     )
 
 
-def test_resolve_chatkit_sqlite_path_uses_dynaconf_and_mappings() -> None:
-    dynaconf = Dynaconf(settings_files=[], load_dotenv=False)
-    dynaconf.set("CHATKIT_SQLITE_PATH", "~/dynaconf.sqlite")
-    dynaconf_path = server_module._resolve_chatkit_sqlite_path(dynaconf)
-    assert dynaconf_path == server_module.Path("~/dynaconf.sqlite").expanduser()
-
-    mapping_path = server_module._resolve_chatkit_sqlite_path(
-        {"CHATKIT_SQLITE_PATH": "~/map.sqlite"}
-    )
-    assert mapping_path == server_module.Path("~/map.sqlite").expanduser()
-
-    class ConfigObject:
-        chatkit_sqlite_path = "~/attr.sqlite"
-
-    object_path = server_module._resolve_chatkit_sqlite_path(ConfigObject())
-    assert object_path == server_module.Path("~/attr.sqlite").expanduser()
-
-    default_path = server_module._resolve_chatkit_sqlite_path(object())
-    assert default_path == server_module.Path("~/.orcheo/chatkit.sqlite").expanduser()
-
-
 def test_workflow_id_from_thread_reads_metadata() -> None:
     thread = ThreadMetadata(
         id="thread",
@@ -522,6 +502,19 @@ def test_refresh_widget_policy_respects_attribute_config() -> None:
 
     assert server_module._WIDGET_TYPES == {"AttributeCard"}
     assert server_module._ALLOWED_WIDGET_ACTION_TYPES == {"tap"}
+
+
+def test_server_module_import_does_not_require_vault_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Importing the server module should stay lazy about settings loading."""
+
+    monkeypatch.delenv("ORCHEO_VAULT_ENCRYPTION_KEY", raising=False)
+
+    reloaded = importlib.reload(server_module)
+
+    assert reloaded._WIDGET_TYPES == {"Card", "ListView"}
+    assert reloaded._ALLOWED_WIDGET_ACTION_TYPES == {"submit"}
 
 
 @pytest.mark.asyncio

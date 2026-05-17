@@ -5,10 +5,19 @@ import {
   type Workflow,
 } from "@features/workflow/data/workflow-data";
 import {
+  type CandidateBadgeSpec,
+  getCandidateWorkflows,
+  setCandidateBadges,
+} from "@features/workflow/data/templates/candidate-badges";
+import {
   listWorkflows,
   type StoredWorkflow,
   WORKFLOW_STORAGE_EVENT,
 } from "@features/workflow/lib/workflow-storage";
+import {
+  type ApiCandidate,
+  fetchCandidates,
+} from "@features/workflow/lib/workflow-storage-api";
 import {
   type WorkflowGalleryTab,
   type WorkflowGalleryTabCounts,
@@ -26,6 +35,21 @@ interface WorkflowGalleryStateSlice {
   templates: Workflow[];
 }
 
+const toCandidateSpec = (candidate: ApiCandidate): CandidateBadgeSpec => ({
+  id: `template-${candidate.id.replace(/\//g, "-")}`,
+  name: candidate.name,
+  handle: candidate.handle,
+  subtitle: candidate.subtitle ?? undefined,
+  description: candidate.description ?? undefined,
+  emoji: candidate.emoji ?? undefined,
+  script: candidate.script,
+  config: candidate.config,
+  entrypoint: candidate.entrypoint,
+  notes: candidate.notes,
+  mermaid: candidate.mermaid,
+  rawMetadata: candidate.metadata,
+});
+
 const matchesWorkflowSearch = (
   workflow: Workflow,
   normalizedSearchQuery: string,
@@ -40,9 +64,39 @@ const matchesWorkflowSearch = (
 
 export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
   const [workflows, setWorkflows] = useState<StoredWorkflow[]>([]);
+  const [candidateWorkflows, setCandidateWorkflows] = useState<Workflow[]>([]);
   const [isLoadingWorkflows, setIsLoadingWorkflows] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTab, setSelectedTab] = useState<WorkflowGalleryTab>("all");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadCandidates = async () => {
+      try {
+        // Load both candidates and existing workflows to check for handle conflicts
+        const [candidates, existingWorkflows] = await Promise.all([
+          fetchCandidates(),
+          listWorkflows()
+        ]);
+        if (!isMounted) {
+          return;
+        }
+        setCandidateBadges(candidates.map(toCandidateSpec), existingWorkflows);
+        setCandidateWorkflows(getCandidateWorkflows());
+      } catch (error) {
+        if (isMounted) {
+          console.error("Failed to load candidate colleagues", error);
+        }
+      }
+    };
+
+    void loadCandidates();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -95,7 +149,10 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
     };
   }, []);
 
-  const templates = useMemo(() => GALLERY_TEMPLATE_WORKFLOWS, []);
+  const templates = useMemo(
+    () => [...GALLERY_TEMPLATE_WORKFLOWS, ...candidateWorkflows],
+    [candidateWorkflows],
+  );
   const isTemplateView = selectedTab === "templates";
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
 

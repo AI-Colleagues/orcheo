@@ -39,7 +39,7 @@ def coerce_workspace_id(value: UUID | str | None) -> str:
     """Normalize a workspace id to its canonical string form.
 
     Accepts ``UUID``, ``str``, or ``None`` (which raises). The string form is
-    used uniformly across SQLite/Postgres parameter binding for workspace ids.
+    used uniformly across PostgreSQL parameter binding for workspace ids.
     """
     if value is None:
         msg = "workspace_id must not be None"
@@ -89,8 +89,7 @@ def workspace_scoped_sql(
         workspace_id: The active workspace id (UUID or str).
         column: Column name on the target table. Defaults to ``workspace_id``.
         extra_params: Additional bound parameters that follow the workspace id.
-        placeholder: Parameter placeholder dialect (``?`` for SQLite,
-            ``%s`` for psycopg).
+        placeholder: Parameter placeholder dialect (``%s`` for psycopg).
     """
     tid = ensure_workspace_id(workspace_id)
     upper = base_query.upper()

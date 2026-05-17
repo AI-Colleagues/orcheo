@@ -181,7 +181,7 @@ async def test_bleu_metrics_node_empty_inputs() -> None:
 async def test_semantic_similarity_node_computes_scores(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import orcheo.nodes.conversational_search.embeddings as emb_mod
+    import orcheo.nodes.rag.embeddings as emb_mod
 
     node = SemanticSimilarityMetricsNode(
         name="similarity", embed_model="test:fake", model_kwargs={}
@@ -218,7 +218,7 @@ async def test_semantic_similarity_node_computes_scores(
 async def test_semantic_similarity_node_records_trace_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import orcheo.nodes.conversational_search.embeddings as emb_mod
+    import orcheo.nodes.rag.embeddings as emb_mod
 
     class FakeEmbeddings:
         async def aembed_documents(self, texts: list[str]) -> list[list[float]]:

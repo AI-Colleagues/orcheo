@@ -10,11 +10,11 @@ from orcheo_sdk.cli.errors import CLIError
 
 
 if TYPE_CHECKING:
-    from orcheo.nodes.agent_tools.registry import ToolRegistry
+    from orcheo.nodes.ai.tools.registry import ToolRegistry
 
 
 def load_tool_registry() -> ToolRegistry:
-    """Load the global tool registry from orcheo.nodes.agent_tools.registry.
+    """Load the global tool registry from orcheo.nodes.ai.tools.registry.
 
     Returns:
         ToolRegistry instance
@@ -22,28 +22,27 @@ def load_tool_registry() -> ToolRegistry:
     Raises:
         CLIError: If unable to import or load the registry
     """
-    from orcheo.nodes.agent_tools.registry import ToolRegistry
+    from orcheo.nodes.ai.tools.registry import ToolRegistry
     from orcheo.plugins import ensure_plugins_loaded
 
     ensure_plugins_loaded()
     try:
         # Import tools module to trigger registration
-        import_module("orcheo.nodes.agent_tools.tools")
+        import_module("orcheo.nodes.ai.tools.tools")
     except ModuleNotFoundError as exc:  # pragma: no cover - import error
-        msg = "Unable to import orcheo.nodes.agent_tools.tools for registry population"
+        msg = "Unable to import orcheo.nodes.ai.tools.tools for registry population"
         raise CLIError(msg) from exc
 
     try:
-        module = import_module("orcheo.nodes.agent_tools.registry")
+        module = import_module("orcheo.nodes.ai.tools.registry")
     except ModuleNotFoundError as exc:  # pragma: no cover - import error
-        msg = "Unable to import orcheo.nodes.agent_tools.registry"
+        msg = "Unable to import orcheo.nodes.ai.tools.registry"
         raise CLIError(msg) from exc
 
     registry = getattr(module, "tool_registry", None)
     if registry is None:  # pragma: no cover - defensive
         msg = (
-            "orcheo.nodes.agent_tools.registry does not expose "
-            "a 'tool_registry' attribute"
+            "orcheo.nodes.ai.tools.registry does not expose a 'tool_registry' attribute"
         )
         raise CLIError(msg)
 

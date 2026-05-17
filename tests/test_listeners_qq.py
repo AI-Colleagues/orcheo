@@ -21,7 +21,7 @@ from orcheo.listeners import (
     normalize_qq_event,
     qq_intents_bitmask,
 )
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 

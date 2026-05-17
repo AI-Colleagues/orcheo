@@ -12,7 +12,7 @@ from chatkit.types import (
 )
 from langchain_core.messages import AIMessage, HumanMessage
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
-from orcheo.models.workflow import Workflow, WorkflowChatKitConfig
+from orcheo.models import Workflow, WorkflowChatKitConfig
 from orcheo_backend.app.chatkit import message_utils as message_utils_module
 from orcheo_backend.app.chatkit.message_utils import (
     build_action_inputs_payload,

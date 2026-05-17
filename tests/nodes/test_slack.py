@@ -4,7 +4,7 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
-from orcheo.nodes.slack import SlackNode
+from orcheo.nodes.connectors.slack import SlackNode
 
 
 class FakeResponse:

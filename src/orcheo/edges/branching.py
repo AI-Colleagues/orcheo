@@ -67,7 +67,7 @@ class IfElseEdge(BaseEdge):
 
     async def run(self, state: State, config: RunnableConfig) -> str:
         """Return the evaluated branch key."""
-        outcome, evaluations = _combine_condition_results(
+        outcome, _evaluations = _combine_condition_results(
             conditions=self.conditions,
             combinator=self.condition_logic,
         )
@@ -204,22 +204,9 @@ class WhileEdge(BaseEdge):
         return "continue" if should_continue else "exit"
 
 
-edge_registry.register_alias("IfElse", "IfElseEdge")
-edge_registry.register_alias("Switch", "SwitchEdge")
-edge_registry.register_alias("While", "WhileEdge")
-
-# Backward-compatible imports for existing Python workflows.
-IfElse = IfElseEdge
-Switch = SwitchEdge
-While = WhileEdge
-
-
 __all__ = [
     "SwitchCase",
     "IfElseEdge",
     "SwitchEdge",
     "WhileEdge",
-    "IfElse",
-    "Switch",
-    "While",
 ]

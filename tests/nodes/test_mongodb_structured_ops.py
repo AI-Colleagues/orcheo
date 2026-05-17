@@ -8,7 +8,7 @@ from bson import ObjectId
 from langchain_core.runnables import RunnableConfig
 from pymongo.results import UpdateResult
 from orcheo.graph.state import State
-from orcheo.nodes.mongodb import (
+from orcheo.nodes.storage.mongodb import (
     MongoDBAggregateNode,
     MongoDBFindNode,
     MongoDBUpdateManyNode,

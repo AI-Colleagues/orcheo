@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from collections.abc import Generator
+from unittest.mock import AsyncMock
 from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
@@ -14,7 +15,7 @@ from orcheo_backend.app.authentication import (
     authenticate_request,
     get_authorization_policy,
 )
-from orcheo_backend.app.history import InMemoryRunHistoryStore
+from orcheo_backend.app.history import RunHistoryStore
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from orcheo_backend.app.workspace.dependencies import (
     reset_workspace_state,
@@ -43,15 +44,15 @@ def repository() -> InMemoryWorkflowRepository:
 
 
 @pytest.fixture
-def history_store() -> InMemoryRunHistoryStore:
-    """Provide an in-memory run history store."""
-    return InMemoryRunHistoryStore()
+def history_store() -> RunHistoryStore:
+    """Provide a mock run history store for integration tests."""
+    return AsyncMock(spec=RunHistoryStore)
 
 
 @pytest.fixture
 def client(
     repository: InMemoryWorkflowRepository,
-    history_store: InMemoryRunHistoryStore,
+    history_store: RunHistoryStore,
 ) -> Generator[TestClient, None, None]:
     """Return a TestClient wired up with in-memory dependencies."""
     ws_repo = InMemoryWorkspaceRepository()

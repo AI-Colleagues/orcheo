@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo_backend.app.managed_workflows import (
     MANAGED_VIBE_WORKFLOW_HANDLE,
     ensure_managed_vibe_workflow,

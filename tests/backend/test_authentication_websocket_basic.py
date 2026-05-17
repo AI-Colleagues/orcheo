@@ -11,6 +11,7 @@ from orcheo_backend.app.authentication import (
     reset_authentication_state,
 )
 from tests.backend.authentication_test_utils import (
+    _install_test_authenticator,
     _setup_service_token,
     reset_auth_state,
 )
@@ -31,6 +32,7 @@ async def test_authenticate_websocket_with_auth_header(
 
     token = "ws-token"
     _setup_service_token(monkeypatch, token, identifier="ws")
+    _install_test_authenticator(monkeypatch)
     reset_authentication_state()
 
     websocket = Mock(spec=WebSocket)
@@ -53,6 +55,7 @@ async def test_authenticate_websocket_with_subprotocol_token(
 
     token = "ws-protocol-token"
     _setup_service_token(monkeypatch, token, identifier="ws-protocol")
+    _install_test_authenticator(monkeypatch)
     reset_authentication_state()
 
     websocket = Mock(spec=WebSocket)
@@ -83,7 +86,7 @@ async def test_authenticate_websocket_missing_token() -> None:
             allowed_algorithms=(),
             audiences=(),
             issuer=None,
-            service_token_backend="sqlite",
+            service_token_backend="inmemory",
             service_token_db_path=None,
             rate_limit_ip=0,
             rate_limit_identity=0,
@@ -122,7 +125,7 @@ async def test_authenticate_websocket_invalid_scheme() -> None:
             allowed_algorithms=(),
             audiences=(),
             issuer=None,
-            service_token_backend="sqlite",
+            service_token_backend="inmemory",
             service_token_db_path=None,
             rate_limit_ip=0,
             rate_limit_identity=0,

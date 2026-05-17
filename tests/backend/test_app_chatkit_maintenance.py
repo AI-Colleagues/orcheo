@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 import asyncio
-import sqlite3
+import importlib
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 import pytest
 from orcheo_backend.app import (
@@ -16,7 +15,19 @@ from orcheo_backend.app import (
     _get_chatkit_store,
 )
 from orcheo_backend.app.chatkit import InMemoryChatKitStore
-from orcheo_backend.app.chatkit_store_sqlite import SqliteChatKitStore
+
+chatkit_runtime_module = importlib.import_module("orcheo_backend.app.chatkit_runtime")
+
+
+class FakePostgresChatKitStore:
+    def __init__(self) -> None:
+        self.prune_calls = 0
+        self.last_cutoff: datetime | None = None
+
+    async def prune_threads_older_than(self, cutoff: datetime) -> int:
+        self.prune_calls += 1
+        self.last_cutoff = cutoff
+        return 1
 
 
 @pytest.mark.asyncio()
@@ -46,48 +57,34 @@ async def test_cancel_chatkit_cleanup_task_no_task() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_chatkit_cleanup_task_prunes_threads(tmp_path: Path) -> None:
+async def test_chatkit_cleanup_task_prunes_threads() -> None:
     """Cleanup task should prune old threads and log the count."""
 
-    db_path = tmp_path / "chatkit_test.sqlite"
-    store = SqliteChatKitStore(db_path)
-
+    store = FakePostgresChatKitStore()
     mock_server = MagicMock()
     mock_server.store = store
     _chatkit_server_ref["server"] = mock_server
 
-    from chatkit.types import ThreadMetadata
-
-    thread_id = "thr_old"
-    old_thread = ThreadMetadata(
-        id=thread_id,
-        created_at=datetime.now(tz=UTC) - timedelta(days=60),
-    )
-    await store.save_thread(old_thread, {})
-
-    with sqlite3.connect(db_path) as conn:
-        stale_timestamp = (datetime.now(tz=UTC) - timedelta(days=60)).isoformat()
-        conn.execute(
-            "UPDATE chat_threads SET updated_at = ? WHERE id = ?",
-            (stale_timestamp, thread_id),
-        )
-        conn.commit()
-
-    with (
-        patch("orcheo_backend.app._chatkit_retention_days", return_value=30),
-        patch("orcheo_backend.app._CHATKIT_CLEANUP_INTERVAL_SECONDS", 0.1),
+    with patch.object(
+        chatkit_runtime_module, "PostgresChatKitStore", FakePostgresChatKitStore
     ):
-        _chatkit_cleanup_task["task"] = None
-        await _ensure_chatkit_cleanup_task()
-        task = _chatkit_cleanup_task["task"]
-        assert task is not None
+        with (
+            patch("orcheo_backend.app._chatkit_retention_days", return_value=30),
+            patch("orcheo_backend.app._CHATKIT_CLEANUP_INTERVAL_SECONDS", 0.1),
+        ):
+            _chatkit_cleanup_task["task"] = None
+            await _ensure_chatkit_cleanup_task()
+            task = _chatkit_cleanup_task["task"]
+            assert task is not None
 
-        await asyncio.sleep(0.2)
+            await asyncio.sleep(0.2)
 
-        task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
+    assert store.prune_calls >= 1
+    assert store.last_cutoff is not None
     _chatkit_server_ref["server"] = None
     _chatkit_cleanup_task["task"] = None
 
@@ -100,8 +97,8 @@ def test_get_chatkit_store_returns_none_when_no_server() -> None:
     assert store is None
 
 
-def test_get_chatkit_store_returns_none_for_non_sqlite_store() -> None:
-    """Get chatkit store should return None when store is not SqliteChatKitStore."""
+def test_get_chatkit_store_returns_none_for_non_postgres_store() -> None:
+    """Get chatkit store should return None when store is not PostgresChatKitStore."""
 
     mock_server = MagicMock()
     mock_server.store = InMemoryChatKitStore()

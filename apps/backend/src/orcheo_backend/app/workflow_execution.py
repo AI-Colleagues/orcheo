@@ -17,8 +17,8 @@ from orcheo.agentensor.training import TrainingRequest
 from orcheo.config import get_settings
 from orcheo.external_agents import scoped_external_agent_environment
 from orcheo.graph.state import State
-from orcheo.nodes.agent_tools.context import tool_progress_context
-from orcheo.nodes.agentensor import AgentensorNode
+from orcheo.nodes.ai.agentensor import AgentensorNode
+from orcheo.nodes.ai.tools.context import tool_progress_context
 from orcheo.nodes.browser import close_browser_sessions_for_scope
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import (
@@ -385,7 +385,6 @@ async def _resolve_stored_runnable_config(
     """Return stored runnable config, loading from repository when needed."""
     if stored_runnable_config is not None or workflow_id is None:
         return stored_runnable_config
-    from aiosqlite import Error as SqliteError
     from orcheo_backend.app.dependencies import get_repository
     from orcheo_backend.app.repository import (
         RepositoryError,
@@ -398,7 +397,7 @@ async def _resolve_stored_runnable_config(
         version = await repository.get_latest_version(workflow_id)
     except (WorkflowNotFoundError, WorkflowVersionNotFoundError):
         return None
-    except (RepositoryError, SqliteError):
+    except RepositoryError:
         logger.exception(
             "Failed to load stored runnable config for workflow %s",
             workflow_id,

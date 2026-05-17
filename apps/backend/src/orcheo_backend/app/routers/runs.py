@@ -3,7 +3,7 @@
 from __future__ import annotations
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
-from orcheo.models.workflow import WorkflowRun
+from orcheo.models import WorkflowRun
 from orcheo.vault.oauth import CredentialHealthError
 from orcheo_backend.app.dependencies import (
     CredentialServiceDep,

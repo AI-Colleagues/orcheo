@@ -84,8 +84,7 @@ export const createHandleAddCredential =
         },
         body: JSON.stringify({
           name: credential.name,
-          provider:
-            credential.provider?.trim() || credential.type?.trim() || "custom",
+          provider: credential.provider?.trim() || "Custom",
           secret,
           actor: userName,
           access: credential.access,

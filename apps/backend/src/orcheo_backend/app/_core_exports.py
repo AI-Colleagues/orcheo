@@ -97,9 +97,6 @@ from orcheo_backend.app.providers import (
     create_vault as _create_vault,
 )
 from orcheo_backend.app.providers import (
-    ensure_file_vault_key as _ensure_file_vault_key,
-)
-from orcheo_backend.app.providers import (
     settings_value as _settings_value,
 )
 from orcheo_backend.app.workflow_execution import (
@@ -153,7 +150,6 @@ __all__ = [
     "_create_vault",
     "_ensure_chatkit_cleanup_task",
     "_ensure_credential_service",
-    "_ensure_file_vault_key",
     "_get_chatkit_store",
     "_get_repository",
     "_health_report_to_response",

@@ -2,7 +2,7 @@ from __future__ import annotations
 import asyncio
 from uuid import uuid4
 from fastapi.testclient import TestClient
-from orcheo.models.workflow import (
+from orcheo.models import (
     WorkflowDraftAccess,
     WorkflowRunRemediation,
     WorkflowRunRemediationClassification,

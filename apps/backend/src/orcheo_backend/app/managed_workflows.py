@@ -4,7 +4,7 @@ from __future__ import annotations
 from textwrap import dedent
 from typing import Any
 from orcheo.graph.ingestion import ingest_langgraph_script
-from orcheo.models.workflow import Workflow, WorkflowDraftAccess
+from orcheo.models import Workflow, WorkflowDraftAccess
 from orcheo.workspace import Workspace
 from orcheo_backend.app.repository import (
     WorkflowHandleConflictError,
@@ -48,12 +48,12 @@ MANAGED_VIBE_WORKFLOW_SCRIPT = dedent(
     from langchain_core.messages import AIMessage
     from langchain_core.runnables import RunnableConfig
     from langgraph.graph import END, START, StateGraph
-    from orcheo.edges.branching import Switch, SwitchCase
+    from orcheo.edges.branching import SwitchCase, SwitchEdge
     from orcheo.graph.state import State
     from orcheo.nodes.base import TaskNode
-    from orcheo.nodes.claude_code import ClaudeCodeNode
-    from orcheo.nodes.codex import CodexNode
-    from orcheo.nodes.gemini import GeminiNode
+    from orcheo.nodes.ai.external.claude_code import ClaudeCodeNode
+    from orcheo.nodes.ai.external.codex import CodexNode
+    from orcheo.nodes.ai.external.gemini import GeminiNode
 
 
     def stringify_content(value: Any) -> str:
@@ -206,7 +206,7 @@ MANAGED_VIBE_WORKFLOW_SCRIPT = dedent(
         graph.add_edge(START, "prepare_prompt")
         graph.add_conditional_edges(
             "prepare_prompt",
-            Switch(
+            SwitchEdge(
                 name="provider_route",
                 value="{{inputs.model}}",
                 cases=[

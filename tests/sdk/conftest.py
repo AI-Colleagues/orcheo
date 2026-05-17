@@ -85,6 +85,6 @@ def mock_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def client() -> OrcheoClient:
     """Provide a baseline SDK client with default headers."""
     return OrcheoClient(
-        base_url="http://localhost:8000",
+        base_url="http://localhost:2025",
         default_headers={"X-Test": "1"},
     )

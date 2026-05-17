@@ -32,7 +32,7 @@ from orcheo.listeners.discord import (
     _string_or_none,
     _with_gateway_params,
 )
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 
 

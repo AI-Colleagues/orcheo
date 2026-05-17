@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 from orcheo.models import CredentialHealthStatus
-from orcheo.models.workflow import WorkflowRun, WorkflowVersion
+from orcheo.models import WorkflowRun, WorkflowVersion
 from orcheo.vault.oauth import (
     CredentialHealthError,
     CredentialHealthReport,

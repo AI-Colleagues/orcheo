@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 import pytest
-from orcheo.models.workflow import WorkflowDraftAccess, WorkflowRunStatus
+from orcheo.models import WorkflowDraftAccess, WorkflowRunStatus
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
 from orcheo.triggers.retry import RetryPolicyConfig
@@ -610,8 +610,6 @@ async def test_postgres_manual_dispatch_request_handling(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test manual dispatch creates runs with correct configuration."""
-    from orcheo_backend.app.repository_postgres import _triggers
-
     workflow_id = uuid4()
     version_id = uuid4()
 
@@ -630,13 +628,6 @@ async def test_postgres_manual_dispatch_request_handling(
         {},
     ]
     repo = make_repository(monkeypatch, responses)
-
-    # Monkeypatch the execute_run.delay to avoid Celery import issues
-    monkeypatch.setattr(
-        _triggers,
-        "_enqueue_run_for_execution",
-        lambda run: None,
-    )
 
     request = ManualDispatchRequest(
         workflow_id=workflow_id,

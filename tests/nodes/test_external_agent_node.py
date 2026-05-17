@@ -18,7 +18,7 @@ from orcheo.external_agents.models import (
     WorkingDirectoryValidationError,
 )
 from orcheo.graph.state import State
-from orcheo.nodes.external_agent import ExternalAgentNode
+from orcheo.nodes.ai.external.base import ExternalAgentNode
 from orcheo.runtime.credentials import CredentialReferenceNotFoundError
 
 
@@ -363,7 +363,7 @@ async def test_run_auto_initializes_git_worktree_by_default(
         )
 
     monkeypatch.setattr(
-        "orcheo.nodes.external_agent.execute_process",
+        "orcheo.nodes.ai.external.base.execute_process",
         fake_execute,
     )
 
@@ -397,7 +397,7 @@ async def test_run_can_disable_auto_init_git_worktree(
         )
 
     monkeypatch.setattr(
-        "orcheo.nodes.external_agent.execute_process",
+        "orcheo.nodes.ai.external.base.execute_process",
         fake_execute,
     )
 
@@ -477,7 +477,7 @@ async def test_run_reports_timeout(
         )
 
     monkeypatch.setattr(
-        "orcheo.nodes.external_agent.execute_process",
+        "orcheo.nodes.ai.external.base.execute_process",
         fake_execute,
     )
 
@@ -507,7 +507,7 @@ async def test_run_reports_non_zero_exit(
         )
 
     monkeypatch.setattr(
-        "orcheo.nodes.external_agent.execute_process",
+        "orcheo.nodes.ai.external.base.execute_process",
         fake_execute,
     )
 
@@ -537,7 +537,7 @@ async def test_run_succeeds_with_zero_exit(
         )
 
     monkeypatch.setattr(
-        "orcheo.nodes.external_agent.execute_process",
+        "orcheo.nodes.ai.external.base.execute_process",
         fake_execute,
     )
 
@@ -567,7 +567,7 @@ async def test_run_preserves_workspace_id_when_present(
         )
 
     monkeypatch.setattr(
-        "orcheo.nodes.external_agent.execute_process",
+        "orcheo.nodes.ai.external.base.execute_process",
         fake_execute,
     )
 
@@ -607,11 +607,11 @@ async def test_run_logs_bypass_flag_audit_event(
         )
 
     monkeypatch.setattr(
-        "orcheo.nodes.external_agent.execute_process",
+        "orcheo.nodes.ai.external.base.execute_process",
         fake_execute,
     )
 
-    with caplog.at_level(logging.INFO, logger="orcheo.nodes.external_agent"):
+    with caplog.at_level(logging.INFO, logger="orcheo.nodes.ai.external.base"):
         await node.run(state, RunnableConfig())
 
     record = next(

@@ -4,7 +4,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 import pytest
-from orcheo.vault import InMemoryCredentialVault
 from orcheo_backend.app import providers
 
 
@@ -26,7 +25,7 @@ def test_settings_value_traverses_attr_path_when_get_missing() -> None:
         settings,
         attr_path="vault.backend",
         env_key="VAULT_BACKEND",
-        default="file",
+        default="postgres",
     )
 
     assert result == "inmemory"
@@ -48,7 +47,7 @@ def test_settings_value_returns_default_when_attr_chain_missing() -> None:
 
 def test_settings_value_without_attr_path_returns_default() -> None:
     """settings_value returns the default when attr_path is not provided."""
-    settings = SimpleNamespace(vault=SimpleNamespace(backend="file"))
+    settings = SimpleNamespace(vault=SimpleNamespace(backend="postgres"))
 
     result = providers.settings_value(
         settings,
@@ -60,14 +59,15 @@ def test_settings_value_without_attr_path_returns_default() -> None:
     assert result == "default-backend"
 
 
-def test_create_vault_inmemory_uses_provided_encryption_key(
+def test_create_vault_postgres_uses_provided_encryption_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """create_vault should honor the configured encryption key for inmemory backend."""
+    """create_vault should honor the configured encryption key for postgres."""
 
     settings = DummySettings(
         {
-            "VAULT_BACKEND": "inmemory",
+            "VAULT_BACKEND": "postgres",
+            "POSTGRES_DSN": "postgresql://test:test@localhost/testdb",
             "VAULT_ENCRYPTION_KEY": "override-key",
         }
     )
@@ -78,22 +78,41 @@ def test_create_vault_inmemory_uses_provided_encryption_key(
         def __init__(self, *, key: str) -> None:
             captured["key"] = key
 
+    class FakePostgresVault:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self.args = args
+            self.kwargs = kwargs
+
     monkeypatch.setattr(providers, "AesGcmCredentialCipher", FakeCipher)
+    import sys
+    from unittest.mock import MagicMock
 
-    vault = providers.create_vault(settings)
+    mock_module = MagicMock()
+    mock_module.PostgresCredentialVault = FakePostgresVault
+    sys.modules["orcheo.vault.postgres"] = mock_module
 
-    assert isinstance(vault, InMemoryCredentialVault)
-    assert captured["key"] == "override-key"
+    try:
+        vault = providers.create_vault(settings)
+
+        assert isinstance(vault, FakePostgresVault)
+        assert captured["key"] == "override-key"
+    finally:
+        if "orcheo.vault.postgres" in sys.modules:
+            del sys.modules["orcheo.vault.postgres"]
 
 
-def test_create_repository_sqlite_backend_sets_history_store(
+def test_create_repository_postgres_backend_sets_history_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """create_repository should configure sqlite repositories and history store."""
+    """create_repository should configure postgres repositories and history store."""
     settings = DummySettings(
         {
-            "REPOSITORY_BACKEND": "sqlite",
-            "REPOSITORY_SQLITE_PATH": "/tmp/workflows.sqlite",
+            "REPOSITORY_BACKEND": "postgres",
+            "POSTGRES_DSN": "postgresql://test:test@localhost/testdb",
+            "POSTGRES_POOL_MIN_SIZE": 2,
+            "POSTGRES_POOL_MAX_SIZE": 20,
+            "POSTGRES_POOL_TIMEOUT": 15.0,
+            "POSTGRES_POOL_MAX_IDLE": 500.0,
         }
     )
     credential_service = object()
@@ -102,24 +121,29 @@ def test_create_repository_sqlite_backend_sets_history_store(
     plugin_installation_store_ref: dict[str, object] = {}
 
     class FakeStore:
-        def __init__(self, path: str) -> None:
-            self.path = path
+        def __init__(self, dsn: str, **kwargs: object) -> None:
+            self.dsn = dsn
+            self.kwargs = kwargs
 
     class FakeRepository:
-        def __init__(self, path: str, *, credential_service: object) -> None:
-            self.path = path
+        def __init__(
+            self, dsn: str, *, credential_service: object, **kwargs: object
+        ) -> None:
+            self.dsn = dsn
             self.credential_service = credential_service
+            self.kwargs = kwargs
 
     class FakePluginInstallationStore:
-        def __init__(self, path: str) -> None:
-            self.path = path
+        def __init__(self, dsn: str, **kwargs: object) -> None:
+            self.dsn = dsn
+            self.kwargs = kwargs
 
-    monkeypatch.setattr(providers, "SqliteRunHistoryStore", FakeStore)
-    monkeypatch.setattr(providers, "SqliteAgentensorCheckpointStore", FakeStore)
+    monkeypatch.setattr(providers, "PostgresRunHistoryStore", FakeStore)
+    monkeypatch.setattr(providers, "PostgresAgentensorCheckpointStore", FakeStore)
     monkeypatch.setattr(
-        providers, "SqlitePluginInstallationStore", FakePluginInstallationStore
+        providers, "PostgresPluginInstallationStore", FakePluginInstallationStore
     )
-    monkeypatch.setattr(providers, "SqliteWorkflowRepository", FakeRepository)
+    monkeypatch.setattr(providers, "PostgresWorkflowRepository", FakeRepository)
 
     repository = providers.create_repository(
         settings,
@@ -130,48 +154,74 @@ def test_create_repository_sqlite_backend_sets_history_store(
     )
 
     assert isinstance(repository, FakeRepository)
-    assert repository.path == "/tmp/workflows.sqlite"
+    assert repository.dsn == "postgresql://test:test@localhost/testdb"
     assert repository.credential_service is credential_service
+    assert repository.kwargs == {
+        "pool_min_size": 2,
+        "pool_max_size": 20,
+        "pool_timeout": 15.0,
+        "pool_max_idle": 500.0,
+    }
     assert isinstance(history_store_ref["store"], FakeStore)
-    assert history_store_ref["store"].path == "/tmp/workflows.sqlite"
+    assert history_store_ref["store"].dsn == "postgresql://test:test@localhost/testdb"
     assert isinstance(checkpoint_store_ref["store"], FakeStore)
-    assert checkpoint_store_ref["store"].path == "/tmp/workflows.sqlite"
+    assert (
+        checkpoint_store_ref["store"].dsn == "postgresql://test:test@localhost/testdb"
+    )
     assert isinstance(
         plugin_installation_store_ref["store"], FakePluginInstallationStore
     )
-    assert plugin_installation_store_ref["store"].path == "/tmp/workflows.sqlite"
+    assert (
+        plugin_installation_store_ref["store"].dsn
+        == "postgresql://test:test@localhost/testdb"
+    )
 
 
-def test_create_repository_inmemory_backend_sets_checkpoint(
+def test_create_repository_postgres_backend_sets_checkpoint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    settings = DummySettings({"REPOSITORY_BACKEND": "inmemory"})
+    settings = DummySettings(
+        {
+            "REPOSITORY_BACKEND": "postgres",
+            "POSTGRES_DSN": "postgresql://test:test@localhost/testdb",
+        }
+    )
     credential_service = object()
     history_store_ref: dict[str, object] = {}
     checkpoint_store_ref: dict[str, object] = {}
     plugin_installation_store_ref: dict[str, object] = {}
 
     class FakeHistoryStore:
-        pass
+        def __init__(self, dsn: str, **kwargs: object) -> None:
+            self.dsn = dsn
+            self.kwargs = kwargs
 
     class FakeCheckpointStore:
-        pass
+        def __init__(self, dsn: str, **kwargs: object) -> None:
+            self.dsn = dsn
+            self.kwargs = kwargs
 
     class FakePluginInstallationStore:
-        pass
+        def __init__(self, dsn: str, **kwargs: object) -> None:
+            self.dsn = dsn
+            self.kwargs = kwargs
 
     class FakeRepository:
-        def __init__(self, *, credential_service: object) -> None:
+        def __init__(
+            self, dsn: str, *, credential_service: object, **kwargs: object
+        ) -> None:
+            self.dsn = dsn
             self.credential_service = credential_service
+            self.kwargs = kwargs
 
-    monkeypatch.setattr(providers, "InMemoryRunHistoryStore", FakeHistoryStore)
+    monkeypatch.setattr(providers, "PostgresRunHistoryStore", FakeHistoryStore)
     monkeypatch.setattr(
-        providers, "InMemoryAgentensorCheckpointStore", FakeCheckpointStore
+        providers, "PostgresAgentensorCheckpointStore", FakeCheckpointStore
     )
     monkeypatch.setattr(
-        providers, "InMemoryPluginInstallationStore", FakePluginInstallationStore
+        providers, "PostgresPluginInstallationStore", FakePluginInstallationStore
     )
-    monkeypatch.setattr(providers, "InMemoryWorkflowRepository", FakeRepository)
+    monkeypatch.setattr(providers, "PostgresWorkflowRepository", FakeRepository)
 
     repository = providers.create_repository(
         settings,
@@ -464,34 +514,44 @@ def test_create_vault_postgres_backend_without_encryption_key_raises_error() -> 
         providers.create_vault(settings)
 
 
-def test_create_repository_sqlite_backend_without_plugin_store_ref(
+def test_create_repository_postgres_backend_without_plugin_store_ref(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """create_repository tolerates omitting the plugin store ref on sqlite."""
+    """create_repository tolerates omitting the plugin store ref on postgres."""
 
-    settings = DummySettings({"REPOSITORY_BACKEND": "sqlite"})
+    settings = DummySettings(
+        {
+            "REPOSITORY_BACKEND": "postgres",
+            "POSTGRES_DSN": "postgresql://test:test@localhost/testdb",
+        }
+    )
     credential_service = object()
     history_store_ref: dict[str, object] = {}
     checkpoint_store_ref: dict[str, object] = {}
 
     class FakeHistoryStore:
-        def __init__(self, path: str) -> None:
-            self.path = path
+        def __init__(self, dsn: str, **kwargs: object) -> None:
+            self.dsn = dsn
+            self.kwargs = kwargs
 
     class FakeCheckpointStore:
-        def __init__(self, path: str) -> None:
-            self.path = path
+        def __init__(self, dsn: str, **kwargs: object) -> None:
+            self.dsn = dsn
+            self.kwargs = kwargs
 
     class FakeRepository:
-        def __init__(self, path: str, *, credential_service: object) -> None:
-            self.path = path
+        def __init__(
+            self, dsn: str, *, credential_service: object, **kwargs: object
+        ) -> None:
+            self.dsn = dsn
             self.credential_service = credential_service
+            self.kwargs = kwargs
 
-    monkeypatch.setattr(providers, "SqliteRunHistoryStore", FakeHistoryStore)
+    monkeypatch.setattr(providers, "PostgresRunHistoryStore", FakeHistoryStore)
     monkeypatch.setattr(
-        providers, "SqliteAgentensorCheckpointStore", FakeCheckpointStore
+        providers, "PostgresAgentensorCheckpointStore", FakeCheckpointStore
     )
-    monkeypatch.setattr(providers, "SqliteWorkflowRepository", FakeRepository)
+    monkeypatch.setattr(providers, "PostgresWorkflowRepository", FakeRepository)
 
     repository = providers.create_repository(
         settings,
@@ -502,16 +562,32 @@ def test_create_repository_sqlite_backend_without_plugin_store_ref(
     )
 
     assert isinstance(repository, FakeRepository)
+    assert repository.dsn == "postgresql://test:test@localhost/testdb"
+    assert repository.kwargs == {
+        "pool_min_size": 1,
+        "pool_max_size": 10,
+        "pool_timeout": 30.0,
+        "pool_max_idle": 300.0,
+    }
     assert isinstance(history_store_ref["store"], FakeHistoryStore)
+    assert history_store_ref["store"].dsn == "postgresql://test:test@localhost/testdb"
     assert isinstance(checkpoint_store_ref["store"], FakeCheckpointStore)
+    assert (
+        checkpoint_store_ref["store"].dsn == "postgresql://test:test@localhost/testdb"
+    )
 
 
-def test_create_repository_inmemory_backend_without_plugin_store_ref(
+def test_create_repository_postgres_backend_without_plugin_store_ref(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """create_repository tolerates omitting the plugin store ref on in-memory."""
+    """create_repository tolerates omitting the plugin store ref on postgres."""
 
-    settings = DummySettings({"REPOSITORY_BACKEND": "inmemory"})
+    settings = DummySettings(
+        {
+            "REPOSITORY_BACKEND": "postgres",
+            "POSTGRES_DSN": "postgresql://test:test@localhost/testdb",
+        }
+    )
     credential_service = object()
     history_store_ref: dict[str, object] = {}
     checkpoint_store_ref: dict[str, object] = {}
@@ -523,14 +599,18 @@ def test_create_repository_inmemory_backend_without_plugin_store_ref(
         pass
 
     class FakeRepository:
-        def __init__(self, *, credential_service: object) -> None:
+        def __init__(
+            self, dsn: str, *, credential_service: object, **kwargs: object
+        ) -> None:
+            self.dsn = dsn
             self.credential_service = credential_service
+            self.kwargs = kwargs
 
-    monkeypatch.setattr(providers, "InMemoryRunHistoryStore", FakeHistoryStore)
+    monkeypatch.setattr(providers, "PostgresRunHistoryStore", FakeHistoryStore)
     monkeypatch.setattr(
-        providers, "InMemoryAgentensorCheckpointStore", FakeCheckpointStore
+        providers, "PostgresAgentensorCheckpointStore", FakeCheckpointStore
     )
-    monkeypatch.setattr(providers, "InMemoryWorkflowRepository", FakeRepository)
+    monkeypatch.setattr(providers, "PostgresWorkflowRepository", FakeRepository)
 
     repository = providers.create_repository(
         settings,

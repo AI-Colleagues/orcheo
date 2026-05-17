@@ -67,7 +67,6 @@ def show_edge_data(name: str) -> dict[str, Any]:
         "name": metadata.name,
         "category": metadata.category,
         "description": metadata.description,
-        "aliases": edge_registry.get_aliases(name),
     }
 
     if hasattr(edge_cls, "model_json_schema"):

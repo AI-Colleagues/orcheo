@@ -8,12 +8,12 @@ from bson import ObjectId
 from langchain_core.runnables import RunnableConfig
 from pymongo.command_cursor import CommandCursor
 from orcheo.graph.state import State
-from orcheo.nodes.integrations.databases.mongodb.search import (
+from orcheo.nodes.storage.mongodb.search import (
     _definitions_match,
     _extract_index_definition,
     _resolve_index_payload,
 )
-from orcheo.nodes.mongodb import (
+from orcheo.nodes.storage.mongodb import (
     MongoDBEnsureSearchIndexNode,
     MongoDBEnsureVectorIndexNode,
     MongoDBHybridSearchNode,

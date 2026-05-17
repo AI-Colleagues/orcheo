@@ -3,106 +3,14 @@ import {
   assertWorkflowTemplateCompatibility,
   type WorkflowTemplateDefinition,
 } from "./template-definition";
-import {
-  MONGODB_QA_AGENT_TEMPLATE,
-  MONGODB_QA_AGENT_WORKFLOW,
-} from "./mongodb-qa-agent";
-import { PYTHON_AGENT_TEMPLATE, PYTHON_AGENT_WORKFLOW } from "./python-agent";
-import {
-  CANDIDATE_TEMPLATE_DEFINITIONS,
-  CANDIDATE_WORKFLOWS,
-} from "./candidate-badges";
-import {
-  TELEGRAM_HELLO_TEMPLATE,
-  TELEGRAM_HELLO_WORKFLOW,
-} from "./telegram-hello";
-import {
-  TELEGRAM_HEARTBEAT_TEMPLATE,
-  TELEGRAM_HEARTBEAT_WORKFLOW,
-} from "./telegram-heartbeat";
-import {
-  TELEGRAM_AGENT_TEMPLATE,
-  TELEGRAM_AGENT_WORKFLOW,
-} from "./telegram-agent";
-import {
-  DISCORD_PRIVATE_LISTENER_TEMPLATE,
-  DISCORD_PRIVATE_LISTENER_WORKFLOW,
-} from "./discord-private-listener";
-import {
-  PRIVATE_BOT_SHARED_LISTENER_TEMPLATE,
-  PRIVATE_BOT_SHARED_LISTENER_WORKFLOW,
-} from "./private-bot-shared-listener";
-import {
-  QQ_PRIVATE_LISTENER_TEMPLATE,
-  QQ_PRIVATE_LISTENER_WORKFLOW,
-} from "./qq-private-listener";
-import {
-  TELEGRAM_PRIVATE_LISTENER_TEMPLATE,
-  TELEGRAM_PRIVATE_LISTENER_WORKFLOW,
-} from "./telegram-private-listener";
-import {
-  WECOM_LARK_SHARED_LISTENER_TEMPLATE,
-  WECOM_LARK_SHARED_LISTENER_WORKFLOW,
-} from "./wecom-lark-shared-listener";
-import {
-  WECHAT_PRIVATE_LISTENER_TEMPLATE,
-  WECHAT_PRIVATE_LISTENER_WORKFLOW,
-} from "./wechat-private-listener";
-import { DEEP_AGENT_TEMPLATE, DEEP_AGENT_WORKFLOW } from "./deep-agent";
-import {
-  CHATKIT_WIDGETS_TEMPLATE,
-  CHATKIT_WIDGETS_WORKFLOW,
-} from "./chatkit-widgets";
-import {
-  CLAUDE_CODE_AGENT_TEMPLATE,
-  CLAUDE_CODE_AGENT_WORKFLOW,
-} from "./claude-code-agent";
-import { CODEX_AGENT_TEMPLATE, CODEX_AGENT_WORKFLOW } from "./codex-agent";
-import { GEMINI_AGENT_TEMPLATE, GEMINI_AGENT_WORKFLOW } from "./gemini-agent";
+import { getCandidateTemplateDefinition } from "./candidate-badges";
 import { VIBE_AGENT_TEMPLATE } from "./vibe-agent";
 
-export const SAMPLE_WORKFLOWS: Workflow[] = [
-  PYTHON_AGENT_WORKFLOW,
-  TELEGRAM_HELLO_WORKFLOW,
-  TELEGRAM_HEARTBEAT_WORKFLOW,
-  TELEGRAM_AGENT_WORKFLOW,
-  DISCORD_PRIVATE_LISTENER_WORKFLOW,
-  QQ_PRIVATE_LISTENER_WORKFLOW,
-  PRIVATE_BOT_SHARED_LISTENER_WORKFLOW,
-  TELEGRAM_PRIVATE_LISTENER_WORKFLOW,
-  WECOM_LARK_SHARED_LISTENER_WORKFLOW,
-  WECHAT_PRIVATE_LISTENER_WORKFLOW,
-  MONGODB_QA_AGENT_WORKFLOW,
-  DEEP_AGENT_WORKFLOW,
-  CHATKIT_WIDGETS_WORKFLOW,
-  CLAUDE_CODE_AGENT_WORKFLOW,
-  CODEX_AGENT_WORKFLOW,
-  GEMINI_AGENT_WORKFLOW,
-];
+export const SAMPLE_WORKFLOWS: Workflow[] = [];
 
-export const GALLERY_TEMPLATE_WORKFLOWS: Workflow[] = [
-  ...SAMPLE_WORKFLOWS,
-  ...CANDIDATE_WORKFLOWS,
-];
+export const GALLERY_TEMPLATE_WORKFLOWS: Workflow[] = [];
 
 export const WORKFLOW_TEMPLATE_DEFINITIONS: WorkflowTemplateDefinition[] = [
-  PYTHON_AGENT_TEMPLATE,
-  ...CANDIDATE_TEMPLATE_DEFINITIONS,
-  TELEGRAM_HELLO_TEMPLATE,
-  TELEGRAM_HEARTBEAT_TEMPLATE,
-  TELEGRAM_AGENT_TEMPLATE,
-  DISCORD_PRIVATE_LISTENER_TEMPLATE,
-  QQ_PRIVATE_LISTENER_TEMPLATE,
-  PRIVATE_BOT_SHARED_LISTENER_TEMPLATE,
-  TELEGRAM_PRIVATE_LISTENER_TEMPLATE,
-  WECOM_LARK_SHARED_LISTENER_TEMPLATE,
-  WECHAT_PRIVATE_LISTENER_TEMPLATE,
-  MONGODB_QA_AGENT_TEMPLATE,
-  DEEP_AGENT_TEMPLATE,
-  CHATKIT_WIDGETS_TEMPLATE,
-  CLAUDE_CODE_AGENT_TEMPLATE,
-  CODEX_AGENT_TEMPLATE,
-  GEMINI_AGENT_TEMPLATE,
   VIBE_AGENT_TEMPLATE,
 ];
 
@@ -116,7 +24,10 @@ const TEMPLATE_BY_ID = new Map(
 export const getWorkflowTemplateDefinition = (
   templateId: string,
 ): WorkflowTemplateDefinition | undefined => {
-  return TEMPLATE_BY_ID.get(templateId);
+  return (
+    TEMPLATE_BY_ID.get(templateId) ??
+    getCandidateTemplateDefinition(templateId)
+  );
 };
 
 export { assertWorkflowTemplateCompatibility };

@@ -165,7 +165,7 @@ const resolveRedirectUri = (): string => {
   if (typeof window !== "undefined") {
     return `${window.location.origin}/auth/callback`;
   }
-  return "http://localhost:5173/auth/callback";
+  return "http://localhost:2026/auth/callback";
 };
 
 const getAuthConfig = (): OidcAuthConfig => {

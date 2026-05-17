@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
-from orcheo.models.workflow import Workflow, WorkflowDraftAccess
+from orcheo.models import Workflow, WorkflowDraftAccess
 from orcheo.workspace import WorkspaceQuotas
 from orcheo_backend.app.authentication import AuthorizationPolicy, RequestContext
 from orcheo_backend.app.managed_workflows import MANAGED_VIBE_WORKFLOW_HANDLE

@@ -9,7 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.conversational_search.conversation import MemoryTurn
+from orcheo.nodes.rag.conversation import MemoryTurn
 from orcheo.nodes.registry import NodeMetadata, registry
 
 

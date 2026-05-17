@@ -1,6 +1,0 @@
-{
-  "configurable": {
-    "ai_model": "openai:gpt-4.1-mini",
-    "system_prompt": "You are the reply brain for a private WeChat listener. Read the incoming WeChat message, answer directly, and keep the reply concise and ready to send as-is."
-  }
-}

@@ -2,13 +2,13 @@ import type { WorkflowRunnableConfig } from "@features/workflow/lib/workflow-sto
 import type { Workflow } from "../workflow-types";
 
 export interface WorkflowTemplateMetadata {
-  templateVersion: string;
-  minOrcheoVersion: string;
-  validatedProviderApi: string;
-  validationDate: string;
-  owner: string;
-  acceptanceCriteria: string[];
-  revalidationTriggers: string[];
+  templateVersion?: string;
+  minOrcheoVersion?: string;
+  validatedProviderApi?: string;
+  validationDate?: string;
+  owner?: string;
+  acceptanceCriteria?: string[];
+  revalidationTriggers?: string[];
   replyNodeContracts?: string[];
   requiredPlugins?: string[];
 }
@@ -47,7 +47,10 @@ export const getWorkflowTemplateCompatibilityIssues = (
   }
 
   const issues: string[] = [];
-  if (!CURRENT_PROVIDER_APIS.has(metadata.validatedProviderApi)) {
+  if (
+    metadata.validatedProviderApi &&
+    !CURRENT_PROVIDER_APIS.has(metadata.validatedProviderApi)
+  ) {
     issues.push(
       `provider API '${metadata.validatedProviderApi}' requires revalidation`,
     );

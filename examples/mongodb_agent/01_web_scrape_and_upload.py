@@ -17,7 +17,7 @@ from orcheo.nodes.conversational_search import (
     ChunkingStrategyNode,
     WebDocumentLoaderNode,
 )
-from orcheo.nodes.mongodb import MongoDBInsertManyNode
+from orcheo.nodes.integrations.databases.mongodb import MongoDBInsertManyNode
 
 
 async def orcheo_workflow() -> StateGraph:

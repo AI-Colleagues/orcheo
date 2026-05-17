@@ -15,9 +15,9 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.mongodb import MongoDBFindNode
+from orcheo.nodes.connectors.wecom import WeComGroupPushNode
+from orcheo.nodes.integrations.databases.mongodb import MongoDBFindNode
 from orcheo.nodes.triggers import CronTriggerNode
-from orcheo.nodes.wecom import WeComGroupPushNode
 
 
 class FormatDigestNode(TaskNode):

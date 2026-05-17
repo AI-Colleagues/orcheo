@@ -10,7 +10,7 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, field_validator
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.conversational_search.models import Document
+from orcheo.nodes.rag.models import Document
 from orcheo.nodes.registry import NodeMetadata, registry
 
 

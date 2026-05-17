@@ -13,7 +13,7 @@ from chatkit.types import (
     UserMessageItem,
     UserMessageTextContent,
 )
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo_backend.app.chatkit import ChatKitRequestContext
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from tests.backend.chatkit_test_utils import (

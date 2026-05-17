@@ -11,8 +11,8 @@ from orcheo.listeners import (
     ListenerSubscriptionStatus,
     compile_listener_subscriptions,
 )
+from orcheo.models import WorkflowRun
 from orcheo.models.base import _utcnow
-from orcheo.models.workflow import WorkflowRun
 from orcheo_backend.app.repository.errors import (
     WorkflowNotFoundError,
     WorkflowVersionNotFoundError,

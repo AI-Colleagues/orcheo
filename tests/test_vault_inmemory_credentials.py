@@ -217,6 +217,27 @@ def test_update_credential_tracks_multiple_field_changes() -> None:
     assert rotated_again.reveal(cipher=cipher) == "rotated-again"
 
 
+def test_create_credential_accepts_string_kind_for_oauth_credentials() -> None:
+    cipher = AesGcmCredentialCipher(key="create-credential-kind")
+    vault = InMemoryCredentialVault(cipher=cipher)
+
+    metadata = vault.create_credential(
+        name="Slack",
+        provider="slack",
+        scopes=["chat:write"],
+        secret="client-secret",
+        actor="alice",
+        kind="oauth",
+        oauth_tokens=OAuthTokenSecrets(access_token="access-token"),
+    )
+
+    assert metadata.kind is CredentialKind.OAUTH
+    assert metadata.reveal(cipher=cipher) == "client-secret"
+    tokens = metadata.reveal_oauth_tokens(cipher=cipher)
+    assert tokens is not None
+    assert tokens.access_token == "access-token"
+
+
 def test_rotate_secret_rejects_identical_secret() -> None:
     cipher = AesGcmCredentialCipher(key="rotate-secret")
     vault = InMemoryCredentialVault(cipher=cipher)

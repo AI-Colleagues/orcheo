@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 import pytest
 from starlette.requests import Request
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo_backend.app.repository.in_memory import InMemoryWorkflowRepository
 from tests.backend.api.shared import backend_app
 
@@ -30,10 +30,12 @@ def _make_request(headers: dict[str, str] | None = None) -> Request:
 
 @pytest.fixture(autouse=True)
 def reset_rate_limiters() -> None:
-    backend_app.routers.chatkit._IP_RATE_LIMITER.reset()  # type: ignore[attr-defined]
-    backend_app.routers.chatkit._JWT_RATE_LIMITER.reset()  # type: ignore[attr-defined]
-    backend_app.routers.chatkit._WORKFLOW_RATE_LIMITER.reset()  # type: ignore[attr-defined]
-    backend_app.routers.chatkit._SESSION_RATE_LIMITER.reset()  # type: ignore[attr-defined]
+    backend_app.routers.chatkit._reset_rate_limiters()
+    rate_limiters = backend_app.routers.chatkit._get_rate_limiters()
+    rate_limiters.ip.reset()
+    rate_limiters.jwt.reset()
+    rate_limiters.workflow.reset()
+    rate_limiters.session.reset()
 
 
 @pytest.mark.asyncio

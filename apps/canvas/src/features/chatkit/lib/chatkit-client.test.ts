@@ -21,11 +21,11 @@ describe("buildPublicChatFetch", () => {
 
     const handler = buildPublicChatFetch({
       workflowId: "wf-123",
-      backendBaseUrl: "http://localhost:8000",
+      backendBaseUrl: "http://localhost:2025",
       metadata: { workflow_name: "LangGraph" },
     });
 
-    await handler("http://localhost:8000/api/chatkit", {
+    await handler("http://localhost:2025/api/chatkit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ foo: "bar" }),
@@ -48,11 +48,11 @@ describe("buildPublicChatFetch", () => {
 
     const handler = buildPublicChatFetch({
       workflowId: "wf-456",
-      backendBaseUrl: "http://localhost:8000",
+      backendBaseUrl: "http://localhost:2025",
     });
 
     await handler(
-      new Request("http://localhost:8000/api/chatkit", {
+      new Request("http://localhost:2025/api/chatkit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ foo: "bar" }),
@@ -82,7 +82,7 @@ describe("buildPublicChatFetch", () => {
       onHttpError,
     });
 
-    await handler("http://localhost:8000/api/chatkit", {
+    await handler("http://localhost:2025/api/chatkit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
@@ -104,7 +104,7 @@ describe("buildPublicChatFetch", () => {
       metadata: { injected: "value" },
     });
 
-    await handler("http://localhost:8000/api/chatkit", {
+    await handler("http://localhost:2025/api/chatkit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -129,7 +129,7 @@ describe("buildPublicChatFetch", () => {
       workflowId: "wf-222",
     });
 
-    await handler("http://localhost:8000/api/chatkit", {
+    await handler("http://localhost:2025/api/chatkit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),

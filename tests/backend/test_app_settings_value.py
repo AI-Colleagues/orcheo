@@ -38,7 +38,7 @@ def test_settings_value_reads_nested_attribute() -> None:
 def test_settings_value_prefers_mapping_get() -> None:
     """Mapping-like settings use the ``get`` method when available."""
 
-    settings = {"VAULT_BACKEND": "sqlite"}
+    settings = {"VAULT_BACKEND": "postgres"}
     value = _settings_value(
         settings,
         attr_path="vault.backend",
@@ -46,7 +46,7 @@ def test_settings_value_prefers_mapping_get() -> None:
         default="inmemory",
     )
 
-    assert value == "sqlite"
+    assert value == "postgres"
 
 
 def test_settings_value_without_attr_path_returns_default() -> None:

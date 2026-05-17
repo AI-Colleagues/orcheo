@@ -91,12 +91,15 @@ def test_coerce_mode_backend_with_valid_values() -> None:
     """_coerce_mode_backend returns valid backend strings."""
     from orcheo_backend.app.authentication import _coerce_mode_backend
 
-    assert _coerce_mode_backend("sqlite") == "sqlite"
     assert _coerce_mode_backend("postgres") == "postgres"
-    assert _coerce_mode_backend("inmemory") == "inmemory"
     assert _coerce_mode_backend("POSTGRES") == "postgres"  # case insensitive
-    assert _coerce_mode_backend("invalid") == "sqlite"  # default fallback
-    assert _coerce_mode_backend(123) == "sqlite"  # non-string fallback
+
+    with pytest.raises(ValueError, match="ORCHEO_AUTH_SERVICE_TOKEN_BACKEND"):
+        _coerce_mode_backend("inmemory")
+    with pytest.raises(ValueError, match="ORCHEO_AUTH_SERVICE_TOKEN_BACKEND"):
+        _coerce_mode_backend("invalid")
+    with pytest.raises(ValueError, match="ORCHEO_AUTH_SERVICE_TOKEN_BACKEND"):
+        _coerce_mode_backend(123)
 
 
 def test_coerce_optional_str() -> None:

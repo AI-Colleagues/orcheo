@@ -16,7 +16,7 @@ uv tool install orcheo-sdk
 from orcheo_sdk import OrcheoClient
 
 # Initialize client
-client = OrcheoClient(api_url="http://localhost:8000")
+client = OrcheoClient(api_url="http://localhost:2025")
 
 # Execute a workflow
 result = await client.execute_workflow(
@@ -156,7 +156,7 @@ except OrcheoError as e:
 from orcheo_sdk import OrcheoClient
 
 async def search(query: str, conversation_history: list = None):
-    client = OrcheoClient(api_url="http://localhost:8000")
+    client = OrcheoClient(api_url="http://localhost:2025")
 
     result = await client.execute_workflow(
         workflow_id="conversational-rag",
@@ -179,7 +179,7 @@ import asyncio
 from orcheo_sdk import OrcheoClient
 
 async def batch_process(queries: list[str]):
-    client = OrcheoClient(api_url="http://localhost:8000")
+    client = OrcheoClient(api_url="http://localhost:2025")
 
     tasks = [
         client.execute_workflow(

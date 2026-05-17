@@ -3,7 +3,13 @@ from uuid import UUID
 import pytest
 from fastapi.testclient import TestClient
 from orcheo.config import get_settings
-from orcheo_backend.app.authentication import reset_authentication_state
+from orcheo_backend.app.authentication import (
+    AuthorizationPolicy,
+    RequestContext,
+    authenticate_request,
+    get_authorization_policy,
+    reset_authentication_state,
+)
 
 
 def _create_workflow(client: TestClient) -> UUID:
@@ -52,6 +58,11 @@ def test_publish_workflow_includes_share_url(
     get_settings(refresh=True)
     reset_authentication_state()
     api_client.headers.update({"Authorization": f"Bearer {bootstrap_token}"})
+    auth_context = RequestContext(subject="tester", identity_type="service")
+    api_client.app.dependency_overrides[get_authorization_policy] = (
+        lambda: AuthorizationPolicy(auth_context)
+    )
+    api_client.app.dependency_overrides[authenticate_request] = lambda: auth_context
 
     workflow_id = _create_workflow(api_client)
     response = api_client.post(

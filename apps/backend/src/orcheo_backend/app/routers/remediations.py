@@ -5,7 +5,7 @@ from typing import Annotated
 from uuid import UUID
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
-from orcheo.models.workflow import WorkflowRunRemediation, WorkflowRunRemediationStatus
+from orcheo.models import WorkflowRunRemediation, WorkflowRunRemediationStatus
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import raise_conflict, raise_not_found
 from orcheo_backend.app.repository import WorkflowRunRemediationNotFoundError

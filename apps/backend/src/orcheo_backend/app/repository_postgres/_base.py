@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 from orcheo.listeners import ListenerCursor, ListenerDedupeRecord, ListenerSubscription
-from orcheo.models.workflow import (
+from orcheo.models import (
     Workflow,
     WorkflowRun,
     WorkflowRunRemediation,
@@ -296,146 +296,46 @@ class PostgresRepositoryBase:
                     "SELECT pg_advisory_xact_lock(%s, %s)",
                     (_INIT_LOCK_NAMESPACE, _INIT_LOCK_KEY),
                 )
-                # TODO: Replace this startup bootstrap with a versioned migration
-                # runner executed during deploy, then remove these implicit schema
-                # mutations once all environments are migrated.
                 # Execute schema statements one by one
                 for raw_stmt in POSTGRES_SCHEMA.strip().split(";"):
                     stmt = raw_stmt.strip()
                     if stmt:
                         await conn.execute(stmt)
-                await self._ensure_cron_schema_migrations(conn)
-                await self._ensure_workflow_schema_migrations(conn)
-                await self._ensure_workflow_versions_schema_migrations(conn)
+                await conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_workflows_handle "
+                    "ON workflows(handle)"
+                )
+                await conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "idx_workflows_active_handle_global"
+                    " ON workflows(handle)"
+                    " WHERE workspace_id IS NULL"
+                    "   AND is_archived = FALSE"
+                    "   AND handle IS NOT NULL"
+                )
+                await conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "idx_workflows_active_handle_workspace"
+                    " ON workflows(workspace_id, handle)"
+                    " WHERE workspace_id IS NOT NULL"
+                    "   AND is_archived = FALSE"
+                    "   AND handle IS NOT NULL"
+                )
+                await conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_workflows_workspace_id "
+                    "ON workflows(workspace_id)"
+                )
+                await conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_runs_workspace_id "
+                    "ON workflow_runs(workspace_id)"
+                )
+                await conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_versions_workspace_id "
+                    "ON workflow_versions(workspace_id)"
+                )
 
             await self._hydrate_trigger_state()
             self._initialized = True
-
-    async def _ensure_cron_schema_migrations(self, conn: Any) -> None:
-        """Add missing columns to cron_triggers table for existing databases."""
-        cursor = await conn.execute(
-            """
-            SELECT column_name
-              FROM information_schema.columns
-             WHERE table_name = 'cron_triggers'
-            """
-        )
-        rows = await cursor.fetchall()
-        existing_columns = {row["column_name"] for row in rows}
-        if "last_dispatched_at" not in existing_columns:  # pragma: no branch
-            await conn.execute(
-                "ALTER TABLE cron_triggers ADD COLUMN last_dispatched_at TIMESTAMPTZ"
-            )
-
-    async def _ensure_workflow_schema_migrations(self, conn: Any) -> None:
-        """Add mirrored workflow columns and backfill them from payloads."""
-        cursor = await conn.execute(
-            """
-            SELECT column_name
-              FROM information_schema.columns
-             WHERE table_name = 'workflows'
-            """
-        )
-        rows = await cursor.fetchall()
-        existing_columns = {row["column_name"] for row in rows}
-        missing_handle = "handle" not in existing_columns
-        missing_is_archived = "is_archived" not in existing_columns
-        if missing_handle:
-            await conn.execute("ALTER TABLE workflows ADD COLUMN handle TEXT")
-        if missing_is_archived:
-            await conn.execute(
-                "ALTER TABLE workflows "
-                "ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE"
-            )
-        if "workspace_id" not in existing_columns:
-            await conn.execute("ALTER TABLE workflows ADD COLUMN workspace_id TEXT")
-
-        if missing_handle or missing_is_archived:
-            cursor = await conn.execute("SELECT id, payload FROM workflows")
-            rows = await cursor.fetchall()
-            for row in rows:
-                payload = dict(row["payload"])
-                workflow = Workflow.model_validate(payload)
-                await conn.execute(
-                    """
-                    UPDATE workflows
-                       SET handle = %s, is_archived = %s, updated_at = %s
-                     WHERE id = %s
-                    """,
-                    (
-                        workflow.handle,
-                        workflow.is_archived,
-                        workflow.updated_at,
-                        row["id"],
-                    ),
-                )
-
-        # Add workspace_id column to workflow_runs if missing
-        cursor = await conn.execute(
-            """
-            SELECT column_name
-              FROM information_schema.columns
-             WHERE table_name = 'workflow_runs'
-            """
-        )
-        runs_rows = await cursor.fetchall()
-        runs_columns = {row["column_name"] for row in runs_rows}
-        if "workspace_id" not in runs_columns:
-            await conn.execute("ALTER TABLE workflow_runs ADD COLUMN workspace_id TEXT")
-
-        # Create indexes after columns are guaranteed to exist
-        await conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_workflows_handle ON workflows(handle)"
-        )
-        await conn.execute("DROP INDEX IF EXISTS idx_workflows_active_handle")
-        await conn.execute("DROP INDEX IF EXISTS idx_workflows_active_handle_global")
-        await conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle_global"
-            " ON workflows(handle)"
-            " WHERE workspace_id IS NULL"
-            "   AND is_archived = FALSE"
-            "   AND handle IS NOT NULL"
-        )
-        await conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle_workspace"
-            " ON workflows(workspace_id, handle)"
-            " WHERE workspace_id IS NOT NULL"
-            "   AND is_archived = FALSE"
-            "   AND handle IS NOT NULL"
-        )
-        await conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_workflows_workspace_id "
-            "ON workflows(workspace_id)"
-        )
-        await conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_runs_workspace_id "
-            "ON workflow_runs(workspace_id)"
-        )
-
-    async def _ensure_workflow_versions_schema_migrations(self, conn: Any) -> None:
-        """Add workspace_id to workflow_versions when upgrading existing databases.
-
-        TODO: Move this into the explicit versioned migration runner and stop
-        relying on repository startup to mutate schema in place.
-        """
-        cursor = await conn.execute(
-            """
-            SELECT column_name
-              FROM information_schema.columns
-             WHERE table_name = 'workflow_versions'
-            """
-        )
-        rows = await cursor.fetchall()
-        existing_columns = {row["column_name"] for row in rows}
-        if "workspace_id" not in existing_columns:
-            await conn.execute(
-                "ALTER TABLE workflow_versions ADD COLUMN workspace_id TEXT"
-            )
-
-        await conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_versions_workspace_id "
-            "ON workflow_versions(workspace_id)"
-        )
 
     async def _hydrate_trigger_state(self) -> None:
         async with self._connection() as conn:

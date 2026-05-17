@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from inspect import isawaitable
 from typing import Any
 from uuid import UUID
-from orcheo.models.workflow import (
+from orcheo.models import (
     ChatKitStartScreenPrompt,
     ChatKitSupportedModel,
     Workflow,

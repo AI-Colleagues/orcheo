@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
 from orcheo.models import CredentialAccessContext
-from orcheo.nodes.agent_tools.context import tool_progress_context
+from orcheo.nodes.ai.tools.context import tool_progress_context
 from orcheo.persistence import create_checkpointer, create_graph_store
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import merge_runnable_configs

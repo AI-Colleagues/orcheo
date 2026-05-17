@@ -30,7 +30,7 @@ export const setupMockBackendFetch = () => {
       const request =
         input instanceof Request ? input : new Request(input, clonedInit);
 
-      const url = new URL(request.url, "http://localhost:8000");
+      const url = new URL(request.url, "http://localhost:2025");
 
       if (!url.pathname.startsWith("/api/")) {
         if (originalFetch) {

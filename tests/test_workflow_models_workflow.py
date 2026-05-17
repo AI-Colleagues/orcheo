@@ -91,12 +91,12 @@ def test_workflow_draft_access_defaults_to_personal() -> None:
     assert workflow.draft_access is WorkflowDraftAccess.PERSONAL
 
 
-def test_workflow_draft_access_backfills_legacy_workspace_tags() -> None:
+def test_workflow_draft_access_does_not_infer_from_workspace_tags() -> None:
     workflow = Workflow.model_validate(
         {"name": "Workspace Flow", "tags": ["workspace:team-a"]}
     )
 
-    assert workflow.draft_access is WorkflowDraftAccess.WORKSPACE
+    assert workflow.draft_access is WorkflowDraftAccess.PERSONAL
 
 
 def test_workflow_draft_access_supports_authenticated_scope() -> None:
@@ -106,18 +106,6 @@ def test_workflow_draft_access_supports_authenticated_scope() -> None:
     )
 
     assert workflow.draft_access is WorkflowDraftAccess.AUTHENTICATED
-
-
-def test_backfill_validator_ignores_non_mapping_inputs() -> None:
-    sentinel = "workspace string"
-
-    assert Workflow._backfill_draft_access(sentinel) is sentinel
-
-
-def test_backfill_validator_requires_list_tags() -> None:
-    payload = {"name": "Simple Flow", "tags": "workspace:team-b"}
-
-    assert Workflow._backfill_draft_access(payload) is payload
 
 
 def test_workflow_version_checksum_is_deterministic() -> None:

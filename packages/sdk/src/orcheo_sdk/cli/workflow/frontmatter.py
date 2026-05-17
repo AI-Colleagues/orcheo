@@ -9,6 +9,8 @@ The frontmatter follows the PEP 723-inspired comment block convention:
     # description = "Short human-readable summary."
     # config = "./my-workflow.config.json"
     # entrypoint = "build_graph"
+    # emoji = "🤖"
+    # subtitle = "AI Assistant"
     # ///
 
 The block content is parsed as TOML. All fields are optional; CLI flags
@@ -31,7 +33,18 @@ _BLOCK_TYPE = "orcheo"
 _BLOCK_START_RE = re.compile(r"^# /// (?P<type>[a-zA-Z0-9_-]+)[ \t]*$")
 _BLOCK_END_RE = re.compile(r"^# ///[ \t]*$")
 _ALLOWED_FIELDS = frozenset(
-    {"name", "id", "handle", "description", "config", "entrypoint"}
+    {
+        "name",
+        "id",
+        "handle",
+        "description",
+        "config",
+        "entrypoint",
+        "emoji",
+        "subtitle",
+        "notes",
+        "metadata",
+    }
 )
 _ENCODING_RE = re.compile(r"coding[=:]\s*([-\w.]+)")
 _SCHEMA_KEYS = frozenset(
@@ -139,6 +152,10 @@ class WorkflowFrontmatter:
     description: str | None = None
     config_path: str | None = None
     entrypoint: str | None = None
+    emoji: str | None = None
+    subtitle: str | None = None
+    notes: str | None = None
+    metadata: dict[str, Any] | None = None
 
     @property
     def is_empty(self) -> bool:
@@ -151,6 +168,10 @@ class WorkflowFrontmatter:
                 self.description,
                 self.config_path,
                 self.entrypoint,
+                self.emoji,
+                self.subtitle,
+                self.notes,
+                self.metadata,
             )
         )
 
@@ -188,6 +209,10 @@ def parse_workflow_frontmatter(source: str) -> WorkflowFrontmatter:
         description=_string_field(data, "description"),
         config_path=_string_field(data, "config"),
         entrypoint=_string_field(data, "entrypoint"),
+        emoji=_string_field(data, "emoji"),
+        subtitle=_string_field(data, "subtitle"),
+        notes=_string_field(data, "notes"),
+        metadata=_table_field(data, "metadata"),
     )
 
 
@@ -249,6 +274,16 @@ def _string_field(data: dict[str, Any], key: str) -> str | None:
     if not stripped:
         raise CLIError(f"'orcheo' frontmatter field '{key}' must not be empty.")
     return stripped
+
+
+def _table_field(data: dict[str, Any], key: str) -> dict[str, Any] | None:
+    """Return a table (mapping) field, or None when absent."""
+    if key not in data:
+        return None
+    value = data[key]
+    if not isinstance(value, dict):
+        raise CLIError(f"'orcheo' frontmatter field '{key}' must be a table.")
+    return value
 
 
 def load_workflow_frontmatter(path: Path) -> WorkflowFrontmatter:

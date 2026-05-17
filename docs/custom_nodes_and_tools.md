@@ -86,7 +86,7 @@ plugin = AcmePlugin()
 The v1 plugin surface is intentionally narrow:
 
 - `api.register_node(metadata, cls)`
-- `api.register_edge(metadata, cls, aliases=())`
+- `api.register_edge(metadata, cls)`
 - `api.register_agent_tool(metadata, tool)`
 - `api.register_trigger(metadata, factory)`
 - `api.register_listener(metadata, compiler, adapter_factory, aliases=())`

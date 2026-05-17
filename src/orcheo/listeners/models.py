@@ -10,7 +10,7 @@ from orcheo.models.base import OrcheoBaseModel, TimestampedAuditModel, _utcnow
 
 
 class ListenerPlatform:
-    """Legacy compatibility constants for built-in listener identifiers."""
+    """Built-in listener identifiers."""
 
     TELEGRAM = "telegram"
     DISCORD = "discord"

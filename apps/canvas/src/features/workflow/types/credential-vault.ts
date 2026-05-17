@@ -6,8 +6,6 @@ export interface Credential {
   id: string;
   name: string;
   provider?: string;
-  /** @deprecated Use provider. */
-  type?: string;
   workflowId?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -21,8 +19,6 @@ export interface Credential {
 export interface CredentialInput {
   name: string;
   provider: string;
-  /** @deprecated Use provider. */
-  type?: string;
   access: CredentialVaultAccessLevel;
   secrets?: Record<string, string>;
   owner?: string;
@@ -31,8 +27,6 @@ export interface CredentialInput {
 export interface CredentialUpdateInput {
   name?: string;
   provider?: string;
-  /** @deprecated Use provider. */
-  type?: string;
   access?: CredentialVaultAccessLevel;
   secrets?: Record<string, string>;
 }

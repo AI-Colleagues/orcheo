@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 from uuid import UUID
-from orcheo.models.workflow import WorkflowRun
+from orcheo.models import WorkflowRun
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowRunNotFoundError,

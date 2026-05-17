@@ -64,7 +64,7 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo node list [--tag <tag>]` | List registered nodes with metadata (name, category, description). Filter by tag. |
 | `orcheo node show <node>` | Display detailed node schema, inputs/outputs, and credential requirements. |
 | `orcheo edge list [--category <category>]` | List registered edges with metadata (name, category, description). Filter by category. |
-| `orcheo edge show <edge>` | Display detailed edge schema and conditional routing configuration. Canonical built-ins use the `*Edge` suffix; legacy aliases still resolve for compatibility. |
+| `orcheo edge show <edge>` | Display detailed edge schema and conditional routing configuration. Canonical built-ins use the `*Edge` suffix. |
 | `orcheo plugin list [--runtime auto\|local\|stack]` | List installed plugins with enabled state, status, version, exports, and source ref. |
 | `orcheo plugin show <plugin> [--runtime auto\|local\|stack]` | Show plugin manifest, compatibility, entry points, and resolved install state. |
 | `orcheo plugin install <ref> [--runtime auto\|local\|stack]` | Install a plugin from a package name, pinned package, local path, wheel, or Git URL. |
@@ -117,15 +117,14 @@ features stay disabled until the key is set.
 
 ## Edge Naming
 
-Built-in branching edges now use canonical names with an `Edge` suffix:
+Built-in branching edges use canonical names with an `Edge` suffix:
 
 - `IfElseEdge`
 - `SwitchEdge`
 - `WhileEdge`
 
-`orcheo edge list` emits these canonical names. Older names (`IfElse`, `Switch`,
-`While`) still work for `orcheo edge show` and older workflow definitions, but
-new examples and custom registrations should use the canonical `*Edge` names.
+`orcheo edge list` emits these canonical names. New examples and custom
+registrations should use the canonical `*Edge` names.
 
 ## Plugin Management
 
@@ -265,6 +264,8 @@ Workflow `.py` files may include an optional PEP 723-style metadata block. When 
 # id = "wf-abc123"
 # config = "./my-workflow.config.json"
 # entrypoint = "build_graph"
+# emoji = "🤖"
+# subtitle = "AI Assistant"
 # ///
 
 from langgraph.graph import StateGraph
@@ -279,6 +280,10 @@ Supported fields (all optional):
 - `id` (or `handle`) – workflow reference; when set, the upload updates this existing workflow instead of creating a new one.
 - `config` – path to a companion JSON runnable config file. Relative paths resolve against the workflow file's directory.
 - `entrypoint` – LangGraph entrypoint function/variable name.
+- `emoji` – emoji shown on the colleague's Candidates badge in Canvas.
+- `subtitle` – short role line shown on the Candidates badge.
+- `notes` – free-form notes describing the workflow template.
+- `metadata` – a `[metadata]` table of template compatibility info (e.g. `required_plugins`, `validated_provider_api`).
 
 The block is parsed as TOML; only the fields above are accepted. CLI flags (`--name`, `--id`, `--config-file`, `--entrypoint`) always win over the frontmatter values.
 

@@ -8,17 +8,12 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
-| `ORCHEO_CHECKPOINT_BACKEND` | `sqlite` | `sqlite` or `postgres` | Selects the checkpoint persistence backend consumed by `config/loader.py`. |
-| `ORCHEO_SQLITE_PATH` | `~/.orcheo/checkpoints.sqlite` | Filesystem path (absolute or `~`-expanded) | Location of the SQLite checkpoints database when `sqlite` backend is active (see `config/defaults.py`). |
-| `ORCHEO_GRAPH_STORE_BACKEND` | `sqlite` | `sqlite` or `postgres` | Selects the LangGraph store backend used for graph memory/state storage (`config/loader.py`, `persistence.py`). |
-| `ORCHEO_GRAPH_STORE_SQLITE_PATH` | `~/.orcheo/graph_store.sqlite` | Absolute filesystem path (must not begin with `~`) | SQLite file path used when `ORCHEO_GRAPH_STORE_BACKEND=sqlite` (`config/app_settings.py`). |
-| `ORCHEO_POSTGRES_DSN` | _none_ | PostgreSQL DSN (e.g. `postgresql://user:pass@host:port/db`) | Connection string required when any backend is set to `postgres` (checkpoint, graph store, repository, chatkit, or vault; see `config/loader.py`). |
-| `ORCHEO_REPOSITORY_BACKEND` | `sqlite` | `sqlite`, `postgres`, or `inmemory` | Chooses the workflow repository implementation (`config/loader.py`). |
-| `ORCHEO_REPOSITORY_SQLITE_PATH` | `~/.orcheo/workflows.sqlite` | Filesystem path | Location of the workflow repository SQLite file (`config/loader.py`). |
-| `ORCHEO_WORKSPACE_BACKEND` | `inmemory` | `inmemory`, `sqlite`, or `postgres` | Chooses the workspace repository implementation used for workspaces and memberships (`config/loader.py`, `app/workspace/dependencies.py`). |
-| `ORCHEO_WORKSPACE_SQLITE_PATH` | `~/.orcheo/workspaces.sqlite` | Filesystem path | Location of the persistent workspace repository SQLite file when `ORCHEO_WORKSPACE_BACKEND=sqlite` (`config/loader.py`). |
-| `ORCHEO_CHATKIT_BACKEND` | `sqlite` | `sqlite` or `postgres` | Selects the ChatKit persistence backend used by `chatkit/server.py`. |
-| `ORCHEO_CHATKIT_SQLITE_PATH` | `~/.orcheo/chatkit.sqlite` | Filesystem path | Storage for ChatKit conversation history when using SQLite persistence (`config/loader.py` and `chatkit/server.py`). |
+| `ORCHEO_CHECKPOINT_BACKEND` | `postgres` | `postgres` | Selects the checkpoint persistence backend consumed by `config/loader.py`. |
+| `ORCHEO_GRAPH_STORE_BACKEND` | `postgres` | `postgres` | Selects the LangGraph store backend used for graph memory/state storage (`config/loader.py`, `persistence.py`). |
+| `ORCHEO_POSTGRES_DSN` | _none_ | PostgreSQL DSN (e.g. `postgresql://user:pass@host:port/db`) | Connection string required when any backend is set to `postgres` (checkpoint, graph store, repository, workspace, auth service tokens, chatkit, or vault; see `config/loader.py`). |
+| `ORCHEO_REPOSITORY_BACKEND` | `postgres` | `postgres` | Chooses the workflow repository implementation (`config/loader.py`). |
+| `ORCHEO_WORKSPACE_BACKEND` | `postgres` | `postgres` | Chooses the workspace repository implementation used for workspaces and memberships (`config/loader.py`, `app/workspace/dependencies.py`). |
+| `ORCHEO_CHATKIT_BACKEND` | `postgres` | `postgres` | Selects the ChatKit persistence backend used by `chatkit/server.py`. |
 | `ORCHEO_CHATKIT_STORAGE_PATH` | `~/.orcheo/chatkit` | Directory path | Filesystem root for ChatKit attachments (`config/loader.py`). |
 | `ORCHEO_CHATKIT_MAX_UPLOAD_SIZE_BYTES` | `5000000` | Positive integer | Maximum upload size (bytes) accepted by the ChatKit upload endpoint (`routers/chatkit.py`, `config/loader.py`). |
 | `ORCHEO_CHATKIT_CDN_BASE_URL` | `https://cdn.platform.openai.com/` | HTTP(S) URL | Overrides the upstream CDN base used by the ChatKit asset proxy routes (`chatkit_asset_proxy.py`). |
@@ -26,8 +21,8 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_CHATKIT_WIDGET_TYPES` | `["Card","ListView"]` | Comma/JSON list of widget root types | Allow-list of widget roots the ChatKit server will hydrate into thread items (`chatkit/server.py`). |
 | `ORCHEO_CHATKIT_WIDGET_ACTION_TYPES` | `["submit"]` | Comma/JSON list of action types | Widget action types the ChatKit server will dispatch back to workflows (`chatkit/server.py`). |
 | `ORCHEO_HOST` | `0.0.0.0` | Hostname or IP string | Network interface to bind the FastAPI app (`config/loader.py`). |
-| `ORCHEO_PORT` | `8000` | Integer (1‑65535) | TCP port exposed by the FastAPI service (`config/loader.py`). |
-| `ORCHEO_CORS_ALLOW_ORIGINS` | `["http://localhost:5173","http://127.0.0.1:5173"]` | JSON array or comma-separated list of origins | CORS allow-list used when constructing the FastAPI middleware (`factory.py`). `orcheo install --public-ingress` sets this to the shared public HTTPS origin and keeps localhost origins when local access ports remain enabled. Tunnel or split-origin installs should set this to the public Canvas/browser origin instead of the backend API origin. |
+| `ORCHEO_PORT` | `2025` | Integer (1‑65535) | TCP port exposed by the FastAPI service (`config/loader.py`). |
+| `ORCHEO_CORS_ALLOW_ORIGINS` | `["http://localhost:2026","http://127.0.0.1:2026"]` | JSON array or comma-separated list of origins | CORS allow-list used when constructing the FastAPI middleware (`factory.py`). `orcheo install --public-ingress` sets this to the shared public HTTPS origin and keeps localhost origins when local access ports remain enabled. Tunnel or split-origin installs should set this to the public Canvas/browser origin instead of the backend API origin. |
 | `ORCHEO_UPDATE_CHECK_TIMEOUT_SECONDS` | `3.0` | Float > 0 | Timeout for backend package registry lookups used by `/api/system/info` (`app/versioning.py`). |
 | `ORCHEO_UPDATE_CHECK_RETRIES` | `1` | Integer ≥ 0 | Retry count for backend package registry lookups used by `/api/system/info` (`app/versioning.py`). |
 | `ORCHEO_CANVAS_VERSION` | _none_ | Version string (for example `0.8.1`) | Optional current Canvas version reported by `/api/system/info` to compare with npm latest (`app/versioning.py`). |
@@ -40,13 +35,11 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_TRACING_PREVIEW_MAX_LENGTH` | `512` | Positive integer ≥ 16 | Maximum characters retained for prompt/response previews (`tracing/workflow.py`). |
 | `ORCHEO_CHATKIT_PUBLIC_BASE_URL` | _none_ | HTTP(S) URL | Optional frontend origin used when generating ChatKit share links in the backend API responses and the CLI/MCP; defaults to `ORCHEO_API_URL` with any `/api` suffix removed when unset in the CLI/MCP (`publish.py`). One-off overrides can be supplied via `orcheo workflow publish --chatkit-public-base-url`. |
 
-Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does not enqueue webhook/cron/manual triggers for execution. These runs remain `PENDING` unless you execute them manually (for example, via the websocket runner).
-
 ## Canvas frontend configuration
 
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
-| `VITE_ORCHEO_BACKEND_URL` | `http://localhost:8000` | HTTP(S) URL | Base URL for the Orcheo backend API used by Canvas. Public-ingress installs set this to the shared public origin (for example, `https://orcheo.example.com`). |
+| `VITE_ORCHEO_BACKEND_URL` | `http://localhost:2025` | HTTP(S) URL | Base URL for the Orcheo backend API used by Canvas. Public-ingress installs set this to the shared public origin (for example, `https://orcheo.example.com`). |
 | `VITE_ORCHEO_AUTH_ISSUER` | _none_ | OIDC issuer URL | OIDC issuer used for IdP-only login (Canvas OAuth). |
 | `VITE_ORCHEO_AUTH_CLIENT_ID` | _none_ | String | OAuth client ID registered for the Canvas SPA. |
 | `VITE_ORCHEO_AUTH_REDIRECT_URI` | `${origin}/auth/callback` | URL | Redirect URI registered with the IdP (Canvas callback route). |
@@ -67,14 +60,11 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
-| `ORCHEO_VAULT_BACKEND` | `file` | `file`, `inmemory`, `aws_kms`, or `postgres` | Chooses the credential vault backend (`config/loader.py`, `config/vault_settings.py`). |
-| `ORCHEO_VAULT_LOCAL_PATH` | `~/.orcheo/vault.sqlite` | Filesystem path | Location of the file-backed vault database when `file` backend is selected (`config/loader.py`). |
-| `ORCHEO_VAULT_ENCRYPTION_KEY` | _none_ | String (ideally 128+ bits) | Optional pre-shared key used to encrypt secrets (required for `aws_kms`, used elsewhere when present). |
-| `ORCHEO_VAULT_AWS_REGION` | _none_ | AWS region identifier (e.g. `us-east-1`) | Region targeted when `ORCHEO_VAULT_BACKEND=aws_kms` (`config/loader.py`). |
-| `ORCHEO_VAULT_AWS_KMS_KEY_ID` | _none_ | KMS key identifier | Key ID for AWS KMS vaults (`config/loader.py`). |
+| `ORCHEO_VAULT_BACKEND` | `postgres` | `postgres` | Chooses the credential vault backend (`config/loader.py`, `config/vault_settings.py`). |
+| `ORCHEO_VAULT_ENCRYPTION_KEY` | _none_ | String (ideally 128+ bits) | Pre-shared key required when `ORCHEO_VAULT_BACKEND=postgres`. |
 | `ORCHEO_VAULT_TOKEN_TTL_SECONDS` | `3600` | Positive integer | Lifetime (seconds) for vault access tokens (`config/loader.py`). |
 | `ORCHEO_MULTI_WORKSPACE_ENABLED` | `false` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Enables workspace-aware request resolution, scoped repository lookups, and workspace-aware websocket/runnable execution (`config/loader.py`). |
-| `ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG` | `default` | Slug string | Legacy compatibility slug retained for migration helpers and explicit resolver overrides. The runtime no longer bootstraps a shared default workspace at startup (`config/loader.py`). |
+| `ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG` | `default` | Slug string | Default workspace slug used by explicit resolver overrides. The runtime no longer bootstraps a shared default workspace at startup (`config/loader.py`). |
 | `ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER` | `X-Orcheo-Workspace` | HTTP header name | Header that pins the active workspace for authenticated requests (`config/loader.py`). |
 
 ## ChatKit rate limits
@@ -103,7 +93,7 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `ORCHEO_AUTH_ALLOWED_ALGORITHMS` | `RS256, HS256` | Comma/JSON list of JWT algorithm names | Restricts acceptable signing algorithms (`authentication/settings.py`). |
 | `ORCHEO_AUTH_AUDIENCE` | _none_ | Comma/JSON list of strings | Acceptable JWT audiences (`authentication/settings.py`). |
 | `ORCHEO_AUTH_ISSUER` | _none_ | String | Expected JWT issuer claim (`authentication/settings.py`). |
-| `ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH` | Derived from `ORCHEO_REPOSITORY_SQLITE_PATH` (defaults to `~/.orcheo/service_tokens.sqlite`) | Filesystem path | Override the service token SQLite file (`authentication/settings.py`). |
+| `ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH` | _none_ | Filesystem path | Override the service token store path when needed (`authentication/settings.py`). |
 | `ORCHEO_AUTH_RATE_LIMIT_IP` | `0` | Integer ≥ 0 | Per-IP HTTP rate limit for authentication endpoints (`authentication/settings.py`). |
 | `ORCHEO_AUTH_RATE_LIMIT_IDENTITY` | `0` | Integer ≥ 0 | Rate limit keyed by identity (`authentication/settings.py`). |
 | `ORCHEO_AUTH_RATE_LIMIT_INTERVAL` | `60` | Integer > 0 | Interval (seconds) governing the authentication rate limits (`authentication/settings.py`). |
@@ -166,7 +156,7 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `ORCHEO_CONFIG_DIR` | `~/.config/orcheo` | Directory path | Overrides where the CLI looks for `cli.toml` (`cli/config.py`). |
 | `ORCHEO_CACHE_DIR` | `~/.cache/orcheo` | Directory path | Location for CLI caches (`cli/config.py`). |
 | `ORCHEO_PROFILE` | `default` | Profile name present in `cli.toml` | Chooses which CLI profile to load (`cli/config.py`). |
-| `ORCHEO_API_URL` | `http://localhost:8000` | HTTP(S) URL | URL of the Orcheo backend used by the CLI/SDK (`cli/config.py`). For Cloudflare Tunnel or other public split-origin setups, set this to the public backend hostname rather than the Canvas hostname. |
+| `ORCHEO_API_URL` | `http://localhost:2025` | HTTP(S) URL | URL of the Orcheo backend used by the CLI/SDK (`cli/config.py`). For Cloudflare Tunnel or other public split-origin setups, set this to the public backend hostname rather than the Canvas hostname. |
 | `ORCHEO_SERVICE_TOKEN` | _none_ | Bearer token string | Service authentication token used by the CLI/SDK and emitted in generated code snippets (`cli/config.py`, `services/codegen.py`). |
 | `ORCHEO_HUMAN` | _unset_ | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | When set to a truthy value, the CLI uses human-friendly Rich output (colored tables, panels) instead of machine-readable format (JSON, Markdown tables). Equivalent to passing `--human` (`cli/main.py`). |
 | `ORCHEO_DISABLE_UPDATE_CHECK` | _unset_ | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Disables startup update reminders in the CLI (`cli/main.py`). |
@@ -180,12 +170,12 @@ Note: `ORCHEO_REPOSITORY_BACKEND=inmemory` stores runs in-process only and does 
 | `ORCHEO_PUBLIC_HOST` | _unset_ | Hostname | Public hostname served by bundled Caddy. Required when `ORCHEO_PUBLIC_INGRESS_ENABLED=true`. |
 | `COMPOSE_PROFILES` | _empty_ | Comma-separated Docker Compose profile names | Profiles activated by `orcheo install` and `orcheo stack`. Set to `public-ingress` to enable bundled Caddy TLS ingress. |
 | `ORCHEO_CADDY_SITE_ADDRESS` | _unset_ | Hostname or Caddy site address | Site address consumed by `deploy/stack/Caddyfile`. Usually the same value as `ORCHEO_PUBLIC_HOST`. |
-| `ORCHEO_CADDY_BACKEND_UPSTREAMS` | `backend:8000` | Space-delimited `host:port` upstream list | Backend upstream pool used by bundled Caddy for `/api/*` and `/ws/*`. Multiple entries are for replicas of the same logical deployment only. |
-| `ORCHEO_CADDY_CANVAS_UPSTREAM` | `canvas:5173` | `host:port` | Internal Canvas upstream used by bundled Caddy for `/` and SPA routes. |
+| `ORCHEO_CADDY_BACKEND_UPSTREAMS` | `backend:2025` | Space-delimited `host:port` upstream list | Backend upstream pool used by bundled Caddy for `/api/*` and `/ws/*`. Multiple entries are for replicas of the same logical deployment only. |
+| `ORCHEO_CADDY_CANVAS_UPSTREAM` | `canvas:2026` | `host:port` | Internal Canvas upstream used by bundled Caddy for `/` and SPA routes. |
 | `ORCHEO_CADDY_HTTP_BIND` | `0.0.0.0` | IP string | Host bind address for Caddy's public port `80` in `deploy/stack/docker-compose.yml`. |
 | `ORCHEO_CADDY_HTTPS_BIND` | `0.0.0.0` | IP string | Host bind address for Caddy's public port `443` in `deploy/stack/docker-compose.yml`. |
-| `ORCHEO_BACKEND_LOCAL_PORT` | `8000` | Integer (1‑65535) | Localhost port bound for the backend service in the stack compose file. |
-| `ORCHEO_CANVAS_LOCAL_PORT` | `5173` | Integer (1‑65535) | Localhost port bound for the Canvas service in the stack compose file. |
+| `ORCHEO_BACKEND_LOCAL_PORT` | `2025` | Integer (1‑65535) | Localhost port bound for the backend service in the stack compose file. |
+| `ORCHEO_CANVAS_LOCAL_PORT` | `2026` | Integer (1‑65535) | Localhost port bound for the Canvas service in the stack compose file. |
 | `ORCHEO_POSTGRES_LOCAL_PORT` | `5432` | Integer (1‑65535) | Localhost port bound for the bundled Postgres service in the stack compose file. |
 | `ORCHEO_REDIS_LOCAL_PORT` | `6379` | Integer (1‑65535) | Localhost port bound for the bundled Redis service in the stack compose file. |
 | `ORCHEO_AUTH_ISSUER` | _none_ | OIDC issuer URL | OAuth issuer URL for CLI browser-based login. Can also be set in a `cli.toml` profile via `auth_issuer` (`cli/auth/config.py`). |

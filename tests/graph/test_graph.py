@@ -37,5 +37,5 @@ def test_build_graph_from_langgraph_script() -> None:
 
 
 def test_build_graph_rejects_non_script_runtime_payload() -> None:
-    with pytest.raises(UnsupportedWorkflowGraphFormatError, match="legacy-json-graph"):
+    with pytest.raises(UnsupportedWorkflowGraphFormatError, match="unknown"):
         build_graph({"nodes": [], "edges": []})

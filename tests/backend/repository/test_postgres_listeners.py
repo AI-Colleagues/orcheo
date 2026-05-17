@@ -15,7 +15,7 @@ from orcheo.listeners import (
     ListenerSubscriptionStatus,
 )
 from orcheo_backend.app.repository import WorkflowNotFoundError
-from orcheo_backend.app.repository_postgres import PostgresWorkflowRepository, _triggers
+from orcheo_backend.app.repository_postgres import PostgresWorkflowRepository
 from orcheo_backend.app.repository_postgres import _base as pg_base
 
 
@@ -104,7 +104,6 @@ def make_repo(
 ) -> PostgresWorkflowRepository:
     monkeypatch.setattr(pg_base, "AsyncConnectionPool", object())
     monkeypatch.setattr(pg_base, "DictRowFactory", object())
-    monkeypatch.setattr(_triggers, "_enqueue_run_for_execution", lambda run: None)
     repo = PostgresWorkflowRepository("postgresql://test")
     repo._pool = FakePool(FakeConnection(responses))  # noqa: SLF001
     repo._initialized = initialized  # noqa: SLF001

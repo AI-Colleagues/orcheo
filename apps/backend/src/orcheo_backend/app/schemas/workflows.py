@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, model_validator
 from orcheo.graph.ingestion import DEFAULT_SCRIPT_SIZE_LIMIT
-from orcheo.models.workflow import (
+from orcheo.models import (
     Workflow,
     WorkflowChatKitConfig,
     WorkflowDraftAccess,
@@ -48,25 +48,6 @@ class WorkflowUpdateRequest(BaseModel):
     clear_chatkit_start_screen_prompts: bool = False
     clear_chatkit_supported_models: bool = False
     actor: str = Field(default="system")
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce_legacy_chatkit_fields(cls, data: object) -> object:
-        if not isinstance(data, dict):
-            return data
-        if data.get("chatkit") is not None:
-            return data
-
-        chatkit_payload: dict[str, object] = {}
-        if "chatkit_start_screen_prompts" in data:
-            chatkit_payload["start_screen_prompts"] = data.get(
-                "chatkit_start_screen_prompts"
-            )
-        if "chatkit_supported_models" in data:
-            chatkit_payload["supported_models"] = data.get("chatkit_supported_models")
-        if not chatkit_payload:
-            return data
-        return {**data, "chatkit": chatkit_payload}
 
     @field_validator("handle", mode="before")
     @classmethod

@@ -12,9 +12,9 @@ STACK_ENV_TEMPLATE ?= $(STACK_DIR)/.env.example
 STAGING_COMPOSE = ORCHEO_STACK_ENV_FILE=$(STACK_ENV_FILE) docker compose --env-file $(STACK_ENV_FILE) -f $(STACK_DIR)/docker-compose.yml -f $(STACK_DIR)/docker-compose.staging.yml --project-directory $(STACK_DIR)
 
 lint:
-	$(UV_RUN) ruff check src/orcheo packages/sdk/src packages/agentensor/src apps/backend/src
+	$(UV_RUN) ruff check --config pyproject.toml src/orcheo packages/sdk/src packages/agentensor/src apps/backend/src
 	$(UV_RUN) mypy src/orcheo packages/sdk/src packages/agentensor/src apps/backend/src --install-types --non-interactive
-	$(UV_RUN) ruff format . --check
+	$(UV_RUN) ruff format --config pyproject.toml . --check
 
 canvas-lint:
 	npm --prefix apps/canvas run lint
@@ -26,9 +26,9 @@ canvas-test:
 	npm --prefix apps/canvas run test -- --run
 
 format:
-	ruff format .
-	ruff check . --select I001 --fix
-	ruff check . --select F401 --fix
+	ruff format --config pyproject.toml .
+	ruff check --config pyproject.toml . --select I001 --fix
+	ruff check --config pyproject.toml . --select F401 --fix
 
 test:
 	$(UV_RUN) pytest --cov --cov-report term-missing -n auto tests/
@@ -37,7 +37,7 @@ doc:
 	mkdocs serve --dev-addr=0.0.0.0:8080 --livereload
 
 dev-server:
-	uvicorn --app-dir apps/backend/src orcheo_backend.app:app --reload --port 8000
+	uvicorn --app-dir apps/backend/src orcheo_backend.app:app --reload --port 2025
 
 redis:
 	docker compose up -d redis

@@ -22,7 +22,7 @@ from orcheo.agentensor.prompts import TrainablePrompt
 from orcheo.agentensor.training import OptimizerConfig
 from orcheo.graph.ingestion.config import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.graph.state import State
-from orcheo.nodes.agentensor import AgentensorNode, _EvaluatorAdapter, _TextPayload
+from orcheo.nodes.ai.agentensor import AgentensorNode, _EvaluatorAdapter, _TextPayload
 from orcheo.nodes.registry import registry
 from orcheo.runtime.runnable_config import RunnableConfigModel
 from tests.agentensor.helpers import EvaluateCallable, simple_result

@@ -3,12 +3,12 @@
 from typing import Literal
 
 
-CheckpointBackend = Literal["sqlite", "postgres"]
-GraphStoreBackend = Literal["sqlite", "postgres"]
-ChatKitBackend = Literal["sqlite", "postgres"]
-RepositoryBackend = Literal["inmemory", "sqlite", "postgres"]
-WorkspaceBackend = Literal["inmemory", "sqlite", "postgres"]
-VaultBackend = Literal["inmemory", "file", "aws_kms", "postgres"]
+CheckpointBackend = Literal["postgres"]
+GraphStoreBackend = Literal["postgres"]
+ChatKitBackend = Literal["postgres"]
+RepositoryBackend = Literal["postgres"]
+WorkspaceBackend = Literal["postgres"]
+VaultBackend = Literal["postgres"]
 
 __all__ = [
     "ChatKitBackend",

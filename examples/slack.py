@@ -4,7 +4,7 @@ import asyncio
 from dotenv import load_dotenv
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
-from orcheo.nodes.slack import SlackNode
+from orcheo.nodes.connectors.slack import SlackNode
 
 
 if __name__ == "__main__":

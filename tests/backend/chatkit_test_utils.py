@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 from typing import Any
-from orcheo.models.workflow import Workflow, WorkflowDraftAccess
+from unittest.mock import AsyncMock
+from orcheo.models import Workflow, WorkflowDraftAccess
 from orcheo.vault import InMemoryCredentialVault
+from orcheo_backend.app.dependencies import set_history_store
+from orcheo_backend.app.history import RunHistoryStore
 from orcheo_backend.app.chatkit import (
     InMemoryChatKitStore,
     OrcheoChatKitServer,
@@ -62,8 +65,12 @@ async def create_workflow_with_graph(
 
 def create_chatkit_test_server(
     repository: InMemoryWorkflowRepository,
+    history_store: RunHistoryStore | None = None,
 ) -> OrcheoChatKitServer:
     """Return an OrcheoChatKitServer backed by in-memory dependencies."""
+    if history_store is None:
+        history_store = AsyncMock(spec=RunHistoryStore)
+    set_history_store(history_store)
     return create_chatkit_server(
         repository,
         InMemoryCredentialVault,

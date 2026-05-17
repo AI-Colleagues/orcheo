@@ -6,7 +6,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.ai import LLMNode
+from orcheo.nodes.ai.llm import LLMNode
 
 
 @pytest.mark.asyncio

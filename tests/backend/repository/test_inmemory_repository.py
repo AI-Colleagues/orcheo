@@ -9,7 +9,7 @@ from orcheo.listeners import (
     ListenerSubscriptionStatus,
 )
 from orcheo.models.base import _utcnow
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo_backend.app.errors import WorkspaceQuotaExceededError

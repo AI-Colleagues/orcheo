@@ -170,20 +170,6 @@ def test_normalize_workflow_name_handles_empty_and_trimmed_values() -> None:
         ingest._normalize_workflow_name("   ")
 
 
-def test_normalize_workflow_handle_delegates_to_normalizer(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Workflow handles should be slugged and normalized by the helper."""
-    monkeypatch.setattr(
-        ingest,
-        "normalize_workflow_handle",
-        lambda value: f"normalized:{value}",
-    )
-
-    assert ingest._normalize_workflow_handle(None) is None
-    assert ingest._normalize_workflow_handle("  My Handle  ") == "normalized:my-handle"
-
-
 def test_fetch_workflow_for_upload_handles_success_and_archived_workflows() -> None:
     """Archived workflows should be ignored when create-if-missing is enabled."""
     state = _State(_Client(get_result={"id": "wf-1"}))
@@ -549,7 +535,7 @@ def test_load_workflow_from_python_rejects_invalid_workflow_object(
 
     with pytest.raises(
         ingest.CLIError,
-        match="must be an orcheo_sdk.Workflow instance",
+        match="must provide a to_deployment_payload\\(\\) method",
     ):
         ingest._load_workflow_from_python(py_file)
 

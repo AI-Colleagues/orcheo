@@ -45,4 +45,4 @@ ENV PYTHONPATH=/app/src:/app/apps/backend/src
 ENTRYPOINT ["orcheo-entrypoint"]
 
 # Default command (can be overridden in docker-compose)
-CMD ["uv", "run", "uvicorn", "orcheo_backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "orcheo_backend.app:app", "--host", "0.0.0.0", "--port", "2025"]

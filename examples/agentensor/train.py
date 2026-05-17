@@ -15,8 +15,8 @@ from orcheo.agentensor.evaluation import (
 from orcheo.agentensor.prompts import TrainablePrompt
 from orcheo.agentensor.training import OptimizerConfig, TrainingRequest
 from orcheo.graph.state import State
-from orcheo.nodes.agentensor import AgentensorNode
 from orcheo.nodes.ai import AgentNode
+from orcheo.nodes.ai.agentensor import AgentensorNode
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import RunnableConfigModel
 

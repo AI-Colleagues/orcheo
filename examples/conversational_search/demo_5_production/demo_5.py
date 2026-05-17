@@ -14,10 +14,6 @@ from orcheo.nodes.conversational_search.conversation import (
     InMemoryMemoryStore,
     SessionManagementNode,
 )
-from orcheo.nodes.conversational_search.evaluation import (
-    MemoryPrivacyNode,
-    PolicyComplianceNode,
-)
 from orcheo.nodes.conversational_search.generation import (
     CitationsFormatterNode,
     GroundedGeneratorNode,
@@ -35,6 +31,10 @@ from orcheo.nodes.conversational_search.retrieval import (
 from orcheo.nodes.conversational_search.vector_store import (
     BaseVectorStore,
     PineconeVectorStore,
+)
+from orcheo.nodes.evaluation import (
+    MemoryPrivacyNode,
+    PolicyComplianceNode,
 )
 
 

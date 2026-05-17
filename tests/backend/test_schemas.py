@@ -38,7 +38,7 @@ def test_workflow_update_request_allows_explicit_none_handle() -> None:
     assert request.handle is None
 
 
-def test_workflow_update_request_coerces_legacy_chatkit_fields() -> None:
+def test_workflow_update_request_ignores_legacy_chatkit_fields() -> None:
     legacy_data = {
         "chatkit_start_screen_prompts": [{"label": "One", "prompt": "Hello"}],
         "chatkit_supported_models": [{"id": "openai:gpt-5"}],
@@ -46,9 +46,7 @@ def test_workflow_update_request_coerces_legacy_chatkit_fields() -> None:
 
     request = WorkflowUpdateRequest(**legacy_data)
 
-    assert request.chatkit is not None
-    assert request.chatkit.start_screen_prompts is not None
-    assert request.chatkit.supported_models is not None
+    assert request.chatkit is None
 
 
 def test_workflow_update_request_rejects_conflicting_prompt_flags() -> None:
@@ -68,7 +66,7 @@ def test_workflow_update_request_rejects_conflicting_supported_model_flags() -> 
 
 
 def test_workflow_update_request_validator_passthrough_for_non_dict() -> None:
-    """Non-dict input to _coerce_legacy_chatkit_fields is returned unchanged (line 56)."""  # noqa: E501
+    """Non-dict input is returned unchanged."""
     from types import SimpleNamespace
 
     obj = SimpleNamespace()  # all WorkflowUpdateRequest fields are optional/defaulted

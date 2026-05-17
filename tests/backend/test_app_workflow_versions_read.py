@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 import pytest
 from fastapi import HTTPException
-from orcheo.models.workflow import Workflow, WorkflowVersion
+from orcheo.models import Workflow, WorkflowVersion
 from orcheo_backend.app import (
     diff_workflow_versions,
     get_workflow_version,

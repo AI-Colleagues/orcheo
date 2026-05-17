@@ -62,7 +62,7 @@ export function EditCredentialDialog({
       : "";
 
     setName(credential.name);
-    setProvider(credential.provider ?? credential.type ?? "");
+    setProvider(credential.provider ?? "");
     setAccess(credential.access);
     setSecret(credentialSecret);
     setInitialSecret(credentialSecret);
@@ -93,11 +93,7 @@ export function EditCredentialDialog({
     if (trimmedName !== credential.name) {
       updates.name = trimmedName;
     }
-    const existingProvider = (
-      credential.provider ??
-      credential.type ??
-      ""
-    ).trim();
+    const existingProvider = (credential.provider ?? "").trim();
     if (trimmedProvider !== existingProvider) {
       updates.provider = trimmedProvider;
     }

@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
-from orcheo.models.workflow import Workflow, WorkflowVersion
+from orcheo.models import Workflow, WorkflowVersion
 from orcheo.vault.oauth.models import CredentialHealthError
 from orcheo_backend.app.repository.errors import WorkflowRunNotFoundError
 from orcheo_backend.app.repository.in_memory.state import InMemoryRepositoryState
