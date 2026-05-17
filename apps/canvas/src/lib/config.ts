@@ -1,4 +1,4 @@
-const DEFAULT_BACKEND_URL = "http://localhost:8000";
+const DEFAULT_BACKEND_URL = "http://localhost:2025";
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 

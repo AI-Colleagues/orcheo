@@ -22,7 +22,7 @@ This setup mirrors the default configuration that the tests exercise. It is idea
    make dev-server
    ```
 4. **Run an example workflow**
-   - Send a websocket message to `ws://localhost:8000/ws/workflow/<workflow_id>` with a payload matching the schema in `tests/test_main.py`.
+   - Send a websocket message to `ws://localhost:2025/ws/workflow/<workflow_id>` with a payload matching the schema in `tests/test_main.py`.
 
 **Verification**: Run `uv run pytest` to validate the environment. The test suite uses the same backend factories as the server.
 
@@ -57,10 +57,10 @@ Use this recipe when you want an isolated environment that mimics production wit
    services:
      orcheo:
        build: .
-       command: uvicorn orcheo_backend.app:app --host 0.0.0.0 --port 8000
+       command: uvicorn orcheo_backend.app:app --host 0.0.0.0 --port 2025
        environment:
          ORCHEO_HOST: 0.0.0.0
-         ORCHEO_PORT: "8000"
+         ORCHEO_PORT: "2025"
          ORCHEO_CHECKPOINT_BACKEND: postgres
          ORCHEO_GRAPH_STORE_BACKEND: postgres
          ORCHEO_REPOSITORY_BACKEND: postgres
@@ -70,7 +70,7 @@ Use this recipe when you want an isolated environment that mimics production wit
          ORCHEO_VAULT_ENCRYPTION_KEY: change-me
          ORCHEO_POSTGRES_DSN: postgresql://orcheo:orcheo@postgres:5432/orcheo
        ports:
-         - "8000:8000"
+         - "2025:2025"
        depends_on:
          - postgres
      postgres:
@@ -91,7 +91,7 @@ Use this recipe when you want an isolated environment that mimics production wit
    docker compose up --build
    ```
 3. **Connect**
-   Access the API via `http://localhost:8000`. The Postgres database is stored inside the named volume so runs persist across container restarts.
+   Access the API via `http://localhost:2025`. The Postgres database is stored inside the named volume so runs persist across container restarts.
 
 **Verification**: `docker compose exec orcheo uv run pytest tests/test_main.py` confirms the container is healthy.
 
@@ -114,7 +114,7 @@ This is the standard public self-hosted recipe for Orcheo on a reachable Linux h
    - `https://orcheo.example.com/api/...` -> backend HTTP routes
    - `wss://orcheo.example.com/ws/...` -> backend WebSocket routes
 4. **Inspect the generated stack config when needed**
-   - `COMPOSE_PROFILES=public-ingress` enables Caddy TLS ingress. Backend and Canvas remain accessible on their direct localhost ports (`8000` and `5173` by default).
+   - `COMPOSE_PROFILES=public-ingress` enables Caddy TLS ingress. Backend and Canvas remain accessible on their direct localhost ports (`2025` and `2026` by default).
    - `ORCHEO_CADDY_BACKEND_UPSTREAMS` controls the backend upstream pool for `/api/*` and `/ws/*`.
 5. **Verify the public origin**
    ```bash
@@ -129,7 +129,7 @@ The initial supported load-balancing topology is one logical deployment with mul
 Set explicit backend upstreams in `~/.orcheo/stack/.env` when you add more backend replicas:
 
 ```env
-ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:8000 backend-2:8000 backend-3:8000
+ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:2025 backend-2:2025 backend-3:2025
 ```
 
 Use this pattern only when the replicas share the same repository, checkpoint, ChatKit, and vault state through shared Postgres and Redis. Do not use one hostname and one path to multiplex isolated customer-specific stacks.
@@ -184,8 +184,8 @@ Use this recipe when the host is not directly reachable or when you intentionall
    orcheo install --start-stack
    ```
 2. **Point your tunnel routes at the direct localhost ports**
-   - `https://orcheo.example.com` -> `http://localhost:8000`
-   - `https://orcheo-canvas.example.com` -> `http://localhost:5173`
+   - `https://orcheo.example.com` -> `http://localhost:2025`
+   - `https://orcheo-canvas.example.com` -> `http://localhost:2026`
 3. **Set the generated stack env to the split-origin contract**
    ```env
    ORCHEO_PUBLIC_INGRESS_ENABLED=false
@@ -222,7 +222,7 @@ This deployment targets platforms such as Fly.io, Railway, or Kubernetes where P
    export ORCHEO_REPOSITORY_BACKEND=postgres
    export ORCHEO_CHATKIT_BACKEND=postgres
    export ORCHEO_HOST=0.0.0.0
-   export ORCHEO_PORT=8000
+   export ORCHEO_PORT=2025
    export ORCHEO_VAULT_BACKEND=postgres
    export ORCHEO_VAULT_ENCRYPTION_KEY=change-me
    export ORCHEO_VAULT_TOKEN_TTL_SECONDS=900
@@ -243,16 +243,6 @@ This deployment targets platforms such as Fly.io, Railway, or Kubernetes where P
 **Verification**: Run `uv run pytest tests/test_persistence.py` locally with the `ORCHEO_CHECKPOINT_BACKEND=postgres` environment variable set and a reachable Postgres DSN to mirror production behavior.
 
 _Vault note_: Managed environments should prefer KMS-integrated vaults. Configure IAM policies so only the Orcheo runtime can decrypt with the specified key.
-
-## Kubernetes (PostgreSQL)
-
-Reference manifests live under `deploy/kubernetes/` for running Orcheo with a
-PostgreSQL backing service. Update the secret values and image tags before
-applying them.
-
-```bash
-kubectl apply -k deploy/kubernetes
-```
 
 ## Operational Tips
 

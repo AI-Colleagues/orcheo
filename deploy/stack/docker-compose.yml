@@ -37,7 +37,7 @@ services:
     image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
     env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
     ports:
-      - "127.0.0.1:${ORCHEO_BACKEND_LOCAL_PORT:-8000}:8000"
+      - "127.0.0.1:${ORCHEO_BACKEND_LOCAL_PORT:-2025}:2025"
     volumes:
       - orcheo_data:/data
       - ./chatkit_widgets:/app/examples/chatkit_widgets/widgets:ro
@@ -57,8 +57,8 @@ services:
       ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN: ${ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN:-}
       ORCHEO_MULTI_WORKSPACE_ENABLED: ${ORCHEO_MULTI_WORKSPACE_ENABLED:-false}
       ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER: ${ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER:-X-Orcheo-Workspace}
-      ORCHEO_CHATKIT_PUBLIC_BASE_URL: ${ORCHEO_CHATKIT_PUBLIC_BASE_URL:-http://localhost:5173}
-      ORCHEO_CORS_ALLOW_ORIGINS: ${ORCHEO_CORS_ALLOW_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      ORCHEO_CHATKIT_PUBLIC_BASE_URL: ${ORCHEO_CHATKIT_PUBLIC_BASE_URL:-http://localhost:2026}
+      ORCHEO_CORS_ALLOW_ORIGINS: ${ORCHEO_CORS_ALLOW_ORIGINS:-http://localhost:2026,http://127.0.0.1:2026}
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
@@ -69,7 +69,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/system/health > /dev/null"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:2025/api/system/health > /dev/null"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -77,7 +77,7 @@ services:
     command: >
       python -m uvicorn orcheo_backend.app:app
       --host 0.0.0.0
-      --port 8000
+      --port 2025
       --proxy-headers
 
   worker:
@@ -102,10 +102,10 @@ services:
       ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN: ${ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN:-}
       ORCHEO_MULTI_WORKSPACE_ENABLED: ${ORCHEO_MULTI_WORKSPACE_ENABLED:-false}
       ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER: ${ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER:-X-Orcheo-Workspace}
-      ORCHEO_CHATKIT_PUBLIC_BASE_URL: ${ORCHEO_CHATKIT_PUBLIC_BASE_URL:-http://localhost:5173}
+      ORCHEO_CHATKIT_PUBLIC_BASE_URL: ${ORCHEO_CHATKIT_PUBLIC_BASE_URL:-http://localhost:2026}
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
-      ORCHEO_BACKEND_INTERNAL_URL: http://backend:8000
+      ORCHEO_BACKEND_INTERNAL_URL: http://backend:2025
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
       PYTHONUNBUFFERED: "1"
     depends_on:
@@ -136,7 +136,7 @@ services:
       ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN: ${ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN:-}
       ORCHEO_MULTI_WORKSPACE_ENABLED: ${ORCHEO_MULTI_WORKSPACE_ENABLED:-false}
       ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER: ${ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER:-X-Orcheo-Workspace}
-      ORCHEO_CHATKIT_PUBLIC_BASE_URL: ${ORCHEO_CHATKIT_PUBLIC_BASE_URL:-http://localhost:5173}
+      ORCHEO_CHATKIT_PUBLIC_BASE_URL: ${ORCHEO_CHATKIT_PUBLIC_BASE_URL:-http://localhost:2026}
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
@@ -154,9 +154,9 @@ services:
     image: ${ORCHEO_CANVAS_IMAGE:-ghcr.io/ai-colleagues/orcheo-canvas:latest}
     env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
     ports:
-      - "127.0.0.1:${ORCHEO_CANVAS_LOCAL_PORT:-5173}:5173"
+      - "127.0.0.1:${ORCHEO_CANVAS_LOCAL_PORT:-2026}:2026"
     environment:
-      VITE_ORCHEO_BACKEND_URL: ${VITE_ORCHEO_BACKEND_URL:-http://localhost:8000}
+      VITE_ORCHEO_BACKEND_URL: ${VITE_ORCHEO_BACKEND_URL:-http://localhost:2025}
       VITE_ORCHEO_AUTH_ISSUER: ${VITE_ORCHEO_AUTH_ISSUER:-}
       VITE_ORCHEO_AUTH_CLIENT_ID: ${VITE_ORCHEO_AUTH_CLIENT_ID:-}
       VITE_ORCHEO_AUTH_REDIRECT_URI: ${VITE_ORCHEO_AUTH_REDIRECT_URI:-}
@@ -171,7 +171,7 @@ services:
     depends_on:
       - backend
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:5173/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2026/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

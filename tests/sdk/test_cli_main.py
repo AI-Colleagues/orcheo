@@ -23,9 +23,9 @@ from orcheo_sdk.cli.state import CLIState
 def test_main_config_error_handling(
     runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # With the default API URL, this should attempt to connect to localhost:8000
+    # With the default API URL, this should attempt to connect to localhost:2025
     # The test should mock the API call to verify it uses the default
-    # Clear env vars to ensure the default localhost:8000 is used
+    # Clear env vars to ensure the default localhost:2025 is used
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     monkeypatch.setenv("ORCHEO_CONFIG_DIR", str(config_dir))
@@ -34,11 +34,11 @@ def test_main_config_error_handling(
     monkeypatch.delenv("ORCHEO_CHATKIT_PUBLIC_BASE_URL", raising=False)
     payload = [{"id": "wf-1", "name": "Demo", "slug": "demo", "is_archived": False}]
     with respx.mock(assert_all_called=True) as router:
-        router.get("http://localhost:8000/api/workflows").mock(
+        router.get("http://localhost:2025/api/workflows").mock(
             return_value=httpx.Response(200, json=payload)
         )
         router.get(
-            "http://localhost:8000/api/workflows/wf-1/triggers/cron/config"
+            "http://localhost:2025/api/workflows/wf-1/triggers/cron/config"
         ).mock(return_value=httpx.Response(404))
         result = runner.invoke(
             app, ["workflow", "list"], env={"NO_COLOR": "1", "ORCHEO_HUMAN": "1"}
@@ -429,8 +429,8 @@ def test_run_install_flow_forced_mode(monkeypatch: pytest.MonkeyPatch) -> None:
         public_ingress_enabled=False,
         public_host=None,
         publish_local_ports=True,
-        backend_upstreams="backend:8000",
-        canvas_upstream="canvas:5173",
+        backend_upstreams="backend:2025",
+        canvas_upstream="canvas:2026",
         start_stack=False,
         install_docker_if_missing=False,
     )
@@ -497,8 +497,8 @@ def test_run_install_flow_parses_modes(monkeypatch: pytest.MonkeyPatch) -> None:
         public_ingress_enabled=False,
         public_host=None,
         publish_local_ports=True,
-        backend_upstreams="backend:8000",
-        canvas_upstream="canvas:5173",
+        backend_upstreams="backend:2025",
+        canvas_upstream="canvas:2026",
         start_stack=False,
         install_docker_if_missing=False,
     )
@@ -736,9 +736,9 @@ def test_main_skips_update_check_when_disabled(
     ctx = typer.Context(click.Command("orcheo"))
     settings = SimpleNamespace(
         profile="default",
-        api_url="http://localhost:8000",
+        api_url="http://localhost:2025",
         service_token="token",
-        chatkit_public_base_url="http://localhost:5173",
+        chatkit_public_base_url="http://localhost:2026",
     )
     cache_calls: list[tuple[Path, timedelta]] = []
     client_calls: list[dict[str, object]] = []
@@ -866,9 +866,9 @@ def test_main_callback_sets_workspace_env(
     ctx = typer.Context(click.Command("orcheo"))
     settings = SimpleNamespace(
         profile="default",
-        api_url="http://localhost:8000",
+        api_url="http://localhost:2025",
         service_token="token",
-        chatkit_public_base_url="http://localhost:5173",
+        chatkit_public_base_url="http://localhost:2026",
     )
     monkeypatch.setattr(main_mod, "resolve_settings", lambda **kwargs: settings)
     monkeypatch.setattr(main_mod, "get_cache_dir", lambda: tmp_path / "cache")

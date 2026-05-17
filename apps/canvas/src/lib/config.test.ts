@@ -5,8 +5,8 @@ import { buildBackendHttpUrl, buildWorkflowWebSocketUrl } from "./config";
 describe("buildWorkflowWebSocketUrl", () => {
   it("appends an access token query parameter when provided", () => {
     expect(
-      buildWorkflowWebSocketUrl("wf-1", "http://localhost:8000", "token-123"),
-    ).toBe("ws://localhost:8000/ws/workflow/wf-1?access_token=token-123");
+      buildWorkflowWebSocketUrl("wf-1", "http://localhost:2025", "token-123"),
+    ).toBe("ws://localhost:2025/ws/workflow/wf-1?access_token=token-123");
   });
 
   it("uses the public HTTPS origin for websocket routing", () => {

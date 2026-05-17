@@ -2,11 +2,11 @@
 	encode zstd gzip
 
 	@backend path /api/* /ws/*
-	reverse_proxy @backend {$ORCHEO_CADDY_BACKEND_UPSTREAMS:backend:8000} {
+	reverse_proxy @backend {$ORCHEO_CADDY_BACKEND_UPSTREAMS:backend:2025} {
 		lb_policy round_robin
 		health_uri /api/system/health
 		health_interval 10s
 	}
 
-	reverse_proxy {$ORCHEO_CADDY_CANVAS_UPSTREAM:canvas:5173}
+	reverse_proxy {$ORCHEO_CADDY_CANVAS_UPSTREAM:canvas:2026}
 }

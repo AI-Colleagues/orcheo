@@ -16,7 +16,7 @@ _DEFAULTS: dict[str, object] = {
     "POSTGRES_POOL_TIMEOUT": 30.0,
     "POSTGRES_POOL_MAX_IDLE": 300.0,
     "HOST": "0.0.0.0",
-    "PORT": 8000,
+    "PORT": 2025,
     "VAULT_BACKEND": "postgres",
     "VAULT_ENCRYPTION_KEY": None,
     "VAULT_AWS_REGION": None,

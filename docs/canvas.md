@@ -32,7 +32,7 @@ orcheo-canvas preview
 
 The Canvas application will be available at:
 
-- **Development mode**: `http://localhost:5173`
+- **Development mode**: `http://localhost:2026`
 - **Production mode**: Configured preview port
 
 ## Configuration
@@ -41,7 +41,7 @@ Canvas connects to the Orcheo backend API. Configure the connection via environm
 
 ```bash
 # Backend API URL
-VITE_ORCHEO_BACKEND_URL=http://localhost:8000
+VITE_ORCHEO_BACKEND_URL=http://localhost:2025
 
 # Authentication (optional)
 VITE_ORCHEO_AUTH_ISSUER=https://your-idp.com/
@@ -56,7 +56,7 @@ When running the full stack with Docker Compose, Canvas is included automaticall
 docker compose up -d
 ```
 
-Canvas will be available at `http://localhost:5173`.
+Canvas will be available at `http://localhost:2026`.
 
 See [Manual Setup Guide](manual_setup.md#docker-compose-full-stack) for the complete Docker Compose setup.
 

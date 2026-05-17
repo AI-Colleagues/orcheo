@@ -45,8 +45,8 @@ Orcheo ships with two compose entrypoints plus a staging overlay:
     `ORCHEO_VAULT_ENCRYPTION_KEY` after storing credentials will make them unreadable.
 
 3. **Verify services are running**:
-    - Backend API: http://localhost:8000
-    - Canvas UI: http://localhost:5173 (may take 2-3 minutes on first startup while npm installs dependencies)
+    - Backend API: http://localhost:2025
+    - Canvas UI: http://localhost:2026 (may take 2-3 minutes on first startup while npm installs dependencies)
 
 ### Public Self-Hosted Ingress (Bundled Caddy)
 

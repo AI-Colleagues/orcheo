@@ -34,4 +34,4 @@ COPY deploy/stack/nginx-canvas.conf /etc/nginx/conf.d/default.conf
 COPY deploy/stack/canvas-entrypoint.sh /docker-entrypoint.d/40-canvas-env.sh
 RUN chmod +x /docker-entrypoint.d/40-canvas-env.sh
 
-EXPOSE 5173
+EXPOSE 2026

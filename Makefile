@@ -37,7 +37,7 @@ doc:
 	mkdocs serve --dev-addr=0.0.0.0:8080 --livereload
 
 dev-server:
-	uvicorn --app-dir apps/backend/src orcheo_backend.app:app --reload --port 8000
+	uvicorn --app-dir apps/backend/src orcheo_backend.app:app --reload --port 2025
 
 redis:
 	docker compose up -d redis

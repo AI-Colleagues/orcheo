@@ -37,7 +37,7 @@ workflow = Workflow(name="demo")
 workflow.add_node(UppercaseNode("upper", UppercaseConfig(prefix="Result: ")))
 
 # Prepare deployment request metadata for the Orcheo backend
-client = OrcheoClient(base_url="http://localhost:8000")
+client = OrcheoClient(base_url="http://localhost:2025")
 request = client.build_deployment_request(workflow)
 ```
 
@@ -88,7 +88,7 @@ assert graph_config["edges"] == [
 ```python
 from orcheo_sdk import OrcheoClient
 
-client = OrcheoClient(base_url="http://localhost:8000")
+client = OrcheoClient(base_url="http://localhost:2025")
 trigger_url = client.workflow_trigger_url("example-workflow")
 ws_url = client.websocket_url("example-workflow")
 payload = client.build_payload(graph_config, inputs={"name": "Ada"})
@@ -231,7 +231,7 @@ orcheo code scaffold my-workflow-id
 ##### Environment Variables
 
 - `ORCHEO_PROFILE` - Default profile to use
-- `ORCHEO_API_URL` - API base URL (default: `http://localhost:8000`)
+- `ORCHEO_API_URL` - API base URL (default: `http://localhost:2025`)
 - `ORCHEO_SERVICE_TOKEN` - Service authentication token
 - `ORCHEO_CONFIG_DIR` - Override config directory (default: `~/.config/orcheo/`)
 - `ORCHEO_CACHE_DIR` - Override cache directory (default: `~/.cache/orcheo/`)
@@ -242,7 +242,7 @@ Create `~/.config/orcheo/cli.toml`:
 
 ```toml
 [profiles.default]
-api_url = "http://localhost:8000"
+api_url = "http://localhost:2025"
 service_token = "your-token-here"
 
 [profiles.production]

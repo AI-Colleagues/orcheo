@@ -175,8 +175,8 @@ def test_resolve_settings_missing_api_url(tmp_path: Path) -> None:
             service_token=None,
             offline=False,
         )
-        # Should use default localhost:8000
-        assert settings.api_url == "http://localhost:8000"
+        # Should use default localhost:2025
+        assert settings.api_url == "http://localhost:2025"
     finally:
         if original:
             os.environ[CONFIG_DIR_ENV] = original
@@ -191,7 +191,7 @@ def test_resolve_settings_uses_chatkit_public_env(
     monkeypatch.setenv(CHATKIT_PUBLIC_BASE_URL_ENV, "https://canvas.example")
     settings = resolve_settings(
         profile=None,
-        api_url="http://localhost:8000/api",
+        api_url="http://localhost:2025/api",
         service_token=None,
         offline=False,
     )

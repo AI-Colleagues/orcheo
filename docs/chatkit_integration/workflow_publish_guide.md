@@ -70,9 +70,9 @@ Share URL: https://canvas.example/chat/wf_123
 The `Share URL` field is the canonical ChatKit UI entry point. Its origin comes
 from `ORCHEO_CHATKIT_PUBLIC_BASE_URL` (or the `--chatkit-public-base-url`
 override) when provided; otherwise it strips any trailing `/api` segment from
-`ORCHEO_API_URL`. For split local setups (backend on 8000, frontend on 5173),
-either export `ORCHEO_CHATKIT_PUBLIC_BASE_URL=http://localhost:5173` or tack on
-`--chatkit-public-base-url http://localhost:5173` to the publish command.
+`ORCHEO_API_URL`. For split local setups (backend on 2025, frontend on 2026),
+either export `ORCHEO_CHATKIT_PUBLIC_BASE_URL=http://localhost:2026` or tack on
+`--chatkit-public-base-url http://localhost:2026` to the publish command.
 
 - Paste it directly into a browser to load the Canvas-hosted public chat page,
   which renders the ChatKit widget bound to the published workflow.

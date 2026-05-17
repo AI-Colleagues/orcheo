@@ -26,20 +26,20 @@ def test_stack_compose_defines_public_ingress_and_direct_ports() -> None:
     assert services["canvas"]["env_file"] == "${ORCHEO_STACK_ENV_FILE:-.env}"
     assert services["caddy"]["env_file"] == "${ORCHEO_STACK_ENV_FILE:-.env}"
     assert (
-        "127.0.0.1:${ORCHEO_BACKEND_LOCAL_PORT:-8000}:8000"
+        "127.0.0.1:${ORCHEO_BACKEND_LOCAL_PORT:-2025}:2025"
         in services["backend"]["ports"]
     )
     assert (
-        "127.0.0.1:${ORCHEO_CANVAS_LOCAL_PORT:-5173}:5173"
+        "127.0.0.1:${ORCHEO_CANVAS_LOCAL_PORT:-2026}:2026"
         in services["canvas"]["ports"]
     )
     assert services["backend"]["healthcheck"]["test"] == [
         "CMD-SHELL",
-        "curl -fsS http://localhost:8000/api/system/health > /dev/null",
+        "curl -fsS http://localhost:2025/api/system/health > /dev/null",
     ]
     assert services["canvas"]["healthcheck"]["test"] == [
         "CMD-SHELL",
-        "wget -q -O /dev/null http://127.0.0.1:5173/ || exit 1",
+        "wget -q -O /dev/null http://127.0.0.1:2026/ || exit 1",
     ]
     assert (
         services["backend"]["depends_on"]["postgres"]["condition"] == "service_healthy"
@@ -70,12 +70,12 @@ def test_caddyfile_routes_canvas_api_and_websockets() -> None:
     assert "{$ORCHEO_CADDY_SITE_ADDRESS}" in content
     assert "@backend path /api/* /ws/*" in content
     assert (
-        "reverse_proxy @backend {$ORCHEO_CADDY_BACKEND_UPSTREAMS:backend:8000}"
+        "reverse_proxy @backend {$ORCHEO_CADDY_BACKEND_UPSTREAMS:backend:2025}"
         in content
     )
     assert "health_uri /api/system/health" in content
     assert "lb_policy round_robin" in content
-    assert "reverse_proxy {$ORCHEO_CADDY_CANVAS_UPSTREAM:canvas:5173}" in content
+    assert "reverse_proxy {$ORCHEO_CADDY_CANVAS_UPSTREAM:canvas:2026}" in content
 
 
 def test_env_example_documents_public_ingress_contract() -> None:
@@ -84,7 +84,7 @@ def test_env_example_documents_public_ingress_contract() -> None:
     assert "ORCHEO_PUBLIC_INGRESS_ENABLED=false" in content
     assert "ORCHEO_PUBLIC_HOST=" in content
     assert "COMPOSE_PROFILES=" in content
-    assert "ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:8000" in content
+    assert "ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:2025" in content
     assert "VITE_ALLOWED_HOSTS=localhost,127.0.0.1" in content
 
 

@@ -112,15 +112,15 @@ def _default_assets() -> dict[str, bytes]:
 def _setup_config() -> SetupConfig:
     return SetupConfig(
         mode="install",
-        backend_url="http://localhost:8000",
+        backend_url="http://localhost:2025",
         auth_mode="api-key",
         api_key="generated",
         chatkit_domain_key=None,
         public_ingress_enabled=False,
         public_host=None,
         publish_local_ports=True,
-        backend_upstreams="backend:8000",
-        canvas_upstream="canvas:5173",
+        backend_upstreams="backend:2025",
+        canvas_upstream="canvas:2026",
         start_stack=True,
         install_docker_if_missing=True,
     )
@@ -220,8 +220,8 @@ def test_execute_setup_bootstraps_stack_assets(
     assert (stack_dir / "chatkit_widgets/Multi-choice Selector.widget").exists()
 
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
-    assert "ORCHEO_API_URL=http://localhost:8000" in env_content
-    assert "VITE_ORCHEO_BACKEND_URL=http://localhost:8000" in env_content
+    assert "ORCHEO_API_URL=http://localhost:2025" in env_content
+    assert "VITE_ORCHEO_BACKEND_URL=http://localhost:2025" in env_content
     assert "ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN=generated" in env_content
 
 
@@ -434,7 +434,7 @@ def test_execute_setup_preserves_secrets_on_upgrade(
     assert "ORCHEO_VAULT_ENCRYPTION_KEY=aabbccdd" in env_content
     assert "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY=my-signing-key" in env_content
     # Config updates still applied.
-    assert "ORCHEO_API_URL=http://localhost:8000" in env_content
+    assert "ORCHEO_API_URL=http://localhost:2025" in env_content
 
 
 def test_execute_setup_preserves_backend_urls_on_upgrade_by_default(
@@ -538,9 +538,9 @@ def test_execute_setup_upgrade_preserve_backend_when_existing_urls_absent(
     execute_setup(config, console=Console(record=True))
 
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
-    assert "ORCHEO_API_URL=http://localhost:8000" in env_content
-    assert "VITE_ORCHEO_BACKEND_URL=http://localhost:8000" in env_content
-    assert config.backend_url == "http://localhost:8000"
+    assert "ORCHEO_API_URL=http://localhost:2025" in env_content
+    assert "VITE_ORCHEO_BACKEND_URL=http://localhost:2025" in env_content
+    assert config.backend_url == "http://localhost:2025"
 
 
 def test_execute_setup_normalizes_quoted_backend_url_on_upgrade_preserve(
@@ -635,10 +635,10 @@ def test_poll_backend_health_success(
     monkeypatch.setenv("ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS", "5")
 
     console = Console(record=True)
-    assert _poll_backend_health("http://localhost:8000", console=console)
+    assert _poll_backend_health("http://localhost:2025", console=console)
     output = console.export_text()
     assert "Backend is healthy" in output
-    assert captured_url["value"] == "http://localhost:8000/api/system/health"
+    assert captured_url["value"] == "http://localhost:2025/api/system/health"
 
 
 def test_poll_backend_health_timeout(
@@ -656,7 +656,7 @@ def test_poll_backend_health_timeout(
     monkeypatch.setenv("ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS", "0")
 
     console = Console(record=True)
-    assert not _poll_backend_health("http://localhost:8000", console=console)
+    assert not _poll_backend_health("http://localhost:2025", console=console)
 
 
 def test_execute_setup_prints_health_warning_on_timeout(
@@ -917,7 +917,7 @@ def test_setup_low_level_resolvers_and_command_errors(
     )
     monkeypatch.setattr(setup_mod.typer, "prompt", lambda *args, **kwargs: " ")
     assert setup_mod._resolve_backend_url(None, mode="upgrade", yes=False) == (
-        "http://localhost:8000",
+        "http://localhost:2025",
         True,
     )
     monkeypatch.setattr(setup_mod.typer, "prompt", lambda *args, **kwargs: "http://u")
@@ -1224,7 +1224,7 @@ def test_resolve_backend_url_install_yes_uses_default() -> None:
     from orcheo_sdk.cli import setup as setup_mod
 
     assert setup_mod._resolve_backend_url(None, mode="install", yes=True) == (
-        "http://localhost:8000",
+        "http://localhost:2025",
         False,
     )
 
@@ -1267,15 +1267,15 @@ def test_setup_build_env_updates_and_warn_missing_branch(
 
     config = SetupConfig(
         mode="install",
-        backend_url="http://localhost:8000",
+        backend_url="http://localhost:2025",
         auth_mode="api-key",
         api_key=None,
         chatkit_domain_key="domain_pk_live",
         public_ingress_enabled=False,
         public_host=None,
         publish_local_ports=True,
-        backend_upstreams="backend:8000",
-        canvas_upstream="canvas:5173",
+        backend_upstreams="backend:2025",
+        canvas_upstream="canvas:2026",
         start_stack=False,
         install_docker_if_missing=True,
     )
@@ -1377,7 +1377,7 @@ def test_run_setup_prints_generated_key_and_oauth_notice(
     console = Console(record=True)
     setup_mod.run_setup(
         mode="install",
-        backend_url="http://localhost:8000",
+        backend_url="http://localhost:2025",
         auth_mode="api-key",
         api_key=None,
         chatkit_domain_key=None,
@@ -1395,7 +1395,7 @@ def test_run_setup_prints_generated_key_and_oauth_notice(
     oauth_console = Console(record=True)
     setup_mod.run_setup(
         mode="install",
-        backend_url="http://localhost:8000",
+        backend_url="http://localhost:2025",
         auth_mode="oauth",
         api_key=None,
         chatkit_domain_key=None,
@@ -1443,7 +1443,7 @@ def test_run_setup_public_ingress_derives_public_env_contract(
     assert updates["VITE_ORCHEO_BACKEND_URL"] == "https://orcheo.example.com"
     assert updates["ORCHEO_CHATKIT_PUBLIC_BASE_URL"] == "https://orcheo.example.com"
     assert updates["ORCHEO_CORS_ALLOW_ORIGINS"] == (
-        "https://orcheo.example.com,http://localhost:5173,http://127.0.0.1:5173"
+        "https://orcheo.example.com,http://localhost:2026,http://127.0.0.1:2026"
     )
     assert updates["VITE_ALLOWED_HOSTS"] == "localhost,127.0.0.1,orcheo.example.com"
     assert updates["COMPOSE_PROFILES"] == "public-ingress"
@@ -1494,7 +1494,7 @@ def test_setup_public_ingress_helpers_and_summary(
     healthcheck_config.public_host = "orcheo.example.com"
     healthcheck_config.publish_local_ports = True
     assert (
-        setup_mod._build_healthcheck_url(healthcheck_config) == "http://localhost:8000"
+        setup_mod._build_healthcheck_url(healthcheck_config) == "http://localhost:2025"
     )
 
     console = Console(record=True)
@@ -1549,7 +1549,7 @@ def test_poll_backend_health_non_200_sleeps(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(setup_mod, "_HEALTH_POLL_INTERVAL_SECONDS", 5)
     assert (
         setup_mod._poll_backend_health(
-            "http://localhost:8000", console=Console(record=True)
+            "http://localhost:2025", console=Console(record=True)
         )
         is False
     )
@@ -1610,7 +1610,7 @@ def test_setup_misc_uncovered_branches(
     monkeypatch.setattr(
         setup_mod,
         "_build_env_updates",
-        lambda _config, **kwargs: ({"ORCHEO_API_URL": "http://localhost:8000"}, {}),
+        lambda _config, **kwargs: ({"ORCHEO_API_URL": "http://localhost:2025"}, {}),
     )
     setup_mod._ensure_stack_assets(config=_setup_config(), console=Console(record=True))
     assert (stack_dir / ".env.example").exists()
@@ -1635,7 +1635,7 @@ def test_setup_misc_uncovered_branches(
     monkeypatch.setattr(setup_mod, "_HEALTH_POLL_INTERVAL_SECONDS", 5)
     assert (
         setup_mod._poll_backend_health(
-            "http://localhost:8000", console=Console(record=True)
+            "http://localhost:2025", console=Console(record=True)
         )
         is False
     )
@@ -1687,7 +1687,7 @@ def test_ensure_stack_assets_syncs_env_example_when_not_in_asset_list(
     monkeypatch.setattr(
         setup_mod,
         "_build_env_updates",
-        lambda _config, **kwargs: ({"ORCHEO_API_URL": "http://localhost:8000"}, {}),
+        lambda _config, **kwargs: ({"ORCHEO_API_URL": "http://localhost:2025"}, {}),
     )
 
     setup_mod._ensure_stack_assets(

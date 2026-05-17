@@ -175,8 +175,8 @@ api_router = _build_api_router()
 
 
 _DEFAULT_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
+    "http://localhost:2026",
+    "http://127.0.0.1:2026",
 ]
 
 

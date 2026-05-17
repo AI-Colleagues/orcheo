@@ -76,7 +76,7 @@ def resolve_settings(
         api_url
         or os.getenv(API_URL_ENV)
         or profile_data.get("api_url")
-        or "http://localhost:8000"
+        or "http://localhost:2025"
     )
     resolved_token = (
         service_token

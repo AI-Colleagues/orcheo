@@ -28,7 +28,7 @@ def create_workflow() -> dict[str, Any]:
 
 async def run_workflow():
     """Run the workflow."""
-    uri = "ws://localhost:8000/ws/workflow/test-1"
+    uri = "ws://localhost:2025/ws/workflow/test-1"
     async with websockets.connect(uri) as websocket:
         # Send workflow request
         config = create_workflow()
