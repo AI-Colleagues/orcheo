@@ -74,11 +74,15 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
 
     const loadCandidates = async () => {
       try {
-        const candidates = await fetchCandidates();
+        // Load both candidates and existing workflows to check for handle conflicts
+        const [candidates, existingWorkflows] = await Promise.all([
+          fetchCandidates(),
+          listWorkflows()
+        ]);
         if (!isMounted) {
           return;
         }
-        setCandidateBadges(candidates.map(toCandidateSpec));
+        setCandidateBadges(candidates.map(toCandidateSpec), existingWorkflows);
         setCandidateWorkflows(getCandidateWorkflows());
       } catch (error) {
         if (isMounted) {

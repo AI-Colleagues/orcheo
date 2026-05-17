@@ -1,4 +1,5 @@
 import type { Workflow } from "../workflow-types";
+import type { StoredWorkflow } from "../../lib/workflow-storage.types";
 import type {
   WorkflowTemplateDefinition,
   WorkflowTemplateMetadata,
@@ -52,30 +53,41 @@ const mapRawMetadata = (
       : undefined,
 });
 
-const buildCandidateWorkflow = (spec: CandidateBadgeSpec): Workflow => ({
-  id: spec.id,
-  handle: undefined, // Allow backend to generate unique handles to prevent conflicts
-  name: spec.name,
-  description: spec.description,
-  createdAt: "2026-01-01T00:00:00Z",
-  updatedAt: "2026-01-01T00:00:00Z",
-  owner: {
-    id: `${spec.id}-owner`,
+const buildCandidateWorkflow = (
+  spec: CandidateBadgeSpec,
+  existingHandles: Set<string>
+): Workflow => {
+  // Preserve original handle if no conflict exists, otherwise let backend generate unique handle
+  const preserveHandle = spec.handle && !existingHandles.has(spec.handle)
+    ? spec.handle
+    : undefined;
+  
+  return {
+    id: spec.id,
+    handle: preserveHandle,
     name: spec.name,
-    avatar: spec.emoji ?? "",
-  },
-  tags: ["template"],
-  nodes: [],
-  edges: [],
-  versions: spec.mermaid
-    ? [{ id: `${spec.id}-v1`, mermaid: spec.mermaid }]
-    : [],
-});
+    description: spec.description,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    owner: {
+      id: `${spec.id}-owner`,
+      name: spec.name,
+      avatar: spec.emoji ?? "",
+    },
+    tags: ["template"],
+    nodes: [],
+    edges: [],
+    versions: spec.mermaid
+      ? [{ id: `${spec.id}-v1`, mermaid: spec.mermaid }]
+      : [],
+  };
+};
 
 const buildCandidateBadge = (
   spec: CandidateBadgeSpec,
+  existingHandles: Set<string>
 ): CandidateBadgeDefinition => {
-  const workflow = buildCandidateWorkflow(spec);
+  const workflow = buildCandidateWorkflow(spec, existingHandles);
   const templateDefinition: WorkflowTemplateDefinition = {
     workflow,
     script: spec.script ?? "",
@@ -92,8 +104,18 @@ const buildCandidateBadge = (
 // after fetch rather than at module load.
 let candidateBadges: CandidateBadgeDefinition[] = [];
 
-export const setCandidateBadges = (specs: CandidateBadgeSpec[]): void => {
-  candidateBadges = specs.map(buildCandidateBadge);
+export const setCandidateBadges = (
+  specs: CandidateBadgeSpec[], 
+  existingWorkflows: StoredWorkflow[] = []
+): void => {
+  // Create set of existing handles to check for conflicts
+  const existingHandles = new Set<string>(
+    existingWorkflows
+      .map(w => w.handle)
+      .filter((handle): handle is string => Boolean(handle))
+  );
+  
+  candidateBadges = specs.map(spec => buildCandidateBadge(spec, existingHandles));
 };
 
 export const getCandidateWorkflows = (): Workflow[] =>
