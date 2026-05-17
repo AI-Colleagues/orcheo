@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   WORKFLOW_STORAGE_EVENT,
   createWorkflowFromTemplate,
 } from "./workflow-storage";
+import { setCandidateBadges } from "@features/workflow/data/templates/candidate-badges";
 import { jsonResponse } from "@/testing/mocks/backend/request-utils";
 import { createFetchMockHarness } from "@/testing/mocks/fetch-mock";
 import { VIBE_WORKFLOW_HANDLE } from "@features/vibe/constants";
@@ -13,8 +14,56 @@ const { getFetchMock, queueResponses, setupFetchMock } =
 
 setupFetchMock();
 
+afterEach(() => {
+  setCandidateBadges([]);
+});
+
+// Minimal scripts that satisfy per-test content assertions.
+const PYTHON_AGENT_SCRIPT =
+  "from orcheo.nodes.ai import AgentNode\ngraph = AgentNode()\n";
+const TELEGRAM_AGENT_SCRIPT = [
+  "from orcheo.nodes.telegram import MessageTelegramNode",
+  "workflow_tools = []",
+].join("\n");
+const TELEGRAM_HEARTBEAT_SCRIPT = [
+  "from orcheo.nodes.triggers import CronTriggerNode",
+  "from orcheo.nodes.telegram import MessageTelegramNode",
+  "# * * * * *",
+  "# allow_overlapping=True",
+].join("\n");
+const TELEGRAM_PRIVATE_LISTENER_SCRIPT =
+  "from orcheo.nodes.telegram import TelegramBotListenerNode\n";
+const DISCORD_PRIVATE_LISTENER_SCRIPT =
+  "from orcheo.nodes.discord import DiscordBotListenerNode, MessageDiscordNode\n";
+const QQ_PRIVATE_LISTENER_SCRIPT =
+  "from orcheo.nodes.qq import QQBotListenerNode, MessageQQNode\n";
+const PRIVATE_BOT_SHARED_LISTENER_SCRIPT = [
+  "from orcheo.nodes.telegram import TelegramBotListenerNode",
+  "from orcheo.nodes.discord import DiscordBotListenerNode",
+  "from orcheo.nodes.qq import QQBotListenerNode",
+  "SwitchEdge(",
+].join("\n");
+const WECOM_LARK_SHARED_LISTENER_SCRIPT = [
+  "AgentNode",
+  "AgentReplyExtractorNode",
+  "WeComWsReplyNode",
+  "LarkSendMessageNode",
+  "LarkTenantAccessTokenNode",
+].join("\n");
+const GEMINI_SCRIPT =
+  "from orcheo.nodes.ai.external.gemini import GeminiNode\n";
+
 describe("workflow-storage API integration - template creation", () => {
   it("creates a workflow and ingests a Python version from template", async () => {
+    setCandidateBadges([
+      {
+        id: "template-python-agent",
+        handle: "python-agent",
+        name: "Simple Agent",
+        script: PYTHON_AGENT_SCRIPT,
+        notes: "Seeded from Simple Agent template (`agent.py`).",
+      },
+    ]);
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();
 
@@ -200,6 +249,15 @@ describe("workflow-storage API integration - template creation", () => {
   });
 
   it("starts numeric suffixes at 1 and ignores archived workflow names", async () => {
+    setCandidateBadges([
+      {
+        id: "template-python-agent",
+        handle: "python-agent",
+        name: "Simple Agent",
+        script: PYTHON_AGENT_SCRIPT,
+        notes: "Seeded from Simple Agent template (`agent.py`).",
+      },
+    ]);
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();
 
@@ -310,6 +368,18 @@ describe("workflow-storage API integration - template creation", () => {
   });
 
   it("includes runnable config when template provides one", async () => {
+    setCandidateBadges([
+      {
+        id: "template-mongodb-qa-agent",
+        handle: "mongodb-qa-agent",
+        name: "MongoDB QA Agent",
+        script: "# mongodb qa agent script\n",
+        config: {
+          configurable: { database: "my_database", collection: "my_collection" },
+        },
+        notes: "MongoDB QA template.",
+      },
+    ]);
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();
 
@@ -405,6 +475,16 @@ describe("workflow-storage API integration - template creation", () => {
   });
 
   it("creates a workflow from the Gemini external-agent template", async () => {
+    setCandidateBadges([
+      {
+        id: "template-gemini-agent",
+        handle: "gemini-agent",
+        name: "Gemini Agent",
+        script: GEMINI_SCRIPT,
+        config: { configurable: { working_directory: "/workspace/agents" } },
+        notes: "Gemini external-agent template.",
+      },
+    ]);
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();
 
@@ -503,6 +583,21 @@ describe("workflow-storage API integration - template creation", () => {
   });
 
   it("creates the Telegram agent template with agent-driven Telegram delivery", async () => {
+    setCandidateBadges([
+      {
+        id: "template-telegram-agent",
+        handle: "telegram-agent",
+        name: "Telegram Agent Sender",
+        script: TELEGRAM_AGENT_SCRIPT,
+        config: {
+          configurable: {
+            ai_model: "openai:gpt-4o-mini",
+            system_prompt: "Reply to this Telegram message.",
+          },
+        },
+        notes: "Telegram agent template.",
+      },
+    ]);
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();
 
@@ -604,6 +699,18 @@ describe("workflow-storage API integration - template creation", () => {
   });
 
   it("creates the Telegram heartbeat template with cron-triggered delivery", async () => {
+    setCandidateBadges([
+      {
+        id: "template-telegram-heartbeat",
+        handle: "telegram-heartbeat",
+        name: "Telegram Heartbeat",
+        script: TELEGRAM_HEARTBEAT_SCRIPT,
+        config: {
+          configurable: { heartbeat_message: "Heartbeat: workflow is alive." },
+        },
+        notes: "Telegram heartbeat template.",
+      },
+    ]);
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();
 
@@ -702,9 +809,6 @@ describe("workflow-storage API integration - template creation", () => {
     );
 
     expect(created?.id).toBe("workflow-template-4");
-    expect(created?.nodes.some((node) => node.id === "cron_trigger")).toBe(
-      true,
-    );
     expect(mockFetch).toHaveBeenCalledTimes(5);
 
     const ingestBody = JSON.parse(
@@ -713,10 +817,7 @@ describe("workflow-storage API integration - template creation", () => {
       script?: string;
       metadata?: {
         canvas?: {
-          snapshot?: {
-            name?: string;
-            nodes?: Array<{ id?: string }>;
-          };
+          snapshot?: { name?: string };
         };
       };
       runnable_config?: {
@@ -730,17 +831,25 @@ describe("workflow-storage API integration - template creation", () => {
     expect(ingestBody.metadata?.canvas?.snapshot?.name).toBe(
       "Telegram Heartbeat",
     );
-    expect(
-      ingestBody.metadata?.canvas?.snapshot?.nodes?.some(
-        (node) => node.id === "cron_trigger",
-      ),
-    ).toBe(true);
     expect(ingestBody.runnable_config?.configurable?.heartbeat_message).toBe(
       "Heartbeat: workflow is alive.",
     );
   });
 
   it("includes validation metadata for the private Telegram listener template", async () => {
+    setCandidateBadges([
+      {
+        id: "template-telegram-private-listener",
+        handle: "telegram-private-listener",
+        name: "Telegram Private Listener",
+        script: TELEGRAM_PRIVATE_LISTENER_SCRIPT,
+        notes: "Telegram private listener template.",
+        rawMetadata: {
+          template_version: "1.0.0",
+          validated_provider_api: "telegram-bot-api",
+        },
+      },
+    ]);
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();
 
@@ -830,6 +939,19 @@ describe("workflow-storage API integration - template creation", () => {
   });
 
   it("includes validation metadata for the private Discord listener template", async () => {
+    setCandidateBadges([
+      {
+        id: "template-discord-private-listener",
+        handle: "discord-private-listener",
+        name: "Discord Private Listener",
+        script: DISCORD_PRIVATE_LISTENER_SCRIPT,
+        notes: "Discord private listener template.",
+        rawMetadata: {
+          template_version: "1.0.0",
+          validated_provider_api: "discord-gateway-v10",
+        },
+      },
+    ]);
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();
 
@@ -920,6 +1042,20 @@ describe("workflow-storage API integration - template creation", () => {
   });
 
   it("includes validation metadata for the private QQ listener template", async () => {
+    setCandidateBadges([
+      {
+        id: "template-qq-private-listener",
+        handle: "qq-private-listener",
+        name: "QQ Private Listener",
+        script: QQ_PRIVATE_LISTENER_SCRIPT,
+        notes: "QQ private listener template.",
+        rawMetadata: {
+          template_version: "1.0.0",
+          validated_provider_api: "qq-bot-api-v2",
+          reply_node_contracts: ["MessageQQNode@1"],
+        },
+      },
+    ]);
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();
 
@@ -1014,6 +1150,23 @@ describe("workflow-storage API integration - template creation", () => {
   });
 
   it("includes routing metadata for the shared private listener template", async () => {
+    setCandidateBadges([
+      {
+        id: "template-private-bot-shared-listener",
+        handle: "private-bot-shared-listener",
+        name: "Private Bot Shared Listener",
+        script: PRIVATE_BOT_SHARED_LISTENER_SCRIPT,
+        notes: "Shared private bot listener template.",
+        rawMetadata: {
+          validated_provider_api: "private-bot-listener-suite-2026-03-11",
+          reply_node_contracts: [
+            "MessageTelegramNode@1",
+            "MessageDiscordNode@1",
+            "MessageQQNode@1",
+          ],
+        },
+      },
+    ]);
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();
 
@@ -1110,6 +1263,29 @@ describe("workflow-storage API integration - template creation", () => {
   });
 
   it("includes shared agent routing for the WeCom and Lark listener plugin template", async () => {
+    setCandidateBadges([
+      {
+        id: "template-wecom-lark-shared-listener",
+        handle: "wecom-lark-shared-listener",
+        name: "WeCom + Lark Shared Listener",
+        script: WECOM_LARK_SHARED_LISTENER_SCRIPT,
+        config: {
+          configurable: {
+            ai_model: "openai:gpt-4.1-mini",
+            operator_note: "Requires listener plugins installed.",
+          },
+        },
+        notes: "WeCom and Lark shared listener template.",
+        rawMetadata: {
+          template_version: "1.0.1",
+          validated_provider_api: "wecom-lark-listener-plugin-suite-2026-03-16",
+          required_plugins: [
+            "orcheo-plugin-wecom-listener",
+            "orcheo-plugin-lark-listener",
+          ],
+        },
+      },
+    ]);
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();
 
@@ -1234,6 +1410,21 @@ describe("workflow-storage API integration - template creation", () => {
   });
 
   it("fails fast when a plugin-backed template is missing required plugins", async () => {
+    setCandidateBadges([
+      {
+        id: "template-wecom-lark-shared-listener",
+        handle: "wecom-lark-shared-listener",
+        name: "WeCom + Lark Shared Listener",
+        script: WECOM_LARK_SHARED_LISTENER_SCRIPT,
+        notes: "WeCom and Lark shared listener template.",
+        rawMetadata: {
+          required_plugins: [
+            "orcheo-plugin-wecom-listener",
+            "orcheo-plugin-lark-listener",
+          ],
+        },
+      },
+    ]);
     queueResponses([
       jsonResponse({
         plugins: [

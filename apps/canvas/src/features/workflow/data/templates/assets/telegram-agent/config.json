@@ -1,7 +1,0 @@
-{
-  "configurable": {
-    "ai_model": "openai:gpt-4o-mini",
-    "telegram_chat_id": "[[telegram_chat_id]]",
-    "system_prompt": "You decide whether a Telegram message should be sent. If the user asks to notify, message, alert, or send something to Telegram, call the send_telegram_message tool with the exact message text. If Telegram is not needed, reply normally without calling the tool."
-  }
-}

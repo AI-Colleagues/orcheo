@@ -61,6 +61,8 @@ export const resolveReactFlowType = (
     return "stickyNote";
   }
 
+  // @legacy TODO: remove after mermaid-only migration — "start"/"end" were
+  // used by old hardcoded template nodes; new candidate templates use nodes: [].
   if (
     persistedType === "start" ||
     persistedType === "end" ||

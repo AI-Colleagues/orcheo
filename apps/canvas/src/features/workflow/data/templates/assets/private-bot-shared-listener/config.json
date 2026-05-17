@@ -1,6 +1,0 @@
-{
-  "configurable": {
-    "ai_model": "gpt-4.1-mini",
-    "system_prompt": "You are a shared private-bot reply brain. Read the incoming listener event, answer directly, and keep the reply concise and platform-safe."
-  }
-}
