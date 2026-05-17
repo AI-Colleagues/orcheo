@@ -60,7 +60,7 @@ def test_settings_defaults(
     assert settings.postgres_pool_timeout == 30.0
     assert settings.postgres_pool_max_idle == 300.0
     assert settings.host == "0.0.0.0"
-    assert settings.port == 8000
+    assert settings.port == 2025
     assert settings.vault_encryption_key == "test-vault-encryption-key"
     assert settings.vault_token_ttl_seconds == 3600
     assert settings.tracing_high_token_threshold == 1000

@@ -161,7 +161,7 @@ Behavior:
 {
   "last_checked_at": "2026-02-21T13:00:00Z",
   "profile": "default",
-  "api_url": "http://localhost:8000",
+  "api_url": "http://localhost:2025",
   "last_result": {
     "cli_update_available": true,
     "backend_update_available": false

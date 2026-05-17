@@ -41,8 +41,8 @@ for line in lines:
 
 LANGGRAPH_SCRIPT = "\n".join(filtered_lines)
 
-API_BASE_URL = "http://localhost:8000/api"
-WEBSOCKET_BASE_URL = "ws://localhost:8000/ws/workflow"
+API_BASE_URL = "http://localhost:2025/api"
+WEBSOCKET_BASE_URL = "ws://localhost:2025/ws/workflow"
 
 
 def _create_workflow(client: httpx.Client) -> str:

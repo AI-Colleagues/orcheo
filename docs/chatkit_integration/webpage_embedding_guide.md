@@ -58,7 +58,7 @@ domains where practical.
    ></script>
    ```
    Replace `your-orcheo-backend.example.com` with the hostname of your hosted
-   Orcheo backend (e.g. `localhost:8000` for local dev). Orcheo proxies ChatKit
+   Orcheo backend (e.g. `localhost:2025` for local dev). Orcheo proxies ChatKit
    assets to the upstream CDN. The server must be able to reach
    `https://cdn.platform.openai.com`; override with
    `ORCHEO_CHATKIT_CDN_BASE_URL` if needed.
@@ -66,7 +66,7 @@ domains where practical.
    that contains `<openai-chatkit>`. See `examples/chatkit-orcheo.html` for a
    fully styled version that mirrors the Canvas chat bubble UX.
 3. **Capture configuration** – collect:
-   - Backend base URL (`http://localhost:8000` for local dev)
+   - Backend base URL (`http://localhost:2025` for local dev)
    - Workflow share URL or ID (we parse either)
    - Optional display name for the bubble header
 4. **Inject ChatKit options** – call `chatkit.setOptions({ ... })` once the
@@ -162,7 +162,7 @@ domains where practical.
 - **CORS failures** – `/api/chatkit` must allow the host running your HTML page.
   Set `ORCHEO_CORS_ALLOW_ORIGINS` (see `docs/environment_variables.md`) to a JSON
   list of allowed origins such as
-  ``export ORCHEO_CORS_ALLOW_ORIGINS='["http://localhost:8080","http://127.0.0.1:5173"]'``.
+  ``export ORCHEO_CORS_ALLOW_ORIGINS='["http://localhost:8080","http://127.0.0.1:2026"]'``.
   Include every scheme/host/port that will load the embedded page.
 - **Domain key errors** – supply a valid `ORCHEO_CHATKIT_DOMAIN_KEY` value. Use
   different keys per environment when possible.

@@ -6,7 +6,7 @@ This package exposes the FastAPI application that powers the Orcheo runtime. It 
 
 ```bash
 uv sync --all-groups
-uv run uvicorn orcheo_backend.app:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn orcheo_backend.app:app --reload --host 0.0.0.0 --port 2025
 ```
 
 ## Testing & linting

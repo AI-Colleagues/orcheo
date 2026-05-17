@@ -127,8 +127,8 @@ make docker-down
 
 This starts:
 - **Redis** on port 6379
-- **Backend API** on port 8000 (with hot reload)
-- **Canvas UI** on port 5173 (with hot reload)
+- **Backend API** on port 2025 (with hot reload)
+- **Canvas UI** on port 2026 (with hot reload)
 - **Celery Worker** for background task execution
 - **Celery Beat** for scheduled task dispatching
 

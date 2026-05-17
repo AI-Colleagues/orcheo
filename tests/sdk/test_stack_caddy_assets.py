@@ -26,11 +26,11 @@ def test_stack_compose_defines_public_ingress_and_direct_ports() -> None:
     assert services["canvas"]["env_file"] == "${ORCHEO_STACK_ENV_FILE:-.env}"
     assert services["caddy"]["env_file"] == "${ORCHEO_STACK_ENV_FILE:-.env}"
     assert (
-        "127.0.0.1:${ORCHEO_BACKEND_LOCAL_PORT:-8000}:8000"
+        "127.0.0.1:${ORCHEO_BACKEND_LOCAL_PORT:-2025}:8000"
         in services["backend"]["ports"]
     )
     assert (
-        "127.0.0.1:${ORCHEO_CANVAS_LOCAL_PORT:-5173}:5173"
+        "127.0.0.1:${ORCHEO_CANVAS_LOCAL_PORT:-2026}:5173"
         in services["canvas"]["ports"]
     )
     assert services["backend"]["healthcheck"]["test"] == [

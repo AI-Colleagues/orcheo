@@ -175,8 +175,8 @@ def test_resolve_settings_missing_api_url(tmp_path: Path) -> None:
             service_token=None,
             offline=False,
         )
-        # Should use default localhost:8000
-        assert settings.api_url == "http://localhost:8000"
+        # Should use default localhost:2025
+        assert settings.api_url == "http://localhost:2025"
     finally:
         if original:
             os.environ[CONFIG_DIR_ENV] = original

@@ -576,7 +576,7 @@ def _resolve_backend_url(
     mode: SetupMode,
     yes: bool,
     env_exists: bool = False,
-    default_backend_url: str = "http://localhost:8000",
+    default_backend_url: str = "http://localhost:2025",
     preserve_existing_default: bool = True,
 ) -> tuple[str, bool]:
     if backend_url:
@@ -1101,8 +1101,8 @@ def _build_cors_origins(config: SetupConfig) -> str:
     if not config.public_ingress_enabled or config.publish_local_ports:
         origins.extend(
             [
-                "http://localhost:5173",
-                "http://127.0.0.1:5173",
+                "http://localhost:2026",
+                "http://127.0.0.1:2026",
             ]
         )
     deduped = list(dict.fromkeys(origins))
@@ -1119,13 +1119,13 @@ def _build_allowed_hosts(config: SetupConfig) -> str:
 def _build_chatkit_public_base_url(config: SetupConfig) -> str:
     if config.public_ingress_enabled and config.public_host is not None:
         return f"https://{config.public_host}"
-    return "http://localhost:5173"
+    return "http://localhost:2026"
 
 
 def _build_healthcheck_url(config: SetupConfig) -> str | None:
     if config.public_ingress_enabled:
         if config.publish_local_ports:
-            return "http://localhost:8000"
+            return "http://localhost:2025"
         return None
     return config.backend_url
 
@@ -1416,7 +1416,7 @@ def run_setup(
     default_backend_url = (
         f"https://{resolved_public_host}"
         if resolved_public_ingress_enabled and resolved_public_host is not None
-        else "http://localhost:8000"
+        else "http://localhost:2025"
     )
     preserve_existing_backend_default = not (
         backend_url is None
@@ -1689,7 +1689,7 @@ def print_summary(config: SetupConfig, *, console: Console) -> None:
 
     if config.start_stack:
         if not config.public_ingress_enabled:
-            console.print("\n[bold cyan]Canvas:[/bold cyan] http://localhost:5173")
+            console.print("\n[bold cyan]Canvas:[/bold cyan] http://localhost:2026")
         console.print(
             "\n[yellow]Note:[/yellow] Canvas may take 2-3 minutes on first "
             "startup while npm installs dependencies."
@@ -1712,7 +1712,7 @@ def print_summary(config: SetupConfig, *, console: Console) -> None:
     )
     console.print("  2. Run [cyan]orcheo workflow list[/cyan] to verify connectivity.")
     if config.start_stack and not config.public_ingress_enabled:
-        console.print("  3. Open [cyan]http://localhost:5173[/cyan] in your browser.")
+        console.print("  3. Open [cyan]http://localhost:2026[/cyan] in your browser.")
 
 
 __all__ = [

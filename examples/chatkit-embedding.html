@@ -285,7 +285,7 @@
       <div class="controls">
         <label class="field">
           <span>Backend URL</span>
-          <input id="backend-url" type="url" placeholder="http://localhost:8000" />
+          <input id="backend-url" type="url" placeholder="http://localhost:2025" />
         </label>
         <label class="field">
           <span>Workflow Share URL or ID</span>
@@ -315,7 +315,7 @@
 
       <p>
         Need to test locally? Run <code>make dev-server</code>, publish a workflow, then set the backend to
-        <code>http://localhost:8000</code>. When the bubble opens you can chat with the published workflow exactly
+        <code>http://localhost:2025</code>. When the bubble opens you can chat with the published workflow exactly
         like the public Canvas page, including OAuth-gated workflows (cookies are forwarded with every request).
       </p>
     </div>
@@ -352,7 +352,7 @@
         const closeButton = document.querySelector("[data-chat-close]");
         const launcherHint = document.querySelector("[data-launcher-hint]");
 
-        const defaultBackend = window.ORCHEO_BACKEND_URL || "http://localhost:8000";
+        const defaultBackend = window.ORCHEO_BACKEND_URL || "http://localhost:2025";
         const isFileProtocol = window.location.protocol === "file:";
         const presetWorkflowId = window.ORCHEO_WORKFLOW_ID || null;
         const presetWorkflowName = window.ORCHEO_WORKFLOW_NAME || null;

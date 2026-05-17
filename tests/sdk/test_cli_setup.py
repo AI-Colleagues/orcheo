@@ -440,9 +440,9 @@ def test_build_env_updates(monkeypatch):
     )
     updates, defaults = setup._build_env_updates(config, requested_stack_version="2.0")
     assert updates["ORCHEO_API_URL"] == "http://backend"
-    assert updates["ORCHEO_CHATKIT_PUBLIC_BASE_URL"] == "http://localhost:5173"
+    assert updates["ORCHEO_CHATKIT_PUBLIC_BASE_URL"] == "http://localhost:2026"
     assert updates["ORCHEO_CORS_ALLOW_ORIGINS"] == (
-        "http://localhost:5173,http://127.0.0.1:5173"
+        "http://localhost:2026,http://127.0.0.1:2026"
     )
     assert updates["COMPOSE_PROFILES"] == ""
     assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain"
@@ -1010,7 +1010,7 @@ def test_print_summary():
     output = console.file.getvalue()
     assert "Setup complete" in output
     assert "Canvas may take" in output
-    assert "localhost:5173" in output
+    assert "localhost:2026" in output
 
 
 def test_print_summary_public_ingress():
@@ -1035,7 +1035,7 @@ def test_print_summary_public_ingress():
     output = console.file.getvalue()
     assert "Setup complete" in output
     assert "https://orcheo.example.com" in output
-    assert "localhost:5173" not in output
+    assert "localhost:2026" not in output
 
 
 def test_resolve_public_ingress_enabled_upgrade_mode_unparseable_existing(

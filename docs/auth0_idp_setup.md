@@ -16,8 +16,8 @@ Set `ORCHEO_AUTH_MODE=required` and allow authenticated Canvas users to:
 
 - An Auth0 account with dashboard access.
 - Your Orcheo stack running from `deploy/stack`.
-- A target Canvas URL (for example `http://localhost:5173` in local dev).
-- A target backend URL (for example `http://localhost:8000` in local dev).
+- A target Canvas URL (for example `http://localhost:2026` in local dev).
+- A target backend URL (for example `http://localhost:2025` in local dev).
 
 ## 1. Create the Auth0 API
 
@@ -57,16 +57,16 @@ For RBAC:
 2. Choose `Single Page Web Applications`.
 3. In app settings, set at least:
    - `Allowed Callback URLs`:
-     - `http://localhost:5173/auth/callback`
+     - `http://localhost:2026/auth/callback`
      - `https://<your-canvas-domain>/auth/callback`
    - `Allowed Logout URLs`:
-     - `http://localhost:5173`
+     - `http://localhost:2026`
      - `https://<your-canvas-domain>`
    - `Allowed Web Origins`:
-     - `http://localhost:5173`
+     - `http://localhost:2026`
      - `https://<your-canvas-domain>`
    - `Allowed Origins (CORS)`:
-     - `http://localhost:5173`
+     - `http://localhost:2026`
      - `https://<your-canvas-domain>`
 4. Save, then note:
    - `Domain` (issuer base, example: `your-auth0-domain.us.auth0.com`)
