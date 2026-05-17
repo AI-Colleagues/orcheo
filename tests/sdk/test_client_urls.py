@@ -8,12 +8,12 @@ from orcheo_sdk import OrcheoClient
 def test_workflow_trigger_url(client: OrcheoClient) -> None:
     assert (
         client.workflow_trigger_url("demo")
-        == "http://localhost:8000/api/workflows/demo/runs"
+        == "http://localhost:2025/api/workflows/demo/runs"
     )
 
 
 def test_workflow_collection_url(client: OrcheoClient) -> None:
-    assert client.workflow_collection_url() == "http://localhost:8000/api/workflows"
+    assert client.workflow_collection_url() == "http://localhost:2025/api/workflows"
 
 
 def test_workflow_trigger_url_requires_identifier(client: OrcheoClient) -> None:
@@ -22,7 +22,7 @@ def test_workflow_trigger_url_requires_identifier(client: OrcheoClient) -> None:
 
 
 def test_websocket_url_from_http(client: OrcheoClient) -> None:
-    assert client.websocket_url("abc") == "ws://localhost:8000/ws/workflow/abc"
+    assert client.websocket_url("abc") == "ws://localhost:2025/ws/workflow/abc"
 
 
 def test_websocket_url_from_https() -> None:

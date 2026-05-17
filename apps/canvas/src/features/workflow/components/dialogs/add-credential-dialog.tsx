@@ -31,7 +31,7 @@ interface AddCredentialDialogProps {
 
 const DEFAULT_CREDENTIAL: CredentialInput = {
   name: "",
-  provider: "custom",
+  provider: "Custom",
   access: "shared",
   secrets: { secret: "" },
 };

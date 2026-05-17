@@ -12,10 +12,10 @@ metadata:
 spec:
   selector:
     app: orcheo-api
-  ports:
+    ports:
     - name: http
-      port: 8000
-      targetPort: 8000
+      port: 2025
+      targetPort: 2025
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -35,24 +35,24 @@ spec:
         - name: api
           image: ghcr.io/orcheo/app:latest
           ports:
-            - containerPort: 8000
+            - containerPort: 2025
           env:
             - name: ORCHEO_HOST
               value: 0.0.0.0
             - name: ORCHEO_PORT
-              value: "8000"
+              value: "2025"
           envFrom:
             - secretRef:
                 name: orcheo-postgres
           readinessProbe:
             httpGet:
               path: /docs
-              port: 8000
+              port: 2025
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /docs
-              port: 8000
+              port: 2025
             initialDelaySeconds: 20
             periodSeconds: 20

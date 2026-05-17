@@ -429,8 +429,8 @@ def test_run_install_flow_forced_mode(monkeypatch: pytest.MonkeyPatch) -> None:
         public_ingress_enabled=False,
         public_host=None,
         publish_local_ports=True,
-        backend_upstreams="backend:8000",
-        canvas_upstream="canvas:5173",
+        backend_upstreams="backend:2025",
+        canvas_upstream="canvas:2026",
         start_stack=False,
         install_docker_if_missing=False,
     )
@@ -497,8 +497,8 @@ def test_run_install_flow_parses_modes(monkeypatch: pytest.MonkeyPatch) -> None:
         public_ingress_enabled=False,
         public_host=None,
         publish_local_ports=True,
-        backend_upstreams="backend:8000",
-        canvas_upstream="canvas:5173",
+        backend_upstreams="backend:2025",
+        canvas_upstream="canvas:2026",
         start_stack=False,
         install_docker_if_missing=False,
     )

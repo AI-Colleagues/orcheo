@@ -67,7 +67,7 @@ describe("WorkflowCanvasLayout", () => {
             activeChatNodeId: "chat-node-1",
             workflowId: "wf-1",
             chatkitWorkflowId: "wf-uuid-1",
-            backendBaseUrl: "http://localhost:8000",
+            backendBaseUrl: "http://localhost:2025",
             startScreenPrompts: [
               {
                 label: "Summarize",

@@ -22,7 +22,7 @@ def dev_server() -> None:
             "orcheo_backend.app:app",
             "--reload",
             "--port",
-            "8000",
+            "2025",
         ]
     )
 

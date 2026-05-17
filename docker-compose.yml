@@ -37,7 +37,7 @@ services:
       dockerfile: Dockerfile.backend
     env_file: .env
     ports:
-      - "2025:8000"
+      - "2025:2025"
     volumes:
       - .:/app
       - orcheo_data:/data
@@ -73,7 +73,7 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    command: uv run uvicorn orcheo_backend.app:app --host 0.0.0.0 --port 8000 --reload
+    command: uv run uvicorn orcheo_backend.app:app --host 0.0.0.0 --port 2025 --reload
 
   worker:
     build:
@@ -106,7 +106,7 @@ services:
       ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER: ${ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER:-X-Orcheo-Workspace}
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
-      ORCHEO_BACKEND_INTERNAL_URL: http://backend:8000
+      ORCHEO_BACKEND_INTERNAL_URL: http://backend:2025
       # Use system Python from base image instead of downloading
       UV_PYTHON_PREFERENCE: system
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
@@ -166,7 +166,7 @@ services:
       dockerfile: Dockerfile.canvas
     env_file: .env
     ports:
-      - "2026:5173"
+      - "2026:2026"
     volumes:
       - ./apps/canvas:/app
       - canvas_node_modules:/app/node_modules

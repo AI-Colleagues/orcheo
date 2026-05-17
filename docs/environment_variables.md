@@ -170,8 +170,8 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_PUBLIC_HOST` | _unset_ | Hostname | Public hostname served by bundled Caddy. Required when `ORCHEO_PUBLIC_INGRESS_ENABLED=true`. |
 | `COMPOSE_PROFILES` | _empty_ | Comma-separated Docker Compose profile names | Profiles activated by `orcheo install` and `orcheo stack`. Set to `public-ingress` to enable bundled Caddy TLS ingress. |
 | `ORCHEO_CADDY_SITE_ADDRESS` | _unset_ | Hostname or Caddy site address | Site address consumed by `deploy/stack/Caddyfile`. Usually the same value as `ORCHEO_PUBLIC_HOST`. |
-| `ORCHEO_CADDY_BACKEND_UPSTREAMS` | `backend:8000` | Space-delimited `host:port` upstream list | Backend upstream pool used by bundled Caddy for `/api/*` and `/ws/*`. Multiple entries are for replicas of the same logical deployment only. |
-| `ORCHEO_CADDY_CANVAS_UPSTREAM` | `canvas:5173` | `host:port` | Internal Canvas upstream used by bundled Caddy for `/` and SPA routes. |
+| `ORCHEO_CADDY_BACKEND_UPSTREAMS` | `backend:2025` | Space-delimited `host:port` upstream list | Backend upstream pool used by bundled Caddy for `/api/*` and `/ws/*`. Multiple entries are for replicas of the same logical deployment only. |
+| `ORCHEO_CADDY_CANVAS_UPSTREAM` | `canvas:2026` | `host:port` | Internal Canvas upstream used by bundled Caddy for `/` and SPA routes. |
 | `ORCHEO_CADDY_HTTP_BIND` | `0.0.0.0` | IP string | Host bind address for Caddy's public port `80` in `deploy/stack/docker-compose.yml`. |
 | `ORCHEO_CADDY_HTTPS_BIND` | `0.0.0.0` | IP string | Host bind address for Caddy's public port `443` in `deploy/stack/docker-compose.yml`. |
 | `ORCHEO_BACKEND_LOCAL_PORT` | `2025` | Integer (1‑65535) | Localhost port bound for the backend service in the stack compose file. |

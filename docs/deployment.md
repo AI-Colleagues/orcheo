@@ -70,7 +70,7 @@ Use this recipe when you want an isolated environment that mimics production wit
          ORCHEO_VAULT_ENCRYPTION_KEY: change-me
          ORCHEO_POSTGRES_DSN: postgresql://orcheo:orcheo@postgres:5432/orcheo
        ports:
-         - "2025:8000"
+         - "2025:2025"
        depends_on:
          - postgres
      postgres:
@@ -129,7 +129,7 @@ The initial supported load-balancing topology is one logical deployment with mul
 Set explicit backend upstreams in `~/.orcheo/stack/.env` when you add more backend replicas:
 
 ```env
-ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:8000 backend-2:8000 backend-3:8000
+ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:2025 backend-2:2025 backend-3:2025
 ```
 
 Use this pattern only when the replicas share the same repository, checkpoint, ChatKit, and vault state through shared Postgres and Redis. Do not use one hostname and one path to multiplex isolated customer-specific stacks.

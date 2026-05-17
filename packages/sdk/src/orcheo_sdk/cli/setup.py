@@ -737,8 +737,8 @@ def _resolve_setup_toggles(
 
 
 def _resolve_stack_upstreams(env_file: Path, *, env_exists: bool) -> tuple[str, str]:
-    backend_upstreams = "backend:8000"
-    canvas_upstream = "canvas:5173"
+    backend_upstreams = "backend:2025"
+    canvas_upstream = "canvas:2026"
     if not env_exists:
         return backend_upstreams, canvas_upstream
     existing_backend_upstreams = _read_env_value(

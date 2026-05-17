@@ -119,8 +119,8 @@ def _setup_config() -> SetupConfig:
         public_ingress_enabled=False,
         public_host=None,
         publish_local_ports=True,
-        backend_upstreams="backend:8000",
-        canvas_upstream="canvas:5173",
+        backend_upstreams="backend:2025",
+        canvas_upstream="canvas:2026",
         start_stack=True,
         install_docker_if_missing=True,
     )
@@ -1274,8 +1274,8 @@ def test_setup_build_env_updates_and_warn_missing_branch(
         public_ingress_enabled=False,
         public_host=None,
         publish_local_ports=True,
-        backend_upstreams="backend:8000",
-        canvas_upstream="canvas:5173",
+        backend_upstreams="backend:2025",
+        canvas_upstream="canvas:2026",
         start_stack=False,
         install_docker_if_missing=True,
     )
