@@ -661,7 +661,7 @@ async def test_stream_workflow_updates_forwards_in_node_status(
     history_store.append_step = AsyncMock(return_value=history_step)
     captured_callback: dict[str, Any] = {}
 
-    from orcheo.nodes.agent_tools.context import get_active_tool_progress_callback
+    from orcheo.nodes.ai.tools.context import get_active_tool_progress_callback
 
     class CompiledGraph:
         async def astream(self, state: object, *, config: object, stream_mode: str):

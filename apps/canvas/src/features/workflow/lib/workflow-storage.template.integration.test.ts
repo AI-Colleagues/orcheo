@@ -494,7 +494,7 @@ describe("workflow-storage API integration - template creation", () => {
       runnable_config?: { configurable?: { working_directory?: string } };
     };
     expect(ingestBody.script).toContain(
-      "from orcheo.nodes.gemini import GeminiNode",
+      "from orcheo.nodes.ai.external.gemini import GeminiNode",
     );
     expect(ingestBody.metadata?.template_id).toBe("template-gemini-agent");
     expect(ingestBody.runnable_config?.configurable?.working_directory).toBe(

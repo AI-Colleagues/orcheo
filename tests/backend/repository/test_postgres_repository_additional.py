@@ -12,7 +12,7 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 import pytest
-from orcheo.models.workflow import WorkflowRun, WorkflowVersion
+from orcheo.models import WorkflowRun, WorkflowVersion
 from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
@@ -586,66 +586,10 @@ async def test_postgres_resolve_workflow_ref_workspace_scoping_allows_unscoped_r
 
 
 @pytest.mark.asyncio
-async def test_base_ensure_workflow_schema_migrations_backfills_columns(
+async def test_postgres_ensure_initialized_creates_workspace_indexes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Workflow migrations should add mirrored columns for existing Postgres rows."""
-
-    workflow_id = uuid4()
-    legacy_payload = _workflow_payload(
-        workflow_id,
-        handle="legacy-flow",
-        is_archived=True,
-    )
-    responses: list[Any] = [
-        {"rows": []},  # SELECT columns from workflows (none exist)
-        {},  # ALTER TABLE workflows ADD COLUMN handle
-        {},  # ALTER TABLE workflows ADD COLUMN is_archived
-        {},  # ALTER TABLE workflows ADD COLUMN workspace_id
-        {
-            "rows": [{"id": str(workflow_id), "payload": legacy_payload}]
-        },  # SELECT workflows
-        {},  # UPDATE workflows
-        {"rows": []},  # SELECT columns from workflow_runs (none exist)
-        {},  # ALTER TABLE workflow_runs ADD COLUMN workspace_id
-        {},  # CREATE INDEX idx_workflows_handle
-        {},  # CREATE UNIQUE INDEX idx_workflows_active_handle
-        {},  # CREATE INDEX idx_workflows_workspace_id
-        {},  # CREATE INDEX idx_runs_workspace_id
-    ]
-    repo = make_repository(monkeypatch, responses)
-    connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
-
-    await repo._ensure_workflow_schema_migrations(connection)
-
-    queries = [query for query, _ in connection.queries]
-    assert any(
-        "ALTER TABLE workflows ADD COLUMN handle TEXT" in query for query in queries
-    )
-    assert any(
-        "ALTER TABLE workflows ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE"
-        in query
-        for query in queries
-    )
-    # Find the UPDATE query (indexes are created after it)
-    update_entries = [(q, p) for q, p in connection.queries if "UPDATE workflows" in q]
-    assert len(update_entries) == 1
-    update_query, update_params = update_entries[0]
-    assert update_params is not None
-    assert update_params[0] == "legacy-flow"
-    assert update_params[1] is True
-    assert isinstance(update_params[2], datetime)
-    assert update_params[3] == str(workflow_id)
-    # Indexes should be created after migration
-    assert any("idx_workflows_handle" in q for q in queries)
-    assert any("idx_workflows_active_handle" in q for q in queries)
-
-
-@pytest.mark.asyncio
-async def test_postgres_ensure_initialized_adds_versions_workspace_index_after_column(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Legacy Postgres databases should migrate the column before the index."""
+    """Repository bootstrap should create workspace-scoped indexes directly."""
 
     repo = make_repository(monkeypatch, [], initialized=False)
     connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
@@ -653,162 +597,28 @@ async def test_postgres_ensure_initialized_adds_versions_workspace_index_after_c
     await repo._ensure_initialized()
 
     queries = [query for query, _ in connection.queries]
-    workspace_index_queries = [
-        query for query in queries if "idx_versions_workspace_id" in query
-    ]
-    assert len(workspace_index_queries) == 1
-
-    alter_position = next(
-        index
-        for index, query in enumerate(queries)
-        if "ALTER TABLE workflow_versions ADD COLUMN workspace_id TEXT" in query
-    )
-    index_position = next(
-        index
-        for index, query in enumerate(queries)
-        if "CREATE INDEX IF NOT EXISTS idx_versions_workspace_id" in query
-    )
-
-    assert alter_position < index_position
-
-
-@pytest.mark.asyncio
-async def test_base_ensure_workflow_schema_migrations_respects_existing_handle(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Existing mirrored columns should not be re-added during migration."""
-
-    responses: list[Any] = [
-        {"rows": [{"column_name": "handle"}]},  # SELECT columns from workflows
-        {},  # ALTER TABLE workflows ADD COLUMN is_archived
-        {},  # ALTER TABLE workflows ADD COLUMN workspace_id
-        {"rows": []},  # SELECT workflows (no rows to backfill)
-        {"rows": []},  # SELECT columns from workflow_runs (none exist)
-        {},  # ALTER TABLE workflow_runs ADD COLUMN workspace_id
-        {},  # CREATE INDEX idx_workflows_handle
-        {},  # CREATE UNIQUE INDEX idx_workflows_active_handle
-        {},  # CREATE INDEX idx_workflows_workspace_id
-        {},  # CREATE INDEX idx_runs_workspace_id
-    ]
-    repo = make_repository(monkeypatch, responses)
-    connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
-
-    await repo._ensure_workflow_schema_migrations(connection)
-
-    queries = [query for query, _ in connection.queries]
-    assert not any(
-        "ALTER TABLE workflows ADD COLUMN handle TEXT" in query for query in queries
+    assert any(
+        "CREATE INDEX IF NOT EXISTS idx_workflows_handle" in query for query in queries
     )
     assert any(
-        "ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE" in query
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle_global" in query
         for query in queries
     )
-
-
-@pytest.mark.asyncio
-async def test_base_ensure_workflow_schema_migrations_skips_existing_columns(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Existing mirrored columns should bypass both ALTER statements."""
-
-    responses: list[Any] = [
-        {
-            "rows": [
-                {"column_name": "handle"},
-                {"column_name": "is_archived"},
-                {"column_name": "workspace_id"},
-            ]
-        },  # SELECT columns from workflows (all exist)
-        {"rows": []},  # SELECT workflows (no rows to backfill)
-        {
-            "rows": [{"column_name": "workspace_id"}]
-        },  # SELECT columns from workflow_runs (workspace_id exists)
-        {},  # CREATE INDEX idx_workflows_handle
-        {},  # CREATE UNIQUE INDEX idx_workflows_active_handle
-        {},  # CREATE INDEX idx_workflows_workspace_id
-        {},  # CREATE INDEX idx_runs_workspace_id
-    ]
-    repo = make_repository(monkeypatch, responses)
-    connection = repo._pool._connection  # type: ignore[union-attr]  # noqa: SLF001
-
-    await repo._ensure_workflow_schema_migrations(connection)
-
-    queries = [query for query, _ in connection.queries]
-    assert not any(
-        "ALTER TABLE workflows ADD COLUMN handle TEXT" in query for query in queries
-    )
-    assert not any(
-        "ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE" in query
+    assert any(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle_workspace"
+        in query
         for query in queries
     )
-    assert not any("UPDATE workflows" in query for query in queries)
-
-
-@pytest.mark.asyncio
-async def test_base_ensure_workflow_schema_migrations_keeps_existing_run_workspace_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Existing workflow_runs.workspace_id columns should not be re-added."""
-
-    class _Cursor:
-        def __init__(self, rows: list[dict[str, Any]]) -> None:
-            self._rows = [FakeRow(row) for row in rows]
-
-        async def fetchall(self) -> list[FakeRow]:
-            return list(self._rows)
-
-    class _Connection:
-        def __init__(self) -> None:
-            self.queries: list[str] = []
-
-        async def execute(self, query: str, params: Any | None = None) -> _Cursor:
-            self.queries.append(query.strip())
-            if "table_name = 'workflows'" in query:
-                return _Cursor(
-                    [
-                        {"column_name": "handle"},
-                        {"column_name": "is_archived"},
-                        {"column_name": "workspace_id"},
-                    ]
-                )
-            if "table_name = 'workflow_runs'" in query:
-                return _Cursor([{"column_name": "workspace_id"}])
-            if "SELECT id, payload FROM workflows" in query:
-                return _Cursor([])
-            if "ALTER TABLE workflow_runs ADD COLUMN workspace_id TEXT" in query:
-                raise AssertionError("workflow_runs workspace_id should already exist")
-            return _Cursor([])
-
-    repo = make_repository(monkeypatch, [])
-    connection = _Connection()
-
-    await repo._ensure_workflow_schema_migrations(connection)
-
-    assert (
-        "ALTER TABLE workflow_runs ADD COLUMN workspace_id TEXT"
-        not in connection.queries
+    assert any(
+        "CREATE INDEX IF NOT EXISTS idx_workflows_workspace_id" in query
+        for query in queries
     )
-
-
-@pytest.mark.asyncio
-async def test_postgres_versions_schema_migration_keeps_existing_workspace_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Existing workflow_versions.workspace_id columns should not be re-added."""
-
-    responses: list[Any] = [
-        {"rows": [{"column_name": "workspace_id"}]},
-        {},
-    ]
-    repo = make_repository(monkeypatch, responses)
-    connection = repo._pool._connection  # type: ignore[unionattr]  # noqa: SLF001
-
-    await repo._ensure_workflow_versions_schema_migrations(connection)
-
-    queries = [query for query, _ in connection.queries]
-    assert not any(
-        "ALTER TABLE workflow_versions ADD COLUMN workspace_id TEXT" in q
-        for q in queries
+    assert any(
+        "CREATE INDEX IF NOT EXISTS idx_runs_workspace_id" in query for query in queries
+    )
+    assert any(
+        "CREATE INDEX IF NOT EXISTS idx_versions_workspace_id" in query
+        for query in queries
     )
 
 
@@ -1341,7 +1151,7 @@ async def test_triggers_dispatch_due_cron_runs_skip_unhealthy_workflow(
 
     # Mock _get_latest_version_locked to return a version
     from unittest.mock import AsyncMock
-    from orcheo.models.workflow import WorkflowVersion
+    from orcheo.models import WorkflowVersion
 
     version = WorkflowVersion.model_validate(version_payload)
     monkeypatch.setattr(
@@ -2253,7 +2063,7 @@ async def test_triggers_enqueue_run_for_execution_success(
 ) -> None:
     """Test _enqueue_run_for_execution successfully enqueues a run."""
     import sys
-    from orcheo.models.workflow import WorkflowRun
+    from orcheo.models import WorkflowRun
     from orcheo_backend.app.repository_postgres import _triggers
 
     enqueued_calls: list[tuple[str, Any | None]] = []
@@ -2292,7 +2102,7 @@ async def test_triggers_enqueue_run_for_execution_fallback_preserves_workspace_h
 ) -> None:
     """Fallback enqueue path passes workspace headers when apply_async is unavailable."""
     import sys
-    from orcheo.models.workflow import WorkflowRun
+    from orcheo.models import WorkflowRun
     from orcheo_backend.app.repository_postgres import _triggers
 
     enqueued_calls: list[tuple[str, Any | None]] = []
@@ -2328,7 +2138,7 @@ async def test_triggers_enqueue_run_for_execution_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test _enqueue_run_for_execution handles import/enqueue failure gracefully."""
-    from orcheo.models.workflow import WorkflowRun
+    from orcheo.models import WorkflowRun
     from orcheo_backend.app.repository_postgres import _triggers
 
     # Create a mock run
@@ -2382,7 +2192,7 @@ async def test_triggers_dispatch_due_cron_runs_with_naive_datetime(
 
     # Mock to return version
     from unittest.mock import AsyncMock
-    from orcheo.models.workflow import WorkflowVersion
+    from orcheo.models import WorkflowVersion
 
     version = WorkflowVersion.model_validate(version_payload)
     monkeypatch.setattr(
@@ -2392,7 +2202,7 @@ async def test_triggers_dispatch_due_cron_runs_with_naive_datetime(
     # Mock _create_run_locked
     run_id = uuid4()
     now = datetime.now(tz=UTC)
-    from orcheo.models.workflow import WorkflowRun
+    from orcheo.models import WorkflowRun
 
     mock_run = WorkflowRun(
         id=run_id,
@@ -2428,7 +2238,7 @@ async def test_triggers_dispatch_due_cron_runs_enqueues_runs(
 ) -> None:
     """Test dispatch_due_cron_runs enqueues runs after lock is released."""
     from unittest.mock import AsyncMock, patch
-    from orcheo.models.workflow import WorkflowRun, WorkflowVersion
+    from orcheo.models import WorkflowRun, WorkflowVersion
 
     workflow_id = uuid4()
     version_id = uuid4()
@@ -2491,7 +2301,7 @@ async def test_triggers_dispatch_due_cron_runs_updates_last_dispatched(
     config = CronTriggerConfig(expression="0 9 * * *", timezone="UTC")
     repo._trigger_layer.configure_cron(workflow_id, config)
 
-    from orcheo.models.workflow import WorkflowRun, WorkflowVersion
+    from orcheo.models import WorkflowRun, WorkflowVersion
 
     version = WorkflowVersion.model_validate(version_payload)
     monkeypatch.setattr(
@@ -2604,7 +2414,7 @@ async def test_triggers_dispatch_manual_runs_success(
     workflow_payload = _workflow_payload(workflow_id)
     version_payload = _version_payload(version_id, workflow_id)
 
-    from orcheo.models.workflow import WorkflowRun, WorkflowRunStatus, WorkflowVersion
+    from orcheo.models import WorkflowRun, WorkflowRunStatus, WorkflowVersion
 
     mock_version = WorkflowVersion.model_validate(version_payload)
     mock_run = WorkflowRun(

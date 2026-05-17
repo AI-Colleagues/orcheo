@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 import pytest
-from orcheo_sdk import OrcheoClient, Workflow
+from orcheo_sdk import OrcheoClient
 
 
 def test_workflow_trigger_url(client: OrcheoClient) -> None:
@@ -10,6 +10,10 @@ def test_workflow_trigger_url(client: OrcheoClient) -> None:
         client.workflow_trigger_url("demo")
         == "http://localhost:8000/api/workflows/demo/runs"
     )
+
+
+def test_workflow_collection_url(client: OrcheoClient) -> None:
+    assert client.workflow_collection_url() == "http://localhost:8000/api/workflows"
 
 
 def test_workflow_trigger_url_requires_identifier(client: OrcheoClient) -> None:
@@ -44,40 +48,6 @@ def test_prepare_headers_merges_defaults(client: OrcheoClient) -> None:
 def test_prepare_headers_without_overrides(client: OrcheoClient) -> None:
     merged = client.prepare_headers()
     assert merged == {"X-Test": "1"}
-
-
-def test_credential_health_and_validation_urls(client: OrcheoClient) -> None:
-    assert (
-        client.credential_health_url("workflow")
-        == "http://localhost:8000/api/workflows/workflow/credentials/health"
-    )
-    assert (
-        client.credential_validation_url("workflow")
-        == "http://localhost:8000/api/workflows/workflow/credentials/validate"
-    )
-
-
-def test_credential_health_and_validation_require_identifier(
-    client: OrcheoClient,
-) -> None:
-    with pytest.raises(ValueError):
-        client.credential_health_url(" ")
-    with pytest.raises(ValueError):
-        client.credential_validation_url(" ")
-
-
-def test_build_deployment_request_for_existing_workflow(client: OrcheoClient) -> None:
-    workflow = Workflow(name="Demo", metadata={"owner": "qa"})
-    request = client.build_deployment_request(
-        workflow,
-        workflow_id=" existing ",
-        metadata={"env": "test"},
-        headers={"X-Trace": "1"},
-    )
-
-    assert request.method == "PUT"
-    assert request.url.endswith("/api/workflows/existing")
-    assert request.headers["X-Trace"] == "1"
 
 
 def test_build_payload_supports_optional_execution_id(client: OrcheoClient) -> None:

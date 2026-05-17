@@ -1,6 +1,6 @@
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
-from orcheo.nodes.telegram import MessageTelegramNode
+from orcheo.nodes.connectors.telegram import MessageTelegramNode
 
 
 def orcheo_workflow() -> StateGraph:

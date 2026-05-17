@@ -2,13 +2,15 @@ from langgraph.graph import END, START, StateGraph
 from orcheo.edges import SwitchCase, SwitchEdge
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
-from orcheo.nodes.communication import MessageDiscordNode, MessageQQNode
-from orcheo.nodes.listeners import (
+from orcheo.nodes.connectors.discord import (
     DiscordBotListenerNode,
-    QQBotListenerNode,
+    MessageDiscordNode,
+)
+from orcheo.nodes.connectors.qq import MessageQQNode, QQBotListenerNode
+from orcheo.nodes.connectors.telegram import (
+    MessageTelegramNode,
     TelegramBotListenerNode,
 )
-from orcheo.nodes.telegram import MessageTelegramNode
 
 
 def orcheo_workflow() -> StateGraph:

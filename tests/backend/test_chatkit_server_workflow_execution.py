@@ -9,7 +9,7 @@ from chatkit.errors import CustomStreamError
 from chatkit.types import ThreadMetadata
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo_backend.app.chatkit import OrcheoChatKitServer
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from tests.backend.chatkit_test_utils import (

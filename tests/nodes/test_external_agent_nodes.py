@@ -10,6 +10,11 @@ from orcheo.graph.state import State
 from orcheo.nodes.claude_code import ClaudeCodeNode
 from orcheo.nodes.codex import CodexNode
 from orcheo.nodes.gemini import GeminiNode
+from orcheo.nodes.ai.external.claude_code import (
+    ClaudeCodeNode as ExternalClaudeCodeNode,
+)
+from orcheo.nodes.ai.external.codex import CodexNode as ExternalCodexNode
+from orcheo.nodes.ai.external.gemini import GeminiNode as ExternalGeminiNode
 from orcheo.nodes.registry import registry
 from orcheo.runtime.credentials import CredentialReferenceNotFoundError
 from orcheo.tracing.model_metadata import TRACE_METADATA_KEY
@@ -264,6 +269,91 @@ def test_gemini_node_auth_environment_overrides_skips_empty_values() -> None:
     node.google_accounts_json = None
     node.state_json = None
     node.oauth_creds_json = None
+
+    assert node.auth_environment_overrides() == {}
+
+
+def test_external_claude_code_node_auth_environment_overrides_returns_token() -> None:
+    node = ExternalClaudeCodeNode(
+        name="claude_overrides",
+        prompt="cleanup",
+        working_directory=".",
+        auth_token="sk-ant-EXTERNAL",
+    )
+
+    assert node.auth_environment_overrides() == {
+        "CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-EXTERNAL"
+    }
+
+
+def test_external_claude_code_node_auth_environment_overrides_skips_empty_token() -> (
+    None
+):
+    node = ExternalClaudeCodeNode(
+        name="claude_overrides",
+        prompt="cleanup",
+        working_directory=".",
+        auth_token=None,
+    )
+
+    assert node.auth_environment_overrides() == {}
+
+
+def test_external_codex_node_auth_environment_overrides_returns_json() -> None:
+    node = ExternalCodexNode(
+        name="codex_overrides",
+        prompt="cleanup",
+        working_directory=".",
+        auth_json='{"hello": "external"}',
+    )
+
+    assert node.auth_environment_overrides() == {
+        "CODEX_AUTH_JSON": '{"hello": "external"}'
+    }
+
+
+def test_external_codex_node_auth_environment_overrides_skips_empty_json() -> None:
+    node = ExternalCodexNode(
+        name="codex_overrides",
+        prompt="cleanup",
+        working_directory=".",
+        auth_json=None,
+    )
+
+    assert node.auth_environment_overrides() == {}
+
+
+def test_external_gemini_node_auth_environment_overrides_returns_all_values() -> None:
+    node = ExternalGeminiNode(
+        name="gemini_overrides",
+        prompt="cleanup",
+        working_directory=".",
+        auth_json='{"version":1,"files":{"trustedFolders.json":"{\\"trustedFolders\\":[]}"}}',
+        google_accounts_json='{"active":{}}',
+        state_json='{"tipsShown":{}}',
+        oauth_creds_json='{"tokens":{}}',
+    )
+
+    assert node.auth_environment_overrides() == {
+        "GEMINI_AUTH_JSON": (
+            '{"version":1,"files":{"trustedFolders.json":"{\\"trustedFolders\\":[]}"}}'
+        ),
+        "GEMINI_GOOGLE_ACCOUNTS_JSON": '{"active":{}}',
+        "GEMINI_STATE_JSON": '{"tipsShown":{}}',
+        "GEMINI_OAUTH_CREDS_JSON": '{"tokens":{}}',
+    }
+
+
+def test_external_gemini_node_auth_environment_overrides_skips_empty_values() -> None:
+    node = ExternalGeminiNode(
+        name="gemini_overrides",
+        prompt="cleanup",
+        working_directory=".",
+        auth_json=None,
+        google_accounts_json=None,
+        state_json=None,
+        oauth_creds_json=None,
+    )
 
     assert node.auth_environment_overrides() == {}
 

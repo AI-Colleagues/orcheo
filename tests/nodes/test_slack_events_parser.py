@@ -11,7 +11,7 @@ import pytest
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 from orcheo.graph.state import State
-from orcheo.nodes.slack import SlackEventsParserNode
+from orcheo.nodes.connectors.slack import SlackEventsParserNode
 
 
 def _sign_slack(secret: str, timestamp: int, body: str) -> str:

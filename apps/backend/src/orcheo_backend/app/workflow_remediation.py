@@ -17,7 +17,7 @@ from typing import Any
 from uuid import UUID
 from orcheo.external_agents import ExternalAgentRuntimeManager, execute_process
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
-from orcheo.models.workflow import (
+from orcheo.models import (
     WorkflowRun,
     WorkflowRunRemediation,
     WorkflowRunRemediationClassification,

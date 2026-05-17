@@ -28,7 +28,7 @@ from pydantic import TypeAdapter, ValidationError
 from starlette.responses import JSONResponse, StreamingResponse
 import orcheo.config as orcheo_config
 from orcheo.config.defaults import _DEFAULTS
-from orcheo.models.workflow import WorkflowRun
+from orcheo.models import WorkflowRun
 from orcheo.vault.oauth import CredentialHealthError
 from orcheo_backend.app.authentication import (
     AuthenticationError,

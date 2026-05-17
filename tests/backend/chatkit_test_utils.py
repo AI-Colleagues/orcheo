@@ -3,7 +3,7 @@
 from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock
-from orcheo.models.workflow import Workflow, WorkflowDraftAccess
+from orcheo.models import Workflow, WorkflowDraftAccess
 from orcheo.vault import InMemoryCredentialVault
 from orcheo_backend.app.dependencies import set_history_store
 from orcheo_backend.app.history import RunHistoryStore

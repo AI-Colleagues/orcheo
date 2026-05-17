@@ -8,7 +8,7 @@ import pytest
 from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo.workspace.models import Role, WorkspaceContext
 from orcheo_backend.app import create_app, ingest_workflow_version
 from orcheo_backend.app.authentication import reset_authentication_state

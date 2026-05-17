@@ -33,7 +33,7 @@ class TestEnqueueRunFunction:
 
     def test_enqueue_run_success_logs_info(self) -> None:
         """Test that successful enqueue logs an info message."""
-        from orcheo.models.workflow import WorkflowRun, WorkflowRunStatus
+        from orcheo.models import WorkflowRun, WorkflowRunStatus
 
         run = WorkflowRun(
             id=uuid4(),
@@ -89,7 +89,7 @@ class TestEnqueueRunFunction:
 
     def test_enqueue_run_exception_logs_warning(self) -> None:
         """Test that exception during enqueue logs a warning."""
-        from orcheo.models.workflow import WorkflowRun, WorkflowRunStatus
+        from orcheo.models import WorkflowRun, WorkflowRunStatus
 
         run = WorkflowRun(
             id=uuid4(),

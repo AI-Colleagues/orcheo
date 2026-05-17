@@ -9,7 +9,7 @@ from typing import Any
 from uuid import UUID
 import pytest
 from orcheo.graph.ingestion import ingest_langgraph_script
-from orcheo.models.workflow import (
+from orcheo.models import (
     WorkflowDraftAccess,
     WorkflowRunRemediationClassification,
     WorkflowRunRemediationStatus,
@@ -86,7 +86,7 @@ SCRIPT = textwrap.dedent(
     """
     from langgraph.graph import StateGraph
     from orcheo.graph.state import State
-    from orcheo.nodes.rss import RSSNode
+    from orcheo.nodes.connectors.rss import RSSNode
 
     def build_graph():
         graph = StateGraph(State)

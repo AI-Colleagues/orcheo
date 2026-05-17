@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from orcheo.edges.registry import edge_registry
 from orcheo.listeners.registry import listener_registry
-from orcheo.nodes.agent_tools.registry import tool_registry
+from orcheo.nodes.ai.tools.registry import tool_registry
 from orcheo.nodes.registry import registry
 from orcheo.plugins.api import PluginAPI, PluginRegistrations
 from orcheo.plugins.compatibility import check_manifest_compatibility

@@ -1,7 +1,7 @@
 """Data nodes and helpers."""
 
 from __future__ import annotations
-from orcheo.nodes.data.http_request import HttpMethod, HttpRequestNode
+from orcheo.nodes.connectors.http_request import HttpMethod, HttpRequestNode
 from orcheo.nodes.data.json_processing import JsonOperation, JsonProcessingNode
 from orcheo.nodes.data.merge import MergeNode
 from orcheo.nodes.data.transform import (

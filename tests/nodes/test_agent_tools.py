@@ -1,8 +1,8 @@
 """Tests for agent tools registry and tools."""
 
 from langchain_core.tools import BaseTool
-from orcheo.nodes.agent_tools.registry import ToolMetadata, ToolRegistry
-from orcheo.nodes.agent_tools.tools import greet_user
+from orcheo.nodes.ai.tools.registry import ToolMetadata, ToolRegistry
+from orcheo.nodes.ai.tools.tools import greet_user
 
 
 def test_tool_registry_get_tool_returns_none():

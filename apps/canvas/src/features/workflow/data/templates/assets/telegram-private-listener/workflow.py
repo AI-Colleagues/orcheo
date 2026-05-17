@@ -1,8 +1,10 @@
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
-from orcheo.nodes.listeners import TelegramBotListenerNode
-from orcheo.nodes.telegram import MessageTelegramNode
+from orcheo.nodes.connectors.telegram import (
+    MessageTelegramNode,
+    TelegramBotListenerNode,
+)
 
 
 def orcheo_workflow() -> StateGraph:

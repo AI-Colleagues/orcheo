@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from orcheo.models import AesGcmCredentialCipher, CredentialScope
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo.vault import InMemoryCredentialVault
 from orcheo.vault.oauth import OAuthCredentialService
 from orcheo.workspace import (

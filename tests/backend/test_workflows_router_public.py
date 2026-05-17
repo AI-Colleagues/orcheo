@@ -4,7 +4,7 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
-from orcheo.models.workflow import Workflow
+from orcheo.models import Workflow
 from orcheo_backend.app.repository import WorkflowNotFoundError
 from orcheo_backend.app.routers import workflows
 from orcheo_backend.app.routers.workflows import _resolve_chatkit_public_base_url

@@ -11,7 +11,7 @@ from orcheo.listeners import (
     ListenerPlatform,
     ListenerSubscriptionStatus,
 )
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo_backend.app.dependencies import (
     get_listener_runtime_store,
     get_repository,

@@ -15,7 +15,7 @@ from orcheo.listeners import (
     ListenerSubscription,
 )
 from orcheo.models.base import _utcnow
-from orcheo.nodes.telegram import (
+from orcheo.nodes.connectors.telegram import (
     detect_telegram_update_type,
     extract_telegram_update_details,
 )

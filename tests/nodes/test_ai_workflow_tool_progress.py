@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 from orcheo.graph.state import State
-from orcheo.nodes.agent_tools.context import (
+from orcheo.nodes.ai.tools.context import (
     tool_execution_context,
     tool_progress_context,
 )
@@ -157,7 +157,7 @@ async def test_run_tool_graph_propagates_config_into_state() -> None:
 async def test_run_tool_graph_strips_internal_configurable_keys() -> None:
     """Internal __pregel_* keys must be stripped from the state config."""
     from unittest.mock import AsyncMock
-    from orcheo.nodes.agent_tools.context import tool_execution_context
+    from orcheo.nodes.ai.tools.context import tool_execution_context
     from orcheo.nodes.ai import _run_tool_graph
 
     config: RunnableConfig = {

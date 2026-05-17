@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import jwt
 import pytest
 from fastapi import HTTPException
-from orcheo.models.workflow import Workflow, WorkflowDraftAccess
+from orcheo.models import Workflow, WorkflowDraftAccess
 from orcheo_backend.app.authentication import (
     AuthenticationError,
     AuthorizationError,

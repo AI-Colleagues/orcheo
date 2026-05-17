@@ -9,7 +9,8 @@ from orcheo.graph.ingestion import summary as summary_module
 from orcheo.graph.ingestion.summary import summarise_graph_index, summarise_state_graph
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode, WorkflowTool
-from orcheo.nodes.listeners import QQBotListenerNode, TelegramBotListenerNode
+from orcheo.nodes.connectors.qq import QQBotListenerNode
+from orcheo.nodes.connectors.telegram import TelegramBotListenerNode
 from orcheo.nodes.triggers import CronTriggerNode
 
 

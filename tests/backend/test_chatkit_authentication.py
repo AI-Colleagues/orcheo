@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 import pytest
 from starlette.requests import Request
-from orcheo.models.workflow import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess
 from orcheo_backend.app.repository.in_memory import InMemoryWorkflowRepository
 from tests.backend.api.shared import backend_app
 

@@ -535,7 +535,7 @@ def test_load_workflow_from_python_rejects_invalid_workflow_object(
 
     with pytest.raises(
         ingest.CLIError,
-        match="must be an orcheo_sdk.Workflow instance",
+        match="must provide a to_deployment_payload\\(\\) method",
     ):
         ingest._load_workflow_from_python(py_file)
 

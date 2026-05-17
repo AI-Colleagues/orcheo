@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 import pytest
-from orcheo.models.workflow import (
+from orcheo.models import (
     CredentialHealthStatus,
     WorkflowDraftAccess,
 )

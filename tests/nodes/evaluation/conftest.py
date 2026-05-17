@@ -24,7 +24,7 @@ class FakeDenseEmbeddings(Embeddings):
 @pytest.fixture(autouse=True)
 def _mock_embedding_init(monkeypatch: pytest.MonkeyPatch) -> None:
     """Auto-mock init_dense_embeddings for evaluation tests."""
-    import orcheo.nodes.conversational_search.embeddings as emb_mod
+    import orcheo.nodes.rag.embeddings as emb_mod
 
     monkeypatch.setattr(
         emb_mod,

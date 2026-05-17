@@ -23,7 +23,7 @@ from orcheo.tracing.model_metadata import (
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing-only import
-    from orcheo.nodes.agent_tools.context import NodeStatusEmitter
+    from orcheo.nodes.ai.tools.context import NodeStatusEmitter
 
 
 logger = logging.getLogger(__name__)
@@ -354,12 +354,12 @@ class BaseNode(BaseRunnable):
 
         The emitter wraps the currently bound tool progress callback (if any)
         so developer ``run()`` code can publish optional intermediate updates
-        via :func:`orcheo.nodes.agent_tools.context.emit_node_status`. Each
+        via :func:`orcheo.nodes.ai.tools.context.emit_node_status`. Each
         emitted body is wrapped in an envelope ``{"node": self.name,
         "event": "node_status", "payload": ...}`` so existing streaming
         consumers (ChatKit, websocket clients) can recognise it.
         """
-        from orcheo.nodes.agent_tools.context import (
+        from orcheo.nodes.ai.tools.context import (
             get_active_tool_progress_callback,
         )
 
@@ -427,7 +427,7 @@ class AINode(BaseNode):
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a messages key."""
-        from orcheo.nodes.agent_tools.context import node_status_context
+        from orcheo.nodes.ai.tools.context import node_status_context
 
         runnable = self.resolved_for_run(state, config=config)
         runnable._clear_trace_metadata_for_run()
@@ -452,7 +452,7 @@ class TaskNode(BaseNode):
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the node and wrap the result in a outputs key."""
-        from orcheo.nodes.agent_tools.context import node_status_context
+        from orcheo.nodes.ai.tools.context import node_status_context
 
         runnable = self.resolved_for_run(state, config=config)
         runnable._clear_trace_metadata_for_run()

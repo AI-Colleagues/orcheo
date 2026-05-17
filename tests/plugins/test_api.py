@@ -8,7 +8,7 @@ from orcheo.listeners.registry import (
     ListenerMetadata,
     ListenerRegistry,
 )
-from orcheo.nodes.agent_tools.registry import ToolMetadata, ToolRegistry
+from orcheo.nodes.ai.tools.registry import ToolMetadata, ToolRegistry
 from orcheo.nodes.registry import NodeMetadata, NodeRegistry
 from orcheo.plugins.api import PluginAPI, PluginRegistrations
 from orcheo.triggers.registry import TriggerMetadata, TriggerRegistry
@@ -53,7 +53,7 @@ def _restore_registries() -> None:
     import orcheo.plugins.api as api_module
     from orcheo.edges.registry import edge_registry
     from orcheo.listeners.registry import listener_registry
-    from orcheo.nodes.agent_tools.registry import tool_registry
+    from orcheo.nodes.ai.tools.registry import tool_registry
     from orcheo.nodes.registry import registry
     from orcheo.triggers.registry import trigger_registry
 

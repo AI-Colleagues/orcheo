@@ -14,7 +14,7 @@ from orcheo.agentensor.evaluation import (
 )
 from orcheo.agentensor.prompts import TrainablePrompt
 from orcheo.graph.state import State
-from orcheo.nodes.agentensor import AgentensorNode
+from orcheo.nodes.ai.agentensor import AgentensorNode
 from orcheo.nodes.base import TaskNode
 from orcheo.runtime.runnable_config import RunnableConfigModel
 

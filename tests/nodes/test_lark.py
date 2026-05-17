@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.lark import LarkSendMessageNode, LarkTenantAccessTokenNode
+from orcheo.nodes.connectors.lark import LarkSendMessageNode, LarkTenantAccessTokenNode
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from orcheo.edges.registry import edge_registry
 from orcheo.listeners.registry import listener_registry
-from orcheo.nodes.agent_tools.registry import tool_registry
+from orcheo.nodes.ai.tools.registry import tool_registry
 from orcheo.nodes.registry import registry
 from orcheo.plugins import load_enabled_plugins, reset_plugin_loader_for_tests
 from orcheo.plugins.api import PluginRegistrations
@@ -243,7 +243,7 @@ def test_rollback_removes_edges_tools_listeners_triggers() -> None:
     """_rollback_plugin_registrations removes all component kinds."""
     from orcheo.edges.registry import EdgeMetadata
     from orcheo.listeners.registry import ListenerMetadata
-    from orcheo.nodes.agent_tools.registry import ToolMetadata
+    from orcheo.nodes.ai.tools.registry import ToolMetadata
     from orcheo.triggers.registry import TriggerMetadata
 
     # Register dummy components in the real global registries
@@ -780,7 +780,7 @@ def test_clear_registered_components_removes_edges_tools_triggers() -> None:
     """_clear_registered_components removes edges, tools, and triggers (72,74,78)."""
     import orcheo.plugins.loader as loader_mod
     from orcheo.edges.registry import EdgeMetadata
-    from orcheo.nodes.agent_tools.registry import ToolMetadata
+    from orcheo.nodes.ai.tools.registry import ToolMetadata
     from orcheo.plugins.loader import _clear_registered_components
     from orcheo.triggers.registry import TriggerMetadata
 

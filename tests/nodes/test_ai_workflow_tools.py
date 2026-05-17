@@ -7,7 +7,10 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 from typing_extensions import TypedDict
 from orcheo.graph.state import State
-from orcheo.nodes.ai import WorkflowTool, _create_workflow_tool_func
+from orcheo.nodes.ai.workflow_tools import (
+    WorkflowTool,
+    _create_workflow_tool_func,
+)
 
 
 @pytest.mark.asyncio

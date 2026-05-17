@@ -170,7 +170,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
-from orcheo.nodes.telegram import MessageTelegram
+from orcheo.nodes.connectors.telegram import MessageTelegram
 
 class TelegramInput(BaseModel):
     message: str = Field(description="Message to send")
@@ -258,7 +258,7 @@ def test_workflow_credential_readiness_ignores_optional_gemini_auth_files(
             "script": """
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
-from orcheo.nodes.gemini import GeminiNode
+from orcheo.nodes.ai.external.gemini import GeminiNode
 
 def orcheo_workflow() -> StateGraph:
     graph = StateGraph(State)

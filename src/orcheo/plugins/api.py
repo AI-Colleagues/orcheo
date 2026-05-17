@@ -11,7 +11,7 @@ from orcheo.listeners.registry import (
     ListenerMetadata,
     listener_registry,
 )
-from orcheo.nodes.agent_tools.registry import ToolMetadata, tool_registry
+from orcheo.nodes.ai.tools.registry import ToolMetadata, tool_registry
 from orcheo.nodes.registry import NodeMetadata, registry
 from orcheo.triggers.registry import TriggerMetadata, trigger_registry
 

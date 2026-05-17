@@ -15,7 +15,7 @@ from pymongo.errors import (
     ServerSelectionTimeoutError,
 )
 from orcheo.graph.state import State
-from orcheo.nodes.integrations.databases.mongodb import (
+from orcheo.nodes.storage.mongodb import (
     MongoDBHybridSearchNode,
     MongoDBNode,
     MongoDBUpdateManyNode,
@@ -252,7 +252,7 @@ def test_shared_client_lifecycle() -> None:
     client_mock = MagicMock()
 
     with patch(
-        "orcheo.nodes.integrations.databases.mongodb.base.MongoClient",
+        "orcheo.nodes.storage.mongodb.base.MongoClient",
         return_value=client_mock,
     ):
         first = MongoDBNode._get_shared_client("conn")
@@ -275,7 +275,7 @@ def test_shared_client_lifecycle() -> None:
     MongoDBNode._client_ref_counts.clear()
 
     with patch(
-        "orcheo.nodes.integrations.databases.mongodb.base.MongoClient",
+        "orcheo.nodes.storage.mongodb.base.MongoClient",
         side_effect=[client_one, client_two],
     ):
         MongoDBNode._get_shared_client("conn-one")
@@ -301,7 +301,7 @@ def test_shared_async_client_lifecycle() -> None:
     client_mock = MagicMock()
 
     with patch(
-        "orcheo.nodes.integrations.databases.mongodb.base.AsyncIOMotorClient",
+        "orcheo.nodes.storage.mongodb.base.AsyncIOMotorClient",
         return_value=client_mock,
     ):
         first = MongoDBHybridSearchNode._get_shared_async_client("conn")

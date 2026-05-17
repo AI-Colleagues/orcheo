@@ -12,7 +12,7 @@ from orcheo.listeners import (
     ListenerSubscription,
     ListenerSubscriptionStatus,
 )
-from orcheo.models.workflow import (
+from orcheo.models import (
     ChatKitStartScreenPrompt,
     ChatKitSupportedModel,
     Workflow,

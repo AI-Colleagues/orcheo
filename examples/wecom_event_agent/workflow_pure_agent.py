@@ -26,7 +26,7 @@ from orcheo.edges import Condition, IfElseEdge
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.wecom import (
+from orcheo.nodes.connectors.wecom import (
     WeComAccessTokenNode,
     WeComCustomerServiceSendNode,
     WeComCustomerServiceSyncNode,

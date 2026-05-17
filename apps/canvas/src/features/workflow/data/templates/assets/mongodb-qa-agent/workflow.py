@@ -2,12 +2,12 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
-from orcheo.nodes.conversational_search import (
+from orcheo.nodes.rag import (
     SearchResultAdapterNode,
     SearchResultFormatterNode,
     TextEmbeddingNode,
 )
-from orcheo.nodes.integrations.databases.mongodb import MongoDBHybridSearchNode
+from orcheo.nodes.storage.mongodb import MongoDBHybridSearchNode
 
 
 class HybridSearchInput(BaseModel):

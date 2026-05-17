@@ -6,8 +6,8 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
+from orcheo.nodes.ai.external.codex import CodexNode
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.codex import CodexNode
 
 
 def stringify_content(value: Any) -> str:

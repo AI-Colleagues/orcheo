@@ -11,8 +11,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from langchain_core.runnables import RunnableConfig
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
-from orcheo.models import CredentialAccessContext
-from orcheo.models.workflow import WorkflowRun, WorkflowVersion
+from orcheo.models import CredentialAccessContext, WorkflowRun, WorkflowVersion
 from orcheo.persistence import create_checkpointer, create_graph_store
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import merge_runnable_configs

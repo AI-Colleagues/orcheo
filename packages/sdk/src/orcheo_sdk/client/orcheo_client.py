@@ -4,8 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping, MutableMapping
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Literal
-from orcheo_sdk.workflow import DeploymentRequest, Workflow
+from typing import Any
 
 
 @dataclass(slots=True)
@@ -23,24 +22,6 @@ class OrcheoClient:
             msg = "workflow_id cannot be empty"
             raise ValueError(msg)
         return f"{self.base_url.rstrip('/')}/api/workflows/{workflow_id}/runs"
-
-    def credential_health_url(self, workflow_id: str) -> str:
-        """Return the URL for querying credential health."""
-        workflow_id = workflow_id.strip()
-        if not workflow_id:
-            msg = "workflow_id cannot be empty"
-            raise ValueError(msg)
-        base = self.base_url.rstrip("/")
-        return f"{base}/api/workflows/{workflow_id}/credentials/health"
-
-    def credential_validation_url(self, workflow_id: str) -> str:
-        """Return the URL for on-demand credential validation."""
-        workflow_id = workflow_id.strip()
-        if not workflow_id:
-            msg = "workflow_id cannot be empty"
-            raise ValueError(msg)
-        base = self.base_url.rstrip("/")
-        return f"{base}/api/workflows/{workflow_id}/credentials/validate"
 
     def workflow_collection_url(self) -> str:
         """Return the base URL for workflow CRUD operations."""
@@ -90,31 +71,3 @@ class OrcheoClient:
         if execution_id:
             payload["execution_id"] = execution_id
         return payload
-
-    def build_deployment_request(
-        self,
-        workflow: Workflow,
-        *,
-        workflow_id: str | None = None,
-        metadata: Mapping[str, Any] | None = None,
-        headers: Mapping[str, str] | None = None,
-    ) -> DeploymentRequest:
-        """Return the HTTP request metadata for deploying a workflow."""
-        url = self.workflow_collection_url()
-        method: Literal["POST", "PUT"] = "POST"
-        if workflow_id:
-            workflow_id = workflow_id.strip()
-            if not workflow_id:
-                msg = "workflow_id cannot be empty"
-                raise ValueError(msg)
-            url = f"{url}/{workflow_id}"
-            method = "PUT"
-
-        payload = workflow.to_deployment_payload(metadata=metadata)
-        merged_headers = self.prepare_headers(headers or {})
-        return DeploymentRequest(
-            method=method,
-            url=url,
-            json=payload,
-            headers=merged_headers,
-        )

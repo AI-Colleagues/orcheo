@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
-from orcheo.models.workflow import WorkflowRun
+from orcheo.models import WorkflowRun
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookRequest, WebhookTriggerConfig

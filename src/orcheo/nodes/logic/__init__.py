@@ -1,5 +1,7 @@
 """Logic nodes split across focused modules for maintainability."""
 
+from orcheo.nodes.logic.debug import DebugNode
+from orcheo.nodes.logic.sub_workflow import SubWorkflowNode
 from orcheo.nodes.logic.utilities import (
     DelayNode,
     ForLoopNode,
@@ -13,4 +15,6 @@ __all__ = [
     "DelayNode",
     "ForLoopNode",
     "_build_nested",
+    "DebugNode",
+    "SubWorkflowNode",
 ]

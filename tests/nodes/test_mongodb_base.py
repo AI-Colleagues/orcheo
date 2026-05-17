@@ -9,7 +9,7 @@ from bson.binary import Binary
 from bson.decimal128 import Decimal128
 from bson.regex import Regex
 from bson.timestamp import Timestamp
-from orcheo.nodes.integrations.databases.mongodb.base import (
+from orcheo.nodes.storage.mongodb.base import (
     MongoDBClientNode,
     MongoDBNode,
 )

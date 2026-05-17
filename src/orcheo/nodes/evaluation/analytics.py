@@ -29,8 +29,7 @@ class AnalyticsExportNode(TaskNode):
     schema specified in the design document.
 
     **Feedback mode** (default / when ``metric_node_names`` is empty):
-    Aggregates metrics and user-feedback into an export payload (legacy
-    behaviour, fully backward-compatible).
+    Aggregates metrics and user-feedback into an export payload.
     """
 
     # --- Shared fields ---
@@ -162,7 +161,7 @@ class AnalyticsExportNode(TaskNode):
         return lines
 
     # ------------------------------------------------------------------
-    # Feedback mode (legacy, backward-compatible)
+    # Feedback mode
     # ------------------------------------------------------------------
 
     def _aggregate_feedback(self, state: State) -> dict[str, Any]:

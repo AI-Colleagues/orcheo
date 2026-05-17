@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph
 from orcheo.graph.state import State
-from orcheo.nodes.deep_agent import DeepAgentNode
+from orcheo.nodes.ai.deep_agent import DeepAgentNode
 
 
 def orcheo_workflow() -> StateGraph:

@@ -1,24 +1,31 @@
 """Domain models representing workflows and credentials."""
 
-from orcheo.models.workflow import (
+from orcheo.models.base import AuditRecord, OrcheoBaseModel, TimestampedAuditModel
+from orcheo.models.credential_crypto import (
     AesGcmCredentialCipher,
-    AuditRecord,
-    CredentialAccessContext,
     CredentialCipher,
+    EncryptionEnvelope,
+    FernetCredentialCipher,
+)
+from orcheo.models.credential_health import (
     CredentialHealth,
     CredentialHealthStatus,
     CredentialIssuancePolicy,
-    CredentialKind,
-    CredentialMetadata,
-    CredentialScope,
-    CredentialTemplate,
-    EncryptionEnvelope,
-    FernetCredentialCipher,
+)
+from orcheo.models.credential_metadata import CredentialKind, CredentialMetadata
+from orcheo.models.credential_oauth import OAuthTokenPayload, OAuthTokenSecrets
+from orcheo.models.credential_scope import CredentialAccessContext, CredentialScope
+from orcheo.models.credential_templates import CredentialTemplate
+from orcheo.models.secret_governance import (
     GovernanceAlertKind,
-    OAuthTokenSecrets,
     SecretGovernanceAlert,
     SecretGovernanceAlertSeverity,
+)
+from orcheo.models.workflow_entities import (
+    ChatKitStartScreenPrompt,
+    ChatKitSupportedModel,
     Workflow,
+    WorkflowChatKitConfig,
     WorkflowDraftAccess,
     WorkflowRun,
     WorkflowRunRemediation,
@@ -31,13 +38,15 @@ from orcheo.models.workflow import (
 
 
 __all__ = [
-    "AuditRecord",
     "AesGcmCredentialCipher",
+    "AuditRecord",
+    "ChatKitSupportedModel",
+    "ChatKitStartScreenPrompt",
     "CredentialAccessContext",
     "CredentialCipher",
-    "CredentialIssuancePolicy",
     "CredentialHealth",
     "CredentialHealthStatus",
+    "CredentialIssuancePolicy",
     "CredentialKind",
     "CredentialMetadata",
     "CredentialTemplate",
@@ -45,10 +54,14 @@ __all__ = [
     "EncryptionEnvelope",
     "FernetCredentialCipher",
     "GovernanceAlertKind",
+    "OAuthTokenPayload",
     "OAuthTokenSecrets",
+    "OrcheoBaseModel",
     "SecretGovernanceAlert",
     "SecretGovernanceAlertSeverity",
+    "TimestampedAuditModel",
     "Workflow",
+    "WorkflowChatKitConfig",
     "WorkflowDraftAccess",
     "WorkflowRun",
     "WorkflowRunRemediation",

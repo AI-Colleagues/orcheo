@@ -14,7 +14,8 @@ import redis
 from Crypto.Cipher import AES
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.wecom import (
+import orcheo.nodes.connectors.wecom.crypto as wecom_crypto
+from orcheo.nodes.connectors.wecom import (
     CS_MESSAGE_TTL_SECONDS,
     WeComAccessTokenNode,
     WeComCustomerServiceSendNode,
@@ -22,6 +23,8 @@ from orcheo.nodes.wecom import (
     WeComEventsParserNode,
     WeComGroupPushNode,
     WeComSendMessageNode,
+)
+from orcheo.nodes.wecom import (
     _build_cs_inbound_entry,
     _build_cs_message_id,
     _build_cs_sync_payload,
@@ -2575,3 +2578,8 @@ def test_normalize_optional_runtime_value_template_returns_none() -> None:
 
     assert _normalize_optional_runtime_value("{{results.token}}") is None
     assert _normalize_optional_runtime_value("  {{some.value}}  ") is None
+
+
+def test_wecom_crypto_module_reexports_helpers() -> None:
+    assert wecom_crypto.decrypt_wecom_message is decrypt_wecom_message
+    assert wecom_crypto.verify_wecom_signature is verify_wecom_signature

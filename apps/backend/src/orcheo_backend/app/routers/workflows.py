@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from orcheo.config import get_settings
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
-from orcheo.models.workflow import (
+from orcheo.models import (
     Workflow,
     WorkflowDraftAccess,
     WorkflowVersion,
