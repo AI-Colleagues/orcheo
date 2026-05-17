@@ -9,7 +9,7 @@ import respx
 from httpx import Response
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.data.http_request import HttpRequestNode
+from orcheo.nodes.connectors.http_request import HttpRequestNode
 
 
 @pytest.mark.asyncio
