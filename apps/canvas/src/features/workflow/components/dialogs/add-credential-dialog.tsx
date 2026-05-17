@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/design-system/ui/select";
-import { Loader2, Plus } from "lucide-react";
+import { Eye, EyeOff, Loader2, Plus } from "lucide-react";
 import type {
   CredentialInput,
   CredentialVaultAccessLevel,
@@ -44,6 +44,7 @@ export function AddCredentialDialog({
     useState<CredentialInput>(DEFAULT_CREDENTIAL);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSecret, setShowSecret] = useState(false);
 
   const hasName = pendingCredential.name.trim().length > 0;
   const hasProvider = pendingCredential.provider.trim().length > 0;
@@ -52,6 +53,7 @@ export function AddCredentialDialog({
     setPendingCredential(DEFAULT_CREDENTIAL);
     setError(null);
     setIsSaving(false);
+    setShowSecret(false);
   }, []);
 
   const handleOpenChange = useCallback(
@@ -191,14 +193,30 @@ export function AddCredentialDialog({
             >
               Secret
             </label>
-            <Input
-              id="credential-secret"
-              type="password"
-              value={pendingCredential.secrets?.secret ?? ""}
-              onChange={(event) => updateSecret("secret", event.target.value)}
-              className="col-span-3"
-              placeholder="Enter credential secret"
-            />
+            <div className="relative col-span-3">
+              <Input
+                id="credential-secret"
+                type={showSecret ? "text" : "password"}
+                value={pendingCredential.secrets?.secret ?? ""}
+                onChange={(event) =>
+                  updateSecret("secret", event.target.value)
+                }
+                className="pr-9"
+                placeholder="Enter credential secret"
+              />
+              <button
+                type="button"
+                onClick={() => setShowSecret((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                aria-label={showSecret ? "Hide secret" : "Show secret"}
+              >
+                {showSecret ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </button>
+            </div>
           </div>
         </div>
         {error ? (
