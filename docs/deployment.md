@@ -244,16 +244,6 @@ This deployment targets platforms such as Fly.io, Railway, or Kubernetes where P
 
 _Vault note_: Managed environments should prefer KMS-integrated vaults. Configure IAM policies so only the Orcheo runtime can decrypt with the specified key.
 
-## Kubernetes (PostgreSQL)
-
-Reference manifests live under `deploy/kubernetes/` for running Orcheo with a
-PostgreSQL backing service. Update the secret values and image tags before
-applying them.
-
-```bash
-kubectl apply -k deploy/kubernetes
-```
-
 ## Operational Tips
 
 - **Secrets**: Prefer platform-specific secret managers (Fly Secrets, Railway variables, AWS Parameter Store) and never bake DSNs or vault encryption keys into images.
