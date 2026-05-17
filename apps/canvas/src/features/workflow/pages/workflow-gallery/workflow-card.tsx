@@ -334,7 +334,7 @@ export const WorkflowCard = ({
           <div className="mt-3 flex min-h-0 w-full flex-1 flex-col items-center justify-start">
             <div className="h-px w-8 rounded-full bg-border/80" />
 
-            {candidateBadge ? (
+            {candidateBadge?.subtitle ? (
               <div className="mt-1 shrink-0 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                 {candidateBadge.subtitle}
               </div>

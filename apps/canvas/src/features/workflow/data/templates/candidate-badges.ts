@@ -1,14 +1,24 @@
 import type { Workflow } from "../workflow-types";
-import type { WorkflowTemplateDefinition } from "./template-definition";
-import { PYTHON_AGENT_TEMPLATE, PYTHON_AGENT_WORKFLOW } from "./python-agent";
+import type { StoredWorkflow } from "../../lib/workflow-storage.types";
+import type {
+  WorkflowTemplateDefinition,
+  WorkflowTemplateMetadata,
+} from "./template-definition";
 
-interface CandidateBadgeSpec {
+export interface CandidateBadgeSpec {
   id: string;
   name: string;
   handle: string;
-  subtitle: string;
-  description: string;
-  emoji: string;
+  subtitle?: string;
+  description?: string;
+  emoji?: string;
+  script?: string;
+  config?: Record<string, unknown> | null;
+  entrypoint?: string | null;
+  notes?: string | null;
+  mermaid?: string | null;
+  /** Raw snake_case metadata dict from the colleague-candidates frontmatter. */
+  rawMetadata?: Record<string, unknown> | null;
 }
 
 export interface CandidateBadgeDefinition extends CandidateBadgeSpec {
@@ -16,102 +26,107 @@ export interface CandidateBadgeDefinition extends CandidateBadgeSpec {
   templateDefinition: WorkflowTemplateDefinition;
 }
 
-const cloneBaseWorkflow = (spec: CandidateBadgeSpec): Workflow => {
-  const baseVersions = PYTHON_AGENT_WORKFLOW.versions ?? [];
+const toStringArray = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const strings = value.filter((v): v is string => typeof v === "string");
+  return strings.length > 0 ? strings : undefined;
+};
 
+const mapRawMetadata = (
+  raw: Record<string, unknown>,
+): WorkflowTemplateMetadata => ({
+  requiredPlugins: toStringArray(raw.required_plugins),
+  validatedProviderApi:
+    typeof raw.validated_provider_api === "string"
+      ? raw.validated_provider_api
+      : undefined,
+  replyNodeContracts: toStringArray(raw.reply_node_contracts),
+  templateVersion:
+    typeof raw.template_version === "string"
+      ? raw.template_version
+      : undefined,
+  minOrcheoVersion:
+    typeof raw.min_orcheo_version === "string"
+      ? raw.min_orcheo_version
+      : undefined,
+});
+
+const buildCandidateWorkflow = (
+  spec: CandidateBadgeSpec,
+  existingHandles: Set<string>
+): Workflow => {
+  // Preserve original handle if no conflict exists, otherwise let backend generate unique handle
+  const preserveHandle = spec.handle && !existingHandles.has(spec.handle)
+    ? spec.handle
+    : undefined;
+  
   return {
-    ...PYTHON_AGENT_WORKFLOW,
     id: spec.id,
-    handle: spec.handle,
+    handle: preserveHandle,
     name: spec.name,
     description: spec.description,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
     owner: {
       id: `${spec.id}-owner`,
       name: spec.name,
-      avatar: spec.emoji,
+      avatar: spec.emoji ?? "",
     },
-    tags: [...PYTHON_AGENT_WORKFLOW.tags],
-    nodes: PYTHON_AGENT_WORKFLOW.nodes.map((node) => ({
-      ...node,
-      position: { ...node.position },
-      data: { ...node.data },
-    })),
-    edges: PYTHON_AGENT_WORKFLOW.edges.map((edge) => ({
-      ...edge,
-      style: edge.style ? { ...edge.style } : undefined,
-    })),
-    versions: baseVersions.map((version, index) => ({
-      ...version,
-      id: `${spec.id}-v${index + 1}`,
-    })),
+    tags: ["template"],
+    nodes: [],
+    edges: [],
+    versions: spec.mermaid
+      ? [{ id: `${spec.id}-v1`, mermaid: spec.mermaid }]
+      : [],
   };
 };
 
-const CANDIDATE_BADGE_SPECS: CandidateBadgeSpec[] = [
-  {
-    id: "template-insight-analyst",
-    name: "Insight Analyst",
-    handle: "insight-analyst",
-    subtitle: "AI Insights & Analytics",
-    description:
-      "Detects themes from text data using advanced thematic coding frameworks, then synthesizes findings into comprehensive, actionable insight reports.",
-    emoji: "👨‍🎓",
-  },
-  {
-    id: "template-marketing-specialist",
-    name: "Marketing Specialist",
-    handle: "marketing-specialist",
-    subtitle: "AI Content & Campaigns",
-    description:
-      "Creates engaging content for websites, blogs, emails, and social media platforms - crafted to captivate target audiences and power integrated marketing campaigns.",
-    emoji: "🧑‍💼",
-  },
-  {
-    id: "template-market-intelligence-analyst",
-    name: "Market Intelligence Analyst",
-    handle: "market-intelligence",
-    subtitle: "AI Competitive Intelligence",
-    description:
-      "Gathers, analyzes, and interprets data on competitors, customers, and market trends to deliver actionable intelligence for strategic decision-making.",
-    emoji: "🕵️",
-  },
-  {
-    id: "template-market-research-interviewer",
-    name: "Market Research Interviewer",
-    handle: "market-research",
-    subtitle: "AI Consumer Research",
-    description:
-      "Conducts structured online interviews to collect data on consumer opinions, behaviors, and preferences - helping organizations develop informed and effective strategies.",
-    emoji: "🙋",
-  },
-];
-
-const CANDIDATE_BADGES = CANDIDATE_BADGE_SPECS.map((spec) => {
-  const workflow = cloneBaseWorkflow(spec);
+const buildCandidateBadge = (
+  spec: CandidateBadgeSpec,
+  existingHandles: Set<string>
+): CandidateBadgeDefinition => {
+  const workflow = buildCandidateWorkflow(spec, existingHandles);
   const templateDefinition: WorkflowTemplateDefinition = {
     workflow,
-    script: PYTHON_AGENT_TEMPLATE.script,
-    entrypoint: PYTHON_AGENT_TEMPLATE.entrypoint,
-    runnableConfig: PYTHON_AGENT_TEMPLATE.runnableConfig,
-    notes: PYTHON_AGENT_TEMPLATE.notes,
+    script: spec.script ?? "",
+    entrypoint: spec.entrypoint ?? undefined,
+    runnableConfig: spec.config ?? null,
+    notes: spec.notes ?? "",
+    metadata: spec.rawMetadata ? mapRawMetadata(spec.rawMetadata) : undefined,
   };
+  return { ...spec, workflow, templateDefinition };
+};
 
-  return {
-    ...spec,
-    workflow,
-    templateDefinition,
-  };
-});
+// Candidates are sourced at runtime from the colleague-candidates repository
+// (via the backend /api/candidates endpoint), so this registry is populated
+// after fetch rather than at module load.
+let candidateBadges: CandidateBadgeDefinition[] = [];
 
-export const CANDIDATE_WORKFLOWS: Workflow[] = CANDIDATE_BADGES.map(
-  (badge) => badge.workflow,
-);
+export const setCandidateBadges = (
+  specs: CandidateBadgeSpec[], 
+  existingWorkflows: StoredWorkflow[] = []
+): void => {
+  // Create set of existing handles to check for conflicts
+  const existingHandles = new Set<string>(
+    existingWorkflows
+      .map(w => w.handle)
+      .filter((handle): handle is string => Boolean(handle))
+  );
+  
+  candidateBadges = specs.map(spec => buildCandidateBadge(spec, existingHandles));
+};
 
-export const CANDIDATE_TEMPLATE_DEFINITIONS: WorkflowTemplateDefinition[] =
-  CANDIDATE_BADGES.map((badge) => badge.templateDefinition);
+export const getCandidateWorkflows = (): Workflow[] =>
+  candidateBadges.map((badge) => badge.workflow);
 
 export const getCandidateBadgeDefinition = (
   workflowId: string,
-): CandidateBadgeDefinition | undefined => {
-  return CANDIDATE_BADGES.find((badge) => badge.workflow.id === workflowId);
-};
+): CandidateBadgeDefinition | undefined =>
+  candidateBadges.find((badge) => badge.workflow.id === workflowId);
+
+export const getCandidateTemplateDefinition = (
+  templateId: string,
+): WorkflowTemplateDefinition | undefined =>
+  getCandidateBadgeDefinition(templateId)?.templateDefinition;

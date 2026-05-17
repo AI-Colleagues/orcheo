@@ -264,6 +264,8 @@ Workflow `.py` files may include an optional PEP 723-style metadata block. When 
 # id = "wf-abc123"
 # config = "./my-workflow.config.json"
 # entrypoint = "build_graph"
+# emoji = "🤖"
+# subtitle = "AI Assistant"
 # ///
 
 from langgraph.graph import StateGraph
@@ -278,6 +280,10 @@ Supported fields (all optional):
 - `id` (or `handle`) – workflow reference; when set, the upload updates this existing workflow instead of creating a new one.
 - `config` – path to a companion JSON runnable config file. Relative paths resolve against the workflow file's directory.
 - `entrypoint` – LangGraph entrypoint function/variable name.
+- `emoji` – emoji shown on the colleague's Candidates badge in Canvas.
+- `subtitle` – short role line shown on the Candidates badge.
+- `notes` – free-form notes describing the workflow template.
+- `metadata` – a `[metadata]` table of template compatibility info (e.g. `required_plugins`, `validated_provider_api`).
 
 The block is parsed as TOML; only the fields above are accepted. CLI flags (`--name`, `--id`, `--config-file`, `--entrypoint`) always win over the frontmatter values.
 

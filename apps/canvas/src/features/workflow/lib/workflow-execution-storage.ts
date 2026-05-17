@@ -54,6 +54,8 @@ export const loadWorkflowExecutions = async (
   }
   const workflow = options.workflow;
   const lookup: WorkflowLookup = {
+    // @legacy TODO: remove after mermaid-only migration — defaultNodes/defaultEdges
+    // were populated from template nodes; new workflows use nodes: [] with mermaid.
     defaultNodes: workflow?.nodes ?? [],
     defaultEdges: workflow?.edges ?? [],
     defaultMapping: workflow?.versions?.at(-1)?.graphToCanvas ?? {},

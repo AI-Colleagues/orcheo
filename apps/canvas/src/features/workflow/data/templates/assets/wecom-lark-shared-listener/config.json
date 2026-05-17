@@ -1,7 +1,0 @@
-{
-  "configurable": {
-    "ai_model": "openai:gpt-4.1-mini",
-    "system_prompt": "You are the shared reply brain for WeCom and Lark listener events. Answer the incoming message directly, keep the reply concise, and make it safe to send as plain text in both channels.",
-    "operator_note": "Install the WeCom and Lark listener plugins before importing this template. Configure valid WeCom (bot_id, bot_secret), Lark, and OpenAI credentials before running it."
-  }
-}

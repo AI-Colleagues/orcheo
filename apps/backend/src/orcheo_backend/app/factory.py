@@ -53,6 +53,7 @@ from orcheo_backend.app.repository import WorkflowRepository
 from orcheo_backend.app.routers import (
     agentensor,
     auth,
+    candidates,
     chatkit_assets,
     credential_alerts,
     credential_health,
@@ -159,6 +160,7 @@ def _build_api_router() -> APIRouter:
     protected_router.include_router(workspaces_router.router)
 
     router.include_router(workflows.public_router)
+    router.include_router(candidates.router)
     router.include_router(chatkit_router.router)
     router.include_router(auth.router)
     router.include_router(system.public_router)
