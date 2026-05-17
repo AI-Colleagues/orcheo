@@ -10,7 +10,7 @@ from langchain_core.runnables import RunnableConfig
 from orcheo.graph.ingestion import ingest_langgraph_script
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.listeners import ListenerNode
+from orcheo.nodes.connectors.listener_base import ListenerNode
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]

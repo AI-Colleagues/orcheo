@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
-from orcheo.nodes.rss import RSSNode
+from orcheo.nodes.connectors.rss import RSSNode
 
 
 if __name__ == "__main__":

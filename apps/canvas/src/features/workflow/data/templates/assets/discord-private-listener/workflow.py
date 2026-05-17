@@ -1,8 +1,10 @@
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
-from orcheo.nodes.communication import MessageDiscordNode
-from orcheo.nodes.listeners import DiscordBotListenerNode
+from orcheo.nodes.connectors.discord import (
+    DiscordBotListenerNode,
+    MessageDiscordNode,
+)
 
 
 def orcheo_workflow() -> StateGraph:

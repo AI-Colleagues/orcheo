@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.storage import PostgresNode
+from orcheo.nodes.storage.postgres import PostgresNode
 from tests.nodes.storage_node_helpers import DummyConnection, DummyCursor
 
 

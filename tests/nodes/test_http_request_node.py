@@ -9,7 +9,7 @@ import respx
 from httpx import Response
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.data import HttpRequestNode
+from orcheo.nodes.data.http_request import HttpRequestNode
 
 
 @pytest.mark.asyncio
@@ -189,3 +189,104 @@ async def test_http_request_node_handles_elapsed_from_response_object(
     payload = (await node(state, RunnableConfig()))["results"]["http"]
 
     assert payload["elapsed"] == 2.5
+
+
+@pytest.mark.asyncio
+async def test_http_request_node_uses_extension_elapsed_when_property_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HttpRequestNode should fall back to response.extensions for elapsed."""
+
+    class MockResponse(httpx.Response):
+        """Mock response with a failing elapsed property."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+
+        @property
+        def elapsed(self) -> timedelta:
+            raise RuntimeError("elapsed not ready")
+
+    async def fake_request(
+        self, method: str, url: str, **kwargs: Any
+    ) -> httpx.Response:
+        del self, method, url, kwargs
+        return MockResponse(
+            200,
+            json={"ok": True},
+            extensions={"elapsed": timedelta(seconds=3.5)},
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", fake_request)
+
+    node = HttpRequestNode(
+        name="http",
+        method="GET",
+        url="https://example.com/api",
+    )
+
+    state = State({"results": {}})
+    payload = (await node(state, RunnableConfig()))["results"]["http"]
+
+    assert payload["elapsed"] == 3.5
+
+
+@pytest.mark.asyncio
+async def test_http_request_node_uses_original_url_when_response_url_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HttpRequestNode should fall back to the configured URL when needed."""
+
+    class MockResponse(httpx.Response):
+        """Mock response with a failing url property."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+
+        @property
+        def url(self) -> httpx.URL:
+            raise RuntimeError("url not ready")
+
+    async def fake_request(
+        self, method: str, url: str, **kwargs: Any
+    ) -> httpx.Response:
+        del self, method, url, kwargs
+        return MockResponse(200, text="ok")
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", fake_request)
+
+    node = HttpRequestNode(
+        name="http",
+        method="GET",
+        url="https://example.com/fallback",
+    )
+
+    state = State({"results": {}})
+    payload = (await node(state, RunnableConfig()))["results"]["http"]
+
+    assert payload["url"] == "https://example.com/fallback"
+
+
+@pytest.mark.asyncio
+async def test_http_request_node_wraps_http_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HttpRequestNode should convert transport errors to ValueError."""
+
+    async def fake_request(
+        self, method: str, url: str, **kwargs: Any
+    ) -> httpx.Response:
+        del self, method, url, kwargs
+        raise httpx.HTTPError("boom")
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", fake_request)
+
+    node = HttpRequestNode(
+        name="http",
+        method="GET",
+        url="https://example.com/error",
+    )
+
+    state = State({"results": {}})
+    with pytest.raises(ValueError, match="HTTP request failed: boom"):
+        await node(state, RunnableConfig())

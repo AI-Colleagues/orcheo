@@ -5,7 +5,7 @@ import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
-from orcheo.nodes.linkedin import LinkedInPostNode, _LinkedInAuthError
+from orcheo.nodes.connectors.linkedin import LinkedInPostNode, _LinkedInAuthError
 
 
 def _make_jwt(payload: dict[str, Any]) -> str:

@@ -17,8 +17,8 @@ from orcheo.agentensor.training import TrainingRequest
 from orcheo.config import get_settings
 from orcheo.external_agents import scoped_external_agent_environment
 from orcheo.graph.state import State
-from orcheo.nodes.agent_tools.context import tool_progress_context
-from orcheo.nodes.agentensor import AgentensorNode
+from orcheo.nodes.ai.agentensor import AgentensorNode
+from orcheo.nodes.ai.tools.context import tool_progress_context
 from orcheo.nodes.browser import close_browser_sessions_for_scope
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import (

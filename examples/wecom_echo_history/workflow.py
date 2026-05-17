@@ -18,7 +18,7 @@ from langgraph.graph import END, StateGraph
 from orcheo.edges import Condition, IfElseEdge
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.wecom import (
+from orcheo.nodes.connectors.wecom import (
     WeComAccessTokenNode,
     WeComCustomerServiceSendNode,
     WeComCustomerServiceSyncNode,

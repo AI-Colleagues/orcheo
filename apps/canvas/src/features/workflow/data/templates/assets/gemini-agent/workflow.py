@@ -6,8 +6,8 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
+from orcheo.nodes.ai.external.gemini import GeminiNode
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.gemini import GeminiNode
 
 
 def stringify_content(value: Any) -> str:

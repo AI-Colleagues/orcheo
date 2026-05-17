@@ -1,8 +1,7 @@
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
-from orcheo.nodes.communication import MessageQQNode
-from orcheo.nodes.listeners import QQBotListenerNode
+from orcheo.nodes.connectors.qq import MessageQQNode, QQBotListenerNode
 
 
 def orcheo_workflow() -> StateGraph:

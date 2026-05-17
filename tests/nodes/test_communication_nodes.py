@@ -9,11 +9,13 @@ import respx
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.communication import (
+from orcheo.nodes.connectors.discord import (
     DiscordWebhookNode,
-    EmailNode,
     MessageDiscordNode,
-    MessageQQNode,
+)
+from orcheo.nodes.connectors.email import EmailNode
+from orcheo.nodes.connectors.qq import MessageQQNode
+from orcheo.nodes.communication import (
     _assistant_message_from_state,
     _non_empty_string,
 )

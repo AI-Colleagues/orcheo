@@ -182,7 +182,7 @@ def _extract_cron_index(graph: StateGraph) -> list[dict[str, Any]]:
 
 def _extract_listener_index(graph: StateGraph) -> list[dict[str, Any]]:
     """Extract listener node metadata from the graph."""
-    from orcheo.nodes.listeners import ListenerNode
+    from orcheo.nodes.connectors.listener_base import ListenerNode
 
     listener_nodes: list[dict[str, Any]] = []
     for name, spec in graph.nodes.items():

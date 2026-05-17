@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from langgraph.graph import StateGraph
 from orcheo.graph.ingestion import _resolve_graph, _serialise_branch, _unwrap_runnable
-from orcheo.nodes.rss import RSSNode
+from orcheo.nodes.connectors.rss import RSSNode
 
 
 def test_unwrap_runnable_prefers_wrapped_func() -> None:

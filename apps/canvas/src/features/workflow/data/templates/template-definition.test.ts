@@ -82,7 +82,7 @@ describe("template compatibility", () => {
       working_directory: "/workspace/agents",
     });
     expect(geminiTemplate!.script).toContain(
-      "from orcheo.nodes.gemini import GeminiNode",
+      "from orcheo.nodes.ai.external.gemini import GeminiNode",
     );
   });
 

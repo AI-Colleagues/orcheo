@@ -7,10 +7,10 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from orcheo.edges.branching import SwitchCase, SwitchEdge
 from orcheo.graph.state import State
+from orcheo.nodes.ai.external.claude_code import ClaudeCodeNode
+from orcheo.nodes.ai.external.codex import CodexNode
+from orcheo.nodes.ai.external.gemini import GeminiNode
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.claude_code import ClaudeCodeNode
-from orcheo.nodes.codex import CodexNode
-from orcheo.nodes.gemini import GeminiNode
 
 
 def stringify_content(value: Any) -> str:

@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.agent_tools.context import (
+from orcheo.nodes.ai.tools.context import (
     emit_node_status,
     get_active_node_status_emitter,
     node_status_context,

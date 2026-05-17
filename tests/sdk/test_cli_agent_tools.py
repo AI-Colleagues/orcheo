@@ -30,7 +30,7 @@ def test_agent_tool_list_with_name_filter(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
     """Test agent-tool list command filters by name when category matches."""
-    from orcheo.nodes.agent_tools.registry import ToolMetadata, tool_registry
+    from orcheo.nodes.ai.tools.registry import ToolMetadata, tool_registry
 
     # Register a test tool
     test_meta = ToolMetadata(
@@ -51,7 +51,7 @@ def test_agent_tool_show_displays_metadata(
 ) -> None:
     """Test agent-tool show command displays tool metadata."""
     from pydantic import BaseModel, Field
-    from orcheo.nodes.agent_tools.registry import ToolMetadata, tool_registry
+    from orcheo.nodes.ai.tools.registry import ToolMetadata, tool_registry
 
     class TestSchema(BaseModel):
         query: str = Field(description="The search query")
@@ -86,7 +86,7 @@ def test_agent_tool_show_with_pydantic_model(
 ) -> None:
     """Test agent-tool show with direct Pydantic model."""
     from pydantic import BaseModel, Field
-    from orcheo.nodes.agent_tools.registry import ToolMetadata, tool_registry
+    from orcheo.nodes.ai.tools.registry import ToolMetadata, tool_registry
 
     class DirectModel(BaseModel):
         """A direct Pydantic model."""
@@ -112,7 +112,7 @@ def test_agent_tool_show_with_annotations(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
     """Test agent-tool show with function annotations."""
-    from orcheo.nodes.agent_tools.registry import ToolMetadata, tool_registry
+    from orcheo.nodes.ai.tools.registry import ToolMetadata, tool_registry
 
     test_meta = ToolMetadata(
         name="test_annotations_tool",
@@ -134,7 +134,7 @@ def test_agent_tool_show_with_annotations(
 
 def test_agent_tool_show_no_schema(runner: CliRunner, env: dict[str, str]) -> None:
     """Test agent-tool show with tool that has no schema."""
-    from orcheo.nodes.agent_tools.registry import ToolMetadata, tool_registry
+    from orcheo.nodes.ai.tools.registry import ToolMetadata, tool_registry
 
     test_meta = ToolMetadata(
         name="test_no_schema_tool", description="Tool without schema", category="test"
@@ -157,7 +157,7 @@ def test_agent_tool_show_args_schema_no_model_json_schema(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
     """Test agent-tool show with args_schema but no model_json_schema."""
-    from orcheo.nodes.agent_tools.registry import ToolMetadata, tool_registry
+    from orcheo.nodes.ai.tools.registry import ToolMetadata, tool_registry
 
     test_meta = ToolMetadata(
         name="test_args_no_model",
@@ -181,7 +181,7 @@ def test_agent_tool_show_empty_annotations(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
     """Test agent-tool show with empty annotations."""
-    from orcheo.nodes.agent_tools.registry import ToolMetadata, tool_registry
+    from orcheo.nodes.ai.tools.registry import ToolMetadata, tool_registry
 
     test_meta = ToolMetadata(
         name="test_empty_annotations",
@@ -216,7 +216,7 @@ def test_agent_tool_list_machine_output(runner: CliRunner, env: dict[str, str]) 
 def test_agent_tool_show_machine_output(runner: CliRunner, env: dict[str, str]) -> None:
     """Test agent-tool show in machine mode outputs JSON."""
     import json
-    from orcheo.nodes.agent_tools.registry import ToolMetadata, tool_registry
+    from orcheo.nodes.ai.tools.registry import ToolMetadata, tool_registry
 
     test_meta = ToolMetadata(
         name="test_machine_show_tool",

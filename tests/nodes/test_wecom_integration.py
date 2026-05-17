@@ -10,7 +10,7 @@ import pytest
 from Crypto.Cipher import AES
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.wecom import (
+from orcheo.nodes.connectors.wecom import (
     WeComAccessTokenNode,
     WeComEventsParserNode,
     WeComSendMessageNode,

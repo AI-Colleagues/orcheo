@@ -86,7 +86,7 @@ SCRIPT = textwrap.dedent(
     """
     from langgraph.graph import StateGraph
     from orcheo.graph.state import State
-    from orcheo.nodes.rss import RSSNode
+    from orcheo.nodes.connectors.rss import RSSNode
 
     def build_graph():
         graph = StateGraph(State)

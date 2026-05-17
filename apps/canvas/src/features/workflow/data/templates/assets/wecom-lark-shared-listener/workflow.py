@@ -4,7 +4,7 @@ from orcheo_plugin_wecom_listener import WeComListenerPluginNode, WeComWsReplyNo
 from orcheo.edges import SwitchCase, SwitchEdge
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode, AgentReplyExtractorNode
-from orcheo.nodes.lark import LarkSendMessageNode, LarkTenantAccessTokenNode
+from orcheo.nodes.connectors.lark import LarkSendMessageNode, LarkTenantAccessTokenNode
 
 
 def orcheo_workflow() -> StateGraph:

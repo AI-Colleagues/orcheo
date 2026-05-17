@@ -6,7 +6,7 @@ import httpx
 import pytest
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
-from orcheo.nodes.rss import RSS_REQUEST_HEADERS, RSSNode
+from orcheo.nodes.connectors.rss import RSS_REQUEST_HEADERS, RSSNode
 
 
 @pytest.mark.asyncio

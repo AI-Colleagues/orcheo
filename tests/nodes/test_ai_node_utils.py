@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import contextlib
+import sys
 from types import SimpleNamespace
 import pytest
 from orcheo.nodes.ai import (
@@ -59,8 +60,24 @@ def test_select_workflow_tool_output_handles_nested_paths() -> None:
         _select_workflow_tool_output(payload, "a.b.x", "tool")
     with pytest.raises(ValueError, match="index 5 is out of range"):
         _select_workflow_tool_output(payload, "a.b.5", "tool")
+
+
+def test_ai_package_falls_back_to_impl_module() -> None:
+    from orcheo.nodes.ai.agent import _ai_package
+
+    package = sys.modules.pop("orcheo.nodes.ai", None)
+    try:
+        module = _ai_package()
+        assert module.__name__ == "orcheo.nodes.ai.agent"
+    finally:
+        if package is not None:
+            sys.modules["orcheo.nodes.ai"] = package
     with pytest.raises(ValueError, match="cannot descend"):
-        _select_workflow_tool_output(payload, "a.b.0.x", "tool")
+        _select_workflow_tool_output(
+            {"a": {"b": [0, {"c": "value"}]}},
+            "a.b.0.x",
+            "tool",
+        )
 
 
 @pytest.mark.asyncio

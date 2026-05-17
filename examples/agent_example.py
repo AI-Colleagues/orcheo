@@ -27,7 +27,7 @@ from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentNode
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.telegram import MessageTelegram
+from orcheo.nodes.connectors.telegram import MessageTelegram
 
 
 load_dotenv()

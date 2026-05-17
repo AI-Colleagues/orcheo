@@ -6,7 +6,10 @@ from typing import Any, cast
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.storage import GraphStoreAppendMessageNode, get_graph_store
+from orcheo.nodes.storage.graph_store import (
+    GraphStoreAppendMessageNode,
+    get_graph_store,
+)
 
 
 # ---------------------------------------------------------------------------

@@ -331,7 +331,7 @@ class SemanticSimilarityMetricsNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Return per-item scores and corpus-level aggregate."""
-        from orcheo.nodes.conversational_search.embeddings import (
+        from orcheo.nodes.rag.embeddings import (
             init_dense_embeddings,
         )
 
