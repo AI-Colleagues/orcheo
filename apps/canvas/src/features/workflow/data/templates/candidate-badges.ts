@@ -54,7 +54,7 @@ const mapRawMetadata = (
 
 const buildCandidateWorkflow = (spec: CandidateBadgeSpec): Workflow => ({
   id: spec.id,
-  handle: spec.handle,
+  handle: undefined, // Allow backend to generate unique handles to prevent conflicts
   name: spec.name,
   description: spec.description,
   createdAt: "2026-01-01T00:00:00Z",
