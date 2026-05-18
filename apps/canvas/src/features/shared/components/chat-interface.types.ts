@@ -1,17 +1,28 @@
 import type React from "react";
 import type { UseChatKitOptions } from "@openai/chatkit-react";
 
-import type { ChatMessageProps } from "@features/shared/components/chat-message";
-
 export interface ChatParticipant {
   id: string;
   name: string;
   avatar?: string;
 }
 
+export interface InitialMessage {
+  id: string;
+  content: string;
+  sender: {
+    id: string;
+    name: string;
+    avatar?: string;
+    isAI?: boolean;
+  };
+  timestamp: Date | string;
+  status?: "sending" | "sent" | "delivered" | "read" | "error";
+}
+
 export interface ChatInterfaceProps {
   title?: string;
-  initialMessages?: ChatMessageProps[];
+  initialMessages?: InitialMessage[];
   className?: string;
   isMinimizable?: boolean;
   isClosable?: boolean;

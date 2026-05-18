@@ -3,8 +3,8 @@
 Each row corresponds to one source script (test files excluded).
 
 | Module path (relative to `features/`) | Purpose |
-|---|---|
-| **account** | |
+| --- | --- |
+| **account** |  |
 | `account/components/settings/agent-settings-tab.tsx` | Settings tab for managing external agent integrations (Claude Code, Codex, Gemini) and their login sessions. |
 | `account/components/settings/appearance-settings-tab.tsx` | Settings tab for theme selection (light / dark / system). |
 | `account/components/settings/theme-settings.tsx` | Button group UI for picking light, dark, or system theme. |
@@ -14,14 +14,14 @@ Each row corresponds to one source script (test files excluded).
 | `account/pages/profile.tsx` | Profile page that composes the general-info tab and any additional settings tabs. |
 | `account/pages/settings.tsx` | Settings page with tabs for agent integrations and appearance preferences. |
 | `account/pages/workspace-members.tsx` | Page for listing and managing workspace members with role-based access control. |
-| **auth** | |
+| **auth** |  |
 | `auth/components/auto-login.tsx` | Initiates an OIDC login redirect automatically, forwarding org / invitation / hint query params. |
 | `auth/components/require-auth.tsx` | Route guard that verifies auth state and refreshes tokens before rendering protected children. |
 | `auth/lib/auth-session.ts` | Manages JWT tokens, user profile, and session state in `localStorage`; supports SSO. |
 | `auth/lib/oidc-client.ts` | OIDC/OAuth2 client handling PKCE flow, token exchange, and session management. |
 | `auth/pages/login.tsx` | Login page that parses invite-context params and mounts `AutoLogin`. |
 | `auth/pages/oauth-callback.tsx` | OAuth callback handler that completes OIDC login, stores tokens, and redirects to the intended URL. |
-| **chatkit** | |
+| **chatkit** |  |
 | `chatkit/components/canvas-chat-bubble.tsx` | Floating chat-bubble component for the workflow canvas, positioned above the React Flow minimap. |
 | `chatkit/components/chatkit-surface.tsx` | Wrapper around the ChatKit library that handles custom action dispatching and error reporting. |
 | `chatkit/components/public-chat-config.ts` | Builds ChatKit start-screen prompt and model-option configuration from workflow settings. |
@@ -32,20 +32,17 @@ Each row corresponds to one source script (test files excluded).
 | `chatkit/lib/telemetry.ts` | Dispatches telemetry events for ChatKit interactions (open, close, success, failure). |
 | `chatkit/lib/workflow-session.ts` | Manages ChatKit workflow client-secrets with automatic refresh and retry logic. |
 | `chatkit/pages/public-chat.tsx` | Public shareable chat page for a workflow, with theme switching and workflow metadata display. |
-| **shared** | |
+| **shared** |  |
 | `shared/components/chat-interface-options.ts` | Builds ChatKit initialisation options (API endpoint, auth, model config). |
 | `shared/components/chat-interface.types.ts` | `ChatInterface` props and `ChatParticipant` types. |
-| `shared/components/chat-message-attachments.tsx` | Renders chat-message attachments (images, videos, files, code) with appropriate icons. |
-| `shared/components/chat-message-markdown.ts` | Converts markdown syntax to HTML for rendering inside chat messages. |
-| `shared/components/chat-message.tsx` | Chat message component: sender avatar, text content, attachments, and delivery status. |
 | `shared/components/top-navigation/account-menu.tsx` | Dropdown menu for account settings, credentials, profile, workspace members, and logout. |
 | `shared/components/top-navigation/active-workspace-indicator.tsx` | Displays the active workspace name and lets the user switch between workspaces. |
 | `shared/components/top-navigation/canvas-brand.tsx` | Brand logo linking to the gallery, with a beta status badge. |
 | `shared/components/top-navigation/top-navigation-types.ts` | `TopNavigation` props interface (credentials, credential handlers). |
-| `shared/components/top-navigation/top-navigation.tsx` | Top navigation bar: brand, workspace selector, version status, and account menu. |
+| `shared/components/top-navigation.tsx` | Top navigation bar: brand, workspace selector, version status, and account menu. |
 | `shared/components/top-navigation/version-status.tsx` | Checks for and displays available canvas version updates, with result caching. |
 | `shared/components/workspace-bootstrap-gate.tsx` | Ensures the user has at least one workspace, creating a default one if necessary, before rendering children. |
-| **vibe** | |
+| **vibe** |  |
 | `vibe/components/vibe-authenticated-layout.tsx` | Main authenticated layout for Vibe: resizable sidebar with workspace bootstrap gate. |
 | `vibe/components/vibe-sidebar.tsx` | Sidebar component for the Vibe agent-chat interface, including provider selection and chat surface. |
 | `vibe/constants.ts` | Constants for Vibe sidebar dimensions, agent tag, workflow name, and participant metadata. |
@@ -56,7 +53,7 @@ Each row corresponds to one source script (test files excluded).
 | `vibe/hooks/use-vibe-context-string.ts` | Builds the context string that describes the user's current page location for the Vibe AI. |
 | `vibe/hooks/use-vibe-workflow.ts` | Manages Vibe agent workflow provisioning, template synchronisation, and workspace storage. |
 | `vibe/lib/vibe-models.ts` | Builds ChatKit model options for the Vibe composer based on available external agent providers. |
-| **workflow / dialogs** | |
+| **workflow / dialogs** |  |
 | `workflow/components/dialogs/add-credential-dialog.tsx` | Dialog for creating a new credential (name, provider, access level, secret). |
 | `workflow/components/dialogs/confirm-delete-workflow-dialog.tsx` | Confirmation dialog for permanently deleting a workflow. |
 | `workflow/components/dialogs/credential-access-badge.tsx` | Badge showing a credential's access level (scoped vs. shared). |
@@ -66,12 +63,12 @@ Each row corresponds to one source script (test files excluded).
 | `workflow/components/dialogs/edit-credential-dialog.tsx` | Dialog for editing an existing credential's name, provider, access level, and secrets. |
 | `workflow/components/dialogs/update-workflow-dialog.tsx` | Dialog for uploading a new version of a workflow's script and configuration files. |
 | `workflow/components/dialogs/upload-workflow-dialog.tsx` | Dialog for uploading a brand-new workflow with script and configuration files. |
-| **workflow / forms & layouts** | |
+| **workflow / forms & layouts** |  |
 | `workflow/components/forms/schema-config-form.tsx` | RJSF form wrapper for workflow runtime configuration, using custom widgets and templates. |
 | `workflow/components/layouts/sidebar-layout.tsx` | Resizable two-panel layout with collapsible sidebar. |
 | `workflow/components/layouts/use-sidebar-resize.ts` | Hook that handles sidebar drag-resize with min/max width constraints. |
 | `workflow/components/layouts/workflow-page-layout.tsx` | Generic page scaffold with optional header and main-content areas. |
-| **workflow / panels (RJSF & history)** | |
+| **workflow / panels (RJSF & history)** |  |
 | `workflow/components/panels/rjsf-basic-widgets.tsx` | RJSF widgets for basic input types: text, number, checkbox, and select. |
 | `workflow/components/panels/rjsf-input-widgets.tsx` | Primitive RJSF input widgets: number, checkbox, and select. |
 | `workflow/components/panels/rjsf-templates.tsx` | RJSF field and array item templates controlling form layout and styling. |
@@ -85,7 +82,7 @@ Each row corresponds to one source script (test files excluded).
 | `workflow/components/panels/workflow-history-table.tsx` | Table of workflow versions with status badges, change summaries, and row selection. |
 | `workflow/components/panels/workflow-history.tsx` | Assembled workflow history panel: filters, table, diff dialog, and restore action. |
 | `workflow/components/panels/workflow-tabs.tsx` | Tab bar for switching between the workflow editor, trace, and settings views. |
-| **workflow / trace components (agent-prism)** | |
+| **workflow / trace components (agent-prism)** |  |
 | `workflow/components/trace/agent-prism/Avatar.tsx` | Avatar component for trace span categories with configurable sizes. |
 | `workflow/components/trace/agent-prism/Badge.tsx` | Badge component for trace span attributes with optional icon. |
 | `workflow/components/trace/agent-prism/BrandLogo.tsx` | Brand logo used inside the trace viewer. |
@@ -129,7 +126,7 @@ Each row corresponds to one source script (test files excluded).
 | `workflow/components/trace/agent-prism/index.ts` | Public barrel export for the agent-prism trace viewer library. |
 | `workflow/components/trace/agent-prism/shared.ts` | Shared utilities and constants used across agent-prism components. |
 | `workflow/components/trace/agent-prism/theme/index.ts` | Theme tokens and configuration for the agent-prism trace viewer. |
-| **workflow / data & templates** | |
+| **workflow / data & templates** |  |
 | `workflow/data/templates/candidate-badges.ts` | Types and utilities for workflow template candidate definitions. |
 | `workflow/data/templates/index.ts` | Barrel export for the templates module. |
 | `workflow/data/templates/template-definition.ts` | `WorkflowTemplate` type and related metadata types. |
@@ -137,7 +134,7 @@ Each row corresponds to one source script (test files excluded).
 | `workflow/data/templates/vibe-agent.ts` | Built-in Vibe agent workflow template configuration. |
 | `workflow/data/workflow-data.ts` | Re-exports for workflow data and templates. |
 | `workflow/data/workflow-types.ts` | Types for workflow node structures, edges, and metadata. |
-| **workflow / library** | |
+| **workflow / library** |  |
 | `workflow/lib/mermaid-renderer.ts` | Renders workflow graphs as Mermaid diagrams with multi-level caching. |
 | `workflow/lib/workflow-diff.ts` | Computes a human-readable diff between two workflow versions. |
 | `workflow/lib/workflow-execution-builders.ts` | Converts raw API execution responses into typed `WorkflowExecution` models. |
@@ -150,7 +147,7 @@ Each row corresponds to one source script (test files excluded).
 | `workflow/lib/workflow-storage.ts` | Main workflow storage façade: load, save, delete, and list workflows. |
 | `workflow/lib/workflow-storage.constants.ts` | Constants shared across workflow storage modules. |
 | `workflow/lib/workflow-storage.types.ts` | Types for stored workflow records and API request/response shapes. |
-| **workflow / canvas page** | |
+| **workflow / canvas page** |  |
 | `workflow/pages/workflow-canvas/components/settings-tab-content.tsx` | Settings tab: workflow metadata display, version history, and listener controls. |
 | `workflow/pages/workflow-canvas/components/trace-tab-content.tsx` | Trace tab: renders execution traces using the agent-prism trace viewer. |
 | `workflow/pages/workflow-canvas/components/workflow-canvas-layout.tsx` | Top-level canvas layout composing the tab bar, navigation, and chat bubble. |
@@ -186,7 +183,7 @@ Each row corresponds to one source script (test files excluded).
 | `workflow/pages/workflow-canvas/hooks/use-workflow-storage-listener.ts` | Listens for external (cross-tab / server-push) workflow storage updates. |
 | `workflow/pages/workflow-canvas/hooks/workflow-runner-websocket.ts` | Creates and configures the WebSocket connection for live execution updates. |
 | `workflow/pages/workflow-canvas.tsx` | Top-level workflow canvas page that integrates the layout with the controller hook. |
-| **workflow / gallery page** | |
+| **workflow / gallery page** |  |
 | `workflow/pages/workflow-gallery/types.ts` | Types for gallery tab identifiers and gallery component state. |
 | `workflow/pages/workflow-gallery/use-workflow-gallery-actions.ts` | Gallery action handlers: import workflow, delete workflow, export workflow. |
 | `workflow/pages/workflow-gallery/use-workflow-gallery-state.ts` | Hook managing gallery state: workflow list, search query, and active tab. |
@@ -197,5 +194,5 @@ Each row corresponds to one source script (test files excluded).
 | `workflow/pages/workflow-gallery.tsx` | Main workflow gallery page. |
 | `workflow/pages/workflow-remediations.tsx` | Remediations page listing workflow run issues and their suggested fixes. |
 | `workflow/pages/workflow-remediations.helpers.ts` | Utilities for filtering, sorting, and formatting remediation items. |
-| **workflow / types** | |
+| **workflow / types** |  |
 | `workflow/types/credential-vault.ts` | Types for the credential vault: access-level enum, health-status enum, input/output shapes. |
