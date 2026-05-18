@@ -18,6 +18,7 @@ import RequireAuth from "@features/auth/components/require-auth";
 import OAuthCallback from "@features/auth/pages/oauth-callback";
 import Profile from "@features/account/pages/profile";
 import Settings from "@features/account/pages/settings";
+import WorkspaceMembers from "@features/account/pages/workspace-members";
 import PublicChatPage from "@features/chatkit/pages/public-chat";
 import {
   getSelectedWorkspaceSlug,
@@ -49,6 +50,15 @@ function WorkspaceGalleryRoute() {
   return <WorkflowGallery />;
 }
 
+function WorkspaceMembersRoute() {
+  const { workspaceSlug } = useParams<{ workspaceSlug?: string }>();
+  useLayoutEffect(() => {
+    syncWorkspaceSlug(workspaceSlug);
+  }, [workspaceSlug]);
+
+  return <WorkspaceMembers />;
+}
+
 function WorkspaceCanvasRoute() {
   const { workspaceSlug, workflowId } = useParams<{
     workspaceSlug?: string;
@@ -76,6 +86,11 @@ export default function OrcheoCanvasApp() {
               <Route element={<VibeAuthenticatedLayout />}>
                 <Route path="/" element={<WorkspaceHomeRedirect />} />
                 <Route path="/:workspaceSlug" element={<WorkspaceGalleryRoute />} />
+
+                <Route
+                  path="/:workspaceSlug/workspace"
+                  element={<WorkspaceMembersRoute />}
+                />
 
                 <Route path="/:workspaceSlug/new" element={<WorkspaceCanvasRoute />} />
                 <Route

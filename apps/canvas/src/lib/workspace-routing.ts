@@ -5,6 +5,7 @@ const RESERVED_PATH_SEGMENTS = new Set([
   "profile",
   "settings",
   "workflow-remediations",
+  "workspace",
 ]);
 
 const trimPathSegment = (value: string | null | undefined): string | null => {

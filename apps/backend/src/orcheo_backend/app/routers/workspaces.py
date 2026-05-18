@@ -323,6 +323,30 @@ def get_active_workspace(
     )
 
 
+@router.get(
+    "/{slug}/members",
+    response_model=list[MembershipResponse],
+    dependencies=[Depends(require_role(Role.ADMIN))],
+)
+def list_workspace_members(
+    slug: str,
+    service: WorkspaceServiceDep,
+    context: WorkspaceContextDep,
+) -> list[MembershipResponse]:
+    """List members of the workspace."""
+    try:
+        workspace = service.repository.get_workspace_by_slug(slug)
+    except WorkspaceNotFoundError:
+        raise_workspace_not_found()
+    if context.workspace_id != workspace.id:
+        raise_workspace_forbidden(
+            "Cannot view members for a workspace you are not actively scoped to",
+            error_code="workspace.scope_mismatch",
+        )
+    memberships = service.list_members(workspace.id)
+    return [_to_membership_response(m) for m in memberships]
+
+
 @router.post(
     "/{slug}/members",
     response_model=MembershipResponse,

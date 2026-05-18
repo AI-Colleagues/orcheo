@@ -16,11 +16,12 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/design-system/ui/dialog";
-import { Key, LogOut, Settings, User } from "lucide-react";
+import { Key, LogOut, Settings, User, Users } from "lucide-react";
 import {
   clearAuthSession,
   getAuthenticatedUserProfile,
 } from "@features/auth/lib/auth-session";
+import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
 import CredentialsVault from "@features/workflow/components/dialogs/credentials-vault";
 import { usePageContext } from "@/hooks/use-page-context";
 import type {
@@ -53,6 +54,7 @@ export default function AccountMenu({
   const { setVaultOpen } = usePageContext();
   const navigate = useNavigate();
   const authUser = getAuthenticatedUserProfile();
+  const workspaceSlug = getSelectedWorkspaceSlug();
   const accountLabel = authUser?.name ?? "Account";
   const accountInitials = accountLabel
     .split(/\s+/)
@@ -110,6 +112,17 @@ export default function AccountMenu({
               <span>Settings</span>
             </Link>
           </DropdownMenuItem>
+          {workspaceSlug && (
+            <DropdownMenuItem asChild>
+              <Link
+                to={`/${workspaceSlug}/workspace`}
+                className="flex w-full items-center gap-0"
+              >
+                <Users className="mr-2 h-4 w-4" />
+                <span>Workspace Members</span>
+              </Link>
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             asChild
           >

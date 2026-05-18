@@ -347,6 +347,44 @@ export const getVersionSnapshot = async (
   return workflow?.versions.find((entry) => entry.id === versionId)?.snapshot;
 };
 
+export const uploadWorkflowFromFiles = async (
+  workflowName: string,
+  script: string,
+  config: Record<string, unknown> | null,
+): Promise<StoredWorkflow> => {
+  const created = await request<ApiWorkflow>(API_BASE, {
+    method: "POST",
+    body: JSON.stringify({
+      name: workflowName,
+      description: null,
+      tags: [],
+      actor: "canvas-upload",
+    }),
+  });
+
+  await request(`${API_BASE}/${created.id}/versions/ingest`, {
+    method: "POST",
+    body: JSON.stringify({
+      script,
+      entrypoint: null,
+      runnable_config: config ?? null,
+      metadata: { source: "canvas-upload" },
+      notes: null,
+      created_by: "canvas-upload",
+    }),
+  });
+
+  const stored = await ensureWorkflow(created.id);
+  if (!stored) {
+    throw new Error("Failed to load uploaded workflow");
+  }
+
+  invalidateWorkflowListCache();
+  primeWorkflowCache(stored);
+  emitUpdate();
+  return stored;
+};
+
 export const deleteWorkflow = async (
   workflowId: string,
   actor?: string,
