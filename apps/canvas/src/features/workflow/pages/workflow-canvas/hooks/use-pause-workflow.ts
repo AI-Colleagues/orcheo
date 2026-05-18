@@ -3,17 +3,12 @@ import type { MutableRefObject } from "react";
 
 import { toast } from "@/hooks/use-toast";
 
-import type {
-  CanvasNode,
-  NodeStatus,
-  WorkflowExecution,
-} from "@features/workflow/pages/workflow-canvas/helpers/types";
+import type { WorkflowExecution } from "@features/workflow/pages/workflow-canvas/helpers/types";
 
 interface UsePauseWorkflowParams {
   activeExecutionId: string | null;
   isRunning: boolean;
   setIsRunning: React.Dispatch<React.SetStateAction<boolean>>;
-  setNodes: React.Dispatch<React.SetStateAction<CanvasNode[]>>;
   setExecutions: React.Dispatch<React.SetStateAction<WorkflowExecution[]>>;
   websocketRef: MutableRefObject<WebSocket | null>;
 }
@@ -22,7 +17,6 @@ export function usePauseWorkflow({
   activeExecutionId,
   isRunning,
   setIsRunning,
-  setNodes,
   setExecutions,
   websocketRef,
 }: UsePauseWorkflowParams) {
@@ -38,18 +32,6 @@ export function usePauseWorkflow({
     }
 
     const timestamp = new Date();
-
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.data.status === "running") {
-          return {
-            ...node,
-            data: { ...node.data, status: "warning" as NodeStatus },
-          };
-        }
-        return node;
-      }),
-    );
 
     if (activeExecutionId) {
       setExecutions((prev) =>
@@ -84,12 +66,5 @@ export function usePauseWorkflow({
       title: "Workflow paused",
       description: "Live updates disconnected. Resume to reconnect.",
     });
-  }, [
-    activeExecutionId,
-    isRunning,
-    setExecutions,
-    setIsRunning,
-    setNodes,
-    websocketRef,
-  ]);
+  }, [activeExecutionId, isRunning, setExecutions, setIsRunning, websocketRef]);
 }

@@ -2,23 +2,9 @@ import { describe, expect, it } from "vitest";
 import { hasSchedulableCronTrigger } from "./build-layout-props";
 
 describe("hasSchedulableCronTrigger", () => {
-  it("returns true when a canvas node is a cron trigger", () => {
+  it("returns true when the latest saved version has a cron trigger", () => {
     expect(
-      hasSchedulableCronTrigger(
-        [
-          {
-            id: "cron_trigger",
-            data: { backendType: "CronTriggerNode" },
-          },
-        ] as never,
-        [],
-      ),
-    ).toBe(true);
-  });
-
-  it("returns true when the latest saved version has a cron trigger but canvas nodes are empty", () => {
-    expect(
-      hasSchedulableCronTrigger([] as never, [
+      hasSchedulableCronTrigger([
         {
           id: "v1",
           version: "v01",
@@ -36,7 +22,7 @@ describe("hasSchedulableCronTrigger", () => {
 
   it("returns false when only a non-latest saved version has a cron trigger", () => {
     expect(
-      hasSchedulableCronTrigger([] as never, [
+      hasSchedulableCronTrigger([
         {
           id: "v1",
           version: "v01",
@@ -63,7 +49,7 @@ describe("hasSchedulableCronTrigger", () => {
     ).toBe(false);
   });
 
-  it("returns false when neither canvas nodes nor saved versions expose a cron trigger", () => {
-    expect(hasSchedulableCronTrigger([] as never, [])).toBe(false);
+  it("returns false when no versions are provided", () => {
+    expect(hasSchedulableCronTrigger([])).toBe(false);
   });
 });

@@ -3,7 +3,6 @@ import { toast } from "@/hooks/use-toast";
 import type { MutableRefObject } from "react";
 
 import type {
-  CanvasNode,
   NodeStatus,
   WorkflowExecution,
 } from "@features/workflow/pages/workflow-canvas/helpers/types";
@@ -15,7 +14,7 @@ interface WebSocketParams {
   config: Record<string, unknown>;
   graphToCanvas: Record<string, string>;
   storedRunnableConfig?: Record<string, unknown> | null;
-  nodes: CanvasNode[];
+  nodes: unknown[];
   currentWorkflowId: string | null;
   isMountedRef: MutableRefObject<boolean>;
   applyExecutionUpdate: (

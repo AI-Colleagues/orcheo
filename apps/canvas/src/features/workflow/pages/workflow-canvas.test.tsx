@@ -92,24 +92,13 @@ afterEach(() => {
   cleanup();
 });
 
-const DEFAULT_INITIAL_NODES = [
-  {
-    id: "node-1",
-    type: "default" as const,
-    position: { x: 0, y: 0 },
-    data: { type: "default", label: "Initial Node", status: "idle" as const },
-    selected: true,
-    draggable: true,
-  },
-];
-
-const renderCanvas = (initialNodes = DEFAULT_INITIAL_NODES) => {
+const renderCanvas = () => {
   return render(
     <MemoryRouter initialEntries={["/global-org/new"]}>
       <Routes>
         <Route
           path="/:workspaceSlug/new"
-          element={<WorkflowCanvas initialNodes={initialNodes} />}
+          element={<WorkflowCanvas />}
         />
       </Routes>
     </MemoryRouter>,
@@ -157,7 +146,7 @@ describe("WorkflowCanvas tabs", () => {
     ).toBeDisabled();
   });
 
-  it("disables schedule toggle when a cron trigger node is missing", async () => {
+  it("disables schedule toggle when no versions with a cron trigger exist", async () => {
     renderCanvas();
 
     const publishToggle = await screen.findByRole("switch", {
@@ -169,33 +158,5 @@ describe("WorkflowCanvas tabs", () => {
 
     expect(publishToggle).toBeEnabled();
     expect(scheduleToggle).toBeDisabled();
-  });
-
-  it("enables schedule toggle when a cron trigger node exists", async () => {
-    const initialNodes = [
-      ...DEFAULT_INITIAL_NODES,
-      {
-        id: "schedule-trigger-1",
-        type: "default" as const,
-        position: { x: 100, y: 100 },
-        data: {
-          type: "trigger",
-          label: "Schedule",
-          status: "idle" as const,
-          backendType: "CronTriggerNode",
-          iconKey: "schedule",
-        },
-        selected: false,
-        draggable: true,
-      },
-    ];
-
-    renderCanvas(initialNodes);
-
-    const scheduleToggle = await screen.findByRole("switch", {
-      name: /schedule workflow/i,
-    });
-
-    expect(scheduleToggle).toBeEnabled();
   });
 });

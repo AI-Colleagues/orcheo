@@ -11,17 +11,11 @@ import {
 } from "@features/workflow/pages/workflow-canvas/hooks/execution-node-status";
 import { collectRuntimeUpdates } from "@features/workflow/pages/workflow-canvas/hooks/execution-runtime-updates";
 import { updateExecutionRecord } from "@features/workflow/pages/workflow-canvas/hooks/execution-record-updater";
-import { updateCanvasNodes } from "@features/workflow/pages/workflow-canvas/hooks/execution-canvas-updater";
 
-import type {
-  CanvasNode,
-  WorkflowExecution,
-} from "@features/workflow/pages/workflow-canvas/helpers/types";
+import type { WorkflowExecution } from "@features/workflow/pages/workflow-canvas/helpers/types";
 
 interface UseExecutionUpdatesParams {
-  resolveNodeLabel: (nodeId: string) => string;
   setExecutions: React.Dispatch<React.SetStateAction<WorkflowExecution[]>>;
-  setNodes: React.Dispatch<React.SetStateAction<CanvasNode[]>>;
   setIsRunning: React.Dispatch<React.SetStateAction<boolean>>;
   websocketRef: MutableRefObject<WebSocket | null>;
   isMountedRef: MutableRefObject<boolean>;
@@ -43,9 +37,7 @@ interface ExecutionUpdateHandlers {
 }
 
 export function useExecutionUpdates({
-  resolveNodeLabel,
   setExecutions,
-  setNodes,
   setIsRunning,
   websocketRef,
   isMountedRef,
@@ -57,8 +49,8 @@ export function useExecutionUpdates({
 
   const describePayload = useCallback(
     (payload: Record<string, unknown>, graphToCanvas: Record<string, string>) =>
-      describePayloadRaw(payload, graphToCanvas, resolveNodeLabel),
-    [resolveNodeLabel],
+      describePayloadRaw(payload, graphToCanvas, (id) => id),
+    [],
   );
 
   const applyExecutionUpdate = useCallback(
@@ -107,15 +99,6 @@ export function useExecutionUpdates({
         }),
       );
 
-      setNodes((prev) =>
-        updateCanvasNodes({
-          nodes: prev,
-          nodeUpdates,
-          runtimeUpdates,
-          executionStatus,
-        }),
-      );
-
       if (executionStatus && executionStatus !== "running") {
         setIsRunning(false);
         if (websocketRef.current) {
@@ -130,7 +113,6 @@ export function useExecutionUpdates({
       isMountedRef,
       setExecutions,
       setIsRunning,
-      setNodes,
       websocketRef,
     ],
   );

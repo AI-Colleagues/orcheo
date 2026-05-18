@@ -1,11 +1,12 @@
-import { isRecord } from "@features/workflow/pages/workflow-canvas/helpers/validation";
-
+import type { NodeRuntimeData } from "@features/workflow/pages/workflow-canvas/hooks/execution-runtime-updates";
 import type {
-  NodeRuntimeData,
   NodeStatus,
   WorkflowExecution,
   WorkflowExecutionStatus,
 } from "@features/workflow/pages/workflow-canvas/helpers/types";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 interface ExecutionRecordUpdateParams {
   execution: WorkflowExecution;

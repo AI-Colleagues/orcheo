@@ -1,6 +1,18 @@
-import { isRecord } from "@features/workflow/pages/workflow-canvas/helpers/validation";
+import type { NodeStatus } from "@features/workflow/pages/workflow-canvas/helpers/types";
 
-import type { NodeRuntimeData } from "@features/workflow/pages/workflow-canvas/helpers/types";
+export interface NodeRuntimeData {
+  inputs?: unknown;
+  outputs?: unknown;
+  messages?: unknown;
+  raw?: unknown;
+  updatedAt: string;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+// Kept for callers that pass node status updates alongside runtime data
+export type { NodeStatus };
 
 export function collectRuntimeUpdates(
   payload: Record<string, unknown>,
