@@ -24,8 +24,8 @@ def _logger_names() -> tuple[str, ...]:
 def test_configure_logging_applies_requested_log_level(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Reloading the module applies LOG_LEVEL to the known logger names."""
-    monkeypatch.setenv("LOG_LEVEL", "debug")
+    """Reloading the module applies ORCHEO_LOG_LEVEL to the logger names."""
+    monkeypatch.setenv("ORCHEO_LOG_LEVEL", "debug")
     reloaded = importlib.reload(logging_config)
 
     for name in _logger_names():
@@ -39,8 +39,8 @@ def test_configure_logging_renders_extra_fields(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Structured logs should include extra fields from stdlib logging."""
-    monkeypatch.setenv("LOG_LEVEL", "info")
-    monkeypatch.setenv("LOG_FORMAT", "json")
+    monkeypatch.setenv("ORCHEO_LOG_LEVEL", "info")
+    monkeypatch.setenv("ORCHEO_LOG_FORMAT", "json")
     importlib.reload(logging_config)
 
     logger = logging.getLogger("orcheo.logging_test")
@@ -66,8 +66,8 @@ def test_configure_logging_uses_console_renderer_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Reloading with the default format should exercise the console branch."""
-    monkeypatch.delenv("LOG_FORMAT", raising=False)
-    monkeypatch.setenv("LOG_LEVEL", "info")
+    monkeypatch.delenv("ORCHEO_LOG_FORMAT", raising=False)
+    monkeypatch.setenv("ORCHEO_LOG_LEVEL", "info")
 
     reloaded = importlib.reload(logging_config)
 

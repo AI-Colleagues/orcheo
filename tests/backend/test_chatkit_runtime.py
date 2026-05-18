@@ -12,7 +12,7 @@ def test_sensitive_logging_enabled_accepts_dev_environment(
     """Development-like env vars enable sensitive logging."""
     monkeypatch.setenv("ORCHEO_ENV", "DEV")
     monkeypatch.delenv("NODE_ENV", raising=False)
-    monkeypatch.delenv("LOG_SENSITIVE_DEBUG", raising=False)
+    monkeypatch.delenv("ORCHEO_LOG_SENSITIVE_DEBUG", raising=False)
 
     assert chatkit_runtime.sensitive_logging_enabled() is True
 
@@ -23,16 +23,16 @@ def test_sensitive_logging_enabled_defaults_to_false(
     """Sensitive logging stays disabled outside known environments."""
     monkeypatch.delenv("ORCHEO_ENV", raising=False)
     monkeypatch.setenv("NODE_ENV", "production")
-    monkeypatch.delenv("LOG_SENSITIVE_DEBUG", raising=False)
+    monkeypatch.delenv("ORCHEO_LOG_SENSITIVE_DEBUG", raising=False)
 
     assert chatkit_runtime.sensitive_logging_enabled() is False
 
 
 def test_sensitive_logging_enabled_checks_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The LOG_SENSITIVE_DEBUG flag overrides non-dev environments."""
+    """The ORCHEO_LOG_SENSITIVE_DEBUG flag overrides non-dev environments."""
     monkeypatch.delenv("ORCHEO_ENV", raising=False)
     monkeypatch.delenv("NODE_ENV", raising=False)
-    monkeypatch.setenv("LOG_SENSITIVE_DEBUG", "1")
+    monkeypatch.setenv("ORCHEO_LOG_SENSITIVE_DEBUG", "1")
 
     assert chatkit_runtime.sensitive_logging_enabled() is True
 

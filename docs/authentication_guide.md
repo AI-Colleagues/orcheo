@@ -708,8 +708,8 @@ orcheo token create --id workspace-token \
 #### Enable Debug Logging
 
 ```bash
-export LOG_LEVEL=DEBUG
-export LOG_SENSITIVE_DEBUG=1
+export ORCHEO_LOG_LEVEL=DEBUG
+export ORCHEO_LOG_SENSITIVE_DEBUG=1
 
 # Start Orcheo backend
 orcheo server start

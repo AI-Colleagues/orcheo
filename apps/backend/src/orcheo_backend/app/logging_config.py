@@ -8,8 +8,8 @@ import structlog
 
 def configure_logging() -> None:
     """Configure module and framework loggers based on environment variables."""
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-    log_format = os.getenv("LOG_FORMAT", "console").lower()
+    log_level = os.getenv("ORCHEO_LOG_LEVEL", "INFO").upper()
+    log_format = os.getenv("ORCHEO_LOG_FORMAT", "console").lower()
     resolved_level = getattr(logging, log_level, logging.INFO)
 
     shared_processors: list[structlog.types.Processor] = [

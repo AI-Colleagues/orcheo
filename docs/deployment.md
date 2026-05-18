@@ -193,7 +193,7 @@ Use this recipe when the host is not directly reachable or when you intentionall
    VITE_ORCHEO_BACKEND_URL=https://orcheo.example.com
    ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com
    ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://orcheo-canvas.example.com
-   VITE_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com
+   VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com
    ```
 4. **Restart the stack after editing `~/.orcheo/stack/.env`**
    ```bash
