@@ -13,6 +13,10 @@ from orcheo.models import (
     WorkflowDraftAccess,
     WorkflowVersion,
 )
+from orcheo.runtime.configurable_schema import (
+    ConfigurableSchemaError,
+    split_configurable,
+)
 from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo_backend.app.authentication import (
     AuthorizationError,
@@ -119,6 +123,46 @@ def _serialize_runnable_config(
         exclude_defaults=True,
         exclude_none=True,
     )
+
+
+def _merge_configurable_schema(
+    existing: Any,
+    inline: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge inline schema declarations with caller-supplied schema metadata.
+
+    A sibling ``*.schema.json`` file (delivered via ``metadata``) is authored
+    explicitly, so it wins over annotations inferred from the runnable config.
+    """
+    if isinstance(existing, dict):
+        return {**inline, **existing}
+    return inline
+
+
+def _resolve_ingest_configurable_schema(
+    runnable_config: RunnableConfigModel | None,
+    metadata: dict[str, Any],
+) -> tuple[RunnableConfigModel | None, dict[str, Any]]:
+    """Lift inline ``configurable`` schema annotations into version metadata."""
+    if runnable_config is None or not runnable_config.configurable:
+        return runnable_config, metadata
+    try:
+        resolved, inline_schema = split_configurable(runnable_config.configurable)
+    except ConfigurableSchemaError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    if not inline_schema:
+        return runnable_config, metadata
+    runnable_config = runnable_config.model_copy(update={"configurable": resolved})
+    metadata = {
+        **metadata,
+        "configurable_schema": _merge_configurable_schema(
+            metadata.get("configurable_schema"), inline_schema
+        ),
+    }
+    return runnable_config, metadata
 
 
 def _serialize_public_workflow(
@@ -604,14 +648,19 @@ async def ingest_workflow_version(
             detail=str(exc),
         ) from exc
 
+    runnable_config, metadata = _resolve_ingest_configurable_schema(
+        request.runnable_config,
+        request.metadata,
+    )
+
     try:
         version = await repository.create_version(
             workflow.id,
             graph=graph_payload,
-            metadata=request.metadata,
+            metadata=metadata,
             notes=request.notes,
             created_by=request.created_by,
-            runnable_config=_serialize_runnable_config(request.runnable_config),
+            runnable_config=_serialize_runnable_config(runnable_config),
         )
         return _attach_mermaid(version)
     except WorkflowNotFoundError as exc:

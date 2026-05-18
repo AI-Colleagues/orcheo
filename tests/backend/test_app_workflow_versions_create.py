@@ -249,6 +249,169 @@ async def test_ingest_workflow_version_not_found() -> None:
     assert exc_info.value.status_code == 404
 
 
+_INGEST_SCRIPT = (
+    "from langgraph.graph import StateGraph\n"
+    "graph = StateGraph(dict)\n"
+    "graph.add_node('test', lambda x: x)"
+)
+
+
+def _build_capturing_repository(workflow_id, captured):
+    """Return a repository stub that records create_version arguments."""
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del workflow_ref, include_archived, workspace_id
+            return workflow_id
+
+        async def create_version(
+            self,
+            wf_id,
+            graph,
+            metadata,
+            notes,
+            created_by,
+            runnable_config=None,
+        ):
+            captured["metadata"] = metadata
+            captured["runnable_config"] = runnable_config
+            return WorkflowVersion(
+                id=uuid4(),
+                workflow_id=wf_id,
+                version=1,
+                graph=graph,
+                created_by=created_by,
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
+    return Repository()
+
+
+@pytest.mark.asyncio()
+async def test_ingest_workflow_version_lifts_inline_configurable_schema() -> None:
+    """Inline schema annotations resolve to runtime values plus version metadata."""
+    workflow_id = uuid4()
+    captured: dict[str, object] = {}
+    request = WorkflowVersionIngestRequest(
+        script=_INGEST_SCRIPT,
+        entrypoint="graph",
+        runnable_config={
+            "configurable": {
+                "ai_model": {
+                    "type": "string",
+                    "enum": ["openai:gpt-4.1-mini", "openai:gpt-5.4-mini"],
+                    "title": "Model",
+                    "default": "openai:gpt-4.1-mini",
+                }
+            }
+        },
+        created_by="admin",
+    )
+
+    await ingest_workflow_version(
+        str(workflow_id),
+        request,
+        _build_capturing_repository(workflow_id, captured),
+        _MOCK_WORKSPACE,
+    )
+
+    assert captured["runnable_config"] == {
+        "configurable": {"ai_model": "openai:gpt-4.1-mini"}
+    }
+    assert captured["metadata"]["configurable_schema"] == {
+        "ai_model": {
+            "type": "string",
+            "enum": ["openai:gpt-4.1-mini", "openai:gpt-5.4-mini"],
+            "title": "Model",
+            "default": "openai:gpt-4.1-mini",
+        }
+    }
+
+
+@pytest.mark.asyncio()
+async def test_ingest_workflow_version_keeps_sibling_schema_over_inline() -> None:
+    """A schema supplied via metadata wins over annotations inferred inline."""
+    workflow_id = uuid4()
+    captured: dict[str, object] = {}
+    request = WorkflowVersionIngestRequest(
+        script=_INGEST_SCRIPT,
+        entrypoint="graph",
+        runnable_config={
+            "configurable": {"ai_model": {"type": "string", "default": "inline"}}
+        },
+        metadata={
+            "configurable_schema": {
+                "ai_model": {"type": "string", "default": "from-sibling"}
+            }
+        },
+        created_by="admin",
+    )
+
+    await ingest_workflow_version(
+        str(workflow_id),
+        request,
+        _build_capturing_repository(workflow_id, captured),
+        _MOCK_WORKSPACE,
+    )
+
+    assert captured["runnable_config"] == {"configurable": {"ai_model": "inline"}}
+    assert captured["metadata"]["configurable_schema"] == {
+        "ai_model": {"type": "string", "default": "from-sibling"}
+    }
+
+
+@pytest.mark.asyncio()
+async def test_ingest_workflow_version_leaves_plain_configurable_untouched() -> None:
+    """A configurable mapping without annotations is stored unchanged."""
+    workflow_id = uuid4()
+    captured: dict[str, object] = {}
+    request = WorkflowVersionIngestRequest(
+        script=_INGEST_SCRIPT,
+        entrypoint="graph",
+        runnable_config={"configurable": {"ai_model": "openai:gpt-4.1-mini"}},
+        created_by="admin",
+    )
+
+    await ingest_workflow_version(
+        str(workflow_id),
+        request,
+        _build_capturing_repository(workflow_id, captured),
+        _MOCK_WORKSPACE,
+    )
+
+    assert captured["runnable_config"] == {
+        "configurable": {"ai_model": "openai:gpt-4.1-mini"}
+    }
+    assert "configurable_schema" not in captured["metadata"]
+
+
+@pytest.mark.asyncio()
+async def test_ingest_workflow_version_rejects_schema_without_runtime_default() -> None:
+    """An inline schema with no resolvable runtime value raises a 400."""
+    workflow_id = uuid4()
+    captured: dict[str, object] = {}
+    request = WorkflowVersionIngestRequest(
+        script=_INGEST_SCRIPT,
+        entrypoint="graph",
+        runnable_config={"configurable": {"ai_model": {"type": "string", "enum": []}}},
+        created_by="admin",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await ingest_workflow_version(
+            str(workflow_id),
+            request,
+            _build_capturing_repository(workflow_id, captured),
+            _MOCK_WORKSPACE,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "no runtime default" in str(exc_info.value.detail)
+
+
 @pytest.mark.asyncio()
 async def test_update_workflow_version_runnable_config_success() -> None:
     """Version runnable-config endpoint persists config-only updates."""
