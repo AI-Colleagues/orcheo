@@ -376,6 +376,7 @@ export interface WorkspaceMember {
   id: string;
   workspace_id: string;
   user_id: string;
+  user_name?: string;
   role: "owner" | "admin" | "editor" | "viewer";
   created_at: string;
 }

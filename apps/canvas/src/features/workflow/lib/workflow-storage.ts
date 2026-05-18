@@ -387,6 +387,37 @@ export const uploadWorkflowFromFiles = async (
   return stored;
 };
 
+export const updateWorkflowFromFiles = async (
+  workflowId: string,
+  script: string,
+  config: Record<string, unknown> | null,
+  options?: { actor?: string },
+): Promise<StoredWorkflow> => {
+  const actor = resolveActor(options?.actor);
+
+  await request(`${API_BASE}/${workflowId}/versions/ingest`, {
+    method: "POST",
+    body: JSON.stringify({
+      script,
+      entrypoint: null,
+      runnable_config: config ?? null,
+      metadata: { source: "canvas-update" },
+      notes: null,
+      created_by: actor,
+    }),
+  });
+
+  const stored = await ensureWorkflow(workflowId);
+  if (!stored) {
+    throw new Error("Failed to load updated workflow");
+  }
+
+  invalidateWorkflowListCache();
+  primeWorkflowCache(stored);
+  emitUpdate();
+  return stored;
+};
+
 export const deleteWorkflow = async (
   workflowId: string,
   actor?: string,

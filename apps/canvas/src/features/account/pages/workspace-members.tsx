@@ -238,12 +238,17 @@ export default function WorkspaceMembers() {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button
-                  onClick={() => void handleAddMember()}
-                  disabled={isAdding || !newUserId.trim()}
-                >
-                  {isAdding ? "Adding..." : "Add"}
-                </Button>
+                <div className="space-y-1.5">
+                  <Label className="invisible" aria-hidden>
+                    Action
+                  </Label>
+                  <Button
+                    onClick={() => void handleAddMember()}
+                    disabled={isAdding || !newUserId.trim()}
+                  >
+                    {isAdding ? "Adding..." : "Add"}
+                  </Button>
+                </div>
               </div>
             </div>
           )}
@@ -259,6 +264,7 @@ export default function WorkspaceMembers() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Name</TableHead>
                     <TableHead>User ID</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Joined</TableHead>
@@ -273,6 +279,9 @@ export default function WorkspaceMembers() {
 
                     return (
                       <TableRow key={member.id}>
+                        <TableCell className="text-sm">
+                          {member.user_name ?? "—"}
+                        </TableCell>
                         <TableCell className="font-mono text-sm">
                           {member.user_id}
                         </TableCell>

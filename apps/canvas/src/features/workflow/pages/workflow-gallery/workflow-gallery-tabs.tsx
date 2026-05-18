@@ -1,4 +1,4 @@
-import { ChangeEvent } from "react";
+import { ChangeEvent, useState } from "react";
 import { Input } from "@/design-system/ui/input";
 import { Button } from "@/design-system/ui/button";
 import {
@@ -7,8 +7,9 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/design-system/ui/tabs";
-import { Loader2, Search, Zap } from "lucide-react";
+import { Loader2, Search, Upload, Zap } from "lucide-react";
 import { type Workflow } from "@features/workflow/data/workflow-data";
+import { UploadWorkflowDialog } from "@features/workflow/components/dialogs/upload-workflow-dialog";
 import { WorkflowCard } from "./workflow-card";
 import {
   type WorkflowGalleryTab,
@@ -51,6 +52,8 @@ export const WorkflowGalleryTabs = ({
   onExportWorkflow,
   onDeleteWorkflow,
 }: WorkflowGalleryTabsProps) => {
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
+
   const handleSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
     onSearchQueryChange(event.target.value);
   };
@@ -63,7 +66,7 @@ export const WorkflowGalleryTabs = ({
       }
       className="px-4"
     >
-      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center">
+      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:gap-4">
           <TabsList className="flex h-auto flex-wrap justify-start gap-1">
             <TabsTrigger value="all" className="gap-2">
@@ -96,6 +99,18 @@ export const WorkflowGalleryTabs = ({
             />
           </div>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setIsUploadOpen(true)}
+        >
+          <Upload className="mr-2 h-4 w-4" />
+          Upload
+        </Button>
+        <UploadWorkflowDialog
+          open={isUploadOpen}
+          onOpenChange={setIsUploadOpen}
+        />
       </div>
 
       <TabsContent value={selectedTab} className="mt-0">
