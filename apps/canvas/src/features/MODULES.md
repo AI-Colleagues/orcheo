@@ -73,7 +73,6 @@ Each row corresponds to one source script (test files excluded).
 | `workflow/components/layouts/workflow-page-layout.tsx` | Generic page scaffold with optional header and main-content areas. |
 | **workflow / panels (RJSF & history)** | |
 | `workflow/components/panels/rjsf-basic-widgets.tsx` | RJSF widgets for basic input types: text, number, checkbox, and select. |
-| `workflow/components/panels/rjsf-condition-widgets.tsx` | RJSF widgets for condition configuration: operator and operand pickers. |
 | `workflow/components/panels/rjsf-input-widgets.tsx` | Primitive RJSF input widgets: number, checkbox, and select. |
 | `workflow/components/panels/rjsf-templates.tsx` | RJSF field and array item templates controlling form layout and styling. |
 | `workflow/components/panels/rjsf-text-widgets.tsx` | Text RJSF widgets (input, textarea) with schema drag-and-drop field insertion. |
@@ -140,15 +139,6 @@ Each row corresponds to one source script (test files excluded).
 | `workflow/data/workflow-types.ts` | Types for workflow node structures, edges, and metadata. |
 | **workflow / library** | |
 | `workflow/lib/mermaid-renderer.ts` | Renders workflow graphs as Mermaid diagrams with multi-level caching. |
-| `workflow/lib/node-schemas/ai-nodes.ts` | JSON Schema definitions for AI/LLM node types. |
-| `workflow/lib/node-schemas/base.ts` | Shared base schema fragments reused across node schemas. |
-| `workflow/lib/node-schemas/condition-operators.ts` | Schema and enums for condition-node operators. |
-| `workflow/lib/node-schemas/index.ts` | Barrel export for all node schema definitions. |
-| `workflow/lib/node-schemas/integration-nodes.ts` | JSON Schema definitions for third-party integration node types. |
-| `workflow/lib/node-schemas/logic-nodes.ts` | JSON Schema definitions for logic/control-flow node types. |
-| `workflow/lib/node-schemas/state-nodes.ts` | JSON Schema definitions for state/variable node types. |
-| `workflow/lib/node-schemas/trigger-nodes.ts` | JSON Schema definitions for trigger/entry-point node types. |
-| `workflow/lib/node-schemas/ui.ts` | UI-schema helpers controlling RJSF field rendering for node config forms. |
 | `workflow/lib/workflow-diff.ts` | Computes a human-readable diff between two workflow versions. |
 | `workflow/lib/workflow-execution-builders.ts` | Converts raw API execution responses into typed `WorkflowExecution` models. |
 | `workflow/lib/workflow-execution-formatters.ts` | Formats execution status codes and timestamps for display. |
