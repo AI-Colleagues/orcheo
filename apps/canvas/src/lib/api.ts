@@ -384,22 +384,11 @@ export async function listWorkspaceMembers(
   slug: string,
   baseUrl?: string,
 ): Promise<WorkspaceMember[]> {
-  const url = buildBackendHttpUrl(`/api/workspaces/${slug}/members`, baseUrl);
-  const response = await authFetch(url, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({
-      detail: "Failed to fetch workspace members",
-    }));
-    throw new Error(errorData.detail || `HTTP ${response.status}`);
-  }
-
-  return response.json();
+  return requestSystemJson<WorkspaceMember[]>(
+    `/api/workspaces/${slug}/members`,
+    { method: "GET" },
+    baseUrl,
+  );
 }
 
 export async function addWorkspaceMember(
@@ -407,23 +396,11 @@ export async function addWorkspaceMember(
   request: { user_id: string; role: "owner" | "admin" | "editor" | "viewer" },
   baseUrl?: string,
 ): Promise<WorkspaceMember> {
-  const url = buildBackendHttpUrl(`/api/workspaces/${slug}/members`, baseUrl);
-  const response = await authFetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(request),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({
-      detail: "Failed to add workspace member",
-    }));
-    throw new Error(errorData.detail || `HTTP ${response.status}`);
-  }
-
-  return response.json();
+  return requestSystemJson<WorkspaceMember>(
+    `/api/workspaces/${slug}/members`,
+    { method: "POST", body: JSON.stringify(request) },
+    baseUrl,
+  );
 }
 
 export async function updateWorkspaceMemberRole(
@@ -432,26 +409,11 @@ export async function updateWorkspaceMemberRole(
   role: "owner" | "admin" | "editor" | "viewer",
   baseUrl?: string,
 ): Promise<WorkspaceMember> {
-  const url = buildBackendHttpUrl(
+  return requestSystemJson<WorkspaceMember>(
     `/api/workspaces/${slug}/members/${userId}`,
+    { method: "PATCH", body: JSON.stringify({ role }) },
     baseUrl,
   );
-  const response = await authFetch(url, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ role }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({
-      detail: "Failed to update member role",
-    }));
-    throw new Error(errorData.detail || `HTTP ${response.status}`);
-  }
-
-  return response.json();
 }
 
 export async function removeWorkspaceMember(
@@ -463,11 +425,9 @@ export async function removeWorkspaceMember(
     `/api/workspaces/${slug}/members/${userId}`,
     baseUrl,
   );
-  const response = await authFetch(url, {
-    method: "DELETE",
-  });
+  const response = await authFetch(url, { method: "DELETE" });
 
-  if (!response.ok && response.status !== 204) {
+  if (!response.ok) {
     const errorData = await response.json().catch(() => ({
       detail: "Failed to remove workspace member",
     }));

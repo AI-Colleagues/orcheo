@@ -21,6 +21,7 @@ import useCredentialVault from "@/hooks/use-credential-vault";
 import { usePageContext } from "@/hooks/use-page-context";
 import { toast } from "@/hooks/use-toast";
 import TopNavigation from "@features/shared/components/top-navigation";
+import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
 import {
   getActiveWorkspace,
   listWorkspaceMembers,
@@ -38,7 +39,7 @@ const ROLE_OPTIONS: MemberRole[] = ["owner", "admin", "editor", "viewer"];
 export default function WorkspaceMembers() {
   const { setPageContext } = usePageContext();
   useEffect(() => {
-    setPageContext({ page: "settings" });
+    setPageContext({ page: "workspace" });
   }, [setPageContext]);
 
   const {
@@ -53,7 +54,7 @@ export default function WorkspaceMembers() {
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [canManage, setCanManage] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [isForbidden, setIsForbidden] = useState(false);
 
   const [newUserId, setNewUserId] = useState("");
   const [newRole, setNewRole] = useState<MemberRole>("editor");
@@ -62,9 +63,11 @@ export default function WorkspaceMembers() {
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
 
   const slug = getSelectedWorkspaceSlug();
+  const currentUserId = getAuthenticatedUserProfile()?.subject ?? null;
 
   useEffect(() => {
     if (!slug) {
+      setIsLoading(false);
       return;
     }
 
@@ -72,17 +75,21 @@ export default function WorkspaceMembers() {
 
     const loadData = async () => {
       try {
-        const [workspace, memberList] = await Promise.all([
-          getActiveWorkspace(),
-          listWorkspaceMembers(slug),
-        ]);
+        const workspace = await getActiveWorkspace();
         if (!active) {
           return;
         }
-        setCanManage(
-          workspace.role === "admin" || workspace.role === "owner",
-        );
-        setCurrentUserId(workspace.workspace_id ?? null);
+        const allowed =
+          workspace.role === "admin" || workspace.role === "owner";
+        setCanManage(allowed);
+        if (!allowed) {
+          setIsForbidden(true);
+          return;
+        }
+        const memberList = await listWorkspaceMembers(slug);
+        if (!active) {
+          return;
+        }
         setMembers(memberList);
       } catch {
         if (active) {
@@ -191,6 +198,13 @@ export default function WorkspaceMembers() {
             </h2>
           </div>
 
+          {isForbidden && (
+            <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+              You do not have permission to view workspace members. Ask a
+              workspace admin or owner to grant you access.
+            </div>
+          )}
+
           {canManage && (
             <div className="rounded-lg border p-4">
               <h3 className="mb-4 text-lg font-medium">Add Member</h3>
@@ -234,7 +248,7 @@ export default function WorkspaceMembers() {
             </div>
           )}
 
-          {isLoading ? (
+          {isForbidden ? null : isLoading ? (
             <p className="text-sm text-muted-foreground">Loading members...</p>
           ) : members.length === 0 ? (
             <p className="text-sm text-muted-foreground">

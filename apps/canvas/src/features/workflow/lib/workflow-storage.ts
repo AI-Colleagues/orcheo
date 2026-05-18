@@ -351,14 +351,16 @@ export const uploadWorkflowFromFiles = async (
   workflowName: string,
   script: string,
   config: Record<string, unknown> | null,
+  options?: { actor?: string },
 ): Promise<StoredWorkflow> => {
+  const actor = resolveActor(options?.actor);
   const created = await request<ApiWorkflow>(API_BASE, {
     method: "POST",
     body: JSON.stringify({
       name: workflowName,
       description: null,
       tags: [],
-      actor: "canvas-upload",
+      actor,
     }),
   });
 
@@ -370,7 +372,7 @@ export const uploadWorkflowFromFiles = async (
       runnable_config: config ?? null,
       metadata: { source: "canvas-upload" },
       notes: null,
-      created_by: "canvas-upload",
+      created_by: actor,
     }),
   });
 
