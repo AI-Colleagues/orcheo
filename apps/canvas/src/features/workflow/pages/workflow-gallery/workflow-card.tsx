@@ -185,7 +185,7 @@ export const WorkflowCard = ({
     <>
       <Card
         className={cn(
-          "flex w-full flex-col overflow-hidden border-border/70 bg-card text-card-foreground shadow-[0_16px_48px_rgba(15,23,42,0.08)] transition-transform duration-200 hover:-translate-y-1 dark:shadow-[0_16px_48px_rgba(0,0,0,0.45)]",
+          "flex w-full flex-col overflow-hidden border-border/70 bg-card text-card-foreground shadow-[0_16px_48px_rgba(15,23,42,0.08)] transition-transform duration-200 hover:-translate-y-1 dark:shadow-[0_16px_48px_rgba(0,0,0,0.45)] text-[20px] md:text-[14px]",
           WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME,
           isClickable && "cursor-pointer",
         )}
@@ -289,10 +289,10 @@ export const WorkflowCard = ({
               </span>
             </div>
 
-            <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-4 border-slate-900 bg-slate-100 shadow-[0_4px_16px_rgba(15,23,42,0.18)] dark:border-slate-100 dark:bg-slate-800 dark:shadow-[0_4px_16px_rgba(0,0,0,0.35)]">
+            <div className="flex h-[7em] w-[7em] items-center justify-center overflow-hidden rounded-full border-4 border-slate-900 bg-slate-100 shadow-[0_4px_16px_rgba(15,23,42,0.18)] dark:border-slate-100 dark:bg-slate-800 dark:shadow-[0_4px_16px_rgba(0,0,0,0.35)]">
               <span
                 aria-hidden="true"
-                className="select-none text-[3.5rem] leading-none"
+                className="select-none text-[4em] leading-none"
               >
                 {workflowAvatarEmoji ??
                   candidateBadge?.emoji ??
@@ -323,7 +323,7 @@ export const WorkflowCard = ({
             ) : null}
           </div>
 
-          <div className="mt-4 shrink-0 text-[1.35rem] font-semibold tracking-[-0.025em] text-card-foreground">
+          <div className="mt-4 shrink-0 text-[1.5em] font-semibold tracking-[-0.025em] text-card-foreground">
             {workflow.name}
           </div>
 

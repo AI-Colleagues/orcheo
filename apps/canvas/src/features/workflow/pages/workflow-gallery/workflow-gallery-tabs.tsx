@@ -64,9 +64,9 @@ export const WorkflowGalleryTabs = ({
       onValueChange={(value) =>
         onSelectedTabChange(value as WorkflowGalleryTab)
       }
-      className="px-4"
+      className="px-4 pt-3"
     >
-      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="mb-3 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:gap-4">
           <TabsList className="flex h-auto flex-wrap justify-start gap-1">
             <TabsTrigger value="all" className="gap-2">
