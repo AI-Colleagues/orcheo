@@ -3,51 +3,22 @@ import type { Dispatch, SetStateAction } from "react";
 
 import { toast } from "@/hooks/use-toast";
 import {
-  toPersistedEdge,
-  toPersistedNode,
-} from "@features/workflow/pages/workflow-canvas/helpers/transformers";
-import type {
-  CanvasEdge,
-  CanvasNode,
-} from "@features/workflow/pages/workflow-canvas/helpers/types";
-import type {
-  WorkflowEdge as PersistedWorkflowEdge,
-  WorkflowNode as PersistedWorkflowNode,
-} from "@features/workflow/data/workflow-data";
-import {
-  getVersionSnapshot,
   saveWorkflowMetadata,
-  saveWorkflow as persistWorkflow,
+  getVersionSnapshot,
   type StoredWorkflow,
 } from "@features/workflow/lib/workflow-storage";
-import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
+import { persistRunnableConfig } from "@features/workflow/lib/workflow-storage-versioning";
 import type { WorkflowRunnableConfig } from "@features/workflow/lib/workflow-storage.types";
-import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
-import { getWorkspaceWorkflowPath } from "@/lib/workspace-routing";
 
 interface WorkflowSaverOptions {
-  createSnapshot: () => { nodes: CanvasNode[]; edges: CanvasEdge[] };
-  convertPersistedNodesToCanvas: (
-    nodes: PersistedWorkflowNode[],
-  ) => CanvasNode[];
-  convertPersistedEdgesToCanvas: (
-    edges: PersistedWorkflowEdge[],
-  ) => CanvasEdge[];
   setWorkflowName: Dispatch<SetStateAction<string>>;
   setWorkflowDescription: Dispatch<SetStateAction<string>>;
-  setCurrentWorkflowId: Dispatch<SetStateAction<string | null>>;
   setWorkflowVersions: Dispatch<SetStateAction<StoredWorkflow["versions"]>>;
   setWorkflowTags: Dispatch<SetStateAction<string[]>>;
   workflowName: string;
   workflowDescription: string;
   workflowTags: string[];
   currentWorkflowId: string | null;
-  workflowIdFromRoute?: string;
-  navigate: (path: string, options?: { replace?: boolean }) => void;
-  applySnapshot: (
-    snapshot: { nodes: CanvasNode[]; edges: CanvasEdge[] },
-    options?: { resetHistory?: boolean },
-  ) => void;
 }
 
 interface WorkflowSaverHandlers {
@@ -64,111 +35,33 @@ export function useWorkflowSaver(
   options: WorkflowSaverOptions,
 ): WorkflowSaverHandlers {
   const {
-    createSnapshot,
-    convertPersistedNodesToCanvas,
-    convertPersistedEdgesToCanvas,
     setWorkflowName,
     setWorkflowDescription,
-    setCurrentWorkflowId,
     setWorkflowVersions,
     setWorkflowTags,
     workflowName,
     workflowDescription,
     workflowTags,
     currentWorkflowId,
-    workflowIdFromRoute,
-    navigate,
-    applySnapshot,
   } = options;
   const [isSavingWorkflowDetails, setIsSavingWorkflowDetails] = useState(false);
 
-  const persistCurrentWorkflow = useCallback(
-    async ({
-      versionMessage,
-      runnableConfig,
-      successTitle,
-      successDescription,
-    }: {
-      versionMessage: string;
-      runnableConfig?: WorkflowRunnableConfig | null;
-      successTitle: string;
-      successDescription: (saved: StoredWorkflow) => string;
-    }) => {
-      const snapshot = createSnapshot();
-      const persistedNodes = snapshot.nodes.map(toPersistedNode);
-      const persistedEdges = snapshot.edges.map(toPersistedEdge);
-      const tagsToPersist = workflowTags.length > 0 ? workflowTags : ["draft"];
-
-      const saved = await persistWorkflow(
-        {
-          id: currentWorkflowId ?? undefined,
-          name: workflowName.trim() || "Untitled Workflow",
-          description: workflowDescription.trim(),
-          tags: tagsToPersist,
-          nodes: persistedNodes,
-          edges: persistedEdges,
-        },
-        {
-          versionMessage,
-          runnableConfig,
-        },
-      );
-
-      setCurrentWorkflowId(saved.id);
-      setWorkflowName(saved.name);
-      setWorkflowDescription(saved.description ?? "");
-      setWorkflowTags(saved.tags ?? tagsToPersist);
-      setWorkflowVersions(saved.versions ?? []);
-
-      toast({
-        title: successTitle,
-        description: successDescription(saved),
-      });
-
-      const nextWorkflowRouteRef = getWorkflowRouteRef(saved);
-      const workspaceSlug = getSelectedWorkspaceSlug();
-      if (
-        !workflowIdFromRoute ||
-        (workflowIdFromRoute !== saved.id &&
-          workflowIdFromRoute !== nextWorkflowRouteRef)
-      ) {
-        navigate(
-          getWorkspaceWorkflowPath(workspaceSlug, nextWorkflowRouteRef),
-          {
-            replace: !!workflowIdFromRoute,
-          },
-        );
-      }
-
-      return saved;
-    },
-    [
-      createSnapshot,
-      currentWorkflowId,
-      navigate,
-      setCurrentWorkflowId,
-      setWorkflowDescription,
-      setWorkflowName,
-      setWorkflowTags,
-      setWorkflowVersions,
-      workflowDescription,
-      workflowIdFromRoute,
-      workflowName,
-      workflowTags,
-    ],
-  );
-
   const handleSaveWorkflowConfig = useCallback(
     async (runnableConfig: WorkflowRunnableConfig | null) => {
-      const timestampLabel = new Date().toLocaleString();
+      if (!currentWorkflowId) {
+        toast({
+          title: "Save required",
+          description: "Save this workflow before updating its config.",
+          variant: "destructive",
+        });
+        return;
+      }
 
       try {
-        await persistCurrentWorkflow({
-          versionMessage: `Workflow config updated (${timestampLabel})`,
-          runnableConfig,
-          successTitle: "Workflow config saved",
-          successDescription: (saved) =>
-            `Saved config for "${saved.name}" without creating a new version.`,
+        await persistRunnableConfig(currentWorkflowId, "canvas", runnableConfig);
+        toast({
+          title: "Workflow config saved",
+          description: `Saved config for "${workflowName}".`,
         });
       } catch (error) {
         toast({
@@ -179,7 +72,7 @@ export function useWorkflowSaver(
         });
       }
     },
-    [persistCurrentWorkflow],
+    [currentWorkflowId, workflowName],
   );
 
   const handleSaveWorkflowDetails = useCallback(async () => {
@@ -265,17 +158,12 @@ export function useWorkflowSaver(
           return;
         }
 
-        const canvasNodes = convertPersistedNodesToCanvas(snapshot.nodes ?? []);
-        const canvasEdges = convertPersistedEdgesToCanvas(snapshot.edges ?? []);
-        applySnapshot(
-          { nodes: canvasNodes, edges: canvasEdges },
-          { resetHistory: true },
-        );
         setWorkflowName(snapshot.name);
         setWorkflowDescription(snapshot.description ?? "");
         toast({
           title: "Version loaded",
-          description: "Review the restored version and save to keep it.",
+          description:
+            "Metadata restored from the selected version. Save to persist.",
         });
       } catch (error) {
         toast({
@@ -286,14 +174,7 @@ export function useWorkflowSaver(
         });
       }
     },
-    [
-      applySnapshot,
-      convertPersistedEdgesToCanvas,
-      convertPersistedNodesToCanvas,
-      currentWorkflowId,
-      setWorkflowDescription,
-      setWorkflowName,
-    ],
+    [currentWorkflowId, setWorkflowDescription, setWorkflowName],
   );
 
   return {

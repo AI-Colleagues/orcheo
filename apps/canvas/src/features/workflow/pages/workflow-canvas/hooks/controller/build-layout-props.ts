@@ -10,32 +10,9 @@ import type { WorkflowCanvasCore } from "./use-workflow-canvas-core";
 import type { WorkflowCanvasResources } from "./use-workflow-canvas-resources";
 import type { WorkflowCanvasExecution } from "./use-workflow-canvas-execution";
 
-const nodeHasCronTrigger = (
-  node: WorkflowCanvasCore["history"]["nodes"][number],
-): boolean => {
-  if (typeof node.data?.backendType === "string") {
-    return node.data.backendType === "CronTriggerNode";
-  }
-
-  if (typeof node.data?.iconKey === "string") {
-    return node.data.iconKey.toLowerCase() === "schedule";
-  }
-
-  if (typeof node.data?.type === "string") {
-    return node.data.type.toLowerCase() === "crontriggernode";
-  }
-
-  return node.id.toLowerCase().includes("schedule-trigger");
-};
-
 export const hasSchedulableCronTrigger = (
-  nodes: WorkflowCanvasCore["history"]["nodes"],
   versions: WorkflowVersionRecord[],
 ): boolean => {
-  if (nodes.some(nodeHasCronTrigger)) {
-    return true;
-  }
-
   const latestVersion = versions.reduce<WorkflowVersionRecord | undefined>(
     (latest, current) =>
       !latest || current.versionNumber > latest.versionNumber
@@ -109,7 +86,6 @@ export function buildWorkflowLayoutProps(
     onRunWorkflow: execution.handleRunPersistedWorkflow,
     onSaveConfig: resources.saver.handleSaveWorkflowConfig,
     hasCronTriggerNode: hasSchedulableCronTrigger(
-      core.history.nodes,
       core.metadata.workflowVersions ?? [],
     ),
     initialIsPublished: core.metadata.isWorkflowPublic,

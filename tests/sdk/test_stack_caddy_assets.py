@@ -85,7 +85,7 @@ def test_env_example_documents_public_ingress_contract() -> None:
     assert "ORCHEO_PUBLIC_HOST=" in content
     assert "COMPOSE_PROFILES=" in content
     assert "ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:2025" in content
-    assert "VITE_ALLOWED_HOSTS=localhost,127.0.0.1" in content
+    assert "VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1" in content
 
 
 def test_staging_compose_builds_local_images_from_repo_source() -> None:

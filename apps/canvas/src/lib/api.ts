@@ -371,3 +371,67 @@ export async function submitExternalAgentLoginInput(
     baseUrl,
   );
 }
+
+export interface WorkspaceMember {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  user_name?: string;
+  role: "owner" | "admin" | "editor" | "viewer";
+  created_at: string;
+}
+
+export async function listWorkspaceMembers(
+  slug: string,
+  baseUrl?: string,
+): Promise<WorkspaceMember[]> {
+  return requestSystemJson<WorkspaceMember[]>(
+    `/api/workspaces/${slug}/members`,
+    { method: "GET" },
+    baseUrl,
+  );
+}
+
+export async function addWorkspaceMember(
+  slug: string,
+  request: { user_id: string; role: "owner" | "admin" | "editor" | "viewer" },
+  baseUrl?: string,
+): Promise<WorkspaceMember> {
+  return requestSystemJson<WorkspaceMember>(
+    `/api/workspaces/${slug}/members`,
+    { method: "POST", body: JSON.stringify(request) },
+    baseUrl,
+  );
+}
+
+export async function updateWorkspaceMemberRole(
+  slug: string,
+  userId: string,
+  role: "owner" | "admin" | "editor" | "viewer",
+  baseUrl?: string,
+): Promise<WorkspaceMember> {
+  return requestSystemJson<WorkspaceMember>(
+    `/api/workspaces/${slug}/members/${userId}`,
+    { method: "PATCH", body: JSON.stringify({ role }) },
+    baseUrl,
+  );
+}
+
+export async function removeWorkspaceMember(
+  slug: string,
+  userId: string,
+  baseUrl?: string,
+): Promise<void> {
+  const url = buildBackendHttpUrl(
+    `/api/workspaces/${slug}/members/${userId}`,
+    baseUrl,
+  );
+  const response = await authFetch(url, { method: "DELETE" });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({
+      detail: "Failed to remove workspace member",
+    }));
+    throw new Error(errorData.detail || `HTTP ${response.status}`);
+  }
+}

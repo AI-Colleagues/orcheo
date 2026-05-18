@@ -151,14 +151,14 @@ services:
       # Use system Python from base image instead of downloading
       UV_PYTHON_PREFERENCE: system
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
-      CELERY_BEAT_SCHEDULE_FILE: /data/celerybeat-schedule
+      ORCHEO_CELERY_BEAT_SCHEDULE_FILE: /data/celerybeat-schedule
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
     command: >
-      sh -c 'uv run celery -A orcheo_backend.worker.celery_app beat --loglevel=info -s "$$CELERY_BEAT_SCHEDULE_FILE"'
+      sh -c 'uv run celery -A orcheo_backend.worker.celery_app beat --loglevel=info -s "$$ORCHEO_CELERY_BEAT_SCHEDULE_FILE"'
 
   canvas:
     build:
@@ -183,7 +183,7 @@ services:
       VITE_ORCHEO_AUTH_PROVIDER_GITHUB: ${VITE_ORCHEO_AUTH_PROVIDER_GITHUB:-}
       VITE_ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER: ${VITE_ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER:-X-Orcheo-Workspace}
       VITE_ORCHEO_CHATKIT_DOMAIN_KEY: ${VITE_ORCHEO_CHATKIT_DOMAIN_KEY:-domain_pk_6954ef8b091c8190b0734f266b51edd00094f73ed7d04989}
-      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-orcheo-canvas.ai-colleagues.com}
+      VITE_ORCHEO_ALLOWED_HOSTS: ${VITE_ORCHEO_ALLOWED_HOSTS:-orcheo-canvas.ai-colleagues.com}
     depends_on:
       - backend
     command: >

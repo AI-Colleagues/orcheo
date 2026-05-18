@@ -31,7 +31,7 @@ The design intentionally does not try to replace Cloudflare Tunnel. Tunnel produ
 - **Canvas Runtime Configuration (`apps/canvas/src/lib/config.ts`, stack env injection)**
   - Uses the configured public backend URL for API and WebSocket traffic.
   - Must accept the public hostname when served behind the ingress host.
-  - Key dependencies: `VITE_ORCHEO_BACKEND_URL`, `VITE_ALLOWED_HOSTS`.
+  - Key dependencies: `VITE_ORCHEO_BACKEND_URL`, `VITE_ORCHEO_ALLOWED_HOSTS`.
 
 - **Backend Runtime Configuration (`apps/backend/`, stack env)**
   - Continues serving API and WebSocket routes internally.
@@ -101,7 +101,7 @@ ORCHEO_PUBLIC_HOST=orcheo.example.com
 ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo.example.com
 ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://orcheo.example.com
 VITE_ORCHEO_BACKEND_URL=https://orcheo.example.com
-VITE_ALLOWED_HOSTS=orcheo.example.com
+VITE_ORCHEO_ALLOWED_HOSTS=orcheo.example.com
 ```
 
 Field names above are illustrative for the contract. The final implementation may consolidate them into existing env vars instead of adding all new names.

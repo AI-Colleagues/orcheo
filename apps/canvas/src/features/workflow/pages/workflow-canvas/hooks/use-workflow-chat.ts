@@ -2,11 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
-import type {
-  CanvasNode,
-  NodeData,
-  NodeStatus,
-} from "@features/workflow/pages/workflow-canvas/helpers/types";
 import {
   requestWorkflowChatSession,
   type WorkflowChatSession,
@@ -16,8 +11,6 @@ import { recordChatTelemetry } from "@features/chatkit/lib/telemetry";
 export type ChatSessionStatus = "idle" | "loading" | "ready" | "error";
 
 type UseWorkflowChatArgs = {
-  nodesRef: React.MutableRefObject<CanvasNode[]>;
-  setNodes: React.Dispatch<React.SetStateAction<CanvasNode[]>>;
   workflowId: string | null | undefined;
   backendBaseUrl: string | null;
   userName: string;
@@ -26,8 +19,6 @@ type UseWorkflowChatArgs = {
 const SESSION_REFRESH_BUFFER_MS = 30_000;
 
 export const useWorkflowChat = ({
-  nodesRef,
-  setNodes,
   workflowId,
   backendBaseUrl,
   userName,
@@ -127,22 +118,13 @@ export const useWorkflowChat = ({
     [isSessionValid, refreshSession],
   );
 
-  const handleOpenChat = useCallback(
-    (nodeId: string) => {
-      const chatNode = nodesRef.current.find((node) => node.id === nodeId);
-      if (chatNode) {
-        setChatTitle(chatNode.data.label || "Chat");
-        setActiveChatNodeId(nodeId);
-        setIsChatOpen(true);
-        recordChatTelemetry("canvas.chat.open", {
-          workflowId,
-          nodeId,
-        });
-        void refreshSession();
-      }
-    },
-    [nodesRef, refreshSession, workflowId],
-  );
+  const handleOpenChat = useCallback(() => {
+    setChatTitle("Chat");
+    setActiveChatNodeId(null);
+    setIsChatOpen(true);
+    recordChatTelemetry("canvas.chat.open", { workflowId });
+    void refreshSession();
+  }, [refreshSession, workflowId]);
 
   const handleCloseChat = useCallback(() => {
     setIsChatOpen(false);
@@ -150,49 +132,13 @@ export const useWorkflowChat = ({
     recordChatTelemetry("canvas.chat.close", { workflowId });
   }, [workflowId]);
 
-  const handleChatResponseStart = useCallback(() => {
-    if (!activeChatNodeId) {
-      return;
-    }
+  const handleChatResponseStart = useCallback(() => {}, []);
 
-    setNodes((nodes) =>
-      nodes.map((node) =>
-        node.id === activeChatNodeId
-          ? {
-              ...node,
-              data: {
-                ...node.data,
-                status: "running" as NodeStatus,
-              },
-            }
-          : node,
-      ),
-    );
-  }, [activeChatNodeId, setNodes]);
-
-  const handleChatResponseEnd = useCallback(() => {
-    if (!activeChatNodeId) {
-      return;
-    }
-
-    setNodes((nodes) =>
-      nodes.map((node) =>
-        node.id === activeChatNodeId
-          ? {
-              ...node,
-              data: {
-                ...node.data,
-                status: "success" as NodeStatus,
-              },
-            }
-          : node,
-      ),
-    );
-  }, [activeChatNodeId, setNodes]);
+  const handleChatResponseEnd = useCallback(() => {}, []);
 
   const handleChatClientTool = useCallback(
     async (toolCall: { name: string; params: Record<string, unknown> }) => {
-      if (!activeChatNodeId || toolCall.name !== "orcheo.run_workflow") {
+      if (toolCall.name !== "orcheo.run_workflow") {
         return {};
       }
 
@@ -239,27 +185,9 @@ export const useWorkflowChat = ({
       }
 
       const result = (await response.json()) as Record<string, unknown>;
-
       return result;
     },
-    [activeChatNodeId, backendBaseUrl, userName, workflowId],
-  );
-
-  const attachChatHandlerToNode = useCallback(
-    (node: CanvasNode): CanvasNode => {
-      if (node.type !== "chatTrigger") {
-        return node;
-      }
-      const data = node.data as NodeData;
-      return {
-        ...node,
-        data: {
-          ...data,
-          onOpenChat: () => handleOpenChat(node.id),
-        },
-      };
-    },
-    [handleOpenChat],
+    [backendBaseUrl, userName, workflowId],
   );
 
   return {
@@ -274,7 +202,6 @@ export const useWorkflowChat = ({
     handleChatResponseStart,
     handleChatResponseEnd,
     handleChatClientTool,
-    attachChatHandlerToNode,
     getClientSecret,
     refreshSession,
     sessionStatus,

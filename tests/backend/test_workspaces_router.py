@@ -31,6 +31,7 @@ from orcheo_backend.app.routers.workspaces import (
     get_workspace,
     list_my_memberships,
     list_workspace_audit_events,
+    list_workspace_members,
     purge_deleted_workspaces,
     update_workspace_status,
     add_workspace_member,
@@ -142,6 +143,9 @@ def _service(
         if remove_raises:
             raise remove_raises
 
+    def _list_members(workspace_id):
+        return [ms]
+
     repository = SimpleNamespace(
         get_workspace=_get_workspace,
         get_workspace_by_slug=_get_workspace_by_slug,
@@ -162,6 +166,7 @@ def _service(
         invite_member=_invite_member,
         update_member_role=_update_member_role,
         remove_member=_remove_member,
+        list_members=_list_members,
     )
 
 
@@ -424,6 +429,44 @@ def test_list_my_memberships_unauthenticated_raises_401() -> None:
 
     assert exc_info.value.status_code == 401
     assert exc_info.value.error_code == "auth.authentication_required"
+
+
+# ---------------------------------------------------------------------------
+# list_workspace_members
+# ---------------------------------------------------------------------------
+
+
+def test_list_workspace_members_returns_serialized_memberships() -> None:
+    ws = _workspace()
+    service = _service(workspace=ws)
+    context = _context(workspace_id=ws.id)
+
+    result = list_workspace_members(ws.slug, service, context)  # type: ignore[arg-type]
+
+    assert len(result) == 1
+    assert result[0].user_id == "user-1"
+
+
+def test_list_workspace_members_workspace_not_found_raises_404() -> None:
+    service = _service(get_workspace_by_slug_raises=WorkspaceNotFoundError("missing"))
+    context = _context()
+
+    with pytest.raises(WorkspaceHTTPError) as exc_info:
+        list_workspace_members("missing-slug", service, context)  # type: ignore[arg-type]
+
+    assert exc_info.value.status_code == 404
+
+
+def test_list_workspace_members_scope_mismatch_raises_403() -> None:
+    ws = _workspace()
+    service = _service(workspace=ws)
+    context = _context(workspace_id=uuid4())
+
+    with pytest.raises(WorkspaceHTTPError) as exc_info:
+        list_workspace_members(ws.slug, service, context)  # type: ignore[arg-type]
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.error_code == "workspace.scope_mismatch"
 
 
 # ---------------------------------------------------------------------------

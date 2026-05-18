@@ -105,7 +105,7 @@ Remediation statuses:
 Operational logs include event-style messages for recorded candidates, skipped
 scans, empty scans, claimed candidates, note-only results, dry-run results,
 validation failures, fixed versions, and unexpected attempt failures. With
-`LOG_FORMAT=json`, these events can be counted by searching for the
+`ORCHEO_LOG_FORMAT=json`, these events can be counted by searching for the
 `Workflow remediation ...` message prefixes.
 
 ## Local Development

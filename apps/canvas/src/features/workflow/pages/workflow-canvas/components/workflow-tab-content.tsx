@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, ExternalLink, Play, Trash } from "lucide-react";
+import { Copy, ExternalLink, Play, RefreshCw, Trash } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Controls, ReactFlow, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -8,6 +8,7 @@ import { Button } from "@/design-system/ui/button";
 import { Switch } from "@/design-system/ui/switch";
 import { toast } from "@/hooks/use-toast";
 import { ConfirmDeleteWorkflowDialog } from "@features/workflow/components/dialogs/confirm-delete-workflow-dialog";
+import { UpdateWorkflowDialog } from "@features/workflow/components/dialogs/update-workflow-dialog";
 import { deleteWorkflow } from "@features/workflow/lib/workflow-storage";
 import { VIBE_WORKFLOW_HANDLE } from "@features/vibe/constants";
 import {
@@ -185,6 +186,7 @@ export function WorkflowTabContent({
   const [diagramError, setDiagramError] = useState<string | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeletePending, setIsDeletePending] = useState(false);
+  const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
   const canDeleteWorkflow =
     Boolean(workflowId) && workflowRouteRef !== VIBE_WORKFLOW_HANDLE;
 
@@ -533,6 +535,15 @@ export function WorkflowTabContent({
                 disabled={isSchedulePending || !canToggleSchedule}
               />
             </div>
+            {workflowId ? (
+              <Button
+                variant="outline"
+                onClick={() => setIsUpdateDialogOpen(true)}
+              >
+                <RefreshCw className="mr-1.5 h-4 w-4" />
+                Update
+              </Button>
+            ) : null}
             {canDeleteWorkflow ? (
               <Button
                 variant="destructive"
@@ -659,6 +670,15 @@ export function WorkflowTabContent({
           isPending={isDeletePending}
           onOpenChange={setIsDeleteDialogOpen}
           onConfirm={handleDeleteCurrentWorkflow}
+        />
+      ) : null}
+
+      {workflowId ? (
+        <UpdateWorkflowDialog
+          open={isUpdateDialogOpen}
+          onOpenChange={setIsUpdateDialogOpen}
+          workflowId={workflowId}
+          workflowName={workflowName}
         />
       ) : null}
     </>

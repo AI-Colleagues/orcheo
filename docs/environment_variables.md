@@ -54,7 +54,7 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `VITE_ORCHEO_AUTH_PROVIDER_SIGNUP` | _none_ | String | Optional provider hint used for the sign-up flow when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. Leave unset to send sign-up to the generic IdP signup screen. |
 | `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` | _none_ | String | ChatKit domain key used by Canvas public chat surfaces. Setup prompts for this value; if left unset/placeholder, ChatKit UI features remain disabled until configured. |
 | `VITE_ORCHEO_CHATKIT_DEFAULT_DOMAIN_KEY` | `domain_pk_localhost_dev` | String | Dev-only fallback domain key used when neither `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` nor runtime `window.__ORCHEO_CONFIG__.chatkitDomainKey` is provided (`features/chatkit/lib/chatkit-client.ts`). |
-| `VITE_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated hostnames | Hostnames the Canvas server will accept requests for (maps to `server.allowedHosts` in `vite.config.ts`). Public-ingress installs append the configured public hostname. Tunnel or custom split-origin installs should include the public Canvas hostname here. |
+| `VITE_ORCHEO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated hostnames | Hostnames the Canvas server will accept requests for (maps to `server.allowedHosts` in `vite.config.ts`). Public-ingress installs append the configured public hostname. Tunnel or custom split-origin installs should include the public Canvas hostname here. |
 
 ## Vault configuration
 
@@ -120,10 +120,10 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
 | `ORCHEO_ENV` | _none_ | String (`development`, `dev`, `local`, etc.) | Preferred indicator of a developer environment when deciding to expose sensitive logs (`chatkit_runtime.py`). |
-| `NODE_ENV` | `production` | String | Default runtime environment when `ORCHEO_ENV` is unset (`chatkit_runtime.py`). |
-| `LOG_SENSITIVE_DEBUG` | _none_ | Set to `1` to enable; otherwise leave blank | Forces sensitive logging even outside of a recognized dev environment (`chatkit_runtime.py`). |
-| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, etc. | Controls the logger thresholds configured in `logging_config.py`. |
-| `LOG_FORMAT` | `console` | `console` or `json` | Selects structured log rendering. Any value other than `console` falls back to JSON rendering (`logging_config.py`). |
+| `NODE_ENV` | `production` | String | Standard runtime environment fallback when `ORCHEO_ENV` is unset (`chatkit_runtime.py`). |
+| `ORCHEO_LOG_SENSITIVE_DEBUG` | _none_ | Set to `1` to enable; otherwise leave blank | Forces sensitive logging even outside of a recognized dev environment (`chatkit_runtime.py`). |
+| `ORCHEO_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, etc. | Controls the logger thresholds configured in `logging_config.py`. |
+| `ORCHEO_LOG_FORMAT` | `console` | `console` or `json` | Selects structured log rendering. Any value other than `console` falls back to JSON rendering (`logging_config.py`). |
 
 ## Node integration configuration
 
@@ -136,8 +136,8 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL | Broker URL for Celery task queue (`celery_app.py`). |
-| `CRON_DISPATCH_INTERVAL` | `60` | Float (seconds) | Interval at which Celery Beat dispatches cron triggers (`celery_app.py`). |
-| `CELERY_BEAT_SCHEDULE_FILE` | `celerybeat-schedule` | Filesystem path | Location of the Celery Beat schedule database; use `-s` flag or this env var to override (`celery_app.py`). |
+| `ORCHEO_CRON_DISPATCH_INTERVAL` | `60` | Float (seconds) | Interval at which Celery Beat dispatches cron triggers (`celery_app.py`). |
+| `ORCHEO_CELERY_BEAT_SCHEDULE_FILE` | `celerybeat-schedule` | Filesystem path | Location of the Celery Beat schedule database; use `-s` flag or this env var to override (`celery_app.py`). |
 | `ORCHEO_WORKFLOW_AUTOFIX_ENABLED` | `true` | Boolean (`1/0`, `true/false`, etc.) | Enables automatic workflow remediation candidate scanning and Orcheo Vibe attempts after failed-run persistence succeeds (`workflow_remediation.py`). |
 | `ORCHEO_WORKFLOW_AUTOFIX_SCAN_INTERVAL_SECONDS` | `60` | Float seconds | Celery Beat interval for `scan_workflow_remediations` (`celery_app.py`). |
 | `ORCHEO_WORKFLOW_AUTOFIX_MAX_CONCURRENT_ATTEMPTS` | `1` | Integer >= 1 | Maximum claimed remediation attempts allowed at once; defaults to one so normal workflow execution keeps priority (`workflow_remediation.py`). |

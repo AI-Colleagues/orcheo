@@ -70,7 +70,7 @@ Use this path on a reachable self-hosted Linux host, such as a cloud VM or an on
 - `VITE_ORCHEO_BACKEND_URL=https://<host>`
 - `ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://<host>`
 - `ORCHEO_CORS_ALLOW_ORIGINS=https://<host>` plus localhost origins for development
-- `VITE_ALLOWED_HOSTS=localhost,127.0.0.1,<host>`
+- `VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1,<host>`
 
 Bundled Caddy is the recommended ingress for reachable self-hosted installs. It is not a replacement for Cloudflare Tunnel when inbound ports are unavailable.
 
@@ -136,7 +136,7 @@ ORCHEO_API_URL=https://orcheo.example.com
 VITE_ORCHEO_BACKEND_URL=https://orcheo.example.com
 ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com
 ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://orcheo-canvas.example.com
-VITE_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com
+VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com
 ```
 
 Use one hostname for backend requests and websocket traffic, and the Canvas hostname as the browser origin:

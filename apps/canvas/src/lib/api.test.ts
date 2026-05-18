@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  addWorkspaceMember,
   getActiveWorkspace,
   createWorkspace,
   disconnectExternalAgent,
@@ -7,9 +8,12 @@ import {
   getExternalAgentLoginSession,
   getExternalAgents,
   getSystemInfo,
+  listWorkspaceMembers,
   refreshExternalAgents,
+  removeWorkspaceMember,
   startExternalAgentLogin,
   submitExternalAgentLoginInput,
+  updateWorkspaceMemberRole,
 } from "./api";
 import {
   clearSelectedWorkspaceSlug,
@@ -397,6 +401,113 @@ describe("executeNode", () => {
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining("/api/system/external-agents/sessions/session-2"),
       expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("should list workspace members", async () => {
+    const mockMembers = [
+      {
+        id: "membership-1",
+        workspace_id: "workspace-1",
+        user_id: "user-1",
+        role: "owner",
+        created_at: "2026-05-17T12:00:00Z",
+      },
+    ];
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockMembers,
+    });
+
+    const result = await listWorkspaceMembers("acme");
+    expect(result).toEqual(mockMembers);
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/workspaces/acme/members"),
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("should throw with backend detail when listing members fails", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ detail: "Forbidden" }),
+    });
+
+    await expect(listWorkspaceMembers("acme")).rejects.toThrow("Forbidden");
+  });
+
+  it("should add a workspace member", async () => {
+    const mockMember = {
+      id: "membership-2",
+      workspace_id: "workspace-1",
+      user_id: "user-2",
+      role: "editor",
+      created_at: "2026-05-17T12:00:00Z",
+    };
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockMember,
+    });
+
+    const result = await addWorkspaceMember("acme", {
+      user_id: "user-2",
+      role: "editor",
+    });
+    expect(result.user_id).toBe("user-2");
+    const [, options] = (global.fetch as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body as string)).toEqual({
+      user_id: "user-2",
+      role: "editor",
+    });
+  });
+
+  it("should update a workspace member's role", async () => {
+    const mockMember = {
+      id: "membership-2",
+      workspace_id: "workspace-1",
+      user_id: "user-2",
+      role: "admin",
+      created_at: "2026-05-17T12:00:00Z",
+    };
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockMember,
+    });
+
+    const result = await updateWorkspaceMemberRole("acme", "user-2", "admin");
+    expect(result.role).toBe("admin");
+    const [url, options] = (global.fetch as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(url).toContain("/api/workspaces/acme/members/user-2");
+    expect(options.method).toBe("PATCH");
+    expect(JSON.parse(options.body as string)).toEqual({ role: "admin" });
+  });
+
+  it("should remove a workspace member", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      status: 204,
+    });
+
+    await removeWorkspaceMember("acme", "user-2");
+    const [url, options] = (global.fetch as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(url).toContain("/api/workspaces/acme/members/user-2");
+    expect(options.method).toBe("DELETE");
+  });
+
+  it("should throw when remove member fails", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: async () => ({ detail: "Membership not found" }),
+    });
+
+    await expect(removeWorkspaceMember("acme", "ghost")).rejects.toThrow(
+      "Membership not found",
     );
   });
 

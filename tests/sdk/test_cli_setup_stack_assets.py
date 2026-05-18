@@ -473,7 +473,7 @@ def test_execute_setup_preserves_existing_tunnel_browser_origin_settings(
     (stack_dir / ".env").write_text(
         "ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://orcheo-canvas.example.com\n"
         "ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com\n"
-        "VITE_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com\n",
+        "VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com\n",
         encoding="utf-8",
     )
     _patch_common(monkeypatch, stack_dir=stack_dir, has_docker=False)
@@ -490,7 +490,7 @@ def test_execute_setup_preserves_existing_tunnel_browser_origin_settings(
     )
     assert "ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com" in env_content
     assert (
-        "VITE_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com"
+        "VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com"
         in env_content
     )
 
@@ -1445,7 +1445,9 @@ def test_run_setup_public_ingress_derives_public_env_contract(
     assert updates["ORCHEO_CORS_ALLOW_ORIGINS"] == (
         "https://orcheo.example.com,http://localhost:2026,http://127.0.0.1:2026"
     )
-    assert updates["VITE_ALLOWED_HOSTS"] == "localhost,127.0.0.1,orcheo.example.com"
+    assert (
+        updates["VITE_ORCHEO_ALLOWED_HOSTS"] == "localhost,127.0.0.1,orcheo.example.com"
+    )
     assert updates["COMPOSE_PROFILES"] == "public-ingress"
     assert updates["ORCHEO_CADDY_SITE_ADDRESS"] == "orcheo.example.com"
 

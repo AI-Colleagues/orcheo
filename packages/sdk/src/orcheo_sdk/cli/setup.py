@@ -1145,7 +1145,7 @@ def _build_env_updates(
         "VITE_ORCHEO_BACKEND_URL": config.backend_url,
         "ORCHEO_CHATKIT_PUBLIC_BASE_URL": _build_chatkit_public_base_url(config),
         "ORCHEO_CORS_ALLOW_ORIGINS": _build_cors_origins(config),
-        "VITE_ALLOWED_HOSTS": _build_allowed_hosts(config),
+        "VITE_ORCHEO_ALLOWED_HOSTS": _build_allowed_hosts(config),
         "ORCHEO_PUBLIC_INGRESS_ENABLED": str(config.public_ingress_enabled).lower(),
         "ORCHEO_PUBLIC_HOST": config.public_host or "",
         "ORCHEO_PUBLISH_LOCAL_PORTS": str(config.publish_local_ports).lower(),
@@ -1321,7 +1321,7 @@ def _preserve_existing_stack_browser_urls(
         for key in (
             "ORCHEO_CHATKIT_PUBLIC_BASE_URL",
             "ORCHEO_CORS_ALLOW_ORIGINS",
-            "VITE_ALLOWED_HOSTS",
+            "VITE_ORCHEO_ALLOWED_HOSTS",
         ):
             if _read_env_value(env_file, key) is not None:
                 updates.pop(key, None)

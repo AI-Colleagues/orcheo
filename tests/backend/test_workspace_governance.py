@@ -440,7 +440,10 @@ def test_get_workspace_governance(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         governance_mod,
         "get_settings",
-        lambda: {"REDIS_URL": "redis://localhost", "MULTI_WORKSPACE_RATE_LIMIT": "50"},
+        lambda: {
+            "REDIS_URL": "redis://localhost",
+            "MULTI_WORKSPACE_RATE_LIMIT": "50",
+        },
     )
 
     manager = governance_mod.get_workspace_governance()

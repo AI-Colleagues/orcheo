@@ -3,19 +3,6 @@ import { useEffect, useRef } from "react";
 
 import { toast } from "@/hooks/use-toast";
 import {
-  GALLERY_TEMPLATE_WORKFLOWS,
-  getWorkflowTemplateDefinition,
-  type WorkflowNode as PersistedWorkflowNode,
-  type WorkflowEdge as PersistedWorkflowEdge,
-} from "@features/workflow/data/workflow-data";
-import {
-  collectCredentialPlaceholderNames,
-  describeCredentialVaultReadiness,
-  describeRequiredCredentialPlaceholders,
-  showCredentialReminderToast,
-} from "@features/workflow/lib/credential-vault-reminder";
-import { fetchWorkflowCredentialReadiness } from "@features/workflow/lib/workflow-storage-api";
-import {
   getWorkflowById,
   type StoredWorkflow,
 } from "@features/workflow/lib/workflow-storage";
@@ -26,7 +13,7 @@ import type {
 import { loadWorkflowExecutions } from "@features/workflow/lib/workflow-execution-storage";
 import type { WorkflowExecution } from "@features/workflow/pages/workflow-canvas/helpers/types";
 
-interface UseWorkflowLoaderParams<TNode, TEdge> {
+interface UseWorkflowLoaderParams {
   workflowId: string | undefined;
   loadExecutionHistory: boolean;
   setCurrentWorkflowId: Dispatch<SetStateAction<string | null>>;
@@ -46,15 +33,9 @@ interface UseWorkflowLoaderParams<TNode, TEdge> {
   setWorkflowLoadError: Dispatch<SetStateAction<string | null>>;
   setExecutions: Dispatch<SetStateAction<WorkflowExecution[]>>;
   setActiveExecutionId: Dispatch<SetStateAction<string | null>>;
-  convertPersistedNodesToCanvas: (nodes: PersistedWorkflowNode[]) => TNode[];
-  convertPersistedEdgesToCanvas: (edges: PersistedWorkflowEdge[]) => TEdge[];
-  applySnapshot: (
-    snapshot: { nodes: TNode[]; edges: TEdge[] },
-    options?: { resetHistory?: boolean },
-  ) => void;
 }
 
-export function useWorkflowLoader<TNode, TEdge>({
+export function useWorkflowLoader({
   workflowId,
   loadExecutionHistory,
   setCurrentWorkflowId,
@@ -70,18 +51,14 @@ export function useWorkflowLoader<TNode, TEdge>({
   setWorkflowLoadError,
   setExecutions,
   setActiveExecutionId,
-  convertPersistedNodesToCanvas,
-  convertPersistedEdgesToCanvas,
-  applySnapshot,
-}: UseWorkflowLoaderParams<TNode, TEdge>) {
+}: UseWorkflowLoaderParams) {
   const currentWorkflowRef = useRef<StoredWorkflow | null>(null);
   const loadedHistoryWorkflowIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
-    let disposeReminderToast: (() => void) | undefined;
 
-    const resetToBlankWorkflow = () => {
+    const resetToBlank = () => {
       setCurrentWorkflowId(null);
       setWorkflowName("New Workflow");
       setWorkflowDescription("");
@@ -93,7 +70,6 @@ export function useWorkflowLoader<TNode, TEdge>({
       setWorkflowShareUrl(null);
       setExecutions([]);
       setActiveExecutionId(null);
-      applySnapshot({ nodes: [], edges: [] }, { resetHistory: true });
     };
 
     const loadWorkflow = async () => {
@@ -129,38 +105,7 @@ export function useWorkflowLoader<TNode, TEdge>({
           setWorkflowShareUrl(persisted.shareUrl ?? null);
           setExecutions([]);
           setActiveExecutionId(null);
-          const canvasNodes = convertPersistedNodesToCanvas(
-            persisted.nodes ?? [],
-          );
-          const canvasEdges = convertPersistedEdgesToCanvas(
-            persisted.edges ?? [],
-          );
-          applySnapshot(
-            { nodes: canvasNodes, edges: canvasEdges },
-            { resetHistory: true },
-          );
-          disposeReminderToast?.();
-          if (isMounted) {
-            setIsWorkflowLoading(false);
-          }
-          void (async () => {
-            const readiness = await fetchWorkflowCredentialReadiness(
-              persisted.id,
-            ).catch(() => undefined);
-            if (!isMounted || currentWorkflowRef.current?.id !== persisted.id) {
-              return;
-            }
-            const reminder = describeCredentialVaultReadiness(readiness);
-            if (!reminder) {
-              return;
-            }
-            disposeReminderToast?.();
-            disposeReminderToast = showCredentialReminderToast({
-              title: "Workflow loaded",
-              description: reminder,
-              highlightedCredentialNames: readiness?.missing_credentials ?? [],
-            });
-          })();
+          setIsWorkflowLoading(false);
           return;
         }
       } catch (error) {
@@ -184,49 +129,10 @@ export function useWorkflowLoader<TNode, TEdge>({
           setActiveExecutionId(null);
           setIsWorkflowLoading(false);
         }
-      }
-
-      if (!isMounted) {
         return;
       }
 
-      const template = GALLERY_TEMPLATE_WORKFLOWS.find(
-        (w) => w.id === workflowId,
-      );
-      if (template) {
-        const templateDefinition = getWorkflowTemplateDefinition(template.id);
-        const placeholderNames = collectCredentialPlaceholderNames({
-          script: templateDefinition?.script,
-          runnableConfig: templateDefinition?.runnableConfig ?? null,
-        });
-        currentWorkflowRef.current = null;
-        loadedHistoryWorkflowIdRef.current = null;
-        setCurrentWorkflowId(null);
-        setWorkflowName(template.name);
-        setWorkflowDescription(template.description ?? "");
-        setWorkflowTags(template.tags.filter((tag) => tag !== "template"));
-        setWorkflowVersions([]);
-        setChatkitStartScreenPrompts(null);
-        setChatkitSupportedModels(null);
-        setIsWorkflowPublic(false);
-        setWorkflowShareUrl(null);
-        setExecutions([]);
-        setActiveExecutionId(null);
-        const canvasNodes = convertPersistedNodesToCanvas(template.nodes);
-        const canvasEdges = convertPersistedEdgesToCanvas(template.edges);
-        applySnapshot(
-          { nodes: canvasNodes, edges: canvasEdges },
-          { resetHistory: true },
-        );
-        disposeReminderToast?.();
-        disposeReminderToast = showCredentialReminderToast({
-          title: "Template loaded",
-          description: `Save to add this workflow to your workspace. ${describeRequiredCredentialPlaceholders(
-            placeholderNames,
-          )}`,
-          highlightedCredentialNames: placeholderNames,
-        });
-        setIsWorkflowLoading(false);
+      if (!isMounted) {
         return;
       }
 
@@ -234,11 +140,11 @@ export function useWorkflowLoader<TNode, TEdge>({
       loadedHistoryWorkflowIdRef.current = null;
       toast({
         title: "Workflow not found",
-        description: "Starting a new workflow instead.",
+        description: "The requested workflow could not be found.",
         variant: "destructive",
       });
       setWorkflowLoadError("Workflow not found");
-      resetToBlankWorkflow();
+      resetToBlank();
       setIsWorkflowLoading(false);
     };
 
@@ -246,12 +152,8 @@ export function useWorkflowLoader<TNode, TEdge>({
 
     return () => {
       isMounted = false;
-      disposeReminderToast?.();
     };
   }, [
-    applySnapshot,
-    convertPersistedEdgesToCanvas,
-    convertPersistedNodesToCanvas,
     setCurrentWorkflowId,
     setExecutions,
     setActiveExecutionId,

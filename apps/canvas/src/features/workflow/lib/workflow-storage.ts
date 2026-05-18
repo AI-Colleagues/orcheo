@@ -133,6 +133,24 @@ const buildTemplateCanvasMetadata = ({
   summary: { added: 0, removed: 0, modified: 0 },
 });
 
+const archiveWorkflowAfterFailedIngest = async (
+  workflowId: string,
+  actor: string,
+): Promise<void> => {
+  try {
+    await request(
+      `${API_BASE}/${workflowId}?actor=${encodeURIComponent(actor)}`,
+      {
+        method: "DELETE",
+      },
+    );
+    invalidateWorkflowListCache();
+    emitUpdate();
+  } catch {
+    // Preserve the original ingest error so callers see why the upload failed.
+  }
+};
+
 const assertTemplatePluginRequirements = async (
   requiredPlugins: string[] | undefined,
 ): Promise<void> => {
@@ -345,6 +363,82 @@ export const getVersionSnapshot = async (
 ): Promise<WorkflowSnapshot | undefined> => {
   const workflow = await getWorkflowById(workflowId);
   return workflow?.versions.find((entry) => entry.id === versionId)?.snapshot;
+};
+
+export const uploadWorkflowFromFiles = async (
+  workflowName: string,
+  script: string,
+  config: Record<string, unknown> | null,
+  options?: { actor?: string },
+): Promise<StoredWorkflow> => {
+  const actor = resolveActor(options?.actor);
+  const created = await request<ApiWorkflow>(API_BASE, {
+    method: "POST",
+    body: JSON.stringify({
+      name: workflowName,
+      description: null,
+      tags: [],
+      actor,
+    }),
+  });
+
+  try {
+    await request(`${API_BASE}/${created.id}/versions/ingest`, {
+      method: "POST",
+      body: JSON.stringify({
+        script,
+        entrypoint: null,
+        runnable_config: config ?? null,
+        metadata: { source: "canvas-upload" },
+        notes: null,
+        created_by: actor,
+      }),
+    });
+  } catch (error) {
+    await archiveWorkflowAfterFailedIngest(created.id, actor);
+    throw error;
+  }
+
+  const stored = await ensureWorkflow(created.id);
+  if (!stored) {
+    throw new Error("Failed to load uploaded workflow");
+  }
+
+  invalidateWorkflowListCache();
+  primeWorkflowCache(stored);
+  emitUpdate();
+  return stored;
+};
+
+export const updateWorkflowFromFiles = async (
+  workflowId: string,
+  script: string,
+  config: Record<string, unknown> | null,
+  options?: { actor?: string },
+): Promise<StoredWorkflow> => {
+  const actor = resolveActor(options?.actor);
+
+  await request(`${API_BASE}/${workflowId}/versions/ingest`, {
+    method: "POST",
+    body: JSON.stringify({
+      script,
+      entrypoint: null,
+      runnable_config: config ?? null,
+      metadata: { source: "canvas-update" },
+      notes: null,
+      created_by: actor,
+    }),
+  });
+
+  const stored = await ensureWorkflow(workflowId);
+  if (!stored) {
+    throw new Error("Failed to load updated workflow");
+  }
+
+  invalidateWorkflowListCache();
+  primeWorkflowCache(stored);
+  emitUpdate();
+  return stored;
 };
 
 export const deleteWorkflow = async (

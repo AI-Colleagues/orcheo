@@ -1,6 +1,4 @@
-import { useMemo, useState } from "react";
-import type { Connection } from "@xyflow/react";
-import { addEdge, MarkerType } from "@xyflow/react";
+import { useState } from "react";
 import { toast } from "@/hooks/use-toast";
 import { getAccessToken } from "@features/auth/lib/auth-session";
 import {
@@ -8,59 +6,42 @@ import {
   buildWorkflowWebSocketUrl,
   getBackendBaseUrl,
 } from "@/lib/config";
-import { convertPersistedEdgesToCanvas } from "@features/workflow/pages/workflow-canvas/helpers/transformers";
 import {
   fetchWorkflowVersions,
   selectLatestWorkflowVersion,
 } from "@features/workflow/lib/workflow-storage-api";
 import { useExecutionUpdates } from "@features/workflow/pages/workflow-canvas/hooks/use-execution-updates";
-import { useRunWorkflow } from "@features/workflow/pages/workflow-canvas/hooks/use-run-workflow";
 import { usePauseWorkflow } from "@features/workflow/pages/workflow-canvas/hooks/use-pause-workflow";
-import { useNodeCreation } from "@features/workflow/pages/workflow-canvas/hooks/use-node-creation";
-import { useWorkflowKeybindings } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-keybindings";
-import { useNodeInspectorHandlers } from "@features/workflow/pages/workflow-canvas/hooks/use-node-inspector-handlers";
 import { useExecutionTrace } from "@features/workflow/pages/workflow-canvas/hooks/use-execution-trace";
-import type { CanvasEdge } from "@features/workflow/pages/workflow-canvas/helpers/types";
-import {
-  createExecutionRecord,
-  markNodesAsRunning,
-} from "@features/workflow/pages/workflow-canvas/hooks/execution-record";
+import { createExecutionRecord } from "@features/workflow/pages/workflow-canvas/hooks/execution-record";
 import { setupExecutionWebSocket } from "@features/workflow/pages/workflow-canvas/hooks/workflow-runner-websocket";
-import { generateRandomId } from "@features/workflow/pages/workflow-canvas/helpers/id";
+
+const generateRandomId = (prefix: string) =>
+  `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 import type { WorkflowCanvasCore } from "./use-workflow-canvas-core";
-import type { WorkflowCanvasResources } from "./use-workflow-canvas-resources";
+
 export interface WorkflowCanvasExecution {
   executionUpdates: ReturnType<typeof useExecutionUpdates>;
-  handleRunWorkflow: () => Promise<void>;
   handleRunPersistedWorkflow: () => Promise<void>;
   handlePauseWorkflow: () => void;
   isRunPending: boolean;
-  nodeCreation: ReturnType<typeof useNodeCreation>;
-  inspectorHandlers: ReturnType<typeof useNodeInspectorHandlers>;
   trace: ReturnType<typeof useExecutionTrace>;
-  handleConnect: (connection: Connection) => void;
-  edgeHoverHandlers: {
-    onEnter: (_event: React.MouseEvent<Element>, edge: CanvasEdge) => void;
-    onLeave: (event: React.MouseEvent<Element>, edge: CanvasEdge) => void;
-  };
 }
+
 export function useWorkflowCanvasExecution(
   core: WorkflowCanvasCore,
-  resources: WorkflowCanvasResources,
 ): WorkflowCanvasExecution {
   const [isRunPending, setIsRunPending] = useState(false);
+
   const executionUpdates = useExecutionUpdates({
-    resolveNodeLabel: core.nodeState.resolveNodeLabel,
     setExecutions: core.execution.setExecutions,
-    setNodes: core.history.setNodes,
     setIsRunning: core.execution.setIsRunning,
     websocketRef: core.websocketRef,
     isMountedRef: core.isMountedRef,
   });
 
-  const executionIds = useMemo(
-    () => core.execution.executions.map((execution) => execution.id),
-    [core.execution.executions],
+  const executionIds = core.execution.executions.map(
+    (execution) => execution.id,
   );
 
   const trace = useExecutionTrace({
@@ -70,20 +51,6 @@ export function useWorkflowCanvasExecution(
     isMountedRef: core.isMountedRef,
     executionIds,
     enabled: core.ui.activeTab === "trace",
-  });
-
-  const handleRunWorkflow = useRunWorkflow({
-    nodes: core.history.nodes,
-    edges: core.history.edges,
-    setNodes: core.history.setNodes,
-    setExecutions: core.execution.setExecutions,
-    setActiveExecutionId: core.execution.setActiveExecutionId,
-    setIsRunning: core.execution.setIsRunning,
-    websocketRef: core.websocketRef,
-    isMountedRef: core.isMountedRef,
-    currentWorkflowId: core.metadata.currentWorkflowId,
-    applyExecutionUpdate: executionUpdates.applyExecutionUpdate,
-    handleTraceUpdate: trace.handleTraceUpdate,
   });
 
   const handleRunPersistedWorkflow = async () => {
@@ -125,18 +92,7 @@ export function useWorkflowCanvasExecution(
 
       const graphToCanvas = latestVersionRecord?.graphToCanvas ?? {};
       const executionId = generateRandomId("run");
-      const executionNodes = latestVersionRecord?.snapshot
-        ? core.convertPersistedNodesToCanvas(latestVersionRecord.snapshot.nodes)
-        : core.history.nodesRef.current;
-      const executionEdges = latestVersionRecord?.snapshot
-        ? convertPersistedEdgesToCanvas(latestVersionRecord.snapshot.edges)
-        : core.history.edgesRef.current;
-      const executionRecord = createExecutionRecord(
-        executionId,
-        executionNodes,
-        executionEdges,
-        graphToCanvas,
-      );
+      const executionRecord = createExecutionRecord(executionId, graphToCanvas);
 
       if (core.websocketRef.current) {
         core.websocketRef.current.close();
@@ -157,7 +113,6 @@ export function useWorkflowCanvasExecution(
       ]);
       core.execution.setActiveExecutionId(executionId);
       core.execution.setIsRunning(true);
-      core.history.setNodes((prev) => markNodesAsRunning(prev));
 
       const ws = websocketProtocols
         ? new WebSocket(websocketUrl, websocketProtocols)
@@ -170,7 +125,7 @@ export function useWorkflowCanvasExecution(
         config: latestPersistedVersion.graph,
         graphToCanvas,
         storedRunnableConfig: latestPersistedVersion.runnable_config,
-        nodes: executionNodes,
+        nodes: [],
         currentWorkflowId: workflowId,
         isMountedRef: core.isMountedRef,
         applyExecutionUpdate: executionUpdates.applyExecutionUpdate,
@@ -198,90 +153,15 @@ export function useWorkflowCanvasExecution(
     activeExecutionId: core.execution.activeExecutionId,
     isRunning: core.execution.isRunning,
     setIsRunning: core.execution.setIsRunning,
-    setNodes: core.history.setNodes,
     setExecutions: core.execution.setExecutions,
     websocketRef: core.websocketRef,
   });
 
-  const nodeCreation = useNodeCreation({
-    reactFlowWrapper: core.reactFlowWrapper,
-    reactFlowInstance: core.reactFlowInstance,
-    nodesRef: core.history.nodesRef,
-    setNodes: core.history.setNodes,
-    handleOpenChat: core.chat.handleOpenChat,
-    handleUpdateStickyNoteNode: core.nodeState.handleUpdateStickyNoteNode,
-  });
-
-  useWorkflowKeybindings({
-    nodesRef: core.history.nodesRef,
-    deleteNodes: core.nodeState.deleteNodes,
-    handleUndo: core.history.handleUndo,
-    handleRedo: core.history.handleRedo,
-    copySelectedNodes: resources.clipboard.copySelectedNodes,
-    cutSelectedNodes: resources.clipboard.cutSelectedNodes,
-    pasteNodes: resources.clipboard.pasteNodes,
-  });
-
-  const inspectorHandlers = useNodeInspectorHandlers({
-    nodesRef: core.history.nodesRef,
-    edgesRef: core.history.edgesRef,
-    isRestoringRef: core.history.isRestoringRef,
-    recordSnapshot: core.history.recordSnapshot,
-    setNodesState: core.history.setNodesState,
-    setEdgesState: core.history.setEdgesState,
-    setSearchMatches: core.search.setSearchMatches,
-    setActiveChatNodeId: core.chat.setActiveChatNodeId,
-    setChatTitle: core.chat.setChatTitle,
-    setSelectedNodeId: core.ui.setSelectedNodeId,
-    setNodeRuntimeCache: core.setNodeRuntimeCache,
-    handleOpenChat: core.chat.handleOpenChat,
-    activeChatNodeId: core.chat.activeChatNodeId,
-  });
-
-  const handleConnect = (params: Connection) => {
-    const id = `edge-${params.source}-${params.target}`;
-    const exists = core.history.edges.some(
-      (edge) => edge.source === params.source && edge.target === params.target,
-    );
-    if (!exists) {
-      core.history.setEdges((eds) =>
-        addEdge(
-          {
-            ...params,
-            id,
-            animated: false,
-            type: "default",
-            markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12 },
-            style: { stroke: "#99a1b3", strokeWidth: 2 },
-          },
-          eds,
-        ),
-      );
-    }
-  };
-
-  const edgeHoverHandlers = {
-    onEnter: (_: React.MouseEvent<Element>, edge: CanvasEdge) =>
-      core.ui.setHoveredEdgeId(edge.id),
-    onLeave: (event: React.MouseEvent<Element>, edge: CanvasEdge) => {
-      const relatedTarget = event.relatedTarget as HTMLElement | null;
-      if (relatedTarget?.closest?.(`[data-edge-id="${edge.id}"]`)) return;
-      core.ui.setHoveredEdgeId((current) =>
-        current === edge.id ? null : current,
-      );
-    },
-  };
-
   return {
     executionUpdates,
-    handleRunWorkflow,
     handleRunPersistedWorkflow,
     handlePauseWorkflow,
     isRunPending,
-    nodeCreation,
-    inspectorHandlers,
     trace,
-    handleConnect,
-    edgeHoverHandlers,
   };
 }

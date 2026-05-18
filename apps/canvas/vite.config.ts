@@ -113,7 +113,7 @@ export default defineConfig({
     hmr: process.env.VITE_DISABLE_HMR === 'true' ? false : undefined,
     allowedHosts: [
       'localhost',
-      ...((process.env.VITE_ALLOWED_HOSTS || '')
+      ...((process.env.VITE_ORCHEO_ALLOWED_HOSTS || '')
         .split(',')
         .map((h: string) => h.trim())
         .filter(Boolean))

@@ -1,4 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WorkflowGalleryTabs } from "./workflow-gallery-tabs";
@@ -11,9 +13,12 @@ afterEach(() => {
   cleanup();
 });
 
+const renderTabs = (ui: ReactElement) =>
+  render(<MemoryRouter>{ui}</MemoryRouter>);
+
 describe("WorkflowGalleryTabs", () => {
   it("shows a loading screen while workflows are being fetched", () => {
-    render(
+    renderTabs(
       <WorkflowGalleryTabs
         selectedTab="all"
         onSelectedTabChange={vi.fn()}
@@ -37,7 +42,7 @@ describe("WorkflowGalleryTabs", () => {
   });
 
   it("keeps templates visible while workspace workflows are still loading", () => {
-    render(
+    renderTabs(
       <WorkflowGalleryTabs
         selectedTab="templates"
         onSelectedTabChange={vi.fn()}
@@ -72,7 +77,7 @@ describe("WorkflowGalleryTabs", () => {
   });
 
   it("renders workflow counts in each gallery tab", () => {
-    render(
+    renderTabs(
       <WorkflowGalleryTabs
         selectedTab="all"
         onSelectedTabChange={vi.fn()}
@@ -91,13 +96,9 @@ describe("WorkflowGalleryTabs", () => {
       />,
     );
 
-    expect(
-      screen.getByRole("tab", { name: /ai colleagues 12/i }),
-    ).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /ai colleagues 12/i })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /starred 3/i })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /candidates 20/i })).toBeTruthy();
-    expect(
-      screen.getByPlaceholderText(/search colleagues/i),
-    ).toBeTruthy();
+    expect(screen.getByPlaceholderText(/search colleagues/i)).toBeTruthy();
   });
 });

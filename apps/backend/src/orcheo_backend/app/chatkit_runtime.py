@@ -146,7 +146,7 @@ def sensitive_logging_enabled() -> bool:
     current_env = os.getenv("ORCHEO_ENV") or os.getenv("NODE_ENV", "production")
     if (current_env or "").lower() in dev_environments:
         return True
-    return os.getenv("LOG_SENSITIVE_DEBUG") == "1"
+    return os.getenv("ORCHEO_LOG_SENSITIVE_DEBUG") == "1"
 
 
 __all__ = [

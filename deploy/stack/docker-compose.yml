@@ -141,14 +141,14 @@ services:
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
       PYTHONUNBUFFERED: "1"
-      CELERY_BEAT_SCHEDULE_FILE: /data/celerybeat-schedule
+      ORCHEO_CELERY_BEAT_SCHEDULE_FILE: /data/celerybeat-schedule
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
     command: >
-      sh -c 'python -m celery -A orcheo_backend.worker.celery_app beat --loglevel=info -s "$$CELERY_BEAT_SCHEDULE_FILE"'
+      sh -c 'python -m celery -A orcheo_backend.worker.celery_app beat --loglevel=info -s "$$ORCHEO_CELERY_BEAT_SCHEDULE_FILE"'
 
   canvas:
     image: ${ORCHEO_CANVAS_IMAGE:-ghcr.io/ai-colleagues/orcheo-canvas:latest}
@@ -167,7 +167,7 @@ services:
       VITE_ORCHEO_AUTH_PROVIDER_GOOGLE: ${VITE_ORCHEO_AUTH_PROVIDER_GOOGLE:-}
       VITE_ORCHEO_AUTH_PROVIDER_GITHUB: ${VITE_ORCHEO_AUTH_PROVIDER_GITHUB:-}
       VITE_ORCHEO_CHATKIT_DOMAIN_KEY: ${VITE_ORCHEO_CHATKIT_DOMAIN_KEY:?set VITE_ORCHEO_CHATKIT_DOMAIN_KEY}
-      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      VITE_ORCHEO_ALLOWED_HOSTS: ${VITE_ORCHEO_ALLOWED_HOSTS:-localhost,127.0.0.1}
     depends_on:
       - backend
     healthcheck:

@@ -3,7 +3,6 @@ import TopNavigation from "@features/shared/components/top-navigation";
 import { getActiveWorkspace } from "@/lib/api";
 import useCredentialVault from "@/hooks/use-credential-vault";
 import { usePageContext } from "@/hooks/use-page-context";
-import { WorkflowGalleryHeader } from "@/features/workflow/pages/workflow-gallery/workflow-gallery-header";
 import { WorkflowGalleryTabs } from "@/features/workflow/pages/workflow-gallery/workflow-gallery-tabs";
 import { useWorkflowGallery } from "@/features/workflow/pages/workflow-gallery/use-workflow-gallery";
 
@@ -73,8 +72,6 @@ export default function WorkflowGallery() {
       />
 
       <main className="flex flex-1 min-h-0 flex-col overflow-hidden">
-        <WorkflowGalleryHeader />
-
         <div className="flex-1 overflow-auto">
           <WorkflowGalleryTabs
             selectedTab={selectedTab}
