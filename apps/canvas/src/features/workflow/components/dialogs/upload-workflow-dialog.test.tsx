@@ -32,7 +32,9 @@ vi.mock("@/hooks/use-toast", () => ({
 
 vi.mock("react-router-dom", async () => {
   const actual =
-    await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+    await vi.importActual<typeof import("react-router-dom")>(
+      "react-router-dom",
+    );
   return {
     ...actual,
     useNavigate: () => navigateMock,
@@ -78,10 +80,7 @@ describe("UploadWorkflowDialog", () => {
     renderDialog({ onOpenChange });
 
     const scriptInput = screen.getByLabelText(/Workflow Script/i);
-    await user.upload(
-      scriptInput,
-      pyFile("my-workflow.py", "print('hi')"),
-    );
+    await user.upload(scriptInput, pyFile("my-workflow.py", "print('hi')"));
 
     const configInput = screen.getByLabelText(/Config/i);
     await user.upload(
@@ -112,6 +111,24 @@ describe("UploadWorkflowDialog", () => {
     expect(toastMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Workflow uploaded" }),
     );
+  });
+
+  it("rejects oversized script files", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    const scriptInput = screen.getByLabelText(/Workflow Script/i);
+    await user.upload(
+      scriptInput,
+      pyFile("large.py", "x".repeat(1024 * 1024 + 1)),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Workflow script must be 1 MB or smaller/i),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: /^Upload$/ })).toBeDisabled();
   });
 
   it("rejects invalid json config", async () => {

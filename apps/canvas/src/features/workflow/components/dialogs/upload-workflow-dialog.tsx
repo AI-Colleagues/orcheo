@@ -23,6 +23,45 @@ interface UploadWorkflowDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+const MAX_SCRIPT_UPLOAD_BYTES = 1024 * 1024;
+const MAX_CONFIG_UPLOAD_BYTES = 256 * 1024;
+const PYTHON_SCRIPT_MIME_TYPES = new Set([
+  "",
+  "text/plain",
+  "text/x-python",
+  "text/x-script.python",
+  "application/x-python-code",
+]);
+const JSON_CONFIG_MIME_TYPES = new Set(["", "application/json", "text/json"]);
+
+const formatUploadLimit = (bytes: number): string => {
+  if (bytes >= 1024 * 1024) {
+    return `${bytes / (1024 * 1024)} MB`;
+  }
+  return `${bytes / 1024} KB`;
+};
+
+const validateUploadFile = (
+  file: File,
+  options: {
+    label: string;
+    extension: string;
+    maxBytes: number;
+    acceptedMimeTypes: Set<string>;
+  },
+): string | null => {
+  if (!file.name.toLowerCase().endsWith(options.extension)) {
+    return `${options.label} must use the ${options.extension} extension.`;
+  }
+  if (!options.acceptedMimeTypes.has(file.type)) {
+    return `${options.label} has an unsupported file type.`;
+  }
+  if (file.size > options.maxBytes) {
+    return `${options.label} must be ${formatUploadLimit(options.maxBytes)} or smaller.`;
+  }
+  return null;
+};
+
 export function UploadWorkflowDialog({
   open,
   onOpenChange,
@@ -72,6 +111,20 @@ export function UploadWorkflowDialog({
       if (!file) {
         return;
       }
+      const validationError = validateUploadFile(file, {
+        label: "Workflow script",
+        extension: ".py",
+        maxBytes: MAX_SCRIPT_UPLOAD_BYTES,
+        acceptedMimeTypes: PYTHON_SCRIPT_MIME_TYPES,
+      });
+      if (validationError) {
+        setError(validationError);
+        setScriptContent(null);
+        setScriptFileName("");
+        event.target.value = "";
+        return;
+      }
+      setError(null);
       setScriptFileName(file.name);
       if (!workflowName) {
         const nameWithoutExt = file.name.replace(/\.py$/i, "");
@@ -93,6 +146,18 @@ export function UploadWorkflowDialog({
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       if (!file) {
+        return;
+      }
+      const validationError = validateUploadFile(file, {
+        label: "Config file",
+        extension: ".json",
+        maxBytes: MAX_CONFIG_UPLOAD_BYTES,
+        acceptedMimeTypes: JSON_CONFIG_MIME_TYPES,
+      });
+      if (validationError) {
+        setError(validationError);
+        setConfigContent(null);
+        event.target.value = "";
         return;
       }
       const reader = new FileReader();
@@ -212,7 +277,10 @@ export function UploadWorkflowDialog({
           >
             Cancel
           </Button>
-          <Button onClick={() => void handleUpload()} disabled={!canUpload || isUploading}>
+          <Button
+            onClick={() => void handleUpload()}
+            disabled={!canUpload || isUploading}
+          >
             {isUploading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

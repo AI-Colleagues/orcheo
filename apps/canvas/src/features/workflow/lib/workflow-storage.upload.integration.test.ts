@@ -4,7 +4,10 @@ import {
   WORKFLOW_STORAGE_EVENT,
   uploadWorkflowFromFiles,
 } from "./workflow-storage";
-import { jsonResponse } from "@/testing/mocks/backend/request-utils";
+import {
+  emptyResponse,
+  jsonResponse,
+} from "@/testing/mocks/backend/request-utils";
 import { createFetchMockHarness } from "@/testing/mocks/fetch-mock";
 
 const { getFetchMock, queueResponses, setupFetchMock } =
@@ -49,11 +52,9 @@ describe("uploadWorkflowFromFiles", () => {
     const listener = vi.fn();
     window.addEventListener(WORKFLOW_STORAGE_EVENT, listener);
 
-    const stored = await uploadWorkflowFromFiles(
-      "Pipeline",
-      "print('hi')",
-      { runtime: "python" },
-    );
+    const stored = await uploadWorkflowFromFiles("Pipeline", "print('hi')", {
+      runtime: "python",
+    });
 
     expect(stored.id).toBe("uploaded-1");
     expect(listener).toHaveBeenCalled();
@@ -142,5 +143,26 @@ describe("uploadWorkflowFromFiles", () => {
     ) as { created_by: string };
     expect(createPayload.actor).toBe("actor-x");
     expect(ingestPayload.created_by).toBe("actor-x");
+  });
+
+  it("archives the workflow record when ingest fails", async () => {
+    const mockFetch = getFetchMock();
+    queueResponses([
+      workflowResponse("uploaded-failed", "Broken"),
+      jsonResponse({ detail: "Invalid script" }, { status: 400 }),
+      emptyResponse({ status: 204 }),
+    ]);
+
+    await expect(
+      uploadWorkflowFromFiles("Broken", "def broken(:", null, {
+        actor: "actor-x",
+      }),
+    ).rejects.toThrow("Invalid script");
+
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(String(mockFetch.mock.calls[2]?.[0])).toContain(
+      "/api/workflows/uploaded-failed?actor=actor-x",
+    );
+    expect(mockFetch.mock.calls[2]?.[1]?.method).toBe("DELETE");
   });
 });

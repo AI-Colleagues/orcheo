@@ -35,6 +35,12 @@ import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
 type MemberRole = "owner" | "admin" | "editor" | "viewer";
 
 const ROLE_OPTIONS: MemberRole[] = ["owner", "admin", "editor", "viewer"];
+const USER_ID_PATTERN = /^[A-Za-z0-9._:@+-]{3,128}$/;
+const USER_ID_VALIDATION_MESSAGE =
+  "Enter a valid user ID using letters, numbers, dots, underscores, colons, at signs, plus signs, or hyphens.";
+
+const isValidUserId = (userId: string): boolean =>
+  USER_ID_PATTERN.test(userId.trim());
 
 export default function WorkspaceMembers() {
   const { setPageContext } = usePageContext();
@@ -57,6 +63,7 @@ export default function WorkspaceMembers() {
   const [isForbidden, setIsForbidden] = useState(false);
 
   const [newUserId, setNewUserId] = useState("");
+  const [newUserIdError, setNewUserIdError] = useState<string | null>(null);
   const [newRole, setNewRole] = useState<MemberRole>("editor");
   const [isAdding, setIsAdding] = useState(false);
   const [removingUserId, setRemovingUserId] = useState<string | null>(null);
@@ -113,17 +120,23 @@ export default function WorkspaceMembers() {
   }, [slug]);
 
   const handleAddMember = async () => {
-    if (!slug || !newUserId.trim()) {
+    const normalizedUserId = newUserId.trim();
+    if (!slug || !normalizedUserId) {
+      return;
+    }
+    if (!isValidUserId(normalizedUserId)) {
+      setNewUserIdError(USER_ID_VALIDATION_MESSAGE);
       return;
     }
     setIsAdding(true);
     try {
-      const member = await addWorkspaceMember(
-        slug,
-        { user_id: newUserId.trim(), role: newRole },
-      );
+      const member = await addWorkspaceMember(slug, {
+        user_id: normalizedUserId,
+        role: newRole,
+      });
       setMembers((prev) => [...prev, member]);
       setNewUserId("");
+      setNewUserIdError(null);
       setNewRole("editor");
       toast({ title: "Member added successfully" });
     } catch (err) {
@@ -215,9 +228,24 @@ export default function WorkspaceMembers() {
                     id="new-user-id"
                     placeholder="Enter user ID"
                     value={newUserId}
-                    onChange={(e) => setNewUserId(e.target.value)}
+                    onChange={(e) => {
+                      setNewUserId(e.target.value);
+                      setNewUserIdError(null);
+                    }}
                     disabled={isAdding}
+                    aria-invalid={newUserIdError ? true : undefined}
+                    aria-describedby={
+                      newUserIdError ? "new-user-id-error" : undefined
+                    }
                   />
+                  {newUserIdError && (
+                    <p
+                      id="new-user-id-error"
+                      className="text-xs text-destructive"
+                    >
+                      {newUserIdError}
+                    </p>
+                  )}
                 </div>
                 <div className="w-36 space-y-1.5">
                   <Label htmlFor="new-role">Role</Label>
@@ -256,9 +284,7 @@ export default function WorkspaceMembers() {
           {isForbidden ? null : isLoading ? (
             <p className="text-sm text-muted-foreground">Loading members...</p>
           ) : members.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No members found.
-            </p>
+            <p className="text-sm text-muted-foreground">No members found.</p>
           ) : (
             <div className="rounded-lg border">
               <Table>
@@ -268,7 +294,9 @@ export default function WorkspaceMembers() {
                     <TableHead>User ID</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Joined</TableHead>
-                    {canManage && <TableHead className="text-right">Actions</TableHead>}
+                    {canManage && (
+                      <TableHead className="text-right">Actions</TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>

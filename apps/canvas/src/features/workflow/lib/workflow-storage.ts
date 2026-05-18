@@ -133,6 +133,24 @@ const buildTemplateCanvasMetadata = ({
   summary: { added: 0, removed: 0, modified: 0 },
 });
 
+const archiveWorkflowAfterFailedIngest = async (
+  workflowId: string,
+  actor: string,
+): Promise<void> => {
+  try {
+    await request(
+      `${API_BASE}/${workflowId}?actor=${encodeURIComponent(actor)}`,
+      {
+        method: "DELETE",
+      },
+    );
+    invalidateWorkflowListCache();
+    emitUpdate();
+  } catch {
+    // Preserve the original ingest error so callers see why the upload failed.
+  }
+};
+
 const assertTemplatePluginRequirements = async (
   requiredPlugins: string[] | undefined,
 ): Promise<void> => {
@@ -364,17 +382,22 @@ export const uploadWorkflowFromFiles = async (
     }),
   });
 
-  await request(`${API_BASE}/${created.id}/versions/ingest`, {
-    method: "POST",
-    body: JSON.stringify({
-      script,
-      entrypoint: null,
-      runnable_config: config ?? null,
-      metadata: { source: "canvas-upload" },
-      notes: null,
-      created_by: actor,
-    }),
-  });
+  try {
+    await request(`${API_BASE}/${created.id}/versions/ingest`, {
+      method: "POST",
+      body: JSON.stringify({
+        script,
+        entrypoint: null,
+        runnable_config: config ?? null,
+        metadata: { source: "canvas-upload" },
+        notes: null,
+        created_by: actor,
+      }),
+    });
+  } catch (error) {
+    await archiveWorkflowAfterFailedIngest(created.id, actor);
+    throw error;
+  }
 
   const stored = await ensureWorkflow(created.id);
   if (!stored) {

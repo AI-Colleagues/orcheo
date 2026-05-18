@@ -67,13 +67,15 @@ vi.mock("@features/shared/components/top-navigation", () => ({
   default: () => <header data-testid="top-nav" />,
 }));
 
-const memberFixture = (overrides: Partial<{
-  id: string;
-  workspace_id: string;
-  user_id: string;
-  role: "owner" | "admin" | "editor" | "viewer";
-  created_at: string;
-}> = {}) => ({
+const memberFixture = (
+  overrides: Partial<{
+    id: string;
+    workspace_id: string;
+    user_id: string;
+    role: "owner" | "admin" | "editor" | "viewer";
+    created_at: string;
+  }> = {},
+) => ({
   id: "membership-1",
   workspace_id: "workspace-1",
   user_id: "user-1",
@@ -124,7 +126,9 @@ describe("WorkspaceMembers", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/You do not have permission to view workspace members/i),
+        screen.getByText(
+          /You do not have permission to view workspace members/i,
+        ),
       ).toBeInTheDocument();
     });
     expect(listWorkspaceMembersMock).not.toHaveBeenCalled();
@@ -169,6 +173,31 @@ describe("WorkspaceMembers", () => {
     expect(toastMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Member added successfully" }),
     );
+  });
+
+  it("validates user IDs before adding a member", async () => {
+    getActiveWorkspaceMock.mockResolvedValue({
+      workspace_id: "workspace-1",
+      slug: "acme",
+      name: "Acme",
+      role: "admin",
+    });
+    listWorkspaceMembersMock.mockResolvedValue([memberFixture()]);
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("user-1")).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText(/User ID/i), "bad id!");
+    await user.click(screen.getByRole("button", { name: /^Add$/ }));
+
+    expect(
+      screen.getByText(/Enter a valid user ID using letters/i),
+    ).toBeInTheDocument();
+    expect(addWorkspaceMemberMock).not.toHaveBeenCalled();
   });
 
   it("blocks self-removal but allows removing other members", async () => {
