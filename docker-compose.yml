@@ -189,6 +189,39 @@ services:
     command: >
       sh -c 'if [ ! -d node_modules ] || [ -z "$$(ls -A node_modules 2>/dev/null)" ]; then npm ci; fi && npm run dev -- --host 0.0.0.0'
 
+  sandbox-runtime:
+    # Sole service mounting the container-runtime socket. Treat as
+    # root-equivalent on the host; never expose this socket to tenant code.
+    image: ${ORCHEO_SANDBOX_RUNTIME_IMAGE:-orcheo/sandbox-runtime:latest}
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - sandbox_scratch:/scratch
+    environment:
+      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
+      ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-orcheo/workspace-sandbox:latest}
+      ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
+      ORCHEO_CREDENTIAL_BROKER_URL: http://backend:2025/internal/credentials/resolve
+    networks:
+      - default
+      - sandbox-egress
+
+  egress-proxy:
+    image: ${ORCHEO_EGRESS_PROXY_IMAGE:-envoyproxy/envoy:v1.33-latest}
+    restart: unless-stopped
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml"]
+    volumes:
+      - ${ORCHEO_EGRESS_PROXY_CONFIG:-./deploy/stack/envoy.yaml}:/etc/envoy/envoy.yaml:ro
+      - egress_audit:/var/log/orcheo
+    networks:
+      - sandbox-egress
+
+networks:
+  sandbox-egress:
+    # nftables rules attached to this bridge enforce the L3/L4 deny policy.
+    # See deploy/stack/sandbox-egress.nft.
+    driver: bridge
+
 volumes:
   postgres_data:
   redis_data:
@@ -198,3 +231,5 @@ volumes:
   backend_venv:
   worker_venv:
   celery_venv:
+  sandbox_scratch:
+  egress_audit:
