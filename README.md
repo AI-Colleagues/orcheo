@@ -111,10 +111,13 @@ That's it! Your agent handles the complexity while you focus on describing what 
 - **[Conversational Search Examples](https://orcheo.readthedocs.io/en/latest/examples/conversational_search/)** — Step-by-step demos from basic RAG to production-ready search
 
 ```bash
-# Quick start: Run Demo 1 (no external services required)
-uv sync --group examples
+# Conversational search demos now live in the colleague-candidates repo:
+git clone https://github.com/AI-Colleagues/colleague-candidates
 orcheo credential create openai_api_key --secret sk-your-key
-python examples/conversational_search/demo_2_basic_rag/demo_2.py
+# Demo 2 (Basic RAG) requires no external services:
+orcheo workflow upload colleague-candidates/colleagues/conversational_search_demo_2/workflow.py \
+  --config-file colleague-candidates/colleagues/conversational_search_demo_2/config.json \
+  --name "Basic RAG"
 ```
 
 Provider-aware chat models use provider-specific credential names in the active
