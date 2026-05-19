@@ -63,8 +63,7 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_VAULT_BACKEND` | `postgres` | `postgres` | Chooses the credential vault backend (`config/loader.py`, `config/vault_settings.py`). |
 | `ORCHEO_VAULT_ENCRYPTION_KEY` | _none_ | String (ideally 128+ bits) | Pre-shared key required when `ORCHEO_VAULT_BACKEND=postgres`. |
 | `ORCHEO_VAULT_TOKEN_TTL_SECONDS` | `3600` | Positive integer | Lifetime (seconds) for vault access tokens (`config/loader.py`). |
-| `ORCHEO_MULTI_WORKSPACE_ENABLED` | `false` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Enables workspace-aware request resolution, scoped repository lookups, and workspace-aware websocket/runnable execution (`config/loader.py`). |
-| `ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG` | `default` | Slug string | Default workspace slug used by explicit resolver overrides. The runtime no longer bootstraps a shared default workspace at startup (`config/loader.py`). |
+| `ORCHEO_MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG` | `default` | Slug string | Default workspace slug used when a request omits the workspace header (`config/loader.py`). |
 | `ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER` | `X-Orcheo-Workspace` | HTTP header name | Header that pins the active workspace for authenticated requests (`config/loader.py`). |
 
 ## ChatKit rate limits

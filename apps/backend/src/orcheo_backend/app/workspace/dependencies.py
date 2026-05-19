@@ -18,7 +18,6 @@ from orcheo.workspace import (
     WorkspaceResolver,
     WorkspaceService,
     WorkspaceStatus,
-    ensure_default_workspace,
 )
 from orcheo_backend.app.authentication import RequestContext, authenticate_request
 from orcheo_backend.app.errors import WorkspaceRateLimitError
@@ -123,23 +122,11 @@ async def resolve_workspace_context(
 ) -> WorkspaceContext:
     """FastAPI dependency that produces a WorkspaceContext for the request.
 
-    When multi-workspace is disabled the dependency synthesises a default
-    workspace context so that single-tenant installs continue to work without
-    auth or membership configuration.
-
-    When multi-workspace is enabled the caller must be authenticated.  Service
-    tokens and dev logins that carry *workspace_ids* in their claims are
-    resolved directly from those identifiers; user identities are resolved via
-    the membership-based resolver.
+    Every request must be authenticated. Service tokens and dev logins that
+    carry *workspace_ids* in their claims are resolved directly from those
+    identifiers; user identities are resolved via the membership-based
+    resolver.
     """
-    settings = get_settings()
-    multi_workspace_enabled = bool(settings.get("MULTI_WORKSPACE_ENABLED", False))
-
-    if not multi_workspace_enabled:
-        context = _synthesize_default_context(get_workspace_service(), auth.subject)
-        request.state.workspace = context
-        return context
-
     if not auth.is_authenticated:
         raise WorkspaceContextRequiredError("Authentication is required for workspace")
 
@@ -174,21 +161,6 @@ async def resolve_workspace_context(
         raise exc.as_http_exception() from exc
     request.state.workspace = context
     return context
-
-
-def _synthesize_default_context(
-    service: WorkspaceService,
-    user_id: str,
-) -> WorkspaceContext:
-    """Build a default workspace context for single-tenant mode."""
-    default_workspace = ensure_default_workspace(service.repository)
-    return WorkspaceContext(
-        workspace_id=default_workspace.id,
-        workspace_slug=default_workspace.slug,
-        user_id=user_id,
-        role=Role.OWNER,
-        quotas=default_workspace.quotas,
-    )
 
 
 def _resolve_from_authorized_workspaces(

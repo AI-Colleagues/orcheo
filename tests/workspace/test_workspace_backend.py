@@ -28,7 +28,7 @@ def workspace_app(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[tuple[FastAPI, InMemoryWorkspaceRepository]]:
     """Build an app where workspace dependencies are exercised end-to-end."""
-    monkeypatch.setenv("ORCHEO_MULTI_WORKSPACE_ENABLED", "true")
+    del monkeypatch
     get_settings(refresh=True)
     repo = InMemoryWorkspaceRepository()
     set_workspace_repository(repo)
@@ -315,11 +315,11 @@ def test_unknown_workspace_header_returns_404(
     assert response.json()["detail"]["error"]["code"] == "workspace.not_found"
 
 
-def test_anonymous_request_rejected_when_workspace_enabled(
+def test_anonymous_request_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When workspace access is anonymous, protected routes must fail."""
-    monkeypatch.setenv("ORCHEO_MULTI_WORKSPACE_ENABLED", "true")
+    """Anonymous requests must always be rejected — auth is mandatory."""
+    del monkeypatch
     get_settings(refresh=True)
     repo = InMemoryWorkspaceRepository()
     set_workspace_repository(repo)

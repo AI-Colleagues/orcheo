@@ -1,4 +1,9 @@
-"""Multi-workspace configuration settings."""
+"""Multi-workspace configuration settings.
+
+Multi-tenant workspaces are always on — there is no enable/disable flag.
+These settings only control the default slug used when a request omits the
+workspace header and the header name itself.
+"""
 
 from __future__ import annotations
 from typing import cast
@@ -11,30 +16,14 @@ __all__ = ["MultiWorkspaceSettings"]
 
 
 class MultiWorkspaceSettings(BaseModel):
-    """Runtime configuration for the multi-workspace feature."""
+    """Runtime configuration for multi-workspace request resolution."""
 
-    enabled: bool = Field(default=cast(bool, _DEFAULTS["MULTI_WORKSPACE_ENABLED"]))
     default_workspace_slug: str = Field(
         default=cast(str, _DEFAULTS["MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG"])
     )
     workspace_header: str = Field(
         default=cast(str, _DEFAULTS["MULTI_WORKSPACE_WORKSPACE_HEADER"])
     )
-
-    @field_validator("enabled", mode="before")
-    @classmethod
-    def _coerce_enabled(cls, value: object) -> bool:
-        if value is None:
-            return cast(bool, _DEFAULTS["MULTI_WORKSPACE_ENABLED"])
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            lowered = value.strip().lower()
-            if lowered in {"1", "true", "yes", "on"}:
-                return True
-            if lowered in {"0", "false", "no", "off", ""}:
-                return False
-        return bool(value)
 
     @field_validator("default_workspace_slug", mode="before")
     @classmethod

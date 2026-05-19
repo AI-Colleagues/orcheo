@@ -72,52 +72,14 @@ def test_get_workspace_repository_requires_dsn_for_postgres(
 
 
 @pytest.mark.asyncio()
-async def test_resolve_workspace_context_requires_auth(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Unauthenticated requests should be rejected when multi-workspace is enabled."""
-
-    monkeypatch.setattr(
-        workspace_dependencies,
-        "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
-    )
+async def test_resolve_workspace_context_requires_auth() -> None:
+    """Unauthenticated requests are always rejected — auth is mandatory."""
 
     request = SimpleNamespace(headers={}, state=SimpleNamespace())
     auth = SimpleNamespace(is_authenticated=False, subject="user-1")
 
     with pytest.raises(workspace_errors.WorkspaceContextRequiredError):
         await workspace_dependencies.resolve_workspace_context(request, auth)
-
-
-@pytest.mark.asyncio()
-async def test_resolve_workspace_context_legacy_single_tenant(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Synthesise default workspace context when multi-workspace is disabled."""
-
-    repo = InMemoryWorkspaceRepository()
-    default_ws = Workspace(slug="default", name="Default Workspace")
-    repo.create_workspace(default_ws)
-
-    monkeypatch.setattr(
-        workspace_dependencies,
-        "get_workspace_service",
-        lambda: WorkspaceService(repo),
-    )
-    monkeypatch.setattr(
-        workspace_dependencies,
-        "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": False},  # noqa: ARG005
-    )
-
-    request = SimpleNamespace(headers={}, state=SimpleNamespace())
-    auth = SimpleNamespace(is_authenticated=False, subject="anonymous")
-
-    result = await workspace_dependencies.resolve_workspace_context(request, auth)
-    assert result.workspace_slug == "default"
-    assert result.role == Role.OWNER
-    assert request.state.workspace is result
 
 
 @pytest.mark.asyncio()
@@ -129,7 +91,7 @@ async def test_resolve_workspace_context_rate_limit_and_success(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     context = SimpleNamespace(workspace_id="workspace-1", role=Role.OWNER)
@@ -245,7 +207,7 @@ async def test_resolve_from_authorized_workspaces_success(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     monkeypatch.setattr(
@@ -295,7 +257,7 @@ async def test_resolve_workspace_context_user_identity_uses_membership_lookup(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     monkeypatch.setattr(
@@ -342,7 +304,7 @@ async def test_resolve_from_authorized_workspaces_with_slug_header(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Service:
@@ -386,7 +348,7 @@ async def test_resolve_from_authorized_workspaces_not_found(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Service:
@@ -425,7 +387,7 @@ async def test_resolve_from_authorized_workspaces_slug_not_found(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Service:
@@ -466,7 +428,7 @@ async def test_resolve_from_authorized_workspaces_multiple_no_slug(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Service:
@@ -517,7 +479,7 @@ async def test_resolve_from_authorized_workspaces_not_active(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Service:
@@ -583,7 +545,7 @@ async def test_resolve_via_resolver_not_found_error(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Resolver:
@@ -622,7 +584,7 @@ async def test_resolve_via_resolver_permission_error(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Resolver:
@@ -661,7 +623,7 @@ async def test_resolve_via_resolver_membership_error(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Resolver:
