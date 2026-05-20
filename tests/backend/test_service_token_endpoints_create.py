@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from orcheo_backend.app.authentication import (
     AuthenticationError,
+    AuthorizationError,
     AuthorizationPolicy,
     RequestContext,
     ServiceTokenRecord,
@@ -21,7 +22,7 @@ async def test_create_service_token_success(admin_policy, mock_workspace):
     """Endpoint should mint a token scoped to the active workspace."""
     request = CreateServiceTokenRequest(
         identifier="my-token",
-        scopes=["read", "write"],
+        scopes=["admin:tokens:read", "admin:tokens:write"],
         expires_in_seconds=3600,
     )
     workspace_id = str(mock_workspace.workspace_id)
@@ -34,7 +35,7 @@ async def test_create_service_token_success(admin_policy, mock_workspace):
         mock_record = ServiceTokenRecord(
             identifier="my-token",
             secret_hash="hash123",
-            scopes=frozenset(["read", "write"]),
+            scopes=frozenset(["admin:tokens:read", "admin:tokens:write"]),
             workspace_ids=frozenset([workspace_id]),
             issued_at=datetime.now(tz=UTC),
             expires_at=datetime.now(tz=UTC) + timedelta(hours=1),
@@ -51,7 +52,7 @@ async def test_create_service_token_success(admin_policy, mock_workspace):
         assert "Store this token securely" in response.message
         mock_manager.mint.assert_called_once_with(
             identifier="my-token",
-            scopes=["read", "write"],
+            scopes=["admin:tokens:read", "admin:tokens:write"],
             workspace_ids=[workspace_id],
             expires_in=3600,
             workspace_id=workspace_id,
@@ -124,6 +125,23 @@ async def test_create_service_token_allows_non_admin_member(mock_workspace):
 
         assert response.identifier == "member-token"
         assert response.secret == "member-secret"
+
+
+@pytest.mark.asyncio
+async def test_create_service_token_rejects_scope_escalation(mock_workspace):
+    """Callers may only mint tokens with scopes they already possess."""
+    context = RequestContext(
+        subject="member",
+        identity_type="user",
+        scopes=frozenset(["workflows:read"]),
+    )
+    policy = AuthorizationPolicy(context)
+    request = CreateServiceTokenRequest(scopes=["workflows:read", "vault:write"])
+
+    with pytest.raises(AuthorizationError) as exc_info:
+        await create_service_token(request, policy, mock_workspace)
+
+    assert exc_info.value.code == "auth.missing_scope"
 
 
 @pytest.mark.asyncio

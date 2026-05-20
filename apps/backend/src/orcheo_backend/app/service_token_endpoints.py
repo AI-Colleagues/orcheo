@@ -90,6 +90,7 @@ async def create_service_token(
     the response and cannot be retrieved later.
     """
     policy.require_authenticated()
+    policy.require_scopes(*request.scopes)
 
     token_manager = get_service_token_manager()
     workspace_id = str(workspace.workspace_id)
