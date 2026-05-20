@@ -62,7 +62,7 @@ internal services directly — most dangerously the cloud metadata endpoint
 multi-tenant SaaS and currently blocks that offering.
 
 Existing per-workspace controls for external agents (per-workspace
-`environment.json`, per-workspace auth caches, the `/workspace/agents/{id}`
+`environment.json`, workspace-VM-local auth caches, the `/workspace/agents`
 filesystem root, `start_new_session=True` subprocesses) provide fault isolation
 and filesystem DAC, but not a security boundary against hostile code.
 

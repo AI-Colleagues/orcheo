@@ -75,7 +75,7 @@ def workspace_provider_environment_overrides(
     root = (
         Path(workspace_root).expanduser()
         if workspace_root is not None
-        else DEFAULT_WORKSPACE_AGENT_ROOT / workspace_id.strip()
+        else DEFAULT_WORKSPACE_AGENT_ROOT
     )
     resolved_root = root.resolve(strict=False)
     if provider == "codex":
@@ -207,7 +207,7 @@ def validate_working_directory(
         workspace_root_path = (
             Path(workspace_root).expanduser()
             if workspace_root is not None
-            else DEFAULT_WORKSPACE_AGENT_ROOT / workspace_id
+            else DEFAULT_WORKSPACE_AGENT_ROOT
         )
         workspace_root_resolved = workspace_root_path.resolve(
             strict=not auto_init_git_worktree

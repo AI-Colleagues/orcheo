@@ -327,8 +327,8 @@ def test_environment_for_provider_uses_workspace_auth_cache_roots(
         workspace_id="workspace-1",
     )
 
-    assert codex_env["CODEX_HOME"] == "/workspace/agents/workspace-1/.codex"
-    assert gemini_env["HOME"] == "/workspace/agents/workspace-1"
+    assert codex_env["CODEX_HOME"] == "/workspace/agents/.codex"
+    assert gemini_env["HOME"] == "/workspace/agents"
 
 
 def test_workspace_provider_environment_overrides_ignores_unknown_provider(
