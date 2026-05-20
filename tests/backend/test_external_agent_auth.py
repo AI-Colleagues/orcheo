@@ -2,7 +2,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call
 from uuid import uuid4
-from orcheo.models import CredentialScope
+from uuid import UUID
+from orcheo.models import CredentialAccessContext, CredentialScope
 from orcheo_backend.app.external_agent_auth import (
     CLAUDE_CODE_OAUTH_TOKEN_CREDENTIAL_NAME,
     CODEX_AUTH_JSON_CREDENTIAL_NAME,
@@ -40,14 +41,18 @@ def test_upsert_external_agent_secret_updates_first_match_and_deletes_duplicates
         workspace_id=workspace_id,
     )
 
+    expected_context = CredentialAccessContext(workspace_id=workspace_uuid)
     vault.update_credential.assert_called_once_with(
         credential_id=first.id,
         actor="external_agent_worker",
         provider="codex",
         secret="{}",
         scope=CredentialScope.for_workspaces(workspace_uuid),
+        context=expected_context,
     )
-    vault.delete_credential.assert_called_once_with(duplicate.id)
+    vault.delete_credential.assert_called_once_with(
+        duplicate.id, context=expected_context
+    )
 
 
 def test_load_external_agent_vault_environment_materializes_all_secrets() -> None:
@@ -93,7 +98,8 @@ def test_load_external_agent_vault_environment_materializes_all_secrets() -> Non
         gemini_oauth,
     ]
 
-    def reveal_secret(*, credential_id: object) -> str | None:
+    def reveal_secret(*, credential_id: object, context: object = None) -> str | None:
+        del context
         if credential_id == claude.id:
             return "claude-token"
         if credential_id == codex.id:
@@ -193,7 +199,8 @@ def test_delete_external_agent_secret_removes_all_matches() -> None:
     )
 
     assert deleted is True
+    expected_context = CredentialAccessContext(workspace_id=UUID(workspace_id))
     assert vault.delete_credential.call_args_list == [
-        call(first.id),
-        call(duplicate.id),
+        call(first.id, context=expected_context),
+        call(duplicate.id, context=expected_context),
     ]

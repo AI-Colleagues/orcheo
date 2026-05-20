@@ -541,6 +541,105 @@ def test_run_login_command_clears_input_after_output_and_when_authenticated() ->
     assert len(cleared) >= 2
 
 
+def test_run_login_command_wraps_paste_when_bracketed_paste_is_enabled() -> None:
+    """Long auth codes must be wrapped with bracketed-paste markers."""
+    from orcheo_backend.worker.external_agents import _run_login_command
+
+    script = (
+        "import os, sys, termios, tty\n"
+        "fd = sys.stdin.fileno()\n"
+        "old = termios.tcgetattr(fd)\n"
+        "tty.setraw(fd)\n"
+        # Advertise bracketed paste like Ink-based TUIs do.
+        "sys.stdout.write('\\x1b[?2004hPaste code> ')\n"
+        "sys.stdout.flush()\n"
+        "chars = []\n"
+        "try:\n"
+        "    while True:\n"
+        "        ch = os.read(fd, 1)\n"
+        "        if ch == b'\\r' and chars and chars[-1] == 'END':\n"
+        "            break\n"
+        "        chars.append(ch.decode('utf-8', 'replace'))\n"
+        "        # Compact recognition of the paste-end marker.\n"
+        "        joined = ''.join(chars)\n"
+        "        if joined.endswith('\\x1b[201~'):\n"
+        "            chars = chars[:-len('\\x1b[201~')] + ['END']\n"
+        "finally:\n"
+        "    termios.tcsetattr(fd, termios.TCSADRAIN, old)\n"
+        "joined = ''.join(chars)\n"
+        "assert joined.startswith('\\x1b[200~'), 'missing paste start marker'\n"
+        "body = joined[len('\\x1b[200~'):-len('END')]\n"
+        "print('PASTE-OK:' + body, flush=True)\n"
+    )
+    queued = {"value": "A" * 92}
+
+    def consume_input(clear: bool) -> str | None:
+        if clear:
+            queued["value"] = None
+            return None
+        return queued["value"]
+
+    result = _run_login_command(
+        ["python3", "-c", script],
+        env={},
+        on_output=lambda *_: None,
+        consume_input=consume_input,
+        timeout_seconds=8,
+    )
+
+    assert "PASTE-OK:" + "A" * 92 in result.output
+
+
+def test_run_login_command_terminates_when_claude_token_is_detected() -> None:
+    """The login loop should not hang on the post-token 'press any key' prompt."""
+    from orcheo_backend.worker.external_agents import _run_login_command
+
+    script = (
+        "import sys, time\n"
+        "sys.stdout.write('Your OAuth token (valid for 1 year):\\n'\n"
+        "                 'sk-ant-oat01-FAKE-TOKEN\\n'\n"
+        "                 'Store this token securely.\\n'\n"
+        "                 'Press any key to exit\\n')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(30)\n"
+    )
+
+    result = _run_login_command(
+        ["python3", "-c", script],
+        env={},
+        on_output=lambda *_: None,
+        timeout_seconds=5,
+    )
+
+    assert result.timed_out is False
+    assert result.auth_token == "sk-ant-oat01-FAKE-TOKEN"
+
+
+def test_run_login_command_flags_invalid_claude_code_and_stops() -> None:
+    """The login loop should abort when Claude rejects the submitted code."""
+    from orcheo_backend.worker.external_agents import _run_login_command
+
+    script = (
+        "import sys, time\n"
+        "sys.stdout.write('OAuth error: Invalid code. "
+        "Please make sure the full code was copied\\n'\n"
+        "                 'Press Enter to retry.\\n')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(30)\n"
+    )
+
+    result = _run_login_command(
+        ["python3", "-c", script],
+        env={},
+        on_output=lambda *_: None,
+        timeout_seconds=5,
+    )
+
+    assert result.timed_out is False
+    assert result.invalid_code is True
+    assert result.auth_token is None
+
+
 def test_run_login_command_uses_auto_input_when_no_queued_input() -> None:
     from orcheo_backend.worker.external_agents import _run_login_command
 

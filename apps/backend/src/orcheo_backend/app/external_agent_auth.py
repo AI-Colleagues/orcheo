@@ -9,7 +9,7 @@ from orcheo.external_agents.providers.gemini import (
     GEMINI_OAUTH_CREDS_JSON_ENV_VAR,
     GEMINI_STATE_JSON_ENV_VAR,
 )
-from orcheo.models import CredentialMetadata, CredentialScope
+from orcheo.models import CredentialAccessContext, CredentialMetadata, CredentialScope
 from orcheo.vault import BaseCredentialVault
 
 
@@ -21,6 +21,13 @@ GEMINI_GOOGLE_ACCOUNTS_JSON_CREDENTIAL_NAME: Final[str] = "GEMINI_GOOGLE_ACCOUNT
 GEMINI_STATE_JSON_CREDENTIAL_NAME: Final[str] = "GEMINI_STATE_JSON"
 GEMINI_OAUTH_CREDS_JSON_CREDENTIAL_NAME: Final[str] = "GEMINI_OAUTH_CREDS_JSON"
 EXTERNAL_AGENT_VAULT_ACTOR: Final[str] = "external_agent_worker"
+
+
+def _access_context(workspace_id: str | None) -> CredentialAccessContext | None:
+    """Build a workspace-scoped access context so scope checks succeed."""
+    if workspace_id is None:
+        return None
+    return CredentialAccessContext(workspace_id=UUID(workspace_id))
 
 
 def load_external_agent_vault_environment(
@@ -94,7 +101,10 @@ def reveal_external_agent_secret(
     )
     if metadata is None:
         return None
-    return vault.reveal_secret(credential_id=metadata.id)
+    return vault.reveal_secret(
+        credential_id=metadata.id,
+        context=_access_context(workspace_id),
+    )
 
 
 def upsert_external_agent_secret(
@@ -135,15 +145,17 @@ def upsert_external_agent_secret(
         if workspace_id is not None
         else CredentialScope.unrestricted()
     )
+    access_context = _access_context(workspace_id)
     vault.update_credential(
         credential_id=existing.id,
         actor=actor,
         provider=provider,
         secret=secret,
         scope=credential_scope,
+        context=access_context,
     )
     for duplicate in matches[1:]:
-        vault.delete_credential(duplicate.id)
+        vault.delete_credential(duplicate.id, context=access_context)
 
 
 def delete_external_agent_secret(
@@ -158,9 +170,10 @@ def delete_external_agent_secret(
         credential_name,
         workspace_id=workspace_id,
     )
+    access_context = _access_context(workspace_id)
     deleted = False
     for metadata in matches:
-        vault.delete_credential(metadata.id)
+        vault.delete_credential(metadata.id, context=access_context)
         deleted = True
     return deleted
 
