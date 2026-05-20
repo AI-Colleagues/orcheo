@@ -1,0 +1,7 @@
+FROM alpine:3.20
+
+WORKDIR /scratch
+
+# This sidecar currently only reserves the Docker socket mount so compose can
+# start without depending on a private registry image.
+CMD ["sh", "-c", "trap : TERM INT; tail -f /dev/null"]

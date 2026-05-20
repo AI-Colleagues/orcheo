@@ -43,8 +43,8 @@ nft -f deploy/stack/sandbox-egress.nft
 The `sandbox-runtime` and `egress-proxy` services are baked into the base
 `docker-compose.yml`, so no overlay is needed.
 
-The Envoy config at `deploy/stack/envoy.yaml` can be regenerated from per-
-workspace allowlists with:
+The Envoy config at `deploy/stack/envoy-forward-proxy.yaml` can be
+regenerated from per-workspace allowlists with:
 
 ```python
 from orcheo.sandbox.egress import EnvoyForwardProxyConfig

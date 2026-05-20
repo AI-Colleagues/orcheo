@@ -189,7 +189,10 @@ services:
   sandbox-runtime:
     # Sole service mounting the container-runtime socket. Treat as
     # root-equivalent on the host; never expose this socket to tenant code.
-    image: ${ORCHEO_SANDBOX_RUNTIME_IMAGE:-orcheo/sandbox-runtime:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.sandbox-runtime
+    image: ${ORCHEO_SANDBOX_RUNTIME_IMAGE:-orcheo/sandbox-runtime:local}
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -208,8 +211,7 @@ services:
     restart: unless-stopped
     command: ["envoy", "-c", "/etc/envoy/envoy.yaml"]
     volumes:
-      - ${ORCHEO_EGRESS_PROXY_CONFIG:-./deploy/stack/envoy.yaml}:/etc/envoy/envoy.yaml:ro
-      - egress_audit:/var/log/orcheo
+      - ${ORCHEO_EGRESS_PROXY_CONFIG:-./deploy/stack/envoy-forward-proxy.yaml}:/etc/envoy/envoy.yaml:ro
     networks:
       - sandbox-egress
 
@@ -229,4 +231,3 @@ volumes:
   worker_venv:
   celery_venv:
   sandbox_scratch:
-  egress_audit:

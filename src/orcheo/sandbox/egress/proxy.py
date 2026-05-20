@@ -32,7 +32,7 @@ class EnvoyForwardProxyConfig:
 
     listen_address: str = "0.0.0.0"
     listen_port: int = 3128
-    audit_log_path: str = "/var/log/orcheo/egress-audit.jsonl"
+    audit_log_path: str = "/tmp/egress-audit.jsonl"
     workspaces: tuple[WorkspaceEgressAllowlist, ...] = field(default_factory=tuple)
     global_allowed_hosts: tuple[str, ...] = ()
 
