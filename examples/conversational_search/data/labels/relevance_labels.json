@@ -1,6 +1,0 @@
-[
-  {"query_id": "q1", "doc_id": "authentication.md", "relevance": 3},
-  {"query_id": "q1", "doc_id": "product_overview.md", "relevance": 1},
-  {"query_id": "q2", "doc_id": "product_overview.md", "relevance": 3},
-  {"query_id": "q3", "doc_id": "troubleshooting.md", "relevance": 3}
-]

@@ -43,6 +43,7 @@ async def test_service_token_manager_with_custom_clock() -> None:
     secret, record = await manager.mint()
 
     assert record.issued_at == fixed_time
+    assert record.secret_preview == secret[-4:]
 
 
 @pytest.mark.asyncio

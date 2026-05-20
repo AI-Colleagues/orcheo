@@ -17,6 +17,7 @@ class ServiceTokenRecord:
 
     identifier: str
     secret_hash: str
+    secret_preview: str | None = None
     scopes: frozenset[str] = field(default_factory=frozenset)
     workspace_ids: frozenset[str] = field(default_factory=frozenset)
     issued_at: datetime | None = None
@@ -144,6 +145,7 @@ class ServiceTokenManager:
         record = ServiceTokenRecord(
             identifier=identifier or digest[:8],
             secret_hash=digest,
+            secret_preview=secret[-4:],
             scopes=frozenset(scopes),
             workspace_ids=frozenset(workspace_ids),
             issued_at=now,

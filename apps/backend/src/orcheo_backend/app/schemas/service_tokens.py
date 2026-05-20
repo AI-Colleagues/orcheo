@@ -6,7 +6,11 @@ from pydantic import BaseModel, Field
 
 
 class CreateServiceTokenRequest(BaseModel):
-    """Request payload for creating a new service token."""
+    """Request payload for creating a new service token.
+
+    The token is always scoped to the workspace that mints it, so the caller
+    does not supply workspace identifiers.
+    """
 
     identifier: str | None = Field(
         default=None,
@@ -15,10 +19,6 @@ class CreateServiceTokenRequest(BaseModel):
     scopes: list[str] = Field(
         default_factory=list,
         description="Scopes/permissions granted to the token",
-    )
-    workspace_ids: list[str] = Field(
-        default_factory=list,
-        description="Workspace IDs the token can access",
     )
     expires_in_seconds: int | None = Field(
         default=None,
@@ -34,6 +34,10 @@ class ServiceTokenResponse(BaseModel):
     secret: str | None = Field(
         default=None,
         description="Raw token secret (only shown once on creation)",
+    )
+    secret_preview: str | None = Field(
+        default=None,
+        description="Last characters of the secret for display in listings",
     )
     scopes: list[str] = Field(description="Scopes granted to the token")
     workspace_ids: list[str] = Field(description="Workspaces the token can access")
