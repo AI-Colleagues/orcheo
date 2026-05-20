@@ -1,11 +1,17 @@
-"""FastAPI endpoints for service token management."""
+"""FastAPI endpoints for service token management.
+
+Service tokens are scoped to the workspace that mints them: the minting
+workspace is the only workspace the token may ever resolve to, and tokens
+belonging to other workspaces are never listed or addressable here.
+"""
 
 from __future__ import annotations
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
-from orcheo.workspace import WorkspaceAuditEvent
+from orcheo.workspace import WorkspaceAuditEvent, WorkspaceContext
 from orcheo_backend.app.authentication import (
     AuthorizationPolicy,
+    ServiceTokenManager,
     ServiceTokenRecord,
     get_authorization_policy,
     get_service_token_manager,
@@ -33,6 +39,7 @@ def _record_to_response(
     return ServiceTokenResponse(
         identifier=record.identifier,
         secret=secret,
+        secret_preview=record.secret_preview,
         scopes=sorted(record.scopes),
         workspace_ids=sorted(record.workspace_ids),
         issued_at=record.issued_at,
@@ -46,6 +53,28 @@ def _record_to_response(
     )
 
 
+async def _require_workspace_token(
+    token_id: str,
+    token_manager: ServiceTokenManager,
+    workspace: WorkspaceContext,
+) -> ServiceTokenRecord:
+    """Return ``token_id`` only when it belongs to the active workspace.
+
+    Tokens owned by other workspaces are reported as missing so callers cannot
+    probe for or act on tokens outside their own workspace.
+    """
+    record = await token_manager._repository.find_by_id(token_id)
+    if record is None or record.workspace_id != str(workspace.workspace_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "message": f"Service token '{token_id}' not found",
+                "code": "token.not_found",
+            },
+        )
+    return record
+
+
 @router.post(
     "", response_model=ServiceTokenResponse, status_code=status.HTTP_201_CREATED
 )
@@ -54,29 +83,30 @@ async def create_service_token(
     policy: Annotated[AuthorizationPolicy, Depends(get_authorization_policy)],
     workspace: WorkspaceContextDep,
 ) -> ServiceTokenResponse:
-    """Create a new service token.
+    """Mint a new service token scoped to the active workspace.
 
-    Requires 'admin:tokens:write' scope.
-    The secret is only shown once in the response and cannot be retrieved later.
+    Any authenticated member of the workspace may mint a token. The token can
+    only ever access the workspace that minted it; the secret is shown once in
+    the response and cannot be retrieved later.
     """
     policy.require_authenticated()
-    policy.require_scopes("admin:tokens:write")
 
     token_manager = get_service_token_manager()
+    workspace_id = str(workspace.workspace_id)
 
     secret, record = await token_manager.mint(
         identifier=request.identifier,
         scopes=request.scopes,
-        workspace_ids=request.workspace_ids,
+        workspace_ids=[workspace_id],
         expires_in=request.expires_in_seconds,
-        workspace_id=str(workspace.workspace_id),
+        workspace_id=workspace_id,
     )
     try:
         get_workspace_repository().record_audit_event(
             WorkspaceAuditEvent(
                 workspace_id=workspace.workspace_id,
                 action="service_token.created",
-                actor=policy.context.subject if policy.context else None,
+                actor=policy.context.subject,
                 subject=record.identifier,
                 resource_type="service_token",
                 resource_id=record.identifier,
@@ -96,17 +126,19 @@ async def create_service_token(
 @router.get("", response_model=ServiceTokenListResponse)
 async def list_service_tokens(
     policy: Annotated[AuthorizationPolicy, Depends(get_authorization_policy)],
+    workspace: WorkspaceContextDep,
 ) -> ServiceTokenListResponse:
-    """List all service tokens.
+    """List service tokens owned by the active workspace.
 
-    Requires 'admin:tokens:read' scope.
-    Secrets are never returned in the list.
+    Tokens belonging to other workspaces are never returned. Secrets are never
+    included in the list.
     """
     policy.require_authenticated()
-    policy.require_scopes("admin:tokens:read")
 
     token_manager = get_service_token_manager()
-    records = await token_manager.all()
+    records = await token_manager._repository.list_for_workspace(
+        str(workspace.workspace_id)
+    )
 
     tokens = [_record_to_response(record) for record in records]
     return ServiceTokenListResponse(tokens=tokens, total=len(tokens))
@@ -116,25 +148,13 @@ async def list_service_tokens(
 async def get_service_token(
     token_id: str,
     policy: Annotated[AuthorizationPolicy, Depends(get_authorization_policy)],
+    workspace: WorkspaceContextDep,
 ) -> ServiceTokenResponse:
-    """Get details for a specific service token.
-
-    Requires 'admin:tokens:read' scope.
-    """
+    """Get details for a service token owned by the active workspace."""
     policy.require_authenticated()
-    policy.require_scopes("admin:tokens:read")
 
     token_manager = get_service_token_manager()
-    record = await token_manager._repository.find_by_id(token_id)
-
-    if record is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "message": f"Service token '{token_id}' not found",
-                "code": "token.not_found",
-            },
-        )
+    record = await _require_workspace_token(token_id, token_manager, workspace)
 
     return _record_to_response(record)
 
@@ -146,31 +166,21 @@ async def rotate_service_token(
     policy: Annotated[AuthorizationPolicy, Depends(get_authorization_policy)],
     workspace: WorkspaceContextDep,
 ) -> ServiceTokenResponse:
-    """Rotate a service token, generating a new secret.
+    """Rotate a workspace service token, generating a new secret.
 
-    Requires 'admin:tokens:write' scope.
-    The old token remains valid during the overlap period.
-    The new secret is only shown once.
+    The old token remains valid during the overlap period. The replacement
+    token stays scoped to the same workspace. The new secret is shown once.
     """
     policy.require_authenticated()
-    policy.require_scopes("admin:tokens:write")
 
     token_manager = get_service_token_manager()
+    await _require_workspace_token(token_id, token_manager, workspace)
 
-    try:
-        secret, new_record = await token_manager.rotate(
-            token_id,
-            overlap_seconds=request.overlap_seconds,
-            expires_in=request.expires_in_seconds,
-        )
-    except KeyError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "message": f"Service token '{token_id}' not found",
-                "code": "token.not_found",
-            },
-        ) from None
+    secret, new_record = await token_manager.rotate(
+        token_id,
+        overlap_seconds=request.overlap_seconds,
+        expires_in=request.expires_in_seconds,
+    )
 
     message = (
         f"New token created. Old token '{token_id}' "
@@ -181,7 +191,7 @@ async def rotate_service_token(
             WorkspaceAuditEvent(
                 workspace_id=workspace.workspace_id,
                 action="service_token.rotated",
-                actor=policy.context.subject if policy.context else None,
+                actor=policy.context.subject,
                 subject=token_id,
                 resource_type="service_token",
                 resource_id=token_id,
@@ -200,32 +210,22 @@ async def revoke_service_token(
     policy: Annotated[AuthorizationPolicy, Depends(get_authorization_policy)],
     workspace: WorkspaceContextDep,
 ) -> None:
-    """Revoke a service token immediately.
+    """Revoke a workspace service token immediately.
 
-    Requires 'admin:tokens:write' scope.
     The token will no longer be usable for authentication.
     """
     policy.require_authenticated()
-    policy.require_scopes("admin:tokens:write")
 
     token_manager = get_service_token_manager()
+    await _require_workspace_token(token_id, token_manager, workspace)
 
-    try:
-        await token_manager.revoke(token_id, reason=request.reason)
-    except KeyError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "message": f"Service token '{token_id}' not found",
-                "code": "token.not_found",
-            },
-        ) from None
+    await token_manager.revoke(token_id, reason=request.reason)
     try:
         get_workspace_repository().record_audit_event(
             WorkspaceAuditEvent(
                 workspace_id=workspace.workspace_id,
                 action="service_token.revoked",
-                actor=policy.context.subject if policy.context else None,
+                actor=policy.context.subject,
                 subject=token_id,
                 resource_type="service_token",
                 resource_id=token_id,

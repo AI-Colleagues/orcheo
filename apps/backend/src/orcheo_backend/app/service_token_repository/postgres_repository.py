@@ -32,6 +32,7 @@ POSTGRES_SERVICE_TOKEN_SCHEMA = """
 CREATE TABLE IF NOT EXISTS service_tokens (
     identifier TEXT PRIMARY KEY,
     secret_hash TEXT NOT NULL,
+    secret_preview TEXT,
     scopes JSONB,
     workspace_ids JSONB,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -50,6 +51,8 @@ CREATE TABLE IF NOT EXISTS service_tokens (
     rate_limit_override INTEGER,
     workspace_id TEXT
 );
+
+ALTER TABLE service_tokens ADD COLUMN IF NOT EXISTS secret_preview TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_service_tokens_hash
     ON service_tokens(secret_hash);
@@ -107,6 +110,7 @@ def _row_to_record(row: dict[str, Any]) -> ServiceTokenRecord:
     return ServiceTokenRecord(
         identifier=row["identifier"],
         secret_hash=row["secret_hash"],
+        secret_preview=row.get("secret_preview"),
         scopes=parse_set(row.get("scopes")),
         workspace_ids=parse_set(row.get("workspace_ids")),
         issued_at=parse_ts(row.get("issued_at")),
@@ -277,15 +281,18 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
             await conn.execute(
                 """
                 INSERT INTO service_tokens (
-                    identifier, secret_hash, scopes, workspace_ids,
-                    created_at, created_by, issued_at, expires_at,
-                    rotation_expires_at, rotated_to, revoked_at,
+                    identifier, secret_hash, secret_preview, scopes,
+                    workspace_ids, created_at, created_by, issued_at,
+                    expires_at, rotation_expires_at, rotated_to, revoked_at,
                     revoked_by, revocation_reason, workspace_id
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                )
                 """,
                 (
                     record.identifier,
                     record.secret_hash,
+                    record.secret_preview,
                     serialize_string_set(record.scopes),
                     serialize_string_set(record.workspace_ids),
                     datetime.now(tz=UTC),

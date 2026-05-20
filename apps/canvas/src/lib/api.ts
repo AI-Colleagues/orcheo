@@ -286,13 +286,17 @@ async function requestSystemJson<T>(
   options: { includeWorkspaceHeaders?: boolean } = {},
 ): Promise<T> {
   const url = buildBackendHttpUrl(path, baseUrl);
-  const response = await authFetch(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
+  const response = await authFetch(
+    url,
+    {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init.headers ?? {}),
+      },
     },
-  }, options);
+    options,
+  );
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({
@@ -434,4 +438,134 @@ export async function removeWorkspaceMember(
     }));
     throw new Error(errorData.detail || `HTTP ${response.status}`);
   }
+}
+
+export interface ServiceToken {
+  identifier: string;
+  secret?: string | null;
+  secret_preview?: string | null;
+  scopes: string[];
+  workspace_ids: string[];
+  issued_at: string | null;
+  expires_at: string | null;
+  last_used_at?: string | null;
+  use_count?: number | null;
+  revoked_at?: string | null;
+  revocation_reason?: string | null;
+  rotated_to?: string | null;
+  message?: string | null;
+}
+
+export interface ServiceTokenListResponse {
+  tokens: ServiceToken[];
+  total: number;
+}
+
+export interface CreateServiceTokenRequest {
+  identifier?: string;
+  scopes?: string[];
+  expires_in_seconds?: number | null;
+}
+
+const extractErrorMessage = (data: unknown, fallback: string): string => {
+  if (!data || typeof data !== "object" || !("detail" in data)) {
+    return fallback;
+  }
+  const detail = (data as { detail: unknown }).detail;
+  if (typeof detail === "string") {
+    return detail;
+  }
+  if (detail && typeof detail === "object") {
+    const record = detail as Record<string, unknown>;
+    if (typeof record.message === "string") {
+      return record.message;
+    }
+    const nested = record.error;
+    if (
+      nested &&
+      typeof nested === "object" &&
+      typeof (nested as Record<string, unknown>).message === "string"
+    ) {
+      return (nested as Record<string, string>).message;
+    }
+  }
+  return fallback;
+};
+
+async function serviceTokenRequest<T>(
+  path: string,
+  init: RequestInit,
+  fallbackError: string,
+  baseUrl?: string,
+): Promise<T> {
+  const url = buildBackendHttpUrl(path, baseUrl);
+  const response = await authFetch(url, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new Error(extractErrorMessage(errorData, fallbackError));
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+  return response.json();
+}
+
+export async function listServiceTokens(
+  baseUrl?: string,
+): Promise<ServiceTokenListResponse> {
+  return serviceTokenRequest<ServiceTokenListResponse>(
+    "/api/admin/service-tokens",
+    { method: "GET" },
+    "Failed to load service tokens",
+    baseUrl,
+  );
+}
+
+export async function createServiceToken(
+  request: CreateServiceTokenRequest,
+  baseUrl?: string,
+): Promise<ServiceToken> {
+  return serviceTokenRequest<ServiceToken>(
+    "/api/admin/service-tokens",
+    { method: "POST", body: JSON.stringify(request) },
+    "Failed to create service token",
+    baseUrl,
+  );
+}
+
+export async function rotateServiceToken(
+  tokenId: string,
+  overlapSeconds: number,
+  baseUrl?: string,
+): Promise<ServiceToken> {
+  return serviceTokenRequest<ServiceToken>(
+    `/api/admin/service-tokens/${encodeURIComponent(tokenId)}/rotate`,
+    {
+      method: "POST",
+      body: JSON.stringify({ overlap_seconds: overlapSeconds }),
+    },
+    "Failed to rotate service token",
+    baseUrl,
+  );
+}
+
+export async function revokeServiceToken(
+  tokenId: string,
+  reason: string,
+  baseUrl?: string,
+): Promise<void> {
+  await serviceTokenRequest<void>(
+    `/api/admin/service-tokens/${encodeURIComponent(tokenId)}`,
+    { method: "DELETE", body: JSON.stringify({ reason }) },
+    "Failed to revoke service token",
+    baseUrl,
+  );
 }

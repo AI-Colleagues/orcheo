@@ -16,7 +16,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/design-system/ui/dialog";
-import { Key, LogOut, Settings, User, Users } from "lucide-react";
+import { Key, KeyRound, LogOut, Settings, User, Users } from "lucide-react";
 import {
   clearAuthSession,
   getAuthenticatedUserProfile,
@@ -123,24 +123,31 @@ export default function AccountMenu({
               </Link>
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem
-            asChild
-          >
+          {workspaceSlug && (
+            <DropdownMenuItem asChild>
+              <Link
+                to={`/${workspaceSlug}/tokens`}
+                className="flex w-full items-center gap-0"
+              >
+                <KeyRound className="mr-2 h-4 w-4" />
+                <span>API Keys</span>
+              </Link>
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem asChild>
             <button
               type="button"
               className="flex w-full items-center gap-0"
               onClick={() => {
-              handleVaultOpenChange(true);
+                handleVaultOpenChange(true);
               }}
             >
               <Key className="mr-2 h-4 w-4" />
-            <span>Credential Vault</span>
+              <span>Credential Vault</span>
             </button>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            asChild
-          >
+          <DropdownMenuItem asChild>
             <button
               type="button"
               className="flex w-full items-center gap-0"
@@ -150,7 +157,7 @@ export default function AccountMenu({
               }}
             >
               <LogOut className="mr-2 h-4 w-4" />
-            <span>Log out</span>
+              <span>Log out</span>
             </button>
           </DropdownMenuItem>
         </DropdownMenuContent>
