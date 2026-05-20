@@ -22,7 +22,6 @@ from orcheo.workspace import (
 from orcheo_backend.app.authentication import RequestContext, authenticate_request
 from orcheo_backend.app.errors import WorkspaceRateLimitError
 from orcheo_backend.app.workspace.errors import (
-    WorkspaceContextRequiredError,
     raise_workspace_forbidden,
     raise_workspace_not_found,
     raise_workspace_required,
@@ -123,14 +122,12 @@ async def resolve_workspace_context(
 ) -> WorkspaceContext:
     """FastAPI dependency that produces a WorkspaceContext for the request.
 
-    Every request must be authenticated. Service tokens and dev logins that
-    carry *workspace_ids* in their claims are resolved directly from those
-    identifiers; user identities are resolved via the membership-based
-    resolver.
+    Service tokens and dev logins that carry *workspace_ids* in their claims
+    are resolved directly from those identifiers; user identities are resolved
+    via the membership-based resolver. When authentication is disabled,
+    ``authenticate_request`` yields an anonymous context that resolves via the
+    membership-based path using ``anonymous`` as the subject.
     """
-    if not auth.is_authenticated:
-        raise WorkspaceContextRequiredError("Authentication is required for workspace")
-
     service = get_workspace_service()
     requested_slug = _read_workspace_header(request)
 

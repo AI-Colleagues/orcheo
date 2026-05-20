@@ -42,7 +42,7 @@ export function WorkspaceBootstrapGate({
   const [workspaces, setWorkspaces] = useState<WorkspaceMembershipSummary[]>(
     [],
   );
-  const [isLoading, setIsLoading] = useState(Boolean(authUser));
+  const [isLoading, setIsLoading] = useState(true);
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSlug, setWorkspaceSlugState] = useState("");
   const [workspaceSlugIsManual, setWorkspaceSlugIsManual] = useState(false);
@@ -54,11 +54,6 @@ export function WorkspaceBootstrapGate({
   }, [workspaceName]);
 
   useEffect(() => {
-    if (!authUser) {
-      setIsLoading(false);
-      return;
-    }
-
     let active = true;
 
     const load = async () => {
@@ -112,7 +107,7 @@ export function WorkspaceBootstrapGate({
     return () => {
       active = false;
     };
-  }, [authUser, suggestedWorkspaceName]);
+  }, [suggestedWorkspaceName]);
 
   useEffect(() => {
     if (workspaceSlugIsManual) {
@@ -157,10 +152,6 @@ export function WorkspaceBootstrapGate({
       setIsCreating(false);
     }
   };
-
-  if (!authUser) {
-    return <>{children}</>;
-  }
 
   if (isLoading) {
     return (

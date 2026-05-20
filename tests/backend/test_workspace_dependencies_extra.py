@@ -72,14 +72,53 @@ def test_get_workspace_repository_requires_dsn_for_postgres(
 
 
 @pytest.mark.asyncio()
-async def test_resolve_workspace_context_requires_auth() -> None:
-    """Unauthenticated requests are always rejected — auth is mandatory."""
+async def test_resolve_workspace_context_anonymous_resolves_via_membership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When backend auth is disabled, ``authenticate_request`` yields an
+    anonymous context. Workspace resolution should fall through to the
+    membership-based resolver using the anonymous subject."""
+
+    monkeypatch.setattr(
+        workspace_dependencies,
+        "get_settings",
+        lambda refresh=False: {},  # noqa: ARG005
+    )
+
+    context = SimpleNamespace(workspace_id="workspace-anon", role=Role.OWNER)
+    resolved_for: dict[str, str | None] = {}
+
+    class _Resolver:
+        def resolve(self, *, user_id: str, workspace_slug: str | None) -> object:
+            resolved_for["user_id"] = user_id
+            resolved_for["workspace_slug"] = workspace_slug
+            return context
+
+    class _Service:
+        resolver = _Resolver()
+
+    monkeypatch.setattr(
+        workspace_dependencies, "get_workspace_service", lambda: _Service()
+    )
+    monkeypatch.setattr(
+        workspace_dependencies,
+        "get_workspace_governance",
+        lambda refresh=False: SimpleNamespace(  # noqa: ARG005
+            check_api_rate_limit=lambda workspace_id: None
+        ),
+    )
 
     request = SimpleNamespace(headers={}, state=SimpleNamespace())
-    auth = SimpleNamespace(is_authenticated=False, subject="user-1")
+    auth = SimpleNamespace(
+        is_authenticated=False,
+        identity_type="anonymous",
+        subject="anonymous",
+        workspace_ids=frozenset(),
+    )
 
-    with pytest.raises(workspace_errors.WorkspaceContextRequiredError):
-        await workspace_dependencies.resolve_workspace_context(request, auth)
+    result = await workspace_dependencies.resolve_workspace_context(request, auth)
+    assert result is context
+    assert resolved_for["user_id"] == "anonymous"
 
 
 @pytest.mark.asyncio()
