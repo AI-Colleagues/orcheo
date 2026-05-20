@@ -200,7 +200,7 @@ describe("WorkflowCard", () => {
     expect(screen.getByText("👨‍🎓")).toBeInTheDocument();
   });
 
-  it("keeps dropdown export actions from triggering navigation", async () => {
+  it("keeps dropdown transfer actions from triggering navigation", async () => {
     const user = userEvent.setup();
     const handlers = createHandlers();
 
@@ -219,14 +219,14 @@ describe("WorkflowCard", () => {
       }),
     );
     await user.click(
-      await screen.findByRole("menuitem", { name: /^export$/i }),
+      await screen.findByRole("menuitem", { name: /^transfer$/i }),
     );
 
     expect(handlers.onExportWorkflow).toHaveBeenCalledTimes(1);
     expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
   });
 
-  it("hides delete actions for the managed vibe workflow", async () => {
+  it("hides offboard actions for the managed vibe workflow", async () => {
     const user = userEvent.setup();
     const handlers = createHandlers();
 
@@ -246,7 +246,7 @@ describe("WorkflowCard", () => {
     );
 
     expect(
-      screen.queryByRole("menuitem", { name: /^delete$/i }),
+      screen.queryByRole("menuitem", { name: /^offboard$/i }),
     ).toBeNull();
   });
 });

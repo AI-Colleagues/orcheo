@@ -1,11 +1,11 @@
 import { useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, SyntheticEvent } from "react";
 import {
-  Download,
   MoreHorizontal,
+  Send,
   Star,
+  UserMinus,
   UserPlus,
-  Trash,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/design-system/ui/button";
@@ -243,8 +243,8 @@ export const WorkflowCard = ({
                     onExportWorkflow(workflow);
                   }}
                 >
-                  <Download className="mr-2 h-4 w-4" />
-                  Export
+                  <Send className="mr-2 h-4 w-4" />
+                  Transfer
                 </DropdownMenuItem>
               ) : (
                 <>
@@ -255,8 +255,8 @@ export const WorkflowCard = ({
                       onExportWorkflow(workflow);
                     }}
                   >
-                    <Download className="mr-2 h-4 w-4" />
-                    Export
+                    <Send className="mr-2 h-4 w-4" />
+                    Transfer
                   </DropdownMenuItem>
                   {canDeleteWorkflow ? (
                     <>
@@ -269,8 +269,8 @@ export const WorkflowCard = ({
                           setIsDeleteDialogOpen(true);
                         }}
                       >
-                        <Trash className="mr-2 h-4 w-4" />
-                        Delete
+                        <UserMinus className="mr-2 h-4 w-4" />
+                        Offboard
                       </DropdownMenuItem>
                     </>
                   ) : null}

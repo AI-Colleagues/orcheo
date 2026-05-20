@@ -173,16 +173,16 @@ export const useWorkflowGalleryActions = (
       URL.revokeObjectURL(url);
 
       toast({
-        title: "Colleague exported",
+        title: "Colleague transferred",
         description: `Downloaded ${fileBaseName}.py`,
       });
     } catch (error) {
       toast({
-        title: "Export failed",
+        title: "Transfer failed",
         description:
           error instanceof Error
             ? error.message
-            : "Unable to export colleague.",
+            : "Unable to transfer colleague.",
         variant: "destructive",
       });
     }
@@ -193,12 +193,12 @@ export const useWorkflowGalleryActions = (
       try {
         await deleteWorkflow(workflowId);
         toast({
-          title: "Colleague deleted",
+          title: "Colleague offboarded",
           description: `"${workflowName}" has been removed from your workspace.`,
         });
       } catch (error) {
         toast({
-          title: "Failed to delete colleague",
+          title: "Failed to offboard colleague",
           description:
             error instanceof Error ? error.message : "Unknown error occurred",
           variant: "destructive",

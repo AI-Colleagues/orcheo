@@ -52,7 +52,7 @@ const baseProps = {
 } satisfies Parameters<typeof WorkflowTabContent>[0];
 
 describe("WorkflowTabContent", () => {
-  it("hides the delete action for the managed vibe workflow", () => {
+  it("hides the offboard action for the managed vibe workflow", () => {
     render(
       <WorkflowTabContent
         {...baseProps}
@@ -60,12 +60,12 @@ describe("WorkflowTabContent", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: /^delete$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^offboard$/i })).toBeNull();
   });
 
-  it("shows the delete action for regular workflows", () => {
+  it("shows the offboard action for regular workflows", () => {
     render(<WorkflowTabContent {...baseProps} workflowRouteRef="workflow-1" />);
 
-    expect(screen.getByRole("button", { name: /^delete$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^offboard$/i })).toBeTruthy();
   });
 });

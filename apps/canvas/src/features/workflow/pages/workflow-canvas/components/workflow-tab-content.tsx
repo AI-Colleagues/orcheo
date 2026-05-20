@@ -5,7 +5,7 @@ import {
   ExternalLink,
   Play,
   RefreshCw,
-  Trash,
+  UserMinus,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Controls, ReactFlow, type Node, type NodeProps } from "@xyflow/react";
@@ -508,15 +508,15 @@ export function WorkflowTabContent({
     try {
       await deleteWorkflow(workflowId);
       toast({
-        title: "Workflow deleted",
+        title: "Colleague offboarded",
         description: `"${workflowName}" has been removed from your workspace.`,
       });
       setIsDeleteDialogOpen(false);
       navigate("/");
     } catch (error) {
       toast({
-        title: "Failed to delete workflow",
-        description: getErrorMessage(error, "Unable to delete workflow."),
+        title: "Failed to offboard colleague",
+        description: getErrorMessage(error, "Unable to offboard colleague."),
         variant: "destructive",
       });
     } finally {
@@ -573,8 +573,8 @@ export function WorkflowTabContent({
                 onClick={() => setIsDeleteDialogOpen(true)}
                 disabled={isDeletePending}
               >
-                <Trash className="mr-1.5 h-4 w-4" />
-                Delete
+                <UserMinus className="mr-1.5 h-4 w-4" />
+                Offboard
               </Button>
             ) : null}
             <Button
