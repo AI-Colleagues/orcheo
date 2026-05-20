@@ -131,6 +131,7 @@ def _token_row(identifier: str, **overrides: Any) -> dict[str, Any]:
     base = {
         "identifier": identifier,
         "secret_hash": "hash-" + identifier,
+        "secret_preview": "ab12",
         "scopes": json.dumps(["read", "write"]),
         "workspace_ids": json.dumps(["ws-1"]),
         "issued_at": now,
@@ -305,6 +306,7 @@ async def test_postgres_service_token_repository_find_by_id(
 
     assert token is not None
     assert token.identifier == "token-1"
+    assert token.secret_preview == "ab12"
 
 
 @pytest.mark.asyncio
@@ -362,6 +364,7 @@ async def test_postgres_service_token_repository_create(
     record = ServiceTokenRecord(
         identifier="token-1",
         secret_hash="hash-1",
+        secret_preview="ab12",
         scopes=frozenset({"read", "write"}),
         workspace_ids=frozenset({"ws-1"}),
         issued_at=now,

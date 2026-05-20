@@ -47,40 +47,6 @@ _ALLOWED_FIELDS = frozenset(
     }
 )
 _ENCODING_RE = re.compile(r"coding[=:]\s*([-\w.]+)")
-_SCHEMA_KEYS = frozenset(
-    {
-        "type",
-        "enum",
-        "items",
-        "properties",
-        "oneOf",
-        "anyOf",
-        "allOf",
-        "const",
-        "default",
-        "format",
-        "minimum",
-        "maximum",
-        "exclusiveMinimum",
-        "exclusiveMaximum",
-        "multipleOf",
-        "pattern",
-        "additionalProperties",
-    }
-)
-_SCHEMA_DISCRIMINATOR_KEYS = frozenset(
-    {
-        "enum",
-        "items",
-        "properties",
-        "oneOf",
-        "anyOf",
-        "allOf",
-        "const",
-        "default",
-        "additionalProperties",
-    }
-)
 
 
 def _encoding_from_cookie(line: bytes) -> str | None:
@@ -311,9 +277,13 @@ def resolve_frontmatter_config_bundle(
     workflow_path: Path,
     config_path: str,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    """Load runnable config and typed schema declarations from frontmatter.
+    """Load runnable config and optional sibling schema declarations.
 
-    Relative paths resolve against the workflow file's parent directory.
+    Relative paths resolve against the workflow file's parent directory. The
+    config is forwarded verbatim: inline JSON Schema annotations embedded in
+    ``configurable`` values are resolved server-side during ingestion. Only a
+    companion ``*.schema.json`` file is loaded here, since it cannot be seen
+    once the workflow leaves the local filesystem.
     """
     candidate = Path(config_path).expanduser()
     if not candidate.is_absolute():
@@ -338,10 +308,7 @@ def resolve_frontmatter_config_bundle(
             f"Frontmatter config file '{config_path}' must contain a JSON object."
         )
 
-    sibling_schema = _load_sibling_schema_file(resolved)
-    raw_config, inline_schema = _split_annotated_config(data, config_path=config_path)
-    schema_definitions = _merge_schema_definitions(inline_schema, sibling_schema)
-    return raw_config, schema_definitions or None
+    return data, _load_sibling_schema_file(resolved)
 
 
 def _load_sibling_schema_file(resolved_config: Path) -> dict[str, Any] | None:
@@ -367,40 +334,6 @@ def _load_sibling_schema_file(resolved_config: Path) -> dict[str, Any] | None:
     return _normalize_schema_definition_map(schema_payload, schema_path.name)
 
 
-def _split_annotated_config(
-    config: dict[str, Any],
-    *,
-    config_path: str,
-) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    """Split annotated runnable config values from their schema definitions."""
-    configurable = config.get("configurable")
-    if not isinstance(configurable, dict):
-        return config, None
-
-    raw_config = dict(config)
-    raw_configurable = dict(configurable)
-    schema_definitions: dict[str, Any] = {}
-
-    for key, value in configurable.items():
-        if not _is_schema_declaration(value):
-            continue
-        if not isinstance(value, Mapping):
-            continue
-        schema = _normalize_schema_definition(value, key=key, config_path=config_path)
-        raw_configurable[key] = _resolve_schema_default(
-            schema,
-            key=key,
-            config_path=config_path,
-        )
-        schema_definitions[key] = schema
-
-    if schema_definitions:
-        raw_config["configurable"] = raw_configurable
-        return raw_config, schema_definitions
-
-    return config, None
-
-
 def _normalize_schema_definition_map(
     payload: dict[str, Any],
     config_path: str,
@@ -421,75 +354,6 @@ def _normalize_schema_definition_map(
             )
         normalized[key] = dict(value)
     return normalized
-
-
-def _merge_schema_definitions(
-    *schema_maps: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    """Merge schema definition maps with later entries taking precedence."""
-    merged: dict[str, Any] = {}
-    for schema_map in schema_maps:
-        if not schema_map:
-            continue
-        for key, value in schema_map.items():
-            merged[key] = value
-    return merged or None
-
-
-def _is_schema_declaration(value: object) -> bool:
-    """Return True when ``value`` is an explicit typed schema annotation."""
-    if not isinstance(value, Mapping):
-        return False
-    if not any(key in value for key in _SCHEMA_KEYS):
-        return False
-    return any(key in value for key in _SCHEMA_DISCRIMINATOR_KEYS)
-
-
-def _normalize_schema_definition(
-    value: Mapping[str, Any],
-    *,
-    key: str,
-    config_path: str,
-) -> dict[str, Any]:
-    """Copy a schema declaration into a JSON-serializable mapping."""
-    schema = dict(value)
-    if not _schema_has_runtime_default(schema):
-        raise CLIError(
-            f"Frontmatter config field '{key}' in '{config_path}' declares schema "
-            "metadata but no runtime default. Add a 'default' value or an 'enum'."
-        )
-    return schema
-
-
-def _schema_has_runtime_default(schema: Mapping[str, Any]) -> bool:
-    """Return True when a schema declaration can resolve to a runtime value."""
-    if "default" in schema:
-        return True
-    const_value = schema.get("const")
-    if const_value is not None:
-        return True
-    enum_value = schema.get("enum")
-    return isinstance(enum_value, list) and len(enum_value) > 0
-
-
-def _resolve_schema_default(
-    schema: Mapping[str, Any],
-    *,
-    key: str,
-    config_path: str,
-) -> Any:
-    """Return a runtime value from a schema declaration."""
-    if "default" in schema:
-        return schema["default"]
-    if schema.get("const") is not None:
-        return schema["const"]
-    enum_value = schema.get("enum")
-    if isinstance(enum_value, list) and enum_value:
-        return enum_value[0]
-    raise CLIError(
-        f"Frontmatter config field '{key}' in '{config_path}' declares schema "
-        "metadata but no runtime default. Add a 'default' value or an 'enum'."
-    )
 
 
 __all__ = [
