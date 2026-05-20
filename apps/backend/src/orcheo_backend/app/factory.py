@@ -13,6 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from orcheo.agentensor.checkpoints import AgentensorCheckpointStore
 from orcheo.plugins import load_enabled_plugins
+from orcheo.runtime.credentials import CredentialAccessContext
+from orcheo.sandbox.broker import CredentialBroker
 from orcheo.vault.oauth import OAuthCredentialService
 from orcheo_backend.app.authentication import (
     AuthenticationError,
@@ -25,6 +27,7 @@ from orcheo_backend.app.chatkit_runtime import (
     get_chatkit_server,
     sensitive_logging_enabled,
 )
+from orcheo_backend.app.credential_broker import build_credential_broker_router
 from orcheo_backend.app.dependencies import (
     ListenerRuntimeStore,
     _create_repository,
@@ -176,6 +179,24 @@ def _build_api_router() -> APIRouter:
 api_router = _build_api_router()
 
 
+def _build_credential_broker() -> CredentialBroker:
+    """Create a process-local credential broker for sandbox credential resolution."""
+
+    def _resolve_credential(*, workspace_id: str, credential_name: str) -> str:
+        vault = get_vault()
+        context = CredentialAccessContext(workspace_id=workspace_id)
+        for metadata in vault.list_credentials(
+            context=context,
+            workspace_id=workspace_id,
+        ):
+            if metadata.name == credential_name:
+                return vault.reveal_secret(credential_id=metadata.id, context=context)
+        raise KeyError(credential_name)
+
+    broker_secret = os.getenv("ORCHEO_CREDENTIAL_BROKER_SECRET", "dev-insecure-secret")
+    return CredentialBroker(secret=broker_secret, resolver=_resolve_credential)
+
+
 _DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:2026",
     "http://127.0.0.1:2026",
@@ -260,6 +281,7 @@ def _configure_application(application: FastAPI) -> None:
     application.include_router(triggers.workspace_webhook_router)
     application.include_router(chatkit_assets.router)
     application.include_router(websocket.router)
+    application.include_router(build_credential_broker_router(_build_credential_broker()))
     application.add_exception_handler(
         AuthenticationError, _authentication_error_handler
     )

@@ -26,6 +26,9 @@ from orcheo.runtime.runnable_config import (
     merge_runnable_configs,
 )
 from orcheo.runtime.state_builder import build_initial_state
+from orcheo.sandbox.dispatch import use_launcher
+from orcheo.sandbox.launcher import SandboxedProcessLauncher
+from orcheo.sandbox.manager import SandboxRuntimeManager
 from orcheo.tracing import (
     get_tracer,
     record_workflow_cancellation,
@@ -60,6 +63,7 @@ from orcheo_backend.app.trace_utils import build_trace_update
 
 
 logger = logging.getLogger(__name__)
+_sandbox_launcher: SandboxedProcessLauncher | None = None
 
 
 @contextmanager
@@ -117,6 +121,14 @@ def _log_final_state_debug(state_values: Mapping[str, Any] | Any) -> None:
     app_logger.debug("=" * 80)
     app_logger.debug("Final state values: %s", state_values)
     app_logger.debug("=" * 80)
+
+
+def _get_sandbox_launcher() -> SandboxedProcessLauncher:
+    """Return a shared sandbox launcher used by external-agent nodes."""
+    global _sandbox_launcher  # noqa: PLW0603
+    if _sandbox_launcher is None:
+        _sandbox_launcher = SandboxedProcessLauncher(SandboxRuntimeManager())
+    return _sandbox_launcher
 
 
 _CANNOT_SEND_AFTER_CLOSE = 'Cannot call "send" once a close message has been sent.'
@@ -482,15 +494,16 @@ async def execute_workflow(
             )
 
             external_agent_environ = _external_agent_provider_environment(workspace_id)
-            with scoped_external_agent_environment(external_agent_environ):
-                with credential_resolution(resolver):
-                    async with create_checkpointer(settings) as checkpointer:
-                        async with create_graph_store(settings) as graph_store:
-                            graph = build_graph(graph_config)
-                            compiled_graph = graph.compile(
-                                checkpointer=checkpointer,
-                                store=graph_store,
-                            )
+            with use_launcher(_get_sandbox_launcher()):
+                with scoped_external_agent_environment(external_agent_environ):
+                    with credential_resolution(resolver):
+                        async with create_checkpointer(settings) as checkpointer:
+                            async with create_graph_store(settings) as graph_store:
+                                graph = build_graph(graph_config)
+                                compiled_graph = graph.compile(
+                                    checkpointer=checkpointer,
+                                    store=graph_store,
+                                )
 
                             state = _build_initial_state(
                                 graph_config,
@@ -560,15 +573,16 @@ async def _run_evaluation_node(
         )
 
     external_agent_environ = _external_agent_provider_environment(workspace_id)
-    with scoped_external_agent_environment(external_agent_environ):
-        with credential_resolution(resolver):
-            async with create_checkpointer(settings) as checkpointer:
-                async with create_graph_store(settings) as graph_store:
-                    graph = build_graph(graph_config)
-                    compiled_graph = graph.compile(
-                        checkpointer=checkpointer,
-                        store=graph_store,
-                    )
+    with use_launcher(_get_sandbox_launcher()):
+        with scoped_external_agent_environment(external_agent_environ):
+            with credential_resolution(resolver):
+                async with create_checkpointer(settings) as checkpointer:
+                    async with create_graph_store(settings) as graph_store:
+                        graph = build_graph(graph_config)
+                        compiled_graph = graph.compile(
+                            checkpointer=checkpointer,
+                            store=graph_store,
+                        )
                     node = AgentensorNode(
                         name="agentensor_evaluator",
                         mode="evaluate",
@@ -687,15 +701,16 @@ async def _run_training_node(
         )
 
     external_agent_environ = _external_agent_provider_environment(workspace_id)
-    with scoped_external_agent_environment(external_agent_environ):
-        with credential_resolution(resolver):
-            async with create_checkpointer(settings) as checkpointer:
-                async with create_graph_store(settings) as graph_store:
-                    graph = build_graph(graph_config)
-                    compiled_graph = graph.compile(
-                        checkpointer=checkpointer,
-                        store=graph_store,
-                    )
+    with use_launcher(_get_sandbox_launcher()):
+        with scoped_external_agent_environment(external_agent_environ):
+            with credential_resolution(resolver):
+                async with create_checkpointer(settings) as checkpointer:
+                    async with create_graph_store(settings) as graph_store:
+                        graph = build_graph(graph_config)
+                        compiled_graph = graph.compile(
+                            checkpointer=checkpointer,
+                            store=graph_store,
+                        )
                     node = AgentensorNode(
                         name="agentensor_trainer",
                         mode="train",
@@ -1044,22 +1059,23 @@ async def execute_node(
     resolver = CredentialResolver(vault, context=context)
 
     external_agent_environ = _external_agent_provider_environment(workspace_id)
-    with scoped_external_agent_environment(external_agent_environ):
-        with credential_resolution(resolver):
-            node_instance = node_class(**node_params)
-            execution_id = str(uuid.uuid4())
-            _, runtime_config, state_config, _ = _prepare_runnable_config(
-                execution_id, None
-            )
-            state: State = {
-                "messages": [],
-                "results": {},
-                "inputs": inputs,
-                "structured_response": None,
-                "workspace_id": workspace_id,
-                "config": state_config,
-            }
-            return await node_instance(state, runtime_config)
+    with use_launcher(_get_sandbox_launcher()):
+        with scoped_external_agent_environment(external_agent_environ):
+            with credential_resolution(resolver):
+                node_instance = node_class(**node_params)
+                execution_id = str(uuid.uuid4())
+                _, runtime_config, state_config, _ = _prepare_runnable_config(
+                    execution_id, None
+                )
+                state: State = {
+                    "messages": [],
+                    "results": {},
+                    "inputs": inputs,
+                    "structured_response": None,
+                    "workspace_id": workspace_id,
+                    "config": state_config,
+                }
+                return await node_instance(state, runtime_config)
 
 
 __all__ = [
