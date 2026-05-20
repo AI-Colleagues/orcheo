@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
 from pydantic import BaseModel
+from orcheo.workspace import Role, WorkspaceContext
 from orcheo_backend.app import credential_readiness as readiness
 from orcheo_backend.app import get_workflow_credential_readiness
 from orcheo_backend.app.credential_readiness import (
@@ -15,6 +16,15 @@ from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
     WorkflowVersionNotFoundError,
 )
+
+
+def _workspace_context(workspace_id: UUID | None = None) -> WorkspaceContext:
+    return WorkspaceContext(
+        workspace_id=workspace_id or uuid4(),
+        workspace_slug="test",
+        user_id="test-user",
+        role=Role.OWNER,
+    )
 
 
 def test_collect_workflow_credential_placeholders_scans_nested_tool_graphs() -> None:
@@ -178,15 +188,15 @@ async def test_get_workflow_credential_readiness_handles_missing_workflow() -> N
         async def resolve_workflow_ref(
             self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
-            del include_archived
+            del include_archived, workspace_id
             return UUID(str(workflow_ref))
 
         async def get_workflow(self, workflow_id):
             raise WorkflowNotFoundError(str(workflow_id))
 
     class Vault:
-        def list_credentials(self, context):
-            del context
+        def list_credentials(self, *, context, workspace_id=None):
+            del context, workspace_id
             return []
 
     with pytest.raises(HTTPException) as exc_info:
@@ -194,6 +204,7 @@ async def test_get_workflow_credential_readiness_handles_missing_workflow() -> N
             str(uuid4()),
             repository=Repository(),
             vault=Vault(),
+            workspace=_workspace_context(),
         )
 
     assert exc_info.value.status_code == 404
@@ -207,7 +218,7 @@ async def test_get_workflow_credential_readiness_without_versions() -> None:
         async def resolve_workflow_ref(
             self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
-            del workflow_ref, include_archived
+            del workflow_ref, include_archived, workspace_id
             return workflow_id
 
         async def get_workflow(self, workflow_id):
@@ -217,14 +228,15 @@ async def test_get_workflow_credential_readiness_without_versions() -> None:
             raise WorkflowVersionNotFoundError(str(workflow_id))
 
     class Vault:
-        def list_credentials(self, context):
-            del context
+        def list_credentials(self, *, context, workspace_id=None):
+            del context, workspace_id
             return []
 
     response = await get_workflow_credential_readiness(
         str(workflow_id),
         repository=Repository(),
         vault=Vault(),
+        workspace=_workspace_context(),
     )
 
     assert response.status == "not_required"
@@ -291,7 +303,7 @@ def orcheo_workflow() -> StateGraph:
         async def resolve_workflow_ref(
             self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
-            del workflow_ref, include_archived
+            del workflow_ref, include_archived, workspace_id
             return workflow_id
 
         async def get_workflow(self, workflow_id):
@@ -300,9 +312,13 @@ def orcheo_workflow() -> StateGraph:
         async def get_latest_version(self, workflow_id):
             return version
 
+        async def get_workflow_workspace_id(self, workflow_id):
+            del workflow_id
+            return None
+
     class Vault:
-        def list_credentials(self, context):
-            del context
+        def list_credentials(self, *, context, workspace_id=None):
+            del context, workspace_id
             return [
                 SimpleNamespace(
                     id=uuid4(),
@@ -320,6 +336,7 @@ def orcheo_workflow() -> StateGraph:
         str(workflow_id),
         repository=Repository(),
         vault=Vault(),
+        workspace=_workspace_context(),
     )
 
     assert response.status == "missing"
@@ -392,7 +409,7 @@ async def test_get_workflow_credential_readiness_reports_ready_when_all_credenti
         async def resolve_workflow_ref(
             self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
-            del workflow_ref, include_archived
+            del workflow_ref, include_archived, workspace_id
             return workflow_id
 
         async def get_workflow(self, workflow_id):
@@ -401,9 +418,13 @@ async def test_get_workflow_credential_readiness_reports_ready_when_all_credenti
         async def get_latest_version(self, workflow_id):
             return version
 
+        async def get_workflow_workspace_id(self, workflow_id):
+            del workflow_id
+            return None
+
     class Vault:
-        def list_credentials(self, context):
-            del context
+        def list_credentials(self, *, context, workspace_id=None):
+            del context, workspace_id
             return [
                 SimpleNamespace(
                     id=uuid4(),
@@ -416,6 +437,7 @@ async def test_get_workflow_credential_readiness_reports_ready_when_all_credenti
         str(workflow_id),
         repository=Repository(),
         vault=Vault(),
+        workspace=_workspace_context(),
     )
 
     assert response.status == "ready"
@@ -434,7 +456,7 @@ async def test_get_workflow_credential_readiness_reports_not_required_when_graph
         async def resolve_workflow_ref(
             self, workflow_ref, *, include_archived=True, workspace_id=None
         ):
-            del workflow_ref, include_archived
+            del workflow_ref, include_archived, workspace_id
             return workflow_id
 
         async def get_workflow(self, workflow_id):
@@ -443,16 +465,84 @@ async def test_get_workflow_credential_readiness_reports_not_required_when_graph
         async def get_latest_version(self, workflow_id):
             return version
 
+        async def get_workflow_workspace_id(self, workflow_id):
+            del workflow_id
+            return None
+
     class Vault:
-        def list_credentials(self, context):
-            del context
+        def list_credentials(self, *, context, workspace_id=None):
+            del context, workspace_id
             return []
 
     response = await get_workflow_credential_readiness(
         str(workflow_id),
         repository=Repository(),
         vault=Vault(),
+        workspace=_workspace_context(),
     )
 
     assert response.status == "not_required"
     assert response.referenced_credentials == []
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_credential_readiness_ignores_other_workspaces() -> None:
+    """Credentials in a different workspace must not satisfy readiness."""
+    workflow_id = uuid4()
+    caller_workspace = uuid4()
+    other_workspace = uuid4()
+    version = SimpleNamespace(
+        graph={"nodes": [{"name": "node", "token": "[[vault_token]]"}]},
+        runnable_config={},
+    )
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del workflow_ref, include_archived, workspace_id
+            return workflow_id
+
+        async def get_workflow(self, workflow_id):
+            return object()
+
+        async def get_latest_version(self, workflow_id):
+            return version
+
+        async def get_workflow_workspace_id(self, workflow_id):
+            del workflow_id
+            return str(caller_workspace)
+
+    class Vault:
+        def __init__(self) -> None:
+            self.observed_workspace_id: str | None = None
+            self._store = {
+                str(other_workspace): [
+                    SimpleNamespace(
+                        id=uuid4(),
+                        name="vault_token",
+                        provider="vault",
+                    )
+                ],
+                str(caller_workspace): [],
+            }
+
+        def list_credentials(self, *, context, workspace_id=None):
+            del context
+            self.observed_workspace_id = workspace_id
+            if workspace_id is None:
+                return [item for items in self._store.values() for item in items]
+            return list(self._store.get(workspace_id, []))
+
+    vault = Vault()
+    response = await get_workflow_credential_readiness(
+        str(workflow_id),
+        repository=Repository(),
+        vault=vault,
+        workspace=_workspace_context(workspace_id=caller_workspace),
+    )
+
+    assert vault.observed_workspace_id == str(caller_workspace)
+    assert response.status == "missing"
+    assert response.missing_credentials == ["vault_token"]
+    assert response.available_credentials == []
