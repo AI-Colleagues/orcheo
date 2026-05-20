@@ -24,93 +24,7 @@ import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-hel
 import { VIBE_WORKFLOW_HANDLE } from "@features/vibe/constants";
 import { WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME } from "./workflow-card-size";
 
-const COLLEAGUE_EMOJIS = [
-  // Office & business
-  "👩‍💼",
-  "👨‍💼",
-  "🧑‍💼",
-  // Tech
-  "👩‍💻",
-  "👨‍💻",
-  "🧑‍💻",
-  // Science & research
-  "👩‍🔬",
-  "👨‍🔬",
-  "🧑‍🔬",
-  // Creative & design
-  "👩‍🎨",
-  "👨‍🎨",
-  "🧑‍🎨",
-  // Education
-  "👩‍🏫",
-  "👨‍🏫",
-  "🧑‍🏫",
-  // Trades & engineering
-  "👩‍🔧",
-  "👨‍🔧",
-  "🧑‍🔧",
-  // Manufacturing
-  "👩‍🏭",
-  "👨‍🏭",
-  "🧑‍🏭",
-  // Healthcare
-  "👩‍⚕️",
-  "👨‍⚕️",
-  "🧑‍⚕️",
-  // Law & justice
-  "👩‍⚖️",
-  "👨‍⚖️",
-  "🧑‍⚖️",
-  // Culinary
-  "👩‍🍳",
-  "👨‍🍳",
-  "🧑‍🍳",
-  // Agriculture & nature
-  "👩‍🌾",
-  "👨‍🌾",
-  "🧑‍🌾",
-  // Space & exploration
-  "👩‍🚀",
-  "👨‍🚀",
-  "🧑‍🚀",
-  // Emergency & rescue
-  "👩‍🚒",
-  "👨‍🚒",
-  "🧑‍🚒",
-  // Security & military
-  "👮‍♀️",
-  "👮‍♂️",
-  "👮",
-  "💂‍♀️",
-  "💂‍♂️",
-  "💂",
-  // Music & performance
-  "👩‍🎤",
-  "👨‍🎤",
-  "🧑‍🎤",
-  // Aviation
-  "👩‍✈️",
-  "👨‍✈️",
-  "🧑‍✈️",
-  // Sports & fitness
-  "⛹️‍♀️",
-  "⛹️‍♂️",
-  "⛹️",
-  "🏋️‍♀️",
-  "🏋️‍♂️",
-  "🏋️",
-];
-
-const getSeededIndex = (seed: string, length: number) => {
-  let state = 2166136261;
-
-  for (let index = 0; index < seed.length; index += 1) {
-    state ^= seed.charCodeAt(index);
-    state = Math.imul(state, 16777619);
-  }
-
-  return Math.abs(state) % length;
-};
+const DEFAULT_AVATAR_EMOJI = "🧑";
 
 const getWorkflowTemplateEmoji = (workflow: Workflow) => {
   const templateId = workflow.versions?.at(-1)?.templateId;
@@ -326,11 +240,7 @@ export const WorkflowCard = ({
                 aria-hidden="true"
                 className="select-none text-[4em] leading-none"
               >
-                {workflowAvatarEmoji ??
-                  candidateBadge?.emoji ??
-                  COLLEAGUE_EMOJIS[
-                    getSeededIndex(workflowSlug, COLLEAGUE_EMOJIS.length)
-                  ]}
+                {workflowAvatarEmoji ?? candidateBadge?.emoji ?? DEFAULT_AVATAR_EMOJI}
               </span>
             </div>
 

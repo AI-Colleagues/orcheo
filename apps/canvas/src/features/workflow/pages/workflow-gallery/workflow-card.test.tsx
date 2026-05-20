@@ -153,6 +153,21 @@ describe("WorkflowCard", () => {
     expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
   });
 
+  it("uses a generic avatar fallback for colleague workflows without template emoji", () => {
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard
+        workflow={colleagueWorkflow}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
+    );
+
+    expect(screen.getByText("🧑")).toBeInTheDocument();
+  });
+
   it("renders candidate badge copy and onboard action", async () => {
     const user = userEvent.setup();
     const handlers = createHandlers();
