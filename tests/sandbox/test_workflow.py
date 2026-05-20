@@ -216,3 +216,73 @@ def test_synthetic_lease_used_when_fast_path_engages() -> None:
     lease = runner.calls[0][0]
     assert lease.sandbox_id == "in-worker"
     assert lease.state is SandboxState.IN_USE
+
+
+def test_run_graph_delegates_to_build_graph(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_run_graph imports build_graph lazily and invokes it with the definition."""
+    from orcheo.sandbox import workflow_runner
+
+    fake_outputs: Mapping[str, Any] = {"answer": 42}
+
+    class _FakeCompiled:
+        def invoke(self, inputs: object) -> Mapping[str, Any]:
+            return fake_outputs
+
+    class _FakeGraph:
+        def compile(self) -> _FakeCompiled:
+            return _FakeCompiled()
+
+    import orcheo.graph.builder as _builder_module
+
+    monkeypatch.setattr(_builder_module, "build_graph", lambda _d: _FakeGraph())
+
+    result = workflow_runner._run_graph({"nodes": []}, {"x": 1})
+    assert result == fake_outputs
+
+
+def test_run_in_subprocess_spawn_mode_creates_child_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_in_subprocess(spawn=True) delegates execution to a child process."""
+    import multiprocessing as _mp
+    from orcheo.sandbox import workflow_runner
+
+    fake_result: Mapping[str, Any] = {
+        "status": "succeeded",
+        "outputs": {},
+        "error": None,
+    }
+    calls: list[str] = []
+
+    class _FakeQueue:
+        def get_nowait(self) -> Mapping[str, Any]:
+            return fake_result
+
+    class _FakeProcess:
+        def start(self) -> None:
+            calls.append("start")
+
+        def join(self) -> None:
+            calls.append("join")
+
+    class _FakeContext:
+        def Queue(self) -> _FakeQueue:
+            return _FakeQueue()
+
+        def Process(self, **kwargs: object) -> _FakeProcess:
+            calls.append("Process")
+            return _FakeProcess()
+
+    class _FakeMp:
+        @staticmethod
+        def get_context(ctx: str) -> _FakeContext:
+            calls.append(f"get_context:{ctx}")
+            return _FakeContext()
+
+    monkeypatch.setattr(workflow_runner, "mp", _FakeMp)
+
+    result = workflow_runner.run_in_subprocess({}, {}, spawn=True)
+    assert result == fake_result
+    assert "get_context:spawn" in calls
+    assert "start" in calls
+    assert "join" in calls

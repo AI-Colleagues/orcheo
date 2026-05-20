@@ -99,3 +99,24 @@ def test_generate_broker_secret_is_url_safe_string() -> None:
     secret = generate_broker_secret()
     assert isinstance(secret, str)
     assert len(secret) >= 32
+
+
+def test_parse_rejects_token_with_malformed_json_payload() -> None:
+    """A token whose payload is valid base64 but not valid JSON is rejected."""
+    import base64
+    import hashlib
+    import hmac as _hmac
+
+    secret = b"s"
+    # Build a token with an empty JSON object payload — from_json will raise KeyError
+    # because required fields like 'workspace_id' are absent.
+    payload = b"{}"
+    signature = _hmac.new(secret, payload, hashlib.sha256).digest()
+    token = (
+        base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+        + "."
+        + base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
+    )
+    broker = CredentialBroker(secret="s", resolver=_resolver({}))
+    with pytest.raises(BrokerTokenInvalid):
+        broker.parse(token)

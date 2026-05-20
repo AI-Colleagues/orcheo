@@ -2113,3 +2113,206 @@ async def test_start_login_non_gemini_auto_input_is_disabled(
     result = await start_external_agent_login_async("codex", "codex-no-auto-enter")
 
     assert result == {"status": "timed_out"}
+
+
+def test_drain_login_output_with_paste_mode_state_none_skips_paste_detection() -> None:
+    """When paste_mode_state is None, _drain_login_output skips the toggle branch."""
+    import fcntl
+    import os
+    from orcheo_backend.worker.external_agents import _drain_login_output
+
+    r_fd, w_fd = os.pipe()
+    try:
+        os.write(w_fd, b"hello output")
+        os.close(w_fd)
+        w_fd = -1
+        # Make the read end non-blocking so the loop terminates.
+        fcntl.fcntl(r_fd, fcntl.F_SETFL, os.O_NONBLOCK)
+
+        class _FakeScreen:
+            def write(self, chunk: bytes) -> None:
+                pass
+
+            def __str__(self) -> str:
+                return "hello output"
+
+        raw_output, output, auth_url, device_code, auth_token = _drain_login_output(
+            r_fd,
+            terminal_screen=_FakeScreen(),
+            raw_output="",
+            output="",
+            auth_url=None,
+            device_code=None,
+            auth_token=None,
+            on_output=lambda *_: None,
+            paste_mode_state=None,  # branch under test
+        )
+        assert "hello" in raw_output
+    finally:
+        os.close(r_fd)
+        if w_fd != -1:
+            os.close(w_fd)
+
+
+@pytest.mark.asyncio
+async def test_start_login_reports_invalid_code_detail_when_flagged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Failed login with invalid_code=True stores the invalid-code detail message."""
+    from orcheo.external_agents.models import (
+        AuthProbeResult,
+        AuthStatus,
+        ResolvedRuntime,
+        RuntimeManifest,
+    )
+    from orcheo_backend.worker.external_agents import start_external_agent_login_async
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    now = datetime.now(UTC)
+    session = ExternalAgentLoginSession(
+        session_id="invalid-code-session",
+        provider=ExternalAgentProviderName.CLAUDE_CODE,
+        display_name="Claude Code",
+        state=ExternalAgentLoginSessionState.PENDING,
+        created_at=now,
+        updated_at=now,
+    )
+    store.save_login_session(session)
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    runtime = ResolvedRuntime(
+        provider="claude_code",
+        version="1.0.0",
+        install_dir=Path("/tmp/claude"),
+        executable_path=Path("/tmp/claude/bin/claude"),
+        package_name="@anthropic/claude-code",
+    )
+    manifest = RuntimeManifest(
+        provider="claude_code", provider_root=Path("/tmp/claude")
+    )
+    provider = MagicMock()
+    provider.probe_auth.side_effect = [
+        AuthProbeResult(status=AuthStatus.SETUP_NEEDED, message="login required"),
+        AuthProbeResult(status=AuthStatus.SETUP_NEEDED, message="invalid code"),
+    ]
+    provider.oauth_login_command.return_value = ["/tmp/claude/bin/claude", "login"]
+    provider.build_environment.return_value = {}
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    manager.inspect_runtime.return_value = (runtime, manifest)
+    manager.environment_for_provider.return_value = {}
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    def fake_run_login_command(*args: object, **kwargs: object) -> MagicMock:
+        return MagicMock(
+            auth_token=None,
+            auth_url=None,
+            device_code=None,
+            output="OAuth error: Invalid code.",
+            timed_out=False,
+            invalid_code=True,
+        )
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._run_login_command",
+        fake_run_login_command,
+    )
+
+    result = await start_external_agent_login_async(
+        "claude_code", "invalid-code-session"
+    )
+
+    assert result == {"status": "failed"}
+    updated = store.get_login_session("invalid-code-session")
+    assert updated is not None
+    assert updated.state == ExternalAgentLoginSessionState.FAILED
+    assert "rejected the submitted code" in (updated.detail or "")
+
+
+@pytest.mark.asyncio
+async def test_start_login_reports_generic_failure_detail_when_not_timed_out_or_invalid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Failed login without timed_out or invalid_code stores the generic failure message."""
+    from orcheo.external_agents.models import (
+        AuthProbeResult,
+        AuthStatus,
+        ResolvedRuntime,
+        RuntimeManifest,
+    )
+    from orcheo_backend.worker.external_agents import start_external_agent_login_async
+
+    store = ExternalAgentRuntimeStore()
+    store._redis = None
+    now = datetime.now(UTC)
+    session = ExternalAgentLoginSession(
+        session_id="generic-fail-session",
+        provider=ExternalAgentProviderName.CLAUDE_CODE,
+        display_name="Claude Code",
+        state=ExternalAgentLoginSessionState.PENDING,
+        created_at=now,
+        updated_at=now,
+    )
+    store.save_login_session(session)
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.get_external_agent_runtime_store",
+        lambda: store,
+    )
+
+    runtime = ResolvedRuntime(
+        provider="claude_code",
+        version="1.0.0",
+        install_dir=Path("/tmp/claude"),
+        executable_path=Path("/tmp/claude/bin/claude"),
+        package_name="@anthropic/claude-code",
+    )
+    manifest = RuntimeManifest(
+        provider="claude_code", provider_root=Path("/tmp/claude")
+    )
+    provider = MagicMock()
+    provider.probe_auth.side_effect = [
+        AuthProbeResult(status=AuthStatus.SETUP_NEEDED, message="login required"),
+        AuthProbeResult(status=AuthStatus.SETUP_NEEDED, message="oauth exited"),
+    ]
+    provider.oauth_login_command.return_value = ["/tmp/claude/bin/claude", "login"]
+    provider.build_environment.return_value = {}
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    manager.inspect_runtime.return_value = (runtime, manifest)
+    manager.environment_for_provider.return_value = {}
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents.ExternalAgentRuntimeManager",
+        lambda **kwargs: manager,
+    )
+
+    def fake_run_login_command(*args: object, **kwargs: object) -> MagicMock:
+        return MagicMock(
+            auth_token=None,
+            auth_url=None,
+            device_code=None,
+            output="process exited",
+            timed_out=False,
+            invalid_code=False,
+        )
+
+    monkeypatch.setattr(
+        "orcheo_backend.worker.external_agents._run_login_command",
+        fake_run_login_command,
+    )
+
+    result = await start_external_agent_login_async(
+        "claude_code", "generic-fail-session"
+    )
+
+    assert result == {"status": "failed"}
+    updated = store.get_login_session("generic-fail-session")
+    assert updated is not None
+    assert updated.state == ExternalAgentLoginSessionState.FAILED
+    assert "OAuth flow exited" in (updated.detail or "")

@@ -288,3 +288,39 @@ async def test_run_logs_bypass_flag_audit_event(
     assert record.bypass_flags == ["--dangerous"]
     assert record.security_boundary == "container_isolation"
     assert record.node_name == "legacy-node"
+
+
+@pytest.mark.asyncio
+async def test_run_uses_launcher_when_active_launcher_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """When an active sandbox launcher is set, run() delegates execution to it."""
+    resolution = _make_runtime_resolution(tmp_path)
+    manager = FakeRuntimeManager(provider=DummyProvider(), resolution=resolution)
+    node = _make_node(manager)
+    state = _make_state({"prompt": "run"})
+    state["workspace_id"] = "ws-sandbox"  # top-level key, not inside inputs
+
+    fake_result = ProcessExecutionResult(
+        command=["dummy"],
+        stdout="launched-via-sandbox",
+        stderr="",
+        exit_code=0,
+        timed_out=False,
+        duration_seconds=0,
+    )
+
+    class _FakeLauncher:
+        async def run(self, **kwargs: object) -> ProcessExecutionResult:
+            return fake_result
+
+    monkeypatch.setattr(
+        "orcheo.nodes.external_agent.get_active_launcher",
+        lambda: _FakeLauncher(),
+    )
+
+    result = await node.run(state, RunnableConfig())
+
+    assert result["status"] == "succeeded"
+    assert result["stdout"] == "launched-via-sandbox"

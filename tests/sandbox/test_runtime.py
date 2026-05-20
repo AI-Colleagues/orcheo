@@ -1,6 +1,7 @@
 """Tests for the container-runtime abstraction."""
 
 from __future__ import annotations
+import pytest
 from orcheo.sandbox.runtime import (
     ContainerSpec,
     DockerContainerRuntime,
@@ -122,3 +123,65 @@ def test_docker_runtime_is_running_reflects_status() -> None:
     assert runtime.is_running(handle)
     client.containers.get(handle.container_id).status = "exited"
     assert not runtime.is_running(handle)
+
+
+def test_container_handle_as_dict_returns_all_fields() -> None:
+    """as_dict() serialises every ContainerHandle field."""
+    from orcheo.sandbox.runtime import ContainerHandle
+
+    handle = ContainerHandle(
+        container_id="abc123",
+        image="orcheo/sandbox:latest",
+        workspace_id="ws-1",
+        runtime="runsc",
+    )
+    result = handle.as_dict()
+    assert result == {
+        "container_id": "abc123",
+        "image": "orcheo/sandbox:latest",
+        "workspace_id": "ws-1",
+        "runtime": "runsc",
+    }
+
+
+def test_docker_runtime_ensure_client_uses_injected_client() -> None:
+    """_ensure_client() returns the pre-injected client immediately."""
+    client = _FakeClient()
+    runtime = DockerContainerRuntime(client=client)
+    assert runtime._ensure_client() is client
+
+
+def test_docker_runtime_ensure_client_imports_docker_lazily(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_ensure_client() calls docker.from_env() when no client was injected."""
+    import sys
+    import types
+
+    fake_client = object()
+    fake_docker = types.ModuleType("docker")
+    fake_docker.from_env = lambda: fake_client  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "docker", fake_docker)
+
+    runtime = DockerContainerRuntime()
+    result = runtime._ensure_client()
+    assert result is fake_client
+    # Second call should return the cached client without re-importing.
+    assert runtime._ensure_client() is fake_client
+
+
+def test_docker_runtime_no_new_privileges_false_omits_security_opt() -> None:
+    """When no_new_privileges=False, security_opt is empty."""
+    from orcheo.sandbox.runtime import DockerContainerRuntime
+
+    client = _FakeClient()
+    runtime = DockerContainerRuntime(client=client)
+    spec = ContainerSpec(
+        image="img",
+        workspace_id="W",
+        no_new_privileges=False,
+    )
+    handle = runtime.start(spec)
+    call = client.containers.runs[0]
+    assert handle is not None
+    assert call["security_opt"] == []

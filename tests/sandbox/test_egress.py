@@ -70,6 +70,19 @@ def test_host_ips_for_denied_hostnames_uses_injected_resolver() -> None:
     assert ips == ("10.0.1.5", "10.0.1.6", "10.0.1.7")
 
 
+def test_host_ips_for_denied_hostnames_deduplicates_shared_ips() -> None:
+    """IPs that appear in multiple hostname resolutions are included only once."""
+
+    def resolver(host: str) -> list[str]:
+        # Both hosts resolve to the same IP — deduplication branch (128->127).
+        return {"host-a": ["10.0.2.1"], "host-b": ["10.0.2.1", "10.0.2.2"]}.get(
+            host, []
+        )
+
+    ips = host_ips_for_denied_hostnames(("host-a", "host-b"), resolver)
+    assert ips == ("10.0.2.1", "10.0.2.2")
+
+
 def test_envoy_config_renders_workspace_allowlist() -> None:
     """The bootstrap YAML embeds the per-workspace allowlist payload."""
     config = EnvoyForwardProxyConfig(
@@ -148,3 +161,40 @@ def test_allowlist_for_workspace_merges_global_and_workspace() -> None:
     )
     assert config.allowlist_for_workspace("a") == ("g", "x", "y")
     assert config.allowlist_for_workspace("missing") == ("g", "x")
+
+
+def test_host_ips_for_denied_hostnames_uses_real_dns_for_loopback() -> None:
+    """host_ips_for_denied_hostnames resolves hostnames via the system resolver."""
+    # "localhost" is universally resolvable without network access.
+    ips = host_ips_for_denied_hostnames(("localhost",))
+    assert len(ips) > 0
+
+
+def test_host_ips_for_denied_hostnames_ignores_unresolvable_hosts() -> None:
+    """Hostnames that cannot be resolved are skipped without raising."""
+    ips = host_ips_for_denied_hostnames(
+        ("this.host.does.not.exist.orcheo.invalid",),
+    )
+    # An unresolvable host produces an empty tuple (no IPs).
+    assert isinstance(ips, tuple)
+
+
+def test_egress_environment_without_extras_omits_update() -> None:
+    """egress_environment returns only the standard proxy vars when extras is None."""
+    config = EnvoyForwardProxyConfig(listen_port=3128)
+    env = egress_environment("ws", config)
+    assert set(env.keys()) == {
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "ORCHEO_WORKSPACE_ID",
+    }
+
+
+def test_sandbox_settings_pool_max_validator_rejects_zero() -> None:
+    """_validate_pool_max raises ValueError when given a value less than 1."""
+    from orcheo.sandbox.config import SandboxSettings
+    import pytest
+
+    with pytest.raises(ValueError, match="default_pool_max must be >= 1"):
+        SandboxSettings._validate_pool_max(0)

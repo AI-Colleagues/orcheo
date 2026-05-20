@@ -82,3 +82,17 @@ def test_resolve_rejects_unknown_credential_with_403() -> None:
         json={"run_id": "r1", "credential_name": "missing"},
     )
     assert response.status_code == 403
+
+
+def test_resolve_rejects_invalid_token_with_401() -> None:
+    """An expired or tampered token returns 401 via BrokerTokenInvalidError."""
+    client, broker = _client({("ws", "k"): "v"})
+    # Issue a token and then revoke it so the broker raises BrokerTokenInvalidError.
+    token = broker.issue(workspace_id="ws", run_id="r-invalid")
+    broker.revoke("r-invalid")
+    response = client.post(
+        "/internal/credentials/resolve",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"run_id": "r-invalid", "credential_name": "k"},
+    )
+    assert response.status_code == 401
