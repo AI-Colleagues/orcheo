@@ -6,14 +6,15 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import cast
+from uuid import UUID
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from orcheo.agentensor.checkpoints import AgentensorCheckpointStore
+from orcheo.models.credential_scope import CredentialAccessContext
 from orcheo.plugins import load_enabled_plugins
-from orcheo.runtime.credentials import CredentialAccessContext
 from orcheo.sandbox.broker import CredentialBroker
 from orcheo.vault.oauth import OAuthCredentialService
 from orcheo_backend.app.authentication import (
@@ -184,7 +185,7 @@ def _build_credential_broker() -> CredentialBroker:
 
     def _resolve_credential(*, workspace_id: str, credential_name: str) -> str:
         vault = get_vault()
-        context = CredentialAccessContext(workspace_id=workspace_id)
+        context = CredentialAccessContext(workspace_id=UUID(workspace_id))
         for metadata in vault.list_credentials(
             context=context,
             workspace_id=workspace_id,
@@ -281,7 +282,9 @@ def _configure_application(application: FastAPI) -> None:
     application.include_router(triggers.workspace_webhook_router)
     application.include_router(chatkit_assets.router)
     application.include_router(websocket.router)
-    application.include_router(build_credential_broker_router(_build_credential_broker()))
+    application.include_router(
+        build_credential_broker_router(_build_credential_broker())
+    )
     application.add_exception_handler(
         AuthenticationError, _authentication_error_handler
     )

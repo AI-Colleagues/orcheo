@@ -15,7 +15,7 @@ its own networking stack, the host kernel still drops the packet.
 """
 
 from __future__ import annotations
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from orcheo.sandbox.config import DEFAULT_DENY_CIDRS, DEFAULT_DENY_HOSTNAMES
 
@@ -100,7 +100,7 @@ def render_security_group_rules(policy: EgressPolicy) -> list[dict[str, object]]
 
 def host_ips_for_denied_hostnames(
     hostnames: Iterable[str],
-    resolver: callable[[str], list[str]] | None = None,  # type: ignore[valid-type]
+    resolver: Callable[[str], list[str]] | None = None,
 ) -> tuple[str, ...]:
     """Resolve denied hostnames to their A-record IPs at deploy time.
 

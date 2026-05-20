@@ -20,8 +20,8 @@ import json
 import multiprocessing as mp
 import sys
 from collections.abc import Mapping
-from dataclasses import asdict
-from typing import Any
+from dataclasses import asdict, is_dataclass
+from typing import Any, cast
 
 
 def _execute_workflow_in_child(
@@ -50,10 +50,12 @@ def _run_graph(
     """
     # Imported lazily so unit tests of the runner can stub _run_graph without
     # paying the langgraph import cost.
-    from orcheo.graph.builder import GraphBuilder
+    from orcheo.graph.builder import build_graph
 
-    builder = GraphBuilder.from_definition(dict(workflow_definition))  # type: ignore[attr-defined]
-    return builder.run(dict(inputs))  # type: ignore[no-any-return]
+    graph = build_graph(dict(workflow_definition))
+    compiled = graph.compile()
+    result = compiled.invoke(cast(Any, dict(inputs)))
+    return cast("Mapping[str, Any]", result)
 
 
 def run_in_subprocess(
@@ -99,8 +101,8 @@ def serve_stdin_loop() -> None:  # pragma: no cover - long-running entrypoint
     for line in sys.stdin:
         payload = json.loads(line)
         result = run_in_subprocess(payload["workflow_definition"], payload["inputs"])
-        if hasattr(result, "__dataclass_fields__"):
-            serialized: Mapping[str, Any] = asdict(result)
+        if is_dataclass(result) and not isinstance(result, type):
+            serialized: Mapping[str, Any] = asdict(cast(Any, result))
         else:
             serialized = dict(result)
         sys.stdout.write(json.dumps(serialized) + "\n")

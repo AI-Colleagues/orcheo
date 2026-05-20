@@ -29,6 +29,7 @@ from orcheo.runtime.state_builder import build_initial_state
 from orcheo.sandbox.dispatch import use_launcher
 from orcheo.sandbox.launcher import SandboxedProcessLauncher
 from orcheo.sandbox.manager import SandboxRuntimeManager
+from orcheo.sandbox.runtime import InMemoryContainerRuntime
 from orcheo.tracing import (
     get_tracer,
     record_workflow_cancellation,
@@ -127,7 +128,9 @@ def _get_sandbox_launcher() -> SandboxedProcessLauncher:
     """Return a shared sandbox launcher used by external-agent nodes."""
     global _sandbox_launcher  # noqa: PLW0603
     if _sandbox_launcher is None:
-        _sandbox_launcher = SandboxedProcessLauncher(SandboxRuntimeManager())
+        _sandbox_launcher = SandboxedProcessLauncher(
+            SandboxRuntimeManager(runtime=InMemoryContainerRuntime())
+        )
     return _sandbox_launcher
 
 

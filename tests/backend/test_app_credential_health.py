@@ -13,6 +13,7 @@ from orcheo.vault.oauth import (
     CredentialHealthReport,
     CredentialHealthResult,
 )
+from orcheo.workspace import Role, WorkspaceContext
 from orcheo_backend.app import (
     _credential_service_ref,
     dispatch_cron_triggers,
@@ -24,6 +25,15 @@ from orcheo_backend.app import (
 from orcheo_backend.app.repository import WorkflowNotFoundError
 from orcheo_backend.app.routers import triggers as triggers_router
 from orcheo_backend.app.schemas.credentials import CredentialValidationRequest
+
+
+def _workspace_context(workspace_id: UUID | None = None) -> WorkspaceContext:
+    return WorkspaceContext(
+        workspace_id=workspace_id or uuid4(),
+        workspace_slug="test",
+        user_id="test-user",
+        role=Role.OWNER,
+    )
 
 
 class _MissingWorkflowRepository:
@@ -56,6 +66,7 @@ async def test_get_workflow_credential_health_handles_missing_workflow(
             uuid4(),
             repository=_MissingWorkflowRepository(),
             service=None,
+            workspace=_workspace_context(),
         )
 
     assert exc_info.value.status_code == 404
@@ -80,7 +91,10 @@ async def test_get_workflow_credential_health_returns_unknown_response() -> None
             return None
 
     response = await get_workflow_credential_health(
-        uuid4(), repository=Repository(), service=Service()
+        uuid4(),
+        repository=Repository(),
+        service=Service(),
+        workspace=_workspace_context(),
     )
 
     assert response.status is CredentialHealthStatus.UNKNOWN
@@ -101,7 +115,10 @@ async def test_get_workflow_credential_health_requires_service() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         await get_workflow_credential_health(
-            uuid4(), repository=Repository(), service=None
+            uuid4(),
+            repository=Repository(),
+            service=None,
+            workspace=_workspace_context(),
         )
 
     assert exc_info.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
@@ -146,6 +163,7 @@ async def test_validate_workflow_credentials_reports_failures() -> None:
             request,
             repository=Repository(),
             service=Service(),
+            workspace=_workspace_context(),
         )
 
     assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
@@ -162,6 +180,7 @@ async def test_validate_workflow_credentials_handles_missing_workflow() -> None:
             request,
             repository=_MissingWorkflowRepository(),
             service=None,
+            workspace=_workspace_context(),
         )
 
     assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
@@ -206,6 +225,7 @@ async def test_validate_workflow_credentials_requires_service() -> None:
             request,
             repository=Repository(),
             service=None,
+            workspace=_workspace_context(),
         )
 
     assert exc_info.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE

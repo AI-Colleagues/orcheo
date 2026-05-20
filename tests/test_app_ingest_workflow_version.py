@@ -106,6 +106,13 @@ def test_ingest_workflow_version_invalid_script_returns_400(
     )
 
     app = create_app(repository)
+    workspace_context = WorkspaceContext(
+        workspace_id=uuid4(),
+        workspace_slug="default",
+        user_id="tester",
+        role=Role.OWNER,
+    )
+    app.dependency_overrides[resolve_workspace_context] = lambda: workspace_context
     client = TestClient(app)
 
     invalid_script = "this is not valid python code!!!"

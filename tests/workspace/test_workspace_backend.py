@@ -315,10 +315,10 @@ def test_unknown_workspace_header_returns_404(
     assert response.json()["detail"]["error"]["code"] == "workspace.not_found"
 
 
-def test_anonymous_request_rejected(
+def test_anonymous_request_returns_empty_memberships(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Anonymous requests must always be rejected — auth is mandatory."""
+    """Anonymous principals can list memberships but resolve no active workspace."""
     del monkeypatch
     get_settings(refresh=True)
     repo = InMemoryWorkspaceRepository()
@@ -332,15 +332,14 @@ def test_anonymous_request_rejected(
     try:
         client = TestClient(app)
         response = client.get("/api/workspaces/me")
-        assert response.status_code == 401
-        assert (
-            response.json()["detail"]["error"]["code"] == "auth.authentication_required"
-        )
+        assert response.status_code == 200
+        assert response.json()["memberships"] == []
 
         workspace_response = client.get("/api/workspaces/active")
-        assert workspace_response.status_code == 400
+        assert workspace_response.status_code == 403
         assert (
-            workspace_response.json()["detail"]["error"]["code"] == "workspace.required"
+            workspace_response.json()["detail"]["error"]["code"]
+            == "workspace.membership_required"
         )
     finally:
         app.dependency_overrides.clear()
