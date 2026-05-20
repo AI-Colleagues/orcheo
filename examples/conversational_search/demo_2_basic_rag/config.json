@@ -1,8 +1,0 @@
-{
-  "configurable": {
-    "chunk_size": 512,
-    "chunk_overlap": 64,
-    "top_k": 5,
-    "similarity_threshold": 0.0
-  }
-}
