@@ -417,7 +417,7 @@ async def test_resolve_from_authorized_workspaces_slug_not_found(
 async def test_resolve_from_authorized_workspaces_multiple_no_slug(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Multiple workspaces with no slug header selects the first one."""
+    """Multiple workspaces with no slug header now requires explicit selection."""
 
     ws_a = Workspace(id=uuid4(), slug="alpha", name="Alpha")
     ws_b = Workspace(id=uuid4(), slug="beta", name="Beta")
@@ -454,9 +454,10 @@ async def test_resolve_from_authorized_workspaces_multiple_no_slug(
         workspace_ids=frozenset({str(ws_a.id), str(ws_b.id)}),
     )
 
-    result = await workspace_dependencies.resolve_workspace_context(request, auth)
-    assert result.workspace_id in {ws_a.id, ws_b.id}
-    assert result.workspace_slug in {"alpha", "beta"}
+    with pytest.raises(workspace_errors.WorkspaceHTTPError) as exc_info:
+        await workspace_dependencies.resolve_workspace_context(request, auth)
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.error_code == "workspace.required"
 
 
 @pytest.mark.asyncio()

@@ -25,6 +25,7 @@ from orcheo_backend.app.workspace.errors import (
     WorkspaceContextRequiredError,
     raise_workspace_forbidden,
     raise_workspace_not_found,
+    raise_workspace_required,
 )
 from orcheo_backend.app.workspace_governance import get_workspace_governance
 
@@ -199,7 +200,9 @@ def _resolve_from_authorized_workspaces(
     elif len(workspaces) == 1:
         selected = workspaces[0]
     else:
-        selected = workspaces[0]
+        raise_workspace_required(
+            "Workspace header is required when multiple workspaces are authorized"
+        )
 
     if selected.status is not WorkspaceStatus.ACTIVE:
         raise_workspace_forbidden(

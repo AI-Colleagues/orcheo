@@ -75,10 +75,6 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
                 ),
             ),
             multi_workspace=MultiWorkspaceSettings(
-                default_workspace_slug=source.get(
-                    "MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG",
-                    _DEFAULTS["MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG"],
-                ),
                 workspace_header=source.get(
                     "MULTI_WORKSPACE_WORKSPACE_HEADER",
                     _DEFAULTS["MULTI_WORKSPACE_WORKSPACE_HEADER"],
@@ -150,10 +146,6 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("VAULT_AWS_REGION", settings.vault.aws_region)
     normalized.set("VAULT_AWS_KMS_KEY_ID", settings.vault.aws_kms_key_id)
     normalized.set("VAULT_TOKEN_TTL_SECONDS", settings.vault.token_ttl_seconds)
-    normalized.set(
-        "MULTI_WORKSPACE_DEFAULT_WORKSPACE_SLUG",
-        settings.multi_workspace.default_workspace_slug,
-    )
     normalized.set(
         "MULTI_WORKSPACE_WORKSPACE_HEADER",
         settings.multi_workspace.workspace_header,
