@@ -24,3 +24,9 @@ services:
     build:
       context: ../..
       dockerfile: deploy/stack/Dockerfile.canvas.staging
+
+  sandbox-runtime:
+    image: orcheo/sandbox-runtime:staging-local
+    build:
+      context: ../..
+      dockerfile: Dockerfile.sandbox-runtime
