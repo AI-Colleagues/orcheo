@@ -64,6 +64,18 @@ def test_split_configurable_passes_plain_values_through() -> None:
     assert schema_definitions == {}
 
 
+def test_split_configurable_allows_null_const_default() -> None:
+    """A ``const: null`` schema resolves to a ``None`` runtime value."""
+    resolved, schema_definitions = split_configurable(
+        {"nullable": {"type": ["string", "null"], "const": None}}
+    )
+
+    assert resolved == {"nullable": None}
+    assert schema_definitions == {
+        "nullable": {"type": ["string", "null"], "const": None}
+    }
+
+
 def test_split_configurable_rejects_declaration_without_runtime_default() -> None:
     """A schema annotation that cannot resolve a value raises an error."""
     with pytest.raises(ConfigurableSchemaError, match="no runtime default"):

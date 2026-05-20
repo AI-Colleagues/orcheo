@@ -66,7 +66,7 @@ def _resolve_runtime_default(schema: Mapping[str, Any], *, key: str) -> Any:
     """Return the runtime value declared by an inline schema annotation."""
     if "default" in schema:
         return schema["default"]
-    if schema.get("const") is not None:
+    if "const" in schema:
         return schema["const"]
     enum_value = schema.get("enum")
     if isinstance(enum_value, list) and enum_value:
