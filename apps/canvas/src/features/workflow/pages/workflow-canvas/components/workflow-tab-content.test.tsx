@@ -14,13 +14,19 @@ vi.mock("@xyflow/react", () => ({
   ),
 }));
 
-vi.mock("@features/workflow/components/dialogs/confirm-delete-workflow-dialog", () => ({
-  ConfirmDeleteWorkflowDialog: () => null,
-}));
+vi.mock(
+  "@features/workflow/components/dialogs/confirm-delete-workflow-dialog",
+  () => ({
+    ConfirmDeleteWorkflowDialog: () => null,
+  }),
+);
 
-vi.mock("@features/workflow/pages/workflow-canvas/components/workflow-config-sheet", () => ({
-  WorkflowConfigSheet: () => null,
-}));
+vi.mock(
+  "@features/workflow/pages/workflow-canvas/components/workflow-config-sheet",
+  () => ({
+    WorkflowConfigSheet: () => null,
+  }),
+);
 
 vi.mock("@features/workflow/lib/workflow-storage", () => ({
   deleteWorkflow: vi.fn(),

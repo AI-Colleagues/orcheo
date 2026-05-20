@@ -36,7 +36,9 @@ const buildNodesFromSnapshot = (
   }));
 };
 
-const buildEdgesFromSnapshot = (edges: SnapshotEdge[]): WorkflowExecutionEdge[] =>
+const buildEdgesFromSnapshot = (
+  edges: SnapshotEdge[],
+): WorkflowExecutionEdge[] =>
   edges.map((edge) => ({
     id: edge.id ?? `${edge.source}-${edge.target}`,
     source: edge.source,

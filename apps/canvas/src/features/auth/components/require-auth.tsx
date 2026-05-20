@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import { isAuthenticated, getAuthTokens } from "@features/auth/lib/auth-session";
+import {
+  isAuthenticated,
+  getAuthTokens,
+} from "@features/auth/lib/auth-session";
 import { tryRefreshTokens } from "@features/auth/lib/oidc-client";
 import AutoLogin from "@features/auth/components/auto-login";
 
@@ -28,7 +31,9 @@ const resolveInitialAuthState = (): AuthState => {
 export default function RequireAuth() {
   const location = useLocation();
   const redirectTo = `${location.pathname}${location.search}${location.hash}`;
-  const [authState, setAuthState] = useState<AuthState>(resolveInitialAuthState);
+  const [authState, setAuthState] = useState<AuthState>(
+    resolveInitialAuthState,
+  );
 
   useEffect(() => {
     if (authState !== "refreshing") return;

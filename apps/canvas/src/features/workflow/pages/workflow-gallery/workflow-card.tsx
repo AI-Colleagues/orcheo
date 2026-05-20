@@ -1,12 +1,6 @@
 import { useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, SyntheticEvent } from "react";
-import {
-  MoreHorizontal,
-  Send,
-  Star,
-  UserMinus,
-  UserPlus,
-} from "lucide-react";
+import { MoreHorizontal, Send, Star, UserMinus, UserPlus } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/design-system/ui/button";
 import {
@@ -32,41 +26,79 @@ import { WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME } from "./workflow-card-size";
 
 const COLLEAGUE_EMOJIS = [
   // Office & business
-  "👩‍💼", "👨‍💼", "🧑‍💼",
+  "👩‍💼",
+  "👨‍💼",
+  "🧑‍💼",
   // Tech
-  "👩‍💻", "👨‍💻", "🧑‍💻",
+  "👩‍💻",
+  "👨‍💻",
+  "🧑‍💻",
   // Science & research
-  "👩‍🔬", "👨‍🔬", "🧑‍🔬",
+  "👩‍🔬",
+  "👨‍🔬",
+  "🧑‍🔬",
   // Creative & design
-  "👩‍🎨", "👨‍🎨", "🧑‍🎨",
+  "👩‍🎨",
+  "👨‍🎨",
+  "🧑‍🎨",
   // Education
-  "👩‍🏫", "👨‍🏫", "🧑‍🏫",
+  "👩‍🏫",
+  "👨‍🏫",
+  "🧑‍🏫",
   // Trades & engineering
-  "👩‍🔧", "👨‍🔧", "🧑‍🔧",
+  "👩‍🔧",
+  "👨‍🔧",
+  "🧑‍🔧",
   // Manufacturing
-  "👩‍🏭", "👨‍🏭", "🧑‍🏭",
+  "👩‍🏭",
+  "👨‍🏭",
+  "🧑‍🏭",
   // Healthcare
-  "👩‍⚕️", "👨‍⚕️", "🧑‍⚕️",
+  "👩‍⚕️",
+  "👨‍⚕️",
+  "🧑‍⚕️",
   // Law & justice
-  "👩‍⚖️", "👨‍⚖️", "🧑‍⚖️",
+  "👩‍⚖️",
+  "👨‍⚖️",
+  "🧑‍⚖️",
   // Culinary
-  "👩‍🍳", "👨‍🍳", "🧑‍🍳",
+  "👩‍🍳",
+  "👨‍🍳",
+  "🧑‍🍳",
   // Agriculture & nature
-  "👩‍🌾", "👨‍🌾", "🧑‍🌾",
+  "👩‍🌾",
+  "👨‍🌾",
+  "🧑‍🌾",
   // Space & exploration
-  "👩‍🚀", "👨‍🚀", "🧑‍🚀",
+  "👩‍🚀",
+  "👨‍🚀",
+  "🧑‍🚀",
   // Emergency & rescue
-  "👩‍🚒", "👨‍🚒", "🧑‍🚒",
+  "👩‍🚒",
+  "👨‍🚒",
+  "🧑‍🚒",
   // Security & military
-  "👮‍♀️", "👮‍♂️", "👮",
-  "💂‍♀️", "💂‍♂️", "💂",
+  "👮‍♀️",
+  "👮‍♂️",
+  "👮",
+  "💂‍♀️",
+  "💂‍♂️",
+  "💂",
   // Music & performance
-  "👩‍🎤", "👨‍🎤", "🧑‍🎤",
+  "👩‍🎤",
+  "👨‍🎤",
+  "🧑‍🎤",
   // Aviation
-  "👩‍✈️", "👨‍✈️", "🧑‍✈️",
+  "👩‍✈️",
+  "👨‍✈️",
+  "🧑‍✈️",
   // Sports & fitness
-  "⛹️‍♀️", "⛹️‍♂️", "⛹️",
-  "🏋️‍♀️", "🏋️‍♂️", "🏋️",
+  "⛹️‍♀️",
+  "⛹️‍♂️",
+  "⛹️",
+  "🏋️‍♀️",
+  "🏋️‍♂️",
+  "🏋️",
 ];
 
 const getSeededIndex = (seed: string, length: number) => {

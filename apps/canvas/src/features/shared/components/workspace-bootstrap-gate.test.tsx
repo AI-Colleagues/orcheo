@@ -84,9 +84,7 @@ describe("WorkspaceBootstrapGate", () => {
     const slugInput = screen.getByLabelText(/workspace url name/i);
 
     await waitFor(() => {
-      expect(slugInput).toHaveValue(
-        slugifyWorkspace("Morgan Lee's workspace"),
-      );
+      expect(slugInput).toHaveValue(slugifyWorkspace("Morgan Lee's workspace"));
     });
 
     await user.clear(slugInput);

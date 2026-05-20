@@ -401,11 +401,13 @@ export const startOidcLogin = async ({
   if (config.audience) {
     url.searchParams.set("audience", config.audience);
   }
-  const effectiveProvider = signup ? config.signupProvider ?? provider : provider;
+  const effectiveProvider = signup
+    ? (config.signupProvider ?? provider)
+    : provider;
   if (effectiveProvider && config.providerParam) {
     const providerValue =
       provider && provider in config.providerValues
-        ? config.providerValues[provider] ?? provider
+        ? (config.providerValues[provider] ?? provider)
         : effectiveProvider;
     url.searchParams.set(config.providerParam, providerValue);
   }

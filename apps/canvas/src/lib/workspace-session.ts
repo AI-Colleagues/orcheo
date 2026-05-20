@@ -32,8 +32,8 @@ const safeLocalStorageSet = (key: string, value: string | null): void => {
 const normalizeSlug = (value: string): string => value.trim();
 
 export const getWorkspaceHeaderName = (): string => {
-  const configured = (import.meta.env?.VITE_ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER ??
-    "") as string;
+  const configured = (import.meta.env
+    ?.VITE_ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER ?? "") as string;
   const normalized = configured.trim();
   return normalized || DEFAULT_WORKSPACE_HEADER;
 };

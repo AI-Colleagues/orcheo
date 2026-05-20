@@ -40,8 +40,10 @@ export function VibeProvider({ children }: { children: ReactNode }) {
     }
   }, [workspaceSlug]);
 
-  const { workflowId: agentWorkflowId, isProvisioning } =
-    useVibeWorkflow(readyProviders, workspaceSlug);
+  const { workflowId: agentWorkflowId, isProvisioning } = useVibeWorkflow(
+    readyProviders,
+    workspaceSlug,
+  );
 
   const toggleOpen = useCallback(() => {
     setIsOpen((prev) => !prev);

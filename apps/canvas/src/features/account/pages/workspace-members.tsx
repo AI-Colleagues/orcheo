@@ -20,6 +20,7 @@ import {
 import useCredentialVault from "@/hooks/use-credential-vault";
 import { usePageContext } from "@/hooks/use-page-context";
 import { toast } from "@/hooks/use-toast";
+import ExternalAgentsSection from "@features/account/components/external-agents-section";
 import TopNavigation from "@features/shared/components/top-navigation";
 import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
 import {
@@ -205,6 +206,8 @@ export default function WorkspaceMembers() {
 
       <main className="flex-1 min-h-0 overflow-auto">
         <div className="mx-auto flex w-full max-w-7xl flex-col space-y-6 p-8 pt-6">
+          <ExternalAgentsSection />
+
           <div className="flex items-center justify-between">
             <h2 className="text-3xl font-bold tracking-tight">
               Workspace Members

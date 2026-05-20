@@ -100,10 +100,7 @@ beforeEach(() => {
 
 describe("WorkflowCard", () => {
   it("uses the portrait gallery aspect ratio", () => {
-    expect(WORKFLOW_GALLERY_CARD_ASPECT_RATIO).toBeCloseTo(
-      53.98 / 85.6,
-      6,
-    );
+    expect(WORKFLOW_GALLERY_CARD_ASPECT_RATIO).toBeCloseTo(53.98 / 85.6, 6);
   });
 
   it("opens workflow when a colleague card body is clicked", async () => {
@@ -245,8 +242,6 @@ describe("WorkflowCard", () => {
       }),
     );
 
-    expect(
-      screen.queryByRole("menuitem", { name: /^offboard$/i }),
-    ).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /^offboard$/i })).toBeNull();
   });
 });

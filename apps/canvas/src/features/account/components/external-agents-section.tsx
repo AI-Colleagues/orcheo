@@ -11,7 +11,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/design-system/ui/card";
-import { Separator } from "@/design-system/ui/separator";
 import { Input } from "@/design-system/ui/input";
 import {
   disconnectExternalAgent,
@@ -27,7 +26,6 @@ import {
   type ExternalAgentProviderStatus,
 } from "@/lib/api";
 
-const CONTEXT_URL = "http://localhost:3333/context/sessions";
 const PROVIDER_ORDER: ExternalAgentProviderName[] = [
   "claude_code",
   "codex",
@@ -138,9 +136,7 @@ const sortStatuses = (
       PROVIDER_ORDER.indexOf(right.provider),
   );
 
-const AgentSettingsTab = () => {
-  const [sessionCount, setSessionCount] = useState<number | null>(null);
-  const [serverRunning, setServerRunning] = useState(false);
+const ExternalAgentsSection = () => {
   const [providerStatuses, setProviderStatuses] = useState<
     ExternalAgentProviderStatus[]
   >([]);
@@ -211,33 +207,6 @@ const AgentSettingsTab = () => {
       setIsRefreshingStatuses(false);
     }
   }, [syncActiveSessions]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const pollContextBridge = async () => {
-      try {
-        const response = await fetch(CONTEXT_URL);
-        if (!cancelled) {
-          const sessions = await response.json();
-          setSessionCount(Array.isArray(sessions) ? sessions.length : 0);
-          setServerRunning(true);
-        }
-      } catch {
-        if (!cancelled) {
-          setSessionCount(null);
-          setServerRunning(false);
-        }
-      }
-    };
-
-    void pollContextBridge();
-    const interval = setInterval(pollContextBridge, 10_000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
 
   useEffect(() => {
     void loadProviderStatuses();
@@ -650,9 +619,9 @@ const AgentSettingsTab = () => {
             <div className="space-y-1">
               <CardTitle>External Agents</CardTitle>
               <CardDescription>
-                Connect Claude Code, Codex, and Gemini CLI once per worker from
-                Canvas. OAuth happens on the execution worker, not on individual
-                workflow nodes or the local browser-aware bridge below.
+                Connect Claude Code, Codex, and Gemini CLI once per workspace
+                from Canvas. OAuth happens on the execution worker and is scoped
+                to this workspace.
               </CardDescription>
             </div>
             <Button
@@ -682,123 +651,8 @@ const AgentSettingsTab = () => {
           )}
         </CardContent>
       </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Local Agent Context Bridge</CardTitle>
-          <CardDescription>
-            Use the browser-aware CLI bridge when you want a local terminal
-            agent to understand the workflow currently open in Canvas. This does
-            not authenticate worker-side Claude Code, Codex, or Gemini workflow
-            nodes.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-3">
-            <h3 className="text-sm font-medium">Quick start</h3>
-            <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
-              <li>
-                Authenticate the local Orcheo CLI:
-                <div className="mt-1 flex items-center gap-2">
-                  <code className="rounded bg-muted px-2 py-1 text-xs">
-                    orcheo auth login
-                  </code>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-xs"
-                    onClick={() => copy("orcheo auth login")}
-                  >
-                    {copiedValue === "orcheo auth login" ? "Copied!" : "Copy"}
-                  </Button>
-                </div>
-              </li>
-              <li>
-                Start the browser context bridge:
-                <div className="mt-1 flex items-center gap-2">
-                  <code className="rounded bg-muted px-2 py-1 text-xs">
-                    orcheo browser-aware
-                  </code>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-xs"
-                    onClick={() => copy("orcheo browser-aware")}
-                  >
-                    {copiedValue === "orcheo browser-aware"
-                      ? "Copied!"
-                      : "Copy"}
-                  </Button>
-                </div>
-              </li>
-              <li>
-                Open a workflow in Canvas. Your local agent can then inspect the
-                active workflow context from the terminal.
-              </li>
-            </ol>
-          </div>
-
-          <Separator />
-
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium">Bridge status</h3>
-            <div className="flex items-center gap-2">
-              <Badge variant={serverRunning ? "default" : "secondary"}>
-                {serverRunning ? "Bridge connected" : "Bridge offline"}
-              </Badge>
-              {serverRunning && sessionCount !== null && (
-                <span className="text-sm text-muted-foreground">
-                  {sessionCount} active{" "}
-                  {sessionCount === 1 ? "session" : "sessions"}
-                </span>
-              )}
-            </div>
-            {!serverRunning && (
-              <p className="text-xs text-muted-foreground">
-                Run{" "}
-                <code className="rounded bg-muted px-1 py-0.5">
-                  orcheo browser-aware
-                </code>{" "}
-                in your terminal to connect.
-              </p>
-            )}
-          </div>
-
-          <Separator />
-
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium">Agent commands</h3>
-            <div className="space-y-1 text-sm text-muted-foreground">
-              <p>
-                <code className="rounded bg-muted px-1 py-0.5">
-                  orcheo context
-                </code>{" "}
-                — See what workflow you have open
-              </p>
-              <p>
-                <code className="rounded bg-muted px-1 py-0.5">
-                  orcheo workflow show &lt;id&gt;
-                </code>{" "}
-                — View workflow details
-              </p>
-              <p>
-                <code className="rounded bg-muted px-1 py-0.5">
-                  orcheo workflow download &lt;id&gt;
-                </code>{" "}
-                — Download workflow script
-              </p>
-              <p>
-                <code className="rounded bg-muted px-1 py-0.5">
-                  orcheo workflow upload --id &lt;id&gt; &lt;file&gt;
-                </code>{" "}
-                — Upload updated script
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 };
 
-export default AgentSettingsTab;
+export default ExternalAgentsSection;

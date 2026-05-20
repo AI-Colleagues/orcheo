@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import AgentSettingsTab from "@features/account/components/settings/agent-settings-tab";
+import ExternalAgentsSection from "@features/account/components/external-agents-section";
 import {
   disconnectExternalAgent,
   getExternalAgentLoginSession,
@@ -66,7 +66,7 @@ const mockProviders = [
   },
 ];
 
-describe("AgentSettingsTab", () => {
+describe("ExternalAgentsSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getExternalAgents).mockResolvedValue({
@@ -134,9 +134,6 @@ describe("AgentSettingsTab", () => {
       resolved_version: "2.1.89",
       executable_path: "/data/claude/bin/claude",
     });
-    global.fetch = vi.fn().mockResolvedValue({
-      json: async () => [],
-    } as Response);
   });
 
   afterEach(() => {
@@ -144,7 +141,7 @@ describe("AgentSettingsTab", () => {
   });
 
   it("renders worker-scoped provider cards", async () => {
-    render(<AgentSettingsTab />);
+    render(<ExternalAgentsSection />);
 
     expect(screen.getByText("External Agents")).toBeInTheDocument();
 
@@ -154,17 +151,9 @@ describe("AgentSettingsTab", () => {
       expect(screen.getByText("Gemini CLI")).toBeInTheDocument();
     });
 
-    expect(
-      screen.getByText(/OAuth happens on the execution worker/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/scoped to this workspace/i)).toBeInTheDocument();
     expect(
       screen.getByText(/Enable device code authorization for Codex/i),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Local Agent Context Bridge")).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        /does not authenticate worker-side Claude Code, Codex, or Gemini workflow nodes/i,
-      ),
     ).toBeInTheDocument();
   });
 
@@ -200,7 +189,7 @@ describe("AgentSettingsTab", () => {
       ],
     });
 
-    render(<AgentSettingsTab />);
+    render(<ExternalAgentsSection />);
 
     await waitFor(() => {
       expect(screen.getByText("Codex")).toBeInTheDocument();
@@ -229,7 +218,7 @@ describe("AgentSettingsTab", () => {
       ],
     });
 
-    render(<AgentSettingsTab />);
+    render(<ExternalAgentsSection />);
 
     await waitFor(() => {
       expect(screen.getByText("Codex")).toBeInTheDocument();
@@ -242,7 +231,7 @@ describe("AgentSettingsTab", () => {
 
   it("starts the worker login flow from Canvas", async () => {
     const user = userEvent.setup();
-    render(<AgentSettingsTab />);
+    render(<ExternalAgentsSection />);
 
     await waitFor(() => {
       expect(
@@ -297,7 +286,7 @@ describe("AgentSettingsTab", () => {
       executable_path: "/data/claude/bin/claude",
     });
 
-    render(<AgentSettingsTab />);
+    render(<ExternalAgentsSection />);
 
     const input = await screen.findByPlaceholderText(
       /paste claude auth code or redirect url/i,
@@ -352,7 +341,7 @@ describe("AgentSettingsTab", () => {
       executable_path: "/data/claude/bin/claude",
     });
 
-    render(<AgentSettingsTab />);
+    render(<ExternalAgentsSection />);
 
     expect(
       await screen.findByText(/accepts the final redirect url/i),
@@ -397,7 +386,7 @@ describe("AgentSettingsTab", () => {
       executable_path: "/data/claude/bin/claude",
     });
 
-    render(<AgentSettingsTab />);
+    render(<ExternalAgentsSection />);
 
     expect(
       await screen.findByRole("link", { name: /open sign-in/i }),
@@ -437,7 +426,7 @@ describe("AgentSettingsTab", () => {
       executable_path: "/data/gemini/bin/gemini",
     });
 
-    render(<AgentSettingsTab />);
+    render(<ExternalAgentsSection />);
 
     const input = await screen.findByPlaceholderText(
       /paste gemini verification code/i,
@@ -482,7 +471,7 @@ describe("AgentSettingsTab", () => {
       ],
     });
 
-    render(<AgentSettingsTab />);
+    render(<ExternalAgentsSection />);
 
     const disconnectButton = await screen.findByRole("button", {
       name: /disconnect/i,

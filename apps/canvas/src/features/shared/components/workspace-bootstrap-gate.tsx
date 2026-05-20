@@ -195,7 +195,9 @@ export function WorkspaceBootstrapGate({
       />
       <Card className="relative z-10 mx-auto w-full max-w-lg border-border bg-card/85 backdrop-blur-xl dark:border-primary/25 dark:bg-primary/5">
         <CardHeader className="space-y-2">
-          <CardTitle className="text-2xl">Create your first workspace</CardTitle>
+          <CardTitle className="text-2xl">
+            Create your first workspace
+          </CardTitle>
           <CardDescription>
             Canvas needs a workspace before it can open. Create one to continue
             with your account.

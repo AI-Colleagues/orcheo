@@ -134,11 +134,13 @@ export default function ActiveWorkspaceIndicator() {
     setWorkspaceSlugState(slugifyWorkspace(workspaceName));
   }, [workspaceName, workspaceSlugIsManual]);
 
-  const selectedWorkspaceSlug = routeWorkspaceSlug ?? getSelectedWorkspaceSlug();
+  const selectedWorkspaceSlug =
+    routeWorkspaceSlug ?? getSelectedWorkspaceSlug();
   const currentWorkspace = selectedWorkspaceSlug
-    ? workspaces.find((workspace) => workspace.slug === selectedWorkspaceSlug) ??
-      null
-    : workspaces[0] ?? null;
+    ? (workspaces.find(
+        (workspace) => workspace.slug === selectedWorkspaceSlug,
+      ) ?? null)
+    : (workspaces[0] ?? null);
 
   const handleSelectWorkspace = (slug: string) => {
     setSelectedWorkspaceSlug(slug);

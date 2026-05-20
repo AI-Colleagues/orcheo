@@ -58,7 +58,11 @@ export function useWorkflowSaver(
       }
 
       try {
-        await persistRunnableConfig(currentWorkflowId, "canvas", runnableConfig);
+        await persistRunnableConfig(
+          currentWorkflowId,
+          "canvas",
+          runnableConfig,
+        );
         toast({
           title: "Workflow config saved",
           description: `Saved config for "${workflowName}".`,

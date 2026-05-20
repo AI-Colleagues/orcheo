@@ -285,9 +285,7 @@ describe("useVibeWorkflow", () => {
   it("does not recreate the vibe workflow after a storage update when it is missing", async () => {
     __setCachedWorkflowIdForTesting("workflow-1");
 
-    vi.mocked(listWorkflows).mockResolvedValue([
-      EXISTING_VIBE_WORKFLOW,
-    ]);
+    vi.mocked(listWorkflows).mockResolvedValue([EXISTING_VIBE_WORKFLOW]);
     vi.mocked(fetchWorkflowVersions).mockResolvedValue([
       {
         id: "workflow-1-version-1",
