@@ -6,6 +6,15 @@ services:
   backend:
     image: orcheo-stack:staging-local
     build: *orcheo_staging_build
+    environment:
+      # Must match the workspace-sandbox image built below, since the backend
+      # embeds this tag in every ContainerSpec sent to sandbox-runtime.
+      ORCHEO_SANDBOX_IMAGE: orcheo/workspace-sandbox:staging-local
+      # Staging runs on stock Docker (Docker Desktop / CI). The base compose
+      # defaults to `runsc` for gVisor-equipped prod hosts; override to `runc`
+      # so local stacks work without installing gVisor. Set
+      # ORCHEO_CONTAINER_RUNTIME explicitly if you do have runsc available.
+      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
 
   worker:
     image: orcheo-stack:staging-local
@@ -14,6 +23,9 @@ services:
       - orcheo_data:/data
       - ../../workspace/agents:/workspace/agents
       - ./chatkit_widgets:/app/examples/chatkit_widgets/widgets:ro
+    environment:
+      ORCHEO_SANDBOX_IMAGE: orcheo/workspace-sandbox:staging-local
+      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
 
   celery-beat:
     image: orcheo-stack:staging-local
@@ -30,3 +42,18 @@ services:
     build:
       context: ../..
       dockerfile: Dockerfile.sandbox-runtime
+    environment:
+      ORCHEO_SANDBOX_IMAGE: orcheo/workspace-sandbox:staging-local
+      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
+
+  # The workspace-sandbox image is *not* run as part of the long-lived stack
+  # — it is the image the `sandbox-runtime` service spawns on demand. Declaring
+  # it as a service lets `docker compose up` build it automatically; the no-op
+  # command makes the resulting container exit immediately (default restart
+  # policy `no` keeps it from coming back).
+  workspace-sandbox:
+    image: orcheo/workspace-sandbox:staging-local
+    build:
+      context: ../..
+      dockerfile: Dockerfile.workspace-sandbox
+    command: ["sh", "-c", "echo 'workspace-sandbox image is only consumed by sandbox-runtime at run time; nothing to run here.' && exit 0"]
