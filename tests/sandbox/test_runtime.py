@@ -133,6 +133,7 @@ def test_docker_runtime_start_passes_through_security_flags() -> None:
         "/scratch": "size=500m,mode=1777,exec",
         "/workspace": "size=500m,mode=1777,exec",
         "/home/orcheo": "size=500m,mode=1777,exec",
+        "/tmp": "size=500m,mode=1777,exec",
     }
 
 

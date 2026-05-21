@@ -266,9 +266,9 @@ class DockerContainerRuntime:
     def _build_host_config(spec: ContainerSpec) -> dict[str, object]:
         """Translate ``spec`` resource limits into Docker host-config kwargs.
 
-        ``/scratch``, ``/workspace``, and ``/home/orcheo`` are mounted as
-        tmpfs with mode 1777 so that the per-workspace UID can write into
-        them despite the read-only rootfs:
+        ``/scratch``, ``/workspace``, ``/home/orcheo``, and ``/tmp`` are
+        mounted as tmpfs with mode 1777 so that the per-workspace UID can
+        write into them despite the read-only rootfs:
 
         - ``/scratch`` hosts the managed external-agent runtime tree (see
           ``ORCHEO_AGENT_RUNTIME_ROOT`` in the manager).
@@ -277,6 +277,10 @@ class DockerContainerRuntime:
         - ``/home/orcheo`` is the container's ``HOME`` (baked in the image);
           ``npm``, ``git``, and provider CLIs all expect a writable home for
           caches and config (``~/.npm``, ``~/.config``, ``~/.cache``, etc.).
+        - ``/tmp`` is required by the Claude Code native binary, which
+          writes scratch files there during ``--print`` runs and hangs
+          silently (after policy-limits init, before any API request) when
+          the path is on a read-only rootfs.
 
         The home path is intentionally hardcoded to match
         ``Dockerfile.workspace-sandbox``; both must change together if the
@@ -301,6 +305,7 @@ class DockerContainerRuntime:
                 "/scratch": tmpfs_options,
                 "/workspace": tmpfs_options,
                 "/home/orcheo": tmpfs_options,
+                "/tmp": tmpfs_options,
             },
         }
 
