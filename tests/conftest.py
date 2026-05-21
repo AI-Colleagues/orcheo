@@ -11,6 +11,12 @@ for key, value in (
     ("OPENAI_API_KEY", "sk-test-orcheo"),
     ("ORCHEO_POSTGRES_DSN", "postgresql://test:test@localhost/test"),
     ("ORCHEO_VAULT_ENCRYPTION_KEY", "test-vault-encryption-key"),
+    # The backend refuses to start without a broker secret in non-test runs.
+    # Tests supply a deterministic value so the FastAPI app builds at import.
+    ("ORCHEO_CREDENTIAL_BROKER_SECRET", "test-broker-secret"),
+    # The sandbox bootstrap requires a runtime URL; tests inject their own
+    # primitives and never actually hit this URL.
+    ("ORCHEO_SANDBOX_RUNTIME_URL", "http://sandbox-runtime.test:9090"),
 ):
     os.environ.setdefault(key, value)
 

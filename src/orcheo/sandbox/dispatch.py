@@ -1,14 +1,11 @@
 """Context-managed dispatcher for the sandboxed agent-launch path.
 
-Nodes call ``run_external_agent_process(...)`` instead of ``execute_process``
-directly. When a ``SandboxedProcessLauncher`` is installed via
-``use_launcher`` (a context manager), the call routes through the sandbox.
-When no launcher is active — single-tenant deploys, unit tests, or self-
-hosted setups with the feature flag off — the call falls straight through to
-``execute_process`` so the legacy behavior is unchanged.
-
-This keeps the change footprint on existing nodes tiny: one import + one
-call swap.
+Nodes call ``run_external_agent_process(...)`` instead of spawning processes
+directly. A ``SandboxedProcessLauncher`` must be bound via ``use_launcher``
+before any agent CLI runs — workspace runtime isolation is always on, and
+there is no host-fallback path. Calling without an active launcher or
+without a workspace id is a programmer error and raises
+``SandboxDispatchError``.
 """
 
 from __future__ import annotations
@@ -17,8 +14,12 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 from orcheo.external_agents.models import ProcessExecutionResult
-from orcheo.external_agents.process import execute_process
+from orcheo.sandbox.errors import SandboxError
 from orcheo.sandbox.launcher import SandboxedProcessLauncher
+
+
+class SandboxDispatchError(SandboxError):
+    """Raised when an agent process is dispatched without an active sandbox."""
 
 
 _active_launcher: ContextVar[SandboxedProcessLauncher | None] = ContextVar(
@@ -27,9 +28,7 @@ _active_launcher: ContextVar[SandboxedProcessLauncher | None] = ContextVar(
 
 
 @contextmanager
-def use_launcher(
-    launcher: SandboxedProcessLauncher | None,
-) -> Iterator[None]:
+def use_launcher(launcher: SandboxedProcessLauncher) -> Iterator[None]:
     """Bind ``launcher`` as the active sandbox dispatcher within this context."""
     token = _active_launcher.set(launcher)
     try:
@@ -51,19 +50,21 @@ async def run_external_agent_process(
     env: Mapping[str, str] | None,
     timeout_seconds: float | int | None,
 ) -> ProcessExecutionResult:
-    """Run an external agent's CLI through the sandbox launcher if active.
+    """Run an external agent's CLI through the active sandbox launcher.
 
-    Falls back to ``execute_process`` when no launcher is bound or
-    ``workspace_id`` is missing (cannot scope a sandbox without it).
+    Raises ``SandboxDispatchError`` if no launcher is bound or
+    ``workspace_id`` is missing — there is no host fallback.
     """
     launcher = get_active_launcher()
-    if launcher is None or not workspace_id:
-        return await execute_process(
-            command,
-            cwd=cwd,
-            env=env,
-            timeout_seconds=timeout_seconds,
+    if launcher is None:
+        msg = (
+            "No sandbox launcher bound for agent process dispatch. "
+            "Wrap the call site in `with use_launcher(...)`."
         )
+        raise SandboxDispatchError(msg)
+    if not workspace_id:
+        msg = "workspace_id is required to dispatch an agent process to a sandbox"
+        raise SandboxDispatchError(msg)
     return await launcher.run(
         workspace_id=workspace_id,
         command=command,

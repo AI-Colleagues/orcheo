@@ -27,9 +27,7 @@ from orcheo.runtime.runnable_config import (
 )
 from orcheo.runtime.state_builder import build_initial_state
 from orcheo.sandbox.dispatch import use_launcher
-from orcheo.sandbox.launcher import SandboxedProcessLauncher
-from orcheo.sandbox.manager import SandboxRuntimeManager
-from orcheo.sandbox.runtime import InMemoryContainerRuntime
+from orcheo.sandbox.workflow import WorkflowRunResult
 from orcheo.tracing import (
     get_tracer,
     record_workflow_cancellation,
@@ -60,11 +58,16 @@ from orcheo_backend.app.history import (
     RunHistoryStep,
     RunHistoryStore,
 )
+from orcheo_backend.app.sandbox import (
+    build_workflow_run_spec,
+    get_sandbox_dispatcher,
+    get_sandbox_launcher,
+    run_uses_trusted_nodes_only,
+)
 from orcheo_backend.app.trace_utils import build_trace_update
 
 
 logger = logging.getLogger(__name__)
-_sandbox_launcher: SandboxedProcessLauncher | None = None
 
 
 @contextmanager
@@ -124,14 +127,64 @@ def _log_final_state_debug(state_values: Mapping[str, Any] | Any) -> None:
     app_logger.debug("=" * 80)
 
 
-def _get_sandbox_launcher() -> SandboxedProcessLauncher:
-    """Return a shared sandbox launcher used by external-agent nodes."""
-    global _sandbox_launcher  # noqa: PLW0603
-    if _sandbox_launcher is None:
-        _sandbox_launcher = SandboxedProcessLauncher(
-            SandboxRuntimeManager(runtime=InMemoryContainerRuntime())
+def _get_sandbox_launcher() -> Any:
+    """Return the shared sandbox launcher (delegates to the bootstrap)."""
+    return get_sandbox_launcher()
+
+
+async def _dispatch_sandboxed_run(
+    *,
+    workspace_id: str,
+    execution_id: str,
+    graph_config: dict[str, Any],
+    inputs: dict[str, Any],
+    history_store: RunHistoryStore,
+    websocket: WebSocket,
+    tracer: Tracer,
+    span: Span,
+) -> WorkflowRunResult:
+    """Run a workflow inside the per-workspace sandbox via the dispatcher.
+
+    The dispatcher returns a single ``WorkflowRunResult`` (no live streaming
+    from inside the sandbox). We persist a single ``sandbox_result`` step so
+    history clients still see something, then surface success / failure to
+    the caller for normal completion handling.
+    """
+    dispatcher = get_sandbox_dispatcher()
+    spec = build_workflow_run_spec(
+        execution_id=execution_id,
+        workspace_id=workspace_id,
+        graph_config=graph_config,
+        inputs=inputs,
+    )
+    result = await dispatcher.dispatch(spec)
+    payload: dict[str, Any] = {
+        "event": "sandbox_result",
+        "status": result.status,
+        "outputs": dict(result.outputs),
+    }
+    if result.error:
+        payload["error"] = result.error
+    record_workflow_step(tracer, payload)
+    history_step = await history_store.append_step(execution_id, payload)
+    await _safe_send_json(websocket, _sanitize_public_step_payload(payload))
+    await _emit_trace_update(
+        history_store,
+        websocket,
+        execution_id,
+        step=history_step,
+    )
+    if result.status != "succeeded":
+        error_message = result.error or f"sandboxed run finished with {result.status}"
+        record_workflow_failure(span, RuntimeError(error_message))
+        await _persist_failure_history(
+            history_store,
+            execution_id,
+            {"status": "error", "error": error_message},
+            error_message,
+            span,
         )
-    return _sandbox_launcher
+    return result
 
 
 _CANNOT_SEND_AFTER_CLOSE = 'Cannot call "send" once a close message has been sent.'
@@ -421,6 +474,93 @@ async def _resolve_stored_runnable_config(
     return version.runnable_config
 
 
+async def _execute_sandboxed_workflow(
+    *,
+    workspace_id: str,
+    execution_id: str,
+    graph_config: dict[str, Any],
+    inputs: dict[str, Any],
+    history_store: RunHistoryStore,
+    websocket: WebSocket,
+    tracer: Tracer,
+    span: Span,
+) -> None:
+    """Dispatch a workflow into the per-workspace sandbox and finalize history."""
+    result = await _dispatch_sandboxed_run(
+        workspace_id=workspace_id,
+        execution_id=execution_id,
+        graph_config=graph_config,
+        inputs=inputs,
+        history_store=history_store,
+        websocket=websocket,
+        tracer=tracer,
+        span=span,
+    )
+    if result.status == "succeeded":
+        completion_payload = {"status": "completed"}
+        record_workflow_completion(span)
+        await history_store.append_step(execution_id, completion_payload)
+        await history_store.mark_completed(execution_id)
+        await _safe_send_json(websocket, completion_payload)  # pragma: no cover
+    await _emit_trace_update(
+        history_store,
+        websocket,
+        execution_id,
+        include_root=True,
+        complete=True,
+    )
+
+
+async def _execute_trusted_workflow_in_worker(
+    *,
+    settings: Any,
+    graph_config: dict[str, Any],
+    inputs: dict[str, Any],
+    runtime_config: RunnableConfig,
+    state_config: Mapping[str, Any],
+    history_store: RunHistoryStore,
+    websocket: WebSocket,
+    execution_id: str,
+    tracer: Tracer,
+    span: Span,
+    resolver: CredentialResolver,
+    workspace_id: str | None,
+) -> None:
+    """Run a trusted-only workflow in-worker with the existing streaming path."""
+    from orcheo_backend.app import build_graph, create_checkpointer, create_graph_store
+
+    external_agent_environ = _external_agent_provider_environment(workspace_id)
+    with use_launcher(_get_sandbox_launcher()):
+        with scoped_external_agent_environment(external_agent_environ):
+            with credential_resolution(resolver):
+                async with create_checkpointer(settings) as checkpointer:
+                    async with create_graph_store(settings) as graph_store:
+                        graph = build_graph(graph_config)
+                        compiled_graph = graph.compile(
+                            checkpointer=checkpointer,
+                            store=graph_store,
+                        )
+
+                    state = _build_initial_state(
+                        graph_config,
+                        inputs,
+                        state_config,
+                        workspace_id,
+                    )
+                    _log_sensitive_debug("Initial state: %s", state)
+
+                    await _run_workflow_stream(
+                        compiled_graph,
+                        state,
+                        runtime_config,
+                        history_store,
+                        execution_id,
+                        websocket,
+                        tracer,
+                        span,
+                    )
+
+
 async def execute_workflow(
     workflow_id: str,
     graph_config: dict[str, Any],
@@ -432,8 +572,6 @@ async def execute_workflow(
     stored_runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
 ) -> None:
     """Execute a workflow and stream results over the provided websocket."""
-    from orcheo_backend.app import build_graph, create_checkpointer, create_graph_store
-
     logger.info("Starting workflow %s with execution_id: %s", workflow_id, execution_id)
     _log_sensitive_debug("Initial inputs: %s", inputs)
 
@@ -496,36 +634,42 @@ async def execute_workflow(
                 include_root=True,
             )
 
-            external_agent_environ = _external_agent_provider_environment(workspace_id)
-            with use_launcher(_get_sandbox_launcher()):
-                with scoped_external_agent_environment(external_agent_environ):
-                    with credential_resolution(resolver):
-                        async with create_checkpointer(settings) as checkpointer:
-                            async with create_graph_store(settings) as graph_store:
-                                graph = build_graph(graph_config)
-                                compiled_graph = graph.compile(
-                                    checkpointer=checkpointer,
-                                    store=graph_store,
-                                )
+            spec = build_workflow_run_spec(
+                execution_id=execution_id,
+                workspace_id=workspace_id or "",
+                graph_config=graph_config,
+                inputs=inputs,
+            )
+            if not run_uses_trusted_nodes_only(spec.node_types):
+                if not workspace_id:
+                    msg = "workspace_id is required to dispatch a workflow run"
+                    raise RuntimeError(msg)
+                await _execute_sandboxed_workflow(
+                    workspace_id=workspace_id,
+                    execution_id=execution_id,
+                    graph_config=graph_config,
+                    inputs=inputs,
+                    history_store=history_store,
+                    websocket=websocket,
+                    tracer=tracer,
+                    span=span_context.span,
+                )
+                return
 
-                            state = _build_initial_state(
-                                graph_config,
-                                inputs,
-                                state_config,
-                                workspace_id,
-                            )
-                            _log_sensitive_debug("Initial state: %s", state)
-
-                            await _run_workflow_stream(
-                                compiled_graph,
-                                state,
-                                runtime_config,
-                                history_store,
-                                execution_id,
-                                websocket,
-                                tracer,
-                                span_context.span,
-                            )
+            await _execute_trusted_workflow_in_worker(
+                settings=settings,
+                graph_config=graph_config,
+                inputs=inputs,
+                runtime_config=runtime_config,
+                state_config=state_config,
+                history_store=history_store,
+                websocket=websocket,
+                execution_id=execution_id,
+                tracer=tracer,
+                span=span_context.span,
+                resolver=resolver,
+                workspace_id=workspace_id,
+            )
 
             completion_payload = {"status": "completed"}
             record_workflow_completion(span_context.span)

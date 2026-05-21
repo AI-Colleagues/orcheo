@@ -226,3 +226,26 @@ def _b64decode(value: str) -> bytes:
 def generate_broker_secret() -> str:
     """Return a fresh 256-bit secret encoded as URL-safe base64."""
     return secrets.token_urlsafe(32)
+
+
+def _cli() -> None:  # pragma: no cover - tiny CLI helper
+    """Tiny CLI for ``python -m orcheo.sandbox.broker --gen-secret``."""
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="Credential Broker helpers")
+    parser.add_argument(
+        "--gen-secret",
+        action="store_true",
+        help="Print a fresh URL-safe 256-bit secret suitable for "
+        "ORCHEO_CREDENTIAL_BROKER_SECRET.",
+    )
+    args = parser.parse_args()
+    if args.gen_secret:
+        sys.stdout.write(generate_broker_secret() + "\n")
+        return
+    parser.print_help()
+
+
+if __name__ == "__main__":  # pragma: no cover - CLI entrypoint
+    _cli()

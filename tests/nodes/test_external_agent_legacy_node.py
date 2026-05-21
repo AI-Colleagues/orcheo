@@ -20,8 +20,37 @@ from orcheo.external_agents.models import (
 from orcheo.graph.state import State
 from orcheo.nodes.external_agent import ExternalAgentNode
 from orcheo.runtime.credentials import CredentialReferenceNotFoundError
+from orcheo.sandbox.dispatch import use_launcher
 
 from tests.nodes.test_external_agent_node import DummyProvider, FakeRuntimeManager
+
+
+class _CannedLauncher:
+    """Test-only launcher that returns a canned ``ProcessExecutionResult``."""
+
+    def __init__(self, result: ProcessExecutionResult) -> None:
+        self.result = result
+        self.calls: list[dict[str, Any]] = []
+
+    async def run(
+        self,
+        *,
+        workspace_id: str,
+        command: list[str],
+        cwd: Any,
+        env: Any,
+        timeout_seconds: Any,
+    ) -> ProcessExecutionResult:
+        self.calls.append(
+            {
+                "workspace_id": workspace_id,
+                "command": command,
+                "cwd": cwd,
+                "env": env,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+        return self.result
 
 
 class LegacyDummyExternalAgentNode(ExternalAgentNode):
@@ -182,9 +211,9 @@ async def test_run_reports_timeout_non_zero_exit_and_success(
     manager = FakeRuntimeManager(provider=DummyProvider(), resolution=resolution)
     node = _make_node(manager)
 
-    async def fake_timeout(*args: object, **kwargs: object) -> ProcessExecutionResult:
-        del args, kwargs
-        return ProcessExecutionResult(
+    del monkeypatch
+    timeout_launcher = _CannedLauncher(
+        ProcessExecutionResult(
             command=["dummy"],
             stdout="",
             stderr="",
@@ -192,15 +221,16 @@ async def test_run_reports_timeout_non_zero_exit_and_success(
             timed_out=True,
             duration_seconds=0,
         )
-
-    monkeypatch.setattr("orcheo.nodes.external_agent.execute_process", fake_timeout)
-    result = await node.run(_make_state({"prompt": "run"}), RunnableConfig())
+    )
+    with use_launcher(timeout_launcher):  # type: ignore[arg-type]
+        state = _make_state({"prompt": "run"})
+        state["workspace_id"] = "ws-timeout"
+        result = await node.run(state, RunnableConfig())
     assert result["reason"] == "timeout"
     assert result["status"] == "failed"
 
-    async def fake_exit(*args: object, **kwargs: object) -> ProcessExecutionResult:
-        del args, kwargs
-        return ProcessExecutionResult(
+    exit_launcher = _CannedLauncher(
+        ProcessExecutionResult(
             command=["dummy"],
             stdout="",
             stderr="",
@@ -208,9 +238,11 @@ async def test_run_reports_timeout_non_zero_exit_and_success(
             timed_out=False,
             duration_seconds=0,
         )
-
-    monkeypatch.setattr("orcheo.nodes.external_agent.execute_process", fake_exit)
-    result = await node.run(_make_state({"prompt": "run"}), RunnableConfig())
+    )
+    with use_launcher(exit_launcher):  # type: ignore[arg-type]
+        state = _make_state({"prompt": "run"})
+        state["workspace_id"] = "ws-exit"
+        result = await node.run(state, RunnableConfig())
     assert result["reason"] == "non_zero_exit"
     assert "exited with code 5" in result["message"]
 
@@ -224,9 +256,8 @@ async def test_run_reports_timeout_non_zero_exit_and_success(
     manager = FakeRuntimeManager(provider=provider, resolution=resolution)
     node = _make_node(manager)
 
-    async def fake_success(*args: object, **kwargs: object) -> ProcessExecutionResult:
-        del args, kwargs
-        return ProcessExecutionResult(
+    success_launcher = _CannedLauncher(
+        ProcessExecutionResult(
             command=["dummy"],
             stdout="ok",
             stderr="",
@@ -234,11 +265,11 @@ async def test_run_reports_timeout_non_zero_exit_and_success(
             timed_out=False,
             duration_seconds=0,
         )
-
-    monkeypatch.setattr("orcheo.nodes.external_agent.execute_process", fake_success)
+    )
     state = _make_state({"prompt": "run"})
     state["workspace_id"] = "workspace-1"
-    result = await node.run(state, RunnableConfig())
+    with use_launcher(success_launcher):  # type: ignore[arg-type]
+        result = await node.run(state, RunnableConfig())
     assert result["status"] == "succeeded"
     assert result["stdout"] == "ok"
     assert manager.workspace_id == "workspace-1"
@@ -261,9 +292,9 @@ async def test_run_logs_bypass_flag_audit_event(
     manager = FakeRuntimeManager(provider=provider, resolution=resolution)
     node = _make_node(manager)
 
-    async def fake_execute(*args: object, **kwargs: object) -> ProcessExecutionResult:
-        del args, kwargs
-        return ProcessExecutionResult(
+    del monkeypatch
+    bypass_launcher = _CannedLauncher(
+        ProcessExecutionResult(
             command=["dummy"],
             stdout="ok",
             stderr="",
@@ -271,11 +302,13 @@ async def test_run_logs_bypass_flag_audit_event(
             timed_out=False,
             duration_seconds=0,
         )
-
-    monkeypatch.setattr("orcheo.nodes.external_agent.execute_process", fake_execute)
+    )
 
     with caplog.at_level(logging.INFO, logger="orcheo.nodes.external_agent"):
-        result = await node.run(_make_state({"prompt": "run"}), RunnableConfig())
+        state = _make_state({"prompt": "run"})
+        state["workspace_id"] = "ws-bypass"
+        with use_launcher(bypass_launcher):  # type: ignore[arg-type]
+            result = await node.run(state, RunnableConfig())
 
     assert result["status"] == "succeeded"
     record = next(
@@ -315,12 +348,9 @@ async def test_run_uses_launcher_when_active_launcher_is_set(
         async def run(self, **kwargs: object) -> ProcessExecutionResult:
             return fake_result
 
-    monkeypatch.setattr(
-        "orcheo.nodes.external_agent.get_active_launcher",
-        lambda: _FakeLauncher(),
-    )
-
-    result = await node.run(state, RunnableConfig())
+    del monkeypatch
+    with use_launcher(_FakeLauncher()):  # type: ignore[arg-type]
+        result = await node.run(state, RunnableConfig())
 
     assert result["status"] == "succeeded"
     assert result["stdout"] == "launched-via-sandbox"

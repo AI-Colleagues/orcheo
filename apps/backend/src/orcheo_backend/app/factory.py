@@ -78,6 +78,7 @@ from orcheo_backend.app.routers import (
 from orcheo_backend.app.routers import (
     workspaces as workspaces_router,
 )
+from orcheo_backend.app.sandbox import configure_sandbox
 from orcheo_backend.app.service_token_endpoints import router as service_token_router
 from orcheo_backend.app.workflow_execution import configure_sensitive_logging
 from orcheo_backend.app.workspace import (
@@ -194,7 +195,14 @@ def _build_credential_broker() -> CredentialBroker:
                 return vault.reveal_secret(credential_id=metadata.id, context=context)
         raise KeyError(credential_name)
 
-    broker_secret = os.getenv("ORCHEO_CREDENTIAL_BROKER_SECRET", "dev-insecure-secret")
+    broker_secret = os.getenv("ORCHEO_CREDENTIAL_BROKER_SECRET")
+    if not broker_secret:
+        msg = (
+            "ORCHEO_CREDENTIAL_BROKER_SECRET is not set. Sandboxing is always on; "
+            "generate a secret with `python -m orcheo.sandbox.broker --gen-secret` "
+            "and export it before starting the backend."
+        )
+        raise RuntimeError(msg)
     return CredentialBroker(secret=broker_secret, resolver=_resolve_credential)
 
 
@@ -282,9 +290,9 @@ def _configure_application(application: FastAPI) -> None:
     application.include_router(triggers.workspace_webhook_router)
     application.include_router(chatkit_assets.router)
     application.include_router(websocket.router)
-    application.include_router(
-        build_credential_broker_router(_build_credential_broker())
-    )
+    broker = _build_credential_broker()
+    configure_sandbox(broker)
+    application.include_router(build_credential_broker_router(broker))
     application.add_exception_handler(
         AuthenticationError, _authentication_error_handler
     )

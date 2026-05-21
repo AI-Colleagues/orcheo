@@ -28,10 +28,11 @@ override:
 |---------------------------------------|------------------------------------------------------------------------|----------------------------------------------------------|
 | `ORCHEO_CONTAINER_RUNTIME`            | `runsc`                                                                | Docker runtime name (`runsc` for gVisor).                |
 | `ORCHEO_SANDBOX_IMAGE`                | `orcheo/workspace-sandbox:latest`                                      | Image hosting agent CLIs, Orcheo CLI, and workflow runner. |
+| `ORCHEO_SANDBOX_RUNTIME_URL`          | `http://sandbox-runtime:9090`                                          | Internal URL of the sandbox-runtime service. Backend and worker call this to provision sandboxes and dispatch runs — they never mount the Docker socket themselves. |
 | `ORCHEO_EGRESS_PROXY_URL`             | `http://egress-proxy:3128`                                             | Envoy forward proxy for permitted HTTP/HTTPS.            |
 | `ORCHEO_CREDENTIAL_BROKER_URL`        | `http://backend:2025/internal/credentials/resolve`                     | Endpoint sandboxes use to resolve run-scoped credentials.|
-| `ORCHEO_CREDENTIAL_BROKER_SECRET`     | _(required)_                                                           | HMAC secret for run-scoped tokens — generate with `python -m orcheo.sandbox.broker --gen-secret`. |
-| `ORCHEO_SANDBOX_FAST_PATH_TRUSTED`    | `false`                                                                | When `true`, workflows composed only of trusted node types skip the sandbox. |
+| `ORCHEO_CREDENTIAL_BROKER_SECRET`     | _(required — backend refuses to start if unset)_                       | HMAC secret for run-scoped tokens — generate with `python -m orcheo.sandbox.broker --gen-secret`. |
+| `ORCHEO_SANDBOX_FAST_PATH_TRUSTED`    | `false`                                                                | When `true`, workflows composed only of trusted node types skip the sandbox (workflow runs only — vibe agents always sandbox). |
 
 ## Deploy
 

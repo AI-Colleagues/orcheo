@@ -1,28 +1,25 @@
 """Launcher that runs agent processes inside a sandbox lease.
 
-``SandboxedProcessLauncher`` is the integration point between the existing
-``ExternalAgentNode`` (which currently spawns CLI processes directly via
-``execute_process``) and the Sandbox Runtime Manager. The launcher:
+``SandboxedProcessLauncher`` is the integration point between
+``ExternalAgentNode`` and the Sandbox Runtime Manager. The launcher:
 
-1. Acquires an agent sandbox for the workspace.
+1. Acquires a workspace sandbox via the manager.
 2. Runs the CLI inside the sandbox via the runtime's exec primitive
-   (``docker exec`` under the hood, or a fake in tests).
-3. Destroys the sandbox on completion (agent sandboxes are single-use).
+   (``docker exec`` under the hood, or an HTTP call to the sandbox-runtime
+   service via ``RemoteSandboxExec``).
+3. Releases the sandbox to the warm pool when done.
 
-This module intentionally keeps the ``execute_process`` fallback intact:
-when the feature flag is off, callers pass through directly to the legacy
-path. Wiring in ``ExternalAgentNode`` lives in
-``orcheo.nodes.external_agent``.
+There is no host fallback. Workspace runtime isolation is always on — any
+caller that fails to provide a real ``_SandboxExec`` backend gets a
+construction-time error so silently-unsandboxed execution is impossible.
 """
 
 from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 from orcheo.external_agents.models import ProcessExecutionResult
-from orcheo.external_agents.process import execute_process
 from orcheo.sandbox.manager import SandboxRuntimeManager
 
 
@@ -41,47 +38,24 @@ class _SandboxExec(Protocol):
         """Execute ``command`` inside ``sandbox_id`` and return the result."""
 
 
-@dataclass
-class HostFallbackExec:
-    """Default exec that just runs the process on the host (legacy path)."""
-
-    async def exec(
-        self,
-        sandbox_id: str,
-        command: list[str],
-        *,
-        cwd: Path | None,
-        env: Mapping[str, str] | None,
-        timeout_seconds: float | int | None,
-    ) -> ProcessExecutionResult:
-        """Forward to the legacy ``execute_process`` helper."""
-        del sandbox_id
-        return await execute_process(
-            command,
-            cwd=cwd,
-            env=env,
-            timeout_seconds=timeout_seconds,
-        )
-
-
 class SandboxedProcessLauncher:
-    """Run a one-shot process inside a freshly-provisioned agent sandbox."""
+    """Run a one-shot process inside a per-workspace sandbox lease."""
 
     def __init__(
         self,
         manager: SandboxRuntimeManager,
-        exec_backend: _SandboxExec | None = None,
+        exec_backend: _SandboxExec,
     ) -> None:
         """Initialize the launcher.
 
         Args:
             manager: Sandbox Runtime Manager that owns lifecycles.
-            exec_backend: How to run the command inside the sandbox. Defaults
-                to ``HostFallbackExec`` for environments where the sandbox is
-                a no-op (tests, single-tenant).
+            exec_backend: How to run the command inside the sandbox. Required —
+                there is no host fallback. Pass a ``RemoteSandboxExec`` for
+                production or a test double for unit tests.
         """
         self._manager = manager
-        self._exec = exec_backend or HostFallbackExec()
+        self._exec = exec_backend
 
     async def run(
         self,
