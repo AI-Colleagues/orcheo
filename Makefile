@@ -59,16 +59,15 @@ docker-down:
 docker-restart:
 	docker compose restart
 
-docker-build: workspace-sandbox-build
+docker-build:
 	docker compose build
 
-# Build the workspace-sandbox image that the sandbox-runtime service
-# spawns on demand. The image is declared under the `build-only` profile so
-# `docker compose up` ignores it; this target explicitly opts the profile
-# in for the build phase. Run this once after cloning, then again whenever
-# Dockerfile.workspace-sandbox changes.
+# Build just the workspace-sandbox image that the sandbox-runtime service
+# spawns on demand. `docker-build` already covers this; keep the target for
+# operators who only want to rebuild this one image after editing
+# Dockerfile.workspace-sandbox.
 workspace-sandbox-build:
-	docker compose --profile build-only build workspace-sandbox
+	docker compose build workspace-sandbox
 
 docker-logs:
 	docker compose logs -f

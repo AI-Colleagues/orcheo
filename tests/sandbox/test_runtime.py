@@ -151,7 +151,7 @@ def test_docker_runtime_start_raises_actionable_error_when_image_missing() -> No
         runtime.start(spec)
     message = str(excinfo.value)
     assert "make docker-build" in message
-    assert "build-only" in message
+    assert "docker compose build workspace-sandbox" in message
     # The container.run call must not have fired — we fail fast before the
     # implicit registry pull.
     assert client.containers.runs == []

@@ -15,11 +15,13 @@ For background, see the initiative documents under
    standard EC2 (no `/dev/kvm`) gVisor's `systrap` platform is required.
 2. `nftables` available on the host so the L3/L4 deny ruleset can be loaded.
 3. The `orcheo/workspace-sandbox:latest` image must be available to the
-   Docker daemon that `sandbox-runtime` talks to. Either build it locally
-   (`make workspace-sandbox-build` — see the Deploy section) or push a
-   tagged version to a registry the host can pull from and point
-   `ORCHEO_SANDBOX_IMAGE` at it. One sandbox image hosts both vibe agent
-   sessions and tenant workflow runs per workspace.
+   Docker daemon that `sandbox-runtime` talks to. `docker compose up -d`
+   builds it as part of bringing the stack up; you can also rebuild just
+   that image with `make workspace-sandbox-build` after editing
+   `Dockerfile.workspace-sandbox`. Alternatively, push a tagged version
+   to a registry the host can pull from and point `ORCHEO_SANDBOX_IMAGE`
+   at it. One sandbox image hosts both vibe agent sessions and tenant
+   workflow runs per workspace.
 
 ## Configuration
 
@@ -40,8 +42,7 @@ override:
 ## Deploy
 
 ```
-make workspace-sandbox-build   # one-shot bootstrap of the per-workspace image
-docker compose up -d
+docker compose up -d           # builds and starts the stack; workspace-sandbox is built as part of this
 nft -f deploy/stack/sandbox-egress.nft
 ```
 
@@ -50,11 +51,12 @@ The `sandbox-runtime` and `egress-proxy` services are baked into the base
 
 The `workspace-sandbox` image is what the `sandbox-runtime` service spawns
 on demand to host vibe-agent sessions and tenant workflow runs — it is *not*
-a long-lived service. It ships as a build-only compose service under the
-`build-only` profile, which is why a plain `docker compose up -d` ignores
-it and the bootstrap step above (or the equivalent
-`docker compose --profile build-only build workspace-sandbox`) is required
-once after cloning and again whenever `Dockerfile.workspace-sandbox` changes.
+a long-lived service. It's declared as a normal Compose service so
+`docker compose up -d` builds the image automatically; its `command:` is a
+no-op `exit 0`, so the resulting container exits immediately and the image
+is then consumed only by `sandbox-runtime` over the Docker API. After
+editing `Dockerfile.workspace-sandbox`, rebuild with `make
+workspace-sandbox-build` (or `docker compose build workspace-sandbox`).
 Production deployments typically push a tagged version of this image to an
 internal registry and override `ORCHEO_SANDBOX_IMAGE` instead.
 

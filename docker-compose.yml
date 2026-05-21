@@ -237,22 +237,18 @@ services:
     networks:
       - sandbox-egress
 
-  # Build-only service. The workspace-sandbox image is *not* run as part of
-  # the long-lived stack — it is the image the `sandbox-runtime` service
-  # spawns on demand to host vibe-agent sessions and tenant workflow runs.
-  # Putting it under a profile keeps `docker compose up` from trying to
-  # start it (there is no foreground process to run) while still letting
-  # `docker compose build` produce the image the runtime requires.
+  # The workspace-sandbox image is *not* run as part of the long-lived stack
+  # — it is the image the `sandbox-runtime` service spawns on demand to host
+  # vibe-agent sessions and tenant workflow runs. Declaring it as a service
+  # lets `docker compose up` build it automatically; the no-op command below
+  # makes the resulting container exit immediately so it leaves no long-lived
+  # process behind (default restart policy `no` keeps it from coming back).
   workspace-sandbox:
     build:
       context: .
       dockerfile: Dockerfile.workspace-sandbox
     image: ${ORCHEO_SANDBOX_IMAGE:-orcheo/workspace-sandbox:latest}
-    profiles: ["build-only"]
-    # No-op command; the image is only consumed by sandbox-runtime at run
-    # time. Anyone who accidentally `up`s this profile gets an immediate,
-    # informative exit instead of a long-running container doing nothing.
-    command: ["sh", "-c", "echo 'workspace-sandbox is a build-only image; nothing to run.' && exit 0"]
+    command: ["sh", "-c", "echo 'workspace-sandbox image is only consumed by sandbox-runtime at run time; nothing to run here.' && exit 0"]
 
 networks:
   sandbox-egress:

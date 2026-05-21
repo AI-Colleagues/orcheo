@@ -175,10 +175,10 @@ class DockerContainerRuntime:
 
         ``client.containers.run`` quietly attempts a registry pull when the
         image is missing — but ``orcheo/workspace-sandbox`` is a local-only
-        image (built via ``make docker-build`` / the Compose ``build-only``
-        profile), so the implicit pull always fails with a confusing
-        "pull access denied" message. Catching the absence here turns that
-        into an actionable error pointing the operator at the build target.
+        image (built via ``make docker-build``), so the implicit pull always
+        fails with a confusing "pull access denied" message. Catching the
+        absence here turns that into an actionable error pointing the
+        operator at the build target.
         """
         try:
             client.images.get(image)  # type: ignore[attr-defined]
@@ -192,11 +192,9 @@ class DockerContainerRuntime:
                 return
             msg = (
                 f"Workspace sandbox image {image!r} is not present on the "
-                "Docker daemon. The image is local-only (declared under the "
-                "Compose 'build-only' profile) and cannot be pulled from a "
-                "registry. Run `make docker-build` (or "
-                "`docker compose --profile build-only build workspace-sandbox`) "
-                "and try again."
+                "Docker daemon. The image is local-only and cannot be pulled "
+                "from a registry. Run `make docker-build` (or "
+                "`docker compose build workspace-sandbox`) and try again."
             )
             raise RuntimeError(msg) from exc
 
