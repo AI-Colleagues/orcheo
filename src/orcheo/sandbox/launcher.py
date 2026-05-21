@@ -20,7 +20,32 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol
 from orcheo.external_agents.models import ProcessExecutionResult
+from orcheo.external_agents.process import execute_process
 from orcheo.sandbox.manager import SandboxRuntimeManager
+
+
+class ProcessLauncher(Protocol):
+    """Protocol satisfied by both the remote and in-sandbox launchers.
+
+    Outside the sandbox (backend / worker) the bound launcher is a
+    :class:`SandboxedProcessLauncher` that ``docker exec``s into a per-workspace
+    sandbox container. Inside the sandbox (when ``WorkflowSandboxDispatcher``
+    routes the entire workflow into a sandbox, and ``workflow_runner``
+    spawns the graph), the bound launcher is a :class:`LocalProcessLauncher`
+    that runs the CLI in-process — we are already isolated, so dispatching
+    to *another* sandbox would be a recursion with no benefit.
+    """
+
+    async def run(
+        self,
+        *,
+        workspace_id: str,
+        command: list[str],
+        cwd: Path | None,
+        env: Mapping[str, str] | None,
+        timeout_seconds: float | int | None,
+    ) -> ProcessExecutionResult:
+        """Run ``command`` on behalf of ``workspace_id``."""
 
 
 class _SandboxExec(Protocol):
@@ -78,3 +103,32 @@ class SandboxedProcessLauncher:
             )
         finally:
             await asyncio.to_thread(self._manager.release, lease)
+
+
+class LocalProcessLauncher:
+    """Launcher that runs commands directly in the current process tree.
+
+    Used by ``workflow_runner`` inside a sandbox container, where the workflow
+    is already isolated and dispatching each CLI to *another* sandbox would
+    add no isolation and a network hop. ``workspace_id`` is accepted (and
+    ignored) so the launcher is interchangeable with
+    :class:`SandboxedProcessLauncher`.
+    """
+
+    async def run(
+        self,
+        *,
+        workspace_id: str,
+        command: list[str],
+        cwd: Path | None,
+        env: Mapping[str, str] | None,
+        timeout_seconds: float | int | None,
+    ) -> ProcessExecutionResult:
+        """Run ``command`` in this process tree via ``execute_process``."""
+        del workspace_id
+        return await execute_process(
+            command,
+            cwd=cwd,
+            env=env,
+            timeout_seconds=timeout_seconds,
+        )

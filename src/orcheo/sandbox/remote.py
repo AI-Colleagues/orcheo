@@ -221,7 +221,16 @@ def _workflow_spec_payload(spec: WorkflowRunSpec) -> dict[str, Any]:
         "workflow_definition": dict(spec.workflow_definition),
         "inputs": dict(spec.inputs),
         "node_types": list(spec.node_types),
+        "runnable_config": dict(spec.runnable_config),
+        "state_config": dict(spec.state_config),
     }
+
+
+# Default HTTP wait for ``dispatch_workflow``. Set above the agent CLI's own
+# timeout (``ExternalAgentNode.timeout_seconds`` defaults to 1800s) so the
+# HTTP client doesn't give up *before* the in-sandbox work has a chance to
+# either finish or report its own timeout.
+DEFAULT_WORKFLOW_DISPATCH_TIMEOUT_SECONDS: float = 1860.0
 
 
 class RemoteSandboxRunner:
@@ -232,14 +241,18 @@ class RemoteSandboxRunner:
         base_url: str,
         *,
         client: httpx.AsyncClient | None = None,
-        timeout: float = 300.0,
+        timeout: float = DEFAULT_WORKFLOW_DISPATCH_TIMEOUT_SECONDS,
     ) -> None:
         """Initialize the runner.
 
         Args:
             base_url: Base URL of the sandbox-runtime service.
             client: Optional pre-configured ``httpx.AsyncClient``.
-            timeout: Default request timeout in seconds.
+            timeout: Default request timeout in seconds. Must exceed the
+                longest agent timeout the operator expects to dispatch
+                through this runner; otherwise the HTTP wait will time out
+                before the in-sandbox workflow can return a result and the
+                run will surface as ``failed`` with no useful error.
         """
         self._base_url = base_url.rstrip("/")
         self._owns_client = client is None

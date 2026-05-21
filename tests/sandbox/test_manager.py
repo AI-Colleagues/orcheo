@@ -38,6 +38,12 @@ def test_acquire_provisions_and_marks_in_use() -> None:
     assert lease.workspace_id == "ws"
     assert len(runtime.started) == 1
     assert runtime.started[0][1].labels["orcheo.workspace_id"] == "ws"
+    assert runtime.started[0][1].environment == {
+        "ORCHEO_CREDENTIAL_BROKER_URL": (
+            "http://sandbox-runtime:9090/credentials/resolve"
+        ),
+        "ORCHEO_AGENT_RUNTIME_ROOT": "/scratch/agent-runtimes",
+    }
 
 
 def test_release_returns_lease_to_pool_then_reuses() -> None:

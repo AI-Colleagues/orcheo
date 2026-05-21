@@ -1048,7 +1048,7 @@ async def test_execute_node_runs_node_with_prepared_state(
         lambda stored, candidate: DummyMergedConfig(),
     )
 
-    class NodeStub:
+    class AINode:  # name must be in TRUSTED_NODE_TYPES so execute_node accepts it
         def __init__(self, **kwargs: Any) -> None:
             self.kwargs = kwargs
 
@@ -1061,7 +1061,7 @@ async def test_execute_node_runs_node_with_prepared_state(
             }
 
     result = await workflow_execution.execute_node(
-        NodeStub,
+        AINode,
         {"name": "node"},
         {"message": "hello"},
         workflow_id=UUID(int=7),
@@ -1753,7 +1753,7 @@ async def test_execute_workflow_evaluation_completes(
     websocket = object()
     await execute_workflow_evaluation(
         workflow_id="workflow",
-        graph_config={},
+        graph_config={"nodes": [{"type": "AINode"}]},
         inputs={},
         execution_id="exec-eval",
         websocket=websocket,
@@ -1811,7 +1811,7 @@ async def test_execute_workflow_training_completes(
     websocket = object()
     await execute_workflow_training(
         workflow_id="workflow",
-        graph_config={},
+        graph_config={"nodes": [{"type": "AINode"}]},
         inputs={},
         execution_id="exec-train",
         websocket=websocket,
@@ -1822,3 +1822,70 @@ async def test_execute_workflow_training_completes(
     history_store.start_run.assert_awaited_once()
     safe_send.assert_any_await(websocket, {"status": "completed"})
     assert emit_update.await_args_list[-1][1]["complete"] is True
+
+
+@pytest.mark.asyncio
+async def test_execute_workflow_evaluation_rejects_untrusted_node_types(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Evaluation runs cannot host tenant Python — it must be refused."""
+    safe_send = AsyncMock()
+    monkeypatch.setattr(workflow_execution, "_safe_send_json", safe_send)
+
+    await execute_workflow_evaluation(
+        workflow_id="workflow",
+        graph_config={"nodes": [{"type": "TenantPythonNode"}]},
+        inputs={},
+        execution_id="exec-eval",
+        websocket=object(),
+        evaluation={"dataset": {"cases": [{"inputs": {"foo": "bar"}}]}},
+    )
+
+    assert safe_send.await_args is not None
+    sent_payload = safe_send.await_args.args[1]
+    assert sent_payload["status"] == "error"
+    assert "untrusted node" in sent_payload["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_workflow_training_rejects_untrusted_node_types(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Training runs cannot host tenant Python — it must be refused."""
+    safe_send = AsyncMock()
+    monkeypatch.setattr(workflow_execution, "_safe_send_json", safe_send)
+
+    await execute_workflow_training(
+        workflow_id="workflow",
+        graph_config={"nodes": [{"type": "TenantPythonNode"}]},
+        inputs={},
+        execution_id="exec-train",
+        websocket=object(),
+        training={"dataset": {"cases": [{"inputs": {"foo": "bar"}}]}},
+    )
+
+    assert safe_send.await_args is not None
+    sent_payload = safe_send.await_args.args[1]
+    assert sent_payload["status"] == "error"
+    assert "untrusted node" in sent_payload["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_node_rejects_untrusted_node_class() -> None:
+    """execute_node refuses to run a node class outside the trusted set."""
+
+    class TenantPythonNode:  # name is not in TRUSTED_NODE_TYPES
+        def __init__(self, **_: object) -> None:
+            pass
+
+        async def __call__(
+            self, state: object, runtime_config: object
+        ) -> dict[str, object]:
+            return {}
+
+    with pytest.raises(workflow_execution.UntrustedNodeNotAllowedError):
+        await workflow_execution.execute_node(
+            TenantPythonNode,
+            {},
+            {},
+        )

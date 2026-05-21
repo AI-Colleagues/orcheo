@@ -5,7 +5,7 @@ import asyncio
 import logging
 import os
 import uuid
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, cast
 from uuid import UUID
@@ -60,6 +60,7 @@ from orcheo_backend.app.history import (
 )
 from orcheo_backend.app.sandbox import (
     build_workflow_run_spec,
+    collect_node_types,
     get_sandbox_dispatcher,
     get_sandbox_launcher,
     run_uses_trusted_nodes_only,
@@ -68,6 +69,34 @@ from orcheo_backend.app.trace_utils import build_trace_update
 
 
 logger = logging.getLogger(__name__)
+
+
+class UntrustedNodeNotAllowedError(RuntimeError):
+    """Raised when an in-worker path receives an untrusted node type.
+
+    The evaluation / training / single-node paths cannot wrap an entire
+    inner workflow in a sandbox the way ``execute_workflow`` does (they wrap
+    an already-compiled graph or run a single Python node directly). Rather
+    than silently executing tenant code in-worker, those paths reject the
+    request and tell the caller to author the workflow with trusted nodes
+    only or trigger it through the normal sandboxed execution path.
+    """
+
+
+def _require_trusted_node_types(node_types: Iterable[str], *, context: str) -> None:
+    """Reject node types that fall outside the trusted in-worker set.
+
+    Raises ``UntrustedNodeNotAllowedError`` if any node type would have to
+    execute as tenant Python in the host process.
+    """
+    if not run_uses_trusted_nodes_only(node_types):
+        offending = sorted(set(node_types))
+        msg = (
+            f"{context} cannot execute untrusted node types in-worker: "
+            f"{offending}. Refactor the workflow to use trusted built-in nodes "
+            "only, or invoke it through the standard sandboxed execution path."
+        )
+        raise UntrustedNodeNotAllowedError(msg)
 
 
 @contextmanager
@@ -138,6 +167,8 @@ async def _dispatch_sandboxed_run(
     execution_id: str,
     graph_config: dict[str, Any],
     inputs: dict[str, Any],
+    runtime_config: Mapping[str, Any],
+    state_config: Mapping[str, Any],
     history_store: RunHistoryStore,
     websocket: WebSocket,
     tracer: Tracer,
@@ -156,6 +187,8 @@ async def _dispatch_sandboxed_run(
         workspace_id=workspace_id,
         graph_config=graph_config,
         inputs=inputs,
+        runnable_config=dict(runtime_config),
+        state_config=dict(state_config),
     )
     result = await dispatcher.dispatch(spec)
     payload: dict[str, Any] = {
@@ -480,6 +513,8 @@ async def _execute_sandboxed_workflow(
     execution_id: str,
     graph_config: dict[str, Any],
     inputs: dict[str, Any],
+    runtime_config: Mapping[str, Any],
+    state_config: Mapping[str, Any],
     history_store: RunHistoryStore,
     websocket: WebSocket,
     tracer: Tracer,
@@ -491,6 +526,8 @@ async def _execute_sandboxed_workflow(
         execution_id=execution_id,
         graph_config=graph_config,
         inputs=inputs,
+        runtime_config=runtime_config,
+        state_config=state_config,
         history_store=history_store,
         websocket=websocket,
         tracer=tracer,
@@ -639,8 +676,15 @@ async def execute_workflow(
                 workspace_id=workspace_id or "",
                 graph_config=graph_config,
                 inputs=inputs,
+                runnable_config=dict(runtime_config),
+                state_config=dict(state_config),
             )
-            if not run_uses_trusted_nodes_only(spec.node_types):
+            # Consult the dispatcher so the operator's
+            # ORCHEO_SANDBOX_FAST_PATH_TRUSTED flag is authoritative. With the
+            # flag off (the default), every run is sandboxed; with the flag on,
+            # trusted-only graphs may take the in-worker fast path.
+            dispatcher = get_sandbox_dispatcher()
+            if dispatcher.should_sandbox(spec):
                 if not workspace_id:
                     msg = "workspace_id is required to dispatch a workflow run"
                     raise RuntimeError(msg)
@@ -649,6 +693,8 @@ async def execute_workflow(
                     execution_id=execution_id,
                     graph_config=graph_config,
                     inputs=inputs,
+                    runtime_config=runtime_config,
+                    state_config=state_config,
                     history_store=history_store,
                     websocket=websocket,
                     tracer=tracer,
@@ -973,6 +1019,15 @@ async def execute_workflow_evaluation(
         await _safe_send_json(websocket, {"status": "error", "error": error_msg})
         return
 
+    try:
+        _require_trusted_node_types(
+            collect_node_types(graph_config),
+            context="Workflow evaluation",
+        )
+    except UntrustedNodeNotAllowedError as exc:
+        await _safe_send_json(websocket, {"status": "error", "error": str(exc)})
+        return
+
     settings = get_settings()
     history_store = get_history_store()
     vault = get_vault()
@@ -1092,6 +1147,15 @@ async def execute_workflow_training(
         await _safe_send_json(websocket, {"status": "error", "error": error_msg})
         return
 
+    try:
+        _require_trusted_node_types(
+            collect_node_types(graph_config),
+            context="Workflow training",
+        )
+    except UntrustedNodeNotAllowedError as exc:
+        await _safe_send_json(websocket, {"status": "error", "error": str(exc)})
+        return
+
     settings = get_settings()
     history_store = get_history_store()
     checkpoint_store = get_checkpoint_store()
@@ -1195,7 +1259,19 @@ async def execute_node(
     workflow_id: UUID | None = None,
     workspace_id: str | None = None,
 ) -> Any:
-    """Execute a single node instance with credential resolution."""
+    """Execute a single node instance with credential resolution.
+
+    Refuses untrusted node types up front — the single-node path cannot
+    sandbox tenant Python the way ``execute_workflow`` can, so callers must
+    use only first-party trusted node classes here. Untrusted nodes belong
+    inside a workflow run, which dispatches through the per-workspace
+    sandbox.
+    """
+    _require_trusted_node_types(
+        (getattr(node_class, "__name__", ""),),
+        context="Single-node execution",
+    )
+
     vault = get_vault()
     workspace_id = await resolve_workflow_workspace_id(
         get_repository(),

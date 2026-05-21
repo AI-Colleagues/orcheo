@@ -653,3 +653,128 @@ async def test_execute_graph_passes_workspace_id_to_initial_state(
         "inputs": {"message": "hello"},
         "workspace_id": str(UUID(int=1)),
     }
+
+
+@pytest.mark.asyncio
+async def test_execute_graph_dispatches_to_sandbox_when_untrusted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Untrusted graphs hit the sandbox dispatcher and emit a sandbox_result."""
+    from orcheo.sandbox.workflow import WorkflowRunResult
+
+    dispatched: list[object] = []
+    callbacks: list[Mapping[str, object]] = []
+
+    class _SandboxingDispatcher:
+        def should_sandbox(self, spec):  # noqa: ARG002
+            return True
+
+        async def dispatch(self, spec):
+            dispatched.append(spec)
+            return WorkflowRunResult(
+                run_id=spec.run_id,
+                status="succeeded",
+                outputs={"answer": 42},
+            )
+
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "get_sandbox_dispatcher",
+        lambda: _SandboxingDispatcher(),
+    )
+    # ensure_sandbox_configured is a no-op when the stub bootstrap is already
+    # wired by conftest; calling it must not blow up.
+    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
+
+    async def _step_callback(step: Mapping[str, object]) -> None:
+        callbacks.append(step)
+
+    result = await executor._execute_graph(
+        workflow_id=UUID(int=0),
+        graph_config={"nodes": [{"type": "TenantPythonNode"}]},
+        inputs={"x": 1},
+        config={"configurable": {"thread_id": "thread"}},
+        state_config={"configurable": {"thread_id": "thread"}},
+        step_callback=_step_callback,
+        workspace_id="ws-1",
+    )
+
+    assert dispatched and dispatched[0].workspace_id == "ws-1"
+    assert result == {"answer": 42}
+    assert callbacks == [
+        {
+            "event": "sandbox_result",
+            "status": "succeeded",
+            "outputs": {"answer": 42},
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_execute_graph_raises_without_workspace_for_sandbox_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sandboxed dispatch requires a workspace id; absence is a hard error."""
+
+    class _SandboxingDispatcher:
+        def should_sandbox(self, spec):  # noqa: ARG002
+            return True
+
+        async def dispatch(self, spec):  # pragma: no cover - never reached
+            raise AssertionError("should not dispatch")
+
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "get_sandbox_dispatcher",
+        lambda: _SandboxingDispatcher(),
+    )
+    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
+
+    with pytest.raises(RuntimeError, match="workspace_id is required"):
+        await executor._execute_graph(
+            workflow_id=UUID(int=0),
+            graph_config={"nodes": [{"type": "TenantPythonNode"}]},
+            inputs={},
+            config={"configurable": {"thread_id": "thread"}},
+            state_config={"configurable": {"thread_id": "thread"}},
+            step_callback=None,
+            workspace_id=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_execute_graph_surfaces_sandbox_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-succeeded sandbox result must be raised so the caller fails."""
+    from orcheo.sandbox.workflow import WorkflowRunResult
+
+    class _SandboxingDispatcher:
+        def should_sandbox(self, spec):  # noqa: ARG002
+            return True
+
+        async def dispatch(self, spec):
+            return WorkflowRunResult(
+                run_id=spec.run_id,
+                status="failed",
+                outputs={},
+                error="kaboom",
+            )
+
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "get_sandbox_dispatcher",
+        lambda: _SandboxingDispatcher(),
+    )
+    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
+
+    with pytest.raises(RuntimeError, match="kaboom"):
+        await executor._execute_graph(
+            workflow_id=UUID(int=0),
+            graph_config={"nodes": [{"type": "TenantPythonNode"}]},
+            inputs={},
+            config={"configurable": {"thread_id": "thread"}},
+            state_config={"configurable": {"thread_id": "thread"}},
+            step_callback=None,
+            workspace_id="ws-1",
+        )

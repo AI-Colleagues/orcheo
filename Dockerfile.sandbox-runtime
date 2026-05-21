@@ -8,8 +8,10 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    docker-cli \
     docker.io \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && docker --version
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
@@ -17,7 +19,7 @@ COPY pyproject.toml uv.lock README.md ./
 COPY packages/ packages/
 COPY apps/backend/ apps/backend/
 
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --group sandbox-runtime
 
 COPY src/ src/
 

@@ -1,5 +1,6 @@
 .PHONY: dev-server test lint format canvas-lint canvas-format canvas-test redis worker celery-beat \
-       docker-up docker-down docker-build docker-logs staging-env staging-up staging-down staging-restart \
+       docker-up docker-down docker-build docker-logs workspace-sandbox-build \
+       staging-env staging-up staging-down staging-restart \
        staging-build staging-logs staging-config
 
 UV ?= uv
@@ -58,8 +59,16 @@ docker-down:
 docker-restart:
 	docker compose restart
 
-docker-build:
+docker-build: workspace-sandbox-build
 	docker compose build
+
+# Build the workspace-sandbox image that the sandbox-runtime service
+# spawns on demand. The image is declared under the `build-only` profile so
+# `docker compose up` ignores it; this target explicitly opts the profile
+# in for the build phase. Run this once after cloning, then again whenever
+# Dockerfile.workspace-sandbox changes.
+workspace-sandbox-build:
+	docker compose --profile build-only build workspace-sandbox
 
 docker-logs:
 	docker compose logs -f

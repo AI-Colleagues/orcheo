@@ -31,8 +31,10 @@ import os
 import shlex
 import time
 from collections.abc import Mapping
-from typing import Any, Final
-from fastapi import FastAPI, HTTPException, status
+from typing import Annotated, Any, Final
+import httpx
+from fastapi import FastAPI, Header, HTTPException, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from orcheo.external_agents.models import ProcessExecutionResult
 from orcheo.sandbox.runtime import (
@@ -195,6 +197,8 @@ class WorkflowSandboxInvoker:
                 "inputs": dict(spec.inputs),
                 "run_id": spec.run_id,
                 "workspace_id": spec.workspace_id,
+                "runnable_config": dict(spec.runnable_config),
+                "state_config": dict(spec.state_config),
             },
             separators=(",", ":"),
         )
@@ -279,6 +283,8 @@ def _parse_workflow_spec(payload: WorkflowDispatchPayload) -> WorkflowRunSpec:
             workflow_definition=dict(payload.spec.get("workflow_definition") or {}),
             inputs=dict(payload.spec.get("inputs") or {}),
             node_types=tuple(payload.spec.get("node_types") or ()),
+            runnable_config=dict(payload.spec.get("runnable_config") or {}),
+            state_config=dict(payload.spec.get("state_config") or {}),
         )
     except KeyError as exc:
         raise HTTPException(
@@ -362,6 +368,33 @@ def _register_sandbox_routes(
         }
 
 
+def _register_credential_relay_route(app: FastAPI) -> None:
+    """Relay credential requests from sandboxes to the backend broker."""
+
+    @app.post("/credentials/resolve")
+    async def relay_credential_request(
+        payload: dict[str, Any],
+        authorization: Annotated[str | None, Header()] = None,
+        x_orcheo_workspace: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        broker_url = os.getenv(
+            "ORCHEO_CREDENTIAL_BROKER_URL",
+            "http://backend:2025/internal/credentials/resolve",
+        )
+        headers: dict[str, str] = {}
+        if authorization is not None:
+            headers["Authorization"] = authorization
+        if x_orcheo_workspace is not None:
+            headers["X-Orcheo-Workspace"] = x_orcheo_workspace
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(broker_url, json=payload, headers=headers)
+        return Response(
+            content=response.content,
+            status_code=response.status_code,
+            media_type=response.headers.get("content-type"),
+        )
+
+
 def build_service_app(
     runtime: ContainerRuntime | None = None,
     executor: ContainerExecutor | None = None,
@@ -382,6 +415,7 @@ def build_service_app(
     )
     _register_container_routes(app, runtime, handles)
     _register_sandbox_routes(app, executor, invoker)
+    _register_credential_relay_route(app)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

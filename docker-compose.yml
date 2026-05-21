@@ -64,6 +64,11 @@ services:
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
       ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET}
+      # Runtime name embedded in every ContainerSpec the backend sends to
+      # sandbox-runtime. Defaults to `runc` for local dev so the stack works
+      # on stock Docker; production must override to `runsc` (gVisor) for
+      # the documented isolation guarantees.
+      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
       # Use system Python from base image instead of downloading
       UV_PYTHON_PREFERENCE: system
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
@@ -109,6 +114,9 @@ services:
       ORCHEO_BACKEND_INTERNAL_URL: http://backend:2025
       ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
       ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET}
+      # See note in the `backend` service above; the worker also builds
+      # ContainerSpecs and must agree with the backend on the runtime name.
+      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
       # Use system Python from base image instead of downloading
       UV_PYTHON_PREFERENCE: system
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
@@ -204,7 +212,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - sandbox_scratch:/scratch
     environment:
-      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
+      # Mirrored from the backend/worker for parity, in case future code in
+      # the runtime service decides to read it. The authoritative value is
+      # still the one the backend embeds in each ContainerSpec.
+      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
       ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-orcheo/workspace-sandbox:latest}
       ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
       ORCHEO_CREDENTIAL_BROKER_URL: http://backend:2025/internal/credentials/resolve
@@ -226,8 +237,29 @@ services:
     networks:
       - sandbox-egress
 
+  # Build-only service. The workspace-sandbox image is *not* run as part of
+  # the long-lived stack — it is the image the `sandbox-runtime` service
+  # spawns on demand to host vibe-agent sessions and tenant workflow runs.
+  # Putting it under a profile keeps `docker compose up` from trying to
+  # start it (there is no foreground process to run) while still letting
+  # `docker compose build` produce the image the runtime requires.
+  workspace-sandbox:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace-sandbox
+    image: ${ORCHEO_SANDBOX_IMAGE:-orcheo/workspace-sandbox:latest}
+    profiles: ["build-only"]
+    # No-op command; the image is only consumed by sandbox-runtime at run
+    # time. Anyone who accidentally `up`s this profile gets an immediate,
+    # informative exit instead of a long-running container doing nothing.
+    command: ["sh", "-c", "echo 'workspace-sandbox is a build-only image; nothing to run.' && exit 0"]
+
 networks:
   sandbox-egress:
+    # Sandbox child containers are created through the host Docker API with
+    # network_mode=sandbox-egress, so this must be the real Docker network
+    # name rather than Compose's project-prefixed default.
+    name: sandbox-egress
     # nftables rules attached to this bridge enforce the L3/L4 deny policy.
     # See deploy/stack/sandbox-egress.nft.
     driver: bridge

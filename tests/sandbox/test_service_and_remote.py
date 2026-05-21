@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from orcheo.sandbox import service as service_module
 from orcheo.external_agents.models import ProcessExecutionResult
 from orcheo.sandbox.remote import (
     RemoteContainerRuntime,
@@ -89,6 +90,63 @@ def test_healthz(app_with_fakes: tuple[TestClient, Any, Any, Any]) -> None:
     assert client.get("/healthz").json() == {"status": "ok"}
 
 
+def test_credential_relay_forwards_broker_request(
+    app_with_fakes: tuple[TestClient, Any, Any, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sandbox credential requests cross the runtime relay unchanged."""
+    client, *_ = app_with_fakes
+    calls: list[tuple[str, dict[str, Any], dict[str, str]]] = []
+
+    class _FakeAsyncClient:
+        def __init__(self, *, timeout: float) -> None:
+            assert timeout == 30.0
+
+        async def __aenter__(self) -> _FakeAsyncClient:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def post(
+            self,
+            url: str,
+            *,
+            json: dict[str, Any],
+            headers: dict[str, str],
+        ) -> httpx.Response:
+            calls.append((url, json, headers))
+            return httpx.Response(200, json={"value": "resolved"})
+
+    monkeypatch.setenv(
+        "ORCHEO_CREDENTIAL_BROKER_URL",
+        "http://backend/internal/credentials/resolve",
+    )
+    monkeypatch.setattr(service_module.httpx, "AsyncClient", _FakeAsyncClient)
+
+    response = client.post(
+        "/credentials/resolve",
+        json={"run_id": "run-1", "credential_name": "openai_api_key"},
+        headers={
+            "Authorization": "Bearer broker-token",
+            "X-Orcheo-Workspace": "ws-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"value": "resolved"}
+    assert calls == [
+        (
+            "http://backend/internal/credentials/resolve",
+            {"run_id": "run-1", "credential_name": "openai_api_key"},
+            {
+                "Authorization": "Bearer broker-token",
+                "X-Orcheo-Workspace": "ws-1",
+            },
+        )
+    ]
+
+
 def test_provision_stop_lifecycle(
     app_with_fakes: tuple[TestClient, InMemoryContainerRuntime, Any, Any],
 ) -> None:
@@ -159,6 +217,8 @@ def test_dispatch_workflow_endpoint(
             "workflow_definition": {"nodes": []},
             "inputs": {"a": 1},
             "node_types": ["AINode"],
+            "runnable_config": {"configurable": {"thread_id": "r-1"}},
+            "state_config": {"configurable": {"ai_model": "openai:test"}},
         },
         "broker_token": "tok-1",
     }
@@ -171,6 +231,8 @@ def test_dispatch_workflow_endpoint(
     assert sandbox_id == "sb-1"
     assert spec.workspace_id == "ws"
     assert spec.node_types == ("AINode",)
+    assert spec.runnable_config == {"configurable": {"thread_id": "r-1"}}
+    assert spec.state_config == {"configurable": {"ai_model": "openai:test"}}
     assert broker_token == "tok-1"
 
 
@@ -259,6 +321,8 @@ def test_remote_runner_dispatches_workflow(
         workflow_definition={"nodes": [{"type": "AINode"}]},
         inputs={},
         node_types=("AINode",),
+        runnable_config={"configurable": {"thread_id": "r-2"}},
+        state_config={"configurable": {"ai_model": "openai:test"}},
     )
 
     async def go() -> WorkflowRunResult:
@@ -278,6 +342,10 @@ def test_remote_runner_dispatches_workflow(
     result = asyncio.run(go())
     assert result.status == "succeeded"
     assert result.outputs == {"hello": "world"}
+    assert invoker.calls[0][1].runnable_config == {"configurable": {"thread_id": "r-2"}}
+    assert invoker.calls[0][1].state_config == {
+        "configurable": {"ai_model": "openai:test"}
+    }
     assert invoker.calls[0][2] == "broker-token"
 
 

@@ -11,7 +11,6 @@
 
 FROM python:3.12-slim AS base
 
-ARG ORCHEO_VERSION=latest
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -37,15 +36,18 @@ RUN npm install --global \
         @google/gemini-cli \
     && npm cache clean --force
 
-# Install Orcheo (workflow runner) + SDK / CLI.
+# Install Orcheo (workflow runner) + SDK / CLI from this checkout. Sandboxes
+# must run the same code as the runtime that dispatches into them.
+COPY pyproject.toml README.md ./
+COPY src/ src/
+COPY packages/ packages/
 RUN pip install --upgrade pip \
-    && pip install \
-        "orcheo==${ORCHEO_VERSION}" \
-        "orcheo-sdk==${ORCHEO_VERSION}" || pip install orcheo orcheo-sdk
+    && pip install . packages/agentensor packages/sdk
 
 USER orcheo
 WORKDIR /workspace
 
-# Default entrypoint starts the workflow runner stdin loop. The Sandbox
-# Runtime Manager overrides CMD via `docker exec` for agent sessions.
-ENTRYPOINT ["python", "-m", "orcheo.sandbox.workflow_runner"]
+# The runtime leases this container and uses `docker exec` for agent sessions
+# and workflow-runner invocations. Keep PID 1 idle so detached startup does
+# not close stdin and end the sandbox before the first exec arrives.
+CMD ["tail", "-f", "/dev/null"]

@@ -24,6 +24,8 @@ import os
 from collections.abc import Iterable
 from threading import Lock
 from typing import Any
+from uuid import UUID
+from orcheo.models.credential_scope import CredentialAccessContext
 from orcheo.sandbox.broker import CredentialBroker
 from orcheo.sandbox.config import SandboxSettings
 from orcheo.sandbox.errors import SandboxError
@@ -39,6 +41,7 @@ from orcheo.sandbox.workflow import (
     WorkflowRunSpec,
     WorkflowSandboxDispatcher,
 )
+from orcheo_backend.app.dependencies import get_vault
 
 
 logger = logging.getLogger(__name__)
@@ -82,7 +85,7 @@ class _SandboxBootstrap:
             self._runtime = RemoteContainerRuntime(self._runtime_url())
             self._manager = SandboxRuntimeManager(
                 runtime=self._runtime,
-                settings=SandboxSettings(),
+                settings=SandboxSettings.from_env(),
             )
         return self._manager
 
@@ -160,10 +163,10 @@ def collect_node_types(graph_config: Any) -> tuple[str, ...]:
     """Pull the unique node-type names from a graph config dict.
 
     Used by callers to decide whether ``WorkflowSandboxDispatcher`` will
-    fast-path a run. The set is intentionally tolerant: missing or malformed
-    nodes default to an empty list, in which case the dispatcher treats the
-    run as trusted (no untrusted nodes ⇒ no forced sandbox), and the
-    operator's ``ORCHEO_SANDBOX_FAST_PATH_TRUSTED`` setting decides routing.
+    fast-path a run. Returns ``()`` for missing/malformed graphs; downstream
+    decision helpers (``run_uses_trusted_nodes_only`` /
+    ``WorkflowSandboxDispatcher.should_sandbox``) treat an empty tuple as
+    untrusted so an unclassifiable graph always lands in the sandbox.
     """
     if not isinstance(graph_config, dict):
         return ()
@@ -183,6 +186,8 @@ def build_workflow_run_spec(
     workspace_id: str,
     graph_config: dict[str, Any],
     inputs: dict[str, Any],
+    runnable_config: dict[str, Any] | None = None,
+    state_config: dict[str, Any] | None = None,
 ) -> WorkflowRunSpec:
     """Build a ``WorkflowRunSpec`` for the dispatcher."""
     return WorkflowRunSpec(
@@ -191,12 +196,62 @@ def build_workflow_run_spec(
         workflow_definition=graph_config,
         inputs=inputs,
         node_types=collect_node_types(graph_config),
+        runnable_config=runnable_config or {},
+        state_config=state_config or {},
     )
 
 
+def build_credential_broker() -> CredentialBroker:
+    """Build a credential broker bound to the process-local vault.
+
+    Both the FastAPI application and the Celery worker call this helper so
+    sandboxed runs can resolve credentials through a shared, workspace-pinned
+    broker. The lookup is performed lazily — ``get_vault`` is re-resolved via
+    this module on every call so test overrides (which monkeypatch
+    ``orcheo_backend.app.sandbox.get_vault``) and runtime rebinding both work.
+    """
+
+    def _resolve_credential(*, workspace_id: str, credential_name: str) -> str:
+        vault = get_vault()
+        context = CredentialAccessContext(workspace_id=UUID(workspace_id))
+        for metadata in vault.list_credentials(
+            context=context,
+            workspace_id=workspace_id,
+        ):
+            if metadata.name == credential_name:
+                return vault.reveal_secret(credential_id=metadata.id, context=context)
+        raise KeyError(credential_name)
+
+    broker_secret = os.getenv("ORCHEO_CREDENTIAL_BROKER_SECRET")
+    if not broker_secret:
+        msg = (
+            "ORCHEO_CREDENTIAL_BROKER_SECRET is not set. Sandboxing is always on; "
+            "generate a secret with `python -m orcheo.sandbox.broker --gen-secret` "
+            "and export it before starting the backend or worker."
+        )
+        raise RuntimeError(msg)
+    return CredentialBroker(secret=broker_secret, resolver=_resolve_credential)
+
+
+def ensure_sandbox_configured() -> None:
+    """Wire the shared sandbox bootstrap with a fresh broker if unconfigured.
+
+    Safe to call from any entry point — the underlying bootstrap stores a
+    single broker reference behind a lock, so repeated calls are no-ops.
+    """
+    if _bootstrap._broker is None:  # noqa: SLF001 — module-private cache
+        configure_sandbox(build_credential_broker())
+
+
 def run_uses_trusted_nodes_only(node_types: Iterable[str]) -> bool:
-    """Return True iff every node type is in ``TRUSTED_NODE_TYPES``."""
+    """Return True iff every node type is in ``TRUSTED_NODE_TYPES``.
+
+    Fails closed for empty input: an unclassifiable graph (no node types
+    parsed) is treated as untrusted so it cannot silently take the in-worker
+    fast path. Mirrors ``orcheo.sandbox.workflow.requires_sandbox`` so the
+    backend and dispatcher agree on what "trusted-only" means.
+    """
     types = list(node_types)
     if not types:
-        return True
+        return False
     return all(node_type in TRUSTED_NODE_TYPES for node_type in types)

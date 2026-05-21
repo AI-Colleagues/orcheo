@@ -602,3 +602,221 @@ class TestDispatchCronTriggersAsync:
             result = await _dispatch_cron_triggers_async()
 
         assert result == [str(mock_run.id)]
+
+
+class TestExecuteWorkflowSandboxDispatch:
+    """Sandbox-routing behavior introduced by workspace runtime isolation."""
+
+    @pytest.mark.asyncio
+    async def test_sandbox_dispatch_persists_sandbox_result_and_succeeds(
+        self, mock_run: MagicMock, mock_version: MagicMock
+    ) -> None:
+        """Untrusted graphs are dispatched and surfaced via sandbox_result."""
+        from orcheo.sandbox.workflow import WorkflowRunResult
+        from orcheo_backend.worker.tasks import _execute_workflow
+
+        # Untrusted node type → dispatcher must sandbox.
+        mock_version.graph = {"nodes": [{"type": "TenantPythonNode"}]}
+
+        mock_repo = AsyncMock()
+        mock_repo.get_version = AsyncMock(return_value=mock_version)
+        mock_repo.mark_run_succeeded = AsyncMock()
+        mock_history = AsyncMock()
+        mock_history.append_step = AsyncMock()
+
+        class _SandboxingDispatcher:
+            def __init__(self) -> None:
+                self.dispatched: list[Any] = []
+
+            def should_sandbox(self, spec: Any) -> bool:  # noqa: ARG002
+                return True
+
+            async def dispatch(self, spec: Any) -> WorkflowRunResult:
+                self.dispatched.append(spec)
+                return WorkflowRunResult(
+                    run_id=spec.run_id,
+                    status="succeeded",
+                    outputs={"value": 1},
+                )
+
+        dispatcher = _SandboxingDispatcher()
+
+        with (
+            patch(
+                "orcheo_backend.app.dependencies.get_repository",
+                return_value=mock_repo,
+            ),
+            patch(
+                "orcheo_backend.app.dependencies.get_vault",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "orcheo_backend.app.dependencies.get_history_store",
+                return_value=mock_history,
+            ),
+            patch(
+                "orcheo_backend.app.sandbox.get_sandbox_dispatcher",
+                return_value=dispatcher,
+            ),
+            patch("orcheo.config.get_settings"),
+            patch(
+                "orcheo.runtime.runnable_config.merge_runnable_configs"
+            ) as mock_merge,
+        ):
+            mock_config = MagicMock()
+            mock_config.to_runnable_config = MagicMock(return_value={})
+            mock_config.to_state_config = MagicMock(return_value={})
+            mock_config.to_json_config = MagicMock(return_value={})
+            mock_config.tags = []
+            mock_config.callbacks = []
+            mock_config.metadata = {}
+            mock_config.run_name = None
+            mock_merge.return_value = mock_config
+
+            result = await _execute_workflow(mock_run)
+
+        assert result["status"] == "succeeded"
+        assert dispatcher.dispatched and dispatcher.dispatched[0].workspace_id == str(
+            mock_run.workspace_id
+        )
+        sandbox_calls = [
+            call
+            for call in mock_history.append_step.await_args_list
+            if call.args[1].get("event") == "sandbox_result"
+        ]
+        assert sandbox_calls, "sandbox_result step must be persisted"
+        mock_repo.mark_run_succeeded.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_sandbox_dispatch_failure_marks_run_failed(
+        self, mock_run: MagicMock, mock_version: MagicMock
+    ) -> None:
+        """A failed sandbox result raises so the worker records the failure."""
+        from orcheo.sandbox.workflow import WorkflowRunResult
+        from orcheo_backend.worker.tasks import _execute_workflow
+
+        mock_version.graph = {"nodes": [{"type": "TenantPythonNode"}]}
+
+        mock_repo = AsyncMock()
+        mock_repo.get_version = AsyncMock(return_value=mock_version)
+        mock_repo.mark_run_succeeded = AsyncMock()
+        mock_repo.mark_run_failed = AsyncMock()
+        mock_history = AsyncMock()
+        mock_history.append_step = AsyncMock()
+
+        class _FailingDispatcher:
+            def should_sandbox(self, spec: Any) -> bool:  # noqa: ARG002
+                return True
+
+            async def dispatch(self, spec: Any) -> WorkflowRunResult:
+                return WorkflowRunResult(
+                    run_id=spec.run_id,
+                    status="failed",
+                    outputs={},
+                    error="sandbox kaput",
+                )
+
+        with (
+            patch(
+                "orcheo_backend.app.dependencies.get_repository",
+                return_value=mock_repo,
+            ),
+            patch(
+                "orcheo_backend.app.dependencies.get_vault",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "orcheo_backend.app.dependencies.get_history_store",
+                return_value=mock_history,
+            ),
+            patch(
+                "orcheo_backend.app.sandbox.get_sandbox_dispatcher",
+                return_value=_FailingDispatcher(),
+            ),
+            patch("orcheo.config.get_settings"),
+            patch(
+                "orcheo.runtime.runnable_config.merge_runnable_configs"
+            ) as mock_merge,
+        ):
+            mock_config = MagicMock()
+            mock_config.to_runnable_config = MagicMock(return_value={})
+            mock_config.to_state_config = MagicMock(return_value={})
+            mock_config.to_json_config = MagicMock(return_value={})
+            mock_config.tags = []
+            mock_config.callbacks = []
+            mock_config.metadata = {}
+            mock_config.run_name = None
+            mock_merge.return_value = mock_config
+
+            result = await _execute_workflow(mock_run)
+
+        assert result["status"] == "failed"
+        assert "sandbox kaput" in result["error"]
+        mock_repo.mark_run_failed.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_sandbox_dispatch_requires_workspace_id(
+        self, mock_version: MagicMock
+    ) -> None:
+        """Sandboxed dispatch must refuse to run when no workspace_id is set."""
+        from orcheo_backend.worker.tasks import _execute_workflow
+
+        run = MagicMock()
+        run.id = uuid4()
+        run.workflow_version_id = uuid4()
+        run.status = WorkflowRunStatus.PENDING
+        run.input_payload = {}
+        run.runnable_config = None
+        run.workspace_id = None
+
+        mock_version.graph = {"nodes": [{"type": "TenantPythonNode"}]}
+
+        mock_repo = AsyncMock()
+        mock_repo.get_version = AsyncMock(return_value=mock_version)
+        mock_repo.mark_run_failed = AsyncMock()
+        mock_history = AsyncMock()
+        mock_history.append_step = AsyncMock()
+
+        class _AlwaysSandboxDispatcher:
+            def should_sandbox(self, spec: Any) -> bool:  # noqa: ARG002
+                return True
+
+            async def dispatch(self, spec: Any) -> Any:  # pragma: no cover
+                raise AssertionError("should never dispatch")
+
+        with (
+            patch(
+                "orcheo_backend.app.dependencies.get_repository",
+                return_value=mock_repo,
+            ),
+            patch(
+                "orcheo_backend.app.dependencies.get_vault",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "orcheo_backend.app.dependencies.get_history_store",
+                return_value=mock_history,
+            ),
+            patch(
+                "orcheo_backend.app.sandbox.get_sandbox_dispatcher",
+                return_value=_AlwaysSandboxDispatcher(),
+            ),
+            patch("orcheo.config.get_settings"),
+            patch(
+                "orcheo.runtime.runnable_config.merge_runnable_configs"
+            ) as mock_merge,
+        ):
+            mock_config = MagicMock()
+            mock_config.to_runnable_config = MagicMock(return_value={})
+            mock_config.to_state_config = MagicMock(return_value={})
+            mock_config.to_json_config = MagicMock(return_value={})
+            mock_config.tags = []
+            mock_config.callbacks = []
+            mock_config.metadata = {}
+            mock_config.run_name = None
+            mock_merge.return_value = mock_config
+
+            result = await _execute_workflow(run)
+
+        assert result["status"] == "failed"
+        assert "workspace_id" in result["error"]

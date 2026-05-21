@@ -15,21 +15,27 @@ from contextvars import ContextVar
 from pathlib import Path
 from orcheo.external_agents.models import ProcessExecutionResult
 from orcheo.sandbox.errors import SandboxError
-from orcheo.sandbox.launcher import SandboxedProcessLauncher
+from orcheo.sandbox.launcher import ProcessLauncher
 
 
 class SandboxDispatchError(SandboxError):
     """Raised when an agent process is dispatched without an active sandbox."""
 
 
-_active_launcher: ContextVar[SandboxedProcessLauncher | None] = ContextVar(
+_active_launcher: ContextVar[ProcessLauncher | None] = ContextVar(
     "orcheo_sandbox_active_launcher", default=None
 )
 
 
 @contextmanager
-def use_launcher(launcher: SandboxedProcessLauncher) -> Iterator[None]:
-    """Bind ``launcher`` as the active sandbox dispatcher within this context."""
+def use_launcher(launcher: ProcessLauncher) -> Iterator[None]:
+    """Bind ``launcher`` as the active process dispatcher within this context.
+
+    Accepts any object satisfying :class:`ProcessLauncher` — production
+    callers in the backend / worker bind a ``SandboxedProcessLauncher``;
+    ``workflow_runner`` (which runs inside a sandbox) binds a
+    ``LocalProcessLauncher``.
+    """
     token = _active_launcher.set(launcher)
     try:
         yield
@@ -37,7 +43,7 @@ def use_launcher(launcher: SandboxedProcessLauncher) -> Iterator[None]:
         _active_launcher.reset(token)
 
 
-def get_active_launcher() -> SandboxedProcessLauncher | None:
+def get_active_launcher() -> ProcessLauncher | None:
     """Return the launcher bound to the current async context, if any."""
     return _active_launcher.get()
 

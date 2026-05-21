@@ -138,31 +138,105 @@ class DockerContainerRuntime:
     def start(self, spec: ContainerSpec) -> ContainerHandle:
         """Spawn a Docker container that satisfies ``spec``."""
         client = self._ensure_client()
+        self._require_local_image(client, spec.image)
         host_config = self._build_host_config(spec)
         cmd = list(spec.command) if spec.command else None
-        container = client.containers.run(  # type: ignore[attr-defined]
-            image=spec.image,
-            command=cmd,
-            detach=True,
-            runtime=spec.runtime,
-            environment=dict(spec.environment),
-            user=spec.user,
-            read_only=spec.read_only_root,
-            cap_drop=list(spec.cap_drop),
-            security_opt=self._build_security_opt(spec),
-            network_mode=spec.network_mode,
-            labels={
-                "orcheo.workspace_id": spec.workspace_id,
-                **dict(spec.labels),
-            },
-            **host_config,
-        )
+        try:
+            container = client.containers.run(  # type: ignore[attr-defined]
+                image=spec.image,
+                command=cmd,
+                detach=True,
+                runtime=spec.runtime,
+                environment=dict(spec.environment),
+                user=spec.user,
+                read_only=spec.read_only_root,
+                cap_drop=list(spec.cap_drop),
+                security_opt=self._build_security_opt(spec),
+                network_mode=spec.network_mode,
+                labels={
+                    "orcheo.workspace_id": spec.workspace_id,
+                    **dict(spec.labels),
+                },
+                **host_config,
+            )
+        except Exception as exc:
+            self._reraise_with_helpful_runtime_error(exc, spec, client)
+            raise
         return ContainerHandle(
             container_id=container.id,
             image=spec.image,
             workspace_id=spec.workspace_id,
             runtime=spec.runtime,
         )
+
+    @staticmethod
+    def _require_local_image(client: object, image: str) -> None:
+        """Fail fast if ``image`` isn't built locally.
+
+        ``client.containers.run`` quietly attempts a registry pull when the
+        image is missing — but ``orcheo/workspace-sandbox`` is a local-only
+        image (built via ``make docker-build`` / the Compose ``build-only``
+        profile), so the implicit pull always fails with a confusing
+        "pull access denied" message. Catching the absence here turns that
+        into an actionable error pointing the operator at the build target.
+        """
+        try:
+            client.images.get(image)  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 — translate any docker SDK error
+            message = str(exc).lower()
+            if "not found" not in message and "no such image" not in message:
+                # Not a missing-image error (could be a daemon-connectivity
+                # problem). Let the original exception bubble; ``start()``'s
+                # outer try/except already routes it through the daemon-runtime
+                # diagnostic helper.
+                return
+            msg = (
+                f"Workspace sandbox image {image!r} is not present on the "
+                "Docker daemon. The image is local-only (declared under the "
+                "Compose 'build-only' profile) and cannot be pulled from a "
+                "registry. Run `make docker-build` (or "
+                "`docker compose --profile build-only build workspace-sandbox`) "
+                "and try again."
+            )
+            raise RuntimeError(msg) from exc
+
+    @staticmethod
+    def _reraise_with_helpful_runtime_error(
+        exc: Exception, spec: ContainerSpec, client: object
+    ) -> None:
+        """Translate Docker's cryptic 'unknown runtime' error.
+
+        The Docker daemon returns ``400 Bad Request ("unknown or invalid
+        runtime name: <name>")`` when the requested runtime is not registered.
+        That message doesn't tell the operator what their options are. We
+        intercept it, list the runtimes the daemon actually has, and explain
+        how to fix the configuration. Any other exception is left untouched
+        so the original stack trace propagates.
+        """
+        message = str(exc)
+        if "unknown or invalid runtime name" not in message:
+            return
+        available: list[str] = []
+        try:
+            info = client.info()  # type: ignore[attr-defined]
+            runtimes = info.get("Runtimes") if isinstance(info, dict) else None
+            if isinstance(runtimes, dict):
+                available = sorted(runtimes.keys())
+        except Exception:  # pragma: no cover - best-effort probe
+            available = []
+        hint = (
+            f"Docker daemon does not have the container runtime "
+            f"{spec.runtime!r} registered. "
+        )
+        if available:
+            hint += f"Available runtimes on this host: {', '.join(available)}. "
+        hint += (
+            "Either install/register the runtime (e.g. install gVisor and add "
+            "it to /etc/docker/daemon.json for `runsc`), or set the env var "
+            "ORCHEO_CONTAINER_RUNTIME to one of the available names "
+            "(typically `runc` for local development)."
+        )
+        raise RuntimeError(hint) from exc
 
     def stop(self, handle: ContainerHandle) -> None:
         """Stop and remove the container behind ``handle``."""
@@ -192,14 +266,44 @@ class DockerContainerRuntime:
 
     @staticmethod
     def _build_host_config(spec: ContainerSpec) -> dict[str, object]:
-        """Translate ``spec`` resource limits into Docker host-config kwargs."""
+        """Translate ``spec`` resource limits into Docker host-config kwargs.
+
+        ``/scratch``, ``/workspace``, and ``/home/orcheo`` are mounted as
+        tmpfs with mode 1777 so that the per-workspace UID can write into
+        them despite the read-only rootfs:
+
+        - ``/scratch`` hosts the managed external-agent runtime tree (see
+          ``ORCHEO_AGENT_RUNTIME_ROOT`` in the manager).
+        - ``/workspace`` is the agent's working directory tree
+          (``DEFAULT_WORKSPACE_AGENT_ROOT``).
+        - ``/home/orcheo`` is the container's ``HOME`` (baked in the image);
+          ``npm``, ``git``, and provider CLIs all expect a writable home for
+          caches and config (``~/.npm``, ``~/.config``, ``~/.cache``, etc.).
+
+        The home path is intentionally hardcoded to match
+        ``Dockerfile.workspace-sandbox``; both must change together if the
+        image's HOME ever moves.
+
+        ``exec`` is explicitly enabled on every mount because Docker's
+        default tmpfs options are ``rw,nosuid,nodev,noexec`` — and the
+        managed provider CLIs (``/scratch/agent-runtimes/<provider>/bin/...``)
+        plus git hooks and any helper scripts the agent drops in
+        ``/workspace`` need to be runnable from these paths. ``nosuid`` and
+        ``nodev`` are kept (we don't want setuid binaries or device nodes in
+        a sandbox); only ``noexec`` is dropped.
+        """
         cpu_quota = int(float(spec.cpu_limit) * 100_000)
+        tmpfs_options = f"size={spec.scratch_size},mode=1777,exec"
         return {
             "mem_limit": spec.memory_limit,
             "pids_limit": spec.pid_limit,
             "cpu_period": 100_000,
             "cpu_quota": cpu_quota,
-            "tmpfs": {"/scratch": f"size={spec.scratch_size},mode=1777"},
+            "tmpfs": {
+                "/scratch": tmpfs_options,
+                "/workspace": tmpfs_options,
+                "/home/orcheo": tmpfs_options,
+            },
         }
 
 

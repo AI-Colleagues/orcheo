@@ -225,6 +225,10 @@ services:
 
 networks:
   sandbox-egress:
+    # Sandbox child containers are created through the host Docker API with
+    # network_mode=sandbox-egress, so this must be the real Docker network
+    # name rather than Compose's project-prefixed default.
+    name: sandbox-egress
     # nftables rules attached to this bridge enforce the L3/L4 deny policy.
     # See deploy/stack/sandbox-egress.nft.
     driver: bridge
