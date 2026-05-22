@@ -221,12 +221,33 @@ jobs:
           echo "canvas_repo=ghcr.io/${owner_lc}/orcheo-canvas" >> "$GITHUB_OUTPUT"
           echo "sandbox_runtime_repo=ghcr.io/${owner_lc}/orcheo-sandbox-runtime" >> "$GITHUB_OUTPUT"
 
-  stack-release:
+  image-build:
     needs: [stack-image-metadata]
-    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: stack
+            context: deploy/stack
+            file: deploy/stack/Dockerfile.orcheo
+            repo: ${{ needs.stack-image-metadata.outputs.stack_repo }}
+          - name: canvas
+            context: deploy/stack
+            file: deploy/stack/Dockerfile.canvas
+            repo: ${{ needs.stack-image-metadata.outputs.canvas_repo }}
+          - name: sandbox-runtime
+            context: .
+            file: Dockerfile.sandbox-runtime
+            repo: ${{ needs.stack-image-metadata.outputs.sandbox_runtime_repo }}
+        platform:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.platform.runner }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -241,26 +262,51 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push stack image
+      - name: Build and push ${{ matrix.image.name }} by digest
+        id: build
         uses: docker/build-push-action@v6
         with:
-          context: deploy/stack
-          file: deploy/stack/Dockerfile.orcheo
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ needs.stack-image-metadata.outputs.stack_repo }}:${{ needs.stack-image-metadata.outputs.version }}
-            ${{ needs.stack-image-metadata.outputs.stack_repo }}:latest
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.file }}
+          platforms: linux/${{ matrix.platform.arch }}
+          outputs: type=image,name=${{ matrix.image.repo }},push-by-digest=true,name-canonical=true,push=true
 
-  canvas-image-release:
-    needs: [stack-image-metadata]
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.image.name }}-${{ matrix.platform.arch }}-${{ github.run_attempt }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  image-merge:
+    needs: [stack-image-metadata, image-build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        image:
+          - name: stack
+            repo: ${{ needs.stack-image-metadata.outputs.stack_repo }}
+          - name: canvas
+            repo: ${{ needs.stack-image-metadata.outputs.canvas_repo }}
+          - name: sandbox-runtime
+            repo: ${{ needs.stack-image-metadata.outputs.sandbox_runtime_repo }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-${{ matrix.image.name }}-*-${{ github.run_attempt }}
+          merge-multiple: true
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -272,47 +318,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push canvas image
-        uses: docker/build-push-action@v6
-        with:
-          context: deploy/stack
-          file: deploy/stack/Dockerfile.canvas
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ needs.stack-image-metadata.outputs.canvas_repo }}:${{ needs.stack-image-metadata.outputs.version }}
-            ${{ needs.stack-image-metadata.outputs.canvas_repo }}:latest
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          repo="${{ matrix.image.repo }}"
+          version="${{ needs.stack-image-metadata.outputs.version }}"
+          docker buildx imagetools create \
+            -t "${repo}:${version}" \
+            -t "${repo}:latest" \
+            $(printf "${repo}@sha256:%s " *)
 
-  sandbox-runtime-image-release:
-    needs: [stack-image-metadata]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push sandbox-runtime image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.sandbox-runtime
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ needs.stack-image-metadata.outputs.sandbox_runtime_repo }}:${{ needs.stack-image-metadata.outputs.version }}
-            ${{ needs.stack-image-metadata.outputs.sandbox_runtime_repo }}:latest
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect "${{ matrix.image.repo }}:${{ needs.stack-image-metadata.outputs.version }}"
 
   canvas:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false

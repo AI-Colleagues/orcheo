@@ -103,6 +103,7 @@ def _default_assets() -> dict[str, bytes]:
         "docker-compose.yml": b"services: {}\n",
         "Caddyfile": b'localhost { respond "ok" }\n',
         "Dockerfile.orcheo": b"FROM python:3.12-slim\n",
+        "envoy-forward-proxy.yaml": b"static_resources: {}\n",
         ".env.example": _ENV_EXAMPLE,
         "chatkit_widgets/Single-choice list.widget": b"single",
         "chatkit_widgets/Multi-choice Selector.widget": b"multi",

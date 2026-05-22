@@ -36,6 +36,7 @@ _STACK_ASSET_FILES = (
     "docker-compose.yml",
     "Caddyfile",
     "Dockerfile.orcheo",
+    "envoy-forward-proxy.yaml",
     ".env.example",
     "chatkit_widgets/Single-choice list.widget",
     "chatkit_widgets/Multi-choice Selector.widget",
@@ -943,7 +944,7 @@ def _resolve_chatkit_domain_key(
         return None
     return _normalize_optional_value(
         typer.prompt(
-            "ChatKit domain key (VITE_ORCHEO_CHATKIT_DOMAIN_KEY, Enter to skip)",
+            "ChatKit domain key (Enter to skip)",
             default="",
             show_default=False,
         )
