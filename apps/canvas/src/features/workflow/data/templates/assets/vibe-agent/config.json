@@ -1,5 +1,5 @@
 {
   "configurable": {
-    "working_directory": "/workspace/agents/{{workspace_id}}"
+    "working_directory": "/workspace/agents"
   }
 }

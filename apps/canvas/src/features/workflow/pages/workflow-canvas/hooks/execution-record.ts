@@ -1,6 +1,4 @@
-import type {
-  WorkflowExecution,
-} from "@features/workflow/pages/workflow-canvas/helpers/types";
+import type { WorkflowExecution } from "@features/workflow/pages/workflow-canvas/helpers/types";
 
 export function createExecutionRecord(
   executionId: string,

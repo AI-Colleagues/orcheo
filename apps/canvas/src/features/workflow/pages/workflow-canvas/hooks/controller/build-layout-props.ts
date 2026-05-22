@@ -90,6 +90,7 @@ export function buildWorkflowLayoutProps(
     ),
     initialIsPublished: core.metadata.isWorkflowPublic,
     initialShareUrl: core.metadata.workflowShareUrl,
+    missingCredentials: resources.credentialReadiness.missingCredentials,
   };
 
   const traceProps: TraceTabContentProps = {

@@ -1,9 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, ExternalLink, Play, RefreshCw, Trash } from "lucide-react";
+import {
+  AlertTriangle,
+  Copy,
+  ExternalLink,
+  Play,
+  RefreshCw,
+  UserMinus,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Controls, ReactFlow, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
+import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/design-system/ui/alert-dialog";
 import { Button } from "@/design-system/ui/button";
 import { Switch } from "@/design-system/ui/switch";
 import { toast } from "@/hooks/use-toast";
@@ -44,6 +62,7 @@ export interface WorkflowTabContentProps {
   hasCronTriggerNode: boolean;
   initialIsPublished: boolean;
   initialShareUrl: string | null;
+  missingCredentials?: string[];
 }
 
 interface MermaidSvgNodeData {
@@ -173,6 +192,7 @@ export function WorkflowTabContent({
   hasCronTriggerNode,
   initialIsPublished,
   initialShareUrl,
+  missingCredentials = [],
 }: WorkflowTabContentProps) {
   const navigate = useNavigate();
   const latestVersion = versions.at(-1);
@@ -187,6 +207,9 @@ export function WorkflowTabContent({
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeletePending, setIsDeletePending] = useState(false);
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
+  const [isMissingCredentialsDialogOpen, setIsMissingCredentialsDialogOpen] =
+    useState(false);
+  const hasMissingCredentials = missingCredentials.length > 0;
   const canDeleteWorkflow =
     Boolean(workflowId) && workflowRouteRef !== VIBE_WORKFLOW_HANDLE;
 
@@ -485,15 +508,15 @@ export function WorkflowTabContent({
     try {
       await deleteWorkflow(workflowId);
       toast({
-        title: "Workflow deleted",
+        title: "Colleague offboarded",
         description: `"${workflowName}" has been removed from your workspace.`,
       });
       setIsDeleteDialogOpen(false);
       navigate("/");
     } catch (error) {
       toast({
-        title: "Failed to delete workflow",
-        description: getErrorMessage(error, "Unable to delete workflow."),
+        title: "Failed to offboard colleague",
+        description: getErrorMessage(error, "Unable to offboard colleague."),
         variant: "destructive",
       });
     } finally {
@@ -550,12 +573,18 @@ export function WorkflowTabContent({
                 onClick={() => setIsDeleteDialogOpen(true)}
                 disabled={isDeletePending}
               >
-                <Trash className="mr-1.5 h-4 w-4" />
-                Delete
+                <UserMinus className="mr-1.5 h-4 w-4" />
+                Offboard
               </Button>
             ) : null}
             <Button
-              onClick={() => void onRunWorkflow()}
+              onClick={() => {
+                if (hasMissingCredentials) {
+                  setIsMissingCredentialsDialogOpen(true);
+                  return;
+                }
+                void onRunWorkflow();
+              }}
               disabled={!canRun || isRunPending}
             >
               <Play className="mr-1.5 h-4 w-4" />
@@ -603,6 +632,24 @@ export function WorkflowTabContent({
               </Button>
             </div>
           </div>
+        )}
+
+        {hasMissingCredentials && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Missing credentials</AlertTitle>
+            <AlertDescription>
+              This workflow references credentials that are not in the vault.
+              Add them before running:
+              <ul className="mt-1 list-disc pl-5">
+                {missingCredentials.map((name) => (
+                  <li key={name} className="font-mono">
+                    {name}
+                  </li>
+                ))}
+              </ul>
+            </AlertDescription>
+          </Alert>
         )}
 
         {!latestVersion && (
@@ -681,6 +728,40 @@ export function WorkflowTabContent({
           workflowName={workflowName}
         />
       ) : null}
+
+      <AlertDialog
+        open={isMissingCredentialsDialogOpen}
+        onOpenChange={setIsMissingCredentialsDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Missing credentials</AlertDialogTitle>
+            <AlertDialogDescription>
+              This workflow references credentials that are not in the vault.
+              Running now will fail when those nodes execute. Add the following
+              credentials before retrying:
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="list-disc pl-6 text-sm">
+            {missingCredentials.map((name) => (
+              <li key={name} className="font-mono">
+                {name}
+              </li>
+            ))}
+          </ul>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setIsMissingCredentialsDialogOpen(false);
+                void onRunWorkflow();
+              }}
+            >
+              Run anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

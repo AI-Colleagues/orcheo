@@ -198,9 +198,7 @@ export function AddCredentialDialog({
                 id="credential-secret"
                 type={showSecret ? "text" : "password"}
                 value={pendingCredential.secrets?.secret ?? ""}
-                onChange={(event) =>
-                  updateSecret("secret", event.target.value)
-                }
+                onChange={(event) => updateSecret("secret", event.target.value)}
                 className="pr-9"
                 placeholder="Enter credential secret"
               />

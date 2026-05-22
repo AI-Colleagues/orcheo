@@ -154,9 +154,7 @@ describe("ServiceTokens", () => {
       ).toBeInTheDocument();
     });
 
-    await user.click(
-      screen.getByRole("button", { name: /Create a new key/i }),
-    );
+    await user.click(screen.getByRole("button", { name: /Create a new key/i }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByLabelText("workflows:read"));
     await user.click(

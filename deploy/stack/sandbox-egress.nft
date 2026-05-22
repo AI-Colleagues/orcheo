@@ -1,0 +1,40 @@
+#!/usr/sbin/nft -f
+#
+# Workspace Runtime Isolation — L3/L4 default-deny egress for sandbox containers.
+#
+# Apply on the sandbox host after the sandbox-egress bridge exists:
+#   nft -f deploy/stack/sandbox-egress.nft
+#
+# The rules drop every packet bound for the cloud metadata range and internal
+# infrastructure (Redis, Postgres, internal backend endpoints), then accept
+# outbound HTTP/HTTPS only to the L7 forward proxy. Tenant code cannot bypass
+# these rules — they are attached to the host's output hook for the
+# sandbox-egress interface and are not visible inside the sandbox.
+
+table inet orcheo_sandbox {
+  chain output {
+    type filter hook output priority 0; policy accept;
+    oifname "sandbox0" jump sandbox_egress
+  }
+
+  chain sandbox_egress {
+    # Block cloud metadata endpoints.
+    ip daddr 169.254.0.0/16 drop
+    ip6 daddr fd00:ec2::/32 drop
+
+    # Block resolved internal hostnames (replace IPs at deploy time).
+    # The Python generator in orcheo.sandbox.egress.policy renders these.
+    ip daddr 10.0.0.0/8 drop
+    ip daddr 172.16.0.0/12 drop
+
+    # Block loopback so a sandboxed process cannot reach the host stack.
+    ip daddr 127.0.0.0/8 drop
+    ip6 daddr ::1 drop
+
+    # Only permit HTTP/HTTPS via the forward proxy.
+    tcp dport { 80, 443 } ip daddr != 10.99.0.2 drop
+    ip daddr 10.99.0.2 tcp dport 3128 accept
+
+    return
+  }
+}

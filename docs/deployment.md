@@ -14,8 +14,7 @@ This setup mirrors the default configuration that the tests exercise. It is idea
    ```bash
    cp .env.example .env
    ```
-   - For multi-workspace installs, set `ORCHEO_MULTI_WORKSPACE_ENABLED=true` once the backfill and repo-retrofit release has been verified.
-   - There is no bootstrapped default workspace anymore; users must already belong to a workspace or create one through the self-service API after login.
+   - Multi-workspace is always on. Users must already belong to a workspace or create one through the self-service API after login.
    - Keep `ORCHEO_WORKSPACE_BACKEND=postgres` and `ORCHEO_POSTGRES_DSN` pointed at a durable database so memberships and workspace metadata survive backend restarts.
 3. **Start the API server**
    ```bash
@@ -30,23 +29,18 @@ _Vault note_: Set `ORCHEO_VAULT_BACKEND=postgres` and `ORCHEO_VAULT_ENCRYPTION_K
 
 _Repository note_: Local development uses the PostgreSQL workflow repository. Set `ORCHEO_REPOSITORY_BACKEND=postgres` and `ORCHEO_POSTGRES_DSN` so runs, triggers, and workflow state persist durably.
 
-### Workspace Rollout
+### Workspace Bring-up
 
-Use this sequence when enabling workspace scoping on an existing installation.
+Workspace scoping is always on. Before exposing the API:
 
-1. **Flag off first**
-   - Deploy the code with `ORCHEO_MULTI_WORKSPACE_ENABLED=false`.
-   - Set `ORCHEO_WORKSPACE_BACKEND=postgres` and provide `ORCHEO_POSTGRES_DSN` before creating or migrating memberships.
-2. **Verify the backfill release**
-   - Confirm existing users have at least one membership before turning the feature on.
-   - Confirm existing workflows, runs, credentials, and graph records resolve under the intended workspaces.
-   - Check `/api/workspaces/me` and the Canvas workspace badge to ensure the resolved workspace matches expectations.
-3. **Turn workspace scoping on**
-   - Flip `ORCHEO_MULTI_WORKSPACE_ENABLED=true` in the backend, worker, beat, and stack env files together.
-   - Keep `ORCHEO_WORKSPACE_BACKEND=postgres` in those same env files and restart the stack so the API, Celery worker, and scheduled jobs pick up the same workspace settings.
-4. **Rollback**
-   - If any cross-workspace regression appears, switch the flag back to `false`, restart the stack, and keep the data in place for inspection.
-   - Because memberships are explicit now, rollback only restores the old routing behavior; it does not recreate or depend on a shared default workspace.
+1. **Postgres workspace store**
+   - Set `ORCHEO_WORKSPACE_BACKEND=postgres` and provide `ORCHEO_POSTGRES_DSN`.
+2. **Memberships**
+   - Confirm every user has at least one workspace membership. Service tokens
+     and dev logins must carry `workspace_ids` in their claims.
+3. **Verification**
+   - Hit `/api/workspaces/me` and confirm the Canvas workspace badge to ensure
+     the resolved workspace matches expectations.
 
 ## Docker Compose (PostgreSQL, multi-container)
 

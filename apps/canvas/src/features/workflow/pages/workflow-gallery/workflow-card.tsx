@@ -1,12 +1,6 @@
 import { useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, SyntheticEvent } from "react";
-import {
-  Download,
-  MoreHorizontal,
-  Star,
-  UserPlus,
-  Trash,
-} from "lucide-react";
+import { MoreHorizontal, Send, Star, UserMinus, UserPlus } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/design-system/ui/button";
 import {
@@ -30,55 +24,7 @@ import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-hel
 import { VIBE_WORKFLOW_HANDLE } from "@features/vibe/constants";
 import { WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME } from "./workflow-card-size";
 
-const COLLEAGUE_EMOJIS = [
-  // Office & business
-  "👩‍💼", "👨‍💼", "🧑‍💼",
-  // Tech
-  "👩‍💻", "👨‍💻", "🧑‍💻",
-  // Science & research
-  "👩‍🔬", "👨‍🔬", "🧑‍🔬",
-  // Creative & design
-  "👩‍🎨", "👨‍🎨", "🧑‍🎨",
-  // Education
-  "👩‍🏫", "👨‍🏫", "🧑‍🏫",
-  // Trades & engineering
-  "👩‍🔧", "👨‍🔧", "🧑‍🔧",
-  // Manufacturing
-  "👩‍🏭", "👨‍🏭", "🧑‍🏭",
-  // Healthcare
-  "👩‍⚕️", "👨‍⚕️", "🧑‍⚕️",
-  // Law & justice
-  "👩‍⚖️", "👨‍⚖️", "🧑‍⚖️",
-  // Culinary
-  "👩‍🍳", "👨‍🍳", "🧑‍🍳",
-  // Agriculture & nature
-  "👩‍🌾", "👨‍🌾", "🧑‍🌾",
-  // Space & exploration
-  "👩‍🚀", "👨‍🚀", "🧑‍🚀",
-  // Emergency & rescue
-  "👩‍🚒", "👨‍🚒", "🧑‍🚒",
-  // Security & military
-  "👮‍♀️", "👮‍♂️", "👮",
-  "💂‍♀️", "💂‍♂️", "💂",
-  // Music & performance
-  "👩‍🎤", "👨‍🎤", "🧑‍🎤",
-  // Aviation
-  "👩‍✈️", "👨‍✈️", "🧑‍✈️",
-  // Sports & fitness
-  "⛹️‍♀️", "⛹️‍♂️", "⛹️",
-  "🏋️‍♀️", "🏋️‍♂️", "🏋️",
-];
-
-const getSeededIndex = (seed: string, length: number) => {
-  let state = 2166136261;
-
-  for (let index = 0; index < seed.length; index += 1) {
-    state ^= seed.charCodeAt(index);
-    state = Math.imul(state, 16777619);
-  }
-
-  return Math.abs(state) % length;
-};
+const DEFAULT_AVATAR_EMOJI = "🧑";
 
 const getWorkflowTemplateEmoji = (workflow: Workflow) => {
   const templateId = workflow.versions?.at(-1)?.templateId;
@@ -243,8 +189,8 @@ export const WorkflowCard = ({
                     onExportWorkflow(workflow);
                   }}
                 >
-                  <Download className="mr-2 h-4 w-4" />
-                  Export
+                  <Send className="mr-2 h-4 w-4" />
+                  Transfer
                 </DropdownMenuItem>
               ) : (
                 <>
@@ -255,8 +201,8 @@ export const WorkflowCard = ({
                       onExportWorkflow(workflow);
                     }}
                   >
-                    <Download className="mr-2 h-4 w-4" />
-                    Export
+                    <Send className="mr-2 h-4 w-4" />
+                    Transfer
                   </DropdownMenuItem>
                   {canDeleteWorkflow ? (
                     <>
@@ -269,8 +215,8 @@ export const WorkflowCard = ({
                           setIsDeleteDialogOpen(true);
                         }}
                       >
-                        <Trash className="mr-2 h-4 w-4" />
-                        Delete
+                        <UserMinus className="mr-2 h-4 w-4" />
+                        Offboard
                       </DropdownMenuItem>
                     </>
                   ) : null}
@@ -294,11 +240,7 @@ export const WorkflowCard = ({
                 aria-hidden="true"
                 className="select-none text-[4em] leading-none"
               >
-                {workflowAvatarEmoji ??
-                  candidateBadge?.emoji ??
-                  COLLEAGUE_EMOJIS[
-                    getSeededIndex(workflowSlug, COLLEAGUE_EMOJIS.length)
-                  ]}
+                {workflowAvatarEmoji ?? candidateBadge?.emoji ?? DEFAULT_AVATAR_EMOJI}
               </span>
             </div>
 

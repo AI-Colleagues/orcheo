@@ -74,12 +74,19 @@ describe("ActiveWorkspaceIndicator", () => {
     });
 
     const trigger = screen.getByRole("button", { name: /workspace/i });
-    expect(trigger).toHaveClass("h-9", "rounded-md", "border-input", "bg-transparent");
+    expect(trigger).toHaveClass(
+      "h-9",
+      "rounded-md",
+      "border-input",
+      "bg-transparent",
+    );
 
     await user.click(trigger);
 
     await waitFor(() => {
-      expect(screen.getByRole("menuitem", { name: "Acme" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("menuitem", { name: "Acme" }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -150,7 +157,9 @@ describe("ActiveWorkspaceIndicator", () => {
 
     await user.click(screen.getByRole("button", { name: /workspace/i }));
 
-    await user.click(await screen.findByRole("menuitem", { name: /create workspace/i }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: /create workspace/i }),
+    );
 
     const nameInput = await screen.findByLabelText(/^name$/i);
     const slugInput = screen.getByLabelText(/workspace url name/i);

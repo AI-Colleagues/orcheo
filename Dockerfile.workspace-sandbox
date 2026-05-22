@@ -1,0 +1,53 @@
+# Orcheo Workspace Sandbox image — hosts one workspace under gVisor.
+#
+# One sandbox per workspace runs both vibe agent sessions (Claude Code /
+# Codex / Gemini CLIs invoked via `docker exec`) and tenant-authored
+# workflow runs (forked from the workflow runner). The Sandbox Runtime
+# Manager pools these per workspace; the image is intentionally read-only at
+# runtime with ephemeral scratch mounted at /scratch.
+#
+# Network policy is enforced *outside* the container (nftables + Envoy);
+# this image only honors the proxy env vars handed in by the manager.
+
+FROM python:3.12-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HOME=/home/orcheo
+
+# Non-root tenant user — uid is also enforced by the Sandbox Runtime Manager
+# but baked here as defense-in-depth.
+RUN useradd --create-home --uid 10001 --user-group orcheo \
+    && mkdir -p /workspace /scratch \
+    && chown -R orcheo:orcheo /workspace /scratch
+
+# Node.js is required by the upstream agent CLIs. Git is needed by Claude
+# Code / Codex / Gemini for working-tree operations.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        curl ca-certificates git nodejs npm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install the external coding agents.
+RUN npm install --global \
+        @anthropic-ai/claude-code \
+        @openai/codex \
+        @google/gemini-cli \
+    && npm cache clean --force
+
+# Install Orcheo (workflow runner) + SDK / CLI from this checkout. Sandboxes
+# must run the same code as the runtime that dispatches into them.
+COPY pyproject.toml README.md ./
+COPY src/ src/
+COPY packages/ packages/
+RUN pip install --upgrade pip \
+    && pip install . packages/agentensor packages/sdk
+
+USER orcheo
+WORKDIR /workspace
+
+# The runtime leases this container and uses `docker exec` for agent sessions
+# and workflow-runner invocations. Keep PID 1 idle so detached startup does
+# not close stdin and end the sandbox before the first exec arrives.
+CMD ["tail", "-f", "/dev/null"]

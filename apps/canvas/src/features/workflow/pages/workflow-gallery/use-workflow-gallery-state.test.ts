@@ -60,7 +60,10 @@ const STORED_WORKFLOWS: StoredWorkflow[] = [
 ];
 
 const makeCandidate = (
-  partial: Pick<ApiCandidate, "id" | "handle" | "name" | "description" | "emoji" | "subtitle">,
+  partial: Pick<
+    ApiCandidate,
+    "id" | "handle" | "name" | "description" | "emoji" | "subtitle"
+  >,
 ): ApiCandidate => ({
   ...partial,
   script: "",

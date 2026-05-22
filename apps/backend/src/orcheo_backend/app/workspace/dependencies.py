@@ -18,14 +18,13 @@ from orcheo.workspace import (
     WorkspaceResolver,
     WorkspaceService,
     WorkspaceStatus,
-    ensure_default_workspace,
 )
 from orcheo_backend.app.authentication import RequestContext, authenticate_request
 from orcheo_backend.app.errors import WorkspaceRateLimitError
 from orcheo_backend.app.workspace.errors import (
-    WorkspaceContextRequiredError,
     raise_workspace_forbidden,
     raise_workspace_not_found,
+    raise_workspace_required,
 )
 from orcheo_backend.app.workspace_governance import get_workspace_governance
 
@@ -123,26 +122,12 @@ async def resolve_workspace_context(
 ) -> WorkspaceContext:
     """FastAPI dependency that produces a WorkspaceContext for the request.
 
-    When multi-workspace is disabled the dependency synthesises a default
-    workspace context so that single-tenant installs continue to work without
-    auth or membership configuration.
-
-    When multi-workspace is enabled the caller must be authenticated.  Service
-    tokens and dev logins that carry *workspace_ids* in their claims are
-    resolved directly from those identifiers; user identities are resolved via
-    the membership-based resolver.
+    Service tokens and dev logins that carry *workspace_ids* in their claims
+    are resolved directly from those identifiers; user identities are resolved
+    via the membership-based resolver. When authentication is disabled,
+    ``authenticate_request`` yields an anonymous context that resolves via the
+    membership-based path using ``anonymous`` as the subject.
     """
-    settings = get_settings()
-    multi_workspace_enabled = bool(settings.get("MULTI_WORKSPACE_ENABLED", False))
-
-    if not multi_workspace_enabled:
-        context = _synthesize_default_context(get_workspace_service(), auth.subject)
-        request.state.workspace = context
-        return context
-
-    if not auth.is_authenticated:
-        raise WorkspaceContextRequiredError("Authentication is required for workspace")
-
     service = get_workspace_service()
     requested_slug = _read_workspace_header(request)
 
@@ -174,21 +159,6 @@ async def resolve_workspace_context(
         raise exc.as_http_exception() from exc
     request.state.workspace = context
     return context
-
-
-def _synthesize_default_context(
-    service: WorkspaceService,
-    user_id: str,
-) -> WorkspaceContext:
-    """Build a default workspace context for single-tenant mode."""
-    default_workspace = ensure_default_workspace(service.repository)
-    return WorkspaceContext(
-        workspace_id=default_workspace.id,
-        workspace_slug=default_workspace.slug,
-        user_id=user_id,
-        role=Role.OWNER,
-        quotas=default_workspace.quotas,
-    )
 
 
 def _resolve_from_authorized_workspaces(
@@ -227,7 +197,9 @@ def _resolve_from_authorized_workspaces(
     elif len(workspaces) == 1:
         selected = workspaces[0]
     else:
-        selected = workspaces[0]
+        raise_workspace_required(
+            "Workspace header is required when multiple workspaces are authorized"
+        )
 
     if selected.status is not WorkspaceStatus.ACTIVE:
         raise_workspace_forbidden(

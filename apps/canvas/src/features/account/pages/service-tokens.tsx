@@ -37,10 +37,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/design-system/ui/dialog";
-import useCredentialVault from "@/hooks/use-credential-vault";
-import { usePageContext } from "@/hooks/use-page-context";
 import { toast } from "@/hooks/use-toast";
-import TopNavigation from "@features/shared/components/top-navigation";
 import {
   createServiceToken,
   getActiveWorkspace,
@@ -88,20 +85,6 @@ interface RevealedSecret {
 }
 
 export default function ServiceTokens() {
-  const { setPageContext } = usePageContext();
-  useEffect(() => {
-    setPageContext({ page: "workspace" });
-  }, [setPageContext]);
-
-  const {
-    credentials,
-    isLoading: isCredentialsLoading,
-    onAddCredential,
-    onUpdateCredential,
-    onDeleteCredential,
-    onRevealCredentialSecret,
-  } = useCredentialVault();
-
   const [tokens, setTokens] = useState<ServiceToken[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [workspaceName, setWorkspaceName] = useState<string | null>(null);
@@ -264,145 +247,131 @@ export default function ServiceTokens() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <TopNavigation
-        credentials={credentials}
-        isCredentialsLoading={isCredentialsLoading}
-        onAddCredential={onAddCredential}
-        onUpdateCredential={onUpdateCredential}
-        onDeleteCredential={onDeleteCredential}
-        onRevealCredentialSecret={onRevealCredentialSecret}
-      />
-
-      <main className="flex-1 min-h-0 overflow-auto">
-        <div className="mx-auto flex w-full max-w-7xl flex-col space-y-6 p-8 pt-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-3xl font-bold tracking-tight">API Keys</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                API keys created here are scoped to{" "}
-                <span className="font-medium text-foreground">
-                  {workspaceName ?? "this workspace"}
-                </span>{" "}
-                and cannot access any other workspace.
-              </p>
-            </div>
-            <Button onClick={() => setCreateOpen(true)}>
-              <KeyRound className="mr-2 h-4 w-4" />
-              Create a new key
-            </Button>
-          </div>
-
-          {isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading API keys...</p>
-          ) : tokens.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No API keys for this workspace yet.
-            </p>
-          ) : (
-            <div className="rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Identifier</TableHead>
-                    <TableHead>Key</TableHead>
-                    <TableHead>Scopes</TableHead>
-                    <TableHead>Issued</TableHead>
-                    <TableHead>Expires</TableHead>
-                    <TableHead>Last used</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {tokens.map((token) => {
-                    const status = tokenStatus(token);
-                    const isActive = status === "Active";
-                    return (
-                      <TableRow key={token.identifier}>
-                        <TableCell className="font-mono text-sm">
-                          {token.identifier}
-                        </TableCell>
-                        <TableCell className="font-mono text-sm text-muted-foreground">
-                          {token.secret_preview
-                            ? `••••••••${token.secret_preview}`
-                            : "—"}
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {token.scopes.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {token.scopes.map((scope) => (
-                                <Badge key={scope} variant="secondary">
-                                  {scope}
-                                </Badge>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {formatDate(token.issued_at)}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {token.expires_at
-                            ? formatDate(token.expires_at)
-                            : "Never"}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {formatDate(token.last_used_at)}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={isActive ? "default" : "outline"}>
-                            {status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                void handleRotate(token.identifier)
-                              }
-                              disabled={
-                                !isActive ||
-                                rotatingId === token.identifier ||
-                                revokingId === token.identifier
-                              }
-                            >
-                              <RotateCw className="mr-2 h-4 w-4" />
-                              {rotatingId === token.identifier
-                                ? "Rotating..."
-                                : "Rotate"}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-destructive hover:text-destructive"
-                              onClick={() => setRevokeTarget(token.identifier)}
-                              disabled={
-                                !isActive ||
-                                rotatingId === token.identifier ||
-                                revokingId === token.identifier
-                              }
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              {revokingId === token.identifier
-                                ? "Revoking..."
-                                : "Revoke"}
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+    <div className="flex flex-col space-y-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold">API Keys</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            API keys authenticate the Orcheo SDK and CLI when accessing{" "}
+            <span className="font-medium text-foreground">
+              {workspaceName ?? "this workspace"}
+            </span>{" "}
+            programmatically. They are scoped to this workspace and cannot
+            access any other workspace.
+          </p>
         </div>
-      </main>
+        <Button onClick={() => setCreateOpen(true)}>
+          <KeyRound className="mr-2 h-4 w-4" />
+          Create a new key
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">Loading API keys...</p>
+      ) : tokens.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No API keys for this workspace yet.
+        </p>
+      ) : (
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Identifier</TableHead>
+                <TableHead>Key</TableHead>
+                <TableHead>Scopes</TableHead>
+                <TableHead>Issued</TableHead>
+                <TableHead>Expires</TableHead>
+                <TableHead>Last used</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {tokens.map((token) => {
+                const status = tokenStatus(token);
+                const isActive = status === "Active";
+                return (
+                  <TableRow key={token.identifier}>
+                    <TableCell className="font-mono text-sm">
+                      {token.identifier}
+                    </TableCell>
+                    <TableCell className="font-mono text-sm text-muted-foreground">
+                      {token.secret_preview
+                        ? `••••••••${token.secret_preview}`
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {token.scopes.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {token.scopes.map((scope) => (
+                            <Badge key={scope} variant="secondary">
+                              {scope}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatDate(token.issued_at)}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {token.expires_at
+                        ? formatDate(token.expires_at)
+                        : "Never"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatDate(token.last_used_at)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={isActive ? "default" : "outline"}>
+                        {status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void handleRotate(token.identifier)}
+                          disabled={
+                            !isActive ||
+                            rotatingId === token.identifier ||
+                            revokingId === token.identifier
+                          }
+                        >
+                          <RotateCw className="mr-2 h-4 w-4" />
+                          {rotatingId === token.identifier
+                            ? "Rotating..."
+                            : "Rotate"}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => setRevokeTarget(token.identifier)}
+                          disabled={
+                            !isActive ||
+                            rotatingId === token.identifier ||
+                            revokingId === token.identifier
+                          }
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          {revokingId === token.identifier
+                            ? "Revoking..."
+                            : "Revoke"}
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       <Dialog
         open={createOpen}

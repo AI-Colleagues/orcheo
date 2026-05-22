@@ -67,9 +67,9 @@ describe("workflow remediation helpers", () => {
   });
 
   it("summarizes remediation notes using the first non-empty line", () => {
-    expect(
-      summarizeRemediationNote("\n  First line\nSecond line\n"),
-    ).toBe("First line");
+    expect(summarizeRemediationNote("\n  First line\nSecond line\n")).toBe(
+      "First line",
+    );
     expect(summarizeRemediationNote("   \n\t")).toBe(
       "No developer note recorded.",
     );

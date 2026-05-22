@@ -37,35 +37,6 @@ def test_resolver_picks_only_membership_when_unambiguous() -> None:
     assert ctx.role is Role.OWNER
 
 
-def test_resolver_prefers_configured_default_workspace_when_memberships_are_ambiguous() -> (
-    None
-):
-    repo, acme, globex = _setup_repo()
-    repo.add_membership(
-        WorkspaceMembership(
-            workspace_id=acme.id,
-            user_id="alice",
-            role=Role.EDITOR,
-            created_at=acme.created_at,
-        )
-    )
-    repo.add_membership(
-        WorkspaceMembership(
-            workspace_id=globex.id,
-            user_id="alice",
-            role=Role.VIEWER,
-            created_at=globex.created_at,
-        )
-    )
-    resolver = WorkspaceResolver(repo, default_workspace_slug="acme")
-    ctx = resolver.resolve(user_id="alice")
-    assert ctx.workspace_slug == "acme"
-    assert ctx.role is Role.EDITOR
-    ctx = resolver.resolve(user_id="alice", workspace_slug="globex")
-    assert ctx.workspace_slug == "globex"
-    assert ctx.role is Role.VIEWER
-
-
 def test_resolver_requires_a_selector_when_memberships_are_ambiguous() -> None:
     repo, acme, globex = _setup_repo()
     repo.add_membership(
@@ -138,35 +109,3 @@ def test_membership_cache_expires() -> None:
     cache.set("alice", [])
     now["value"] = 2.0
     assert cache.get("alice") is None
-
-
-def test_resolver_rejects_missing_default_workspace_slug() -> None:
-    repo, acme, globex = _setup_repo()
-    repo.add_membership(
-        WorkspaceMembership(workspace_id=acme.id, user_id="alice", role=Role.EDITOR)
-    )
-    repo.add_membership(
-        WorkspaceMembership(workspace_id=globex.id, user_id="alice", role=Role.VIEWER)
-    )
-
-    with pytest.raises(WorkspacePermissionError):
-        WorkspaceResolver(repo, default_workspace_slug="missing").resolve(
-            user_id="alice"
-        )
-
-
-def test_resolver_rejects_default_workspace_without_membership() -> None:
-    repo, acme, globex = _setup_repo()
-    default = Workspace(slug="default", name="Default")
-    repo.create_workspace(default)
-    repo.add_membership(
-        WorkspaceMembership(workspace_id=acme.id, user_id="alice", role=Role.EDITOR)
-    )
-    repo.add_membership(
-        WorkspaceMembership(workspace_id=globex.id, user_id="alice", role=Role.VIEWER)
-    )
-
-    with pytest.raises(WorkspacePermissionError):
-        WorkspaceResolver(repo, default_workspace_slug="default").resolve(
-            user_id="alice"
-        )

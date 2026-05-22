@@ -34,9 +34,7 @@ export const formatRemediationTimestamp = (
   });
 };
 
-export const summarizeRemediationNote = (
-  note?: string | null,
-): string => {
+export const summarizeRemediationNote = (note?: string | null): string => {
   if (!note) {
     return "No developer note recorded.";
   }
@@ -60,7 +58,10 @@ export const filterRemediations = (
   const normalizedQuery = options.query.trim().toLowerCase();
 
   return remediations.filter((remediation) => {
-    if (options.statusFilter !== "all" && remediation.status !== options.statusFilter) {
+    if (
+      options.statusFilter !== "all" &&
+      remediation.status !== options.statusFilter
+    ) {
       return false;
     }
 

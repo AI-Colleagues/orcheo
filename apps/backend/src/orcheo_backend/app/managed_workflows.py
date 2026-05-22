@@ -23,6 +23,7 @@ MANAGED_VIBE_WORKFLOW_DESCRIPTION = (
 MANAGED_VIBE_WORKFLOW_NOTES = "Seeded from the Orcheo Vibe template."
 MANAGED_VIBE_WORKFLOW_CREATED_BY = "system"
 MANAGED_VIBE_WORKFLOW_ACTOR = "system"
+MANAGED_VIBE_AGENT_WORKING_DIRECTORY = "/workspace/agents"
 
 MANAGED_VIBE_TEMPLATE_METADATA: dict[str, Any] = {
     "templateVersion": "1.0.1",
@@ -311,7 +312,7 @@ async def ensure_managed_vibe_workflow(
         },
         runnable_config={
             "configurable": {
-                "working_directory": "/workspace/agents/{{workspace_id}}",
+                "working_directory": MANAGED_VIBE_AGENT_WORKING_DIRECTORY,
             }
         },
         notes=MANAGED_VIBE_WORKFLOW_NOTES,

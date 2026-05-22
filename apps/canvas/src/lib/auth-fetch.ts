@@ -19,7 +19,9 @@ export const authFetch = async (
     headers.set("X-Orcheo-Dev-Session", devSession);
   }
   if (options.includeWorkspaceHeaders ?? true) {
-    for (const [name, value] of Object.entries(getWorkspaceSelectionHeaders())) {
+    for (const [name, value] of Object.entries(
+      getWorkspaceSelectionHeaders(),
+    )) {
       if (!headers.has(name)) {
         headers.set(name, value);
       }

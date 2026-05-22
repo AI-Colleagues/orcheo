@@ -166,7 +166,10 @@ describe("startOidcLogin organization precedence", () => {
 
   it("uses the configured signup provider when available", async () => {
     setEnv("VITE_ORCHEO_AUTH_PROVIDER_PARAM", "connection");
-    setEnv("VITE_ORCHEO_AUTH_PROVIDER_SIGNUP", "Username-Password-Authentication");
+    setEnv(
+      "VITE_ORCHEO_AUTH_PROVIDER_SIGNUP",
+      "Username-Password-Authentication",
+    );
     const assignMock = vi.fn();
     vi.stubGlobal("location", { ...window.location, assign: assignMock });
 
@@ -315,7 +318,8 @@ describe("tryRefreshTokens", () => {
     setAuthTokens({ accessToken: "at_old", refreshToken: "rt_expired" });
     vi.stubGlobal(
       "fetch",
-      vi.fn()
+      vi
+        .fn()
         .mockResolvedValueOnce({
           ok: true,
           json: async () => oidcDiscoveryResponse,
@@ -334,7 +338,8 @@ describe("tryRefreshTokens", () => {
     setAuthTokens({ accessToken: "at_old", refreshToken: "rt_valid" });
     vi.stubGlobal(
       "fetch",
-      vi.fn()
+      vi
+        .fn()
         .mockResolvedValueOnce({
           ok: true,
           json: async () => oidcDiscoveryResponse,
@@ -361,7 +366,8 @@ describe("tryRefreshTokens", () => {
     setAuthTokens({ accessToken: "at_old", refreshToken: "rt_static" });
     vi.stubGlobal(
       "fetch",
-      vi.fn()
+      vi
+        .fn()
         .mockResolvedValueOnce({
           ok: true,
           json: async () => oidcDiscoveryResponse,

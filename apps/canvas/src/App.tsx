@@ -18,8 +18,7 @@ import RequireAuth from "@features/auth/components/require-auth";
 import OAuthCallback from "@features/auth/pages/oauth-callback";
 import Profile from "@features/account/pages/profile";
 import Settings from "@features/account/pages/settings";
-import WorkspaceMembers from "@features/account/pages/workspace-members";
-import ServiceTokens from "@features/account/pages/service-tokens";
+import WorkspaceManagement from "@features/account/pages/workspace-management";
 import PublicChatPage from "@features/chatkit/pages/public-chat";
 import {
   getSelectedWorkspaceSlug,
@@ -51,22 +50,13 @@ function WorkspaceGalleryRoute() {
   return <WorkflowGallery />;
 }
 
-function WorkspaceMembersRoute() {
+function WorkspaceManagementRoute() {
   const { workspaceSlug } = useParams<{ workspaceSlug?: string }>();
   useLayoutEffect(() => {
     syncWorkspaceSlug(workspaceSlug);
   }, [workspaceSlug]);
 
-  return <WorkspaceMembers />;
-}
-
-function ServiceTokensRoute() {
-  const { workspaceSlug } = useParams<{ workspaceSlug?: string }>();
-  useLayoutEffect(() => {
-    syncWorkspaceSlug(workspaceSlug);
-  }, [workspaceSlug]);
-
-  return <ServiceTokens />;
+  return <WorkspaceManagement />;
 }
 
 function WorkspaceCanvasRoute() {
@@ -106,12 +96,7 @@ export default function OrcheoCanvasApp() {
 
                 <Route
                   path="/:workspaceSlug/workspace"
-                  element={<WorkspaceMembersRoute />}
-                />
-
-                <Route
-                  path="/:workspaceSlug/tokens"
-                  element={<ServiceTokensRoute />}
+                  element={<WorkspaceManagementRoute />}
                 />
 
                 <Route

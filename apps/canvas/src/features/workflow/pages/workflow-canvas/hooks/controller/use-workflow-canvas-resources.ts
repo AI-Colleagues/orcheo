@@ -1,4 +1,5 @@
 import { getBackendBaseUrl } from "@/lib/config";
+import { useWorkflowCredentialReadiness } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-credential-readiness";
 import { useWorkflowCredentials } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-credentials";
 import { useWorkflowListeners } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-listeners";
 import { useWorkflowSaver } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-saver";
@@ -7,6 +8,7 @@ import type { WorkflowCanvasCore } from "./use-workflow-canvas-core";
 
 export interface WorkflowCanvasResources {
   credentials: ReturnType<typeof useWorkflowCredentials>;
+  credentialReadiness: ReturnType<typeof useWorkflowCredentialReadiness>;
   listeners: ReturnType<typeof useWorkflowListeners>;
   saver: ReturnType<typeof useWorkflowSaver>;
 }
@@ -20,6 +22,11 @@ export function useWorkflowCanvasResources(
     currentWorkflowId: core.metadata.currentWorkflowId,
     backendBaseUrl: getBackendBaseUrl(),
     userName: core.user.name,
+  });
+
+  const credentialReadiness = useWorkflowCredentialReadiness({
+    workflowId: core.metadata.currentWorkflowId ?? workflowId ?? null,
+    refreshKey: credentials.credentials.length,
   });
 
   const listeners = useWorkflowListeners({
@@ -43,6 +50,7 @@ export function useWorkflowCanvasResources(
 
   return {
     credentials,
+    credentialReadiness,
     listeners,
     saver,
   };

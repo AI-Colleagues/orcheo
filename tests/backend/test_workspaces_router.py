@@ -211,21 +211,22 @@ def test_create_workspace_membership_conflict_raises_http_error() -> None:
 
 
 # ---------------------------------------------------------------------------
-# create_own_workspace - unauthenticated, owner mismatch, exception handlers
-# (lines 153, 160, 172-185)
+# create_own_workspace - anonymous (auth disabled), owner mismatch, and
+# exception handlers
 # ---------------------------------------------------------------------------
 
 
-def test_create_own_workspace_unauthenticated_raises_401() -> None:
-    service = _service()
+def test_create_own_workspace_anonymous_creates_workspace_when_auth_disabled() -> None:
+    """When auth is disabled, ``authenticate_request`` yields an anonymous
+    context. Self-service workspace creation must succeed using that subject."""
+    ws = _workspace()
+    service = _service(workspace=ws)
     anon_auth = RequestContext.anonymous()
     payload = WorkspaceCreateRequest(slug="test", name="Test")
 
-    with pytest.raises(WorkspaceHTTPError) as exc_info:
-        create_own_workspace(payload, service, anon_auth)  # type: ignore[arg-type]
+    result = create_own_workspace(payload, service, anon_auth)  # type: ignore[arg-type]
 
-    assert exc_info.value.status_code == 401
-    assert exc_info.value.error_code == "auth.authentication_required"
+    assert result.slug == ws.slug
 
 
 def test_create_own_workspace_owner_mismatch_raises_forbidden() -> None:
@@ -416,19 +417,20 @@ def test_purge_deleted_workspaces_with_custom_retention() -> None:
 
 
 # ---------------------------------------------------------------------------
-# list_my_memberships - unauthenticated (line ~290-295)
+# list_my_memberships - anonymous context (auth disabled)
 # ---------------------------------------------------------------------------
 
 
-def test_list_my_memberships_unauthenticated_raises_401() -> None:
-    service = _service()
+def test_list_my_memberships_anonymous_returns_memberships_when_auth_disabled() -> None:
+    """An anonymous request reaches this handler only when auth is disabled;
+    it should return memberships keyed by the anonymous subject."""
+    ws = _workspace()
+    service = _service(workspace=ws)
     anon_auth = RequestContext.anonymous()
 
-    with pytest.raises(WorkspaceHTTPError) as exc_info:
-        list_my_memberships(service, anon_auth)  # type: ignore[arg-type]
+    result = list_my_memberships(service, anon_auth)  # type: ignore[arg-type]
 
-    assert exc_info.value.status_code == 401
-    assert exc_info.value.error_code == "auth.authentication_required"
+    assert len(result.memberships) == 1
 
 
 # ---------------------------------------------------------------------------

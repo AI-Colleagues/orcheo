@@ -100,10 +100,7 @@ beforeEach(() => {
 
 describe("WorkflowCard", () => {
   it("uses the portrait gallery aspect ratio", () => {
-    expect(WORKFLOW_GALLERY_CARD_ASPECT_RATIO).toBeCloseTo(
-      53.98 / 85.6,
-      6,
-    );
+    expect(WORKFLOW_GALLERY_CARD_ASPECT_RATIO).toBeCloseTo(53.98 / 85.6, 6);
   });
 
   it("opens workflow when a colleague card body is clicked", async () => {
@@ -156,6 +153,21 @@ describe("WorkflowCard", () => {
     expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
   });
 
+  it("uses a generic avatar fallback for colleague workflows without template emoji", () => {
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard
+        workflow={colleagueWorkflow}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
+    );
+
+    expect(screen.getByText("🧑")).toBeInTheDocument();
+  });
+
   it("renders candidate badge copy and onboard action", async () => {
     const user = userEvent.setup();
     const handlers = createHandlers();
@@ -200,7 +212,7 @@ describe("WorkflowCard", () => {
     expect(screen.getByText("👨‍🎓")).toBeInTheDocument();
   });
 
-  it("keeps dropdown export actions from triggering navigation", async () => {
+  it("keeps dropdown transfer actions from triggering navigation", async () => {
     const user = userEvent.setup();
     const handlers = createHandlers();
 
@@ -219,14 +231,14 @@ describe("WorkflowCard", () => {
       }),
     );
     await user.click(
-      await screen.findByRole("menuitem", { name: /^export$/i }),
+      await screen.findByRole("menuitem", { name: /^transfer$/i }),
     );
 
     expect(handlers.onExportWorkflow).toHaveBeenCalledTimes(1);
     expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
   });
 
-  it("hides delete actions for the managed vibe workflow", async () => {
+  it("hides offboard actions for the managed vibe workflow", async () => {
     const user = userEvent.setup();
     const handlers = createHandlers();
 
@@ -245,8 +257,6 @@ describe("WorkflowCard", () => {
       }),
     );
 
-    expect(
-      screen.queryByRole("menuitem", { name: /^delete$/i }),
-    ).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /^offboard$/i })).toBeNull();
   });
 });

@@ -77,7 +77,7 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
         // Load both candidates and existing workflows to check for handle conflicts
         const [candidates, existingWorkflows] = await Promise.all([
           fetchCandidates(),
-          listWorkflows()
+          listWorkflows(),
         ]);
         if (!isMounted) {
           return;
@@ -192,12 +192,7 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
     }
 
     return searchableWorkflows;
-  }, [
-    isTemplateView,
-    searchableTemplates,
-    searchableWorkflows,
-    selectedTab,
-  ]);
+  }, [isTemplateView, searchableTemplates, searchableWorkflows, selectedTab]);
 
   return {
     searchQuery,

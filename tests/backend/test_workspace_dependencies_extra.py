@@ -72,52 +72,53 @@ def test_get_workspace_repository_requires_dsn_for_postgres(
 
 
 @pytest.mark.asyncio()
-async def test_resolve_workspace_context_requires_auth(
+async def test_resolve_workspace_context_anonymous_resolves_via_membership(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Unauthenticated requests should be rejected when multi-workspace is enabled."""
+    """When backend auth is disabled, ``authenticate_request`` yields an
+    anonymous context. Workspace resolution should fall through to the
+    membership-based resolver using the anonymous subject."""
 
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
-    request = SimpleNamespace(headers={}, state=SimpleNamespace())
-    auth = SimpleNamespace(is_authenticated=False, subject="user-1")
+    context = SimpleNamespace(workspace_id="workspace-anon", role=Role.OWNER)
+    resolved_for: dict[str, str | None] = {}
 
-    with pytest.raises(workspace_errors.WorkspaceContextRequiredError):
-        await workspace_dependencies.resolve_workspace_context(request, auth)
+    class _Resolver:
+        def resolve(self, *, user_id: str, workspace_slug: str | None) -> object:
+            resolved_for["user_id"] = user_id
+            resolved_for["workspace_slug"] = workspace_slug
+            return context
 
-
-@pytest.mark.asyncio()
-async def test_resolve_workspace_context_legacy_single_tenant(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Synthesise default workspace context when multi-workspace is disabled."""
-
-    repo = InMemoryWorkspaceRepository()
-    default_ws = Workspace(slug="default", name="Default Workspace")
-    repo.create_workspace(default_ws)
+    class _Service:
+        resolver = _Resolver()
 
     monkeypatch.setattr(
-        workspace_dependencies,
-        "get_workspace_service",
-        lambda: WorkspaceService(repo),
+        workspace_dependencies, "get_workspace_service", lambda: _Service()
     )
     monkeypatch.setattr(
         workspace_dependencies,
-        "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": False},  # noqa: ARG005
+        "get_workspace_governance",
+        lambda refresh=False: SimpleNamespace(  # noqa: ARG005
+            check_api_rate_limit=lambda workspace_id: None
+        ),
     )
 
     request = SimpleNamespace(headers={}, state=SimpleNamespace())
-    auth = SimpleNamespace(is_authenticated=False, subject="anonymous")
+    auth = SimpleNamespace(
+        is_authenticated=False,
+        identity_type="anonymous",
+        subject="anonymous",
+        workspace_ids=frozenset(),
+    )
 
     result = await workspace_dependencies.resolve_workspace_context(request, auth)
-    assert result.workspace_slug == "default"
-    assert result.role == Role.OWNER
-    assert request.state.workspace is result
+    assert result is context
+    assert resolved_for["user_id"] == "anonymous"
 
 
 @pytest.mark.asyncio()
@@ -129,7 +130,7 @@ async def test_resolve_workspace_context_rate_limit_and_success(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     context = SimpleNamespace(workspace_id="workspace-1", role=Role.OWNER)
@@ -245,7 +246,7 @@ async def test_resolve_from_authorized_workspaces_success(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     monkeypatch.setattr(
@@ -295,7 +296,7 @@ async def test_resolve_workspace_context_user_identity_uses_membership_lookup(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     monkeypatch.setattr(
@@ -342,7 +343,7 @@ async def test_resolve_from_authorized_workspaces_with_slug_header(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Service:
@@ -386,7 +387,7 @@ async def test_resolve_from_authorized_workspaces_not_found(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Service:
@@ -425,7 +426,7 @@ async def test_resolve_from_authorized_workspaces_slug_not_found(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Service:
@@ -455,7 +456,7 @@ async def test_resolve_from_authorized_workspaces_slug_not_found(
 async def test_resolve_from_authorized_workspaces_multiple_no_slug(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Multiple workspaces with no slug header selects the first one."""
+    """Multiple workspaces with no slug header now requires explicit selection."""
 
     ws_a = Workspace(id=uuid4(), slug="alpha", name="Alpha")
     ws_b = Workspace(id=uuid4(), slug="beta", name="Beta")
@@ -466,7 +467,7 @@ async def test_resolve_from_authorized_workspaces_multiple_no_slug(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Service:
@@ -492,9 +493,10 @@ async def test_resolve_from_authorized_workspaces_multiple_no_slug(
         workspace_ids=frozenset({str(ws_a.id), str(ws_b.id)}),
     )
 
-    result = await workspace_dependencies.resolve_workspace_context(request, auth)
-    assert result.workspace_id in {ws_a.id, ws_b.id}
-    assert result.workspace_slug in {"alpha", "beta"}
+    with pytest.raises(workspace_errors.WorkspaceHTTPError) as exc_info:
+        await workspace_dependencies.resolve_workspace_context(request, auth)
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.error_code == "workspace.required"
 
 
 @pytest.mark.asyncio()
@@ -517,7 +519,7 @@ async def test_resolve_from_authorized_workspaces_not_active(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Service:
@@ -583,7 +585,7 @@ async def test_resolve_via_resolver_not_found_error(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Resolver:
@@ -622,7 +624,7 @@ async def test_resolve_via_resolver_permission_error(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Resolver:
@@ -661,7 +663,7 @@ async def test_resolve_via_resolver_membership_error(
     monkeypatch.setattr(
         workspace_dependencies,
         "get_settings",
-        lambda refresh=False: {"MULTI_WORKSPACE_ENABLED": True},  # noqa: ARG005
+        lambda refresh=False: {},  # noqa: ARG005
     )
 
     class _Resolver:

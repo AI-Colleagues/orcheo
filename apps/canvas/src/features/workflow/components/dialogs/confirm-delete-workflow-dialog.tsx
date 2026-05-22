@@ -28,7 +28,7 @@ export function ConfirmDeleteWorkflowDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete workflow?</AlertDialogTitle>
+          <AlertDialogTitle>Offboard colleague?</AlertDialogTitle>
           <AlertDialogDescription>
             {`"${workflowName}" will be permanently removed from your workspace. This action cannot be undone.`}
           </AlertDialogDescription>
@@ -43,7 +43,7 @@ export function ConfirmDeleteWorkflowDialog({
             }}
             disabled={isPending}
           >
-            {isPending ? "Deleting..." : "Delete"}
+            {isPending ? "Offboarding..." : "Offboard"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

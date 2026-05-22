@@ -11,8 +11,10 @@ from orcheo_backend.app.dependencies import (
     CredentialServiceDep,
     RepositoryDep,
     VaultDep,
+    WorkspaceContextDep,
     credential_context_from_workflow,
     resolve_workflow_ref_id,
+    resolve_workflow_workspace_id,
 )
 from orcheo_backend.app.errors import raise_not_found
 from orcheo_backend.app.history_utils import health_report_to_response
@@ -39,9 +41,13 @@ async def get_workflow_credential_readiness(
     workflow_ref: str,
     repository: RepositoryDep,
     vault: VaultDep,
+    workspace: WorkspaceContextDep,
 ) -> CredentialReadinessResponse:
     """Return whether referenced workflow credentials are available in the vault."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    tid = str(workspace.workspace_id)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, workspace_id=tid
+    )
     try:
         await repository.get_workflow(workflow_uuid)
     except WorkflowNotFoundError as exc:
@@ -67,8 +73,11 @@ async def get_workflow_credential_readiness(
         runnable_config,
     )
 
-    context = credential_context_from_workflow(workflow_uuid)
-    credentials = vault.list_credentials(context=context)
+    workspace_id = await resolve_workflow_workspace_id(
+        repository, workflow_uuid, workspace_id=tid
+    )
+    context = credential_context_from_workflow(workflow_uuid, workspace_id=workspace_id)
+    credentials = vault.list_credentials(context=context, workspace_id=tid)
     credentials_by_name = {
         metadata.name.strip().lower(): metadata for metadata in credentials
     }
@@ -118,9 +127,12 @@ async def get_workflow_credential_health(
     workflow_ref: str,
     repository: RepositoryDep,
     service: CredentialServiceDep,
+    workspace: WorkspaceContextDep,
 ) -> CredentialHealthResponse:
     """Return cached credential health information for a workflow."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, workspace_id=str(workspace.workspace_id)
+    )
     try:
         await repository.get_workflow(workflow_uuid)
     except WorkflowNotFoundError as exc:
@@ -152,9 +164,12 @@ async def validate_workflow_credentials(
     request: CredentialValidationRequest,
     repository: RepositoryDep,
     service: CredentialServiceDep,
+    workspace: WorkspaceContextDep,
 ) -> CredentialHealthResponse:
     """Trigger validation of workflow credentials and return the updated report."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, workspace_id=str(workspace.workspace_id)
+    )
     try:
         await repository.get_workflow(workflow_uuid)
     except WorkflowNotFoundError as exc:

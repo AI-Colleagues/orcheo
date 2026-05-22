@@ -96,10 +96,7 @@ const renderCanvas = () => {
   return render(
     <MemoryRouter initialEntries={["/global-org/new"]}>
       <Routes>
-        <Route
-          path="/:workspaceSlug/new"
-          element={<WorkflowCanvas />}
-        />
+        <Route path="/:workspaceSlug/new" element={<WorkflowCanvas />} />
       </Routes>
     </MemoryRouter>,
   );

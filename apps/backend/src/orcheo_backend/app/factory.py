@@ -25,6 +25,7 @@ from orcheo_backend.app.chatkit_runtime import (
     get_chatkit_server,
     sensitive_logging_enabled,
 )
+from orcheo_backend.app.credential_broker import build_credential_broker_router
 from orcheo_backend.app.dependencies import (
     ListenerRuntimeStore,
     _create_repository,
@@ -74,6 +75,7 @@ from orcheo_backend.app.routers import (
 from orcheo_backend.app.routers import (
     workspaces as workspaces_router,
 )
+from orcheo_backend.app.sandbox import build_credential_broker, configure_sandbox
 from orcheo_backend.app.service_token_endpoints import router as service_token_router
 from orcheo_backend.app.workflow_execution import configure_sensitive_logging
 from orcheo_backend.app.workspace import (
@@ -260,6 +262,9 @@ def _configure_application(application: FastAPI) -> None:
     application.include_router(triggers.workspace_webhook_router)
     application.include_router(chatkit_assets.router)
     application.include_router(websocket.router)
+    broker = build_credential_broker()
+    configure_sandbox(broker)
+    application.include_router(build_credential_broker_router(broker))
     application.add_exception_handler(
         AuthenticationError, _authentication_error_handler
     )

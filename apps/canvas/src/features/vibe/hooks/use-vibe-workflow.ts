@@ -33,12 +33,14 @@ interface VibeWorkflowState {
   error: string | null;
 }
 
-const normalizeWorkspaceKey = (workspaceSlug: string | null | undefined): string =>
-  workspaceSlug?.trim() || GLOBAL_WORKSPACE_KEY;
+const normalizeWorkspaceKey = (
+  workspaceSlug: string | null | undefined,
+): string => workspaceSlug?.trim() || GLOBAL_WORKSPACE_KEY;
 
 const getWorkflowStorageKey = (
   workspaceSlug: string | null | undefined,
-): string => `${WORKFLOW_ID_STORAGE_KEY_PREFIX}:${normalizeWorkspaceKey(workspaceSlug)}`;
+): string =>
+  `${WORKFLOW_ID_STORAGE_KEY_PREFIX}:${normalizeWorkspaceKey(workspaceSlug)}`;
 
 const readCachedWorkflowId = (
   workspaceSlug: string | null | undefined,

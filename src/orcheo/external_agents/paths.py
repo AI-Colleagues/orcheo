@@ -3,6 +3,7 @@
 from __future__ import annotations
 import os
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from orcheo.external_agents.models import WorkingDirectoryValidationError
 
@@ -13,14 +14,30 @@ DEFAULT_RUNTIME_ROOT_UNDER_HOME = Path("~/.orcheo") / DEFAULT_RUNTIME_DIR_NAME
 DEFAULT_WORKSPACE_AGENT_ROOT = Path("/workspace/agents")
 RUNTIMES_DIR_NAME = "runtimes"
 STAGING_DIR_NAME = "staging"
+RUNTIME_ROOT_ENV_VAR = "ORCHEO_AGENT_RUNTIME_ROOT"
 
 
 def default_runtime_root(
     *,
     data_root: Path = Path("/data"),
     home_directory: Path | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> Path:
-    """Return the default managed runtime root for the current host."""
+    """Return the default managed runtime root for the current host.
+
+    The lookup order is:
+
+    1. ``ORCHEO_AGENT_RUNTIME_ROOT`` from the environment — set by the sandbox
+       runtime manager so per-workspace sandboxes write under the writable
+       ``/scratch`` tmpfs instead of the read-only rootfs.
+    2. ``/data/agent-runtimes`` when the data volume is writable.
+    3. ``~/.orcheo/agent-runtimes`` as the final fallback.
+    """
+    environment = env if env is not None else os.environ
+    override = environment.get(RUNTIME_ROOT_ENV_VAR, "").strip()
+    if override:
+        return Path(override)
+
     if data_root.exists() and os.access(data_root, os.W_OK | os.X_OK):
         return data_root / DEFAULT_RUNTIME_DIR_NAME
 
@@ -75,7 +92,7 @@ def workspace_provider_environment_overrides(
     root = (
         Path(workspace_root).expanduser()
         if workspace_root is not None
-        else DEFAULT_WORKSPACE_AGENT_ROOT / workspace_id.strip()
+        else DEFAULT_WORKSPACE_AGENT_ROOT
     )
     resolved_root = root.resolve(strict=False)
     if provider == "codex":
@@ -207,7 +224,7 @@ def validate_working_directory(
         workspace_root_path = (
             Path(workspace_root).expanduser()
             if workspace_root is not None
-            else DEFAULT_WORKSPACE_AGENT_ROOT / workspace_id
+            else DEFAULT_WORKSPACE_AGENT_ROOT
         )
         workspace_root_resolved = workspace_root_path.resolve(
             strict=not auto_init_git_worktree

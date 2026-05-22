@@ -25,8 +25,7 @@ export const getWorkflowTemplateDefinition = (
   templateId: string,
 ): WorkflowTemplateDefinition | undefined => {
   return (
-    TEMPLATE_BY_ID.get(templateId) ??
-    getCandidateTemplateDefinition(templateId)
+    TEMPLATE_BY_ID.get(templateId) ?? getCandidateTemplateDefinition(templateId)
   );
 };
 

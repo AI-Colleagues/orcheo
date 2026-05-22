@@ -84,14 +84,33 @@ describe("WorkspaceBootstrapGate", () => {
     const slugInput = screen.getByLabelText(/workspace url name/i);
 
     await waitFor(() => {
-      expect(slugInput).toHaveValue(
-        slugifyWorkspace("Morgan Lee's workspace"),
-      );
+      expect(slugInput).toHaveValue(slugifyWorkspace("Morgan Lee's workspace"));
     });
 
     await user.clear(slugInput);
     await user.type(slugInput, "acme-labs");
 
     expect(slugInput).toHaveValue("acme-labs");
+  });
+
+  it("renders the create-workspace dialog when no auth user is signed in", async () => {
+    getAuthenticatedUserProfileMock.mockReturnValue(null);
+
+    render(
+      <WorkspaceBootstrapGate>
+        <div>Workspace content</div>
+      </WorkspaceBootstrapGate>,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/create your first workspace/i),
+      ).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Workspace content")).not.toBeInTheDocument();
+    expect(
+      (screen.getByLabelText(/workspace name/i) as HTMLInputElement).value,
+    ).toBe("My workspace");
   });
 });

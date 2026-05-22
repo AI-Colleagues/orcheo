@@ -11,7 +11,6 @@ from orcheo.external_agents import (
     RuntimeInstallError,
     RuntimeVerificationError,
     WorkingDirectoryValidationError,
-    execute_process,
 )
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
@@ -19,6 +18,7 @@ from orcheo.runtime.credentials import (
     CredentialReferenceNotFoundError,
     CredentialResolverUnavailableError,
 )
+from orcheo.sandbox.dispatch import run_external_agent_process
 
 
 logger = logging.getLogger(__name__)
@@ -226,10 +226,12 @@ class ExternalAgentNode(TaskNode):
                 "External agent execution requested provider bypass flags.",
                 extra={"node_name": self.name, **audit_metadata},
             )
-        result = await execute_process(
+        agent_env = provider.build_environment(provider_environ)
+        result = await run_external_agent_process(
             command,
+            workspace_id=workspace_id,
             cwd=working_directory,
-            env=provider.build_environment(provider_environ),
+            env=agent_env,
             timeout_seconds=self.timeout_seconds,
         )
         self._set_trace_metadata_for_run(

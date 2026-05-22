@@ -8,7 +8,6 @@ from typing import Protocol
 from uuid import UUID
 from orcheo.workspace.errors import (
     WorkspaceMembershipError,
-    WorkspaceNotFoundError,
     WorkspacePermissionError,
 )
 from orcheo.workspace.models import (
@@ -96,12 +95,10 @@ class WorkspaceResolver:
         repository: WorkspaceRepository,
         *,
         cache: MembershipCache | None = None,
-        default_workspace_slug: str | None = None,
     ) -> None:
         """Bind the resolver to a repository and an optional cache override."""
         self._repository = repository
         self._cache = cache or InMemoryMembershipCache()
-        self._default_workspace_slug = default_workspace_slug
 
     @property
     def repository(self) -> WorkspaceRepository:
@@ -131,9 +128,8 @@ class WorkspaceResolver:
 
         The slug is the workspace the caller asked for (e.g., header
         `X-Orcheo-Workspace`). When omitted, the resolver picks the principal's
-        only membership. If the principal belongs to multiple workspaces, an
-        explicitly configured default workspace slug may be used as a fallback;
-        otherwise the caller must supply an explicit selector.
+        only membership. If the principal belongs to multiple workspaces, the
+        caller must supply an explicit selector.
         """
         memberships = self.list_memberships(user_id)
         if not memberships:
@@ -142,10 +138,7 @@ class WorkspaceResolver:
             )
 
         if workspace_slug is not None:
-            try:
-                workspace = self._repository.get_workspace_by_slug(workspace_slug)
-            except WorkspaceNotFoundError:
-                raise
+            workspace = self._repository.get_workspace_by_slug(workspace_slug)
             membership = self._select_membership(memberships, workspace.id)
             self._enforce_active(workspace)
             return self._make_context(workspace, membership)
@@ -182,17 +175,6 @@ class WorkspaceResolver:
         """Return the principal's membership when no workspace is pinned."""
         if len(memberships) == 1:
             return memberships[0]
-
-        if self._default_workspace_slug:
-            try:
-                workspace = self._repository.get_workspace_by_slug(
-                    self._default_workspace_slug
-                )
-            except WorkspaceNotFoundError:
-                workspace = None
-            if workspace is not None:
-                membership = self._select_membership(memberships, workspace.id)
-                return membership
 
         raise WorkspacePermissionError(
             "Workspace selector is required when the user has multiple memberships"

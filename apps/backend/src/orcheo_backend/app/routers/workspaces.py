@@ -148,14 +148,13 @@ def create_own_workspace(
     service: WorkspaceServiceDep,
     auth: Annotated[RequestContext, Depends(authenticate_request)],
 ) -> WorkspaceResponse:
-    """Create a workspace for the authenticated principal."""
-    if not auth.is_authenticated:
-        raise WorkspaceHTTPError(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            message="Authentication is required to create a workspace",
-            error_code="auth.authentication_required",
-        )
+    """Create a workspace for the authenticated principal.
 
+    When backend authentication is disabled, ``authenticate_request`` returns an
+    anonymous context. Reaching this handler means the request is allowed (the
+    dependency would otherwise raise 401), so anonymous principals are treated
+    as the implicit owner identity.
+    """
     if payload.owner_user_id is not None and payload.owner_user_id != auth.subject:
         raise_workspace_forbidden(
             "Cannot create a workspace for another user",
@@ -286,14 +285,12 @@ def list_my_memberships(
     service: WorkspaceServiceDep,
     auth: Annotated[RequestContext, Depends(authenticate_request)],
 ) -> MeMembershipsResponse:
-    """Return the memberships for the calling principal."""
-    if not auth.is_authenticated:
-        raise WorkspaceHTTPError(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            message="Authentication is required to list workspaces",
-            error_code="auth.authentication_required",
-        )
+    """Return the memberships for the calling principal.
 
+    Reaching this handler means the request is permitted: when backend
+    authentication is disabled, ``authenticate_request`` returns an anonymous
+    context, so the anonymous subject is used to query memberships.
+    """
     pairs = service.memberships_for(user_id=auth.subject)
     entries = [
         {

@@ -44,9 +44,7 @@ const mapRawMetadata = (
       : undefined,
   replyNodeContracts: toStringArray(raw.reply_node_contracts),
   templateVersion:
-    typeof raw.template_version === "string"
-      ? raw.template_version
-      : undefined,
+    typeof raw.template_version === "string" ? raw.template_version : undefined,
   minOrcheoVersion:
     typeof raw.min_orcheo_version === "string"
       ? raw.min_orcheo_version
@@ -55,13 +53,12 @@ const mapRawMetadata = (
 
 const buildCandidateWorkflow = (
   spec: CandidateBadgeSpec,
-  existingHandles: Set<string>
+  existingHandles: Set<string>,
 ): Workflow => {
   // Preserve original handle if no conflict exists, otherwise let backend generate unique handle
-  const preserveHandle = spec.handle && !existingHandles.has(spec.handle)
-    ? spec.handle
-    : undefined;
-  
+  const preserveHandle =
+    spec.handle && !existingHandles.has(spec.handle) ? spec.handle : undefined;
+
   return {
     id: spec.id,
     handle: preserveHandle,
@@ -85,7 +82,7 @@ const buildCandidateWorkflow = (
 
 const buildCandidateBadge = (
   spec: CandidateBadgeSpec,
-  existingHandles: Set<string>
+  existingHandles: Set<string>,
 ): CandidateBadgeDefinition => {
   const workflow = buildCandidateWorkflow(spec, existingHandles);
   const templateDefinition: WorkflowTemplateDefinition = {
@@ -105,17 +102,19 @@ const buildCandidateBadge = (
 let candidateBadges: CandidateBadgeDefinition[] = [];
 
 export const setCandidateBadges = (
-  specs: CandidateBadgeSpec[], 
-  existingWorkflows: StoredWorkflow[] = []
+  specs: CandidateBadgeSpec[],
+  existingWorkflows: StoredWorkflow[] = [],
 ): void => {
   // Create set of existing handles to check for conflicts
   const existingHandles = new Set<string>(
     existingWorkflows
-      .map(w => w.handle)
-      .filter((handle): handle is string => Boolean(handle))
+      .map((w) => w.handle)
+      .filter((handle): handle is string => Boolean(handle)),
   );
-  
-  candidateBadges = specs.map(spec => buildCandidateBadge(spec, existingHandles));
+
+  candidateBadges = specs.map((spec) =>
+    buildCandidateBadge(spec, existingHandles),
+  );
 };
 
 export const getCandidateWorkflows = (): Workflow[] =>

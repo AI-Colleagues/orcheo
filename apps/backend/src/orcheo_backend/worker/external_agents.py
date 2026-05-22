@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import fcntl
+import logging
 import os
 import pty
 import re
@@ -87,6 +88,23 @@ CLAUDE_OAUTH_TOKEN_EXPORT_PATTERN = re.compile(
     r"CLAUDE_CODE_OAUTH_TOKEN=(?P<token>sk-ant-[A-Za-z0-9_-]+)"
 )
 CLAUDE_OAUTH_TOKEN_SEGMENT_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
+CLAUDE_OAUTH_ERROR_PATTERN = re.compile(
+    # Any OAuth error during setup-token (invalid code, 400/4xx, network, …).
+    # Claude's Ink TUI occasionally drops characters during render, so we also
+    # accept the "press [E]nter to retry" recovery prompt with one character
+    # missing anywhere in the word "Enter".
+    r"oautherror[:.\s]"
+    r"|press\s*e?n?t?e?r?\s*to\s*retry\.",
+    re.IGNORECASE,
+)
+# DECSET 2004 toggles bracketed paste mode. Modern Ink-based TUIs (Claude Code,
+# Codex, Gemini) enable it on startup and refuse to submit "long" inputs unless
+# they are wrapped with the start (ESC [ 200 ~) and end (ESC [ 201 ~) markers.
+BRACKETED_PASTE_ENABLE = b"\x1b[?2004h"
+BRACKETED_PASTE_DISABLE = b"\x1b[?2004l"
+BRACKETED_PASTE_START = b"\x1b[200~"
+BRACKETED_PASTE_END = b"\x1b[201~"
+logger = logging.getLogger(__name__)
 GEMINI_VERIFICATION_CODE_PATTERN = re.compile(
     (
         r"(?:verification code|enter code|code is)"
@@ -106,6 +124,25 @@ class LoginCommandResult:
     auth_url: str | None
     device_code: str | None
     auth_token: str | None
+    invalid_code: bool = False
+
+
+@dataclass(slots=True)
+class _LoginCommandState:
+    """Mutable state for a single interactive login session."""
+
+    raw_output: str
+    output: str
+    auth_url: str | None
+    device_code: str | None
+    auth_token: str | None
+    last_sent_input: str | None
+    last_sent_at: float | None
+    awaiting_output_after_input: bool
+    output_len_at_last_input: int
+    last_tick_at: float
+    timed_out: bool = False
+    invalid_code: bool = False
 
 
 def _utcnow() -> datetime:
@@ -488,6 +525,12 @@ def _gemini_auto_enter_prompt_id(output: str) -> str | None:
     return None
 
 
+def _has_claude_invalid_code_error(output: str) -> bool:
+    """Return whether Claude setup-token rejected the submitted auth code."""
+    normalized = _normalize_terminal_line(output)
+    return bool(CLAUDE_OAUTH_ERROR_PATTERN.search(normalized))
+
+
 def _should_retry_gemini_login(output: str) -> bool:
     """Return whether Gemini requested a one-time CLI restart during login."""
     normalized = _normalize_terminal_line(output)
@@ -612,19 +655,22 @@ def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
         return
     try:
         os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
+        # ProcessLookupError: pgid already gone (Linux). PermissionError: macOS
+        # raises EPERM after the group has been reaped between our poll() and
+        # killpg(). In both cases the process is effectively already done.
         return
     try:
         process.wait(timeout=2)
     except subprocess.TimeoutExpired:
         try:
             os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             return
         process.wait(timeout=2)
 
 
-def _drain_login_output(
+def _drain_login_output(  # noqa: PLR0913
     master_fd: int,
     *,
     terminal_screen: Any,
@@ -634,6 +680,7 @@ def _drain_login_output(
     device_code: str | None,
     auth_token: str | None,
     on_output: Callable[[str, str | None, str | None], None],
+    paste_mode_state: list[bool] | None = None,
 ) -> tuple[str, str, str | None, str | None, str | None]:
     """Read and normalize any available PTY output for the login process."""
     while True:
@@ -645,6 +692,12 @@ def _drain_login_output(
             chunk = b""
         if not chunk:
             break
+        if paste_mode_state is not None:
+            # Latest toggle wins so we react to the application's current mode.
+            enable_at = chunk.rfind(BRACKETED_PASTE_ENABLE)
+            disable_at = chunk.rfind(BRACKETED_PASTE_DISABLE)
+            if enable_at != -1 or disable_at != -1:
+                paste_mode_state[0] = enable_at > disable_at
         decoded = chunk.decode("utf-8", errors="replace")
         cleaned = _strip_ansi(decoded)
         raw_output += cleaned
@@ -673,7 +726,7 @@ def _drain_login_output(
     return raw_output, output, auth_url, device_code, auth_token
 
 
-def _forward_login_input(
+def _forward_login_input(  # noqa: PLR0913
     master_fd: int,
     *,
     queued_input: str | None,
@@ -681,14 +734,20 @@ def _forward_login_input(
     last_sent_at: float | None,
     awaiting_output_after_input: bool,
     now: float,
+    bracketed_paste: bool = False,
 ) -> tuple[str | None, float | None, bool]:
     """Send queued operator input back to the interactive login PTY when needed."""
     if queued_input is None:
         return last_sent_input, last_sent_at, awaiting_output_after_input
 
     should_send = queued_input != last_sent_input
+    # Bracketed-paste delivery is atomic — Claude's terminal sees the full
+    # payload between \x1b[200~ and \x1b[201~, so a re-send would arrive after
+    # the app has already moved on and would corrupt the next prompt. For raw
+    # input we still resend in case a character is dropped on the TTY.
     if (
         not should_send
+        and not bracketed_paste
         and awaiting_output_after_input
         and last_sent_at is not None
         and now - last_sent_at >= LOGIN_INPUT_RESEND_SECONDS
@@ -696,11 +755,146 @@ def _forward_login_input(
         should_send = True
 
     if should_send:
-        os.write(master_fd, queued_input.encode())
+        payload = queued_input.encode()
+        # Modern Ink-based TUIs (Claude Code, Codex, Gemini) refuse to submit
+        # multi-character pastes unless they arrive wrapped in bracketed-paste
+        # markers. Without these markers Claude treats Enter as part of the
+        # paste buffer and never validates the OAuth code.
+        if bracketed_paste and payload:
+            payload = BRACKETED_PASTE_START + payload + BRACKETED_PASTE_END
+        os.write(master_fd, payload)
         os.write(master_fd, b"\r")
+        logger.info(
+            "Forwarded %d bytes of operator input to login PTY (bracketed=%s)",
+            len(queued_input),
+            bracketed_paste,
+        )
         return queued_input, now, True
 
     return last_sent_input, last_sent_at, awaiting_output_after_input
+
+
+def _mark_login_input_consumed(
+    consume_input: Callable[[bool], str | None] | None,
+) -> None:
+    """Clear any queued interactive input after the PTY has consumed it."""
+    if consume_input is not None:
+        consume_input(True)
+
+
+def _advance_login_command_state(
+    master_fd: int,
+    *,
+    process: subprocess.Popen[bytes],
+    terminal_screen: Any,
+    state: _LoginCommandState,
+    on_output: Callable[[str, str | None, str | None], None],
+    consume_input: Callable[[bool], str | None] | None,
+    auto_input: Callable[[str], str | None] | None,
+    is_authenticated: Callable[[], bool] | None,
+    on_tick: Callable[[], None] | None,
+    started_at: float,
+    timeout_seconds: int,
+    now: float,
+    paste_mode_state: list[bool],
+) -> bool:
+    """Advance the login PTY once and return whether the loop should stop."""
+    previous_output_len = len(state.output)
+    (
+        state.raw_output,
+        state.output,
+        state.auth_url,
+        state.device_code,
+        state.auth_token,
+    ) = _drain_login_output(
+        master_fd,
+        terminal_screen=terminal_screen,
+        raw_output=state.raw_output,
+        output=state.output,
+        auth_url=state.auth_url,
+        device_code=state.device_code,
+        auth_token=state.auth_token,
+        on_output=on_output,
+        paste_mode_state=paste_mode_state,
+    )
+    if (
+        state.awaiting_output_after_input
+        and len(state.output) > state.output_len_at_last_input
+    ):
+        state.awaiting_output_after_input = False
+        state.last_sent_input = None
+        _mark_login_input_consumed(consume_input)
+
+    if on_tick is not None and now - state.last_tick_at >= LOGIN_HEARTBEAT_SECONDS:
+        on_tick()
+        state.last_tick_at = now
+
+    queued_input = consume_input(False) if consume_input is not None else None
+    if queued_input is None and auto_input is not None:
+        queued_input = auto_input(state.output)
+
+    (
+        state.last_sent_input,
+        state.last_sent_at,
+        state.awaiting_output_after_input,
+    ) = _forward_login_input(
+        master_fd,
+        queued_input=queued_input,
+        last_sent_input=state.last_sent_input,
+        last_sent_at=state.last_sent_at,
+        awaiting_output_after_input=state.awaiting_output_after_input,
+        now=now,
+        bracketed_paste=paste_mode_state[0],
+    )
+    if len(state.output) == previous_output_len and state.last_sent_at == now:
+        state.output_len_at_last_input = len(state.output)
+
+    if is_authenticated is not None and is_authenticated():
+        _mark_login_input_consumed(consume_input)
+        _terminate_process_group(process)
+        return True
+
+    if state.auth_token is not None:
+        logger.info("Auth token detected in login output; terminating PTY process")
+        _mark_login_input_consumed(consume_input)
+        _terminate_process_group(process)
+        return True
+
+    if _has_claude_invalid_code_error(state.output) or _has_claude_invalid_code_error(
+        state.raw_output
+    ):
+        logger.info("Claude rejected the submitted auth code; aborting login PTY")
+        state.invalid_code = True
+        _mark_login_input_consumed(consume_input)
+        _terminate_process_group(process)
+        return True
+
+    if process.poll() is not None:
+        (
+            state.raw_output,
+            state.output,
+            state.auth_url,
+            state.device_code,
+            state.auth_token,
+        ) = _drain_login_output(
+            master_fd,
+            terminal_screen=terminal_screen,
+            raw_output=state.raw_output,
+            output=state.output,
+            auth_url=state.auth_url,
+            device_code=state.device_code,
+            auth_token=state.auth_token,
+            on_output=on_output,
+            paste_mode_state=paste_mode_state,
+        )
+        return True
+
+    if time.monotonic() - started_at > timeout_seconds:
+        state.timed_out = True
+        _terminate_process_group(process)
+        return True
+
+    return False
 
 
 def _run_login_command(  # noqa: C901, PLR0915
@@ -728,11 +922,21 @@ def _run_login_command(  # noqa: C901, PLR0915
     device_code: str | None = None
     auth_token: str | None = None
     timed_out = False
-    last_sent_input: str | None = None
-    last_sent_at: float | None = None
-    awaiting_output_after_input = False
-    output_len_at_last_input = 0
-    last_tick_at = 0.0
+    invalid_code = False
+    # Single-element list so _drain_login_output can mutate the latched state.
+    paste_mode_state = [False]
+    state = _LoginCommandState(
+        raw_output=raw_output,
+        output=output,
+        auth_url=auth_url,
+        device_code=device_code,
+        auth_token=auth_token,
+        last_sent_input=None,
+        last_sent_at=None,
+        awaiting_output_after_input=False,
+        output_len_at_last_input=0,
+        last_tick_at=0.0,
+    )
     try:
         process = subprocess.Popen(
             command,
@@ -749,78 +953,35 @@ def _run_login_command(  # noqa: C901, PLR0915
 
         while True:
             selector.select(timeout=0.5)
-            previous_output_len = len(output)
-            raw_output, output, auth_url, device_code, auth_token = _drain_login_output(
-                master_fd,
-                terminal_screen=terminal_screen,
-                raw_output=raw_output,
-                output=output,
-                auth_url=auth_url,
-                device_code=device_code,
-                auth_token=auth_token,
-                on_output=on_output,
-            )
-            if awaiting_output_after_input and len(output) > output_len_at_last_input:
-                awaiting_output_after_input = False
-                last_sent_input = None
-                if consume_input is not None:
-                    consume_input(True)
-
             now = time.monotonic()
-            if on_tick is not None and now - last_tick_at >= LOGIN_HEARTBEAT_SECONDS:
-                on_tick()
-                last_tick_at = now
-            queued_input = consume_input(False) if consume_input is not None else None
-            if queued_input is None and auto_input is not None:
-                queued_input = auto_input(output)
-            (
-                last_sent_input,
-                last_sent_at,
-                awaiting_output_after_input,
-            ) = _forward_login_input(
+            if _advance_login_command_state(
                 master_fd,
-                queued_input=queued_input,
-                last_sent_input=last_sent_input,
-                last_sent_at=last_sent_at,
-                awaiting_output_after_input=awaiting_output_after_input,
+                process=process,
+                terminal_screen=terminal_screen,
+                state=state,
+                on_output=on_output,
+                consume_input=consume_input,
+                auto_input=auto_input,
+                is_authenticated=is_authenticated,
+                on_tick=on_tick,
+                started_at=started_at,
+                timeout_seconds=timeout_seconds,
                 now=now,
-            )
-            if len(output) == previous_output_len and last_sent_at == now:
-                output_len_at_last_input = len(output)
-
-            if is_authenticated is not None and is_authenticated():
-                if consume_input is not None:
-                    consume_input(True)
-                _terminate_process_group(process)
-                break
-
-            if process.poll() is not None:
-                raw_output, output, auth_url, device_code, auth_token = (
-                    _drain_login_output(
-                        master_fd,
-                        terminal_screen=terminal_screen,
-                        raw_output=raw_output,
-                        output=output,
-                        auth_url=auth_url,
-                        device_code=device_code,
-                        auth_token=auth_token,
-                        on_output=on_output,
-                    )
-                )
-                break
-            if time.monotonic() - started_at > timeout_seconds:
-                timed_out = True
-                _terminate_process_group(process)
+                paste_mode_state=paste_mode_state,
+            ):
+                timed_out = state.timed_out
+                invalid_code = state.invalid_code
                 break
 
         exit_code = process.wait(timeout=2)
         return LoginCommandResult(
             exit_code=exit_code,
             timed_out=timed_out,
-            output=output,
-            auth_url=auth_url,
-            device_code=device_code,
-            auth_token=auth_token,
+            output=state.output,
+            auth_url=state.auth_url,
+            device_code=state.device_code,
+            auth_token=state.auth_token,
+            invalid_code=invalid_code,
         )
     finally:
         selector.close()
@@ -1636,11 +1797,15 @@ async def start_external_agent_login_async(  # noqa: C901, PLR0912, PLR0915
             if result.timed_out
             else ExternalAgentLoginSessionState.FAILED
         )
-        detail = (
-            "The login session timed out before the worker was authenticated."
-            if result.timed_out
-            else "The OAuth flow exited before authentication completed."
-        )
+        if result.timed_out:
+            detail = "The login session timed out before the worker was authenticated."
+        elif result.invalid_code:
+            detail = (
+                "Claude rejected the submitted code. Restart the login flow and "
+                "paste the full one-time code from the browser sign-in screen."
+            )
+        else:
+            detail = "The OAuth flow exited before authentication completed."
         save_session(
             session_state,
             detail=detail,

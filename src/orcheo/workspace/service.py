@@ -53,14 +53,10 @@ class WorkspaceService:
         self,
         repository: WorkspaceRepository,
         resolver: WorkspaceResolver | None = None,
-        *,
-        default_workspace_slug: str | None = None,
     ) -> None:
         """Bind the service to a repository and an optional resolver override."""
         self._repository = repository
-        self._resolver = resolver or WorkspaceResolver(
-            repository, default_workspace_slug=default_workspace_slug
-        )
+        self._resolver = resolver or WorkspaceResolver(repository)
 
     @property
     def repository(self) -> WorkspaceRepository:

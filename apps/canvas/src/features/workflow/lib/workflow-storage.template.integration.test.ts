@@ -242,9 +242,9 @@ describe("workflow-storage API integration - template creation", () => {
         options?.method === "POST" &&
         !String(path).includes("/versions/ingest"),
     );
-    const createBody = JSON.parse(
-      String(createCall?.[1]?.body ?? "{}"),
-    ) as { handle?: string | null };
+    const createBody = JSON.parse(String(createCall?.[1]?.body ?? "{}")) as {
+      handle?: string | null;
+    };
     expect(createBody.handle).toBe(VIBE_WORKFLOW_HANDLE);
   });
 
@@ -375,7 +375,10 @@ describe("workflow-storage API integration - template creation", () => {
         name: "MongoDB QA Agent",
         script: "# mongodb qa agent script\n",
         config: {
-          configurable: { database: "my_database", collection: "my_collection" },
+          configurable: {
+            database: "my_database",
+            collection: "my_collection",
+          },
         },
         notes: "MongoDB QA template.",
       },

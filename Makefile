@@ -1,5 +1,6 @@
 .PHONY: dev-server test lint format canvas-lint canvas-format canvas-test redis worker celery-beat \
-       docker-up docker-down docker-build docker-logs staging-env staging-up staging-down staging-restart \
+       docker-up docker-down docker-build docker-logs workspace-sandbox-build \
+       staging-env staging-up staging-down staging-restart \
        staging-build staging-logs staging-config
 
 UV ?= uv
@@ -60,6 +61,13 @@ docker-restart:
 
 docker-build:
 	docker compose build
+
+# Build just the workspace-sandbox image that the sandbox-runtime service
+# spawns on demand. `docker-build` already covers this; keep the target for
+# operators who only want to rebuild this one image after editing
+# Dockerfile.workspace-sandbox.
+workspace-sandbox-build:
+	docker compose build workspace-sandbox
 
 docker-logs:
 	docker compose logs -f

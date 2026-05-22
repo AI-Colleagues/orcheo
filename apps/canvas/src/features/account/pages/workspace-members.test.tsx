@@ -67,6 +67,10 @@ vi.mock("@features/shared/components/top-navigation", () => ({
   default: () => <header data-testid="top-nav" />,
 }));
 
+vi.mock("@features/account/components/external-agents-section", () => ({
+  default: () => <section data-testid="external-agents-section" />,
+}));
+
 const memberFixture = (
   overrides: Partial<{
     id: string;

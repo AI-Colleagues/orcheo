@@ -41,7 +41,8 @@ const STATUS_FILTERS: Array<{
 const getWorkflowName = (
   remediation: ApiWorkflowRunRemediation,
   workflowsById: Map<string, StoredWorkflow>,
-): string => workflowsById.get(remediation.workflow_id)?.name ?? remediation.workflow_id;
+): string =>
+  workflowsById.get(remediation.workflow_id)?.name ?? remediation.workflow_id;
 
 const formatLine = (value: string | null | undefined): string =>
   value?.trim() ? value : "Not recorded";
@@ -68,9 +69,8 @@ export default function WorkflowRemediationsPage() {
   const [selectedRemediationId, setSelectedRemediationId] = useState<
     string | null
   >(null);
-  const [statusFilter, setStatusFilter] = useState<RemediationStatusFilter>(
-    "all",
-  );
+  const [statusFilter, setStatusFilter] =
+    useState<RemediationStatusFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -153,7 +153,9 @@ export default function WorkflowRemediationsPage() {
     }
     if (
       !selectedRemediationId ||
-      !filteredRemediations.some((remediation) => remediation.id === selectedRemediationId)
+      !filteredRemediations.some(
+        (remediation) => remediation.id === selectedRemediationId,
+      )
     ) {
       setSelectedRemediationId(filteredRemediations[0]?.id ?? null);
     }
@@ -265,7 +267,10 @@ export default function WorkflowRemediationsPage() {
 
               <div className="min-h-0 flex-1 space-y-2 overflow-auto pr-1">
                 {filteredRemediations.map((remediation) => {
-                  const workflowName = getWorkflowName(remediation, workflowsById);
+                  const workflowName = getWorkflowName(
+                    remediation,
+                    workflowsById,
+                  );
                   const noteSummary = summarizeRemediationNote(
                     remediation.developer_note,
                   );
@@ -303,7 +308,9 @@ export default function WorkflowRemediationsPage() {
                           </Badge>
                         )}
                         {remediation.action && (
-                          <Badge variant="secondary">{remediation.action}</Badge>
+                          <Badge variant="secondary">
+                            {remediation.action}
+                          </Badge>
                         )}
                       </div>
 
@@ -312,7 +319,8 @@ export default function WorkflowRemediationsPage() {
                       </p>
 
                       <p className="mt-3 text-xs text-muted-foreground">
-                        Updated {formatRemediationTimestamp(remediation.updated_at)}
+                        Updated{" "}
+                        {formatRemediationTimestamp(remediation.updated_at)}
                       </p>
                     </button>
                   );
@@ -350,7 +358,9 @@ export default function WorkflowRemediationsPage() {
                       <h2 className="truncate text-xl font-semibold text-foreground">
                         {selectedWorkflowName}
                       </h2>
-                      <Badge variant="outline">{selectedRemediation.status}</Badge>
+                      <Badge variant="outline">
+                        {selectedRemediation.status}
+                      </Badge>
                       {selectedRemediation.classification && (
                         <Badge variant="secondary">
                           {selectedRemediation.classification}
@@ -395,11 +405,15 @@ export default function WorkflowRemediationsPage() {
                   />
                   <DetailLabel
                     label="Claimed at"
-                    value={formatRemediationTimestamp(selectedRemediation.claimed_at)}
+                    value={formatRemediationTimestamp(
+                      selectedRemediation.claimed_at,
+                    )}
                   />
                   <DetailLabel
                     label="Updated at"
-                    value={formatRemediationTimestamp(selectedRemediation.updated_at)}
+                    value={formatRemediationTimestamp(
+                      selectedRemediation.updated_at,
+                    )}
                   />
                   <DetailLabel
                     label="Fingerprint"
@@ -443,7 +457,11 @@ export default function WorkflowRemediationsPage() {
                       Artifacts
                     </h3>
                     <pre className="max-h-[320px] overflow-auto rounded-lg border border-border bg-muted/20 p-4 text-xs text-foreground">
-                      {JSON.stringify(selectedRemediation.artifacts ?? {}, null, 2)}
+                      {JSON.stringify(
+                        selectedRemediation.artifacts ?? {},
+                        null,
+                        2,
+                      )}
                     </pre>
                   </div>
                   <div className="space-y-2">
