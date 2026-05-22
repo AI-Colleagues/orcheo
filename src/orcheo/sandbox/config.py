@@ -38,7 +38,7 @@ class SandboxSettings(BaseModel):
         ),
     )
     image: str = Field(
-        default="orcheo/workspace-sandbox:latest",
+        default="ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest",
         description=(
             "OCI image hosting the agent CLIs, Orcheo CLI, and workflow "
             "runner. One image per workspace sandbox."

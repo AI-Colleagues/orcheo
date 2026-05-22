@@ -560,6 +560,129 @@ def _attempt_docker_autoinstall(*, console: Console) -> bool:
     return installer(console=console)
 
 
+# Pipelines run as root via `sh -c` so the apt key + source list land in the
+# locations the official gVisor install docs use.
+_GVISOR_KEYRING_COMMAND = (
+    "curl -fsSL https://gvisor.dev/archive.key | "
+    "gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg"
+)
+_GVISOR_SOURCES_COMMAND = (
+    'echo "deb [arch=$(dpkg --print-architecture) '
+    "signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] "
+    'https://storage.googleapis.com/gvisor/releases release main" '
+    "> /etc/apt/sources.list.d/gvisor.list"
+)
+
+
+def _docker_runtimes(*, use_privileged: bool) -> set[str] | None:
+    """Return the runtime names Docker has registered, or None if unknown."""
+    docker_command = _docker_command()
+    if docker_command is None:
+        return None
+    command = [*docker_command, "info", "--format", "{{json .Runtimes}}"]
+    if use_privileged and os.geteuid() != 0:
+        if not _has_binary("sudo"):
+            return None
+        command = ["sudo", *command]
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout.strip() or "{}")
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return set(data.keys())
+
+
+def _attempt_linux_gvisor_autoinstall(*, console: Console) -> bool:
+    if not _is_supported_docker_autoinstall_linux():
+        console.print(
+            "[yellow]Automatic gVisor installation currently supports apt-based "
+            "Ubuntu/Debian systems on Linux. Install runsc manually or set "
+            "ORCHEO_CONTAINER_RUNTIME=runc.[/yellow]"
+        )
+        return False
+    if not _has_binary("apt-get"):
+        console.print(
+            "[yellow]Automatic gVisor installation currently supports apt-based "
+            "Ubuntu/Debian systems on Linux.[/yellow]"
+        )
+        return False
+
+    try:
+        _run_privileged_command(["apt-get", "update"], console=console)
+        _run_privileged_command(
+            [
+                "apt-get",
+                "install",
+                "-y",
+                "--no-install-recommends",
+                "ca-certificates",
+                "curl",
+                "gnupg",
+            ],
+            console=console,
+        )
+        _run_privileged_command(["sh", "-c", _GVISOR_KEYRING_COMMAND], console=console)
+        _run_privileged_command(["sh", "-c", _GVISOR_SOURCES_COMMAND], console=console)
+        _run_privileged_command(["apt-get", "update"], console=console)
+        _run_privileged_command(["apt-get", "install", "-y", "runsc"], console=console)
+        # `runsc install` registers the runtime in /etc/docker/daemon.json; the
+        # daemon must be restarted to pick it up.
+        _run_privileged_command(["runsc", "install"], console=console)
+        _run_privileged_command(["systemctl", "restart", "docker"], console=console)
+    except (typer.BadParameter, FileNotFoundError) as exc:
+        console.print(
+            "[yellow]Automatic gVisor installation failed: "
+            f"{exc}. The stack will start, but sandboxed workflows will fail "
+            "until runsc is installed and registered with Docker.[/yellow]"
+        )
+        return False
+
+    if not _has_binary("runsc"):
+        console.print(
+            "[yellow]gVisor installation completed but the runsc binary is still "
+            "not available in PATH.[/yellow]"
+        )
+        return False
+    return True
+
+
+def _ensure_gvisor_runtime(
+    config: SetupConfig,
+    *,
+    env_file: Path,
+    use_privileged_docker: bool,
+    console: Console,
+) -> None:
+    """Install + register gVisor when the stack is configured to use runsc."""
+    runtime = _read_env_value(env_file, "ORCHEO_CONTAINER_RUNTIME") or "runsc"
+    if runtime != "runsc":
+        return
+    if not config.install_docker_if_missing:
+        return
+    if platform.system() != "Linux":
+        console.print(
+            "[yellow]ORCHEO_CONTAINER_RUNTIME=runsc, but gVisor only runs on "
+            "Linux. Set ORCHEO_CONTAINER_RUNTIME=runc for a local Docker Desktop "
+            "host, or run sandboxes on a Linux host.[/yellow]"
+        )
+        return
+
+    runtimes = _docker_runtimes(use_privileged=use_privileged_docker)
+    if runtimes is not None and "runsc" in runtimes:
+        return
+
+    console.print(
+        "[cyan]ORCHEO_CONTAINER_RUNTIME=runsc but the runsc runtime is not "
+        "registered with Docker. Attempting automatic gVisor installation..."
+        "[/cyan]"
+    )
+    _attempt_linux_gvisor_autoinstall(console=console)
+
+
 def _resolve_mode(
     mode: SetupMode | None, *, yes: bool, env_exists: bool = False
 ) -> SetupMode:
@@ -577,6 +700,7 @@ def _resolve_backend_url(
     *,
     mode: SetupMode,
     yes: bool,
+    env_file: Path | None = None,
     env_exists: bool = False,
     default_backend_url: str = "http://localhost:2025",
     preserve_existing_default: bool = True,
@@ -586,14 +710,16 @@ def _resolve_backend_url(
     if preserve_existing_default and (mode == "upgrade" or env_exists):
         if yes:
             return default_backend_url, True
-        selected = _normalize_optional_value(
-            typer.prompt(
-                "Backend URL (Enter to keep existing)",
-                default="",
-                show_default=False,
-            )
+        existing = (
+            _read_env_value(env_file, "ORCHEO_API_URL")
+            if env_file is not None and env_exists
+            else None
         )
-        if selected is None:
+        prompt_default = existing or default_backend_url
+        selected = _normalize_optional_value(
+            typer.prompt("Backend URL", default=prompt_default)
+        )
+        if selected is None or selected == existing:
             return default_backend_url, True
         return selected, False
     if yes:
@@ -1468,6 +1594,7 @@ def run_setup(
         backend_url,
         mode=resolved_mode,
         yes=yes,
+        env_file=stack_env_file,
         env_exists=has_existing_stack_env,
         default_backend_url=default_backend_url,
         preserve_existing_default=preserve_existing_backend_default,
@@ -1707,6 +1834,14 @@ def execute_setup(
     _, use_privileged_docker = _prepare_stack_start(config, console=console)
 
     if config.start_stack and _has_binary("docker"):
+        # Register gVisor before `compose up` — `runsc install` restarts the
+        # Docker daemon, which would otherwise bounce freshly-started services.
+        _ensure_gvisor_runtime(
+            config,
+            env_file=env_file,
+            use_privileged_docker=use_privileged_docker,
+            console=console,
+        )
         compose_args = _compose_args(stack_dir)
         command_runner = (
             _run_privileged_command if use_privileged_docker else _run_command
