@@ -316,8 +316,13 @@ def _register_container_routes(
 
     @app.delete("/containers/{container_id}", status_code=status.HTTP_204_NO_CONTENT)
     def stop(container_id: str) -> None:
-        handle = handles.pop(container_id, None)
-        if handle is None:
+        handle = handles.pop(container_id, None) or ContainerHandle(
+            container_id=container_id,
+            image="",
+            workspace_id="",
+            runtime="",
+        )
+        if not runtime.is_running(handle):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"unknown container {container_id}",

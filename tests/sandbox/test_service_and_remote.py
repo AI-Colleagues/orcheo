@@ -172,8 +172,29 @@ def test_provision_stop_lifecycle(
     assert stop.status_code == 204
     assert runtime.stopped, "runtime.stop was not invoked"
 
-    # Stopping again is a 404 because the handle is gone.
+    # Stopping again is a 404 because the container is no longer running.
     assert client.delete(f"/containers/{container_id}").status_code == 404
+
+
+def test_stop_works_without_cached_handle(
+    app_with_fakes: tuple[TestClient, InMemoryContainerRuntime, _FakeExecutor, _FakeInvoker],
+) -> None:
+    """DELETE /containers/{id} still stops a running container after restart."""
+    client, runtime, executor, invoker = app_with_fakes
+    spec = ContainerSpec(image="img", workspace_id="ws")
+    provision = client.post("/containers", json=_spec_payload(spec))
+    container_id = provision.json()["container_id"]
+
+    # Simulate runtime-service restart by rebuilding the app with the same runtime.
+    running_handle, _ = runtime.started[0]
+    assert runtime.is_running(running_handle) is True
+    restarted_client = TestClient(
+        build_service_app(runtime=runtime, executor=executor, invoker=invoker)
+    )
+
+    stop = restarted_client.delete(f"/containers/{container_id}")
+    assert stop.status_code == 204
+    assert runtime.is_running(running_handle) is False
 
 
 def test_exec_endpoint_calls_executor(
