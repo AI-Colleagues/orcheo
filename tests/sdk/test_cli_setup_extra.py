@@ -637,6 +637,93 @@ def test_docker_runtimes_none_when_docker_missing(
     assert setup_mod._docker_runtimes(use_privileged=False) is None
 
 
+def test_docker_runtimes_none_when_privileged_without_sudo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(setup_mod, "_docker_command", lambda: ["docker"])
+    monkeypatch.setattr(setup_mod.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(setup_mod, "_has_binary", lambda name: False)
+    assert setup_mod._docker_runtimes(use_privileged=True) is None
+
+
+def test_docker_runtimes_prepends_sudo_when_privileged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(setup_mod, "_docker_command", lambda: ["docker"])
+    monkeypatch.setattr(setup_mod.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(setup_mod, "_has_binary", lambda name: name == "sudo")
+    captured: list[list[str]] = []
+
+    class _Result:
+        returncode = 0
+        stdout = '{"runc": {}}'
+
+    def _run(command: list[str], *a: object, **k: object) -> _Result:
+        captured.append(command)
+        return _Result()
+
+    monkeypatch.setattr(setup_mod.subprocess, "run", _run)
+    assert setup_mod._docker_runtimes(use_privileged=True) == {"runc"}
+    assert captured[0][0] == "sudo"
+
+
+def test_docker_runtimes_none_on_invalid_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(setup_mod, "_docker_command", lambda: ["docker"])
+
+    class _Result:
+        returncode = 0
+        stdout = "not-json"
+
+    monkeypatch.setattr(setup_mod.subprocess, "run", lambda *a, **k: _Result())
+    assert setup_mod._docker_runtimes(use_privileged=False) is None
+
+
+def test_docker_runtimes_none_when_json_not_dict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(setup_mod, "_docker_command", lambda: ["docker"])
+
+    class _Result:
+        returncode = 0
+        stdout = "[]"
+
+    monkeypatch.setattr(setup_mod.subprocess, "run", lambda *a, **k: _Result())
+    assert setup_mod._docker_runtimes(use_privileged=False) is None
+
+
+def test_attempt_linux_gvisor_autoinstall_warns_when_apt_get_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        setup_mod, "_is_supported_docker_autoinstall_linux", lambda: True
+    )
+    monkeypatch.setattr(setup_mod, "_has_binary", lambda name: False)
+
+    console = Console(file=io.StringIO(), force_terminal=False)
+    assert not setup_mod._attempt_linux_gvisor_autoinstall(console=console)
+    assert "apt-based" in console.file.getvalue()
+
+
+def test_attempt_linux_gvisor_autoinstall_handles_command_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        setup_mod, "_is_supported_docker_autoinstall_linux", lambda: True
+    )
+    monkeypatch.setattr(setup_mod, "_has_binary", lambda name: name == "apt-get")
+
+    def _fail(command: list[str], *, console: Console) -> None:
+        raise typer.BadParameter("boom")
+
+    monkeypatch.setattr(setup_mod, "_run_privileged_command", _fail)
+
+    console = Console(file=io.StringIO(), force_terminal=False)
+    assert not setup_mod._attempt_linux_gvisor_autoinstall(console=console)
+    assert "Automatic gVisor installation failed" in console.file.getvalue()
+
+
 def test_ensure_gvisor_runtime_respects_skip_docker_install(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
