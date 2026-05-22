@@ -227,7 +227,7 @@ def main(
     client = ApiClient(
         base_url=settings.api_url,
         token=settings.service_token,
-        public_base_url=settings.chatkit_public_base_url,
+        public_base_url=settings.studio_url,
         token_provider=_create_token_provider(settings.profile),
     )
     ctx.obj = CLIState(
@@ -282,6 +282,7 @@ def _run_install_flow(
     mode: str | None,
     stack_version: str | None,
     backend_url: str | None,
+    studio_url: str | None,
     auth_mode: str | None,
     api_key: str | None,
     chatkit_domain_key: str | None,
@@ -299,6 +300,7 @@ def _run_install_flow(
     config = run_setup(
         mode=mode_value,
         backend_url=backend_url,
+        studio_url=studio_url,
         auth_mode=auth_value,
         api_key=api_key,
         chatkit_domain_key=chatkit_domain_key,
@@ -408,6 +410,10 @@ def install_command(
         str | None,
         typer.Option("--backend-url", help="Backend URL for CLI config."),
     ] = None,
+    studio_url: Annotated[
+        str | None,
+        typer.Option("--studio-url", help="Public Studio (Canvas) URL."),
+    ] = None,
     auth_mode: Annotated[
         str | None,
         typer.Option("--auth-mode", help="Auth mode: api-key or oauth."),
@@ -487,6 +493,7 @@ def install_command(
         mode=mode,
         stack_version=stack_version,
         backend_url=backend_url,
+        studio_url=studio_url,
         auth_mode=auth_mode,
         api_key=api_key,
         chatkit_domain_key=chatkit_domain_key,
@@ -518,6 +525,10 @@ def install_upgrade_command(
     backend_url: Annotated[
         str | None,
         typer.Option("--backend-url", help="Backend URL for CLI config."),
+    ] = None,
+    studio_url: Annotated[
+        str | None,
+        typer.Option("--studio-url", help="Public Studio (Canvas) URL."),
     ] = None,
     auth_mode: Annotated[
         str | None,
@@ -596,6 +607,7 @@ def install_upgrade_command(
         mode=None,
         stack_version=stack_version,
         backend_url=backend_url,
+        studio_url=studio_url,
         auth_mode=auth_mode,
         api_key=api_key,
         chatkit_domain_key=chatkit_domain_key,

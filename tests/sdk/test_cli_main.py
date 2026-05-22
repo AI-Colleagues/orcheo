@@ -31,7 +31,7 @@ def test_main_config_error_handling(
     monkeypatch.setenv("ORCHEO_CONFIG_DIR", str(config_dir))
     monkeypatch.delenv("ORCHEO_API_URL", raising=False)
     monkeypatch.delenv("ORCHEO_SERVICE_TOKEN", raising=False)
-    monkeypatch.delenv("ORCHEO_CHATKIT_PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("ORCHEO_STUDIO_URL", raising=False)
     payload = [{"id": "wf-1", "name": "Demo", "slug": "demo", "is_archived": False}]
     with respx.mock(assert_all_called=True) as router:
         router.get("http://localhost:2025/api/workflows").mock(
@@ -423,6 +423,7 @@ def test_run_install_flow_forced_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     config = SetupConfig(
         mode="install",
         backend_url="http://example",
+        studio_url="http://localhost:2026",
         auth_mode="api-key",
         api_key="key",
         chatkit_domain_key=None,
@@ -469,6 +470,7 @@ def test_run_install_flow_forced_mode(monkeypatch: pytest.MonkeyPatch) -> None:
         mode="install",
         stack_version="0.1.0",
         backend_url="http://example",
+        studio_url="http://localhost:2026",
         auth_mode="api-key",
         api_key=None,
         chatkit_domain_key=None,
@@ -491,6 +493,7 @@ def test_run_install_flow_parses_modes(monkeypatch: pytest.MonkeyPatch) -> None:
     config = SetupConfig(
         mode="install",
         backend_url="http://example",
+        studio_url="http://localhost:2026",
         auth_mode="api-key",
         api_key=None,
         chatkit_domain_key=None,
@@ -520,6 +523,7 @@ def test_run_install_flow_parses_modes(monkeypatch: pytest.MonkeyPatch) -> None:
         mode="install",
         stack_version=None,
         backend_url=None,
+        studio_url=None,
         auth_mode="oauth",
         api_key=None,
         chatkit_domain_key=None,
@@ -738,7 +742,7 @@ def test_main_skips_update_check_when_disabled(
         profile="default",
         api_url="http://localhost:2025",
         service_token="token",
-        chatkit_public_base_url="http://localhost:2026",
+        studio_url="http://localhost:2026",
     )
     cache_calls: list[tuple[Path, timedelta]] = []
     client_calls: list[dict[str, object]] = []
@@ -868,7 +872,7 @@ def test_main_callback_sets_workspace_env(
         profile="default",
         api_url="http://localhost:2025",
         service_token="token",
-        chatkit_public_base_url="http://localhost:2026",
+        studio_url="http://localhost:2026",
     )
     monkeypatch.setattr(main_mod, "resolve_settings", lambda **kwargs: settings)
     monkeypatch.setattr(main_mod, "get_cache_dir", lambda: tmp_path / "cache")

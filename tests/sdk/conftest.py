@@ -29,7 +29,7 @@ def env(tmp_path: Path) -> dict[str, str]:
         "ORCHEO_CACHE_DIR": str(cache_dir),
         "ORCHEO_PLUGIN_DIR": str(plugin_dir),
         "ORCHEO_STACK_DIR": str(stack_dir),
-        "ORCHEO_CHATKIT_PUBLIC_BASE_URL": "",
+        "ORCHEO_STUDIO_URL": "",
         "ORCHEO_AUTH_ISSUER": "",
         "ORCHEO_AUTH_CLIENT_ID": "",
         "ORCHEO_AUTH_SCOPES": "",
@@ -58,7 +58,7 @@ def machine_env(tmp_path: Path) -> dict[str, str]:
         "ORCHEO_CACHE_DIR": str(cache_dir),
         "ORCHEO_PLUGIN_DIR": str(plugin_dir),
         "ORCHEO_STACK_DIR": str(stack_dir),
-        "ORCHEO_CHATKIT_PUBLIC_BASE_URL": "",
+        "ORCHEO_STUDIO_URL": "",
         "ORCHEO_AUTH_ISSUER": "",
         "ORCHEO_AUTH_CLIENT_ID": "",
         "ORCHEO_AUTH_SCOPES": "",
@@ -78,7 +78,7 @@ def mock_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ORCHEO_API_URL", "http://api.test")
     monkeypatch.setenv("ORCHEO_SERVICE_TOKEN", "test-token")
     monkeypatch.setenv("ORCHEO_HUMAN", "1")
-    monkeypatch.delenv("ORCHEO_CHATKIT_PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("ORCHEO_STUDIO_URL", raising=False)
 
 
 @pytest.fixture()

@@ -28,7 +28,7 @@ def test_config_command_writes_selected_profile_from_env_file(
             [
                 "ORCHEO_API_URL=http://env-file.test",
                 "ORCHEO_SERVICE_TOKEN=env-token",
-                "ORCHEO_CHATKIT_PUBLIC_BASE_URL=http://canvas.test",
+                "ORCHEO_STUDIO_URL=http://canvas.test",
                 "ORCHEO_AUTH_ISSUER=https://auth.env-file.test",
                 "ORCHEO_AUTH_CLIENT_ID=env-client-id",
                 "ORCHEO_AUTH_SCOPES=openid email",
@@ -52,7 +52,7 @@ def test_config_command_writes_selected_profile_from_env_file(
     profile = data["profiles"]["local"]
     assert profile["api_url"] == "http://env-file.test"
     assert profile["service_token"] == "env-token"
-    assert profile["chatkit_public_base_url"] == "http://canvas.test"
+    assert profile["studio_url"] == "http://canvas.test"
     assert profile["auth_issuer"] == "https://auth.env-file.test"
     assert profile["auth_client_id"] == "env-client-id"
     assert profile["auth_scopes"] == "openid email"
@@ -401,7 +401,7 @@ def test_config_command_invalid_toml(
             ctx=mock_ctx,
             api_url=env["ORCHEO_API_URL"],
             service_token=None,
-            chatkit_public_base_url=None,
+            studio_url=None,
             env_file=None,
         )
 
@@ -448,7 +448,7 @@ def test_config_command_incomplete_oauth_issuer_only(
             ctx=mock_ctx,
             api_url="http://api.test",
             service_token=None,
-            chatkit_public_base_url=None,
+            studio_url=None,
             auth_issuer="https://auth.example.com",
             auth_client_id=None,
             auth_scopes=None,
@@ -498,7 +498,7 @@ def test_config_command_incomplete_oauth_client_id_only(
             ctx=mock_ctx,
             api_url="http://api.test",
             service_token=None,
-            chatkit_public_base_url=None,
+            studio_url=None,
             auth_issuer=None,
             auth_client_id="my-client",
             auth_scopes=None,
@@ -548,7 +548,7 @@ def test_config_command_incomplete_oauth_missing_audience(
             ctx=mock_ctx,
             api_url="http://api.test",
             service_token=None,
-            chatkit_public_base_url=None,
+            studio_url=None,
             auth_issuer="https://auth.example.com",
             auth_client_id="my-client",
             auth_scopes=None,

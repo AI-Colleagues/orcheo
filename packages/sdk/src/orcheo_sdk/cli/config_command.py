@@ -20,11 +20,11 @@ from orcheo_sdk.cli.auth.config import (
 )
 from orcheo_sdk.cli.config import (
     API_URL_ENV,
-    CHATKIT_PUBLIC_BASE_URL_ENV,
     CONFIG_FILENAME,
     DEFAULT_PROFILE,
     PROFILE_ENV,
     SERVICE_TOKEN_ENV,
+    STUDIO_URL_ENV,
     get_config_dir,
     load_profiles,
 )
@@ -273,7 +273,7 @@ def _resolve_profiles_with_overrides(
     profiles: dict[str, dict[str, Any]],
     resolved_api_url_override: str | None,
     resolved_service_token: str | None,
-    resolved_public_base_url: str | None,
+    resolved_studio_url: str | None,
     oauth_values: dict[str, str],
 ) -> dict[str, dict[str, Any]]:
     resolved_profiles = dict(profiles)
@@ -287,8 +287,8 @@ def _resolve_profiles_with_overrides(
         profile_data["api_url"] = resolved_api_url
         if resolved_service_token:
             profile_data["service_token"] = resolved_service_token
-        if resolved_public_base_url:
-            profile_data["chatkit_public_base_url"] = resolved_public_base_url
+        if resolved_studio_url:
+            profile_data["studio_url"] = resolved_studio_url
         profile_data.update(oauth_values)
         _validate_oauth_completeness(profile_data)
 
@@ -318,11 +318,11 @@ def configure(
         str | None,
         typer.Option("--service-token", help="Service token to write."),
     ] = None,
-    chatkit_public_base_url: Annotated[
+    studio_url: Annotated[
         str | None,
         typer.Option(
-            "--chatkit-public-base-url",
-            help="ChatKit public base URL to write.",
+            "--studio-url",
+            help="Studio URL to write.",
         ),
     ] = None,
     auth_issuer: Annotated[
@@ -380,10 +380,10 @@ def configure(
         env_data=env_data,
         override=service_token,
     )
-    resolved_public_base_url = _resolve_value(
-        CHATKIT_PUBLIC_BASE_URL_ENV,
+    resolved_studio_url = _resolve_value(
+        STUDIO_URL_ENV,
         env_data=env_data,
-        override=chatkit_public_base_url,
+        override=studio_url,
     )
     oauth_values = _resolve_oauth_values(
         env_data=env_data,
@@ -399,7 +399,7 @@ def configure(
         profiles=profiles,
         resolved_api_url_override=resolved_api_url_override,
         resolved_service_token=resolved_service_token,
-        resolved_public_base_url=resolved_public_base_url,
+        resolved_studio_url=resolved_studio_url,
         oauth_values=oauth_values,
     )
 

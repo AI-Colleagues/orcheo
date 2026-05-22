@@ -1,5 +1,5 @@
 const WORKSPACE_SLUG_KEY = "orcheo_canvas_workspace_slug";
-const DEFAULT_WORKSPACE_HEADER = "X-Orcheo-Workspace";
+const WORKSPACE_HEADER = "X-Orcheo-Workspace";
 
 const safeLocalStorageGet = (key: string): string | null => {
   if (typeof window === "undefined") {
@@ -31,12 +31,7 @@ const safeLocalStorageSet = (key: string, value: string | null): void => {
 
 const normalizeSlug = (value: string): string => value.trim();
 
-export const getWorkspaceHeaderName = (): string => {
-  const configured = (import.meta.env
-    ?.VITE_ORCHEO_MULTI_WORKSPACE_WORKSPACE_HEADER ?? "") as string;
-  const normalized = configured.trim();
-  return normalized || DEFAULT_WORKSPACE_HEADER;
-};
+export const getWorkspaceHeaderName = (): string => WORKSPACE_HEADER;
 
 export const getSelectedWorkspaceSlug = (): string | null => {
   const slug = safeLocalStorageGet(WORKSPACE_SLUG_KEY);

@@ -71,9 +71,9 @@ def _normalize_workspace_id(value: str) -> str:
     return value.strip().lower()
 
 
-def _resolve_chatkit_public_base_url() -> str | None:
+def _resolve_studio_url() -> str | None:
     settings = get_settings()
-    value = settings.get("CHATKIT_PUBLIC_BASE_URL")
+    value = settings.get("STUDIO_URL")
     if not value:
         return None
     return str(value).rstrip("/")
@@ -419,7 +419,7 @@ async def get_public_workflow(
                 "code": "workflow.not_public",
             },
         )
-    return _serialize_public_workflow(workflow, _resolve_chatkit_public_base_url())
+    return _serialize_public_workflow(workflow, _resolve_studio_url())
 
 
 @router.get("/workflows", response_model=list[WorkflowListItem])
@@ -437,7 +437,7 @@ async def list_workflows(
     )
     if all(workflow.id != managed_workflow.id for workflow in workflows):
         workflows.append(managed_workflow)
-    public_base_url = _resolve_chatkit_public_base_url()
+    public_base_url = _resolve_studio_url()
     return await asyncio.gather(
         *[
             _build_workflow_list_item(repository, workflow)
@@ -479,7 +479,7 @@ async def create_workflow(
         workflow = await repository.create_workflow(
             **create_kwargs,
         )
-        return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
+        return _apply_share_url(workflow, _resolve_studio_url())
     except WorkflowHandleConflictError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -502,7 +502,7 @@ async def get_workflow(
         workflow_ref,
         workspace_id=tid,
     )
-    return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
+    return _apply_share_url(workflow, _resolve_studio_url())
 
 
 @router.get("/workflows/{workflow_ref}/canvas", response_model=WorkflowCanvasPayload)
@@ -520,7 +520,7 @@ async def get_workflow_canvas(
     )
     versions = await repository.list_versions(workflow.id)
     return WorkflowCanvasPayload(
-        workflow=_apply_share_url(workflow, _resolve_chatkit_public_base_url()),
+        workflow=_apply_share_url(workflow, _resolve_studio_url()),
         versions=[_to_canvas_version_summary(version) for version in versions],
     )
 
@@ -568,7 +568,7 @@ async def update_workflow(
             workflow.id,
             **update_kwargs,
         )
-        return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
+        return _apply_share_url(workflow, _resolve_studio_url())
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
     except WorkflowHandleConflictError as exc:
@@ -604,7 +604,7 @@ async def archive_workflow(
             },
         )
     workflow = await repository.archive_workflow(workflow.id, actor=resolved_actor)
-    return _apply_share_url(workflow, _resolve_chatkit_public_base_url())
+    return _apply_share_url(workflow, _resolve_studio_url())
 
 
 @router.post(
@@ -816,7 +816,7 @@ async def publish_workflow(
             require_login=request.require_login,
             actor=actor,
         )
-        workflow = _apply_share_url(workflow, _resolve_chatkit_public_base_url())
+        workflow = _apply_share_url(workflow, _resolve_studio_url())
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
     except WorkflowPublishStateError as exc:
@@ -862,7 +862,7 @@ async def revoke_workflow_publish(
 
     try:
         workflow = await repository.revoke_publish(workflow.id, actor=actor)
-        workflow = _apply_share_url(workflow, _resolve_chatkit_public_base_url())
+        workflow = _apply_share_url(workflow, _resolve_studio_url())
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
     except WorkflowPublishStateError as exc:

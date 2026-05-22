@@ -13,7 +13,6 @@ from orcheo.config.types import (
     WorkspaceBackend,
 )
 from orcheo.config.vault_settings import VaultSettings
-from orcheo.config.workspace_settings import MultiWorkspaceSettings
 
 
 class AppSettings(BaseModel):
@@ -37,7 +36,7 @@ class AppSettings(BaseModel):
     chatkit_storage_path: str = Field(
         default=cast(str, _DEFAULTS["CHATKIT_STORAGE_PATH"])
     )
-    chatkit_public_base_url: str | None = None
+    studio_url: str | None = None
     chatkit_max_upload_size_bytes: int = Field(
         default=cast(int, _DEFAULTS["CHATKIT_MAX_UPLOAD_SIZE_BYTES"]), gt=0
     )
@@ -71,9 +70,6 @@ class AppSettings(BaseModel):
     host: str = Field(default=cast(str, _DEFAULTS["HOST"]))
     port: int = Field(default=cast(int, _DEFAULTS["PORT"]))
     vault: VaultSettings = Field(default_factory=VaultSettings)
-    multi_workspace: MultiWorkspaceSettings = Field(
-        default_factory=MultiWorkspaceSettings
-    )
     tracing_exporter: str = Field(default=cast(str, _DEFAULTS["TRACING_EXPORTER"]))
     tracing_endpoint: str | None = None
     tracing_service_name: str = Field(
@@ -182,9 +178,9 @@ class AppSettings(BaseModel):
     def _coerce_chatkit_storage_path(cls, value: object) -> str:
         return str(value) if value is not None else ""
 
-    @field_validator("chatkit_public_base_url", mode="before")
+    @field_validator("studio_url", mode="before")
     @classmethod
-    def _coerce_chatkit_public_base_url(cls, value: object) -> str | None:
+    def _coerce_studio_url(cls, value: object) -> str | None:
         if value is None:
             return None
         candidate = str(value).strip()

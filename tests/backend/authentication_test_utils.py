@@ -113,7 +113,7 @@ def reset_auth_state(
         "ORCHEO_AUTH_DEV_SCOPES",
         "ORCHEO_AUTH_DEV_WORKSPACE_IDS",
         "ORCHEO_WORKSPACE_BACKEND",
-        "ORCHEO_CHATKIT_PUBLIC_BASE_URL",
+        "ORCHEO_STUDIO_URL",
         "ORCHEO_CORS_ALLOW_ORIGINS",
     ):
         monkeypatch.setenv(key, "")

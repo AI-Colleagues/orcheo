@@ -126,10 +126,10 @@ def publish_workflow(
         show_default=False,
     ),
     force: ForceOption = False,
-    chatkit_public_base_url: str | None = typer.Option(
+    studio_url: str | None = typer.Option(
         None,
-        "--chatkit-public-base-url",
-        help="Override the ChatKit share URL origin for this publish command.",
+        "--studio-url",
+        help="Override the Studio share URL origin for this publish command.",
     ),
 ) -> None:
     """Publish a workflow for ChatKit access."""
@@ -147,7 +147,7 @@ def publish_workflow(
         typer.confirm(prompt, abort=True)
 
     try:
-        share_origin = chatkit_public_base_url or state.settings.chatkit_public_base_url
+        share_origin = studio_url or state.settings.studio_url
 
         result = publish_workflow_data(
             state.client,

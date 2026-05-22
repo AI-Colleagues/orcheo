@@ -66,7 +66,7 @@ def test_publish_workflow_with_custom_public_base(
                 "publish",
                 "wf-1",
                 "--force",
-                "--chatkit-public-base-url",
+                "--studio-url",
                 "https://canvas.test",
             ],
             env=env,
