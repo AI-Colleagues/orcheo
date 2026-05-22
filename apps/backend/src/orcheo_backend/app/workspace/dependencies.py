@@ -45,6 +45,8 @@ __all__ = [
 ]
 
 
+WORKSPACE_HEADER = "X-Orcheo-Workspace"
+
 _workspace_repository_ref: dict[str, WorkspaceRepository | None] = {"repository": None}
 _workspace_service_ref: dict[str, WorkspaceService | None] = {"service": None}
 
@@ -105,11 +107,7 @@ def get_workspace_resolver() -> WorkspaceResolver:
 
 
 def _read_workspace_header(request: Request) -> str | None:
-    settings = get_settings()
-    header_name = str(
-        settings.get("MULTI_WORKSPACE_WORKSPACE_HEADER", "X-Orcheo-Workspace")
-    )
-    raw = request.headers.get(header_name)
+    raw = request.headers.get(WORKSPACE_HEADER)
     if raw is None:
         return None
     candidate = raw.strip()

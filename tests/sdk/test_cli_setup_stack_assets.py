@@ -113,6 +113,7 @@ def _setup_config() -> SetupConfig:
     return SetupConfig(
         mode="install",
         backend_url="http://localhost:2025",
+        studio_url="http://localhost:2026",
         auth_mode="api-key",
         api_key="generated",
         chatkit_domain_key=None,
@@ -291,6 +292,7 @@ def test_run_setup_upgrade_preserves_existing_api_key_by_default(
     config = run_setup(
         mode="upgrade",
         backend_url=None,
+        studio_url=None,
         auth_mode=None,
         api_key=None,
         chatkit_domain_key=None,
@@ -318,6 +320,7 @@ def test_run_setup_upgrade_honors_explicit_api_key(
     config = run_setup(
         mode="upgrade",
         backend_url=None,
+        studio_url=None,
         auth_mode="api-key",
         api_key="explicit-token",
         chatkit_domain_key=None,
@@ -352,6 +355,7 @@ def test_run_setup_install_preserves_existing_env_by_default(
     config = run_setup(
         mode="install",
         backend_url=None,
+        studio_url=None,
         auth_mode=None,
         api_key=None,
         chatkit_domain_key=None,
@@ -390,6 +394,7 @@ def test_run_setup_install_explicit_public_ingress_updates_backend_url_defaults(
     config = run_setup(
         mode="install",
         backend_url=None,
+        studio_url=None,
         auth_mode="api-key",
         api_key=None,
         chatkit_domain_key=None,
@@ -471,7 +476,7 @@ def test_execute_setup_preserves_existing_tunnel_browser_origin_settings(
     stack_dir = tmp_path / "stack"
     stack_dir.mkdir(parents=True)
     (stack_dir / ".env").write_text(
-        "ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://orcheo-canvas.example.com\n"
+        "ORCHEO_STUDIO_URL=https://orcheo-canvas.example.com\n"
         "ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com\n"
         "VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com\n",
         encoding="utf-8",
@@ -481,13 +486,11 @@ def test_execute_setup_preserves_existing_tunnel_browser_origin_settings(
     config = _setup_config()
     config.mode = "upgrade"
     config.start_stack = False
+    config.studio_url = "https://orcheo-canvas.example.com"
     execute_setup(config, console=Console(record=True))
 
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
-    assert (
-        "ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://orcheo-canvas.example.com"
-        in env_content
-    )
+    assert "ORCHEO_STUDIO_URL=https://orcheo-canvas.example.com" in env_content
     assert "ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com" in env_content
     assert (
         "VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com"
@@ -1268,6 +1271,7 @@ def test_setup_build_env_updates_and_warn_missing_branch(
     config = SetupConfig(
         mode="install",
         backend_url="http://localhost:2025",
+        studio_url="http://localhost:2026",
         auth_mode="api-key",
         api_key=None,
         chatkit_domain_key="domain_pk_live",
@@ -1378,6 +1382,7 @@ def test_run_setup_prints_generated_key_and_oauth_notice(
     setup_mod.run_setup(
         mode="install",
         backend_url="http://localhost:2025",
+        studio_url="http://localhost:2026",
         auth_mode="api-key",
         api_key=None,
         chatkit_domain_key=None,
@@ -1396,6 +1401,7 @@ def test_run_setup_prints_generated_key_and_oauth_notice(
     setup_mod.run_setup(
         mode="install",
         backend_url="http://localhost:2025",
+        studio_url="http://localhost:2026",
         auth_mode="oauth",
         api_key=None,
         chatkit_domain_key=None,
@@ -1424,6 +1430,7 @@ def test_run_setup_public_ingress_derives_public_env_contract(
     config = setup_mod.run_setup(
         mode="install",
         backend_url=None,
+        studio_url=None,
         auth_mode="api-key",
         api_key="token",
         chatkit_domain_key=None,
@@ -1441,7 +1448,7 @@ def test_run_setup_public_ingress_derives_public_env_contract(
     assert config.backend_url == "https://orcheo.example.com"
     assert updates["ORCHEO_API_URL"] == "https://orcheo.example.com"
     assert updates["VITE_ORCHEO_BACKEND_URL"] == "https://orcheo.example.com"
-    assert updates["ORCHEO_CHATKIT_PUBLIC_BASE_URL"] == "https://orcheo.example.com"
+    assert updates["ORCHEO_STUDIO_URL"] == "https://orcheo.example.com"
     assert updates["ORCHEO_CORS_ALLOW_ORIGINS"] == (
         "https://orcheo.example.com,http://localhost:2026,http://127.0.0.1:2026"
     )
@@ -1462,6 +1469,7 @@ def test_run_setup_public_ingress_requires_hostname_with_yes(
         run_setup(
             mode="install",
             backend_url=None,
+            studio_url=None,
             auth_mode="api-key",
             api_key=None,
             chatkit_domain_key=None,
@@ -1487,6 +1495,7 @@ def test_setup_public_ingress_helpers_and_summary(
     config.publish_local_ports = False
     config.start_stack = False
     config.backend_url = "https://orcheo.example.com"
+    config.studio_url = "https://orcheo.example.com"
 
     assert setup_mod._build_cors_origins(config) == "https://orcheo.example.com"
     assert setup_mod._build_healthcheck_url(config) is None

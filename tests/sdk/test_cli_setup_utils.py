@@ -1,10 +1,31 @@
 """Tests for CLI setup helper utilities."""
 
 from __future__ import annotations
+from pathlib import Path
 import pytest
 import typer
 from rich.console import Console
 from orcheo_sdk.cli import setup as setup_mod
+
+
+def _make_config(**overrides: object) -> setup_mod.SetupConfig:
+    base: dict[str, object] = {
+        "mode": "install",
+        "backend_url": "http://localhost:2025",
+        "studio_url": "http://localhost:2026",
+        "auth_mode": "api-key",
+        "api_key": "key",
+        "chatkit_domain_key": None,
+        "public_ingress_enabled": False,
+        "public_host": None,
+        "publish_local_ports": True,
+        "backend_upstreams": "backend:2025",
+        "canvas_upstream": "canvas:2026",
+        "start_stack": False,
+        "install_docker_if_missing": False,
+    }
+    base.update(overrides)
+    return setup_mod.SetupConfig(**base)  # type: ignore[arg-type]
 
 
 class _MissingOsReleasePath:
@@ -169,3 +190,51 @@ def test_attempt_docker_autoinstall_returns_false_when_docker_still_missing(
     monkeypatch.setattr(setup_mod, "_current_username", lambda: None)
 
     assert not setup_mod._attempt_docker_autoinstall(console=Console(record=True))
+
+
+def test_resolve_studio_url_prompts_with_existing_env_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "ORCHEO_STUDIO_URL=https://saved.example.com\n", encoding="utf-8"
+    )
+
+    captured: dict[str, object] = {}
+
+    def _prompt(message: str, *, default: str) -> str:
+        captured["message"] = message
+        captured["default"] = default
+        return default
+
+    monkeypatch.setattr(setup_mod.typer, "prompt", _prompt)
+
+    assert (
+        setup_mod._resolve_studio_url(
+            None,
+            public_ingress_enabled=False,
+            public_host=None,
+            yes=False,
+            env_file=env_file,
+            env_exists=True,
+        )
+        == "https://saved.example.com"
+    )
+    assert captured["message"] == "Studio URL"
+    assert captured["default"] == "https://saved.example.com"
+
+
+def test_studio_origin_returns_none_without_scheme_or_netloc() -> None:
+    assert setup_mod._studio_origin("localhost") is None
+
+
+def test_build_cors_origins_skips_missing_studio_origin() -> None:
+    config = _make_config(studio_url="", publish_local_ports=True)
+    assert setup_mod._build_cors_origins(config) == (
+        "http://localhost:2026,http://127.0.0.1:2026"
+    )
+
+
+def test_build_allowed_hosts_skips_missing_studio_host() -> None:
+    config = _make_config(studio_url="")
+    assert setup_mod._build_allowed_hosts(config) == "localhost,127.0.0.1"

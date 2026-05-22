@@ -17,13 +17,11 @@ from orcheo.config.types import (
     VaultBackend,
 )
 from orcheo.config.vault_settings import VaultSettings
-from orcheo.config.workspace_settings import MultiWorkspaceSettings
 
 
 __all__ = [
     "AppSettings",
     "ChatKitRateLimitSettings",
-    "MultiWorkspaceSettings",
     "VaultSettings",
     "ChatKitBackend",
     "CheckpointBackend",

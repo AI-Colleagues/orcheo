@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from urllib.request import urlopen
 import typer
 from rich.console import Console
@@ -60,6 +60,7 @@ class SetupConfig:
 
     mode: SetupMode
     backend_url: str
+    studio_url: str
     auth_mode: AuthMode
     api_key: str | None
     chatkit_domain_key: str | None
@@ -599,6 +600,32 @@ def _resolve_backend_url(
     return typer.prompt("Backend URL", default=default_backend_url), False
 
 
+def _resolve_studio_url(
+    studio_url: str | None,
+    *,
+    public_ingress_enabled: bool,
+    public_host: str | None,
+    yes: bool,
+    env_file: Path,
+    env_exists: bool,
+) -> str:
+    normalized = _normalize_optional_value(studio_url)
+    if normalized is not None:
+        return normalized
+    default = (
+        f"https://{public_host}"
+        if public_ingress_enabled and public_host is not None
+        else "http://localhost:2026"
+    )
+    if env_exists:
+        existing = _read_env_value(env_file, "ORCHEO_STUDIO_URL")
+        if existing:
+            default = existing
+    if yes:
+        return default
+    return typer.prompt("Studio URL", default=default)
+
+
 def _resolve_public_ingress_enabled(
     public_ingress: bool | None,
     *,
@@ -1094,8 +1121,22 @@ def _compose_profiles(config: SetupConfig) -> str:
     return ",".join(profiles)
 
 
+def _studio_origin(studio_url: str) -> str | None:
+    parsed = urlsplit(studio_url)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return None
+
+
+def _studio_host(studio_url: str) -> str | None:
+    return urlsplit(studio_url).hostname
+
+
 def _build_cors_origins(config: SetupConfig) -> str:
     origins: list[str] = []
+    studio_origin = _studio_origin(config.studio_url)
+    if studio_origin is not None:
+        origins.append(studio_origin)
     if config.public_ingress_enabled and config.public_host is not None:
         origins.append(f"https://{config.public_host}")
     if not config.public_ingress_enabled or config.publish_local_ports:
@@ -1111,15 +1152,12 @@ def _build_cors_origins(config: SetupConfig) -> str:
 
 def _build_allowed_hosts(config: SetupConfig) -> str:
     hosts = ["localhost", "127.0.0.1"]
+    studio_host = _studio_host(config.studio_url)
+    if studio_host is not None:
+        hosts.append(studio_host)
     if config.public_ingress_enabled and config.public_host is not None:
         hosts.append(config.public_host)
     return ",".join(dict.fromkeys(hosts))
-
-
-def _build_chatkit_public_base_url(config: SetupConfig) -> str:
-    if config.public_ingress_enabled and config.public_host is not None:
-        return f"https://{config.public_host}"
-    return "http://localhost:2026"
 
 
 def _build_healthcheck_url(config: SetupConfig) -> str | None:
@@ -1143,7 +1181,7 @@ def _build_env_updates(
     updates: dict[str, str] = {
         "ORCHEO_API_URL": config.backend_url,
         "VITE_ORCHEO_BACKEND_URL": config.backend_url,
-        "ORCHEO_CHATKIT_PUBLIC_BASE_URL": _build_chatkit_public_base_url(config),
+        "ORCHEO_STUDIO_URL": config.studio_url,
         "ORCHEO_CORS_ALLOW_ORIGINS": _build_cors_origins(config),
         "VITE_ORCHEO_ALLOWED_HOSTS": _build_allowed_hosts(config),
         "ORCHEO_PUBLIC_INGRESS_ENABLED": str(config.public_ingress_enabled).lower(),
@@ -1175,6 +1213,7 @@ def build_generated_stack_env_defaults() -> dict[str, str]:
         "ORCHEO_POSTGRES_PASSWORD": secrets.token_urlsafe(16),
         "ORCHEO_VAULT_ENCRYPTION_KEY": secrets.token_hex(32),
         "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY": secrets.token_urlsafe(32),
+        "ORCHEO_CREDENTIAL_BROKER_SECRET": secrets.token_urlsafe(32),
     }
 
 
@@ -1319,7 +1358,6 @@ def _preserve_existing_stack_browser_urls(
 
     if not config.public_ingress_enabled:  # pragma: no branch
         for key in (
-            "ORCHEO_CHATKIT_PUBLIC_BASE_URL",
             "ORCHEO_CORS_ALLOW_ORIGINS",
             "VITE_ORCHEO_ALLOWED_HOSTS",
         ):
@@ -1377,6 +1415,7 @@ def run_setup(
     *,
     mode: SetupMode | None,
     backend_url: str | None,
+    studio_url: str | None,
     auth_mode: AuthMode | None,
     api_key: str | None,
     chatkit_domain_key: str | None,
@@ -1432,6 +1471,14 @@ def run_setup(
         default_backend_url=default_backend_url,
         preserve_existing_default=preserve_existing_backend_default,
     )
+    resolved_studio_url = _resolve_studio_url(
+        studio_url,
+        public_ingress_enabled=resolved_public_ingress_enabled,
+        public_host=resolved_public_host,
+        yes=yes,
+        env_file=stack_env_file,
+        env_exists=has_existing_stack_env,
+    )
     resolved_auth_mode = _resolve_auth_mode(auth_mode, yes=yes)
     (
         resolved_start_stack,
@@ -1477,6 +1524,7 @@ def run_setup(
     return SetupConfig(
         mode=resolved_mode,
         backend_url=resolved_backend_url,
+        studio_url=resolved_studio_url,
         auth_mode=resolved_auth_mode,
         api_key=resolved_api_key,
         chatkit_domain_key=resolved_chatkit_domain_key,
@@ -1672,6 +1720,7 @@ def print_summary(config: SetupConfig, *, console: Console) -> None:
     summary = {
         "mode": config.mode,
         "backend_url": config.backend_url,
+        "studio_url": config.studio_url,
         "auth_mode": config.auth_mode,
         "public_ingress_enabled": config.public_ingress_enabled,
         "public_host": config.public_host,

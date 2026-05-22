@@ -7,7 +7,7 @@ _DEFAULTS: dict[str, object] = {
     "WORKSPACE_BACKEND": "postgres",
     "CHATKIT_BACKEND": "postgres",
     "CHATKIT_STORAGE_PATH": "~/.orcheo/chatkit",
-    "CHATKIT_PUBLIC_BASE_URL": None,
+    "STUDIO_URL": None,
     "CHATKIT_MAX_UPLOAD_SIZE_BYTES": 5_000_000,
     "CHATKIT_RETENTION_DAYS": 30,
     "POSTGRES_DSN": None,
@@ -39,7 +39,6 @@ _DEFAULTS: dict[str, object] = {
     "TRACING_INSECURE": False,
     "TRACING_HIGH_TOKEN_THRESHOLD": 1000,
     "TRACING_PREVIEW_MAX_LENGTH": 512,
-    "MULTI_WORKSPACE_WORKSPACE_HEADER": "X-Orcheo-Workspace",
 }
 
 __all__ = ["_DEFAULTS"]

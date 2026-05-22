@@ -68,7 +68,7 @@ def test_public_chatkit_url_forces_required_mode(
 
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
     monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", "secret")
-    monkeypatch.setenv("ORCHEO_CHATKIT_PUBLIC_BASE_URL", "https://canvas.example.com")
+    monkeypatch.setenv("ORCHEO_STUDIO_URL", "https://canvas.example.com")
     caplog.set_level(logging.WARNING)
 
     settings = load_auth_settings(refresh=True)
@@ -76,7 +76,7 @@ def test_public_chatkit_url_forces_required_mode(
     assert settings.mode == "required"
     assert settings.configured_mode == "disabled"
     assert settings.public_exposure_detected is True
-    assert settings.public_exposure_sources == ("CHATKIT_PUBLIC_BASE_URL",)
+    assert settings.public_exposure_sources == ("STUDIO_URL",)
     assert any(
         "overriding AUTH_MODE=disabled to required" in record.message
         for record in caplog.records
@@ -89,7 +89,7 @@ def test_local_urls_do_not_force_required_mode(
     """Localhost-only configuration should not trigger public exposure."""
 
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "optional")
-    monkeypatch.setenv("ORCHEO_CHATKIT_PUBLIC_BASE_URL", "http://localhost:2026")
+    monkeypatch.setenv("ORCHEO_STUDIO_URL", "http://localhost:2026")
     monkeypatch.setenv(
         "ORCHEO_CORS_ALLOW_ORIGINS",
         "http://localhost:2026,http://127.0.0.1:2026",
@@ -125,7 +125,7 @@ def test_public_deployment_rejects_dev_login(
 
     monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", "secret")
     monkeypatch.setenv("ORCHEO_AUTH_DEV_LOGIN_ENABLED", "true")
-    monkeypatch.setenv("ORCHEO_CHATKIT_PUBLIC_BASE_URL", "https://canvas.example.com")
+    monkeypatch.setenv("ORCHEO_STUDIO_URL", "https://canvas.example.com")
 
     with pytest.raises(
         RuntimeError,

@@ -6,7 +6,7 @@ import pytest
 from orcheo_sdk.cli.config import (
     API_URL_ENV,
     CACHE_DIR_ENV,
-    CHATKIT_PUBLIC_BASE_URL_ENV,
+    STUDIO_URL_ENV,
     CONFIG_DIR_ENV,
     SERVICE_TOKEN_ENV,
     get_cache_dir,
@@ -105,7 +105,7 @@ def test_resolve_settings_from_args(
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     monkeypatch.setenv(CONFIG_DIR_ENV, str(config_dir))
-    monkeypatch.delenv(CHATKIT_PUBLIC_BASE_URL_ENV, raising=False)
+    monkeypatch.delenv(STUDIO_URL_ENV, raising=False)
     settings = resolve_settings(
         profile=None,
         api_url="http://test.com",
@@ -115,7 +115,7 @@ def test_resolve_settings_from_args(
     assert settings.api_url == "http://test.com"
     assert settings.service_token == "token123"
     assert not settings.offline
-    assert settings.chatkit_public_base_url is None
+    assert settings.studio_url is None
 
 
 def test_resolve_settings_from_env(tmp_path: Path) -> None:
@@ -126,12 +126,12 @@ def test_resolve_settings_from_env(tmp_path: Path) -> None:
     original_config = os.environ.get(CONFIG_DIR_ENV)
     original_url = os.environ.get(API_URL_ENV)
     original_token = os.environ.get(SERVICE_TOKEN_ENV)
-    original_chatkit = os.environ.get(CHATKIT_PUBLIC_BASE_URL_ENV)
+    original_chatkit = os.environ.get(STUDIO_URL_ENV)
     try:
         os.environ[CONFIG_DIR_ENV] = str(config_dir)
         os.environ[API_URL_ENV] = "http://env.test"
         os.environ[SERVICE_TOKEN_ENV] = "env-token"
-        os.environ.pop(CHATKIT_PUBLIC_BASE_URL_ENV, None)
+        os.environ.pop(STUDIO_URL_ENV, None)
         settings = resolve_settings(
             profile=None,
             api_url=None,
@@ -140,7 +140,7 @@ def test_resolve_settings_from_env(tmp_path: Path) -> None:
         )
         assert settings.api_url == "http://env.test"
         assert settings.service_token == "env-token"
-        assert settings.chatkit_public_base_url is None
+        assert settings.studio_url is None
     finally:
         if original_config:
             os.environ[CONFIG_DIR_ENV] = original_config
@@ -155,9 +155,9 @@ def test_resolve_settings_from_env(tmp_path: Path) -> None:
         else:
             os.environ.pop(SERVICE_TOKEN_ENV, None)
         if original_chatkit:
-            os.environ[CHATKIT_PUBLIC_BASE_URL_ENV] = original_chatkit
+            os.environ[STUDIO_URL_ENV] = original_chatkit
         else:
-            os.environ.pop(CHATKIT_PUBLIC_BASE_URL_ENV, None)
+            os.environ.pop(STUDIO_URL_ENV, None)
 
 
 def test_resolve_settings_missing_api_url(tmp_path: Path) -> None:
@@ -184,15 +184,15 @@ def test_resolve_settings_missing_api_url(tmp_path: Path) -> None:
             os.environ.pop(CONFIG_DIR_ENV, None)
 
 
-def test_resolve_settings_uses_chatkit_public_env(
+def test_resolve_settings_uses_studio_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv(CHATKIT_PUBLIC_BASE_URL_ENV, raising=False)
-    monkeypatch.setenv(CHATKIT_PUBLIC_BASE_URL_ENV, "https://canvas.example")
+    monkeypatch.delenv(STUDIO_URL_ENV, raising=False)
+    monkeypatch.setenv(STUDIO_URL_ENV, "https://canvas.example")
     settings = resolve_settings(
         profile=None,
         api_url="http://localhost:2025/api",
         service_token=None,
         offline=False,
     )
-    assert settings.chatkit_public_base_url == "https://canvas.example"
+    assert settings.studio_url == "https://canvas.example"

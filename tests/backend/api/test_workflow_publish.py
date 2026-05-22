@@ -50,7 +50,7 @@ def test_publish_workflow_includes_share_url(
     api_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(
-        "ORCHEO_CHATKIT_PUBLIC_BASE_URL",
+        "ORCHEO_STUDIO_URL",
         "https://orcheo-canvas.ai-colleagues.com",
     )
     bootstrap_token = "publish-share-token"

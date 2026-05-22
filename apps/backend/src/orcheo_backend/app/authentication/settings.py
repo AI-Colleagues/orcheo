@@ -289,11 +289,9 @@ def _has_auth_credentials(
 
 def _detect_public_exposure(settings: Any) -> tuple[str, ...]:
     sources: list[str] = []
-    chatkit_public_base_url = _coerce_optional_str(
-        settings.get("CHATKIT_PUBLIC_BASE_URL")
-    )
-    if _is_public_url(chatkit_public_base_url):
-        sources.append("CHATKIT_PUBLIC_BASE_URL")
+    studio_url = _coerce_optional_str(settings.get("STUDIO_URL"))
+    if _is_public_url(studio_url):
+        sources.append("STUDIO_URL")
 
     cors_allow_origins = os.getenv("ORCHEO_CORS_ALLOW_ORIGINS")
     if any(

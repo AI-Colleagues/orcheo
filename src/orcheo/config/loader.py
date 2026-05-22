@@ -8,7 +8,6 @@ from orcheo.config.app_settings import AppSettings
 from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
 from orcheo.config.defaults import _DEFAULTS
 from orcheo.config.vault_settings import VaultSettings
-from orcheo.config.workspace_settings import MultiWorkspaceSettings
 
 
 def _build_loader() -> Dynaconf:
@@ -40,9 +39,7 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
             chatkit_storage_path=source.get(
                 "CHATKIT_STORAGE_PATH", _DEFAULTS["CHATKIT_STORAGE_PATH"]
             ),
-            chatkit_public_base_url=source.get(
-                "CHATKIT_PUBLIC_BASE_URL", _DEFAULTS["CHATKIT_PUBLIC_BASE_URL"]
-            ),
+            studio_url=source.get("STUDIO_URL", _DEFAULTS["STUDIO_URL"]),
             chatkit_max_upload_size_bytes=source.get(
                 "CHATKIT_MAX_UPLOAD_SIZE_BYTES",
                 _DEFAULTS["CHATKIT_MAX_UPLOAD_SIZE_BYTES"],
@@ -72,12 +69,6 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
                 aws_kms_key_id=source.get("VAULT_AWS_KMS_KEY_ID"),
                 token_ttl_seconds=source.get(
                     "VAULT_TOKEN_TTL_SECONDS", _DEFAULTS["VAULT_TOKEN_TTL_SECONDS"]
-                ),
-            ),
-            multi_workspace=MultiWorkspaceSettings(
-                workspace_header=source.get(
-                    "MULTI_WORKSPACE_WORKSPACE_HEADER",
-                    _DEFAULTS["MULTI_WORKSPACE_WORKSPACE_HEADER"],
                 ),
             ),
             chatkit_rate_limits=rate_limits,
@@ -125,7 +116,7 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("WORKSPACE_BACKEND", settings.workspace_backend)
     normalized.set("CHATKIT_BACKEND", settings.chatkit_backend)
     normalized.set("CHATKIT_STORAGE_PATH", settings.chatkit_storage_path)
-    normalized.set("CHATKIT_PUBLIC_BASE_URL", settings.chatkit_public_base_url)
+    normalized.set("STUDIO_URL", settings.studio_url)
     normalized.set(
         "CHATKIT_MAX_UPLOAD_SIZE_BYTES", settings.chatkit_max_upload_size_bytes
     )
@@ -146,10 +137,6 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("VAULT_AWS_REGION", settings.vault.aws_region)
     normalized.set("VAULT_AWS_KMS_KEY_ID", settings.vault.aws_kms_key_id)
     normalized.set("VAULT_TOKEN_TTL_SECONDS", settings.vault.token_ttl_seconds)
-    normalized.set(
-        "MULTI_WORKSPACE_WORKSPACE_HEADER",
-        settings.multi_workspace.workspace_header,
-    )
     normalized.set("CHATKIT_RATE_LIMITS", settings.chatkit_rate_limits.model_dump())
     normalized.set("TRACING_EXPORTER", settings.tracing_exporter)
     normalized.set("TRACING_ENDPOINT", settings.tracing_endpoint)
