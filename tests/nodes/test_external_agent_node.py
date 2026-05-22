@@ -567,3 +567,93 @@ async def test_run_logs_bypass_flag_audit_event(
     assert record.bypass_flags == ["--dangerous"]
     assert record.security_boundary == "container_isolation"
     assert record.node_name == "test-node"
+
+
+@pytest.mark.asyncio
+async def test_run_treats_non_string_workspace_id_as_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """workspace_id that is not a non-empty string must be normalised to None (line 127)."""
+    import orcheo.nodes.ai.external.base as base_module
+    from orcheo.external_agents.models import ProcessExecutionResult
+
+    captured_workspace_ids: list[Any] = []
+
+    async def _fake_run_process(
+        command: list[str],
+        *,
+        workspace_id: str | None = None,
+        cwd: Any = None,
+        env: Any = None,
+        timeout_seconds: Any = None,
+    ) -> ProcessExecutionResult:
+        captured_workspace_ids.append(workspace_id)
+        return ProcessExecutionResult(
+            command=command,
+            stdout="",
+            stderr="",
+            exit_code=0,
+            timed_out=False,
+            duration_seconds=0.0,
+        )
+
+    monkeypatch.setattr(base_module, "run_external_agent_process", _fake_run_process)
+
+    resolution = _make_runtime_resolution(tmp_path)
+    manager = FakeRuntimeManager(provider=DummyProvider(), resolution=resolution)
+    node = _make_node(manager)
+
+    # Put a non-string value into workspace_id to trigger the normalisation branch.
+    state = _make_state({"prompt": "run"})
+    state["workspace_id"] = 12345  # type: ignore[typeddict-item]
+
+    result = await node.run(state, RunnableConfig())
+
+    assert result["status"] == "succeeded"
+    # The manager should have received None, not the integer.
+    assert manager.workspace_id is None
+    assert captured_workspace_ids == [None]
+
+
+@pytest.mark.asyncio
+async def test_run_treats_blank_workspace_id_as_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A whitespace-only workspace_id must also be normalised to None (line 127)."""
+    import orcheo.nodes.ai.external.base as base_module
+    from orcheo.external_agents.models import ProcessExecutionResult
+
+    captured_workspace_ids: list[Any] = []
+
+    async def _fake_run_process(
+        command: list[str],
+        *,
+        workspace_id: str | None = None,
+        cwd: Any = None,
+        env: Any = None,
+        timeout_seconds: Any = None,
+    ) -> ProcessExecutionResult:
+        captured_workspace_ids.append(workspace_id)
+        return ProcessExecutionResult(
+            command=command,
+            stdout="",
+            stderr="",
+            exit_code=0,
+            timed_out=False,
+            duration_seconds=0.0,
+        )
+
+    monkeypatch.setattr(base_module, "run_external_agent_process", _fake_run_process)
+
+    resolution = _make_runtime_resolution(tmp_path)
+    manager = FakeRuntimeManager(provider=DummyProvider(), resolution=resolution)
+    node = _make_node(manager)
+
+    state = _make_state({"prompt": "run"})
+    state["workspace_id"] = "   "
+
+    result = await node.run(state, RunnableConfig())
+
+    assert result["status"] == "succeeded"
+    assert manager.workspace_id is None
+    assert captured_workspace_ids == [None]

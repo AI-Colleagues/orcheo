@@ -110,3 +110,56 @@ def test_dispatcher_missing_workspace_id_raises() -> None:
     with pytest.raises(SandboxDispatchError, match="workspace_id is required"):
         asyncio.run(go())
     assert runtime.started == []
+
+
+# ---------------------------------------------------------------------------
+# LocalProcessLauncher tests (lines 128-129)
+# ---------------------------------------------------------------------------
+
+
+def test_local_process_launcher_runs_command_in_process_tree() -> None:
+    """LocalProcessLauncher.run() executes the command via execute_process (lines 128-129)."""
+    from orcheo.sandbox.launcher import LocalProcessLauncher
+
+    results: list[ProcessExecutionResult] = []
+
+    async def _fake_execute(
+        command: list[str],
+        *,
+        cwd: object = None,
+        env: object = None,
+        timeout_seconds: object = None,
+    ) -> ProcessExecutionResult:
+        result = ProcessExecutionResult(
+            command=command,
+            stdout="hello",
+            stderr="",
+            exit_code=0,
+            timed_out=False,
+            duration_seconds=0.0,
+        )
+        results.append(result)
+        return result
+
+    async def go() -> ProcessExecutionResult:
+        import orcheo.sandbox.launcher as launcher_module
+
+        original = launcher_module.execute_process
+        launcher_module.execute_process = _fake_execute  # type: ignore[assignment]
+        try:
+            launcher = LocalProcessLauncher()
+            return await launcher.run(
+                workspace_id="ws-ignored",
+                command=["echo", "hello"],
+                cwd=None,
+                env={"FOO": "bar"},
+                timeout_seconds=5.0,
+            )
+        finally:
+            launcher_module.execute_process = original
+
+    result = asyncio.run(go())
+    assert result.stdout == "hello"
+    assert result.exit_code == 0
+    assert len(results) == 1
+    assert results[0].command == ["echo", "hello"]

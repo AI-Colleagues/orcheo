@@ -820,3 +820,71 @@ class TestExecuteWorkflowSandboxDispatch:
 
         assert result["status"] == "failed"
         assert "workspace_id" in result["error"]
+
+
+class TestExecuteSandboxedRunInWorker:
+    """Tests for _execute_sandboxed_run_in_worker function."""
+
+    @pytest.mark.asyncio
+    async def test_logs_history_error_on_append_failure(self) -> None:
+        """The except handler logs when append_step raises history_error_cls (lines 377-378)."""
+        from unittest.mock import patch
+        from orcheo_backend.worker.tasks import _execute_sandboxed_run_in_worker
+
+        history_error_cls = type("HistoryError", (Exception,), {})
+        mock_history = AsyncMock()
+        mock_history.append_step = AsyncMock(
+            side_effect=history_error_cls("store down")
+        )
+
+        from orcheo.sandbox.workflow import WorkflowRunResult
+
+        class _FakeDispatcher:
+            async def dispatch(self, spec: object) -> WorkflowRunResult:
+                return WorkflowRunResult(
+                    run_id="exec",
+                    status="succeeded",
+                    outputs={"out": "val"},
+                    error=None,
+                )
+
+        with patch("orcheo_backend.worker.tasks.logger") as mock_logger:
+            result = await _execute_sandboxed_run_in_worker(
+                dispatcher=_FakeDispatcher(),
+                spec=object(),
+                history_store=mock_history,
+                execution_id="exec-err",
+                history_error_cls=history_error_cls,
+            )
+
+        mock_logger.exception.assert_called_once()
+        assert "exec-err" in str(mock_logger.exception.call_args)
+        assert result == {"sandbox_outputs": {"out": "val"}}
+
+    @pytest.mark.asyncio
+    async def test_raises_runtime_error_on_non_succeeded_status(self) -> None:
+        """_execute_sandboxed_run_in_worker raises RuntimeError when status != 'succeeded'."""
+        from orcheo_backend.worker.tasks import _execute_sandboxed_run_in_worker
+        from orcheo.sandbox.workflow import WorkflowRunResult
+
+        history_error_cls = type("HistoryError", (Exception,), {})
+        mock_history = AsyncMock()
+        mock_history.append_step = AsyncMock(return_value=None)
+
+        class _FakeDispatcher:
+            async def dispatch(self, spec: object) -> WorkflowRunResult:
+                return WorkflowRunResult(
+                    run_id="exec",
+                    status="failed",
+                    outputs={},
+                    error="something exploded",
+                )
+
+        with pytest.raises(RuntimeError, match="something exploded"):
+            await _execute_sandboxed_run_in_worker(
+                dispatcher=_FakeDispatcher(),
+                spec=object(),
+                history_store=mock_history,
+                execution_id="exec-fail",
+                history_error_cls=history_error_cls,
+            )

@@ -316,3 +316,72 @@ def test_docker_runtime_translates_runtime_error_without_info() -> None:
     message = str(excinfo.value)
     assert "'runsc'" in message
     assert "ORCHEO_CONTAINER_RUNTIME" in message
+
+
+def test_require_local_image_passes_through_non_notfound_errors() -> None:
+    """_require_local_image returns (does not raise) for non-'not found' image errors (line 192)."""
+
+    class _FakeImages:
+        def get(self, image: str) -> object:
+            # A non-"not found" error (e.g. daemon connectivity issue).
+            raise RuntimeError("connection refused to docker daemon")
+
+    class _FakeClientConnErr:
+        def __init__(self) -> None:
+            self.images = _FakeImages()
+
+    # The method should return (not raise) for non-missing-image errors.
+    DockerContainerRuntime._require_local_image(
+        _FakeClientConnErr(), "orcheo/workspace-sandbox:latest"
+    )
+    # If we reach here without an exception the branch is covered.
+
+
+def test_docker_runtime_stop_remove_called_even_if_kill_raises() -> None:
+    """stop() calls remove in the finally block even when kill() raises (branch 221->225)."""
+
+    class _KillBoomContainer(_FakeContainer):
+        def kill(self) -> None:
+            raise RuntimeError("kill blocked by OOM killer")
+
+    class _KillBoomContainers(_FakeContainers):
+        def run(self, **kwargs: object) -> _KillBoomContainer:
+            container_id = f"c{len(self.runs)}"
+            container = _KillBoomContainer(container_id)
+            self._containers[container_id] = container
+            self.runs.append({"id": container_id, **kwargs})
+            return container
+
+    client = _FakeClient()
+    client.containers = _KillBoomContainers()
+    runtime = DockerContainerRuntime(client=client)
+    handle = runtime.start(ContainerSpec(image="img", workspace_id="W"))
+    container = client.containers.get(handle.container_id)
+
+    with pytest.raises(RuntimeError, match="kill blocked"):
+        runtime.stop(handle)
+
+    # remove must have been called in the finally block despite kill raising.
+    assert container.removed is True
+
+
+def test_docker_runtime_translates_runtime_error_with_empty_runtimes_info() -> None:
+    """Branch 221->225: when info() Runtimes is not a dict, available stays empty."""
+    import pytest
+
+    class _NoRuntimesClient(_ClientWithRuntimes):
+        def info(self) -> dict[str, object]:
+            # info() returns a dict without 'Runtimes', so runtimes is None.
+            return {}
+
+    runtime = DockerContainerRuntime(client=_NoRuntimesClient())
+    spec = ContainerSpec(image="img", workspace_id="W", runtime="runsc")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        runtime.start(spec)
+
+    message = str(excinfo.value)
+    assert "'runsc'" in message
+    assert "ORCHEO_CONTAINER_RUNTIME" in message
+    # No available runtimes listed since info had none.
+    assert "Available runtimes" not in message
