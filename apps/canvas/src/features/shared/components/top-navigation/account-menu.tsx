@@ -16,7 +16,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/design-system/ui/dialog";
-import { Key, KeyRound, LogOut, Settings, User, Users } from "lucide-react";
+import { Building2, LogOut, Settings, User, Vault } from "lucide-react";
 import {
   clearAuthSession,
   getAuthenticatedUserProfile,
@@ -118,19 +118,8 @@ export default function AccountMenu({
                 to={`/${workspaceSlug}/workspace`}
                 className="flex w-full items-center gap-0"
               >
-                <Users className="mr-2 h-4 w-4" />
-                <span>Workspace Members</span>
-              </Link>
-            </DropdownMenuItem>
-          )}
-          {workspaceSlug && (
-            <DropdownMenuItem asChild>
-              <Link
-                to={`/${workspaceSlug}/tokens`}
-                className="flex w-full items-center gap-0"
-              >
-                <KeyRound className="mr-2 h-4 w-4" />
-                <span>API Keys</span>
+                <Building2 className="mr-2 h-4 w-4" />
+                <span>Workspace Management</span>
               </Link>
             </DropdownMenuItem>
           )}
@@ -142,7 +131,7 @@ export default function AccountMenu({
                 handleVaultOpenChange(true);
               }}
             >
-              <Key className="mr-2 h-4 w-4" />
+              <Vault className="mr-2 h-4 w-4" />
               <span>Credential Vault</span>
             </button>
           </DropdownMenuItem>
