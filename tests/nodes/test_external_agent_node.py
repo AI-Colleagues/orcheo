@@ -20,6 +20,41 @@ from orcheo.external_agents.models import (
 from orcheo.graph.state import State
 from orcheo.nodes.ai.external.base import ExternalAgentNode
 from orcheo.runtime.credentials import CredentialReferenceNotFoundError
+from orcheo.sandbox.dispatch import use_launcher
+
+
+class _SwappableLauncher:
+    """Test launcher whose canned result is mutable mid-test."""
+
+    def __init__(self) -> None:
+        self.result = ProcessExecutionResult(
+            command=["dummy"],
+            stdout="ok",
+            stderr="",
+            exit_code=0,
+            timed_out=False,
+            duration_seconds=0,
+        )
+
+    async def run(
+        self,
+        *,
+        workspace_id: str,
+        command: list[str],
+        cwd: Any,
+        env: Any,
+        timeout_seconds: Any,
+    ) -> ProcessExecutionResult:
+        del workspace_id, command, cwd, env, timeout_seconds
+        return self.result
+
+
+@pytest.fixture(autouse=True)
+def fake_launcher() -> Any:
+    """Bind a swappable fake launcher for every ExternalAgentNode test."""
+    launcher = _SwappableLauncher()
+    with use_launcher(launcher):  # type: ignore[arg-type]
+        yield launcher
 
 
 class DummyProvider:
@@ -156,7 +191,13 @@ def _make_runtime_resolution(tmp_path: Path) -> RuntimeResolution:
 
 
 def _make_state(inputs: dict[str, Any] | None = None) -> State:
-    return State(inputs=inputs or {}, results={}, structured_response=None, config={})
+    return State(
+        inputs=inputs or {},
+        results={},
+        structured_response=None,
+        config={},
+        workspace_id="ws-test",
+    )
 
 
 def _make_node(manager: FakeRuntimeManager) -> DummyExternalAgentNode:
@@ -340,10 +381,7 @@ async def test_run_invalid_configuration_when_working_directory_invalid(
 
 
 @pytest.mark.asyncio
-async def test_run_auto_initializes_git_worktree_by_default(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+async def test_run_auto_initializes_git_worktree_by_default(tmp_path: Path) -> None:
     resolution = _make_runtime_resolution(tmp_path)
     manager = FakeRuntimeManager(
         provider=DummyProvider(),
@@ -352,31 +390,13 @@ async def test_run_auto_initializes_git_worktree_by_default(
     node = _make_node(manager)
     state = _make_state({"prompt": "run"})
 
-    async def fake_execute(*args: object, **kwargs: object) -> ProcessExecutionResult:
-        return ProcessExecutionResult(
-            command=["dummy"],
-            stdout="ok",
-            stderr="",
-            exit_code=0,
-            timed_out=False,
-            duration_seconds=0,
-        )
-
-    monkeypatch.setattr(
-        "orcheo.nodes.ai.external.base.execute_process",
-        fake_execute,
-    )
-
     await node.run(state, RunnableConfig())
 
     assert manager.auto_init_git_worktree is True
 
 
 @pytest.mark.asyncio
-async def test_run_can_disable_auto_init_git_worktree(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+async def test_run_can_disable_auto_init_git_worktree(tmp_path: Path) -> None:
     resolution = _make_runtime_resolution(tmp_path)
     manager = FakeRuntimeManager(
         provider=DummyProvider(),
@@ -385,21 +405,6 @@ async def test_run_can_disable_auto_init_git_worktree(
     node = _make_node(manager)
     node.auto_init_git_worktree = False
     state = _make_state({"prompt": "run"})
-
-    async def fake_execute(*args: object, **kwargs: object) -> ProcessExecutionResult:
-        return ProcessExecutionResult(
-            command=["dummy"],
-            stdout="ok",
-            stderr="",
-            exit_code=0,
-            timed_out=False,
-            duration_seconds=0,
-        )
-
-    monkeypatch.setattr(
-        "orcheo.nodes.ai.external.base.execute_process",
-        fake_execute,
-    )
 
     await node.run(state, RunnableConfig())
 
@@ -459,26 +464,20 @@ async def test_run_requires_auth_before_execution(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_run_reports_timeout(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    fake_launcher: _SwappableLauncher, tmp_path: Path
 ) -> None:
     resolution = _make_runtime_resolution(tmp_path)
     manager = FakeRuntimeManager(provider=DummyProvider(), resolution=resolution)
     node = _make_node(manager)
     state = _make_state({"prompt": "run"})
 
-    async def fake_execute(*args: object, **kwargs: object) -> ProcessExecutionResult:
-        return ProcessExecutionResult(
-            command=["dummy"],
-            stdout="",
-            stderr="",
-            exit_code=None,
-            timed_out=True,
-            duration_seconds=0,
-        )
-
-    monkeypatch.setattr(
-        "orcheo.nodes.ai.external.base.execute_process",
-        fake_execute,
+    fake_launcher.result = ProcessExecutionResult(
+        command=["dummy"],
+        stdout="",
+        stderr="",
+        exit_code=None,
+        timed_out=True,
+        duration_seconds=0,
     )
 
     result = await node.run(state, RunnableConfig())
@@ -489,26 +488,20 @@ async def test_run_reports_timeout(
 
 @pytest.mark.asyncio
 async def test_run_reports_non_zero_exit(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    fake_launcher: _SwappableLauncher, tmp_path: Path
 ) -> None:
     resolution = _make_runtime_resolution(tmp_path)
     manager = FakeRuntimeManager(provider=DummyProvider(), resolution=resolution)
     node = _make_node(manager)
     state = _make_state({"prompt": "run"})
 
-    async def fake_execute(*args: object, **kwargs: object) -> ProcessExecutionResult:
-        return ProcessExecutionResult(
-            command=["dummy"],
-            stdout="",
-            stderr="",
-            exit_code=5,
-            timed_out=False,
-            duration_seconds=0,
-        )
-
-    monkeypatch.setattr(
-        "orcheo.nodes.ai.external.base.execute_process",
-        fake_execute,
+    fake_launcher.result = ProcessExecutionResult(
+        command=["dummy"],
+        stdout="",
+        stderr="",
+        exit_code=5,
+        timed_out=False,
+        duration_seconds=0,
     )
 
     result = await node.run(state, RunnableConfig())
@@ -518,28 +511,11 @@ async def test_run_reports_non_zero_exit(
 
 
 @pytest.mark.asyncio
-async def test_run_succeeds_with_zero_exit(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_run_succeeds_with_zero_exit(tmp_path: Path) -> None:
     resolution = _make_runtime_resolution(tmp_path)
     manager = FakeRuntimeManager(provider=DummyProvider(), resolution=resolution)
     node = _make_node(manager)
     state = _make_state({"prompt": "run"})
-
-    async def fake_execute(*args: object, **kwargs: object) -> ProcessExecutionResult:
-        return ProcessExecutionResult(
-            command=["dummy"],
-            stdout="ok",
-            stderr="",
-            exit_code=0,
-            timed_out=False,
-            duration_seconds=0,
-        )
-
-    monkeypatch.setattr(
-        "orcheo.nodes.ai.external.base.execute_process",
-        fake_execute,
-    )
 
     result = await node.run(state, RunnableConfig())
 
@@ -548,30 +524,13 @@ async def test_run_succeeds_with_zero_exit(
 
 
 @pytest.mark.asyncio
-async def test_run_preserves_workspace_id_when_present(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_run_preserves_workspace_id_when_present(tmp_path: Path) -> None:
     resolution = _make_runtime_resolution(tmp_path)
     manager = FakeRuntimeManager(provider=DummyProvider(), resolution=resolution)
     node = _make_node(manager)
     state = _make_state({"prompt": "run", "workspace_id": "workspace-1"})
-
-    async def fake_execute(*args: object, **kwargs: object) -> ProcessExecutionResult:
-        return ProcessExecutionResult(
-            command=["dummy"],
-            stdout="ok",
-            stderr="",
-            exit_code=0,
-            timed_out=False,
-            duration_seconds=0,
-        )
-
-    monkeypatch.setattr(
-        "orcheo.nodes.ai.external.base.execute_process",
-        fake_execute,
-    )
-
     state["workspace_id"] = "workspace-1"
+
     result = await node.run(state, RunnableConfig())
 
     assert result["status"] == "succeeded"
@@ -580,7 +539,6 @@ async def test_run_preserves_workspace_id_when_present(
 
 @pytest.mark.asyncio
 async def test_run_logs_bypass_flag_audit_event(
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -596,21 +554,6 @@ async def test_run_logs_bypass_flag_audit_event(
     node = _make_node(manager)
     state = _make_state({"prompt": "run"})
 
-    async def fake_execute(*args: object, **kwargs: object) -> ProcessExecutionResult:
-        return ProcessExecutionResult(
-            command=["dummy"],
-            stdout="ok",
-            stderr="",
-            exit_code=0,
-            timed_out=False,
-            duration_seconds=0,
-        )
-
-    monkeypatch.setattr(
-        "orcheo.nodes.ai.external.base.execute_process",
-        fake_execute,
-    )
-
     with caplog.at_level(logging.INFO, logger="orcheo.nodes.ai.external.base"):
         await node.run(state, RunnableConfig())
 
@@ -624,3 +567,93 @@ async def test_run_logs_bypass_flag_audit_event(
     assert record.bypass_flags == ["--dangerous"]
     assert record.security_boundary == "container_isolation"
     assert record.node_name == "test-node"
+
+
+@pytest.mark.asyncio
+async def test_run_treats_non_string_workspace_id_as_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """workspace_id that is not a non-empty string must be normalised to None (line 127)."""
+    import orcheo.nodes.ai.external.base as base_module
+    from orcheo.external_agents.models import ProcessExecutionResult
+
+    captured_workspace_ids: list[Any] = []
+
+    async def _fake_run_process(
+        command: list[str],
+        *,
+        workspace_id: str | None = None,
+        cwd: Any = None,
+        env: Any = None,
+        timeout_seconds: Any = None,
+    ) -> ProcessExecutionResult:
+        captured_workspace_ids.append(workspace_id)
+        return ProcessExecutionResult(
+            command=command,
+            stdout="",
+            stderr="",
+            exit_code=0,
+            timed_out=False,
+            duration_seconds=0.0,
+        )
+
+    monkeypatch.setattr(base_module, "run_external_agent_process", _fake_run_process)
+
+    resolution = _make_runtime_resolution(tmp_path)
+    manager = FakeRuntimeManager(provider=DummyProvider(), resolution=resolution)
+    node = _make_node(manager)
+
+    # Put a non-string value into workspace_id to trigger the normalisation branch.
+    state = _make_state({"prompt": "run"})
+    state["workspace_id"] = 12345  # type: ignore[typeddict-item]
+
+    result = await node.run(state, RunnableConfig())
+
+    assert result["status"] == "succeeded"
+    # The manager should have received None, not the integer.
+    assert manager.workspace_id is None
+    assert captured_workspace_ids == [None]
+
+
+@pytest.mark.asyncio
+async def test_run_treats_blank_workspace_id_as_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A whitespace-only workspace_id must also be normalised to None (line 127)."""
+    import orcheo.nodes.ai.external.base as base_module
+    from orcheo.external_agents.models import ProcessExecutionResult
+
+    captured_workspace_ids: list[Any] = []
+
+    async def _fake_run_process(
+        command: list[str],
+        *,
+        workspace_id: str | None = None,
+        cwd: Any = None,
+        env: Any = None,
+        timeout_seconds: Any = None,
+    ) -> ProcessExecutionResult:
+        captured_workspace_ids.append(workspace_id)
+        return ProcessExecutionResult(
+            command=command,
+            stdout="",
+            stderr="",
+            exit_code=0,
+            timed_out=False,
+            duration_seconds=0.0,
+        )
+
+    monkeypatch.setattr(base_module, "run_external_agent_process", _fake_run_process)
+
+    resolution = _make_runtime_resolution(tmp_path)
+    manager = FakeRuntimeManager(provider=DummyProvider(), resolution=resolution)
+    node = _make_node(manager)
+
+    state = _make_state({"prompt": "run"})
+    state["workspace_id"] = "   "
+
+    result = await node.run(state, RunnableConfig())
+
+    assert result["status"] == "succeeded"
+    assert manager.workspace_id is None
+    assert captured_workspace_ids == [None]

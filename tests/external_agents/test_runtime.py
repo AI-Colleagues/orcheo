@@ -167,6 +167,39 @@ def test_default_runtime_root_falls_back_to_home(tmp_path: Path) -> None:
     assert resolved == home_directory / ".orcheo" / "agent-runtimes"
 
 
+def test_default_runtime_root_honors_env_override(tmp_path: Path) -> None:
+    """An ORCHEO_AGENT_RUNTIME_ROOT override wins over /data and home defaults.
+
+    The sandbox runtime manager sets this env var so per-workspace sandboxes —
+    which run with a read-only rootfs — direct the managed runtime tree onto
+    the writable /scratch tmpfs instead of ~/.orcheo.
+    """
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    override = tmp_path / "scratch" / "agent-runtimes"
+
+    resolved = default_runtime_root(
+        data_root=data_root,
+        home_directory=tmp_path / "home",
+        env={"ORCHEO_AGENT_RUNTIME_ROOT": str(override)},
+    )
+
+    assert resolved == override
+
+
+def test_default_runtime_root_ignores_blank_env_override(tmp_path: Path) -> None:
+    """A blank override is treated as unset so the fallback chain runs."""
+    home_directory = tmp_path / "home"
+
+    resolved = default_runtime_root(
+        data_root=tmp_path / "missing-data",
+        home_directory=home_directory,
+        env={"ORCHEO_AGENT_RUNTIME_ROOT": "   "},
+    )
+
+    assert resolved == home_directory / ".orcheo" / "agent-runtimes"
+
+
 def test_runtime_path_helpers_return_expected_locations(tmp_path: Path) -> None:
     """Path helpers resolve provider-specific runtime storage locations."""
     runtime_root = external_agent_paths.ensure_runtime_root(tmp_path / "managed")

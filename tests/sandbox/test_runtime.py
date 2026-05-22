@@ -66,11 +66,41 @@ class _FakeContainers:
         return self._containers[container_id]
 
 
+class _FakeImage:
+    """Stand-in for a docker SDK ``Image``."""
+
+    def __init__(self, tag: str) -> None:
+        self.tags = [tag]
+
+
+class _FakeImages:
+    """Stand-in for ``client.images``.
+
+    Pretends every requested image is locally available unless the test
+    explicitly removes it via :meth:`forget`.
+    """
+
+    def __init__(self) -> None:
+        self._missing: set[str] = set()
+
+    def get(self, image: str) -> _FakeImage:
+        """Return a fake image or raise to mimic the SDK's ``ImageNotFound``."""
+        if image in self._missing:
+            msg = f"404 Client Error for image: No such image: {image}"
+            raise RuntimeError(msg)
+        return _FakeImage(image)
+
+    def forget(self, image: str) -> None:
+        """Mark ``image`` as missing for the next ``get`` call."""
+        self._missing.add(image)
+
+
 class _FakeClient:
     """Stand-in for ``docker.DockerClient``."""
 
     def __init__(self) -> None:
         self.containers = _FakeContainers()
+        self.images = _FakeImages()
 
 
 def test_docker_runtime_start_passes_through_security_flags() -> None:
@@ -99,7 +129,33 @@ def test_docker_runtime_start_passes_through_security_flags() -> None:
     assert call["network_mode"] == "sandbox-egress"
     assert call["pids_limit"] == 128
     assert call["cpu_quota"] == 150_000
-    assert call["tmpfs"] == {"/scratch": "size=500m,mode=1777"}
+    assert call["tmpfs"] == {
+        "/scratch": "size=500m,mode=1777,exec",
+        "/workspace": "size=500m,mode=1777,exec",
+        "/home/orcheo": "size=500m,mode=1777,exec",
+        "/tmp": "size=500m,mode=1777,exec",
+    }
+
+
+def test_docker_runtime_start_raises_actionable_error_when_image_missing() -> None:
+    """start() must point operators at ``make docker-build`` when the image
+    isn't on the daemon, instead of letting the docker SDK silently attempt a
+    registry pull and surface ``pull access denied``."""
+    client = _FakeClient()
+    client.images.forget("orcheo/workspace-sandbox:latest")
+    runtime = DockerContainerRuntime(client=client)
+    spec = ContainerSpec(
+        image="orcheo/workspace-sandbox:latest",
+        workspace_id="W",
+    )
+    with pytest.raises(RuntimeError) as excinfo:
+        runtime.start(spec)
+    message = str(excinfo.value)
+    assert "make docker-build" in message
+    assert "docker compose build workspace-sandbox" in message
+    # The container.run call must not have fired — we fail fast before the
+    # implicit registry pull.
+    assert client.containers.runs == []
 
 
 def test_docker_runtime_stop_kills_and_removes_container() -> None:
@@ -185,3 +241,147 @@ def test_docker_runtime_no_new_privileges_false_omits_security_opt() -> None:
     call = client.containers.runs[0]
     assert handle is not None
     assert call["security_opt"] == []
+
+
+class _UnknownRuntimeContainers(_FakeContainers):
+    """Containers facade that mimics Docker's 'unknown runtime' 400 error."""
+
+    def run(self, **kwargs: object) -> _FakeContainer:  # type: ignore[override]
+        raise RuntimeError(
+            "docker.errors.APIError: 400 Client Error: "
+            "unknown or invalid runtime name: runsc"
+        )
+
+
+class _ClientWithRuntimes(_FakeClient):
+    """Fake client that also exposes ``info()`` so the helper can probe runtimes."""
+
+    def __init__(self, available: list[str] | None = None) -> None:
+        super().__init__()
+        self.containers = _UnknownRuntimeContainers()
+        self._available = available or ["runc", "io.containerd.runc.v2"]
+
+    def info(self) -> dict[str, object]:
+        return {"Runtimes": {name: {"path": name} for name in self._available}}
+
+
+def test_docker_runtime_translates_unknown_runtime_error() -> None:
+    """An 'unknown runtime' Docker error is rewritten with available runtimes
+    and a hint pointing at ORCHEO_CONTAINER_RUNTIME."""
+    import pytest
+
+    client = _ClientWithRuntimes(available=["runc"])
+    runtime = DockerContainerRuntime(client=client)
+    spec = ContainerSpec(image="img", workspace_id="W", runtime="runsc")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        runtime.start(spec)
+
+    message = str(excinfo.value)
+    assert "'runsc'" in message
+    assert "runc" in message  # lists available runtimes
+    assert "ORCHEO_CONTAINER_RUNTIME" in message
+
+
+def test_docker_runtime_other_errors_are_left_untouched() -> None:
+    """Non-runtime errors are propagated unchanged so debugging is unaffected."""
+    import pytest
+
+    class _BoomContainers(_FakeContainers):
+        def run(self, **kwargs: object) -> _FakeContainer:  # type: ignore[override]
+            raise RuntimeError("some unrelated docker failure")
+
+    client = _FakeClient()
+    client.containers = _BoomContainers()
+    runtime = DockerContainerRuntime(client=client)
+
+    with pytest.raises(RuntimeError, match="some unrelated docker failure"):
+        runtime.start(ContainerSpec(image="img", workspace_id="W"))
+
+
+def test_docker_runtime_translates_runtime_error_without_info() -> None:
+    """If ``client.info()`` itself fails the helper still surfaces a clean message."""
+    import pytest
+
+    class _NoInfoClient(_ClientWithRuntimes):
+        def info(self) -> dict[str, object]:  # type: ignore[override]
+            raise RuntimeError("info unavailable")
+
+    runtime = DockerContainerRuntime(client=_NoInfoClient())
+    spec = ContainerSpec(image="img", workspace_id="W", runtime="runsc")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        runtime.start(spec)
+
+    message = str(excinfo.value)
+    assert "'runsc'" in message
+    assert "ORCHEO_CONTAINER_RUNTIME" in message
+
+
+def test_require_local_image_passes_through_non_notfound_errors() -> None:
+    """_require_local_image returns (does not raise) for non-'not found' image errors (line 192)."""
+
+    class _FakeImages:
+        def get(self, image: str) -> object:
+            # A non-"not found" error (e.g. daemon connectivity issue).
+            raise RuntimeError("connection refused to docker daemon")
+
+    class _FakeClientConnErr:
+        def __init__(self) -> None:
+            self.images = _FakeImages()
+
+    # The method should return (not raise) for non-missing-image errors.
+    DockerContainerRuntime._require_local_image(
+        _FakeClientConnErr(), "orcheo/workspace-sandbox:latest"
+    )
+    # If we reach here without an exception the branch is covered.
+
+
+def test_docker_runtime_stop_remove_called_even_if_kill_raises() -> None:
+    """stop() calls remove in the finally block even when kill() raises (branch 221->225)."""
+
+    class _KillBoomContainer(_FakeContainer):
+        def kill(self) -> None:
+            raise RuntimeError("kill blocked by OOM killer")
+
+    class _KillBoomContainers(_FakeContainers):
+        def run(self, **kwargs: object) -> _KillBoomContainer:
+            container_id = f"c{len(self.runs)}"
+            container = _KillBoomContainer(container_id)
+            self._containers[container_id] = container
+            self.runs.append({"id": container_id, **kwargs})
+            return container
+
+    client = _FakeClient()
+    client.containers = _KillBoomContainers()
+    runtime = DockerContainerRuntime(client=client)
+    handle = runtime.start(ContainerSpec(image="img", workspace_id="W"))
+    container = client.containers.get(handle.container_id)
+
+    with pytest.raises(RuntimeError, match="kill blocked"):
+        runtime.stop(handle)
+
+    # remove must have been called in the finally block despite kill raising.
+    assert container.removed is True
+
+
+def test_docker_runtime_translates_runtime_error_with_empty_runtimes_info() -> None:
+    """Branch 221->225: when info() Runtimes is not a dict, available stays empty."""
+    import pytest
+
+    class _NoRuntimesClient(_ClientWithRuntimes):
+        def info(self) -> dict[str, object]:
+            # info() returns a dict without 'Runtimes', so runtimes is None.
+            return {}
+
+    runtime = DockerContainerRuntime(client=_NoRuntimesClient())
+    spec = ContainerSpec(image="img", workspace_id="W", runtime="runsc")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        runtime.start(spec)
+
+    message = str(excinfo.value)
+    assert "'runsc'" in message
+    assert "ORCHEO_CONTAINER_RUNTIME" in message
+    # No available runtimes listed since info had none.
+    assert "Available runtimes" not in message

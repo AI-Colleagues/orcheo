@@ -16,7 +16,7 @@ of trusted nodes may take the in-worker fast path when the operator allows it
 from __future__ import annotations
 import asyncio
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 from orcheo.sandbox.broker import CredentialBroker
 from orcheo.sandbox.manager import SandboxRuntimeManager
@@ -27,17 +27,29 @@ from orcheo.sandbox.models import SandboxLease
 # Everything not in this set is treated as tenant-authored and forced into a
 # Workflow Sandbox. The list is intentionally minimal and grown by operator
 # review.
+#
+# IMPORTANT: Do not add base classes (e.g. ``TaskNode``, ``BaseNode``) or
+# node types that accept tenant-authored code / scripts. Only concrete
+# first-party integration nodes whose behavior is fully defined by Orcheo
+# source belong here. When in doubt, leave it out — the dispatcher will route
+# it through the sandbox, which is the safe default.
 TRUSTED_NODE_TYPES: frozenset[str] = frozenset(
     {
+        # First-party AI / chat integrations.
         "AINode",
         "ChatModelNode",
+        # First-party integration nodes — behavior fully defined in Orcheo
+        # source, no tenant-authored code paths.
         "RSSNode",
         "MongoDBNode",
         "SlackNode",
         "TelegramNode",
-        "TaskNode",
-        "DataTransformNode",
-        "IntegrationNode",
+        # First-party declarative utility nodes — variables / delays /
+        # iteration / debug. These accept data only, never tenant code.
+        "SetVariableNode",
+        "DelayNode",
+        "ForLoopNode",
+        "DebugNode",
     }
 )
 
@@ -51,6 +63,8 @@ class WorkflowRunSpec:
     workflow_definition: Mapping[str, Any]
     inputs: Mapping[str, Any]
     node_types: tuple[str, ...] = ()
+    runnable_config: Mapping[str, Any] = field(default_factory=dict)
+    state_config: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -76,8 +90,16 @@ class SandboxRunner(Protocol):
 
 
 def requires_sandbox(node_types: Iterable[str]) -> bool:
-    """Return True if any node type is not in the trusted set."""
-    return any(node_type not in TRUSTED_NODE_TYPES for node_type in node_types)
+    """Return True if any node type is not in the trusted set.
+
+    Fails closed: an empty iterable (no node types parsed) is treated as
+    untrusted. A graph the dispatcher cannot classify must not silently take
+    the in-worker fast path.
+    """
+    types = list(node_types)
+    if not types:
+        return True
+    return any(node_type not in TRUSTED_NODE_TYPES for node_type in types)
 
 
 class WorkflowSandboxDispatcher:
@@ -136,11 +158,22 @@ class WorkflowSandboxDispatcher:
         try:
             return await self._runner.execute(lease, spec, token)
         except Exception as exc:  # noqa: BLE001 — surface any runner failure
+            # Some exceptions (notably ``httpx.ReadTimeout`` wrapping an
+            # ``asyncio.TimeoutError``) stringify to ``""``, which would
+            # collapse into a useless "sandboxed run finished with failed"
+            # message downstream. Always include the type so the failure
+            # mode is identifiable in the chatkit logs.
+            detail = str(exc).strip()
+            error_message = (
+                f"{type(exc).__name__}: {detail}"
+                if detail
+                else f"{type(exc).__name__} (no message)"
+            )
             return WorkflowRunResult(
                 run_id=spec.run_id,
                 status="failed",
                 outputs={},
-                error=str(exc),
+                error=error_message,
             )
         finally:
             self._broker.revoke(spec.run_id)

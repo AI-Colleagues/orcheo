@@ -32,6 +32,13 @@ docs = [
 examples = [
   "orcheo-backend"
 ]
+# Extra packages only the sandbox-runtime image needs. The runtime service is
+# the only Orcheo component that talks to the host Docker daemon directly via
+# the `docker` Python SDK; backend / worker reach it over HTTP and do not
+# install this group.
+sandbox-runtime = [
+  "docker>=7.0.0"
+]
 
 [project]
 dependencies = [

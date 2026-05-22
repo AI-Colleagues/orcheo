@@ -38,6 +38,13 @@ from orcheo.sandbox.runtime import (
 
 _DEFAULT_NETWORK: Final[str] = "sandbox-egress"
 
+# Sandbox containers run with a read-only rootfs (see ContainerSpec defaults)
+# and only mount /scratch as writable tmpfs. Pinning the managed external-agent
+# runtime root under /scratch lets ExternalAgentRuntimeManager mkdir its tree
+# from inside the sandbox; without it the default ~/.orcheo path fails with
+# EACCES against the read-only rootfs.
+_SANDBOX_AGENT_RUNTIME_ROOT: Final[str] = "/scratch/agent-runtimes"
+
 
 class SandboxRuntimeManager:
     """Provision, lease, and destroy per-workspace sandbox containers."""
@@ -299,6 +306,10 @@ class SandboxRuntimeManager:
             image=self._settings.image,
             workspace_id=workspace_id,
             runtime=self._settings.container_runtime,
+            environment={
+                "ORCHEO_CREDENTIAL_BROKER_URL": self._settings.credential_broker_url,
+                "ORCHEO_AGENT_RUNTIME_ROOT": _SANDBOX_AGENT_RUNTIME_ROOT,
+            },
             cpu_limit=pool.cpu_limit,
             memory_limit=pool.memory_limit,
             pid_limit=pool.pid_limit,

@@ -7,11 +7,12 @@ from pathlib import Path
 import pytest
 from orcheo.external_agents.models import ProcessExecutionResult
 from orcheo.sandbox.dispatch import (
+    SandboxDispatchError,
     get_active_launcher,
     run_external_agent_process,
     use_launcher,
 )
-from orcheo.sandbox.launcher import HostFallbackExec, SandboxedProcessLauncher
+from orcheo.sandbox.launcher import SandboxedProcessLauncher
 from orcheo.sandbox.manager import SandboxRuntimeManager
 from orcheo.sandbox.runtime import InMemoryContainerRuntime
 
@@ -43,40 +44,18 @@ class _FakeExec:
         )
 
 
-def test_no_launcher_active_falls_through(monkeypatch: pytest.MonkeyPatch) -> None:
-    """With no launcher bound, run_external_agent_process calls execute_process."""
-
-    async def fake_execute(
-        command: list[str],
-        *,
-        cwd: Path | None,
-        env: Mapping[str, str] | None,
-        timeout_seconds: float | int | None,
-    ) -> ProcessExecutionResult:
-        del cwd, env, timeout_seconds
-        return ProcessExecutionResult(
-            command=command,
-            stdout="legacy",
-            stderr="",
-            exit_code=0,
-            timed_out=False,
-            duration_seconds=0.0,
+def test_no_launcher_active_raises() -> None:
+    """Without an active launcher, dispatch fails closed — no host fallback."""
+    with pytest.raises(SandboxDispatchError, match="No sandbox launcher"):
+        asyncio.run(
+            run_external_agent_process(
+                ["echo", "hi"],
+                workspace_id="ws",
+                cwd=None,
+                env=None,
+                timeout_seconds=None,
+            )
         )
-
-    monkeypatch.setattr(
-        "orcheo.sandbox.dispatch.execute_process",
-        fake_execute,
-    )
-    result = asyncio.run(
-        run_external_agent_process(
-            ["echo", "hi"],
-            workspace_id="ws",
-            cwd=None,
-            env=None,
-            timeout_seconds=None,
-        )
-    )
-    assert result.stdout == "legacy"
 
 
 def test_active_launcher_routes_through_sandbox() -> None:
@@ -112,32 +91,11 @@ def test_active_launcher_routes_through_sandbox() -> None:
     assert get_active_launcher() is None
 
 
-def test_dispatcher_falls_back_when_workspace_id_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Without a workspace_id we cannot scope a sandbox — fall through."""
+def test_dispatcher_missing_workspace_id_raises() -> None:
+    """Without a workspace_id, dispatch fails closed — no host fallback."""
     runtime = InMemoryContainerRuntime()
     manager = SandboxRuntimeManager(runtime=runtime)
     launcher = SandboxedProcessLauncher(manager=manager, exec_backend=_FakeExec())
-
-    async def fake_execute(
-        command: list[str],
-        *,
-        cwd: Path | None,
-        env: Mapping[str, str] | None,
-        timeout_seconds: float | int | None,
-    ) -> ProcessExecutionResult:
-        del cwd, env, timeout_seconds
-        return ProcessExecutionResult(
-            command=command,
-            stdout="fallback",
-            stderr="",
-            exit_code=0,
-            timed_out=False,
-            duration_seconds=0.0,
-        )
-
-    monkeypatch.setattr("orcheo.sandbox.dispatch.execute_process", fake_execute)
 
     async def go() -> ProcessExecutionResult:
         with use_launcher(launcher):
@@ -149,46 +107,59 @@ def test_dispatcher_falls_back_when_workspace_id_missing(
                 timeout_seconds=None,
             )
 
-    result = asyncio.run(go())
-    # No sandbox container was started.
+    with pytest.raises(SandboxDispatchError, match="workspace_id is required"):
+        asyncio.run(go())
     assert runtime.started == []
-    assert result.stdout == "fallback"
 
 
-def test_host_fallback_exec_uses_real_execute_process(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """HostFallbackExec proxies straight to execute_process."""
+# ---------------------------------------------------------------------------
+# LocalProcessLauncher tests (lines 128-129)
+# ---------------------------------------------------------------------------
 
-    async def fake_execute(
+
+def test_local_process_launcher_runs_command_in_process_tree() -> None:
+    """LocalProcessLauncher.run() executes the command via execute_process (lines 128-129)."""
+    from orcheo.sandbox.launcher import LocalProcessLauncher
+
+    results: list[ProcessExecutionResult] = []
+
+    async def _fake_execute(
         command: list[str],
         *,
-        cwd: Path | None,
-        env: Mapping[str, str] | None,
-        timeout_seconds: float | int | None,
+        cwd: object = None,
+        env: object = None,
+        timeout_seconds: object = None,
     ) -> ProcessExecutionResult:
-        del cwd, env, timeout_seconds
-        return ProcessExecutionResult(
+        result = ProcessExecutionResult(
             command=command,
-            stdout="x",
+            stdout="hello",
             stderr="",
             exit_code=0,
             timed_out=False,
             duration_seconds=0.0,
         )
+        results.append(result)
+        return result
 
-    monkeypatch.setattr(
-        "orcheo.sandbox.launcher.execute_process",
-        fake_execute,
-    )
-    backend = HostFallbackExec()
-    result = asyncio.run(
-        backend.exec(
-            "sb-1",
-            ["true"],
-            cwd=None,
-            env=None,
-            timeout_seconds=None,
-        )
-    )
+    async def go() -> ProcessExecutionResult:
+        import orcheo.sandbox.launcher as launcher_module
+
+        original = launcher_module.execute_process
+        launcher_module.execute_process = _fake_execute  # type: ignore[assignment]
+        try:
+            launcher = LocalProcessLauncher()
+            return await launcher.run(
+                workspace_id="ws-ignored",
+                command=["echo", "hello"],
+                cwd=None,
+                env={"FOO": "bar"},
+                timeout_seconds=5.0,
+            )
+        finally:
+            launcher_module.execute_process = original
+
+    result = asyncio.run(go())
+    assert result.stdout == "hello"
     assert result.exit_code == 0
+    assert len(results) == 1
+    assert results[0].command == ["echo", "hello"]

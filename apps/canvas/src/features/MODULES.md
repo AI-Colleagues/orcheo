@@ -13,7 +13,10 @@ Each row corresponds to one source script (test files excluded).
 | `account/pages/profile/types.ts`                                                     | `ProfileUser` interface (name, email, avatar, role, optional joinDate).                                      |
 | `account/pages/profile.tsx`                                                          | Profile page that composes the general-info tab and any additional settings tabs.                            |
 | `account/pages/settings.tsx`                                                         | Settings page with tabs for agent integrations and appearance preferences.                                   |
-| `account/pages/workspace-members.tsx`                                                | Page for listing and managing workspace members with role-based access control.                              |
+| `account/pages/workspace-members.tsx`                                                | Tab content for listing and managing workspace members with role-based access control.                       |
+| `account/pages/service-tokens.tsx`                                                   | Tab content for creating, rotating, and revoking workspace-scoped API keys used by the Orcheo SDK.           |
+| `account/pages/workspace-management.tsx`                                             | Workspace Management page with tabs for members, external agents, and API keys.                              |
+| `account/components/external-agents-section.tsx`                                     | Section for connecting and managing per-workspace external agent CLIs (Claude Code, Codex, Gemini).          |
 | **auth**                                                                             |                                                                                                              |
 | `auth/components/auto-login.tsx`                                                     | Initiates an OIDC login redirect automatically, forwarding org / invitation / hint query params.             |
 | `auth/components/require-auth.tsx`                                                   | Route guard that verifies auth state and refreshes tokens before rendering protected children.               |

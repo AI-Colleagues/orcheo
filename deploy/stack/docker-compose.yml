@@ -60,12 +60,21 @@ services:
       ORCHEO_CORS_ALLOW_ORIGINS: ${ORCHEO_CORS_ALLOW_ORIGINS:-http://localhost:2026,http://127.0.0.1:2026}
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
+      ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
+      ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET:?set ORCHEO_CREDENTIAL_BROKER_SECRET}
+      # Backend/worker embed this image name in every ContainerSpec they send
+      # to sandbox-runtime, so it must match the image sandbox-runtime is
+      # allowed to spawn.
+      ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-orcheo/workspace-sandbox:latest}
+      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
       PYTHONUNBUFFERED: "1"
     depends_on:
       redis:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      sandbox-runtime:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:2025/api/system/health > /dev/null"]
@@ -105,12 +114,21 @@ services:
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_BACKEND_INTERNAL_URL: http://backend:2025
+      ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
+      ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET:?set ORCHEO_CREDENTIAL_BROKER_SECRET}
+      # Backend/worker embed this image name in every ContainerSpec they send
+      # to sandbox-runtime, so it must match the image sandbox-runtime is
+      # allowed to spawn.
+      ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-orcheo/workspace-sandbox:latest}
+      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
       PYTHONUNBUFFERED: "1"
     depends_on:
       redis:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      sandbox-runtime:
         condition: service_healthy
     command: python -m celery -A orcheo_backend.worker.celery_app worker --loglevel=info
 
@@ -199,17 +217,24 @@ services:
   sandbox-runtime:
     # Sole service mounting the container-runtime socket. Treat as
     # root-equivalent on the host; never expose this socket to tenant code.
-    image: ${ORCHEO_SANDBOX_RUNTIME_IMAGE:-alpine:3.20}
+    image: ${ORCHEO_SANDBOX_RUNTIME_IMAGE:-ghcr.io/ai-colleagues/orcheo-sandbox-runtime:latest}
     restart: unless-stopped
-    command: ["sh", "-c", "trap : TERM INT; tail -f /dev/null"]
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Writable: the runtime calls `docker run` / `docker exec` to spawn
+      # per-workspace sandbox children.
+      - /var/run/docker.sock:/var/run/docker.sock
       - sandbox_scratch:/scratch
     environment:
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
       ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-orcheo/workspace-sandbox:latest}
       ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
       ORCHEO_CREDENTIAL_BROKER_URL: http://backend:2025/internal/credentials/resolve
+      ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET:?set ORCHEO_CREDENTIAL_BROKER_SECRET}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9090/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - default
       - sandbox-egress
@@ -225,6 +250,10 @@ services:
 
 networks:
   sandbox-egress:
+    # Sandbox child containers are created through the host Docker API with
+    # network_mode=sandbox-egress, so this must be the real Docker network
+    # name rather than Compose's project-prefixed default.
+    name: sandbox-egress
     # nftables rules attached to this bridge enforce the L3/L4 deny policy.
     # See deploy/stack/sandbox-egress.nft.
     driver: bridge

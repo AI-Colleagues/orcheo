@@ -43,8 +43,15 @@ export default function CredentialsVault({
 
   return (
     <div className={containerClassName}>
-      <div className="flex flex-wrap items-center justify-between gap-3 pr-10">
-        <h2 className="text-xl font-bold">Credential Vault</h2>
+      <div className="flex flex-wrap items-start justify-between gap-3 pr-10">
+        <div className="space-y-1">
+          <h2 className="text-xl font-bold">Credential Vault</h2>
+          <p className="text-sm text-muted-foreground">
+            Credentials stored here are securely injected into your workflows at
+            runtime, so nodes can authenticate to external services without
+            hardcoding secrets.
+          </p>
+        </div>
         <AddCredentialDialog onAddCredential={onAddCredential} />
       </div>
 

@@ -493,7 +493,8 @@ def test_build_credential_broker_resolver_returns_secret(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The inner _resolve_credential finds and returns the matching credential."""
-    from orcheo_backend.app.factory import _build_credential_broker
+    from orcheo_backend.app import sandbox as sandbox_module
+    from orcheo_backend.app.sandbox import build_credential_broker
 
     cred_id = "cred-uuid-1"
     fake_metadata = SimpleNamespace(name="my-secret", id=cred_id)
@@ -501,10 +502,10 @@ def test_build_credential_broker_resolver_returns_secret(
         list_credentials=lambda context, workspace_id: [fake_metadata],
         reveal_secret=lambda credential_id, context: "super-secret-value",
     )
-    monkeypatch.setattr(factory_module, "get_vault", lambda: fake_vault)
+    monkeypatch.setattr(sandbox_module, "get_vault", lambda: fake_vault)
     monkeypatch.setenv("ORCHEO_CREDENTIAL_BROKER_SECRET", "test-secret")
 
-    broker = _build_credential_broker()
+    broker = build_credential_broker()
     token = broker.issue(
         workspace_id="00000000-0000-0000-0000-000000000001", run_id="r1"
     )
@@ -517,20 +518,21 @@ def test_build_credential_broker_resolver_raises_key_error_when_no_match(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The inner _resolve_credential raises KeyError when no credential matches name."""
-    from orcheo_backend.app.factory import _build_credential_broker
     from orcheo.sandbox.broker import BrokerScopeError
+    from orcheo_backend.app import sandbox as sandbox_module
+    from orcheo_backend.app.sandbox import build_credential_broker
 
     # Vault has one credential, but it does NOT match the requested name.
-    # This exercises the `if metadata.name == credential_name:` False branch (193->189).
+    # This exercises the `if metadata.name == credential_name:` False branch.
     other_cred = SimpleNamespace(name="other-secret", id="cred-id-other")
     fake_vault = SimpleNamespace(
         list_credentials=lambda context, workspace_id: [other_cred],
         reveal_secret=lambda credential_id, context: "other-value",
     )
-    monkeypatch.setattr(factory_module, "get_vault", lambda: fake_vault)
+    monkeypatch.setattr(sandbox_module, "get_vault", lambda: fake_vault)
     monkeypatch.setenv("ORCHEO_CREDENTIAL_BROKER_SECRET", "test-secret")
 
-    broker = _build_credential_broker()
+    broker = build_credential_broker()
     token = broker.issue(
         workspace_id="00000000-0000-0000-0000-000000000001", run_id="r2"
     )

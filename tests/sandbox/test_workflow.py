@@ -4,7 +4,15 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
 from typing import Any
+import json
 import pytest
+import httpx
+from langchain_core.messages import HumanMessage
+from orcheo.runtime.credentials import (
+    UnknownCredentialPayloadError,
+    credential_ref,
+    get_active_credential_resolver,
+)
 from orcheo.sandbox.broker import CredentialBroker
 from orcheo.sandbox.config import SandboxSettings
 from orcheo.sandbox.manager import SandboxRuntimeManager
@@ -69,6 +77,17 @@ def test_requires_sandbox_flags_unknown_node_types() -> None:
     assert not requires_sandbox(tuple(TRUSTED_NODE_TYPES))
 
 
+def test_requires_sandbox_fails_closed_on_empty_node_types() -> None:
+    """An unparseable graph (no node types) must route to the sandbox."""
+    assert requires_sandbox(())
+
+
+def test_trusted_set_excludes_code_bearing_base_types() -> None:
+    """Base / code-bearing node types must not appear in the trusted set."""
+    forbidden = {"TaskNode", "BaseNode", "IntegrationNode", "DataTransformNode"}
+    assert forbidden.isdisjoint(TRUSTED_NODE_TYPES)
+
+
 def test_dispatcher_routes_through_sandbox_by_default() -> None:
     """With fast-path off, every run acquires a workflow sandbox."""
     manager, runtime = _manager()
@@ -107,7 +126,7 @@ def test_dispatcher_fast_path_skips_sandbox_for_trusted_only() -> None:
         workspace_id="ws",
         workflow_definition={"nodes": []},
         inputs={},
-        node_types=("AINode", "TaskNode"),
+        node_types=("AINode", "ChatModelNode"),
     )
     asyncio.run(dispatcher.dispatch(spec))
     assert runtime.started == []
@@ -131,7 +150,7 @@ def test_dispatcher_releases_sandbox_and_revokes_token_on_runner_error() -> None
     )
     result = asyncio.run(dispatcher.dispatch(spec))
     assert result.status == "failed"
-    assert result.error == "boom"
+    assert result.error == "RuntimeError: boom"
     assert len(runtime.started) == 1
     # The sandbox should have been released back to the pool, not destroyed.
     assert len(runtime.stopped) == 0
@@ -150,7 +169,9 @@ def test_run_in_subprocess_returns_failure_for_runtime_error(
     """A failure in the run-graph implementation is surfaced cleanly."""
 
     def _fail(
-        definition: Mapping[str, Any], inputs: Mapping[str, Any]
+        definition: Mapping[str, Any],
+        inputs: Mapping[str, Any],
+        **_: object,
     ) -> Mapping[str, Any]:
         del definition, inputs
         raise RuntimeError("graph blew up")
@@ -165,7 +186,9 @@ def test_run_in_subprocess_returns_success(monkeypatch: pytest.MonkeyPatch) -> N
     """A successful run produces a succeeded result with outputs."""
 
     def _ok(
-        definition: Mapping[str, Any], inputs: Mapping[str, Any]
+        definition: Mapping[str, Any],
+        inputs: Mapping[str, Any],
+        **_: object,
     ) -> Mapping[str, Any]:
         del definition
         return {"sum": inputs["a"] + inputs["b"]}
@@ -174,6 +197,21 @@ def test_run_in_subprocess_returns_success(monkeypatch: pytest.MonkeyPatch) -> N
     result = run_in_subprocess({}, {"a": 2, "b": 3}, spawn=False)
     assert result["status"] == "succeeded"
     assert result["outputs"]["sum"] == 5
+
+
+def test_workflow_result_json_serializes_langchain_messages() -> None:
+    """Sandbox results retain LangChain message fields across JSON transport."""
+    from orcheo.sandbox import workflow_runner
+
+    payload = json.loads(
+        json.dumps(
+            {"messages": [HumanMessage(content="hello")]},
+            default=workflow_runner._json_default,
+        )
+    )
+
+    assert payload["messages"][0]["type"] == "human"
+    assert payload["messages"][0]["content"] == "hello"
 
 
 def test_should_sandbox_obeys_fast_path_flag() -> None:
@@ -210,7 +248,7 @@ def test_synthetic_lease_used_when_fast_path_engages() -> None:
         workspace_id="ws",
         workflow_definition={},
         inputs={},
-        node_types=("TaskNode",),
+        node_types=("AINode",),
     )
     asyncio.run(dispatcher.dispatch(spec))
     lease = runner.calls[0][0]
@@ -219,13 +257,21 @@ def test_synthetic_lease_used_when_fast_path_engages() -> None:
 
 
 def test_run_graph_delegates_to_build_graph(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_run_graph imports build_graph lazily and invokes it with the definition."""
+    """_run_graph imports build_graph lazily and async-invokes the graph."""
     from orcheo.sandbox import workflow_runner
 
     fake_outputs: Mapping[str, Any] = {"answer": 42}
+    captured: dict[str, object] = {}
 
     class _FakeCompiled:
-        def invoke(self, inputs: object) -> Mapping[str, Any]:
+        async def ainvoke(
+            self,
+            inputs: object,
+            *,
+            config: object,
+        ) -> Mapping[str, Any]:
+            captured["inputs"] = inputs
+            captured["config"] = config
             return fake_outputs
 
     class _FakeGraph:
@@ -236,8 +282,80 @@ def test_run_graph_delegates_to_build_graph(monkeypatch: pytest.MonkeyPatch) -> 
 
     monkeypatch.setattr(_builder_module, "build_graph", lambda _d: _FakeGraph())
 
-    result = workflow_runner._run_graph({"nodes": []}, {"x": 1})
+    result = workflow_runner._run_graph(
+        {"format": "langgraph-script"},
+        {"x": 1},
+        runnable_config={"configurable": {"thread_id": "run-1"}},
+        state_config={"configurable": {"ai_model": "openai:test"}},
+        workspace_id="ws-1",
+    )
     assert result == fake_outputs
+    assert captured == {
+        "inputs": {
+            "x": 1,
+            "inputs": {"x": 1},
+            "results": {},
+            "messages": [],
+            "workspace_id": "ws-1",
+            "config": {"configurable": {"ai_model": "openai:test"}},
+        },
+        "config": {"configurable": {"thread_id": "run-1"}},
+    }
+
+
+def test_broker_credential_context_resolves_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sandbox credential placeholders resolve through the broker HTTP API."""
+    from orcheo.sandbox import workflow_runner
+
+    calls: list[tuple[str, dict[str, object], dict[str, str]]] = []
+
+    def _post(
+        url: str,
+        *,
+        json: dict[str, object],
+        headers: dict[str, str],
+        timeout: float,
+    ) -> httpx.Response:
+        assert timeout == 30.0
+        calls.append((url, json, headers))
+        return httpx.Response(200, json={"value": "vault-secret"})
+
+    monkeypatch.setenv("ORCHEO_BROKER_TOKEN", "broker-token")
+    monkeypatch.setenv("ORCHEO_CREDENTIAL_BROKER_URL", "http://runtime/broker")
+    monkeypatch.setattr(workflow_runner.httpx, "post", _post)
+
+    with workflow_runner._credential_context(run_id="run-1", workspace_id="ws-1"):
+        resolver = get_active_credential_resolver()
+        assert resolver is not None
+        assert resolver.resolve(credential_ref("openai_api_key")) == "vault-secret"
+
+    assert calls == [
+        (
+            "http://runtime/broker",
+            {"run_id": "run-1", "credential_name": "openai_api_key"},
+            {
+                "Authorization": "Bearer broker-token",
+                "X-Orcheo-Workspace": "ws-1",
+            },
+        )
+    ]
+
+
+def test_broker_credential_resolver_rejects_non_secret_payload() -> None:
+    """The sandbox broker channel rejects payload shapes it cannot return."""
+    from orcheo.sandbox import workflow_runner
+
+    resolver = workflow_runner._BrokerCredentialResolver(
+        broker_url="http://runtime/broker",
+        broker_token="token",
+        run_id="run-1",
+        workspace_id="ws-1",
+    )
+
+    with pytest.raises(UnknownCredentialPayloadError, match="only supports secret"):
+        resolver.resolve(credential_ref("oauth-ref", payload="oauth.access_token"))
 
 
 def test_run_in_subprocess_spawn_mode_creates_child_process(

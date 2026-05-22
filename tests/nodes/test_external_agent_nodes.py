@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 import pytest
+from orcheo.external_agents.models import ProcessExecutionResult
+from orcheo.external_agents.process import execute_process
 from orcheo.external_agents.runtime import ExternalAgentRuntimeManager
 from orcheo.graph.state import State
 from orcheo.nodes.claude_code import ClaudeCodeNode
@@ -17,8 +20,53 @@ from orcheo.nodes.ai.external.codex import CodexNode as ExternalCodexNode
 from orcheo.nodes.ai.external.gemini import GeminiNode as ExternalGeminiNode
 from orcheo.nodes.registry import registry
 from orcheo.runtime.credentials import CredentialReferenceNotFoundError
+from orcheo.sandbox.dispatch import use_launcher
 from orcheo.tracing.model_metadata import TRACE_METADATA_KEY
 from tests.external_agents.test_runtime import FakeProvider
+
+
+class _HostBypassLauncher:
+    """Test launcher that runs the command on the host via ``execute_process``.
+
+    The agent CLI under test is itself a fake shell script — there's no
+    real sandbox to launch into. This launcher satisfies the dispatcher
+    contract while still letting the test exercise the actual process
+    behavior (stdout, exit code, timeout) of the fake binary.
+    """
+
+    async def run(
+        self,
+        *,
+        workspace_id: str,
+        command: list[str],
+        cwd: Any,
+        env: Mapping[str, str] | None,
+        timeout_seconds: float | int | None,
+    ) -> ProcessExecutionResult:
+        del workspace_id
+        return await execute_process(
+            command,
+            cwd=cwd,
+            env=env,
+            timeout_seconds=timeout_seconds,
+        )
+
+
+@pytest.fixture(autouse=True)
+def _bind_host_launcher(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
+    """Bind a host-exec launcher so every test in this file can run the fake CLI.
+
+    The workspace_id we set on State activates a check that the working
+    directory must live under ``DEFAULT_WORKSPACE_AGENT_ROOT`` (``/workspace/
+    agents`` in production). For unit tests we relax that root to ``tmp_path``
+    so the fake CLI can run in pytest's tmp directory.
+    """
+    monkeypatch.setattr(
+        "orcheo.external_agents.paths.DEFAULT_WORKSPACE_AGENT_ROOT",
+        tmp_path,
+    )
+    with use_launcher(_HostBypassLauncher()):  # type: ignore[arg-type]
+        yield
 
 
 class FakeCodexRuntimeManager(ExternalAgentRuntimeManager):
@@ -84,12 +132,12 @@ async def test_codex_node_successfully_installs_and_runs(
     )
 
     result = await node(
-        State({"inputs": {}, "results": {}, "messages": []}),
+        State({"inputs": {}, "results": {}, "messages": [], "workspace_id": "ws-test"}),
         {},
     )
 
     payload = result["results"]["codex_fix"]
-    assert payload["status"] == "succeeded"
+    assert payload["status"] == "succeeded", payload
     assert payload["provider"] == "codex"
     assert payload["resolved_version"] == "1.0.0"
     assert payload["stdout"] == "fix tests\n"
@@ -121,7 +169,7 @@ async def test_claude_node_returns_setup_needed_when_auth_missing(
     )
 
     result = await node(
-        State({"inputs": {}, "results": {}, "messages": []}),
+        State({"inputs": {}, "results": {}, "messages": [], "workspace_id": "ws-test"}),
         {},
     )
 
@@ -150,7 +198,7 @@ async def test_gemini_node_successfully_installs_and_runs(
     )
 
     result = await node(
-        State({"inputs": {}, "results": {}, "messages": []}),
+        State({"inputs": {}, "results": {}, "messages": [], "workspace_id": "ws-test"}),
         {},
     )
 
@@ -180,7 +228,7 @@ async def test_codex_node_normalizes_timeout_failures(
     )
 
     result = await node(
-        State({"inputs": {}, "results": {}, "messages": []}),
+        State({"inputs": {}, "results": {}, "messages": [], "workspace_id": "ws-test"}),
         {},
     )
 
