@@ -1233,6 +1233,23 @@ def test_resolve_backend_url_install_yes_uses_default() -> None:
     )
 
 
+def test_resolve_backend_url_upgrade_without_env_file_does_not_read_existing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    missing_env = tmp_path / ".env"
+    monkeypatch.setattr(setup_mod.typer, "prompt", lambda *_args, **_kwargs: " ")
+    assert setup_mod._resolve_backend_url(
+        None,
+        mode="upgrade",
+        yes=False,
+        env_file=missing_env,
+        env_exists=False,
+    ) == ("http://localhost:2025", True)
+
+
 def test_setup_stack_dir_default_and_sync_no_change(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

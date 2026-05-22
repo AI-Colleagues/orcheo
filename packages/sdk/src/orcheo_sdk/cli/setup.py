@@ -712,7 +712,7 @@ def _resolve_backend_url(
             return default_backend_url, True
         existing = (
             _read_env_value(env_file, "ORCHEO_API_URL")
-            if env_file is not None
+            if env_file is not None and env_exists
             else None
         )
         prompt_default = existing or default_backend_url
