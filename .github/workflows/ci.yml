@@ -205,6 +205,7 @@ jobs:
       stack_repo: ${{ steps.meta.outputs.stack_repo }}
       canvas_repo: ${{ steps.meta.outputs.canvas_repo }}
       sandbox_runtime_repo: ${{ steps.meta.outputs.sandbox_runtime_repo }}
+      workspace_sandbox_repo: ${{ steps.meta.outputs.workspace_sandbox_repo }}
     steps:
       - name: Determine image metadata
         id: meta
@@ -220,6 +221,7 @@ jobs:
           echo "stack_repo=ghcr.io/${owner_lc}/orcheo-stack" >> "$GITHUB_OUTPUT"
           echo "canvas_repo=ghcr.io/${owner_lc}/orcheo-canvas" >> "$GITHUB_OUTPUT"
           echo "sandbox_runtime_repo=ghcr.io/${owner_lc}/orcheo-sandbox-runtime" >> "$GITHUB_OUTPUT"
+          echo "workspace_sandbox_repo=ghcr.io/${owner_lc}/orcheo-workspace-sandbox" >> "$GITHUB_OUTPUT"
 
   image-build:
     needs: [stack-image-metadata]
@@ -242,6 +244,10 @@ jobs:
             context: .
             file: Dockerfile.sandbox-runtime
             repo: ${{ needs.stack-image-metadata.outputs.sandbox_runtime_repo }}
+          - name: workspace-sandbox
+            context: .
+            file: Dockerfile.workspace-sandbox
+            repo: ${{ needs.stack-image-metadata.outputs.workspace_sandbox_repo }}
         platform:
           - runner: ubuntu-latest
             arch: amd64
@@ -300,6 +306,8 @@ jobs:
             repo: ${{ needs.stack-image-metadata.outputs.canvas_repo }}
           - name: sandbox-runtime
             repo: ${{ needs.stack-image-metadata.outputs.sandbox_runtime_repo }}
+          - name: workspace-sandbox
+            repo: ${{ needs.stack-image-metadata.outputs.workspace_sandbox_repo }}
     steps:
       - name: Download digests
         uses: actions/download-artifact@v4

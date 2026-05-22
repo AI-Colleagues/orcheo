@@ -138,7 +138,7 @@ class DockerContainerRuntime:
     def start(self, spec: ContainerSpec) -> ContainerHandle:
         """Spawn a Docker container that satisfies ``spec``."""
         client = self._ensure_client()
-        self._require_local_image(client, spec.image)
+        self._ensure_image_present(client, spec.image)
         host_config = self._build_host_config(spec)
         cmd = list(spec.command) if spec.command else None
         try:
@@ -170,18 +170,21 @@ class DockerContainerRuntime:
         )
 
     @staticmethod
-    def _require_local_image(client: object, image: str) -> None:
-        """Fail fast if ``image`` isn't built locally.
+    def _ensure_image_present(client: object, image: str) -> None:
+        """Ensure ``image`` is on the daemon, pulling it if necessary.
 
-        ``client.containers.run`` quietly attempts a registry pull when the
-        image is missing — but ``orcheo/workspace-sandbox`` is a local-only
-        image (built via ``make docker-build``), so the implicit pull always
-        fails with a confusing "pull access denied" message. Catching the
-        absence here turns that into an actionable error pointing the
-        operator at the build target.
+        The workspace-sandbox image is published to the registry (CI pushes
+        ``ghcr.io/<owner>/orcheo-workspace-sandbox`` on ``stack-v*`` tags), so
+        a missing image is recoverable: we pull it explicitly. Doing the pull
+        here — rather than relying on the implicit pull inside
+        ``client.containers.run`` — lets us surface a single actionable error
+        that covers both the pull-failed case (registry access / wrong tag)
+        and the local-build fallback, instead of Docker's bare
+        "pull access denied".
         """
         try:
             client.images.get(image)  # type: ignore[attr-defined]
+            return
         except Exception as exc:  # noqa: BLE001 — translate any docker SDK error
             message = str(exc).lower()
             if "not found" not in message and "no such image" not in message:
@@ -190,11 +193,18 @@ class DockerContainerRuntime:
                 # outer try/except already routes it through the daemon-runtime
                 # diagnostic helper.
                 return
+
+        try:
+            client.images.pull(image)  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 — translate any docker SDK error
             msg = (
                 f"Workspace sandbox image {image!r} is not present on the "
-                "Docker daemon. The image is local-only and cannot be pulled "
-                "from a registry. Run `make docker-build` (or "
-                "`docker compose build workspace-sandbox`) and try again."
+                "Docker daemon and could not be pulled. Ensure the image is "
+                "published to the configured registry (CI publishes "
+                "`ghcr.io/<owner>/orcheo-workspace-sandbox` on `stack-v*` "
+                "tags) and that ORCHEO_SANDBOX_IMAGE points at it, or build it "
+                "locally with `make docker-build` (or `docker compose build "
+                "workspace-sandbox`) and try again."
             )
             raise RuntimeError(msg) from exc
 

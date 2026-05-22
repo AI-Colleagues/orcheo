@@ -58,7 +58,7 @@ def test_from_mapping_ignores_blank_and_missing_values() -> None:
     settings = SandboxSettings.from_mapping(source)
 
     assert settings.container_runtime == "runsc"
-    assert settings.image.startswith("orcheo/workspace-sandbox")
+    assert settings.image.endswith("orcheo-workspace-sandbox:latest")
 
 
 def test_from_env_reads_process_environment(monkeypatch: pytest.MonkeyPatch) -> None:

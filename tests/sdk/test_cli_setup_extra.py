@@ -439,3 +439,220 @@ def test_attempt_docker_autoinstall_unknown_platform(
 ) -> None:
     monkeypatch.setattr(setup_mod.platform, "system", lambda: "FreeBSD")
     assert not setup_mod._attempt_docker_autoinstall(console=Console())
+
+
+def _gvisor_config(**overrides: object) -> setup_mod.SetupConfig:
+    base: dict[str, object] = {
+        "mode": "install",
+        "backend_url": "http://localhost:2025",
+        "studio_url": "http://localhost:2026",
+        "auth_mode": "api-key",
+        "api_key": "key",
+        "chatkit_domain_key": None,
+        "public_ingress_enabled": False,
+        "public_host": None,
+        "publish_local_ports": True,
+        "backend_upstreams": "backend:2025",
+        "canvas_upstream": "canvas:2026",
+        "start_stack": True,
+        "install_docker_if_missing": True,
+    }
+    base.update(overrides)
+    return setup_mod.SetupConfig(**base)  # type: ignore[arg-type]
+
+
+def test_attempt_linux_gvisor_autoinstall_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(
+        setup_mod, "_is_supported_docker_autoinstall_linux", lambda: True
+    )
+    monkeypatch.setattr(
+        setup_mod, "_has_binary", lambda name: name in {"apt-get", "runsc"}
+    )
+    monkeypatch.setattr(
+        setup_mod,
+        "_run_privileged_command",
+        lambda command, *, console: commands.append(command),
+    )
+
+    assert setup_mod._attempt_linux_gvisor_autoinstall(console=Console())
+    assert ["apt-get", "install", "-y", "runsc"] in commands
+    assert ["runsc", "install"] in commands
+    assert ["systemctl", "restart", "docker"] in commands
+
+
+def test_attempt_linux_gvisor_autoinstall_warns_when_runsc_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        setup_mod, "_is_supported_docker_autoinstall_linux", lambda: True
+    )
+    monkeypatch.setattr(setup_mod, "_has_binary", lambda name: name == "apt-get")
+    monkeypatch.setattr(
+        setup_mod, "_run_privileged_command", lambda command, *, console: None
+    )
+
+    console = Console(file=io.StringIO(), force_terminal=False)
+    assert not setup_mod._attempt_linux_gvisor_autoinstall(console=console)
+    assert "runsc binary is still not available" in console.file.getvalue()
+
+
+def test_attempt_linux_gvisor_autoinstall_unsupported_platform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        setup_mod, "_is_supported_docker_autoinstall_linux", lambda: False
+    )
+    console = Console(file=io.StringIO(), force_terminal=False)
+    assert not setup_mod._attempt_linux_gvisor_autoinstall(console=console)
+    assert "apt-based" in console.file.getvalue()
+
+
+def test_ensure_gvisor_runtime_skips_for_runc(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("ORCHEO_CONTAINER_RUNTIME=runc\n", encoding="utf-8")
+    called: list[bool] = []
+    monkeypatch.setattr(
+        setup_mod,
+        "_attempt_linux_gvisor_autoinstall",
+        lambda *, console: called.append(True) or True,
+    )
+
+    setup_mod._ensure_gvisor_runtime(
+        _gvisor_config(),
+        env_file=env_file,
+        use_privileged_docker=False,
+        console=Console(),
+    )
+    assert called == []
+
+
+def test_ensure_gvisor_runtime_skips_when_already_registered(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("ORCHEO_CONTAINER_RUNTIME=runsc\n", encoding="utf-8")
+    called: list[bool] = []
+    monkeypatch.setattr(setup_mod.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(
+        setup_mod, "_docker_runtimes", lambda *, use_privileged: {"runc", "runsc"}
+    )
+    monkeypatch.setattr(
+        setup_mod,
+        "_attempt_linux_gvisor_autoinstall",
+        lambda *, console: called.append(True) or True,
+    )
+
+    setup_mod._ensure_gvisor_runtime(
+        _gvisor_config(),
+        env_file=env_file,
+        use_privileged_docker=False,
+        console=Console(),
+    )
+    assert called == []
+
+
+def test_ensure_gvisor_runtime_installs_when_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("ORCHEO_CONTAINER_RUNTIME=runsc\n", encoding="utf-8")
+    called: list[bool] = []
+    monkeypatch.setattr(setup_mod.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(
+        setup_mod, "_docker_runtimes", lambda *, use_privileged: {"runc"}
+    )
+    monkeypatch.setattr(
+        setup_mod,
+        "_attempt_linux_gvisor_autoinstall",
+        lambda *, console: called.append(True) or True,
+    )
+
+    setup_mod._ensure_gvisor_runtime(
+        _gvisor_config(),
+        env_file=env_file,
+        use_privileged_docker=False,
+        console=Console(),
+    )
+    assert called == [True]
+
+
+def test_ensure_gvisor_runtime_warns_on_non_linux(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("ORCHEO_CONTAINER_RUNTIME=runsc\n", encoding="utf-8")
+    called: list[bool] = []
+    monkeypatch.setattr(setup_mod.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(
+        setup_mod,
+        "_attempt_linux_gvisor_autoinstall",
+        lambda *, console: called.append(True) or True,
+    )
+
+    console = Console(file=io.StringIO(), force_terminal=False)
+    setup_mod._ensure_gvisor_runtime(
+        _gvisor_config(),
+        env_file=env_file,
+        use_privileged_docker=False,
+        console=console,
+    )
+    assert called == []
+    assert "only runs on" in console.file.getvalue()
+
+
+def test_docker_runtimes_parses_info_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(setup_mod, "_docker_command", lambda: ["docker"])
+
+    class _Result:
+        returncode = 0
+        stdout = '{"runc": {}, "runsc": {}}'
+
+    monkeypatch.setattr(setup_mod.subprocess, "run", lambda *a, **k: _Result())
+    assert setup_mod._docker_runtimes(use_privileged=False) == {"runc", "runsc"}
+
+
+def test_docker_runtimes_returns_none_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(setup_mod, "_docker_command", lambda: ["docker"])
+
+    class _Result:
+        returncode = 1
+        stdout = ""
+
+    monkeypatch.setattr(setup_mod.subprocess, "run", lambda *a, **k: _Result())
+    assert setup_mod._docker_runtimes(use_privileged=False) is None
+
+
+def test_docker_runtimes_none_when_docker_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(setup_mod, "_docker_command", lambda: None)
+    assert setup_mod._docker_runtimes(use_privileged=False) is None
+
+
+def test_ensure_gvisor_runtime_respects_skip_docker_install(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("ORCHEO_CONTAINER_RUNTIME=runsc\n", encoding="utf-8")
+    called: list[bool] = []
+    monkeypatch.setattr(
+        setup_mod,
+        "_attempt_linux_gvisor_autoinstall",
+        lambda *, console: called.append(True) or True,
+    )
+
+    setup_mod._ensure_gvisor_runtime(
+        _gvisor_config(install_docker_if_missing=False),
+        env_file=env_file,
+        use_privileged_docker=False,
+        console=Console(),
+    )
+    assert called == []

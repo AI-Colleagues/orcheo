@@ -14,14 +14,17 @@ For background, see the initiative documents under
 1. A Linux host with the `runsc` (gVisor) Docker runtime registered. On
    standard EC2 (no `/dev/kvm`) gVisor's `systrap` platform is required.
 2. `nftables` available on the host so the L3/L4 deny ruleset can be loaded.
-3. The `orcheo/workspace-sandbox:latest` image must be available to the
-   Docker daemon that `sandbox-runtime` talks to. `docker compose up -d`
-   builds it as part of bringing the stack up; you can also rebuild just
-   that image with `make workspace-sandbox-build` after editing
-   `Dockerfile.workspace-sandbox`. Alternatively, push a tagged version
-   to a registry the host can pull from and point `ORCHEO_SANDBOX_IMAGE`
-   at it. One sandbox image hosts both vibe agent sessions and tenant
-   workflow runs per workspace.
+3. The workspace-sandbox image must be available to the Docker daemon that
+   `sandbox-runtime` talks to. The deploy stack defaults
+   `ORCHEO_SANDBOX_IMAGE` to
+   `ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest`, which CI
+   publishes on `stack-v*` tags alongside the other stack images;
+   `sandbox-runtime` pulls it on first use. For local development the root
+   `docker compose up -d` builds it from `Dockerfile.workspace-sandbox`
+   instead (rebuild just that image with `make workspace-sandbox-build`).
+   You can also push your own tagged build to a registry the host can pull
+   from and point `ORCHEO_SANDBOX_IMAGE` at it. One sandbox image hosts both
+   vibe agent sessions and tenant workflow runs per workspace.
 
 ## Configuration
 
@@ -32,7 +35,7 @@ override:
 | Variable                              | Default                                                                | Purpose                                                  |
 |---------------------------------------|------------------------------------------------------------------------|----------------------------------------------------------|
 | `ORCHEO_CONTAINER_RUNTIME`            | `runsc`                                                                | Docker runtime name (`runsc` for gVisor).                |
-| `ORCHEO_SANDBOX_IMAGE`                | `orcheo/workspace-sandbox:latest`                                      | Image hosting agent CLIs, Orcheo CLI, and workflow runner. |
+| `ORCHEO_SANDBOX_IMAGE`                | `ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest`                | Image hosting agent CLIs, Orcheo CLI, and workflow runner. Pulled from GHCR in prod; built locally by the dev compose. |
 | `ORCHEO_SANDBOX_RUNTIME_URL`          | `http://sandbox-runtime:9090`                                          | Internal URL of the sandbox-runtime service. Backend and worker call this to provision sandboxes and dispatch runs — they never mount the Docker socket themselves. |
 | `ORCHEO_EGRESS_PROXY_URL`             | `http://egress-proxy:3128`                                             | Envoy forward proxy for permitted HTTP/HTTPS.            |
 | `ORCHEO_CREDENTIAL_BROKER_URL`        | `http://sandbox-runtime:9090/credentials/resolve`                      | Endpoint workspace sandboxes use to resolve run-scoped credentials. The `sandbox-runtime` service overrides this to the backend broker upstream. |

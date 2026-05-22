@@ -82,6 +82,8 @@ class _FakeImages:
 
     def __init__(self) -> None:
         self._missing: set[str] = set()
+        self._pullable: set[str] = set()
+        self.pulled: list[str] = []
 
     def get(self, image: str) -> _FakeImage:
         """Return a fake image or raise to mimic the SDK's ``ImageNotFound``."""
@@ -90,9 +92,20 @@ class _FakeImages:
             raise RuntimeError(msg)
         return _FakeImage(image)
 
-    def forget(self, image: str) -> None:
-        """Mark ``image`` as missing for the next ``get`` call."""
+    def pull(self, image: str) -> _FakeImage:
+        """Mimic ``client.images.pull`` for registry-hosted images."""
+        self.pulled.append(image)
+        if image in self._pullable:
+            self._missing.discard(image)
+            return _FakeImage(image)
+        msg = f"pull access denied for {image}"
+        raise RuntimeError(msg)
+
+    def forget(self, image: str, *, pullable: bool = False) -> None:
+        """Mark ``image`` as missing locally; ``pullable`` allows a pull."""
         self._missing.add(image)
+        if pullable:
+            self._pullable.add(image)
 
 
 class _FakeClient:
@@ -137,25 +150,38 @@ def test_docker_runtime_start_passes_through_security_flags() -> None:
     }
 
 
-def test_docker_runtime_start_raises_actionable_error_when_image_missing() -> None:
-    """start() must point operators at ``make docker-build`` when the image
-    isn't on the daemon, instead of letting the docker SDK silently attempt a
-    registry pull and surface ``pull access denied``."""
+def test_docker_runtime_start_raises_actionable_error_when_pull_fails() -> None:
+    """start() must surface an actionable error when the image is absent and
+    can't be pulled, naming both the registry and the local-build fallback."""
     client = _FakeClient()
-    client.images.forget("orcheo/workspace-sandbox:latest")
+    client.images.forget("ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest")
     runtime = DockerContainerRuntime(client=client)
     spec = ContainerSpec(
-        image="orcheo/workspace-sandbox:latest",
+        image="ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest",
         workspace_id="W",
     )
     with pytest.raises(RuntimeError) as excinfo:
         runtime.start(spec)
     message = str(excinfo.value)
+    assert "orcheo-workspace-sandbox" in message
     assert "make docker-build" in message
-    assert "docker compose build workspace-sandbox" in message
-    # The container.run call must not have fired — we fail fast before the
-    # implicit registry pull.
+    # The pull was attempted, but the container.run call must not have fired.
+    assert client.images.pulled == [
+        "ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest"
+    ]
     assert client.containers.runs == []
+
+
+def test_docker_runtime_start_pulls_missing_image_then_runs() -> None:
+    """start() pulls a missing-but-published image and proceeds to run it."""
+    client = _FakeClient()
+    image = "ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest"
+    client.images.forget(image, pullable=True)
+    runtime = DockerContainerRuntime(client=client)
+    handle = runtime.start(ContainerSpec(image=image, workspace_id="W"))
+    assert client.images.pulled == [image]
+    assert len(client.containers.runs) == 1
+    assert handle.image == image
 
 
 def test_docker_runtime_stop_kills_and_removes_container() -> None:
@@ -318,20 +344,25 @@ def test_docker_runtime_translates_runtime_error_without_info() -> None:
     assert "ORCHEO_CONTAINER_RUNTIME" in message
 
 
-def test_require_local_image_passes_through_non_notfound_errors() -> None:
-    """_require_local_image returns (does not raise) for non-'not found' image errors (line 192)."""
+def test_ensure_image_present_passes_through_non_notfound_errors() -> None:
+    """_ensure_image_present returns (does not raise, and does not pull) for
+    non-'not found' image errors so daemon-connectivity issues bubble up via
+    start()'s outer handler."""
 
     class _FakeImages:
         def get(self, image: str) -> object:
             # A non-"not found" error (e.g. daemon connectivity issue).
             raise RuntimeError("connection refused to docker daemon")
 
+        def pull(self, image: str) -> object:
+            raise AssertionError("pull must not be attempted on daemon errors")
+
     class _FakeClientConnErr:
         def __init__(self) -> None:
             self.images = _FakeImages()
 
     # The method should return (not raise) for non-missing-image errors.
-    DockerContainerRuntime._require_local_image(
+    DockerContainerRuntime._ensure_image_present(
         _FakeClientConnErr(), "orcheo/workspace-sandbox:latest"
     )
     # If we reach here without an exception the branch is covered.
