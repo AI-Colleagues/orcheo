@@ -326,12 +326,12 @@ class SandboxRuntimeManager:
     def _build_environment(self) -> dict[str, str]:
         """Build the env vars injected into every spawned sandbox.
 
-        When ``egress_proxy_url`` is configured, also sets the standard
-        ``HTTP_PROXY`` / ``HTTPS_PROXY`` triplet so HTTP clients in the
-        sandbox route outbound HTTPS through the Envoy forward proxy. The
-        credential broker host is added to ``NO_PROXY`` so credential calls
-        don't go through the proxy (the proxy only allows tenant-allowlisted
-        external hosts; the broker is internal).
+        When ``egress_proxy_url`` is configured, also sets uppercase and
+        lowercase proxy env vars so common HTTP clients (curl/wget included)
+        route outbound traffic through the Envoy forward proxy. The credential
+        broker host is added to ``NO_PROXY`` / ``no_proxy`` so credential
+        calls don't go through the proxy (the proxy only allows
+        tenant-allowlisted external hosts; the broker is internal).
         """
         env: dict[str, str] = {
             "ORCHEO_CREDENTIAL_BROKER_URL": self._settings.credential_broker_url,
@@ -343,11 +343,17 @@ class SandboxRuntimeManager:
             broker_host = urlparse(self._settings.credential_broker_url).hostname
             if broker_host:
                 no_proxy.append(broker_host)
+            no_proxy_value = ",".join(no_proxy)
             env.update(
                 {
                     "HTTP_PROXY": proxy_url,
                     "HTTPS_PROXY": proxy_url,
-                    "NO_PROXY": ",".join(no_proxy),
+                    "NO_PROXY": no_proxy_value,
+                    "ALL_PROXY": proxy_url,
+                    "http_proxy": proxy_url,
+                    "https_proxy": proxy_url,
+                    "no_proxy": no_proxy_value,
+                    "all_proxy": proxy_url,
                 }
             )
         return env
