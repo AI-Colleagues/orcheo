@@ -6,6 +6,7 @@ from orcheo.sandbox.broker import (
     BrokerScopeError,
     BrokerTokenInvalid,
     CredentialBroker,
+    RedisRevocationStore,
     generate_broker_secret,
 )
 
@@ -92,6 +93,41 @@ def test_revoke_invalidates_future_uses() -> None:
     broker.revoke("r1")
     with pytest.raises(BrokerTokenInvalid):
         broker.resolve(token, credential_name="k")
+
+
+def test_redis_revocation_is_shared_across_broker_instances() -> None:
+    """Worker revocation is immediately visible to a backend broker."""
+
+    class _FakeRedis:
+        def __init__(self) -> None:
+            self.keys: dict[str, str] = {}
+            self.ttls: dict[str, int] = {}
+
+        def set(self, key: str, value: str, *, ex: int) -> None:
+            self.keys[key] = value
+            self.ttls[key] = ex
+
+        def exists(self, key: str) -> bool:
+            return key in self.keys
+
+    client = _FakeRedis()
+    worker = CredentialBroker(
+        secret="s",
+        resolver=_resolver({}),
+        ttl_seconds=60,
+        revocation_store=RedisRevocationStore("redis://unused", client=client),
+    )
+    backend = CredentialBroker(
+        secret="s",
+        resolver=_resolver({}),
+        ttl_seconds=60,
+        revocation_store=RedisRevocationStore("redis://unused", client=client),
+    )
+    token = worker.issue(workspace_id="ws", run_id="r-shared")
+    worker.revoke("r-shared")
+    with pytest.raises(BrokerTokenInvalid):
+        backend.parse(token)
+    assert client.ttls["orcheo:sandbox:credential-revoked:r-shared"] == 60
 
 
 def test_generate_broker_secret_is_url_safe_string() -> None:

@@ -42,14 +42,12 @@ def test_acquire_provisions_and_marks_in_use() -> None:
     assert spec.labels["orcheo.workspace_id"] == "ws"
     assert spec.environment == {
         "ORCHEO_CREDENTIAL_BROKER_URL": (
-            "http://sandbox-runtime:9090/credentials/resolve"
+            "http://credential-relay:9091/credentials/resolve"
         ),
         "ORCHEO_AGENT_RUNTIME_ROOT": "/scratch/agent-runtimes",
     }
-    # gVisor sandboxes need an explicit upstream resolver and a static hosts
-    # entry for the credential broker hop (see manager._resolve_broker_extra_hosts).
-    assert spec.dns == ("1.1.1.1", "8.8.8.8")
-    assert spec.extra_hosts == {"sandbox-runtime": "127.0.0.1"}
+    assert spec.dns == ()
+    assert spec.extra_hosts == {"credential-relay": "127.0.0.1"}
 
 
 def test_acquire_fails_loud_when_broker_host_unresolvable(
@@ -66,7 +64,7 @@ def test_acquire_fails_loud_when_broker_host_unresolvable(
 
     monkeypatch.setattr(manager_module.socket, "gethostbyname", _raise)
     manager, _ = _manager()
-    with pytest.raises(SandboxAcquireError, match="sandbox host 'sandbox-runtime'"):
+    with pytest.raises(SandboxAcquireError, match="sandbox host 'credential-relay'"):
         manager.acquire("ws")
 
 
@@ -84,7 +82,7 @@ def test_acquire_pins_and_proxies_through_egress_when_configured(
     monkeypatch.setattr(
         manager_module.socket,
         "gethostbyname",
-        lambda host: {"sandbox-runtime": "10.0.0.7", "egress-proxy": "10.0.0.8"}[host],
+        lambda host: {"credential-relay": "10.0.0.7", "egress-proxy": "10.0.0.8"}[host],
     )
     runtime = InMemoryContainerRuntime()
     manager = SandboxRuntimeManager(
@@ -94,12 +92,12 @@ def test_acquire_pins_and_proxies_through_egress_when_configured(
     manager.acquire("ws")
     spec = runtime.started[0][1]
     assert spec.extra_hosts == {
-        "sandbox-runtime": "10.0.0.7",
+        "credential-relay": "10.0.0.7",
         "egress-proxy": "10.0.0.8",
     }
     assert spec.environment["HTTP_PROXY"] == "http://egress-proxy:3128"
     assert spec.environment["HTTPS_PROXY"] == "http://egress-proxy:3128"
-    assert spec.environment["NO_PROXY"] == "localhost,127.0.0.1,sandbox-runtime"
+    assert spec.environment["NO_PROXY"] == "localhost,127.0.0.1,credential-relay"
 
 
 def test_acquire_proxy_env_handles_broker_url_without_hostname(

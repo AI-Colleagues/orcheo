@@ -61,9 +61,9 @@ services:
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
       ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET:?set ORCHEO_CREDENTIAL_BROKER_SECRET}
-      # Backend/worker embed this image name in every ContainerSpec they send
-      # to sandbox-runtime, so it must match the image sandbox-runtime is
-      # allowed to spawn.
+      ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:?set ORCHEO_SANDBOX_CONTROL_TOKEN}
+      ORCHEO_CREDENTIAL_BROKER_URL: http://credential-relay:9091/credentials/resolve
+      ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
       ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest}
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
@@ -74,6 +74,8 @@ services:
       postgres:
         condition: service_healthy
       sandbox-runtime:
+        condition: service_healthy
+      credential-relay:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:2025/api/system/health > /dev/null"]
@@ -114,9 +116,9 @@ services:
       ORCHEO_BACKEND_INTERNAL_URL: http://backend:2025
       ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
       ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET:?set ORCHEO_CREDENTIAL_BROKER_SECRET}
-      # Backend/worker embed this image name in every ContainerSpec they send
-      # to sandbox-runtime, so it must match the image sandbox-runtime is
-      # allowed to spawn.
+      ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:?set ORCHEO_SANDBOX_CONTROL_TOKEN}
+      ORCHEO_CREDENTIAL_BROKER_URL: http://credential-relay:9091/credentials/resolve
+      ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
       ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest}
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
@@ -127,6 +129,8 @@ services:
       postgres:
         condition: service_healthy
       sandbox-runtime:
+        condition: service_healthy
+      credential-relay:
         condition: service_healthy
     command: python -m celery -A orcheo_backend.worker.celery_app worker --loglevel=info
 
@@ -223,13 +227,9 @@ services:
     environment:
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
       ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest}
+      ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:?set ORCHEO_SANDBOX_CONTROL_TOKEN}
       ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
-      # Upstream broker the sandbox-runtime relay forwards to. Reachable on
-      # the default network only — do NOT set ORCHEO_CREDENTIAL_BROKER_URL
-      # here: that var is injected into child sandboxes, which run on
-      # sandbox-egress and cannot reach `backend`.
-      ORCHEO_CREDENTIAL_BROKER_FORWARD_URL: http://backend:2025/internal/credentials/resolve
-      ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET:?set ORCHEO_CREDENTIAL_BROKER_SECRET}
+      ORCHEO_CREDENTIAL_BROKER_URL: http://credential-relay:9091/credentials/resolve
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:9090/healthz"]
       interval: 10s
@@ -237,7 +237,22 @@ services:
       retries: 5
     networks:
       - default
-      - sandbox-egress
+
+  credential-relay:
+    image: ${ORCHEO_SANDBOX_RUNTIME_IMAGE:-ghcr.io/ai-colleagues/orcheo-sandbox-runtime:latest}
+    restart: unless-stopped
+    command: ["uv", "run", "uvicorn", "orcheo.sandbox.service:build_credential_relay_app", "--factory", "--host", "0.0.0.0", "--port", "9091"]
+    environment:
+      ORCHEO_CREDENTIAL_BROKER_FORWARD_URL: http://backend:2025/internal/credentials/resolve
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9091/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      default:
+      sandbox-egress:
+        ipv4_address: 10.99.0.2
 
   egress-proxy:
     image: ${ORCHEO_EGRESS_PROXY_IMAGE:-envoyproxy/envoy:v1.33-latest}
@@ -246,7 +261,9 @@ services:
     volumes:
       - ${ORCHEO_EGRESS_PROXY_CONFIG:-./envoy-forward-proxy.yaml}:/etc/envoy/envoy.yaml:ro
     networks:
-      - sandbox-egress
+      default:
+      sandbox-egress:
+        ipv4_address: 10.99.0.3
 
 networks:
   sandbox-egress:
@@ -257,6 +274,13 @@ networks:
     # nftables rules attached to this bridge enforce the L3/L4 deny policy.
     # See deploy/stack/sandbox-egress.nft.
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: sandbox0
+    ipam:
+      config:
+        - subnet: 10.99.0.0/24
+          ip_range: 10.99.0.128/25
+          gateway: 10.99.0.1
 
 volumes:
   postgres_data:

@@ -14,6 +14,8 @@ for key, value in (
     # The backend refuses to start without a broker secret in non-test runs.
     # Tests supply a deterministic value so the FastAPI app builds at import.
     ("ORCHEO_CREDENTIAL_BROKER_SECRET", "test-broker-secret"),
+    ("ORCHEO_SANDBOX_CONTROL_TOKEN", "test-sandbox-control-token"),
+    ("ORCHEO_SANDBOX_REVOCATION_STORE", "memory"),
     # The sandbox bootstrap requires a runtime URL; tests inject their own
     # primitives and never actually hit this URL.
     ("ORCHEO_SANDBOX_RUNTIME_URL", "http://sandbox-runtime.test:9090"),
@@ -21,6 +23,7 @@ for key, value in (
     os.environ.setdefault(key, value)
 
 from orcheo.models import AesGcmCredentialCipher
+from orcheo.graph.ingestion import ingest_langgraph_script
 from orcheo.sandbox.broker import CredentialBroker
 from orcheo.sandbox.launcher import SandboxedProcessLauncher
 from orcheo.sandbox.workflow import (
@@ -152,6 +155,24 @@ class _StubSandboxBootstrap:
 
     def dispatcher(self) -> WorkflowSandboxDispatcher:  # type: ignore[override]
         return self._dispatcher  # type: ignore[return-value]
+
+    async def ingest_script(
+        self,
+        *,
+        workspace_id: str,
+        source: str,
+        entrypoint: str | None,
+        max_script_bytes: int | None,
+        execution_timeout_seconds: float | None,
+    ) -> dict[str, object]:
+        """Emulate sandbox ingestion for unit tests without a runtime service."""
+        del workspace_id
+        return ingest_langgraph_script(
+            source,
+            entrypoint=entrypoint,
+            max_script_bytes=max_script_bytes,
+            execution_timeout_seconds=execution_timeout_seconds,
+        )
 
 
 @pytest.fixture(autouse=True)

@@ -20,16 +20,25 @@ This module provides three clients:
 """
 
 from __future__ import annotations
+import os
 from collections.abc import Mapping
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, cast
 import httpx
 from orcheo.external_agents.models import ProcessExecutionResult
+from orcheo.graph.ingestion import (
+    DEFAULT_EXECUTION_TIMEOUT_SECONDS,
+    DEFAULT_SCRIPT_SIZE_LIMIT,
+    ScriptIngestionError,
+)
 from orcheo.sandbox.errors import SandboxAcquireError, SandboxLifecycleError
 from orcheo.sandbox.models import SandboxLease
 from orcheo.sandbox.runtime import ContainerHandle, ContainerSpec
 from orcheo.sandbox.workflow import WorkflowRunResult, WorkflowRunSpec
+
+
+CONTROL_HEADER = "X-Orcheo-Sandbox-Control-Token"
 
 
 class RemoteRuntimeError(SandboxLifecycleError):
@@ -37,26 +46,23 @@ class RemoteRuntimeError(SandboxLifecycleError):
 
 
 def _spec_to_payload(spec: ContainerSpec) -> dict[str, Any]:
-    """Serialize a ``ContainerSpec`` for the runtime-service API."""
+    """Serialize only permitted resource and workspace provisioning fields."""
     return {
-        "image": spec.image,
         "workspace_id": spec.workspace_id,
-        "runtime": spec.runtime,
-        "command": list(spec.command),
-        "environment": dict(spec.environment),
         "cpu_limit": spec.cpu_limit,
         "memory_limit": spec.memory_limit,
         "pid_limit": spec.pid_limit,
         "scratch_size": spec.scratch_size,
-        "user": spec.user,
-        "network_mode": spec.network_mode,
-        "read_only_root": spec.read_only_root,
-        "cap_drop": list(spec.cap_drop),
-        "no_new_privileges": spec.no_new_privileges,
-        "labels": dict(spec.labels),
-        "dns": list(spec.dns),
-        "extra_hosts": dict(spec.extra_hosts),
     }
+
+
+def _control_headers(control_token: str | None) -> dict[str, str]:
+    """Return authenticated internal API headers or fail closed."""
+    token = control_token or os.getenv("ORCHEO_SANDBOX_CONTROL_TOKEN", "")
+    if not token:
+        msg = "ORCHEO_SANDBOX_CONTROL_TOKEN is required for runtime requests"
+        raise RemoteRuntimeError(msg)
+    return {CONTROL_HEADER: token}
 
 
 def _handle_from_payload(payload: Mapping[str, Any]) -> ContainerHandle:
@@ -76,6 +82,7 @@ class RemoteContainerRuntime:
         self,
         base_url: str,
         *,
+        control_token: str | None = None,
         client: httpx.Client | None = None,
         timeout: float = 30.0,
     ) -> None:
@@ -84,11 +91,13 @@ class RemoteContainerRuntime:
         Args:
             base_url: Base URL of the sandbox-runtime service
                 (e.g. ``http://sandbox-runtime:9090``).
+            control_token: Internal authentication token for control routes.
             client: Optional pre-configured ``httpx.Client``; one is created
                 if omitted.
             timeout: Request timeout in seconds.
         """
         self._base_url = base_url.rstrip("/")
+        self._headers = _control_headers(control_token)
         self._owns_client = client is None
         self._client = client or httpx.Client(timeout=timeout)
 
@@ -100,8 +109,9 @@ class RemoteContainerRuntime:
     def start(self, spec: ContainerSpec) -> ContainerHandle:
         """Provision a container via the runtime service."""
         response = self._client.post(
-            f"{self._base_url}/containers",
+            f"{self._base_url}/internal/containers",
             json=_spec_to_payload(spec),
+            headers=self._headers,
         )
         self._raise_for_status(response, action="provision container")
         return _handle_from_payload(response.json())
@@ -109,7 +119,8 @@ class RemoteContainerRuntime:
     def stop(self, handle: ContainerHandle) -> None:
         """Stop and remove the container via the runtime service."""
         response = self._client.delete(
-            f"{self._base_url}/containers/{handle.container_id}",
+            f"{self._base_url}/internal/containers/{handle.container_id}",
+            headers=self._headers,
         )
         if response.status_code == httpx.codes.NOT_FOUND:
             return
@@ -118,7 +129,8 @@ class RemoteContainerRuntime:
     def is_running(self, handle: ContainerHandle) -> bool:
         """Return True if the runtime service still reports the container alive."""
         response = self._client.get(
-            f"{self._base_url}/containers/{handle.container_id}",
+            f"{self._base_url}/internal/containers/{handle.container_id}",
+            headers=self._headers,
         )
         if response.status_code == httpx.codes.NOT_FOUND:
             return False
@@ -147,6 +159,7 @@ class RemoteSandboxExec:
         self,
         base_url: str,
         *,
+        control_token: str | None = None,
         client: httpx.AsyncClient | None = None,
         timeout: float = 60.0,
     ) -> None:
@@ -154,10 +167,12 @@ class RemoteSandboxExec:
 
         Args:
             base_url: Base URL of the sandbox-runtime service.
+            control_token: Internal authentication token for control routes.
             client: Optional pre-configured ``httpx.AsyncClient``.
             timeout: Default request timeout in seconds.
         """
         self._base_url = base_url.rstrip("/")
+        self._headers = _control_headers(control_token)
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(timeout=timeout)
         self._default_timeout = timeout
@@ -193,8 +208,9 @@ class RemoteSandboxExec:
             else self._default_timeout
         )
         response = await self._client.post(
-            f"{self._base_url}/sandboxes/{sandbox_id}/exec",
+            f"{self._base_url}/internal/sandboxes/{sandbox_id}/exec",
             json=payload,
+            headers=self._headers,
             timeout=request_timeout,
         )
         if not response.is_success:
@@ -242,6 +258,7 @@ class RemoteSandboxRunner:
         self,
         base_url: str,
         *,
+        control_token: str | None = None,
         client: httpx.AsyncClient | None = None,
         timeout: float = DEFAULT_WORKFLOW_DISPATCH_TIMEOUT_SECONDS,
     ) -> None:
@@ -249,6 +266,7 @@ class RemoteSandboxRunner:
 
         Args:
             base_url: Base URL of the sandbox-runtime service.
+            control_token: Internal authentication token for control routes.
             client: Optional pre-configured ``httpx.AsyncClient``.
             timeout: Default request timeout in seconds. Must exceed the
                 longest agent timeout the operator expects to dispatch
@@ -257,6 +275,7 @@ class RemoteSandboxRunner:
                 run will surface as ``failed`` with no useful error.
         """
         self._base_url = base_url.rstrip("/")
+        self._headers = _control_headers(control_token)
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(timeout=timeout)
         self._default_timeout = timeout
@@ -278,8 +297,9 @@ class RemoteSandboxRunner:
             "broker_token": broker_token,
         }
         response = await self._client.post(
-            f"{self._base_url}/sandboxes/{lease.sandbox_id}/dispatch_workflow",
+            f"{self._base_url}/internal/sandboxes/{lease.sandbox_id}/dispatch_workflow",
             json=payload,
+            headers=self._headers,
             timeout=self._default_timeout,
         )
         if not response.is_success:
@@ -299,6 +319,62 @@ class RemoteSandboxRunner:
             outputs=cast(Mapping[str, Any], dict(data.get("outputs") or {})),
             error=data.get("error"),
         )
+
+
+class RemoteSandboxIngestor:
+    """Validate tenant scripts by running ingestion in a sandbox process."""
+
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        control_token: str | None = None,
+        client: httpx.AsyncClient | None = None,
+        timeout: float = 60.0,
+    ) -> None:
+        """Initialize an authenticated ingestion client."""
+        self._base_url = base_url.rstrip("/")
+        self._headers = _control_headers(control_token)
+        self._owns_client = client is None
+        self._client = client or httpx.AsyncClient(timeout=timeout)
+
+    async def aclose(self) -> None:
+        """Close the underlying HTTP client if owned by this client."""
+        if self._owns_client:
+            await self._client.aclose()
+
+    async def ingest(
+        self,
+        sandbox_id: str,
+        *,
+        source: str,
+        entrypoint: str | None,
+        max_script_bytes: int | None,
+        execution_timeout_seconds: float | None,
+    ) -> dict[str, Any]:
+        """Return the serialized graph payload or raise validation error."""
+        response = await self._client.post(
+            f"{self._base_url}/internal/sandboxes/{sandbox_id}/ingest",
+            headers=self._headers,
+            json={
+                "source": source,
+                "entrypoint": entrypoint,
+                "max_script_bytes": max_script_bytes or DEFAULT_SCRIPT_SIZE_LIMIT,
+                "execution_timeout_seconds": (
+                    execution_timeout_seconds or DEFAULT_EXECUTION_TIMEOUT_SECONDS
+                ),
+            },
+            timeout=(execution_timeout_seconds or 30.0) + 30.0,
+        )
+        if response.status_code == httpx.codes.BAD_REQUEST:
+            detail = response.json().get("detail", response.text)
+            raise ScriptIngestionError(str(detail))
+        if not response.is_success:
+            detail = response.json().get("detail", response.text)
+            raise RemoteRuntimeError(
+                f"sandbox-runtime ingestion failed: {response.status_code} {detail}"
+            )
+        return cast(dict[str, Any], response.json())
 
 
 def serialize_workflow_run_result(result: WorkflowRunResult) -> dict[str, Any]:

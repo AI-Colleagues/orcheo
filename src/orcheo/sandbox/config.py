@@ -71,11 +71,11 @@ class SandboxSettings(BaseModel):
         ),
     )
     credential_broker_url: str = Field(
-        default="http://sandbox-runtime:9090/credentials/resolve",
+        default="http://credential-relay:9091/credentials/resolve",
         description=(
             "Credential endpoint workspace sandboxes call. Must be reachable "
             "from the ``sandbox-egress`` network; the default points at the "
-            "sandbox-runtime relay, which is on both the default and "
+            "credential relay, which is on both the default and "
             "sandbox-egress networks. Injected into every spawned child "
             "container as ``ORCHEO_CREDENTIAL_BROKER_URL``."
         ),
@@ -83,24 +83,36 @@ class SandboxSettings(BaseModel):
     credential_broker_forward_url: str = Field(
         default="http://backend:2025/internal/credentials/resolve",
         description=(
-            "Upstream broker URL the sandbox-runtime relay forwards resolved "
+            "Upstream broker URL the credential relay forwards resolved "
             "credential requests to. Reachable from the default network only; "
             "must NOT be exposed to child sandboxes."
         ),
     )
-    # Docker's embedded DNS at 127.0.0.11 is implemented via iptables REDIRECT
-    # in the container netns and is unreachable from gVisor (runsc) sandboxes,
-    # whose userspace netstack ignores host-side iptables. Sandbox containers
-    # must therefore be pointed at an upstream resolver directly. Defaults to
-    # Cloudflare + Google; override via ``ORCHEO_SANDBOX_DNS`` (comma-separated
-    # IPs) when egress to public DNS is unavailable.
-    sandbox_dns: tuple[str, ...] = Field(default=("1.1.1.1", "8.8.8.8"))
+    # Child containers resolve only pinned internal service names directly.
+    # External HTTP/HTTPS name resolution is performed by the egress proxy.
+    # This remains configurable for non-sandbox compatibility only.
+    sandbox_dns: tuple[str, ...] = Field(default=())
+    egress_allowed_hosts: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Operator-managed global allowlist of external hostnames reachable "
+            "through the sandbox HTTP/HTTPS proxy."
+        ),
+    )
     audit_logger_name: str = Field(default="orcheo.sandbox.audit")
 
     @field_validator("sandbox_dns", mode="before")
     @classmethod
     def _split_sandbox_dns(cls, value: Any) -> Any:
         """Accept a comma-separated string from env, normalise to a tuple."""
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator("egress_allowed_hosts", mode="before")
+    @classmethod
+    def _split_egress_allowed_hosts(cls, value: Any) -> Any:
+        """Accept a comma-separated global proxy hostname allowlist."""
         if isinstance(value, str):
             return tuple(part.strip() for part in value.split(",") if part.strip())
         return value
@@ -129,7 +141,7 @@ class SandboxSettings(BaseModel):
             msg = (
                 f"credential_broker_url host {host!r} is in denied_hostnames "
                 f"{self.denied_hostnames!r}; child sandboxes cannot reach it. "
-                "Point ORCHEO_CREDENTIAL_BROKER_URL at the sandbox-runtime "
+                "Point ORCHEO_CREDENTIAL_BROKER_URL at the credential relay "
                 "relay and set ORCHEO_CREDENTIAL_BROKER_FORWARD_URL for the "
                 "relay's upstream target."
             )
@@ -152,6 +164,7 @@ class SandboxSettings(BaseModel):
         "default_pool_min": "ORCHEO_SANDBOX_DEFAULT_POOL_MIN",
         "default_pool_max": "ORCHEO_SANDBOX_DEFAULT_POOL_MAX",
         "egress_proxy_url": "ORCHEO_EGRESS_PROXY_URL",
+        "egress_allowed_hosts": "ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS",
         "credential_broker_url": "ORCHEO_CREDENTIAL_BROKER_URL",
         "credential_broker_forward_url": "ORCHEO_CREDENTIAL_BROKER_FORWARD_URL",
         "sandbox_dns": "ORCHEO_SANDBOX_DNS",

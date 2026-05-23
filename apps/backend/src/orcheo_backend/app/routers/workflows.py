@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from orcheo.config import get_settings
-from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
+from orcheo.graph.ingestion import ScriptIngestionError
 from orcheo.models import (
     Workflow,
     WorkflowDraftAccess,
@@ -41,6 +41,7 @@ from orcheo_backend.app.repository import (
     WorkflowPublishStateError,
     WorkflowVersionNotFoundError,
 )
+from orcheo_backend.app.sandbox import ingest_sandboxed_script
 from orcheo_backend.app.schemas.chatkit import ChatKitSessionResponse
 from orcheo_backend.app.schemas.workflows import (
     PublicWorkflow,
@@ -638,8 +639,9 @@ async def ingest_workflow_version(
             ),
         )
     try:
-        graph_payload = ingest_langgraph_script(
-            request.script,
+        graph_payload = await ingest_sandboxed_script(
+            workspace_id=tid,
+            source=request.script,
             entrypoint=request.entrypoint,
         )
     except ScriptIngestionError as exc:

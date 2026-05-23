@@ -1,40 +1,32 @@
 #!/usr/sbin/nft -f
 #
-# Workspace Runtime Isolation — L3/L4 default-deny egress for sandbox containers.
-#
-# Apply on the sandbox host after the sandbox-egress bridge exists:
+# Apply after Docker creates the `sandbox0` bridge:
 #   nft -f deploy/stack/sandbox-egress.nft
 #
-# The rules drop every packet bound for the cloud metadata range and internal
-# infrastructure (Redis, Postgres, internal backend endpoints), then accept
-# outbound HTTP/HTTPS only to the L7 forward proxy. Tenant code cannot bypass
-# these rules — they are attached to the host's output hook for the
-# sandbox-egress interface and are not visible inside the sandbox.
+# Compose reserves 10.99.0.2 for credential-relay, 10.99.0.3 for the
+# HTTP/HTTPS proxy, and allocates tenant sandboxes only from 10.99.0.128/25.
 
 table inet orcheo_sandbox {
-  chain output {
-    type filter hook output priority 0; policy accept;
-    oifname "sandbox0" jump sandbox_egress
+  chain forward {
+    type filter hook forward priority -10; policy accept;
+
+    iifname "sandbox0" ip saddr 10.99.0.128/25 ip daddr 10.99.0.2 tcp dport 9091 accept
+    iifname "sandbox0" ip saddr 10.99.0.128/25 ip daddr 10.99.0.3 tcp dport 3128 accept
+
+    # Includes other sandboxes, metadata/private networks, direct DNS,
+    # control-plane services, and direct internet routing.
+    iifname "sandbox0" ip saddr 10.99.0.128/25 drop
+    iifname "sandbox0" ip6 saddr != :: drop
   }
+}
 
-  chain sandbox_egress {
-    # Block cloud metadata endpoints.
-    ip daddr 169.254.0.0/16 drop
-    ip6 daddr fd00:ec2::/32 drop
+table bridge orcheo_sandbox_bridge {
+  chain forward {
+    type filter hook forward priority -10; policy accept;
 
-    # Block resolved internal hostnames (replace IPs at deploy time).
-    # The Python generator in orcheo.sandbox.egress.policy renders these.
-    ip daddr 10.0.0.0/8 drop
-    ip daddr 172.16.0.0/12 drop
-
-    # Block loopback so a sandboxed process cannot reach the host stack.
-    ip daddr 127.0.0.0/8 drop
-    ip6 daddr ::1 drop
-
-    # Only permit HTTP/HTTPS via the forward proxy.
-    tcp dport { 80, 443 } ip daddr != 10.99.0.2 drop
-    ip daddr 10.99.0.2 tcp dport 3128 accept
-
-    return
+    ether type ip ip saddr 10.99.0.128/25 ip daddr 10.99.0.2 tcp dport 9091 accept
+    ether type ip ip saddr 10.99.0.128/25 ip daddr 10.99.0.3 tcp dport 3128 accept
+    ether type ip ip saddr 10.99.0.128/25 drop
+    ether type ip6 drop
   }
 }

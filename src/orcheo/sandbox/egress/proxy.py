@@ -3,7 +3,8 @@
 The Envoy forward proxy is **not** the network boundary — that's nftables —
 but it does:
 
-1. Allowlist outbound HTTP/HTTPS host destinations per workspace.
+1. Allowlist outbound HTTP/HTTPS host destinations using one operator-owned
+   global hostname set.
 2. Emit a structured access log of every request, including denied hosts,
    that the audit consumer in ``orcheo.sandbox.egress.audit`` ingests.
 
@@ -12,14 +13,14 @@ Envoy on workspace egress-allowlist changes.
 """
 
 from __future__ import annotations
-import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
 class WorkspaceEgressAllowlist:
-    """Per-workspace allowed HTTP/HTTPS hosts."""
+    """Deprecated workspace allowlist retained for configuration compatibility."""
 
     workspace_id: str
     hosts: tuple[str, ...]
@@ -45,26 +46,27 @@ class EnvoyForwardProxyConfig:
         )
 
     def allowlist_for_workspace(self, workspace_id: str) -> tuple[str, ...]:
-        """Return the merged (global + workspace) allowlist for a workspace."""
-        merged: list[str] = list(self.global_allowed_hosts)
-        for entry in self.workspaces:
-            if entry.workspace_id == workspace_id:
-                for host in entry.hosts:
-                    if host not in merged:
-                        merged.append(host)
-        return tuple(merged)
+        """Return the enforceable global allowlist for any workspace."""
+        del workspace_id
+        return self.global_allowed_hosts
+
+    @classmethod
+    def from_env(cls) -> EnvoyForwardProxyConfig:
+        """Build a global allowlist from ``ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS``."""
+        hosts = tuple(
+            item.strip()
+            for item in os.getenv("ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS", "").split(",")
+            if item.strip()
+        )
+        return cls(global_allowed_hosts=hosts)
 
 
 def _listeners(config: EnvoyForwardProxyConfig) -> str:
     """Render the listener stanza."""
-    workspaces = {ws.workspace_id: list(ws.hosts) for ws in config.workspaces}
-    audit_payload = {
-        "audit_log_path": config.audit_log_path,
-        "global_allowed_hosts": list(config.global_allowed_hosts),
-        "workspaces": workspaces,
-    }
-    audit_json = json.dumps(audit_payload, indent=2, sort_keys=True)
-    indented_audit = "\n".join("        " + line for line in audit_json.splitlines())
+    allowed_domains = (
+        ", ".join(f'"{host}", "{host}:*"' for host in config.global_allowed_hosts)
+        or '"orcheo-no-external-hosts-configured.invalid"'
+    )
     return (
         f"  - address:\n"
         f"      socket_address:\n"
@@ -77,13 +79,43 @@ def _listeners(config: EnvoyForwardProxyConfig) -> str:
         f"              '@type': type.googleapis.com/envoy.extensions.filters."
         f"network.http_connection_manager.v3.HttpConnectionManager\n"
         f"              stat_prefix: sandbox_egress\n"
+        f"              route_config:\n"
+        f"                name: sandbox_routes\n"
+        f"                virtual_hosts:\n"
+        f"                  - name: approved_hosts\n"
+        f"                    domains: [{allowed_domains}]\n"
+        f"                    routes:\n"
+        f"                      - match: {{ connect_matcher: {{}} }}\n"
+        f"                        route:\n"
+        f"                          cluster: dynamic_forward_proxy_cluster\n"
+        f"                          upgrade_configs:\n"
+        f"                            - upgrade_type: CONNECT\n"
+        f"                              connect_config: {{}}\n"
+        f"                      - match: {{ prefix: '/' }}\n"
+        f"                        route: {{ cluster: dynamic_forward_proxy_cluster }}\n"
+        f"                  - name: deny_all\n"
+        f"                    domains: ['*']\n"
+        f"                    routes:\n"
+        f"                      - match: {{ connect_matcher: {{}} }}\n"
+        f"                        direct_response: {{ status: 403 }}\n"
+        f"                      - match: {{ prefix: '/' }}\n"
+        f"                        direct_response: {{ status: 403 }}\n"
+        f"              http_filters:\n"
+        f"                - name: envoy.filters.http.dynamic_forward_proxy\n"
+        f"                  typed_config:\n"
+        f"                    '@type': type.googleapis.com/envoy.extensions.filters."
+        f"http.dynamic_forward_proxy.v3.FilterConfig\n"
+        f"                    dns_cache_config: {{ name: sandbox_egress_dns_cache }}\n"
+        f"                - name: envoy.filters.http.router\n"
+        f"                  typed_config:\n"
+        f"                    '@type': type.googleapis.com/envoy.extensions.filters."
+        f"http.router.v3.Router\n"
         f"              access_log:\n"
         f"                - name: envoy.access_loggers.file\n"
         f"                  typed_config:\n"
         f"                    '@type': type.googleapis.com/envoy.extensions."
         f"access_loggers.file.v3.FileAccessLog\n"
         f"                    path: {config.audit_log_path}\n"
-        f"              orcheo_audit_payload: |\n{indented_audit}\n"
     )
 
 
@@ -95,6 +127,10 @@ def _clusters(config: EnvoyForwardProxyConfig) -> str:
         "    lb_policy: CLUSTER_PROVIDED\n"
         "    cluster_type:\n"
         "      name: envoy.clusters.dynamic_forward_proxy\n"
+        "      typed_config:\n"
+        "        '@type': type.googleapis.com/envoy.extensions.clusters."
+        "dynamic_forward_proxy.v3.ClusterConfig\n"
+        "        dns_cache_config: { name: sandbox_egress_dns_cache }\n"
     )
 
 

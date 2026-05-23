@@ -21,13 +21,33 @@ static_resources:
                 route_config:
                   name: local_route
                   virtual_hosts:
-                    - name: sandbox_egress
-                      domains: ["*"]
+                    # Secure default: operators replace this placeholder with
+                    # domains approved by ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS.
+                    - name: approved_hosts
+                      domains: ["orcheo-no-external-hosts-configured.invalid"]
                       routes:
+                        - match:
+                            connect_matcher: {}
+                          route:
+                            cluster: dynamic_forward_proxy_cluster
+                            upgrade_configs:
+                              - upgrade_type: CONNECT
+                                connect_config: {}
                         - match:
                             prefix: "/"
                           route:
                             cluster: dynamic_forward_proxy_cluster
+                    - name: deny_all
+                      domains: ["*"]
+                      routes:
+                        - match:
+                            connect_matcher: {}
+                          direct_response:
+                            status: 403
+                        - match:
+                            prefix: "/"
+                          direct_response:
+                            status: 403
                 http_filters:
                   - name: envoy.filters.http.dynamic_forward_proxy
                     typed_config:

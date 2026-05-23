@@ -5,6 +5,7 @@ import asyncio
 import io
 import tarfile
 from collections.abc import Iterator
+from unittest.mock import AsyncMock
 import httpx
 import pytest
 import respx
@@ -334,40 +335,36 @@ def test_build_candidate_ignores_invalid_json_config() -> None:
     assert result.config is None
 
 
-def test_build_candidate_sets_mermaid_on_success(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A successful graph derivation populates the mermaid field."""
-    monkeypatch.setattr(
-        candidates_service,
-        "ingest_langgraph_script",
-        lambda source, entrypoint=None: {"index": {"mermaid": "graph TD; A-->B"}},
-    )
-
-    result = candidates_service._build_candidate(
-        "linkedin_post", _WORKFLOW_WITH_FRONTMATTER, None
-    )
-
-    assert result is not None
-    assert result.mermaid == "graph TD; A-->B"
-
-
-def test_build_candidate_ignores_unexpected_ingest_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An unexpected exception during graph derivation is caught; mermaid is None."""
-
-    def bad_ingest(source: str, entrypoint: str | None = None) -> None:
-        raise ValueError("unexpected boom")
-
-    monkeypatch.setattr(candidates_service, "ingest_langgraph_script", bad_ingest)
-
+def test_build_candidate_defers_remote_script_rendering() -> None:
+    """Catalog refresh does not execute remotely sourced workflow Python."""
     result = candidates_service._build_candidate(
         "linkedin_post", _WORKFLOW_WITH_FRONTMATTER, None
     )
 
     assert result is not None
     assert result.mermaid is None
+
+
+@pytest.mark.asyncio()
+async def test_render_candidate_previews_uses_sandboxed_catalog_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Remote preview derivation routes through the no-credential sandbox path."""
+    candidate = candidates_service._build_candidate(
+        "linkedin_post", _WORKFLOW_WITH_FRONTMATTER, None
+    )
+    assert candidate is not None
+    ingestor = AsyncMock(return_value={"index": {"mermaid": "graph TD; A-->B"}})
+    monkeypatch.setattr(candidates_service, "ingest_sandboxed_script", ingestor)
+
+    result = await candidates_service._render_candidate_previews([candidate])
+
+    assert result[0].mermaid == "graph TD; A-->B"
+    ingestor.assert_awaited_once_with(
+        workspace_id="__candidate_catalog_preview__",
+        source=_WORKFLOW_WITH_FRONTMATTER,
+        entrypoint=None,
+    )
 
 
 # ---------------------------------------------------------------------------

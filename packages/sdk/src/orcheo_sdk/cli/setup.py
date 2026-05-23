@@ -1341,6 +1341,7 @@ def build_generated_stack_env_defaults() -> dict[str, str]:
         "ORCHEO_VAULT_ENCRYPTION_KEY": secrets.token_hex(32),
         "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY": secrets.token_urlsafe(32),
         "ORCHEO_CREDENTIAL_BROKER_SECRET": secrets.token_urlsafe(32),
+        "ORCHEO_SANDBOX_CONTROL_TOKEN": secrets.token_urlsafe(32),
     }
 
 

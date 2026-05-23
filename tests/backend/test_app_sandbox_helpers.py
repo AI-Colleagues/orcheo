@@ -127,6 +127,18 @@ def test_bootstrap_runtime_url_returns_env_value(
     assert bootstrap._runtime_url() == "http://sandbox-runtime:9090"
 
 
+def test_bootstrap_configure_requires_control_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Backend/worker startup fails before serving without control auth."""
+    monkeypatch.delenv("ORCHEO_SANDBOX_CONTROL_TOKEN", raising=False)
+    bootstrap = _SandboxBootstrap()
+    with pytest.raises(
+        SandboxRuntimeNotConfiguredError, match="ORCHEO_SANDBOX_CONTROL_TOKEN"
+    ):
+        bootstrap.configure(SimpleNamespace())  # type: ignore[arg-type]
+
+
 def test_bootstrap_ensure_manager_creates_manager(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -137,8 +149,9 @@ def test_bootstrap_ensure_manager_creates_manager(
     created_managers: list[Any] = []
 
     class _FakeRuntime:
-        def __init__(self, url: str) -> None:
+        def __init__(self, url: str, *, control_token: str) -> None:
             self.url = url
+            assert control_token == "test-sandbox-control-token"
             created_runtimes.append(self)
 
     class _FakeManager:
@@ -170,7 +183,8 @@ def test_bootstrap_launcher_creates_and_caches(
     monkeypatch.setenv("ORCHEO_SANDBOX_RUNTIME_URL", "http://sandbox-runtime:9090")
 
     class _FakeRuntime:
-        def __init__(self, url: str) -> None:
+        def __init__(self, url: str, *, control_token: str) -> None:
+            assert control_token == "test-sandbox-control-token"
             pass
 
     class _FakeManager:
@@ -178,8 +192,9 @@ def test_bootstrap_launcher_creates_and_caches(
             pass
 
     class _FakeExec:
-        def __init__(self, url: str) -> None:
+        def __init__(self, url: str, *, control_token: str) -> None:
             self.url = url
+            assert control_token == "test-sandbox-control-token"
 
     class _FakeLauncher:
         def __init__(self, manager: Any, *, exec_backend: Any) -> None:
@@ -216,7 +231,8 @@ def test_bootstrap_dispatcher_creates_dispatcher(
     monkeypatch.setenv("ORCHEO_SANDBOX_RUNTIME_URL", "http://sandbox-runtime:9090")
 
     class _FakeRuntime:
-        def __init__(self, url: str) -> None:
+        def __init__(self, url: str, *, control_token: str) -> None:
+            assert control_token == "test-sandbox-control-token"
             pass
 
     class _FakeManager:
@@ -224,7 +240,8 @@ def test_bootstrap_dispatcher_creates_dispatcher(
             pass
 
     class _FakeRunner:
-        def __init__(self, url: str) -> None:
+        def __init__(self, url: str, *, control_token: str) -> None:
+            assert control_token == "test-sandbox-control-token"
             pass
 
     dispatchers_created: list[Any] = []

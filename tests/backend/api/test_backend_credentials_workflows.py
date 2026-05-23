@@ -239,10 +239,9 @@ def orcheo_workflow() -> StateGraph:
 
     payload = readiness.json()
     assert payload["status"] == "missing"
-    assert payload["available_credentials"] == [
-        "openai_api_key",
-        "telegram_token",
-    ]
+    # Readiness statically scans persisted source/config. It does not execute
+    # MessageTelegram to infer its runtime-only default token reference.
+    assert payload["available_credentials"] == ["openai_api_key"]
     assert payload["missing_credentials"] == ["telegram_chat_id"]
 
 

@@ -11,15 +11,14 @@ def test_defaults_preserve_secure_runsc_choice() -> None:
     assert SandboxSettings().container_runtime == "runsc"
     assert (
         SandboxSettings().credential_broker_url
-        == "http://sandbox-runtime:9090/credentials/resolve"
+        == "http://credential-relay:9091/credentials/resolve"
     )
     assert (
         SandboxSettings().credential_broker_forward_url
         == "http://backend:2025/internal/credentials/resolve"
     )
-    # Sandbox containers must bypass Docker's embedded resolver because gVisor
-    # cannot reach it; the default upstream resolvers are public-DNS.
-    assert SandboxSettings().sandbox_dns == ("1.1.1.1", "8.8.8.8")
+    # External DNS is resolved by the proxy, never directly by a child.
+    assert SandboxSettings().sandbox_dns == ()
 
 
 def test_from_mapping_overrides_each_documented_field() -> None:
@@ -35,6 +34,7 @@ def test_from_mapping_overrides_each_documented_field() -> None:
         "ORCHEO_SANDBOX_DEFAULT_POOL_MIN": "1",
         "ORCHEO_SANDBOX_DEFAULT_POOL_MAX": "8",
         "ORCHEO_EGRESS_PROXY_URL": "http://envoy:3128",
+        "ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS": "api.openai.com,api.example.com",
         "ORCHEO_CREDENTIAL_BROKER_URL": "http://relay.local/credentials/resolve",
         "ORCHEO_CREDENTIAL_BROKER_FORWARD_URL": ("http://backend.local/internal/creds"),
         "ORCHEO_SANDBOX_DNS": "9.9.9.9, 1.0.0.1",
@@ -53,6 +53,7 @@ def test_from_mapping_overrides_each_documented_field() -> None:
     assert settings.default_pool_min == 1
     assert settings.default_pool_max == 8
     assert settings.egress_proxy_url == "http://envoy:3128"
+    assert settings.egress_allowed_hosts == ("api.openai.com", "api.example.com")
     assert settings.credential_broker_url == "http://relay.local/credentials/resolve"
     assert (
         settings.credential_broker_forward_url == "http://backend.local/internal/creds"

@@ -27,7 +27,9 @@ def _workspace_context(workspace_id: UUID | None = None) -> WorkspaceContext:
     )
 
 
-def test_collect_workflow_credential_placeholders_scans_nested_tool_graphs() -> None:
+def test_collect_workflow_credential_placeholders_scans_source_without_execution() -> (
+    None
+):
     source = """
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
@@ -81,9 +83,7 @@ def orcheo_workflow() -> StateGraph:
     assert sorted(placeholders) == [
         "openai_api_key",
         "telegram_chat_id",
-        "telegram_token",
     ]
-    assert placeholders["telegram_token"] == {"[[telegram_token]]"}
 
 
 def test_collect_workflow_credential_placeholders_scans_provider_specific_aliases() -> (
@@ -340,7 +340,7 @@ def orcheo_workflow() -> StateGraph:
     )
 
     assert response.status == "missing"
-    assert response.available_credentials == ["openai_api_key", "telegram_token"]
+    assert response.available_credentials == ["openai_api_key"]
     assert response.missing_credentials == ["telegram_chat_id"]
 
 

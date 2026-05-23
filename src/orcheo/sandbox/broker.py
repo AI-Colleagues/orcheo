@@ -42,6 +42,76 @@ class CredentialResolverFn(Protocol):
         """Return the credential value or raise ``KeyError`` if not found."""
 
 
+class RevocationStore(Protocol):
+    """Storage for revoked run identifiers shared by broker processes."""
+
+    def revoke(self, run_id: str, *, ttl_seconds: int) -> None:
+        """Mark ``run_id`` revoked until all issued tokens have expired."""
+
+    def is_revoked(self, run_id: str) -> bool:
+        """Return whether ``run_id`` is currently revoked."""
+
+
+class InMemoryRevocationStore:
+    """In-memory revocation state for tests and single-process use."""
+
+    def __init__(self, *, clock: object | None = None) -> None:
+        """Initialize with an optional injectable time source."""
+        self._clock: object = clock if clock is not None else time.time
+        self._revoked_until: dict[str, float] = {}
+
+    def revoke(self, run_id: str, *, ttl_seconds: int) -> None:
+        """Mark ``run_id`` revoked for ``ttl_seconds``."""
+        self._revoked_until[run_id] = (
+            float(self._clock()) + ttl_seconds  # type: ignore[operator]
+        )
+
+    def is_revoked(self, run_id: str) -> bool:
+        """Return whether the revocation has not expired."""
+        expires_at = self._revoked_until.get(run_id)
+        if expires_at is None:
+            return False
+        if float(self._clock()) > expires_at:  # type: ignore[operator]
+            self._revoked_until.pop(run_id, None)
+            return False
+        return True
+
+
+class RedisRevocationStore:
+    """Redis-backed revocation state shared by backend and worker brokers."""
+
+    def __init__(
+        self,
+        redis_url: str,
+        *,
+        key_prefix: str = "orcheo:sandbox:credential-revoked:",
+        client: object | None = None,
+    ) -> None:
+        """Initialize Redis key storage with optional test client injection."""
+        if client is None:
+            import redis
+
+            client = redis.Redis.from_url(redis_url, decode_responses=True)
+        self._client = client
+        self._key_prefix = key_prefix
+
+    def revoke(self, run_id: str, *, ttl_seconds: int) -> None:
+        """Persist the revoked run id with bounded retention."""
+        self._client.set(  # type: ignore[attr-defined]
+            f"{self._key_prefix}{run_id}",
+            "1",
+            ex=max(1, ttl_seconds),
+        )
+
+    def is_revoked(self, run_id: str) -> bool:
+        """Return whether a revocation key exists in Redis."""
+        return bool(
+            self._client.exists(  # type: ignore[attr-defined]
+                f"{self._key_prefix}{run_id}"
+            )
+        )
+
+
 @dataclass(frozen=True)
 class BrokerToken:
     """Run-scoped token payload."""
@@ -100,9 +170,8 @@ class CredentialBroker:
     signature with the broker's secret, so a tenant cannot forge a token or
     alter its ``workspace_id``.
 
-    A revocation set holds revoked ``run_id``s so leaked tokens stop working
-    immediately. In multi-process deployments, the revocation set should be
-    backed by Redis; here it's an in-memory ``set`` so tests don't need it.
+    A revocation store holds revoked ``run_id``s so leaked tokens stop working
+    immediately across processes. Unit tests default to an in-memory store.
     """
 
     def __init__(
@@ -112,6 +181,7 @@ class CredentialBroker:
         *,
         ttl_seconds: int = 300,
         clock: object | None = None,
+        revocation_store: RevocationStore | None = None,
     ) -> None:
         """Initialize the broker.
 
@@ -120,12 +190,15 @@ class CredentialBroker:
             resolver: Function that resolves a credential by workspace + name.
             ttl_seconds: Default token TTL.
             clock: Optional injectable clock (callable returning seconds).
+            revocation_store: Optional shared revoked-run storage.
         """
         self._secret = secret.encode("utf-8") if isinstance(secret, str) else secret
         self._resolver = resolver
         self._ttl = ttl_seconds
         self._clock: object = clock if clock is not None else time.time
-        self._revoked: set[str] = set()
+        self._revocations = revocation_store or InMemoryRevocationStore(
+            clock=self._clock
+        )
 
     def issue(self, *, workspace_id: str, run_id: str) -> str:
         """Mint a new run-scoped token string."""
@@ -146,7 +219,7 @@ class CredentialBroker:
 
     def revoke(self, run_id: str) -> None:
         """Revoke every outstanding token for ``run_id``."""
-        self._revoked.add(run_id)
+        self._revocations.revoke(run_id, ttl_seconds=self._ttl)
 
     def parse(self, token_str: str) -> BrokerToken:
         """Validate the signature and return the payload."""
@@ -170,7 +243,7 @@ class CredentialBroker:
         if now > token.expires_at:
             msg = "Token has expired"
             raise BrokerTokenInvalid(msg)
-        if token.run_id in self._revoked:
+        if self._revocations.is_revoked(token.run_id):
             msg = "Token has been revoked"
             raise BrokerTokenInvalid(msg)
         return token

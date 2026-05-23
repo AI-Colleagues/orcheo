@@ -94,6 +94,7 @@ _ENV_EXAMPLE = (
     b"ORCHEO_POSTGRES_PASSWORD=change-me\n"
     b"ORCHEO_VAULT_ENCRYPTION_KEY=replace-with-64-hex-chars\n"
     b"ORCHEO_CHATKIT_TOKEN_SIGNING_KEY=strong-random-secret\n"
+    b"ORCHEO_SANDBOX_CONTROL_TOKEN=replace-with-sandbox-control-token\n"
     b"VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me\n"
 )
 
@@ -277,10 +278,12 @@ def test_execute_setup_generates_secrets_on_fresh_install(
     assert "change-me" not in env_content
     assert "replace-with-64-hex-chars" not in env_content
     assert "strong-random-secret" not in env_content
+    assert "replace-with-sandbox-control-token" not in env_content
     # Keys must still exist with generated values.
     assert "ORCHEO_POSTGRES_PASSWORD=" in env_content
     assert "ORCHEO_VAULT_ENCRYPTION_KEY=" in env_content
     assert "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY=" in env_content
+    assert "ORCHEO_SANDBOX_CONTROL_TOKEN=" in env_content
     # VITE_ORCHEO_CHATKIT_DOMAIN_KEY is NOT auto-generated.
     assert "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me" in env_content
 
