@@ -13,6 +13,10 @@ def test_defaults_preserve_secure_runsc_choice() -> None:
         SandboxSettings().credential_broker_url
         == "http://sandbox-runtime:9090/credentials/resolve"
     )
+    assert (
+        SandboxSettings().credential_broker_forward_url
+        == "http://backend:2025/internal/credentials/resolve"
+    )
 
 
 def test_from_mapping_overrides_each_documented_field() -> None:
@@ -28,7 +32,8 @@ def test_from_mapping_overrides_each_documented_field() -> None:
         "ORCHEO_SANDBOX_DEFAULT_POOL_MIN": "1",
         "ORCHEO_SANDBOX_DEFAULT_POOL_MAX": "8",
         "ORCHEO_EGRESS_PROXY_URL": "http://envoy:3128",
-        "ORCHEO_CREDENTIAL_BROKER_URL": "http://backend.local/internal/creds",
+        "ORCHEO_CREDENTIAL_BROKER_URL": "http://relay.local/credentials/resolve",
+        "ORCHEO_CREDENTIAL_BROKER_FORWARD_URL": ("http://backend.local/internal/creds"),
         "ORCHEO_SANDBOX_AUDIT_LOGGER_NAME": "custom.audit",
     }
 
@@ -44,8 +49,27 @@ def test_from_mapping_overrides_each_documented_field() -> None:
     assert settings.default_pool_min == 1
     assert settings.default_pool_max == 8
     assert settings.egress_proxy_url == "http://envoy:3128"
-    assert settings.credential_broker_url == "http://backend.local/internal/creds"
+    assert settings.credential_broker_url == "http://relay.local/credentials/resolve"
+    assert (
+        settings.credential_broker_forward_url == "http://backend.local/internal/creds"
+    )
     assert settings.audit_logger_name == "custom.audit"
+
+
+def test_rejects_child_broker_url_pointing_at_denied_host() -> None:
+    """A child-facing broker URL must not target a denied hostname.
+
+    Child sandboxes attach only to the ``sandbox-egress`` network, so a URL
+    targeting ``backend`` (a denied host) would fail at first credential
+    resolve with a DNS error. The validator must fail fast at boot.
+    """
+    source = {
+        "ORCHEO_CREDENTIAL_BROKER_URL": (
+            "http://backend:2025/internal/credentials/resolve"
+        ),
+    }
+    with pytest.raises(ValueError, match="denied_hostnames"):
+        SandboxSettings.from_mapping(source)
 
 
 def test_from_mapping_ignores_blank_and_missing_values() -> None:

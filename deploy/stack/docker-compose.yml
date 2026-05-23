@@ -224,7 +224,11 @@ services:
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
       ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest}
       ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
-      ORCHEO_CREDENTIAL_BROKER_URL: http://backend:2025/internal/credentials/resolve
+      # Upstream broker the sandbox-runtime relay forwards to. Reachable on
+      # the default network only — do NOT set ORCHEO_CREDENTIAL_BROKER_URL
+      # here: that var is injected into child sandboxes, which run on
+      # sandbox-egress and cannot reach `backend`.
+      ORCHEO_CREDENTIAL_BROKER_FORWARD_URL: http://backend:2025/internal/credentials/resolve
       ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET:?set ORCHEO_CREDENTIAL_BROKER_SECRET}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:9090/healthz"]
