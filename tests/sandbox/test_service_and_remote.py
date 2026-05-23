@@ -119,7 +119,7 @@ def test_credential_relay_forwards_broker_request(
             return httpx.Response(200, json={"value": "resolved"})
 
     monkeypatch.setenv(
-        "ORCHEO_CREDENTIAL_BROKER_URL",
+        "ORCHEO_CREDENTIAL_BROKER_FORWARD_URL",
         "http://backend/internal/credentials/resolve",
     )
     monkeypatch.setattr(service_module.httpx, "AsyncClient", _FakeAsyncClient)
@@ -926,7 +926,7 @@ def test_credential_relay_without_optional_headers(
             return httpx.Response(200, json={"value": "ok"})
 
     monkeypatch.setenv(
-        "ORCHEO_CREDENTIAL_BROKER_URL",
+        "ORCHEO_CREDENTIAL_BROKER_FORWARD_URL",
         "http://backend/internal/credentials/resolve",
     )
     monkeypatch.setattr(service_module.httpx, "AsyncClient", _MinimalAsyncClient)

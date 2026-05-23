@@ -10,7 +10,8 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from typing import Any, ClassVar
-from pydantic import BaseModel, Field, field_validator
+from urllib.parse import urlparse
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # CIDRs and hostnames that must never be reachable from inside a sandbox.
@@ -71,7 +72,21 @@ class SandboxSettings(BaseModel):
     )
     credential_broker_url: str = Field(
         default="http://sandbox-runtime:9090/credentials/resolve",
-        description="Credential endpoint reachable from workspace sandboxes.",
+        description=(
+            "Credential endpoint workspace sandboxes call. Must be reachable "
+            "from the ``sandbox-egress`` network; the default points at the "
+            "sandbox-runtime relay, which is on both the default and "
+            "sandbox-egress networks. Injected into every spawned child "
+            "container as ``ORCHEO_CREDENTIAL_BROKER_URL``."
+        ),
+    )
+    credential_broker_forward_url: str = Field(
+        default="http://backend:2025/internal/credentials/resolve",
+        description=(
+            "Upstream broker URL the sandbox-runtime relay forwards resolved "
+            "credential requests to. Reachable from the default network only; "
+            "must NOT be exposed to child sandboxes."
+        ),
     )
     audit_logger_name: str = Field(default="orcheo.sandbox.audit")
 
@@ -83,6 +98,28 @@ class SandboxSettings(BaseModel):
             msg = "default_pool_max must be >= 1"
             raise ValueError(msg)
         return value
+
+    @model_validator(mode="after")
+    def _validate_broker_url_not_denied(self) -> SandboxSettings:
+        """Reject a child-facing broker URL that targets a denied hostname.
+
+        Child sandboxes only attach to the ``sandbox-egress`` network and the
+        L3/L4 deny ruleset blocks ``denied_hostnames``. A child-facing broker
+        URL pointing at any of those hosts is a configuration bug: the call
+        will fail with a DNS error at first credential resolve. Fail fast at
+        boot instead.
+        """
+        host = urlparse(self.credential_broker_url).hostname
+        if host is not None and host in self.denied_hostnames:
+            msg = (
+                f"credential_broker_url host {host!r} is in denied_hostnames "
+                f"{self.denied_hostnames!r}; child sandboxes cannot reach it. "
+                "Point ORCHEO_CREDENTIAL_BROKER_URL at the sandbox-runtime "
+                "relay and set ORCHEO_CREDENTIAL_BROKER_FORWARD_URL for the "
+                "relay's upstream target."
+            )
+            raise ValueError(msg)
+        return self
 
     # Mapping of model field → environment variable. Kept explicit so the
     # documented operator-facing names in
@@ -101,6 +138,7 @@ class SandboxSettings(BaseModel):
         "default_pool_max": "ORCHEO_SANDBOX_DEFAULT_POOL_MAX",
         "egress_proxy_url": "ORCHEO_EGRESS_PROXY_URL",
         "credential_broker_url": "ORCHEO_CREDENTIAL_BROKER_URL",
+        "credential_broker_forward_url": "ORCHEO_CREDENTIAL_BROKER_FORWARD_URL",
         "audit_logger_name": "ORCHEO_SANDBOX_AUDIT_LOGGER_NAME",
     }
 

@@ -383,7 +383,7 @@ def _register_credential_relay_route(app: FastAPI) -> None:
         x_orcheo_workspace: Annotated[str | None, Header()] = None,
     ) -> Response:
         broker_url = os.getenv(
-            "ORCHEO_CREDENTIAL_BROKER_URL",
+            "ORCHEO_CREDENTIAL_BROKER_FORWARD_URL",
             "http://backend:2025/internal/credentials/resolve",
         )
         headers: dict[str, str] = {}
