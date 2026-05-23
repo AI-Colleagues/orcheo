@@ -158,11 +158,16 @@ def test_provision_stop_lifecycle(
         runtime="runsc",
         command=("agent",),
         environment={"K": "V"},
+        dns=("1.1.1.1",),
+        extra_hosts={"sandbox-runtime": "10.0.0.7"},
     )
     response = client.post("/containers", json=_spec_payload(spec))
     assert response.status_code == 201, response.text
     container_id = response.json()["container_id"]
     assert runtime.started, "runtime.start was not invoked"
+    _, started_spec = runtime.started[0]
+    assert started_spec.dns == spec.dns
+    assert started_spec.extra_hosts == spec.extra_hosts
 
     inspect = client.get(f"/containers/{container_id}")
     assert inspect.status_code == 200
@@ -265,6 +270,9 @@ def test_remote_container_runtime_round_trip() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST" and request.url.path == "/containers":
+            payload = request.read().decode("utf-8")
+            assert '"dns":["1.1.1.1","8.8.8.8"]' in payload
+            assert '"extra_hosts":{"sandbox-runtime":"10.0.0.7"}' in payload
             return httpx.Response(
                 201,
                 json={
@@ -294,7 +302,14 @@ def test_remote_container_runtime_round_trip() -> None:
     sync_client = httpx.Client(transport=transport, base_url="http://test")
     remote = RemoteContainerRuntime("http://test", client=sync_client)
     try:
-        handle = remote.start(ContainerSpec(image="img", workspace_id="ws-remote"))
+        handle = remote.start(
+            ContainerSpec(
+                image="img",
+                workspace_id="ws-remote",
+                dns=("1.1.1.1", "8.8.8.8"),
+                extra_hosts={"sandbox-runtime": "10.0.0.7"},
+            )
+        )
         assert handle.workspace_id == "ws-remote"
         assert remote.is_running(handle) is True
         remote.stop(handle)
@@ -390,6 +405,8 @@ def _spec_payload(spec: ContainerSpec) -> Mapping[str, Any]:
         "cap_drop": list(spec.cap_drop),
         "no_new_privileges": spec.no_new_privileges,
         "labels": dict(spec.labels),
+        "dns": list(spec.dns),
+        "extra_hosts": dict(spec.extra_hosts),
     }
 
 

@@ -70,6 +70,8 @@ class ContainerSpecPayload(BaseModel):
     cap_drop: list[str] = Field(default_factory=lambda: ["ALL"])
     no_new_privileges: bool = True
     labels: dict[str, str] = Field(default_factory=dict)
+    dns: list[str] = Field(default_factory=list)
+    extra_hosts: dict[str, str] = Field(default_factory=dict)
 
     def to_spec(self) -> ContainerSpec:
         """Build a frozen ``ContainerSpec`` from the wire payload."""
@@ -89,6 +91,8 @@ class ContainerSpecPayload(BaseModel):
             cap_drop=tuple(self.cap_drop),
             no_new_privileges=self.no_new_privileges,
             labels=self.labels,
+            dns=tuple(self.dns),
+            extra_hosts=self.extra_hosts,
         )
 
 
