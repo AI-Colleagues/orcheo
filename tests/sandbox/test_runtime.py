@@ -150,6 +150,41 @@ def test_docker_runtime_start_passes_through_security_flags() -> None:
     }
 
 
+def test_docker_runtime_forwards_dns_and_extra_hosts() -> None:
+    """When set, dns and extra_hosts make it into the docker run call.
+
+    gVisor sandboxes cannot reach Docker's embedded DNS, so the manager passes
+    an upstream resolver list and a static /etc/hosts mapping for the broker
+    hop — both have to land on the container.
+    """
+    client = _FakeClient()
+    runtime = DockerContainerRuntime(client=client)
+    spec = ContainerSpec(
+        image="img",
+        workspace_id="W",
+        dns=("1.1.1.1", "8.8.8.8"),
+        extra_hosts={"sandbox-runtime": "10.0.0.7"},
+    )
+    runtime.start(spec)
+    call = client.containers.runs[0]
+    assert call["dns"] == ["1.1.1.1", "8.8.8.8"]
+    assert call["extra_hosts"] == {"sandbox-runtime": "10.0.0.7"}
+
+
+def test_docker_runtime_omits_dns_and_extra_hosts_when_unset() -> None:
+    """Empty dns/extra_hosts must not show up in the docker run call.
+
+    The default Docker resolver behaviour is correct for the manager's plain
+    Compose containers; only sandbox children need the override.
+    """
+    client = _FakeClient()
+    runtime = DockerContainerRuntime(client=client)
+    runtime.start(ContainerSpec(image="img", workspace_id="W"))
+    call = client.containers.runs[0]
+    assert "dns" not in call
+    assert "extra_hosts" not in call
+
+
 def test_docker_runtime_start_raises_actionable_error_when_pull_fails() -> None:
     """start() must surface an actionable error when the image is absent and
     can't be pulled, naming both the registry and the local-build fallback."""

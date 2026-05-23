@@ -17,6 +17,9 @@ def test_defaults_preserve_secure_runsc_choice() -> None:
         SandboxSettings().credential_broker_forward_url
         == "http://backend:2025/internal/credentials/resolve"
     )
+    # Sandbox containers must bypass Docker's embedded resolver because gVisor
+    # cannot reach it; the default upstream resolvers are public-DNS.
+    assert SandboxSettings().sandbox_dns == ("1.1.1.1", "8.8.8.8")
 
 
 def test_from_mapping_overrides_each_documented_field() -> None:
@@ -34,6 +37,7 @@ def test_from_mapping_overrides_each_documented_field() -> None:
         "ORCHEO_EGRESS_PROXY_URL": "http://envoy:3128",
         "ORCHEO_CREDENTIAL_BROKER_URL": "http://relay.local/credentials/resolve",
         "ORCHEO_CREDENTIAL_BROKER_FORWARD_URL": ("http://backend.local/internal/creds"),
+        "ORCHEO_SANDBOX_DNS": "9.9.9.9, 1.0.0.1",
         "ORCHEO_SANDBOX_AUDIT_LOGGER_NAME": "custom.audit",
     }
 
@@ -53,6 +57,7 @@ def test_from_mapping_overrides_each_documented_field() -> None:
     assert (
         settings.credential_broker_forward_url == "http://backend.local/internal/creds"
     )
+    assert settings.sandbox_dns == ("9.9.9.9", "1.0.0.1")
     assert settings.audit_logger_name == "custom.audit"
 
 
@@ -83,6 +88,18 @@ def test_from_mapping_ignores_blank_and_missing_values() -> None:
 
     assert settings.container_runtime == "runsc"
     assert settings.image.endswith("orcheo-workspace-sandbox:latest")
+
+
+def test_sandbox_dns_accepts_tuple_directly() -> None:
+    """Programmatic callers can pass a tuple without the env-var split path."""
+    settings = SandboxSettings(sandbox_dns=("10.0.0.1",))
+    assert settings.sandbox_dns == ("10.0.0.1",)
+
+
+def test_sandbox_dns_skips_empty_entries() -> None:
+    """A trailing comma or empty entry in the env string is dropped."""
+    settings = SandboxSettings.from_mapping({"ORCHEO_SANDBOX_DNS": "1.1.1.1,, "})
+    assert settings.sandbox_dns == ("1.1.1.1",)
 
 
 def test_from_env_reads_process_environment(monkeypatch: pytest.MonkeyPatch) -> None:

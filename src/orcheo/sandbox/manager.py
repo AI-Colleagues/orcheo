@@ -11,11 +11,13 @@ the workspace's ``WorkspaceRuntimePool``.
 """
 
 from __future__ import annotations
+import socket
 import threading
 import uuid
 from collections import defaultdict, deque
 from datetime import UTC, timedelta
 from typing import Final
+from urllib.parse import urlparse
 from orcheo.sandbox.audit import SandboxAuditLogger
 from orcheo.sandbox.config import SandboxSettings
 from orcheo.sandbox.errors import (
@@ -302,6 +304,7 @@ class SandboxRuntimeManager:
     ) -> ContainerSpec:
         """Translate workspace config into a ``ContainerSpec``."""
         uid = _stable_uid(workspace_id)
+        extra_hosts = self._resolve_broker_extra_hosts()
         return ContainerSpec(
             image=self._settings.image,
             workspace_id=workspace_id,
@@ -319,13 +322,61 @@ class SandboxRuntimeManager:
             labels={
                 "orcheo.workspace_id": workspace_id,
             },
+            dns=tuple(self._settings.sandbox_dns),
+            extra_hosts=extra_hosts,
         )
+
+    def _resolve_broker_extra_hosts(self) -> dict[str, str]:
+        """Resolve the credential broker hostname to a static /etc/hosts entry.
+
+        gVisor sandboxes cannot reach Docker's embedded DNS at 127.0.0.11, so
+        in-cluster hostnames (e.g. ``sandbox-runtime``) won't resolve there
+        even when the resolver in ``sandbox_dns`` is set. We resolve the host
+        from the manager's network namespace at spec-build time and pin it
+        into the child's ``/etc/hosts``. The manager runs as a plain Compose
+        service and can use Docker's resolver.
+
+        Raises:
+            SandboxAcquireError: If the host cannot be resolved — failing
+                loud here surfaces the same DNS misconfiguration up-front
+                instead of letting every workflow run die deep inside the
+                sandbox with an opaque connect error.
+        """
+        host = urlparse(self._settings.credential_broker_url).hostname
+        if host is None or _looks_like_ip(host):
+            return {}
+        try:
+            ip = socket.gethostbyname(host)
+        except OSError as exc:
+            msg = (
+                f"Failed to resolve credential broker host {host!r} from the "
+                "sandbox manager. Sandboxes need a static /etc/hosts entry "
+                "because gVisor cannot reach Docker's embedded DNS. Verify "
+                f"the host is reachable on the manager's network or set "
+                "ORCHEO_CREDENTIAL_BROKER_URL to a direct IP."
+            )
+            raise SandboxAcquireError(msg) from exc
+        return {host: ip}
 
     def _require_known_lease(self, lease: SandboxLease) -> None:
         """Raise ``SandboxNotFoundError`` if the lease is not tracked."""
         if lease.lease_id not in self._leases:
             msg = f"Unknown sandbox lease: {lease.lease_id}"
             raise SandboxNotFoundError(msg)
+
+
+def _looks_like_ip(host: str) -> bool:
+    """Return True if ``host`` is already a literal IPv4/IPv6 address."""
+    try:
+        socket.inet_pton(socket.AF_INET, host)
+        return True
+    except OSError:
+        pass
+    try:
+        socket.inet_pton(socket.AF_INET6, host)
+        return True
+    except OSError:
+        return False
 
 
 def _stable_uid(workspace_id: str) -> int:

@@ -37,6 +37,13 @@ class ContainerSpec:
     cap_drop: tuple[str, ...] = ("ALL",)
     no_new_privileges: bool = True
     labels: Mapping[str, str] = field(default_factory=dict)
+    # gVisor's userspace netstack does not honour the iptables REDIRECT that
+    # Docker uses to implement embedded DNS at 127.0.0.11. Sandbox containers
+    # therefore need their resolver pointed at an upstream nameserver, plus a
+    # static /etc/hosts entry for the in-cluster ``sandbox-runtime`` hop the
+    # credential broker lives behind.
+    dns: tuple[str, ...] = ()
+    extra_hosts: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -306,7 +313,7 @@ class DockerContainerRuntime:
         """
         cpu_quota = int(float(spec.cpu_limit) * 100_000)
         tmpfs_options = f"size={spec.scratch_size},mode=1777,exec"
-        return {
+        host_config: dict[str, object] = {
             "mem_limit": spec.memory_limit,
             "pids_limit": spec.pid_limit,
             "cpu_period": 100_000,
@@ -318,6 +325,11 @@ class DockerContainerRuntime:
                 "/tmp": tmpfs_options,
             },
         }
+        if spec.dns:
+            host_config["dns"] = list(spec.dns)
+        if spec.extra_hosts:
+            host_config["extra_hosts"] = dict(spec.extra_hosts)
+        return host_config
 
 
 def render_command(command: list[str] | tuple[str, ...]) -> str:

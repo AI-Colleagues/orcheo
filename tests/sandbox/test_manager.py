@@ -3,6 +3,7 @@
 from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import pytest
+from orcheo.sandbox import manager as manager_module
 from orcheo.sandbox.config import SandboxSettings
 from orcheo.sandbox.errors import (
     SandboxAcquireError,
@@ -37,13 +38,66 @@ def test_acquire_provisions_and_marks_in_use() -> None:
     assert lease.state is SandboxState.IN_USE
     assert lease.workspace_id == "ws"
     assert len(runtime.started) == 1
-    assert runtime.started[0][1].labels["orcheo.workspace_id"] == "ws"
-    assert runtime.started[0][1].environment == {
+    spec = runtime.started[0][1]
+    assert spec.labels["orcheo.workspace_id"] == "ws"
+    assert spec.environment == {
         "ORCHEO_CREDENTIAL_BROKER_URL": (
             "http://sandbox-runtime:9090/credentials/resolve"
         ),
         "ORCHEO_AGENT_RUNTIME_ROOT": "/scratch/agent-runtimes",
     }
+    # gVisor sandboxes need an explicit upstream resolver and a static hosts
+    # entry for the credential broker hop (see manager._resolve_broker_extra_hosts).
+    assert spec.dns == ("1.1.1.1", "8.8.8.8")
+    assert spec.extra_hosts == {"sandbox-runtime": "127.0.0.1"}
+
+
+def test_acquire_fails_loud_when_broker_host_unresolvable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A DNS failure at spec-build time surfaces as SandboxAcquireError.
+
+    Swallowing this would reproduce the original prod symptom: every workflow
+    run dying inside the sandbox with an opaque httpx connect error.
+    """
+
+    def _raise(host: str) -> str:
+        raise OSError("nope")
+
+    monkeypatch.setattr(manager_module.socket, "gethostbyname", _raise)
+    manager, _ = _manager()
+    with pytest.raises(SandboxAcquireError, match="credential broker host"):
+        manager.acquire("ws")
+
+
+@pytest.mark.parametrize(
+    "broker_url",
+    [
+        "http://10.0.0.5:9090/credentials/resolve",
+        "http://[2001:db8::1]:9090/credentials/resolve",
+    ],
+    ids=["ipv4-literal", "ipv6-literal"],
+)
+def test_acquire_skips_hosts_entry_when_broker_url_is_ip(
+    monkeypatch: pytest.MonkeyPatch,
+    broker_url: str,
+) -> None:
+    """If the broker URL is already an IP literal, no /etc/hosts entry is needed."""
+    runtime = InMemoryContainerRuntime()
+    manager = SandboxRuntimeManager(
+        runtime=runtime,
+        settings=SandboxSettings(credential_broker_url=broker_url),
+    )
+    # If the manager tried to resolve, the stub above would have run; force a
+    # raise so an accidental call shows up as a test failure.
+    monkeypatch.setattr(
+        manager_module.socket,
+        "gethostbyname",
+        lambda host: (_ for _ in ()).throw(AssertionError("should not resolve")),
+    )
+    manager.acquire("ws")
+    spec = runtime.started[0][1]
+    assert spec.extra_hosts == {}
 
 
 def test_release_returns_lease_to_pool_then_reuses() -> None:
