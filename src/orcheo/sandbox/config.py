@@ -88,7 +88,22 @@ class SandboxSettings(BaseModel):
             "must NOT be exposed to child sandboxes."
         ),
     )
+    # Docker's embedded DNS at 127.0.0.11 is implemented via iptables REDIRECT
+    # in the container netns and is unreachable from gVisor (runsc) sandboxes,
+    # whose userspace netstack ignores host-side iptables. Sandbox containers
+    # must therefore be pointed at an upstream resolver directly. Defaults to
+    # Cloudflare + Google; override via ``ORCHEO_SANDBOX_DNS`` (comma-separated
+    # IPs) when egress to public DNS is unavailable.
+    sandbox_dns: tuple[str, ...] = Field(default=("1.1.1.1", "8.8.8.8"))
     audit_logger_name: str = Field(default="orcheo.sandbox.audit")
+
+    @field_validator("sandbox_dns", mode="before")
+    @classmethod
+    def _split_sandbox_dns(cls, value: Any) -> Any:
+        """Accept a comma-separated string from env, normalise to a tuple."""
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
 
     @field_validator("default_pool_max")
     @classmethod
@@ -139,6 +154,7 @@ class SandboxSettings(BaseModel):
         "egress_proxy_url": "ORCHEO_EGRESS_PROXY_URL",
         "credential_broker_url": "ORCHEO_CREDENTIAL_BROKER_URL",
         "credential_broker_forward_url": "ORCHEO_CREDENTIAL_BROKER_FORWARD_URL",
+        "sandbox_dns": "ORCHEO_SANDBOX_DNS",
         "audit_logger_name": "ORCHEO_SANDBOX_AUDIT_LOGGER_NAME",
     }
 

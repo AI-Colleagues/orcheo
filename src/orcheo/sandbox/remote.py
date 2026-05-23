@@ -54,6 +54,8 @@ def _spec_to_payload(spec: ContainerSpec) -> dict[str, Any]:
         "cap_drop": list(spec.cap_drop),
         "no_new_privileges": spec.no_new_privileges,
         "labels": dict(spec.labels),
+        "dns": list(spec.dns),
+        "extra_hosts": dict(spec.extra_hosts),
     }
 
 
