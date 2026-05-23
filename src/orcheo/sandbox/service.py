@@ -140,7 +140,12 @@ def _sandbox_environment(settings: SandboxSettings) -> dict[str, str]:
             {
                 "HTTP_PROXY": settings.egress_proxy_url,
                 "HTTPS_PROXY": settings.egress_proxy_url,
+                "ALL_PROXY": settings.egress_proxy_url,
                 "NO_PROXY": ",".join(no_proxy),
+                "http_proxy": settings.egress_proxy_url,
+                "https_proxy": settings.egress_proxy_url,
+                "all_proxy": settings.egress_proxy_url,
+                "no_proxy": ",".join(no_proxy),
             }
         )
     return environment
