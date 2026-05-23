@@ -213,7 +213,7 @@ services:
       - sandbox_scratch:/scratch
     environment:
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
-      ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-orcheo/workspace-sandbox:latest}
+      ORCHEO_SANDBOX_IMAGE: orcheo/workspace-sandbox:local
       ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:-local-dev-sandbox-control-token}
       # Use literal sandbox-egress IPs (matching the static ipv4_address
       # assignments below) so spawned sandboxes — which live on sandbox-egress
@@ -269,7 +269,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.workspace-sandbox
-    image: ${ORCHEO_SANDBOX_IMAGE:-orcheo/workspace-sandbox:latest}
+    image: orcheo/workspace-sandbox:local
     command: ["sh", "-c", "echo 'workspace-sandbox image is only consumed by sandbox-runtime at run time; nothing to run here.' && exit 0"]
 
 networks:

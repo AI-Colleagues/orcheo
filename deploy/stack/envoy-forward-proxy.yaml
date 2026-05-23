@@ -22,10 +22,7 @@ static_resources:
             virtual_hosts:
             - name: approved_hosts
               domains:
-              - api.openai.com
-              - api.openai.com:*
-              - api.anthropic.com
-              - api.anthropic.com:*
+              - '*'
               routes:
               - match:
                   connect_matcher: {}
@@ -38,18 +35,6 @@ static_resources:
                   prefix: /
                 route:
                   cluster: dynamic_forward_proxy_cluster
-            - name: deny_all
-              domains:
-              - '*'
-              routes:
-              - match:
-                  connect_matcher: {}
-                direct_response:
-                  status: 403
-              - match:
-                  prefix: /
-                direct_response:
-                  status: 403
           http_filters:
           - name: envoy.filters.http.dynamic_forward_proxy
             typed_config:
