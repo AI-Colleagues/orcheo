@@ -66,7 +66,95 @@ def test_acquire_fails_loud_when_broker_host_unresolvable(
 
     monkeypatch.setattr(manager_module.socket, "gethostbyname", _raise)
     manager, _ = _manager()
-    with pytest.raises(SandboxAcquireError, match="credential broker host"):
+    with pytest.raises(SandboxAcquireError, match="sandbox host 'sandbox-runtime'"):
+        manager.acquire("ws")
+
+
+def test_acquire_pins_and_proxies_through_egress_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When egress_proxy_url is set, the sandbox gets HTTP(S)_PROXY env vars
+    and the proxy hostname is pinned in /etc/hosts.
+
+    NO_PROXY must include the broker host so credential calls bypass the
+    forward proxy (the proxy only allows tenant-allowlisted external hosts
+    and would otherwise reject the internal broker).
+    """
+    # Different stub per host so we can tell the two entries apart.
+    monkeypatch.setattr(
+        manager_module.socket,
+        "gethostbyname",
+        lambda host: {"sandbox-runtime": "10.0.0.7", "egress-proxy": "10.0.0.8"}[host],
+    )
+    runtime = InMemoryContainerRuntime()
+    manager = SandboxRuntimeManager(
+        runtime=runtime,
+        settings=SandboxSettings(egress_proxy_url="http://egress-proxy:3128"),
+    )
+    manager.acquire("ws")
+    spec = runtime.started[0][1]
+    assert spec.extra_hosts == {
+        "sandbox-runtime": "10.0.0.7",
+        "egress-proxy": "10.0.0.8",
+    }
+    assert spec.environment["HTTP_PROXY"] == "http://egress-proxy:3128"
+    assert spec.environment["HTTPS_PROXY"] == "http://egress-proxy:3128"
+    assert spec.environment["NO_PROXY"] == "localhost,127.0.0.1,sandbox-runtime"
+
+
+def test_acquire_proxy_env_handles_broker_url_without_hostname(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A broker URL without a hostname falls back to a NO_PROXY without it.
+
+    ``urlparse("http:///path").hostname`` is None — defensive branch that
+    keeps NO_PROXY well-formed instead of appending ``"None"``.
+    """
+    monkeypatch.setattr(
+        manager_module.socket,
+        "gethostbyname",
+        lambda host: "10.0.0.8",
+    )
+    runtime = InMemoryContainerRuntime()
+    manager = SandboxRuntimeManager(
+        runtime=runtime,
+        settings=SandboxSettings(
+            credential_broker_url="http:///credentials/resolve",
+            egress_proxy_url="http://egress-proxy:3128",
+        ),
+    )
+    manager.acquire("ws")
+    spec = runtime.started[0][1]
+    assert spec.environment["NO_PROXY"] == "localhost,127.0.0.1"
+
+
+def test_acquire_omits_proxy_env_when_egress_unset() -> None:
+    """Without egress_proxy_url, no proxy env vars are injected."""
+    manager, runtime = _manager()
+    manager.acquire("ws")
+    spec = runtime.started[0][1]
+    assert "HTTP_PROXY" not in spec.environment
+    assert "HTTPS_PROXY" not in spec.environment
+    assert "NO_PROXY" not in spec.environment
+
+
+def test_acquire_fails_loud_when_egress_proxy_host_unresolvable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A DNS failure on the egress-proxy host also surfaces fail-loud."""
+
+    def _raise_for_proxy(host: str) -> str:
+        if host == "egress-proxy":
+            raise OSError("nope")
+        return "127.0.0.1"
+
+    monkeypatch.setattr(manager_module.socket, "gethostbyname", _raise_for_proxy)
+    runtime = InMemoryContainerRuntime()
+    manager = SandboxRuntimeManager(
+        runtime=runtime,
+        settings=SandboxSettings(egress_proxy_url="http://egress-proxy:3128"),
+    )
+    with pytest.raises(SandboxAcquireError, match="sandbox host 'egress-proxy'"):
         manager.acquire("ws")
 
 
