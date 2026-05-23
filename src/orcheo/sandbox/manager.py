@@ -304,15 +304,12 @@ class SandboxRuntimeManager:
     ) -> ContainerSpec:
         """Translate workspace config into a ``ContainerSpec``."""
         uid = _stable_uid(workspace_id)
-        extra_hosts = self._resolve_broker_extra_hosts()
+        extra_hosts = self._resolve_extra_hosts()
         return ContainerSpec(
             image=self._settings.image,
             workspace_id=workspace_id,
             runtime=self._settings.container_runtime,
-            environment={
-                "ORCHEO_CREDENTIAL_BROKER_URL": self._settings.credential_broker_url,
-                "ORCHEO_AGENT_RUNTIME_ROOT": _SANDBOX_AGENT_RUNTIME_ROOT,
-            },
+            environment=self._build_environment(),
             cpu_limit=pool.cpu_limit,
             memory_limit=pool.memory_limit,
             pid_limit=pool.pid_limit,
@@ -326,37 +323,75 @@ class SandboxRuntimeManager:
             extra_hosts=extra_hosts,
         )
 
-    def _resolve_broker_extra_hosts(self) -> dict[str, str]:
-        """Resolve the credential broker hostname to a static /etc/hosts entry.
+    def _build_environment(self) -> dict[str, str]:
+        """Build the env vars injected into every spawned sandbox.
+
+        When ``egress_proxy_url`` is configured, also sets the standard
+        ``HTTP_PROXY`` / ``HTTPS_PROXY`` triplet so HTTP clients in the
+        sandbox route outbound HTTPS through the Envoy forward proxy. The
+        credential broker host is added to ``NO_PROXY`` so credential calls
+        don't go through the proxy (the proxy only allows tenant-allowlisted
+        external hosts; the broker is internal).
+        """
+        env: dict[str, str] = {
+            "ORCHEO_CREDENTIAL_BROKER_URL": self._settings.credential_broker_url,
+            "ORCHEO_AGENT_RUNTIME_ROOT": _SANDBOX_AGENT_RUNTIME_ROOT,
+        }
+        proxy_url = self._settings.egress_proxy_url
+        if proxy_url:
+            no_proxy = ["localhost", "127.0.0.1"]
+            broker_host = urlparse(self._settings.credential_broker_url).hostname
+            if broker_host:
+                no_proxy.append(broker_host)
+            env.update(
+                {
+                    "HTTP_PROXY": proxy_url,
+                    "HTTPS_PROXY": proxy_url,
+                    "NO_PROXY": ",".join(no_proxy),
+                }
+            )
+        return env
+
+    def _resolve_extra_hosts(self) -> dict[str, str]:
+        """Resolve in-cluster hostnames to static /etc/hosts entries.
 
         gVisor sandboxes cannot reach Docker's embedded DNS at 127.0.0.11, so
-        in-cluster hostnames (e.g. ``sandbox-runtime``) won't resolve there
-        even when the resolver in ``sandbox_dns`` is set. We resolve the host
-        from the manager's network namespace at spec-build time and pin it
-        into the child's ``/etc/hosts``. The manager runs as a plain Compose
-        service and can use Docker's resolver.
+        Docker-network names (``sandbox-runtime``, ``egress-proxy``) won't
+        resolve there even with ``sandbox_dns`` pointed at an upstream
+        resolver — public DNS doesn't know those names. We resolve them from
+        the manager's network namespace at spec-build time (the manager is a
+        plain Compose service and can use Docker's resolver) and pin them
+        into the child's ``/etc/hosts``.
 
         Raises:
-            SandboxAcquireError: If the host cannot be resolved — failing
-                loud here surfaces the same DNS misconfiguration up-front
-                instead of letting every workflow run die deep inside the
-                sandbox with an opaque connect error.
+            SandboxAcquireError: If a host can't be resolved — failing loud
+                here surfaces the misconfiguration up-front instead of every
+                workflow run dying deep inside the sandbox with an opaque
+                connect error.
         """
-        host = urlparse(self._settings.credential_broker_url).hostname
-        if host is None or _looks_like_ip(host):
-            return {}
-        try:
-            ip = socket.gethostbyname(host)
-        except OSError as exc:
-            msg = (
-                f"Failed to resolve credential broker host {host!r} from the "
-                "sandbox manager. Sandboxes need a static /etc/hosts entry "
-                "because gVisor cannot reach Docker's embedded DNS. Verify "
-                f"the host is reachable on the manager's network or set "
-                "ORCHEO_CREDENTIAL_BROKER_URL to a direct IP."
-            )
-            raise SandboxAcquireError(msg) from exc
-        return {host: ip}
+        urls = (
+            self._settings.credential_broker_url,
+            self._settings.egress_proxy_url,
+        )
+        hosts: dict[str, str] = {}
+        for url in urls:
+            if not url:
+                continue
+            host = urlparse(url).hostname
+            if host is None or _looks_like_ip(host) or host in hosts:
+                continue
+            try:
+                hosts[host] = socket.gethostbyname(host)
+            except OSError as exc:
+                msg = (
+                    f"Failed to resolve sandbox host {host!r} from the sandbox "
+                    "manager. Sandboxes need a static /etc/hosts entry because "
+                    "gVisor cannot reach Docker's embedded DNS. Verify the "
+                    "host is reachable on the manager's network or use a "
+                    "literal IP in the source URL."
+                )
+                raise SandboxAcquireError(msg) from exc
+        return hosts
 
     def _require_known_lease(self, lease: SandboxLease) -> None:
         """Raise ``SandboxNotFoundError`` if the lease is not tracked."""
