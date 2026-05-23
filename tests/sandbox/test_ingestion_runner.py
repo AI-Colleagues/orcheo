@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import io
 import json
+import runpy
+import sys
 
 import pytest
 
+from orcheo.graph import ingestion as graph_ingestion
 from orcheo.graph.ingestion import DEFAULT_SCRIPT_SIZE_LIMIT
 from orcheo.sandbox import ingestion_runner
 
@@ -83,3 +86,31 @@ def test_ingestion_runner_enforces_timeout(
     )
     assert result["status"] == "failed"
     assert "execution exceeded" in str(result["error"])
+
+
+def test_ingestion_runner_module_entrypoint(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Executing the module as a script still routes through main()."""
+
+    def fake_ingest(*args: object, **kwargs: object) -> dict[str, object]:
+        del args, kwargs
+        return {"graph": "ok"}
+
+    monkeypatch.setattr(graph_ingestion, "ingest_langgraph_script", fake_ingest)
+    monkeypatch.setattr(
+        ingestion_runner.sys,
+        "stdin",
+        io.StringIO(json.dumps({"source": _VALID_SCRIPT, "entrypoint": "build_graph"})),
+    )
+    module_name = "orcheo.sandbox.ingestion_runner"
+    loaded_module = sys.modules.pop(module_name, None)
+
+    try:
+        runpy.run_module(module_name, run_name="__main__")
+    finally:
+        if loaded_module is not None:
+            sys.modules[module_name] = loaded_module
+
+    result = json.loads(capsys.readouterr().out)
+    assert result == {"status": "succeeded", "payload": {"graph": "ok"}}

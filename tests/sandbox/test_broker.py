@@ -1,11 +1,14 @@
 """Tests for the Credential Broker."""
 
 from __future__ import annotations
+import sys
+from types import SimpleNamespace
 import pytest
 from orcheo.sandbox.broker import (
     BrokerScopeError,
     BrokerTokenInvalid,
     CredentialBroker,
+    InMemoryRevocationStore,
     RedisRevocationStore,
     generate_broker_secret,
 )
@@ -93,6 +96,48 @@ def test_revoke_invalidates_future_uses() -> None:
     broker.revoke("r1")
     with pytest.raises(BrokerTokenInvalid):
         broker.resolve(token, credential_name="k")
+
+
+def test_inmemory_revocation_store_expires_and_cleans_up() -> None:
+    """Expired revocations are dropped from the in-memory store."""
+
+    now = 100.0
+
+    def clock() -> float:
+        return now
+
+    store = InMemoryRevocationStore(clock=clock)
+    store.revoke("run-1", ttl_seconds=10)
+    assert store.is_revoked("run-1") is True
+    now = 200.0
+    assert store.is_revoked("run-1") is False
+    assert store._revoked_until == {}
+
+
+def test_redis_revocation_store_initializes_from_redis_module(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Redis-backed store imports redis.Redis.from_url when no client is passed."""
+
+    class _FakeRedisClient:
+        def __init__(self, url: str, decode_responses: bool) -> None:
+            self.url = url
+            self.decode_responses = decode_responses
+
+    class _FakeRedisNamespace:
+        @staticmethod
+        def from_url(url: str, decode_responses: bool = True) -> _FakeRedisClient:
+            return _FakeRedisClient(url, decode_responses)
+
+    monkeypatch.setitem(
+        sys.modules, "redis", SimpleNamespace(Redis=_FakeRedisNamespace)
+    )
+
+    store = RedisRevocationStore("redis://example")
+
+    assert isinstance(store._client, _FakeRedisClient)
+    assert store._client.url == "redis://example"
+    assert store._client.decode_responses is True
 
 
 def test_redis_revocation_is_shared_across_broker_instances() -> None:

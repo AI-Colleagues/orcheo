@@ -78,6 +78,12 @@ def test_rejects_child_broker_url_pointing_at_denied_host() -> None:
         SandboxSettings.from_mapping(source)
 
 
+def test_rejects_invalid_pool_max_value() -> None:
+    """The explicit pool-max validator rejects zero even after coercion."""
+    with pytest.raises(ValueError, match="default_pool_max"):
+        SandboxSettings._validate_pool_max(0)
+
+
 def test_from_mapping_ignores_blank_and_missing_values() -> None:
     """Empty / whitespace overrides fall back to the secure defaults."""
     source = {
@@ -101,6 +107,12 @@ def test_sandbox_dns_skips_empty_entries() -> None:
     """A trailing comma or empty entry in the env string is dropped."""
     settings = SandboxSettings.from_mapping({"ORCHEO_SANDBOX_DNS": "1.1.1.1,, "})
     assert settings.sandbox_dns == ("1.1.1.1",)
+
+
+def test_egress_allowed_hosts_accepts_tuple_directly() -> None:
+    """Programmatic callers can pass a tuple without the env-var split path."""
+    settings = SandboxSettings(egress_allowed_hosts=("api.openai.com",))
+    assert settings.egress_allowed_hosts == ("api.openai.com",)
 
 
 def test_from_env_reads_process_environment(monkeypatch: pytest.MonkeyPatch) -> None:

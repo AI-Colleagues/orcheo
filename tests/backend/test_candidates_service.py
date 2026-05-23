@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 import respx
+from orcheo.graph.ingestion import ScriptIngestionError
 from orcheo_backend.app import candidates_service
 from orcheo_backend.app.candidates_service import CandidateFetchError, get_candidates
 
@@ -365,6 +366,106 @@ async def test_render_candidate_previews_uses_sandboxed_catalog_identity(
         source=_WORKFLOW_WITH_FRONTMATTER,
         entrypoint=None,
     )
+
+
+@pytest.mark.asyncio()
+async def test_render_candidate_previews_handles_ingestion_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sandbox ingestion errors are downgraded to a missing mermaid preview."""
+    first = candidates_service._build_candidate(
+        "first", _WORKFLOW_WITH_FRONTMATTER, None
+    )
+    second = candidates_service._build_candidate(
+        "second", _WORKFLOW_WITH_FRONTMATTER, None
+    )
+    assert first is not None
+    assert second is not None
+
+    ingestor = AsyncMock(
+        side_effect=[
+            ScriptIngestionError("bad graph"),
+            RuntimeError("sandbox crashed"),
+        ]
+    )
+    monkeypatch.setattr(candidates_service, "ingest_sandboxed_script", ingestor)
+
+    result = await candidates_service._render_candidate_previews([first, second])
+
+    assert [item.mermaid for item in result] == [None, None]
+
+
+@pytest.mark.asyncio()
+async def test_enrich_cached_with_previews_returns_when_cache_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing cache entry short-circuits without calling the renderer."""
+    called = False
+
+    async def fake_render(candidates: list[object]) -> list[object]:
+        nonlocal called
+        called = True
+        return candidates
+
+    monkeypatch.setattr(candidates_service, "_render_candidate_previews", fake_render)
+
+    candidates_service._state.entry = None
+    await candidates_service._enrich_cached_with_previews()
+
+    assert called is False
+
+
+@pytest.mark.asyncio()
+async def test_enrich_cached_with_previews_does_not_overwrite_replaced_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A newer cache entry wins if refresh races with preview enrichment."""
+    candidate = candidates_service._build_candidate(
+        "race", _WORKFLOW_WITH_FRONTMATTER, None
+    )
+    assert candidate is not None
+    original_entry = candidates_service._CacheEntry(
+        candidates=[candidate], fetched_at=1.0
+    )
+    replacement_entry = candidates_service._CacheEntry(
+        candidates=[candidate.model_copy(update={"mermaid": "updated"})],
+        fetched_at=2.0,
+    )
+    candidates_service._state.entry = original_entry
+
+    async def fake_render(candidates: list[object]) -> list[object]:
+        del candidates
+        candidates_service._state.entry = replacement_entry
+        return replacement_entry.candidates
+
+    monkeypatch.setattr(candidates_service, "_render_candidate_previews", fake_render)
+
+    await candidates_service._enrich_cached_with_previews()
+
+    assert candidates_service._state.entry is replacement_entry
+
+
+@pytest.mark.asyncio()
+async def test_enrich_cached_with_previews_logs_renderer_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Renderer exceptions are swallowed so background enrichment never crashes."""
+    candidate = candidates_service._build_candidate(
+        "boom", _WORKFLOW_WITH_FRONTMATTER, None
+    )
+    assert candidate is not None
+    candidates_service._state.entry = candidates_service._CacheEntry(
+        candidates=[candidate],
+        fetched_at=1.0,
+    )
+
+    async def fake_render(candidates: list[object]) -> list[object]:
+        del candidates
+        raise RuntimeError("renderer exploded")
+
+    monkeypatch.setattr(candidates_service, "_render_candidate_previews", fake_render)
+
+    await candidates_service._enrich_cached_with_previews()
 
 
 # ---------------------------------------------------------------------------
