@@ -11,15 +11,14 @@ def test_defaults_preserve_secure_runsc_choice() -> None:
     assert SandboxSettings().container_runtime == "runsc"
     assert (
         SandboxSettings().credential_broker_url
-        == "http://sandbox-runtime:9090/credentials/resolve"
+        == "http://credential-relay:9091/credentials/resolve"
     )
     assert (
         SandboxSettings().credential_broker_forward_url
         == "http://backend:2025/internal/credentials/resolve"
     )
-    # Sandbox containers must bypass Docker's embedded resolver because gVisor
-    # cannot reach it; the default upstream resolvers are public-DNS.
-    assert SandboxSettings().sandbox_dns == ("1.1.1.1", "8.8.8.8")
+    # External DNS is resolved by the proxy, never directly by a child.
+    assert SandboxSettings().sandbox_dns == ()
 
 
 def test_from_mapping_overrides_each_documented_field() -> None:
@@ -35,6 +34,7 @@ def test_from_mapping_overrides_each_documented_field() -> None:
         "ORCHEO_SANDBOX_DEFAULT_POOL_MIN": "1",
         "ORCHEO_SANDBOX_DEFAULT_POOL_MAX": "8",
         "ORCHEO_EGRESS_PROXY_URL": "http://envoy:3128",
+        "ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS": "api.openai.com,api.example.com",
         "ORCHEO_CREDENTIAL_BROKER_URL": "http://relay.local/credentials/resolve",
         "ORCHEO_CREDENTIAL_BROKER_FORWARD_URL": ("http://backend.local/internal/creds"),
         "ORCHEO_SANDBOX_DNS": "9.9.9.9, 1.0.0.1",
@@ -53,6 +53,7 @@ def test_from_mapping_overrides_each_documented_field() -> None:
     assert settings.default_pool_min == 1
     assert settings.default_pool_max == 8
     assert settings.egress_proxy_url == "http://envoy:3128"
+    assert settings.egress_allowed_hosts == ("api.openai.com", "api.example.com")
     assert settings.credential_broker_url == "http://relay.local/credentials/resolve"
     assert (
         settings.credential_broker_forward_url == "http://backend.local/internal/creds"
@@ -75,6 +76,12 @@ def test_rejects_child_broker_url_pointing_at_denied_host() -> None:
     }
     with pytest.raises(ValueError, match="denied_hostnames"):
         SandboxSettings.from_mapping(source)
+
+
+def test_rejects_invalid_pool_max_value() -> None:
+    """The explicit pool-max validator rejects zero even after coercion."""
+    with pytest.raises(ValueError, match="default_pool_max"):
+        SandboxSettings._validate_pool_max(0)
 
 
 def test_from_mapping_ignores_blank_and_missing_values() -> None:
@@ -100,6 +107,12 @@ def test_sandbox_dns_skips_empty_entries() -> None:
     """A trailing comma or empty entry in the env string is dropped."""
     settings = SandboxSettings.from_mapping({"ORCHEO_SANDBOX_DNS": "1.1.1.1,, "})
     assert settings.sandbox_dns == ("1.1.1.1",)
+
+
+def test_egress_allowed_hosts_accepts_tuple_directly() -> None:
+    """Programmatic callers can pass a tuple without the env-var split path."""
+    settings = SandboxSettings(egress_allowed_hosts=("api.openai.com",))
+    assert settings.egress_allowed_hosts == ("api.openai.com",)
 
 
 def test_from_env_reads_process_environment(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -37,10 +37,12 @@ override:
 | `ORCHEO_CONTAINER_RUNTIME`            | `runsc`                                                                | Docker runtime name (`runsc` for gVisor).                |
 | `ORCHEO_SANDBOX_IMAGE`                | `ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest`                | Image hosting agent CLIs, Orcheo CLI, and workflow runner. Pulled from GHCR in prod; built locally by the dev compose. |
 | `ORCHEO_SANDBOX_RUNTIME_URL`          | `http://sandbox-runtime:9090`                                          | Internal URL of the sandbox-runtime service. Backend and worker call this to provision sandboxes and dispatch runs — they never mount the Docker socket themselves. |
-| `ORCHEO_EGRESS_PROXY_URL`             | `http://egress-proxy:3128`                                             | Envoy forward proxy for permitted HTTP/HTTPS.            |
-| `ORCHEO_CREDENTIAL_BROKER_URL`        | `http://sandbox-runtime:9090/credentials/resolve`                      | Endpoint child workspace sandboxes call to resolve run-scoped credentials. Injected into every spawned sandbox; must be reachable from the `sandbox-egress` network. Do not point this at `backend` — `backend` is in `DEFAULT_DENY_HOSTNAMES` and is unreachable from child sandboxes. |
-| `ORCHEO_CREDENTIAL_BROKER_FORWARD_URL`| `http://backend:2025/internal/credentials/resolve`                     | Upstream broker URL the `sandbox-runtime` relay forwards resolved credential requests to. Read only by the relay (default network); never injected into child sandboxes. |
-| `ORCHEO_SANDBOX_DNS`                  | `1.1.1.1,8.8.8.8`                                                      | Comma-separated upstream DNS servers injected into every spawned sandbox. Required because gVisor's userspace netstack cannot reach Docker's embedded resolver at `127.0.0.11` (the resolver is implemented via iptables REDIRECT, which gVisor does not apply). Set to an in-cluster / corporate resolver in restricted-egress deployments; the `sandbox-egress` firewall must allow UDP/TCP 53 to whichever resolver is configured. Docker-network names (`sandbox-runtime`, `egress-proxy`) are *not* resolved via DNS — the manager resolves them from its own network namespace at spec-build time and pins the IPs into each sandbox's `/etc/hosts`. When `ORCHEO_EGRESS_PROXY_URL` is set, the manager also injects `HTTP_PROXY` / `HTTPS_PROXY` (pointed at that URL) and `NO_PROXY` (containing the credential broker host so credential calls bypass the forward proxy). |
+| `ORCHEO_SANDBOX_CONTROL_TOKEN`        | _(required)_                                                           | Internal authentication token sent by backend/worker to `sandbox-runtime`; do not expose it to child containers or the relay. |
+| `ORCHEO_EGRESS_PROXY_URL`             | `http://egress-proxy:3128`                                             | Sole external HTTP/HTTPS path for child sandboxes.         |
+| `ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS` | _(empty; deny all external hosts)_                                      | Comma-separated global hostname allowlist used to render the Envoy proxy policy. Non-HTTP egress is unsupported. |
+| `ORCHEO_CREDENTIAL_BROKER_URL`        | `http://credential-relay:9091/credentials/resolve`                    | Only internal child-reachable credential endpoint. The relay has no lifecycle or exec operations. |
+| `ORCHEO_CREDENTIAL_BROKER_FORWARD_URL`| `http://backend:2025/internal/credentials/resolve`                     | Upstream broker URL read only by `credential-relay` on the control network. |
+| `ORCHEO_SANDBOX_DNS`                  | _(unset)_                                                              | Compatibility override only. Hardened sandbox deployments do not inject public DNS; relay/proxy hostnames are pinned into `/etc/hosts`, and the proxy resolves external hosts. |
 | `ORCHEO_CREDENTIAL_BROKER_SECRET`     | _(required — backend refuses to start if unset)_                       | HMAC secret for run-scoped tokens — generate with `python -m orcheo.sandbox.broker --gen-secret`. |
 | `ORCHEO_SANDBOX_FAST_PATH_TRUSTED`    | `false`                                                                | When `true`, workflows composed only of trusted node types skip the sandbox (workflow runs only — vibe agents always sandbox). |
 
@@ -51,8 +53,12 @@ docker compose up -d           # builds and starts the stack; workspace-sandbox 
 nft -f deploy/stack/sandbox-egress.nft
 ```
 
-The `sandbox-runtime` and `egress-proxy` services are baked into the base
-`docker-compose.yml`, so no overlay is needed.
+The `sandbox-runtime`, `credential-relay`, and `egress-proxy` services are
+baked into the base `docker-compose.yml`. `sandbox-runtime` is attached only
+to the control network and is the only service mounting the Docker socket.
+The relay and proxy are assigned fixed addresses on `sandbox-egress`;
+tenant addresses are allocated from `10.99.0.128/25`, which is the source
+range matched by `sandbox-egress.nft`.
 
 The `workspace-sandbox` image is what the `sandbox-runtime` service spawns
 on demand to host vibe-agent sessions and tenant workflow runs — it is *not*
@@ -65,21 +71,21 @@ workspace-sandbox-build` (or `docker compose build workspace-sandbox`).
 Production deployments typically push a tagged version of this image to an
 internal registry and override `ORCHEO_SANDBOX_IMAGE` instead.
 
-The Envoy config at `deploy/stack/envoy-forward-proxy.yaml` can be
-regenerated from per-workspace allowlists with:
+The checked Envoy config denies all external hosts. Materialize an
+operator-managed global hostname allowlist into the mounted config before
+starting production egress:
 
 ```python
-from orcheo.sandbox.egress import EnvoyForwardProxyConfig
-from orcheo.sandbox.egress.proxy import WorkspaceEgressAllowlist
+from orcheo.sandbox.egress.proxy import EnvoyForwardProxyConfig
 
-config = EnvoyForwardProxyConfig(
-    workspaces=(
-        WorkspaceEgressAllowlist(workspace_id="acme", hosts=("api.acme.com",)),
-    ),
-    global_allowed_hosts=("api.openai.com", "api.anthropic.com"),
-)
+config = EnvoyForwardProxyConfig.from_env()
 print(config.render_yaml())
 ```
+
+Set `ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS` in the environment running that
+render step and mount the resulting file through `ORCHEO_EGRESS_PROXY_CONFIG`.
+There is no per-workspace exception path: a host is either globally approved
+or denied and logged.
 
 ## Observability
 
@@ -112,8 +118,8 @@ latency becomes visible.
   failure, `runsc` not registered, or scratch tmpfs size too small for the
   agent's working tree.
 - **Workflow run reports `forbidden host`.** The egress proxy denied a host
-  not on the workspace's allowlist. Add it via the workspace egress allowlist
-  (see Configuration) and regenerate the Envoy config.
+  not on the global operator allowlist. Update
+  `ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS` and regenerate the Envoy config.
 - **Credential resolves with status 403.** The Credential Broker token's
   `workspace_id` does not match the workspace claimed by the resolver call.
   This is by design — the broker pins the workspace server-side. Verify the

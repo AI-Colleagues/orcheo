@@ -1,11 +1,9 @@
 """L3/L4 egress policy generator (nftables).
 
 This module emits the nftables ruleset attached to the sandbox network
-namespace. The ruleset is **default-deny**: it drops every packet whose
-destination matches the denied CIDRs (link-local metadata, internal RFC1918
-ranges hosting Redis/Postgres, etc.) and the denied hostnames (resolved to
-IPs at deploy time). All other outbound packets are NAT'd to the Envoy
-forward proxy on the host network namespace, which performs L7 allowlisting.
+namespace. The ruleset is **default-deny** for tenant-source traffic: it
+allows only the credential relay and HTTP/HTTPS proxy, then drops every
+other packet from the tenant sandbox allocation range.
 
 This generator is intentionally string-only — no runtime Python invokes
 ``nft`` directly. The deploy automation writes the rendered ruleset to
@@ -29,6 +27,9 @@ class EgressPolicy:
     resolved_host_ips: tuple[str, ...] = ()
     proxy_ip: str = "127.0.0.1"
     proxy_port: int = 3128
+    credential_relay_ip: str = "10.99.0.2"
+    credential_relay_port: int = 9091
+    sandbox_source_cidr: str = "10.99.0.128/25"
     interface: str = "sandbox0"
     extra_allowed_cidrs: tuple[str, ...] = field(default_factory=tuple)
 
@@ -46,31 +47,14 @@ def build_nftables_ruleset(policy: EgressPolicy) -> str:
     Returns:
         A single ``nftables`` script suitable for ``nft -f``.
     """
-    deny_lines = (
-        "\n".join(
-            f"    ip daddr {target} drop" for target in policy.all_denied_ip_targets()
-        )
-        or "    # no IPv4 deny entries"
-    )
-    deny6_lines = (
-        "\n".join(
-            f"    ip6 daddr {target} drop"
-            for target in policy.denied_cidrs
-            if ":" in target
-        )
-        or "    # no IPv6 deny entries"
-    )
-    allow_lines = "\n".join(
-        f"    ip daddr {cidr} accept" for cidr in policy.extra_allowed_cidrs
-    )
     return (
         _TEMPLATE.format(
             interface=policy.interface,
             proxy_ip=policy.proxy_ip,
             proxy_port=policy.proxy_port,
-            deny_lines=deny_lines,
-            deny6_lines=deny6_lines,
-            allow_lines=allow_lines or "    # no extra allow entries",
+            relay_ip=policy.credential_relay_ip,
+            relay_port=policy.credential_relay_port,
+            source_cidr=policy.sandbox_source_cidr,
         ).strip()
         + "\n"
     )
@@ -133,20 +117,14 @@ def host_ips_for_denied_hostnames(
 
 _TEMPLATE = """
 table inet orcheo_sandbox {{
-  chain output {{
-    type filter hook output priority 0; policy accept;
-    oifname "{interface}" jump sandbox_egress
-  }}
-
-  chain sandbox_egress {{
-{deny_lines}
-{deny6_lines}
-{allow_lines}
-    ip daddr 127.0.0.0/8 drop
-    ip6 daddr ::1 drop
-    tcp dport {{ 80, 443 }} ip daddr != {proxy_ip} drop
-    ip daddr {proxy_ip} tcp dport {proxy_port} accept
-    return
+  chain forward {{
+    type filter hook forward priority -10; policy accept;
+    iifname "{interface}" ip saddr {source_cidr} \
+ip daddr {relay_ip} tcp dport {relay_port} accept
+    iifname "{interface}" ip saddr {source_cidr} \
+ip daddr {proxy_ip} tcp dport {proxy_port} accept
+    iifname "{interface}" ip saddr {source_cidr} drop
+    iifname "{interface}" ip6 saddr != :: drop
   }}
 }}
 """

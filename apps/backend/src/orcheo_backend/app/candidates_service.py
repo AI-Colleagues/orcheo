@@ -18,7 +18,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 import httpx
-from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
+from orcheo.graph.ingestion import ScriptIngestionError
+from orcheo_backend.app.sandbox import ingest_sandboxed_script
 from orcheo_backend.app.schemas.candidates import CandidateItem
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.workflow.frontmatter import parse_workflow_frontmatter
@@ -34,6 +35,7 @@ _CONFIG_FILENAME = "config.json"
 _CACHE_TTL_SECONDS = 300.0
 _FETCH_TIMEOUT_SECONDS = 30.0
 _MAX_TARBALL_BYTES = 16 * 1024 * 1024
+_CANDIDATE_PREVIEW_WORKSPACE_ID = "__candidate_catalog_preview__"
 
 
 class CandidateFetchError(RuntimeError):
@@ -54,6 +56,7 @@ class _CacheState:
     def __init__(self) -> None:
         self.entry: _CacheEntry | None = None
         self.background_task: asyncio.Task[None] | None = None
+        self.preview_task: asyncio.Task[None] | None = None
 
 
 _state = _CacheState()
@@ -64,6 +67,7 @@ def reset_cache() -> None:
     """Clear cached state. Intended for tests."""
     _state.entry = None
     _state.background_task = None
+    _state.preview_task = None
 
 
 def _repo_settings() -> tuple[str, str, str | None]:
@@ -124,19 +128,6 @@ def _build_candidate(
         except json.JSONDecodeError:
             logger.debug("Invalid config.json for candidate %s", directory)
 
-    mermaid: str | None = None
-    try:
-        graph_payload = ingest_langgraph_script(
-            source, entrypoint=frontmatter.entrypoint
-        )
-        mermaid = graph_payload.get("index", {}).get("mermaid")
-    except ScriptIngestionError:
-        logger.debug("Graph derivation failed for candidate %s", directory)
-    except Exception:
-        logger.debug(
-            "Unexpected error during graph derivation for %s", directory, exc_info=True
-        )
-
     return CandidateItem(
         id=directory,
         handle=handle,
@@ -149,7 +140,9 @@ def _build_candidate(
         entrypoint=frontmatter.entrypoint,
         notes=frontmatter.notes,
         metadata=frontmatter.metadata,
-        mermaid=mermaid,
+        # Populated later by sandboxed catalog preview enrichment; parsing the
+        # archive itself must not execute remotely sourced Python.
+        mermaid=None,
     )
 
 
@@ -190,6 +183,53 @@ async def _refresh_cache() -> None:
     payload = await _download_tarball()
     candidates = await asyncio.to_thread(_parse_tarball, payload)
     _state.entry = _CacheEntry(candidates=candidates, fetched_at=time.monotonic())
+    enriched = await _render_candidate_previews(candidates)
+    _state.entry = _CacheEntry(candidates=enriched, fetched_at=time.monotonic())
+
+
+async def _enrich_cached_with_previews() -> None:
+    """Render mermaid previews for the current cached entry without re-fetching.
+
+    Called as a fire-and-forget task after a cold-cache fetch so callers are
+    not blocked on sandbox rendering.  Only updates the entry if it has not
+    been replaced by a full background refresh in the meantime.
+    """
+    entry = _state.entry
+    if entry is None:
+        return
+    try:
+        enriched = await _render_candidate_previews(entry.candidates)
+        if _state.entry is entry:
+            _state.entry = _CacheEntry(candidates=enriched, fetched_at=time.monotonic())
+    except Exception:
+        logger.warning("Background preview enrichment failed", exc_info=True)
+
+
+async def _render_candidate_previews(
+    candidates: list[CandidateItem],
+) -> list[CandidateItem]:
+    """Derive remote-candidate previews only through no-credential sandboxes."""
+    rendered: list[CandidateItem] = []
+    for candidate in candidates:
+        try:
+            graph_payload = await ingest_sandboxed_script(
+                workspace_id=_CANDIDATE_PREVIEW_WORKSPACE_ID,
+                source=candidate.script,
+                entrypoint=candidate.entrypoint,
+            )
+            mermaid = graph_payload.get("index", {}).get("mermaid")
+        except ScriptIngestionError:
+            logger.debug("Graph derivation failed for candidate %s", candidate.id)
+            mermaid = None
+        except Exception:
+            logger.debug(
+                "Unexpected error during graph derivation for %s",
+                candidate.id,
+                exc_info=True,
+            )
+            mermaid = None
+        rendered.append(candidate.model_copy(update={"mermaid": mermaid}))
+    return rendered
 
 
 async def _background_refresh() -> None:
@@ -216,11 +256,20 @@ async def get_candidates() -> list[CandidateItem]:
         async with _refresh_lock:
             if _state.entry is None:
                 try:
-                    await _refresh_cache()
+                    payload = await _download_tarball()
+                    candidates = await asyncio.to_thread(_parse_tarball, payload)
+                    _state.entry = _CacheEntry(
+                        candidates=candidates, fetched_at=time.monotonic()
+                    )
                 except CandidateFetchError:
                     raise
                 except Exception as exc:
                     raise CandidateFetchError(str(exc)) from exc
+        # Enrich with mermaid in the background so callers are not blocked on
+        # sequential sandbox rendering (~20s per candidate).
+        task = _state.preview_task
+        if task is None or task.done():
+            _state.preview_task = asyncio.create_task(_enrich_cached_with_previews())
         assert _state.entry is not None
         return _state.entry.candidates
 

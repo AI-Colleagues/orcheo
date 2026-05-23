@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
+from langgraph.graph import StateGraph
 from pydantic import BaseModel
 from orcheo.workspace import Role, WorkspaceContext
 from orcheo_backend.app import credential_readiness as readiness
@@ -27,7 +28,9 @@ def _workspace_context(workspace_id: UUID | None = None) -> WorkspaceContext:
     )
 
 
-def test_collect_workflow_credential_placeholders_scans_nested_tool_graphs() -> None:
+def test_collect_workflow_credential_placeholders_scans_source_without_execution() -> (
+    None
+):
     source = """
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
@@ -81,9 +84,7 @@ def orcheo_workflow() -> StateGraph:
     assert sorted(placeholders) == [
         "openai_api_key",
         "telegram_chat_id",
-        "telegram_token",
     ]
-    assert placeholders["telegram_token"] == {"[[telegram_token]]"}
 
 
 def test_collect_workflow_credential_placeholders_scans_provider_specific_aliases() -> (
@@ -340,12 +341,30 @@ def orcheo_workflow() -> StateGraph:
     )
 
     assert response.status == "missing"
-    assert response.available_credentials == ["openai_api_key", "telegram_token"]
+    assert response.available_credentials == ["openai_api_key"]
     assert response.missing_credentials == ["telegram_chat_id"]
 
 
 class _PlaceholderModel(BaseModel):
     api_key: str = "[[placeholder]]"
+
+
+def test_collect_value_traverses_state_graph_and_model() -> None:
+    placeholders: dict[str, set[str]] = {}
+    graph = StateGraph(dict)
+    graph.nodes["node"] = SimpleNamespace(runnable=_PlaceholderModel())
+
+    readiness._collect_value(graph, placeholders, seen=set())
+
+    assert placeholders == {"placeholder": {"[[placeholder]]"}}
+
+
+def test_collect_string_ignores_optional_external_agent_placeholder() -> None:
+    placeholders: dict[str, set[str]] = {}
+
+    readiness._collect_string("[[GEMINI_AUTH_JSON]]", placeholders)
+
+    assert placeholders == {}
 
 
 def test_collect_state_graph_returns_when_seen() -> None:

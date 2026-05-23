@@ -6,7 +6,6 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 from langgraph.graph import StateGraph
 from pydantic import BaseModel
-from orcheo.graph.ingestion import load_graph_from_script
 from orcheo.runtime.credentials import parse_credential_reference
 
 
@@ -27,23 +26,13 @@ def collect_workflow_credential_placeholders(
     graph_payload: Mapping[str, Any],
     runnable_config: Mapping[str, Any] | None,
 ) -> dict[str, set[str]]:
-    """Return credential placeholders referenced by a workflow definition."""
+    """Return statically visible credential placeholders in stored payloads.
+
+    Persisted tenant script source is data at this stage and must never be
+    imported or executed in a backend readiness check.
+    """
     placeholders: dict[str, set[str]] = {}
-
-    source = graph_payload.get("source")
-    entrypoint_raw = graph_payload.get("entrypoint")
-    entrypoint = entrypoint_raw if isinstance(entrypoint_raw, str) else None
-
-    if isinstance(source, str) and source.strip():
-        try:
-            graph = load_graph_from_script(source, entrypoint=entrypoint)
-        except (OSError, RuntimeError, ValueError, ImportError):
-            _collect_value(graph_payload, placeholders, seen=set())
-        else:
-            _collect_state_graph(graph, placeholders, seen=set())
-    else:
-        _collect_value(graph_payload, placeholders, seen=set())
-
+    _collect_value(graph_payload, placeholders, seen=set())
     if runnable_config is not None:
         _collect_value(runnable_config, placeholders, seen=set())
 

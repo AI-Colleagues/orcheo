@@ -20,8 +20,8 @@ from orcheo.sandbox.egress.proxy import (
 )
 
 
-def test_nftables_ruleset_blocks_metadata_redis_postgres_and_loopback() -> None:
-    """The rendered ruleset drops metadata + resolved hosts + loopback."""
+def test_nftables_ruleset_allows_only_relay_and_proxy_then_drops() -> None:
+    """The rendered ruleset permits the two child-facing service ports only."""
     policy = EgressPolicy(
         denied_cidrs=("169.254.0.0/16",),
         denied_hostnames=("redis", "postgres"),
@@ -30,18 +30,16 @@ def test_nftables_ruleset_blocks_metadata_redis_postgres_and_loopback() -> None:
         proxy_port=3128,
     )
     rendered = build_nftables_ruleset(policy)
-    assert "ip daddr 169.254.0.0/16 drop" in rendered
-    assert "ip daddr 10.0.1.5 drop" in rendered
-    assert "ip daddr 10.0.1.6 drop" in rendered
-    assert "ip daddr 127.0.0.0/8 drop" in rendered
+    assert "ip daddr 10.99.0.2 tcp dport 9091 accept" in rendered
     assert "ip daddr 10.0.1.2 tcp dport 3128 accept" in rendered
+    assert 'iifname "sandbox0" ip saddr 10.99.0.128/25 drop' in rendered
 
 
-def test_nftables_ruleset_respects_extra_allowed_cidrs() -> None:
-    """extra_allowed_cidrs become explicit accept rules."""
+def test_nftables_ruleset_does_not_open_extra_cidrs() -> None:
+    """Legacy extra CIDRs cannot weaken the hardened default policy."""
     policy = EgressPolicy(extra_allowed_cidrs=("10.99.0.0/24",))
     rendered = build_nftables_ruleset(policy)
-    assert "ip daddr 10.99.0.0/24 accept" in rendered
+    assert "ip daddr 10.99.0.0/24 accept" not in rendered
 
 
 def test_security_group_rules_mirror_l3_l4_denylist() -> None:
@@ -83,8 +81,8 @@ def test_host_ips_for_denied_hostnames_deduplicates_shared_ips() -> None:
     assert ips == ("10.0.2.1", "10.0.2.2")
 
 
-def test_envoy_config_renders_workspace_allowlist() -> None:
-    """The bootstrap YAML embeds the per-workspace allowlist payload."""
+def test_envoy_config_renders_global_allowlist_only() -> None:
+    """The proxy enforces only the operator-owned global hostname set."""
     config = EnvoyForwardProxyConfig(
         workspaces=(
             WorkspaceEgressAllowlist(workspace_id="ws-a", hosts=("api.example.com",)),
@@ -92,9 +90,51 @@ def test_envoy_config_renders_workspace_allowlist() -> None:
         global_allowed_hosts=("api.openai.com",),
     )
     rendered = config.render_yaml()
-    assert "api.example.com" in rendered
+    assert "api.example.com" not in rendered
     assert "api.openai.com" in rendered
     assert "sandbox_egress" in rendered
+    assert "connect_matcher" in rendered
+    assert "upgrade_type: CONNECT" in rendered
+    # Production-quality output includes the admin block, structured json
+    # access log, and the cares DNS resolver pinning 8.8.8.8 — none of which
+    # the simpler legacy renderer emitted.
+    assert "admin:" in rendered
+    assert "typed_json_format" in rendered
+    assert "8.8.8.8" in rendered
+
+
+def test_envoy_config_renders_deny_all_when_no_wildcard() -> None:
+    """A finite allowlist keeps a deny_all virtual host as the secure default."""
+    config = EnvoyForwardProxyConfig(global_allowed_hosts=("api.openai.com",))
+    rendered = config.render_yaml()
+    assert "deny_all" in rendered
+    assert "approved_hosts" in rendered
+
+
+def test_envoy_config_wildcard_drops_deny_all() -> None:
+    """A literal '*' in the allowlist turns into match-all without deny_all."""
+    config = EnvoyForwardProxyConfig(global_allowed_hosts=("*",))
+    rendered = config.render_yaml()
+    # Just the wildcard match — no per-host pairs, no deny_all block.
+    assert "deny_all" not in rendered
+    assert "approved_hosts" in rendered
+    # The literal "*" survives YAML quoting.
+    assert "'*'" in rendered or '"*"' in rendered
+
+
+def test_envoy_config_renders_valid_yaml() -> None:
+    """The rendered output is parseable YAML matching the expected shape."""
+    import yaml as _yaml
+
+    config = EnvoyForwardProxyConfig(global_allowed_hosts=("api.openai.com",))
+    parsed = _yaml.safe_load(config.render_yaml())
+    assert "static_resources" in parsed
+    listeners = parsed["static_resources"]["listeners"]
+    assert len(listeners) == 1
+    vhosts = listeners[0]["filter_chains"][0]["filters"][0]["typed_config"][
+        "route_config"
+    ]["virtual_hosts"]
+    assert [v["name"] for v in vhosts] == ["approved_hosts", "deny_all"]
 
 
 def test_egress_environment_sets_proxy_vars() -> None:
@@ -150,8 +190,8 @@ def test_audit_consumer_can_log_allowed(caplog: object) -> None:
     assert records[0].sandbox_event == "egress_allowed"  # type: ignore[attr-defined]
 
 
-def test_allowlist_for_workspace_merges_global_and_workspace() -> None:
-    """allowlist_for_workspace merges with no duplicates."""
+def test_allowlist_for_workspace_uses_global_policy_only() -> None:
+    """Per-workspace entries no longer weaken the enforced global policy."""
     config = EnvoyForwardProxyConfig(
         workspaces=(
             WorkspaceEgressAllowlist(workspace_id="a", hosts=("x", "y")),
@@ -159,8 +199,19 @@ def test_allowlist_for_workspace_merges_global_and_workspace() -> None:
         ),
         global_allowed_hosts=("g", "x"),
     )
-    assert config.allowlist_for_workspace("a") == ("g", "x", "y")
+    assert config.allowlist_for_workspace("a") == ("g", "x")
     assert config.allowlist_for_workspace("missing") == ("g", "x")
+
+
+def test_proxy_global_allowlist_reads_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The operator-facing environment surface populates the proxy policy."""
+    monkeypatch.setenv(
+        "ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS", "api.openai.com, api.example.com"
+    )
+    config = EnvoyForwardProxyConfig.from_env()
+    assert config.global_allowed_hosts == ("api.openai.com", "api.example.com")
 
 
 def test_host_ips_for_denied_hostnames_uses_real_dns_for_loopback() -> None:

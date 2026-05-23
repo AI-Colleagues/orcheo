@@ -3,6 +3,7 @@
 from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
+from uuid import uuid4
 import pytest
 from orcheo_backend.app import sandbox as sandbox_module
 from orcheo_backend.app.sandbox import (
@@ -92,6 +93,27 @@ def test_ensure_sandbox_configured_is_idempotent(
     assert len(calls) == 1
 
 
+def test_module_level_sandbox_getters_delegate_to_bootstrap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The module-level helpers should forward directly to the cached bootstrap."""
+
+    class _StubBootstrap:
+        def launcher(self) -> str:
+            return "launcher"
+
+        def dispatcher(self) -> str:
+            return "dispatcher"
+
+    original = sandbox_module._bootstrap
+    try:
+        sandbox_module._bootstrap = _StubBootstrap()  # type: ignore[assignment]
+        assert sandbox_module.get_sandbox_launcher() == "launcher"
+        assert sandbox_module.get_sandbox_dispatcher() == "dispatcher"
+    finally:
+        sandbox_module._bootstrap = original
+
+
 def test_build_credential_broker_requires_secret(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -99,6 +121,189 @@ def test_build_credential_broker_requires_secret(
     monkeypatch.delenv("ORCHEO_CREDENTIAL_BROKER_SECRET", raising=False)
     with pytest.raises(RuntimeError, match="ORCHEO_CREDENTIAL_BROKER_SECRET"):
         build_credential_broker()
+
+
+def test_build_credential_broker_uses_redis_store_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default revocation store is Redis-backed, not process-local."""
+
+    class _FakeRedisStore:
+        def __init__(self, redis_url: str) -> None:
+            self.redis_url = redis_url
+
+    monkeypatch.setenv("ORCHEO_CREDENTIAL_BROKER_SECRET", "abc")
+    monkeypatch.delenv("ORCHEO_SANDBOX_REVOCATION_STORE", raising=False)
+    monkeypatch.setattr(sandbox_module, "RedisRevocationStore", _FakeRedisStore)
+
+    broker = build_credential_broker()
+
+    assert isinstance(broker._revocations, _FakeRedisStore)
+    assert broker._revocations.redis_url == "redis://redis:6379/0"
+
+
+def test_build_credential_broker_resolves_credentials_from_vault(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The broker resolver walks the vault metadata and returns the secret."""
+
+    workspace_id = str(uuid4())
+    credential_id = uuid4()
+
+    class _Vault:
+        def list_credentials(self, *, context, workspace_id=None):
+            del context
+            assert workspace_id == workspace_id_str
+            return [
+                SimpleNamespace(id=credential_id, name="openai_api_key"),
+                SimpleNamespace(id=uuid4(), name="other"),
+            ]
+
+        def reveal_secret(self, *, credential_id, context):
+            del context
+            assert credential_id == credential_id_expected
+            return "secret-value"
+
+    workspace_id_str = workspace_id
+    credential_id_expected = credential_id
+
+    monkeypatch.setenv("ORCHEO_CREDENTIAL_BROKER_SECRET", "abc")
+    monkeypatch.setenv("ORCHEO_SANDBOX_REVOCATION_STORE", "memory")
+    monkeypatch.setattr(sandbox_module, "get_vault", lambda: _Vault())
+
+    broker = build_credential_broker()
+
+    assert (
+        broker._resolver(workspace_id=workspace_id, credential_name="openai_api_key")
+        == "secret-value"
+    )
+    with pytest.raises(KeyError):
+        broker._resolver(workspace_id=workspace_id, credential_name="missing")
+
+
+@pytest.mark.asyncio()
+async def test_bootstrap_ingest_script_creates_ingestor_and_destroys_lease(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ingestion path acquires a lease and always destroys it afterward."""
+
+    class _FakeLease:
+        def __init__(self, sandbox_id: str) -> None:
+            self.sandbox_id = sandbox_id
+
+    class _FakeManager:
+        def __init__(self) -> None:
+            self.acquired: list[tuple[str, str]] = []
+            self.destroyed: list[_FakeLease] = []
+
+        def acquire(self, workspace_id: str, *, run_id: str) -> _FakeLease:
+            self.acquired.append((workspace_id, run_id))
+            return _FakeLease("sandbox-1")
+
+        def destroy(self, lease: _FakeLease) -> None:
+            self.destroyed.append(lease)
+
+    class _FakeIngestor:
+        def __init__(self, url: str, *, control_token: str) -> None:
+            self.url = url
+            self.control_token = control_token
+            self.calls: list[tuple[str, str, str | None, int | None, float | None]] = []
+
+        async def ingest(
+            self,
+            sandbox_id: str,
+            *,
+            source: str,
+            entrypoint: str | None,
+            max_script_bytes: int | None,
+            execution_timeout_seconds: float | None,
+        ) -> dict[str, Any]:
+            self.calls.append(
+                (
+                    sandbox_id,
+                    source,
+                    entrypoint,
+                    max_script_bytes,
+                    execution_timeout_seconds,
+                )
+            )
+            return {"ok": True}
+
+    manager = _FakeManager()
+    bootstrap = _SandboxBootstrap()
+    monkeypatch.setattr(bootstrap, "_ensure_manager", lambda: manager)
+    monkeypatch.setattr(bootstrap, "_control_token", lambda: "control-token")
+    monkeypatch.setattr(sandbox_module, "RemoteSandboxIngestor", _FakeIngestor)
+
+    result = await bootstrap.ingest_script(
+        workspace_id="ws-1",
+        source="print('hello')",
+        entrypoint="build_graph",
+        max_script_bytes=123,
+        execution_timeout_seconds=45.0,
+    )
+
+    assert result == {"ok": True}
+    assert manager.acquired[0][0].startswith("ingest:ws-1:")
+    assert manager.acquired[0][1] == "script-ingestion"
+    assert len(manager.destroyed) == 1
+
+
+@pytest.mark.asyncio()
+async def test_bootstrap_ingest_script_reuses_cached_ingestor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pre-built ingestor is reused without constructing another one."""
+
+    class _FakeLease:
+        def __init__(self, sandbox_id: str) -> None:
+            self.sandbox_id = sandbox_id
+
+    class _FakeManager:
+        def __init__(self) -> None:
+            self.destroyed: list[_FakeLease] = []
+
+        def acquire(self, workspace_id: str, *, run_id: str) -> _FakeLease:
+            del workspace_id, run_id
+            return _FakeLease("sandbox-2")
+
+        def destroy(self, lease: _FakeLease) -> None:
+            self.destroyed.append(lease)
+
+    class _FakeIngestor:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def ingest(
+            self,
+            sandbox_id: str,
+            *,
+            source: str,
+            entrypoint: str | None,
+            max_script_bytes: int | None,
+            execution_timeout_seconds: float | None,
+        ) -> dict[str, Any]:
+            del source, entrypoint, max_script_bytes, execution_timeout_seconds
+            self.calls.append(sandbox_id)
+            return {"ok": True}
+
+    manager = _FakeManager()
+    ingestor = _FakeIngestor()
+    bootstrap = _SandboxBootstrap()
+    bootstrap._ingestor = ingestor  # type: ignore[assignment]
+    monkeypatch.setattr(bootstrap, "_ensure_manager", lambda: manager)
+
+    result = await bootstrap.ingest_script(
+        workspace_id="ws-2",
+        source="print('hello')",
+        entrypoint=None,
+        max_script_bytes=10,
+        execution_timeout_seconds=1.0,
+    )
+
+    assert result == {"ok": True}
+    assert ingestor.calls == ["sandbox-2"]
+    assert len(manager.destroyed) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +332,18 @@ def test_bootstrap_runtime_url_returns_env_value(
     assert bootstrap._runtime_url() == "http://sandbox-runtime:9090"
 
 
+def test_bootstrap_configure_requires_control_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Backend/worker startup fails before serving without control auth."""
+    monkeypatch.delenv("ORCHEO_SANDBOX_CONTROL_TOKEN", raising=False)
+    bootstrap = _SandboxBootstrap()
+    with pytest.raises(
+        SandboxRuntimeNotConfiguredError, match="ORCHEO_SANDBOX_CONTROL_TOKEN"
+    ):
+        bootstrap.configure(SimpleNamespace())  # type: ignore[arg-type]
+
+
 def test_bootstrap_ensure_manager_creates_manager(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -137,8 +354,9 @@ def test_bootstrap_ensure_manager_creates_manager(
     created_managers: list[Any] = []
 
     class _FakeRuntime:
-        def __init__(self, url: str) -> None:
+        def __init__(self, url: str, *, control_token: str) -> None:
             self.url = url
+            assert control_token == "test-sandbox-control-token"
             created_runtimes.append(self)
 
     class _FakeManager:
@@ -170,7 +388,8 @@ def test_bootstrap_launcher_creates_and_caches(
     monkeypatch.setenv("ORCHEO_SANDBOX_RUNTIME_URL", "http://sandbox-runtime:9090")
 
     class _FakeRuntime:
-        def __init__(self, url: str) -> None:
+        def __init__(self, url: str, *, control_token: str) -> None:
+            assert control_token == "test-sandbox-control-token"
             pass
 
     class _FakeManager:
@@ -178,8 +397,9 @@ def test_bootstrap_launcher_creates_and_caches(
             pass
 
     class _FakeExec:
-        def __init__(self, url: str) -> None:
+        def __init__(self, url: str, *, control_token: str) -> None:
             self.url = url
+            assert control_token == "test-sandbox-control-token"
 
     class _FakeLauncher:
         def __init__(self, manager: Any, *, exec_backend: Any) -> None:
@@ -216,7 +436,8 @@ def test_bootstrap_dispatcher_creates_dispatcher(
     monkeypatch.setenv("ORCHEO_SANDBOX_RUNTIME_URL", "http://sandbox-runtime:9090")
 
     class _FakeRuntime:
-        def __init__(self, url: str) -> None:
+        def __init__(self, url: str, *, control_token: str) -> None:
+            assert control_token == "test-sandbox-control-token"
             pass
 
     class _FakeManager:
@@ -224,7 +445,8 @@ def test_bootstrap_dispatcher_creates_dispatcher(
             pass
 
     class _FakeRunner:
-        def __init__(self, url: str) -> None:
+        def __init__(self, url: str, *, control_token: str) -> None:
+            assert control_token == "test-sandbox-control-token"
             pass
 
     dispatchers_created: list[Any] = []

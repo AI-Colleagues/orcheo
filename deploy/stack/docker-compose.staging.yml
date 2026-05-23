@@ -46,6 +46,12 @@ services:
       ORCHEO_SANDBOX_IMAGE: orcheo/workspace-sandbox:staging-local
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
 
+  credential-relay:
+    image: orcheo/sandbox-runtime:staging-local
+    build:
+      context: ../..
+      dockerfile: Dockerfile.sandbox-runtime
+
   # The workspace-sandbox image is *not* run as part of the long-lived stack
   # — it is the image the `sandbox-runtime` service spawns on demand. Declaring
   # it as a service lets `docker compose up` build it automatically; the no-op

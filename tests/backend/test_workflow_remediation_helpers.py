@@ -934,6 +934,13 @@ async def test_attempt_workflow_remediation_async_handles_ingest_and_retry(
         "_retry_fixed_workflow_run",
         AsyncMock(return_value={"enabled": True, "created": True}),
     )
+    monkeypatch.setattr(
+        workflow_remediation,
+        "ingest_sandboxed_script",
+        AsyncMock(
+            return_value={"format": "langgraph-script", "source": WORKFLOW_SCRIPT}
+        ),
+    )
     result = await workflow_remediation.attempt_workflow_remediation_async(
         repository=repository,
         remediation_id=candidate.id,
@@ -951,8 +958,8 @@ async def test_attempt_workflow_remediation_async_handles_ingest_and_retry(
 
     monkeypatch.setattr(
         workflow_remediation,
-        "ingest_langgraph_script",
-        MagicMock(side_effect=workflow_remediation.ScriptIngestionError("bad script")),
+        "ingest_sandboxed_script",
+        AsyncMock(side_effect=workflow_remediation.ScriptIngestionError("bad script")),
     )
     repository.mark_remediation_failed.reset_mock()
     result = await workflow_remediation.attempt_workflow_remediation_async(

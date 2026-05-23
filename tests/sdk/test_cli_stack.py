@@ -4,6 +4,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 from typing import Any
+from types import SimpleNamespace
 import pytest
 import typer
 from rich.console import Console
@@ -11,6 +12,7 @@ from orcheo_sdk.cli.main import (
     _resolve_stack_project_dir,
     _run_stack_command,
     app,
+    ensure_stack_env_command,
 )
 
 
@@ -135,6 +137,42 @@ def test_install_ensure_stack_env_command_creates_env_file(
     assert "ORCHEO_VAULT_ENCRYPTION_KEY=replace-with-64-hex-chars" not in env_content
     assert "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY=strong-random-secret" not in env_content
     assert "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me" in env_content
+
+
+def test_install_ensure_stack_env_command_renders_egress_config_when_compose_exists(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The install helper also writes the egress proxy config when applicable."""
+
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir()
+    (stack_dir / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    env_file = stack_dir / ".env"
+    env_template = tmp_path / ".env.example"
+    env_template.write_text("ORCHEO_API_URL=http://template\n", encoding="utf-8")
+
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.main._resolve_stack_project_dir", lambda: stack_dir
+    )
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.main.ensure_stack_env_file",
+        lambda **kwargs: calls.append(("env", kwargs)),
+    )
+    monkeypatch.setattr(
+        "orcheo_sdk.cli.main.ensure_egress_proxy_config",
+        lambda **kwargs: calls.append(("egress", kwargs)),
+    )
+
+    ensure_stack_env_command(
+        SimpleNamespace(obj=None),
+        env_file=str(env_file),
+        env_template=str(env_template),
+    )
+
+    assert [call[0] for call in calls] == ["env", "egress"]
 
 
 def test_stack_logs_treats_sigint_exit_as_success(

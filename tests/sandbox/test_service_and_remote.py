@@ -5,6 +5,7 @@ import asyncio
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+import socket
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -12,17 +13,31 @@ from orcheo.sandbox import service as service_module
 from orcheo.external_agents.models import ProcessExecutionResult
 from orcheo.sandbox.remote import (
     RemoteContainerRuntime,
+    RemoteRuntimeError,
     RemoteSandboxExec,
+    RemoteSandboxIngestor,
     RemoteSandboxRunner,
+    _control_headers,
 )
+from orcheo.sandbox.config import SandboxSettings
 from orcheo.sandbox.runtime import ContainerSpec, InMemoryContainerRuntime
 from orcheo.sandbox.service import (
     ContainerExecutor,
     ExecRequest,
+    ScriptIngestionPayload,
+    ScriptSandboxInvoker,
+    SandboxProvisionRequest,
     WorkflowSandboxInvoker,
+    build_credential_relay_app,
     build_service_app,
+    _control_dependency,
+    _resolve_extra_hosts,
+    _sandbox_environment,
 )
 from orcheo.sandbox.workflow import WorkflowRunResult, WorkflowRunSpec
+
+
+_CONTROL_HEADERS = {"X-Orcheo-Sandbox-Control-Token": "control-test-token"}
 
 
 class _FakeExecutor(ContainerExecutor):
@@ -80,8 +95,16 @@ def app_with_fakes() -> tuple[
     runtime = InMemoryContainerRuntime()
     executor = _FakeExecutor()
     invoker = _FakeInvoker()
-    app = build_service_app(runtime=runtime, executor=executor, invoker=invoker)
-    return TestClient(app), runtime, executor, invoker
+    app = build_service_app(
+        runtime=runtime,
+        executor=executor,
+        invoker=invoker,
+        settings=SandboxSettings(
+            credential_broker_url="http://10.99.0.2:9091/credentials/resolve"
+        ),
+        control_token="control-test-token",
+    )
+    return TestClient(app, headers=_CONTROL_HEADERS), runtime, executor, invoker
 
 
 def test_healthz(app_with_fakes: tuple[TestClient, Any, Any, Any]) -> None:
@@ -90,12 +113,281 @@ def test_healthz(app_with_fakes: tuple[TestClient, Any, Any, Any]) -> None:
     assert client.get("/healthz").json() == {"status": "ok"}
 
 
-def test_credential_relay_forwards_broker_request(
+def test_control_routes_require_valid_token(
     app_with_fakes: tuple[TestClient, Any, Any, Any],
+) -> None:
+    """The Docker-facing API fails closed without its internal credential."""
+    authenticated, *_ = app_with_fakes
+    client = TestClient(authenticated.app)
+    payload = {"workspace_id": "ws"}
+    assert client.post("/internal/containers", json=payload).status_code == 401
+    assert (
+        client.post(
+            "/internal/containers",
+            json=payload,
+            headers={"X-Orcheo-Sandbox-Control-Token": "wrong"},
+        ).status_code
+        == 401
+    )
+
+
+def test_provisioning_rejects_isolation_override_fields(
+    app_with_fakes: tuple[TestClient, Any, Any, Any],
+) -> None:
+    """Callers cannot choose image, runtime, or privilege configuration."""
+    client, *_ = app_with_fakes
+    response = client.post(
+        "/internal/containers",
+        json={"workspace_id": "ws", "image": "attacker/image", "runtime": "runc"},
+    )
+    assert response.status_code == 422
+
+
+def test_relay_has_no_lifecycle_or_exec_routes() -> None:
+    """The child-reachable relay cannot reach container control operations."""
+    client = TestClient(build_credential_relay_app())
+    assert (
+        client.post("/internal/containers", json={"workspace_id": "ws"}).status_code
+        == 404
+    )
+    assert (
+        client.post("/internal/sandboxes/sb/exec", json={"command": []}).status_code
+        == 404
+    )
+    assert client.get("/healthz").json() == {"status": "ok"}
+
+
+def test_sandbox_provision_request_includes_proxy_environment_and_hosts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Sandbox credential requests cross the runtime relay unchanged."""
+    """Provisioning inherits the fixed sandbox environment and host pinning."""
+
+    settings = SandboxSettings(
+        credential_broker_url="http://relay.local:9091/credentials/resolve",
+        egress_proxy_url="http://proxy.local:3128",
+    )
+
+    monkeypatch.setattr(
+        socket,
+        "gethostbyname",
+        lambda host: {"relay.local": "10.0.0.2", "proxy.local": "10.0.0.3"}[host],
+    )
+
+    spec = SandboxProvisionRequest(workspace_id="ws").to_spec(settings)
+
+    assert spec.environment["ORCHEO_CREDENTIAL_BROKER_URL"] == (
+        "http://relay.local:9091/credentials/resolve"
+    )
+    assert spec.environment["HTTP_PROXY"] == "http://proxy.local:3128"
+    assert spec.environment["NO_PROXY"] == "localhost,127.0.0.1,relay.local"
+    assert spec.extra_hosts == {
+        "relay.local": "10.0.0.2",
+        "proxy.local": "10.0.0.3",
+    }
+
+
+def test_sandbox_environment_omits_missing_broker_hostname(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """NO_PROXY stays limited to localhost when the broker URL lacks a hostname."""
+
+    settings = SandboxSettings(
+        credential_broker_url="http:///credentials/resolve",
+        egress_proxy_url="http://proxy.local:3128",
+    )
+
+    monkeypatch.setattr(
+        socket,
+        "gethostbyname",
+        lambda host: {"proxy.local": "10.0.0.3"}[host],
+    )
+
+    environment = _sandbox_environment(settings)
+
+    assert environment["NO_PROXY"] == "localhost,127.0.0.1"
+
+
+def test_resolve_extra_hosts_skips_literal_ip_addresses() -> None:
+    """IP-literal service URLs do not need hostfile pinning."""
+
+    settings = SandboxSettings(
+        credential_broker_url="http://10.0.0.2:9091/credentials/resolve",
+        egress_proxy_url="http://[::1]:3128",
+    )
+
+    assert _resolve_extra_hosts(settings) == {}
+
+
+def test_resolve_extra_hosts_skips_duplicate_hostnames(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hostname pinned once is not resolved again for the egress proxy."""
+
+    settings = SandboxSettings(
+        credential_broker_url="http://relay.local:9091/credentials/resolve",
+        egress_proxy_url="http://relay.local:3128",
+    )
+    calls: list[str] = []
+
+    def fake_gethostbyname(host: str) -> str:
+        calls.append(host)
+        return "10.0.0.2"
+
+    monkeypatch.setattr(socket, "gethostbyname", fake_gethostbyname)
+
+    hosts = _resolve_extra_hosts(settings)
+
+    assert hosts == {"relay.local": "10.0.0.2"}
+    assert calls == ["relay.local"]
+
+
+def test_resolve_extra_hosts_raises_when_host_cannot_be_resolved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing hostname fails fast with a 503."""
+
+    settings = SandboxSettings(
+        credential_broker_url="http://relay.local:9091/credentials/resolve"
+    )
+    monkeypatch.setattr(
+        socket, "gethostbyname", lambda host: (_ for _ in ()).throw(OSError(host))
+    )
+
+    with pytest.raises(Exception) as exc_info:
+        _resolve_extra_hosts(settings)
+
+    assert getattr(exc_info.value, "status_code", None) == 503
+
+
+def test_control_dependency_requires_token() -> None:
+    """The control-plane dependency refuses to start without a shared secret."""
+    with pytest.raises(RuntimeError, match="must be configured"):
+        _control_dependency("")
+
+
+def test_control_headers_require_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runtime clients fail closed when no control token is available."""
+    monkeypatch.delenv("ORCHEO_SANDBOX_CONTROL_TOKEN", raising=False)
+    with pytest.raises(RemoteRuntimeError, match="required for runtime requests"):
+        _control_headers(None)
+
+
+def test_ingestion_invoker_never_injects_broker_token() -> None:
+    """Script validation executes with no credential token environment."""
+    executor = _FakeExecutor()
+    executor.result = ProcessExecutionResult(
+        command=[],
+        stdout='{"status":"succeeded","payload":{"format":"langgraph-script"}}',
+        stderr="",
+        exit_code=0,
+        timed_out=False,
+        duration_seconds=0.01,
+    )
+    payload = ScriptIngestionPayload(source="source")
+    result = asyncio.run(ScriptSandboxInvoker(executor).invoke("sandbox", payload))
+    assert result == {"format": "langgraph-script"}
+    assert executor.calls[0][1].env is None
+
+
+def test_ingestion_invoker_reports_missing_json_output() -> None:
+    """Malformed runner output becomes a 400 with a stable error message."""
+    executor = _FakeExecutor()
+    executor.result = ProcessExecutionResult(
+        command=[],
+        stdout="not json",
+        stderr="",
+        exit_code=0,
+        timed_out=False,
+        duration_seconds=0.01,
+    )
+    with pytest.raises(Exception, match="no output"):
+        asyncio.run(
+            ScriptSandboxInvoker(executor).invoke(
+                "sandbox", ScriptIngestionPayload(source="graph = object()")
+            )
+        )
+
+
+def test_ingestion_invoker_reports_failed_status() -> None:
+    """A failed ingestion status is surfaced from the runner payload."""
+    executor = _FakeExecutor()
+    executor.result = ProcessExecutionResult(
+        command=[],
+        stdout='{"status":"failed","error":"bad script"}',
+        stderr="",
+        exit_code=0,
+        timed_out=False,
+        duration_seconds=0.01,
+    )
+    with pytest.raises(Exception, match="bad script"):
+        asyncio.run(
+            ScriptSandboxInvoker(executor).invoke(
+                "sandbox", ScriptIngestionPayload(source="graph = object()")
+            )
+        )
+
+
+def test_ingestion_invoker_reports_timeout() -> None:
+    """One-shot script validation fails when the sandbox process times out."""
+    executor = _FakeExecutor()
+    executor.result = ProcessExecutionResult(
+        command=[],
+        stdout="",
+        stderr="",
+        exit_code=None,
+        timed_out=True,
+        duration_seconds=1.0,
+    )
+    with pytest.raises(Exception, match="timed out"):
+        asyncio.run(
+            ScriptSandboxInvoker(executor).invoke(
+                "sandbox", ScriptIngestionPayload(source="while True: pass")
+            )
+        )
+
+
+def test_ingestion_endpoint_rejects_disabled_limits(
+    app_with_fakes: tuple[TestClient, Any, Any, Any],
+) -> None:
+    """Authenticated callers cannot turn off tenant ingestion bounds."""
     client, *_ = app_with_fakes
+    response = client.post(
+        "/internal/sandboxes/sandbox/ingest",
+        json={
+            "source": "graph = object()",
+            "max_script_bytes": None,
+            "execution_timeout_seconds": None,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_ingestion_endpoint_calls_invoker(
+    app_with_fakes: tuple[TestClient, Any, _FakeExecutor, Any],
+) -> None:
+    """A valid payload reaches the sandbox ingestion path."""
+    client, _runtime, executor, _invoker = app_with_fakes
+    executor.result = ProcessExecutionResult(
+        command=[],
+        stdout='{"status":"succeeded","payload":{"graph":"ok"}}',
+        stderr="",
+        exit_code=0,
+        timed_out=False,
+        duration_seconds=0.01,
+    )
+    response = client.post(
+        "/internal/sandboxes/sandbox/ingest",
+        json={"source": "graph = object()"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {"graph": "ok"}
+
+
+def test_credential_relay_forwards_broker_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sandbox credential requests cross only the relay application."""
+    client = TestClient(build_credential_relay_app())
     calls: list[tuple[str, dict[str, Any], dict[str, str]]] = []
 
     class _FakeAsyncClient:
@@ -161,24 +453,27 @@ def test_provision_stop_lifecycle(
         dns=("1.1.1.1",),
         extra_hosts={"sandbox-runtime": "10.0.0.7"},
     )
-    response = client.post("/containers", json=_spec_payload(spec))
+    response = client.post("/internal/containers", json=_spec_payload(spec))
     assert response.status_code == 201, response.text
     container_id = response.json()["container_id"]
     assert runtime.started, "runtime.start was not invoked"
     _, started_spec = runtime.started[0]
-    assert started_spec.dns == spec.dns
-    assert started_spec.extra_hosts == spec.extra_hosts
+    assert started_spec.dns == ()
+    assert started_spec.extra_hosts == {}
+    assert started_spec.image != spec.image
+    assert started_spec.network_mode == "sandbox-egress"
+    assert started_spec.cap_drop == ("ALL",)
 
-    inspect = client.get(f"/containers/{container_id}")
+    inspect = client.get(f"/internal/containers/{container_id}")
     assert inspect.status_code == 200
     assert inspect.json()["running"] is True
 
-    stop = client.delete(f"/containers/{container_id}")
+    stop = client.delete(f"/internal/containers/{container_id}")
     assert stop.status_code == 204
     assert runtime.stopped, "runtime.stop was not invoked"
 
     # Stopping again is a 404 because the container is no longer running.
-    assert client.delete(f"/containers/{container_id}").status_code == 404
+    assert client.delete(f"/internal/containers/{container_id}").status_code == 404
 
 
 def test_stop_works_without_cached_handle(
@@ -189,17 +484,26 @@ def test_stop_works_without_cached_handle(
     """DELETE /containers/{id} still stops a running container after restart."""
     client, runtime, executor, invoker = app_with_fakes
     spec = ContainerSpec(image="img", workspace_id="ws")
-    provision = client.post("/containers", json=_spec_payload(spec))
+    provision = client.post("/internal/containers", json=_spec_payload(spec))
     container_id = provision.json()["container_id"]
 
     # Simulate runtime-service restart by rebuilding the app with the same runtime.
     running_handle, _ = runtime.started[0]
     assert runtime.is_running(running_handle) is True
     restarted_client = TestClient(
-        build_service_app(runtime=runtime, executor=executor, invoker=invoker)
+        build_service_app(
+            runtime=runtime,
+            executor=executor,
+            invoker=invoker,
+            settings=SandboxSettings(
+                credential_broker_url="http://10.99.0.2:9091/credentials/resolve"
+            ),
+            control_token="control-test-token",
+        ),
+        headers=_CONTROL_HEADERS,
     )
 
-    stop = restarted_client.delete(f"/containers/{container_id}")
+    stop = restarted_client.delete(f"/internal/containers/{container_id}")
     assert stop.status_code == 204
     assert runtime.is_running(running_handle) is False
 
@@ -210,7 +514,7 @@ def test_exec_endpoint_calls_executor(
     """POST /sandboxes/{id}/exec routes through ContainerExecutor.exec."""
     client, _runtime, executor, _invoker = app_with_fakes
     response = client.post(
-        "/sandboxes/sb-1/exec",
+        "/internal/sandboxes/sb-1/exec",
         json={
             "command": ["echo", "hello"],
             "cwd": "/scratch",
@@ -250,7 +554,7 @@ def test_dispatch_workflow_endpoint(
         },
         "broker_token": "tok-1",
     }
-    response = client.post("/sandboxes/sb-1/dispatch_workflow", json=payload)
+    response = client.post("/internal/sandboxes/sb-1/dispatch_workflow", json=payload)
     assert response.status_code == 200, response.text
     data = response.json()
     assert data["status"] == "succeeded"
@@ -269,10 +573,12 @@ def test_remote_container_runtime_round_trip() -> None:
     state: dict[str, Any] = {"running": True}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "POST" and request.url.path == "/containers":
+        assert request.headers["x-orcheo-sandbox-control-token"] == "control-test-token"
+        if request.method == "POST" and request.url.path == "/internal/containers":
             payload = request.read().decode("utf-8")
-            assert '"dns":["1.1.1.1","8.8.8.8"]' in payload
-            assert '"extra_hosts":{"sandbox-runtime":"10.0.0.7"}' in payload
+            assert '"workspace_id":"ws-remote"' in payload
+            assert '"dns"' not in payload
+            assert '"image"' not in payload
             return httpx.Response(
                 201,
                 json={
@@ -282,7 +588,7 @@ def test_remote_container_runtime_round_trip() -> None:
                     "runtime": "runsc",
                 },
             )
-        if request.method == "GET" and request.url.path == "/containers/c-1":
+        if request.method == "GET" and request.url.path == "/internal/containers/c-1":
             return httpx.Response(
                 200,
                 json={
@@ -293,14 +599,19 @@ def test_remote_container_runtime_round_trip() -> None:
                     "running": state["running"],
                 },
             )
-        if request.method == "DELETE" and request.url.path == "/containers/c-1":
+        if (
+            request.method == "DELETE"
+            and request.url.path == "/internal/containers/c-1"
+        ):
             state["running"] = False
             return httpx.Response(204)
         return httpx.Response(404, json={"detail": "not found"})
 
     transport = httpx.MockTransport(handler)
     sync_client = httpx.Client(transport=transport, base_url="http://test")
-    remote = RemoteContainerRuntime("http://test", client=sync_client)
+    remote = RemoteContainerRuntime(
+        "http://test", control_token="control-test-token", client=sync_client
+    )
     try:
         handle = remote.start(
             ContainerSpec(
@@ -318,6 +629,157 @@ def test_remote_container_runtime_round_trip() -> None:
         remote.close()
 
 
+def test_remote_ingestor_aclose_closes_owned_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ingestion client closes its owned HTTP client."""
+
+    closed = {"value": False}
+
+    class _FakeAsyncClient:
+        def __init__(self, *, timeout: float) -> None:
+            assert timeout == 60.0
+
+        async def aclose(self) -> None:
+            closed["value"] = True
+
+    monkeypatch.setattr("orcheo.sandbox.remote.httpx.AsyncClient", _FakeAsyncClient)
+
+    async def go() -> None:
+        ingestor = RemoteSandboxIngestor(
+            "http://test", control_token="control-test-token"
+        )
+        await ingestor.aclose()
+
+    asyncio.run(go())
+    assert closed["value"] is True
+
+
+def test_remote_ingestor_aclose_does_not_close_borrowed_client() -> None:
+    """A borrowed client is left alone when the wrapper is closed."""
+
+    closed = {"value": False}
+
+    class _FakeAsyncClient:
+        async def aclose(self) -> None:
+            closed["value"] = True
+
+    ingestor = RemoteSandboxIngestor(
+        "http://test",
+        control_token="control-test-token",
+        client=_FakeAsyncClient(),
+    )
+
+    async def go() -> None:
+        await ingestor.aclose()
+
+    asyncio.run(go())
+    assert closed["value"] is False
+
+
+def test_remote_ingestor_returns_payload() -> None:
+    """RemoteSandboxIngestor parses the service response on success."""
+
+    class _FakeAsyncClient:
+        def __init__(self, *, timeout: float) -> None:
+            assert timeout == 60.0
+
+        async def post(
+            self,
+            url: str,
+            *,
+            headers: dict[str, str],
+            json: dict[str, Any],
+            timeout: float,
+        ) -> httpx.Response:
+            assert url.endswith("/internal/sandboxes/sb-1/ingest")
+            assert headers["X-Orcheo-Sandbox-Control-Token"] == "control-test-token"
+            assert json["max_script_bytes"] > 0
+            assert timeout > 30.0
+            return httpx.Response(200, json={"payload": {"graph": "ok"}})
+
+    ingestor = RemoteSandboxIngestor(
+        "http://test",
+        control_token="control-test-token",
+        client=_FakeAsyncClient(timeout=60.0),
+    )
+
+    async def go() -> dict[str, Any]:
+        return await ingestor.ingest(
+            "sb-1",
+            source="graph = object()",
+            entrypoint=None,
+            max_script_bytes=10,
+            execution_timeout_seconds=5.0,
+        )
+
+    assert asyncio.run(go()) == {"payload": {"graph": "ok"}}
+
+
+def test_remote_ingestor_raises_script_ingestion_error() -> None:
+    """A 400 response is mapped to ScriptIngestionError."""
+
+    class _FakeAsyncClient:
+        async def post(
+            self,
+            url: str,
+            *,
+            headers: dict[str, str],
+            json: dict[str, Any],
+            timeout: float,
+        ) -> httpx.Response:
+            del url, headers, json, timeout
+            return httpx.Response(400, json={"detail": "bad script"})
+
+    ingestor = RemoteSandboxIngestor(
+        "http://test", control_token="control-test-token", client=_FakeAsyncClient()
+    )
+
+    async def go() -> None:
+        with pytest.raises(Exception, match="bad script"):
+            await ingestor.ingest(
+                "sb-1",
+                source="graph = object()",
+                entrypoint=None,
+                max_script_bytes=10,
+                execution_timeout_seconds=5.0,
+            )
+
+    asyncio.run(go())
+
+
+def test_remote_ingestor_raises_runtime_error_on_non_bad_request() -> None:
+    """Non-400 failures bubble up as RemoteRuntimeError."""
+
+    class _FakeAsyncClient:
+        async def post(
+            self,
+            url: str,
+            *,
+            headers: dict[str, str],
+            json: dict[str, Any],
+            timeout: float,
+        ) -> httpx.Response:
+            del url, headers, json, timeout
+            return httpx.Response(500, json={"detail": "boom"})
+
+    ingestor = RemoteSandboxIngestor(
+        "http://test", control_token="control-test-token", client=_FakeAsyncClient()
+    )
+
+    async def go() -> None:
+        with pytest.raises(RemoteRuntimeError, match="ingestion failed"):
+            await ingestor.ingest(
+                "sb-1",
+                source="graph = object()",
+                entrypoint=None,
+                max_script_bytes=10,
+                execution_timeout_seconds=5.0,
+            )
+
+    asyncio.run(go())
+
+
 def test_remote_exec_returns_process_result(
     app_with_fakes: tuple[TestClient, Any, _FakeExecutor, Any],
 ) -> None:
@@ -325,7 +787,9 @@ def test_remote_exec_returns_process_result(
     client, _runtime, executor, _invoker = app_with_fakes
     transport = httpx.ASGITransport(app=client.app)
     async_client = httpx.AsyncClient(transport=transport, base_url="http://testserver")
-    backend = RemoteSandboxExec("http://testserver", client=async_client)
+    backend = RemoteSandboxExec(
+        "http://testserver", control_token="control-test-token", client=async_client
+    )
 
     async def go() -> ProcessExecutionResult:
         try:
@@ -351,7 +815,9 @@ def test_remote_runner_dispatches_workflow(
     client, _runtime, _executor, invoker = app_with_fakes
     transport = httpx.ASGITransport(app=client.app)
     async_client = httpx.AsyncClient(transport=transport, base_url="http://testserver")
-    runner = RemoteSandboxRunner("http://testserver", client=async_client)
+    runner = RemoteSandboxRunner(
+        "http://testserver", control_token="control-test-token", client=async_client
+    )
 
     spec = WorkflowRunSpec(
         run_id="r-2",
@@ -388,25 +854,13 @@ def test_remote_runner_dispatches_workflow(
 
 
 def _spec_payload(spec: ContainerSpec) -> Mapping[str, Any]:
-    """Render a ``ContainerSpec`` as the JSON the service expects."""
+    """Render only constrained fields accepted by provisioning."""
     return {
-        "image": spec.image,
         "workspace_id": spec.workspace_id,
-        "runtime": spec.runtime,
-        "command": list(spec.command),
-        "environment": dict(spec.environment),
         "cpu_limit": spec.cpu_limit,
         "memory_limit": spec.memory_limit,
         "pid_limit": spec.pid_limit,
         "scratch_size": spec.scratch_size,
-        "user": spec.user,
-        "network_mode": spec.network_mode,
-        "read_only_root": spec.read_only_root,
-        "cap_drop": list(spec.cap_drop),
-        "no_new_privileges": spec.no_new_privileges,
-        "labels": dict(spec.labels),
-        "dns": list(spec.dns),
-        "extra_hosts": dict(spec.extra_hosts),
     }
 
 
@@ -839,10 +1293,14 @@ def test_provision_endpoint_returns_500_on_runtime_failure(
         runtime=_BoomRuntime(),
         executor=_executor,
         invoker=_invoker,
+        settings=SandboxSettings(
+            credential_broker_url="http://10.99.0.2:9091/credentials/resolve"
+        ),
+        control_token="control-test-token",
     )
-    boom_client = TestClient(boom_app)
+    boom_client = TestClient(boom_app, headers=_CONTROL_HEADERS)
     spec = ContainerSpec(image="img", workspace_id="ws")
-    response = boom_client.post("/containers", json=_spec_payload(spec))
+    response = boom_client.post("/internal/containers", json=_spec_payload(spec))
     assert response.status_code == 500
     assert "provision failed" in response.json()["detail"]
 
@@ -856,7 +1314,7 @@ def test_stop_endpoint_returns_500_on_runtime_failure(
     client, runtime, executor, invoker = app_with_fakes
 
     spec = ContainerSpec(image="img", workspace_id="ws")
-    provision = client.post("/containers", json=_spec_payload(spec))
+    provision = client.post("/internal/containers", json=_spec_payload(spec))
     container_id = provision.json()["container_id"]
 
     class _BoomStopRuntime(InMemoryContainerRuntime):
@@ -873,13 +1331,17 @@ def test_stop_endpoint_returns_500_on_runtime_failure(
         runtime=boom_runtime,
         executor=executor,
         invoker=invoker,
+        settings=SandboxSettings(
+            credential_broker_url="http://10.99.0.2:9091/credentials/resolve"
+        ),
+        control_token="control-test-token",
     )
-    boom_client = TestClient(boom_app)
+    boom_client = TestClient(boom_app, headers=_CONTROL_HEADERS)
     # First provision to register the handle in the new app's state.
-    boom_provision = boom_client.post("/containers", json=_spec_payload(spec))
+    boom_provision = boom_client.post("/internal/containers", json=_spec_payload(spec))
     boom_container_id = boom_provision.json()["container_id"]
 
-    response = boom_client.delete(f"/containers/{boom_container_id}")
+    response = boom_client.delete(f"/internal/containers/{boom_container_id}")
     assert response.status_code == 500
     assert "stop failed" in response.json()["detail"]
 
@@ -892,10 +1354,10 @@ def test_inspect_endpoint_returns_running_status(
     """GET /containers/{id} returns the running status (line 343)."""
     client, runtime, _executor, _invoker = app_with_fakes
     spec = ContainerSpec(image="img", workspace_id="ws")
-    provision = client.post("/containers", json=_spec_payload(spec))
+    provision = client.post("/internal/containers", json=_spec_payload(spec))
     container_id = provision.json()["container_id"]
 
-    response = client.get(f"/containers/{container_id}")
+    response = client.get(f"/internal/containers/{container_id}")
     assert response.status_code == 200
     data = response.json()
     assert data["running"] is True
@@ -909,16 +1371,15 @@ def test_inspect_endpoint_returns_404_for_unknown_container(
 ) -> None:
     """GET /containers/{id} returns 404 when container is not registered."""
     client, _runtime, _executor, _invoker = app_with_fakes
-    response = client.get("/containers/unknown-id")
+    response = client.get("/internal/containers/unknown-id")
     assert response.status_code == 404
 
 
 def test_credential_relay_without_optional_headers(
-    app_with_fakes: tuple[TestClient, Any, Any, Any],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Credential relay works when Authorization and X-Orcheo-Workspace are absent (390->392, 392->394)."""
-    client, *_ = app_with_fakes
+    client = TestClient(build_credential_relay_app())
 
     class _MinimalAsyncClient:
         def __init__(self, *, timeout: float) -> None:

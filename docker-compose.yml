@@ -63,10 +63,9 @@ services:
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
       ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET}
-      # Runtime name embedded in every ContainerSpec the backend sends to
-      # sandbox-runtime. Defaults to `runc` for local dev so the stack works
-      # on stock Docker; production must override to `runsc` (gVisor) for
-      # the documented isolation guarantees.
+      ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:-local-dev-sandbox-control-token}
+      ORCHEO_CREDENTIAL_BROKER_URL: http://credential-relay:9091/credentials/resolve
+      ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
       # Use system Python from base image instead of downloading
       UV_PYTHON_PREFERENCE: system
@@ -78,6 +77,8 @@ services:
       postgres:
         condition: service_healthy
       sandbox-runtime:
+        condition: service_healthy
+      credential-relay:
         condition: service_healthy
     command: uv run uvicorn orcheo_backend.app:app --host 0.0.0.0 --port 2025 --reload
 
@@ -112,8 +113,9 @@ services:
       ORCHEO_BACKEND_INTERNAL_URL: http://backend:2025
       ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
       ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET}
-      # See note in the `backend` service above; the worker also builds
-      # ContainerSpecs and must agree with the backend on the runtime name.
+      ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:-local-dev-sandbox-control-token}
+      ORCHEO_CREDENTIAL_BROKER_URL: http://credential-relay:9091/credentials/resolve
+      ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
       # Use system Python from base image instead of downloading
       UV_PYTHON_PREFERENCE: system
@@ -125,6 +127,8 @@ services:
       postgres:
         condition: service_healthy
       sandbox-runtime:
+        condition: service_healthy
+      credential-relay:
         condition: service_healthy
     command: uv run celery -A orcheo_backend.worker.celery_app worker --loglevel=info
 
@@ -208,17 +212,15 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - sandbox_scratch:/scratch
     environment:
-      # Mirrored from the backend/worker for parity, in case future code in
-      # the runtime service decides to read it. The authoritative value is
-      # still the one the backend embeds in each ContainerSpec.
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
-      ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-orcheo/workspace-sandbox:latest}
-      ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
-      # Upstream broker the sandbox-runtime relay forwards to. Reachable on
-      # the default network only — do NOT set ORCHEO_CREDENTIAL_BROKER_URL
-      # here: that var is injected into child sandboxes, which run on
-      # sandbox-egress and cannot reach `backend`.
-      ORCHEO_CREDENTIAL_BROKER_FORWARD_URL: http://backend:2025/internal/credentials/resolve
+      ORCHEO_SANDBOX_IMAGE: orcheo/workspace-sandbox:local
+      ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:-local-dev-sandbox-control-token}
+      # Use literal sandbox-egress IPs (matching the static ipv4_address
+      # assignments below) so spawned sandboxes — which live on sandbox-egress
+      # and cannot reach the default-network DNS resolution of these names —
+      # connect directly to the right interface.
+      ORCHEO_EGRESS_PROXY_URL: http://10.99.0.3:3128
+      ORCHEO_CREDENTIAL_BROKER_URL: http://10.99.0.2:9091/credentials/resolve
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:9090/healthz"]
       interval: 10s
@@ -226,7 +228,25 @@ services:
       retries: 5
     networks:
       - default
-      - sandbox-egress
+
+  credential-relay:
+    build:
+      context: .
+      dockerfile: Dockerfile.sandbox-runtime
+    image: ${ORCHEO_SANDBOX_RUNTIME_IMAGE:-orcheo/sandbox-runtime:local}
+    restart: unless-stopped
+    command: ["uv", "run", "uvicorn", "orcheo.sandbox.service:build_credential_relay_app", "--factory", "--host", "0.0.0.0", "--port", "9091"]
+    environment:
+      ORCHEO_CREDENTIAL_BROKER_FORWARD_URL: http://backend:2025/internal/credentials/resolve
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9091/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      default:
+      sandbox-egress:
+        ipv4_address: 10.99.0.2
 
   egress-proxy:
     image: ${ORCHEO_EGRESS_PROXY_IMAGE:-envoyproxy/envoy:v1.33-latest}
@@ -235,7 +255,9 @@ services:
     volumes:
       - ${ORCHEO_EGRESS_PROXY_CONFIG:-./deploy/stack/envoy-forward-proxy.yaml}:/etc/envoy/envoy.yaml:ro
     networks:
-      - sandbox-egress
+      default:
+      sandbox-egress:
+        ipv4_address: 10.99.0.3
 
   # The workspace-sandbox image is *not* run as part of the long-lived stack
   # — it is the image the `sandbox-runtime` service spawns on demand to host
@@ -247,7 +269,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.workspace-sandbox
-    image: ${ORCHEO_SANDBOX_IMAGE:-orcheo/workspace-sandbox:latest}
+    image: orcheo/workspace-sandbox:local
     command: ["sh", "-c", "echo 'workspace-sandbox image is only consumed by sandbox-runtime at run time; nothing to run here.' && exit 0"]
 
 networks:
@@ -259,6 +281,13 @@ networks:
     # nftables rules attached to this bridge enforce the L3/L4 deny policy.
     # See deploy/stack/sandbox-egress.nft.
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: sandbox0
+    ipam:
+      config:
+        - subnet: 10.99.0.0/24
+          ip_range: 10.99.0.128/25
+          gateway: 10.99.0.1
 
 volumes:
   postgres_data:

@@ -32,6 +32,7 @@ from orcheo_sdk.cli.setup import (
     AuthMode,
     SetupMode,
     build_generated_stack_env_defaults,
+    ensure_egress_proxy_config,
     ensure_stack_env_file,
     execute_setup,
     print_summary,
@@ -649,12 +650,24 @@ def ensure_stack_env_command(
         if env_template is not None
         else stack_dir / ".env.example"
     )
+    console = _resolve_install_console(ctx)
     ensure_stack_env_file(
         env_file=resolved_env_file,
         env_template=resolved_env_template,
-        console=_resolve_install_console(ctx),
+        console=console,
         generated_defaults=build_generated_stack_env_defaults(),
     )
+    # Render the Envoy egress config too — but only when the env file lives
+    # next to a compose file. ``make staging-env`` calls this with the env
+    # file in ``~/.orcheo/stack/`` while the compose file lives in
+    # ``deploy/stack/``; for that flow the Makefile's ``staging-egress-config``
+    # target renders to the right location instead.
+    if (resolved_env_file.parent / "docker-compose.yml").exists():
+        ensure_egress_proxy_config(
+            env_file=resolved_env_file,
+            stack_dir=resolved_env_file.parent,
+            console=console,
+        )
 
 
 @app.command("stack")
