@@ -95,6 +95,46 @@ def test_envoy_config_renders_global_allowlist_only() -> None:
     assert "sandbox_egress" in rendered
     assert "connect_matcher" in rendered
     assert "upgrade_type: CONNECT" in rendered
+    # Production-quality output includes the admin block, structured json
+    # access log, and the cares DNS resolver pinning 8.8.8.8 — none of which
+    # the simpler legacy renderer emitted.
+    assert "admin:" in rendered
+    assert "typed_json_format" in rendered
+    assert "8.8.8.8" in rendered
+
+
+def test_envoy_config_renders_deny_all_when_no_wildcard() -> None:
+    """A finite allowlist keeps a deny_all virtual host as the secure default."""
+    config = EnvoyForwardProxyConfig(global_allowed_hosts=("api.openai.com",))
+    rendered = config.render_yaml()
+    assert "deny_all" in rendered
+    assert "approved_hosts" in rendered
+
+
+def test_envoy_config_wildcard_drops_deny_all() -> None:
+    """A literal '*' in the allowlist turns into match-all without deny_all."""
+    config = EnvoyForwardProxyConfig(global_allowed_hosts=("*",))
+    rendered = config.render_yaml()
+    # Just the wildcard match — no per-host pairs, no deny_all block.
+    assert "deny_all" not in rendered
+    assert "approved_hosts" in rendered
+    # The literal "*" survives YAML quoting.
+    assert "'*'" in rendered or '"*"' in rendered
+
+
+def test_envoy_config_renders_valid_yaml() -> None:
+    """The rendered output is parseable YAML matching the expected shape."""
+    import yaml as _yaml
+
+    config = EnvoyForwardProxyConfig(global_allowed_hosts=("api.openai.com",))
+    parsed = _yaml.safe_load(config.render_yaml())
+    assert "static_resources" in parsed
+    listeners = parsed["static_resources"]["listeners"]
+    assert len(listeners) == 1
+    vhosts = listeners[0]["filter_chains"][0]["filters"][0]["typed_config"][
+        "route_config"
+    ]["virtual_hosts"]
+    assert [v["name"] for v in vhosts] == ["approved_hosts", "deny_all"]
 
 
 def test_egress_environment_sets_proxy_vars() -> None:

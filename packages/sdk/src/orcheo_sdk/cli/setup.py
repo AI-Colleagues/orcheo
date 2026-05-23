@@ -1367,6 +1367,34 @@ def _read_env_value(env_file: Path, key: str) -> str | None:
     return None
 
 
+def ensure_egress_proxy_config(
+    *,
+    env_file: Path,
+    stack_dir: Path,
+    console: Console,
+) -> Path:
+    """Render the Envoy forward-proxy config from the stack env file.
+
+    Materializes ``ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS`` into a concrete
+    ``envoy-forward-proxy.yaml`` next to the compose file so the
+    egress-proxy container mounts a config that reflects the operator's
+    allowlist without a separate manual step. Returns the output path.
+    """
+    # Local import to avoid a hard dependency from the SDK CLI on the core
+    # ``orcheo`` package at import time (CLI loads even when the core is
+    # not available, e.g. during a partial install).
+    from orcheo.sandbox.egress.proxy import EnvoyForwardProxyConfig
+
+    raw = _read_env_value(env_file, "ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS") or ""
+    hosts = tuple(item.strip() for item in raw.split(",") if item.strip())
+    config = EnvoyForwardProxyConfig(global_allowed_hosts=hosts)
+    output = stack_dir / "envoy-forward-proxy.yaml"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(config.render_yaml(), encoding="utf-8")
+    console.print(f"[green]Rendered envoy egress config to {output}[/green]")
+    return output
+
+
 def _warn_chatkit_domain_key_missing(*, env_file: Path, console: Console) -> None:
     configured_value = _read_env_value(env_file, "VITE_ORCHEO_CHATKIT_DOMAIN_KEY")
     if configured_value and configured_value != _CHATKIT_DOMAIN_KEY_PLACEHOLDER:
@@ -1536,6 +1564,7 @@ def _ensure_stack_assets(
         )
 
     _upsert_env_values(env_file, updates, console=console)
+    ensure_egress_proxy_config(env_file=env_file, stack_dir=stack_dir, console=console)
     return stack_dir, env_file
 
 

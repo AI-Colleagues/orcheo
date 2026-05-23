@@ -510,3 +510,41 @@ async def test_get_candidates_reraises_fetch_error(
 
     with pytest.raises(CandidateFetchError, match="tarball too large"):
         await get_candidates()
+
+
+@pytest.mark.asyncio()
+async def test_get_candidates_cold_cache_does_not_wait_for_preview_rendering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cold-cache callers get candidates immediately; mermaid renders in the background."""
+    tarball = _make_tarball(
+        {"colleagues/linkedin_post/workflow.py": _WORKFLOW_WITH_FRONTMATTER}
+    )
+    gate = asyncio.Event()
+
+    async def gated_render(
+        candidates: list,
+    ) -> list:
+        await gate.wait()
+        from orcheo_backend.app.schemas.candidates import CandidateItem
+
+        return [c.model_copy(update={"mermaid": "graph TD; A-->B"}) for c in candidates]
+
+    monkeypatch.setattr(
+        candidates_service, "_download_tarball", AsyncMock(return_value=tarball)
+    )
+    monkeypatch.setattr(candidates_service, "_render_candidate_previews", gated_render)
+
+    result = await get_candidates()
+
+    assert len(result) == 1
+    assert result[0].mermaid is None
+
+    task = candidates_service._state.preview_task
+    assert task is not None and not task.done()
+
+    gate.set()
+    await task
+
+    enriched = await get_candidates()
+    assert enriched[0].mermaid == "graph TD; A-->B"

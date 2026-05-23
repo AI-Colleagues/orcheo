@@ -1764,7 +1764,15 @@ def test_ensure_stack_assets_uses_latest_stack_tag_assets(
     )
 
     for relative_path, payload in assets.items():
+        # envoy-forward-proxy.yaml is re-rendered from the env file after the
+        # sync; skip the byte-equality check and verify the render below.
+        if relative_path == "envoy-forward-proxy.yaml":
+            continue
         assert (stack_dir / relative_path).read_bytes() == payload
+    rendered_envoy = (stack_dir / "envoy-forward-proxy.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "approved_hosts" in rendered_envoy
 
 
 def test_ensure_stack_assets_falls_back_to_main_assets_when_tag_lookup_fails(
@@ -1798,7 +1806,15 @@ def test_ensure_stack_assets_falls_back_to_main_assets_when_tag_lookup_fails(
     )
 
     for relative_path, payload in assets.items():
+        # envoy-forward-proxy.yaml is re-rendered from the env file after the
+        # sync; skip the byte-equality check and verify the render below.
+        if relative_path == "envoy-forward-proxy.yaml":
+            continue
         assert (stack_dir / relative_path).read_bytes() == payload
+    rendered_envoy = (stack_dir / "envoy-forward-proxy.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "approved_hosts" in rendered_envoy
 
 
 def test_ensure_stack_assets_uses_explicit_stack_version(
@@ -1901,7 +1917,15 @@ def test_ensure_stack_assets_custom_base_url_forces_per_file_mode(
     )
 
     for relative_path, payload in assets.items():
+        # envoy-forward-proxy.yaml is re-rendered from the env file after the
+        # sync; skip the byte-equality check and verify the render below.
+        if relative_path == "envoy-forward-proxy.yaml":
+            continue
         assert (stack_dir / relative_path).read_bytes() == payload
+    rendered_envoy = (stack_dir / "envoy-forward-proxy.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "approved_hosts" in rendered_envoy
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
     assert "ORCHEO_STACK_IMAGE=ghcr.io/ai-colleagues/orcheo-stack:0.9.0" in env_content
 

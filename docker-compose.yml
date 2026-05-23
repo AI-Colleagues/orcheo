@@ -215,8 +215,12 @@ services:
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
       ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-orcheo/workspace-sandbox:latest}
       ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:-local-dev-sandbox-control-token}
-      ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
-      ORCHEO_CREDENTIAL_BROKER_URL: http://credential-relay:9091/credentials/resolve
+      # Use literal sandbox-egress IPs (matching the static ipv4_address
+      # assignments below) so spawned sandboxes — which live on sandbox-egress
+      # and cannot reach the default-network DNS resolution of these names —
+      # connect directly to the right interface.
+      ORCHEO_EGRESS_PROXY_URL: http://10.99.0.3:3128
+      ORCHEO_CREDENTIAL_BROKER_URL: http://10.99.0.2:9091/credentials/resolve
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:9090/healthz"]
       interval: 10s

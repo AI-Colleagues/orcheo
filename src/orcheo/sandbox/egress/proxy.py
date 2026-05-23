@@ -10,12 +10,27 @@ but it does:
 
 Configuration is rendered as YAML for ``envoyproxy/envoy``. Operators reload
 Envoy on workspace egress-allowlist changes.
+
+A literal ``*`` entry in the global allowlist is treated as "allow every
+host" — the renderer emits a single approved virtual host matching all
+domains and drops the trailing deny-all block. Use this for development
+stacks. nftables and the gVisor/runc sandbox still enforce the network
+boundary; the proxy just stops gating outbound HTTP on a host allowlist.
 """
 
 from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any
+import yaml
+
+
+_WILDCARD_HOST = "*"
+_PLACEHOLDER_HOST = "orcheo-no-external-hosts-configured.invalid"
+_AUDIT_LOG_PATH = "/tmp/egress-audit.jsonl"
+_DNS_RESOLVER_ADDRESS = "8.8.8.8"
+_DNS_CACHE_NAME = "sandbox_egress_dns_cache"
 
 
 @dataclass(frozen=True)
@@ -33,16 +48,14 @@ class EnvoyForwardProxyConfig:
 
     listen_address: str = "0.0.0.0"
     listen_port: int = 3128
-    audit_log_path: str = "/tmp/egress-audit.jsonl"
+    audit_log_path: str = _AUDIT_LOG_PATH
     workspaces: tuple[WorkspaceEgressAllowlist, ...] = field(default_factory=tuple)
     global_allowed_hosts: tuple[str, ...] = ()
 
     def render_yaml(self) -> str:
         """Render the proxy config as Envoy bootstrap YAML."""
-        listeners = _listeners(self)
-        clusters = _clusters(self)
-        return (
-            f"static_resources:\n  listeners:\n{listeners}\n  clusters:\n{clusters}\n"
+        return yaml.safe_dump(
+            self._build_config(), sort_keys=False, default_flow_style=False
         )
 
     def allowlist_for_workspace(self, workspace_id: str) -> tuple[str, ...]:
@@ -60,78 +73,203 @@ class EnvoyForwardProxyConfig:
         )
         return cls(global_allowed_hosts=hosts)
 
+    def _is_wildcard(self) -> bool:
+        return _WILDCARD_HOST in self.global_allowed_hosts
 
-def _listeners(config: EnvoyForwardProxyConfig) -> str:
-    """Render the listener stanza."""
-    allowed_domains = (
-        ", ".join(f'"{host}", "{host}:*"' for host in config.global_allowed_hosts)
-        or '"orcheo-no-external-hosts-configured.invalid"'
-    )
-    return (
-        f"  - address:\n"
-        f"      socket_address:\n"
-        f"        address: {config.listen_address}\n"
-        f"        port_value: {config.listen_port}\n"
-        f"    filter_chains:\n"
-        f"      - filters:\n"
-        f"          - name: envoy.filters.network.http_connection_manager\n"
-        f"            typed_config:\n"
-        f"              '@type': type.googleapis.com/envoy.extensions.filters."
-        f"network.http_connection_manager.v3.HttpConnectionManager\n"
-        f"              stat_prefix: sandbox_egress\n"
-        f"              route_config:\n"
-        f"                name: sandbox_routes\n"
-        f"                virtual_hosts:\n"
-        f"                  - name: approved_hosts\n"
-        f"                    domains: [{allowed_domains}]\n"
-        f"                    routes:\n"
-        f"                      - match: {{ connect_matcher: {{}} }}\n"
-        f"                        route:\n"
-        f"                          cluster: dynamic_forward_proxy_cluster\n"
-        f"                          upgrade_configs:\n"
-        f"                            - upgrade_type: CONNECT\n"
-        f"                              connect_config: {{}}\n"
-        f"                      - match: {{ prefix: '/' }}\n"
-        f"                        route: {{ cluster: dynamic_forward_proxy_cluster }}\n"
-        f"                  - name: deny_all\n"
-        f"                    domains: ['*']\n"
-        f"                    routes:\n"
-        f"                      - match: {{ connect_matcher: {{}} }}\n"
-        f"                        direct_response: {{ status: 403 }}\n"
-        f"                      - match: {{ prefix: '/' }}\n"
-        f"                        direct_response: {{ status: 403 }}\n"
-        f"              http_filters:\n"
-        f"                - name: envoy.filters.http.dynamic_forward_proxy\n"
-        f"                  typed_config:\n"
-        f"                    '@type': type.googleapis.com/envoy.extensions.filters."
-        f"http.dynamic_forward_proxy.v3.FilterConfig\n"
-        f"                    dns_cache_config: {{ name: sandbox_egress_dns_cache }}\n"
-        f"                - name: envoy.filters.http.router\n"
-        f"                  typed_config:\n"
-        f"                    '@type': type.googleapis.com/envoy.extensions.filters."
-        f"http.router.v3.Router\n"
-        f"              access_log:\n"
-        f"                - name: envoy.access_loggers.file\n"
-        f"                  typed_config:\n"
-        f"                    '@type': type.googleapis.com/envoy.extensions."
-        f"access_loggers.file.v3.FileAccessLog\n"
-        f"                    path: {config.audit_log_path}\n"
-    )
+    def _approved_domains(self) -> list[str]:
+        if self._is_wildcard():
+            return [_WILDCARD_HOST]
+        if not self.global_allowed_hosts:
+            return [_PLACEHOLDER_HOST]
+        domains: list[str] = []
+        for host in self.global_allowed_hosts:
+            domains.extend((host, f"{host}:*"))
+        return domains
 
+    def _virtual_hosts(self) -> list[dict[str, Any]]:
+        approved = {
+            "name": "approved_hosts",
+            "domains": self._approved_domains(),
+            "routes": [
+                {
+                    "match": {"connect_matcher": {}},
+                    "route": {
+                        "cluster": "dynamic_forward_proxy_cluster",
+                        "upgrade_configs": [
+                            {"upgrade_type": "CONNECT", "connect_config": {}}
+                        ],
+                    },
+                },
+                {
+                    "match": {"prefix": "/"},
+                    "route": {"cluster": "dynamic_forward_proxy_cluster"},
+                },
+            ],
+        }
+        if self._is_wildcard():
+            return [approved]
+        deny_all = {
+            "name": "deny_all",
+            "domains": ["*"],
+            "routes": [
+                {
+                    "match": {"connect_matcher": {}},
+                    "direct_response": {"status": 403},
+                },
+                {"match": {"prefix": "/"}, "direct_response": {"status": 403}},
+            ],
+        }
+        return [approved, deny_all]
 
-def _clusters(config: EnvoyForwardProxyConfig) -> str:
-    """Render a single dynamic-forward-proxy cluster."""
-    del config
-    return (
-        "  - name: dynamic_forward_proxy_cluster\n"
-        "    lb_policy: CLUSTER_PROVIDED\n"
-        "    cluster_type:\n"
-        "      name: envoy.clusters.dynamic_forward_proxy\n"
-        "      typed_config:\n"
-        "        '@type': type.googleapis.com/envoy.extensions.clusters."
-        "dynamic_forward_proxy.v3.ClusterConfig\n"
-        "        dns_cache_config: { name: sandbox_egress_dns_cache }\n"
-    )
+    def _dns_cache_config(self) -> dict[str, Any]:
+        return {
+            "name": _DNS_CACHE_NAME,
+            "dns_lookup_family": "V4_ONLY",
+            "dns_cache_circuit_breaker": {"max_pending_requests": 1024},
+            "typed_dns_resolver_config": {
+                "name": "envoy.network.dns_resolver.cares",
+                "typed_config": {
+                    "@type": (
+                        "type.googleapis.com/envoy.extensions."
+                        "network.dns_resolver.cares.v3.CaresDnsResolverConfig"
+                    ),
+                    "resolvers": [
+                        {
+                            "socket_address": {
+                                "address": _DNS_RESOLVER_ADDRESS,
+                                "port_value": 53,
+                            }
+                        }
+                    ],
+                    "dns_resolver_options": {
+                        "use_tcp_for_dns_lookups": True,
+                        "no_default_search_domain": True,
+                    },
+                },
+            },
+        }
+
+    def _listener(self) -> dict[str, Any]:
+        return {
+            "name": "sandbox_egress_listener",
+            "address": {
+                "socket_address": {
+                    "address": self.listen_address,
+                    "port_value": self.listen_port,
+                }
+            },
+            "filter_chains": [
+                {
+                    "filters": [
+                        {
+                            "name": "envoy.filters.network.http_connection_manager",
+                            "typed_config": {
+                                "@type": (
+                                    "type.googleapis.com/envoy.extensions."
+                                    "filters.network.http_connection_manager."
+                                    "v3.HttpConnectionManager"
+                                ),
+                                "stat_prefix": "sandbox_egress",
+                                "route_config": {
+                                    "name": "local_route",
+                                    "virtual_hosts": self._virtual_hosts(),
+                                },
+                                "http_filters": [
+                                    {
+                                        "name": (
+                                            "envoy.filters.http.dynamic_forward_proxy"
+                                        ),
+                                        "typed_config": {
+                                            "@type": (
+                                                "type.googleapis.com/envoy.extensions."
+                                                "filters.http.dynamic_forward_proxy."
+                                                "v3.FilterConfig"
+                                            ),
+                                            "dns_cache_config": (
+                                                self._dns_cache_config()
+                                            ),
+                                        },
+                                    },
+                                    {
+                                        "name": "envoy.filters.http.router",
+                                        "typed_config": {
+                                            "@type": (
+                                                "type.googleapis.com/envoy.extensions."
+                                                "filters.http.router.v3.Router"
+                                            )
+                                        },
+                                    },
+                                ],
+                                "access_log": [
+                                    {
+                                        "name": "envoy.access_loggers.file",
+                                        "typed_config": {
+                                            "@type": (
+                                                "type.googleapis.com/envoy.extensions."
+                                                "access_loggers.file.v3.FileAccessLog"
+                                            ),
+                                            "path": self.audit_log_path,
+                                            "typed_json_format": {
+                                                "response_code": "%RESPONSE_CODE%",
+                                                "host": "%REQ(:AUTHORITY)%",
+                                                "workspace_id": (
+                                                    "%REQ(X-ORCHEO-WORKSPACE)%"
+                                                ),
+                                                "sandbox_id": (
+                                                    "%REQ(X-ORCHEO-SANDBOX-ID)%"
+                                                ),
+                                                "run_id": "%REQ(X-ORCHEO-RUN-ID)%",
+                                            },
+                                        },
+                                    }
+                                ],
+                            },
+                        }
+                    ]
+                }
+            ],
+        }
+
+    def _cluster(self) -> dict[str, Any]:
+        return {
+            "name": "dynamic_forward_proxy_cluster",
+            "lb_policy": "CLUSTER_PROVIDED",
+            "circuit_breakers": {
+                "thresholds": [
+                    {
+                        "priority": "DEFAULT",
+                        "max_connections": 1024,
+                        "max_pending_requests": 1024,
+                        "max_requests": 1024,
+                        "max_retries": 3,
+                    }
+                ]
+            },
+            "cluster_type": {
+                "name": "envoy.clusters.dynamic_forward_proxy",
+                "typed_config": {
+                    "@type": (
+                        "type.googleapis.com/envoy.extensions.clusters."
+                        "dynamic_forward_proxy.v3.ClusterConfig"
+                    ),
+                    "dns_cache_config": self._dns_cache_config(),
+                },
+            },
+        }
+
+    def _build_config(self) -> dict[str, Any]:
+        return {
+            "admin": {
+                "access_log_path": "/tmp/envoy-admin-access.log",
+                "address": {
+                    "socket_address": {"address": "127.0.0.1", "port_value": 9901}
+                },
+            },
+            "static_resources": {
+                "listeners": [self._listener()],
+                "clusters": [self._cluster()],
+            },
+        }
 
 
 def egress_environment(

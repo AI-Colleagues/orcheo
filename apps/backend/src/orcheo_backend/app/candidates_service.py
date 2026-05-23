@@ -56,6 +56,7 @@ class _CacheState:
     def __init__(self) -> None:
         self.entry: _CacheEntry | None = None
         self.background_task: asyncio.Task[None] | None = None
+        self.preview_task: asyncio.Task[None] | None = None
 
 
 _state = _CacheState()
@@ -66,6 +67,7 @@ def reset_cache() -> None:
     """Clear cached state. Intended for tests."""
     _state.entry = None
     _state.background_task = None
+    _state.preview_task = None
 
 
 def _repo_settings() -> tuple[str, str, str | None]:
@@ -180,8 +182,27 @@ async def _refresh_cache() -> None:
     """Fetch candidates from GitHub and replace the cached snapshot."""
     payload = await _download_tarball()
     candidates = await asyncio.to_thread(_parse_tarball, payload)
-    candidates = await _render_candidate_previews(candidates)
     _state.entry = _CacheEntry(candidates=candidates, fetched_at=time.monotonic())
+    enriched = await _render_candidate_previews(candidates)
+    _state.entry = _CacheEntry(candidates=enriched, fetched_at=time.monotonic())
+
+
+async def _enrich_cached_with_previews() -> None:
+    """Render mermaid previews for the current cached entry without re-fetching.
+
+    Called as a fire-and-forget task after a cold-cache fetch so callers are
+    not blocked on sandbox rendering.  Only updates the entry if it has not
+    been replaced by a full background refresh in the meantime.
+    """
+    entry = _state.entry
+    if entry is None:
+        return
+    try:
+        enriched = await _render_candidate_previews(entry.candidates)
+        if _state.entry is entry:
+            _state.entry = _CacheEntry(candidates=enriched, fetched_at=time.monotonic())
+    except Exception:
+        logger.warning("Background preview enrichment failed", exc_info=True)
 
 
 async def _render_candidate_previews(
@@ -235,11 +256,20 @@ async def get_candidates() -> list[CandidateItem]:
         async with _refresh_lock:
             if _state.entry is None:
                 try:
-                    await _refresh_cache()
+                    payload = await _download_tarball()
+                    candidates = await asyncio.to_thread(_parse_tarball, payload)
+                    _state.entry = _CacheEntry(
+                        candidates=candidates, fetched_at=time.monotonic()
+                    )
                 except CandidateFetchError:
                     raise
                 except Exception as exc:
                     raise CandidateFetchError(str(exc)) from exc
+        # Enrich with mermaid in the background so callers are not blocked on
+        # sequential sandbox rendering (~20s per candidate).
+        task = _state.preview_task
+        if task is None or task.done():
+            _state.preview_task = asyncio.create_task(_enrich_cached_with_previews())
         assert _state.entry is not None
         return _state.entry.candidates
 

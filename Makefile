@@ -1,6 +1,6 @@
 .PHONY: dev-server test lint format canvas-lint canvas-format canvas-test redis worker celery-beat \
        docker-up docker-down docker-build docker-logs workspace-sandbox-build \
-       staging-env staging-up staging-down staging-restart \
+       staging-env staging-egress-config staging-up staging-down staging-restart \
        staging-build staging-logs staging-config
 
 UV ?= uv
@@ -75,7 +75,17 @@ docker-logs:
 staging-env:
 	$(UV_RUN) orcheo install ensure-stack-env --env-file "$(STACK_ENV_FILE)" --env-template "$(STACK_ENV_TEMPLATE)"
 
-staging-up: staging-env
+# Materialize the Envoy forward-proxy config from $STACK_ENV_FILE so the
+# egress-proxy container mounts a YAML that reflects
+# ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS without any extra operator action.
+# The renderer parses the env file itself (no shell sourcing — quoted
+# values with spaces in .env would otherwise confuse /bin/sh).
+staging-egress-config: staging-env
+	$(UV_RUN) python -m orcheo.sandbox.egress.render \
+		--env-file "$(STACK_ENV_FILE)" \
+		--output "$(STACK_DIR)/envoy-forward-proxy.yaml"
+
+staging-up: staging-env staging-egress-config
 	$(STAGING_COMPOSE) up -d
 
 staging-down: staging-env
