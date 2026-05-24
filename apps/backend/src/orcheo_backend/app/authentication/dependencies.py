@@ -10,7 +10,7 @@ from .context import RequestContext
 from .errors import AuthenticationError
 from .rate_limit import AuthRateLimiter
 from .service_tokens import ServiceTokenManager
-from .settings import AuthSettings, load_auth_settings
+from .settings import _DEV_DEFAULT_SCOPES, AuthSettings, load_auth_settings
 from .telemetry import auth_telemetry
 
 
@@ -236,7 +236,26 @@ async def authenticate_request(request: Request) -> RequestContext:
         return dev_context
 
     if not authenticator.settings.enforce:
-        context = RequestContext.anonymous()
+        if auth_error is not None:
+            auth_telemetry.record_auth_failure(reason=auth_error.code, ip=ip)
+            raise auth_error.as_http_exception() from auth_error
+        # A bearer token was supplied but failed authentication — reject rather
+        # than silently falling through to the unrestricted disabled context.
+        if token is not None:
+            failed_error = AuthenticationError(
+                "Invalid bearer token", code="auth.invalid_token"
+            )
+            auth_telemetry.record_auth_failure(reason=failed_error.code, ip=ip)
+            raise failed_error.as_http_exception() from None
+        if authenticator.settings.mode == "disabled":
+            context = RequestContext(
+                subject="anonymous",
+                identity_type="disabled",
+                scopes=frozenset(_DEV_DEFAULT_SCOPES)
+                | frozenset({"admin:tokens:read", "admin:tokens:write"}),
+            )
+        else:
+            context = RequestContext.anonymous()
         request.state.auth = context
         return context
 
