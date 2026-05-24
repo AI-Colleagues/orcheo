@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FieldProps } from "@rjsf/utils";
 
@@ -59,6 +60,21 @@ describe("JsonObjectField", () => {
     expect(onChange).toHaveBeenLastCalledWith({
       text: { type: "string" },
     });
+  });
+
+  it("shows the object description in a tooltip on hover", async () => {
+    const user = userEvent.setup();
+
+    render(<JsonObjectField {...createProps()} />);
+
+    const helpButton = screen.getByRole("button", {
+      name: "Fields help",
+    });
+    await user.hover(helpButton);
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Editable JSON object",
+    );
   });
 
   it("shows an error for invalid JSON", async () => {

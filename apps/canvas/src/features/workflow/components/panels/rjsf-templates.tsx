@@ -17,7 +17,7 @@ import {
   TooltipTrigger,
 } from "@/design-system/ui/tooltip";
 import { Button } from "@/design-system/ui/button";
-import { Plus, X, HelpCircle } from "lucide-react";
+import { HelpCircle, Plus, X } from "lucide-react";
 
 /**
  * Custom Field Template
@@ -53,7 +53,8 @@ function FieldTemplate(props: FieldTemplateProps) {
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    className="inline-flex items-center justify-center rounded-full h-4 w-4 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                    aria-label={`${label} help`}
+                    className="inline-flex items-center justify-center rounded-full h-4 w-4 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
                     <HelpCircle className="h-3.5 w-3.5" />
                   </button>

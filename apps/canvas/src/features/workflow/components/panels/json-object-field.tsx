@@ -2,7 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import type { FieldProps } from "@rjsf/utils";
 
 import { Label } from "@/design-system/ui/label";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/design-system/ui/tooltip";
 import { Textarea } from "@/design-system/ui/textarea";
+import { HelpCircle } from "lucide-react";
 
 const formatJson = (value: unknown): string => {
   if (value === undefined || value === null) {
@@ -85,10 +92,25 @@ function JsonObjectField({
           {label}
           {required && <span className="ml-1 text-destructive">*</span>}
         </Label>
+        {description && (
+          <TooltipProvider delayDuration={300}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`${label} help`}
+                  className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <HelpCircle className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-[300px]">
+                <p className="text-xs">{description}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
       </div>
-      {description && (
-        <p className="text-xs text-muted-foreground">{description}</p>
-      )}
       <Textarea
         id={idSchema.$id}
         value={text}
