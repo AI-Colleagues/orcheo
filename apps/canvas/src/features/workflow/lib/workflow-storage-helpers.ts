@@ -81,6 +81,32 @@ const graphHasCronTrigger = (graph: unknown): boolean => {
   return false;
 };
 
+const extractAvatarEmoji = (metadata: unknown): string | undefined => {
+  if (!isRecord(metadata)) {
+    return undefined;
+  }
+
+  const candidates = [
+    metadata.emoji,
+    metadata.avatar_emoji,
+    metadata.avatarEmoji,
+    isRecord(metadata.template) ? metadata.template.emoji : undefined,
+    isRecord(metadata.template) ? metadata.template.avatarEmoji : undefined,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") {
+      continue;
+    }
+    const normalized = candidate.trim();
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return undefined;
+};
+
 const toAuthor = (id: string | undefined): Workflow["owner"] => {
   if (!id) {
     return { ...DEFAULT_OWNER };
@@ -155,6 +181,7 @@ const parseCanvasMetadata = (
   const configurableSchemas = parseConfigurableSchemas(
     isRecord(metadata) ? metadata.configurable_schema : undefined,
   );
+  const avatarEmoji = extractAvatarEmoji(metadata);
   const resolveTemplateFallback = (): CanvasVersionMetadata | undefined => {
     if (!metadata || typeof metadata !== "object") {
       return undefined;
@@ -180,6 +207,7 @@ const parseCanvasMetadata = (
       summary: { ...DEFAULT_SUMMARY },
       templateId,
       configurableSchemas,
+      avatarEmoji,
     };
   };
 
@@ -189,6 +217,7 @@ const parseCanvasMetadata = (
       summary: { ...DEFAULT_SUMMARY },
       templateId: undefined,
       configurableSchemas: undefined,
+      avatarEmoji: undefined,
     };
   }
 
@@ -199,6 +228,7 @@ const parseCanvasMetadata = (
         snapshot: emptySnapshot(fallbackName, fallbackDescription),
         summary: { ...DEFAULT_SUMMARY },
         configurableSchemas,
+        avatarEmoji,
       }
     );
   }
@@ -252,6 +282,7 @@ const parseCanvasMetadata = (
     graphToCanvas,
     templateId,
     configurableSchemas,
+    avatarEmoji,
   };
 };
 
@@ -308,6 +339,7 @@ const toVersionRecord = (
     configurableSchemas: metadata.configurableSchemas,
     graphToCanvas: metadata.graphToCanvas,
     templateId: metadata.templateId,
+    avatarEmoji: metadata.avatarEmoji,
   };
 };
 
@@ -324,12 +356,14 @@ export const toStoredWorkflow = (
   const latestSnapshot =
     versionRecords.at(-1)?.snapshot ??
     emptySnapshot(workflow.name, workflow.description ?? undefined);
+  const avatarEmoji = versionRecords.at(-1)?.avatarEmoji ?? undefined;
 
   return {
     id: workflow.id,
     handle: workflow.handle ?? undefined,
     name: workflow.name,
     description: workflow.description ?? undefined,
+    avatarEmoji,
     draftAccess: workflow.draft_access,
     createdAt: workflow.created_at,
     updatedAt: workflow.updated_at,

@@ -132,6 +132,7 @@ def test_build_ingest_payload_includes_configurable_schema() -> None:
         entrypoint="build_graph",
         path=Path("/tmp/workflow.py"),
         workflow_config={
+            "metadata": {"emoji": "📣"},
             "configurable_schema": {
                 "mode": {"type": "string", "default": "draft"},
             },
@@ -145,6 +146,7 @@ def test_build_ingest_payload_includes_configurable_schema() -> None:
         "metadata": {
             "source": "cli-upload",
             "filename": "workflow.py",
+            "emoji": "📣",
             "configurable_schema": {
                 "mode": {"type": "string", "default": "draft"},
             },

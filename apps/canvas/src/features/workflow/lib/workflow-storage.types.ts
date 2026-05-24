@@ -249,6 +249,7 @@ export interface CanvasVersionMetadata {
   graphToCanvas?: Record<string, string>;
   templateId?: string;
   configurableSchemas?: Record<string, RJSFSchema>;
+  avatarEmoji?: string;
 }
 
 export interface RequestOptions extends RequestInit {
@@ -262,6 +263,7 @@ export interface WorkflowVersionRecord {
   timestamp: string;
   message: string;
   author: Workflow["owner"];
+  avatarEmoji?: string | null;
   summary: WorkflowDiffResult["summary"];
   snapshot: WorkflowSnapshot;
   mermaid?: string | null;

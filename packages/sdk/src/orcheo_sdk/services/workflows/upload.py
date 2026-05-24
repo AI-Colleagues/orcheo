@@ -201,6 +201,14 @@ def upload_workflow_data(
         path_obj,
         load_python=_load_workflow_from_python,
     )
+    if frontmatter.emoji is not None:
+        metadata = workflow_config.get("metadata")
+        if isinstance(metadata, dict):
+            metadata = dict(metadata)
+        else:
+            metadata = {}
+        metadata["emoji"] = frontmatter.emoji
+        workflow_config["metadata"] = metadata
 
     if workflow_config.get("_type") != "langgraph_script":
         msg = "Only LangGraph Python scripts can be uploaded."
