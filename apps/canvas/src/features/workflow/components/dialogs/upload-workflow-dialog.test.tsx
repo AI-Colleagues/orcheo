@@ -51,8 +51,11 @@ const renderDialog = (overrides?: { onOpenChange?: (open: boolean) => void }) =>
     </MemoryRouter>,
   );
 
-const pyFile = (name: string, contents: string) =>
-  new File([contents], name, { type: "text/x-python" });
+const pyFile = (
+  name: string,
+  contents: string,
+  type: string = "text/x-python",
+) => new File([contents], name, { type });
 
 const jsonFile = (name: string, contents: string) =>
   new File([contents], name, { type: "application/json" });
@@ -111,6 +114,39 @@ describe("UploadWorkflowDialog", () => {
     expect(toastMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Workflow uploaded" }),
     );
+  });
+
+  it("accepts python scripts with a generic mime type", async () => {
+    const user = userEvent.setup();
+    uploadWorkflowFromFilesMock.mockResolvedValue({
+      id: "uploaded-2",
+      handle: "uploaded-handle-2",
+      name: "generic-python",
+    });
+
+    renderDialog();
+
+    const scriptInput = screen.getByLabelText(/Workflow Script/i);
+    await user.upload(
+      scriptInput,
+      pyFile("generic-python.py", "print('hi')", "application/octet-stream"),
+    );
+
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText(/Workflow Name/i) as HTMLInputElement).value,
+      ).toBe("generic-python");
+    });
+
+    await user.click(screen.getByRole("button", { name: /^Upload$/ }));
+
+    await waitFor(() => {
+      expect(uploadWorkflowFromFilesMock).toHaveBeenCalledWith(
+        "generic-python",
+        "print('hi')",
+        null,
+      );
+    });
   });
 
   it("rejects oversized script files", async () => {

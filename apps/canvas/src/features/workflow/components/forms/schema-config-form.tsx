@@ -1,5 +1,5 @@
 import Form from "@rjsf/core";
-import type { RJSFSchema, UiSchema } from "@rjsf/utils";
+import type { RegistryFieldsType, RJSFSchema, UiSchema } from "@rjsf/utils";
 
 import {
   customTemplates,
@@ -12,6 +12,7 @@ interface SchemaConfigFormProps {
   uiSchema?: UiSchema;
   formData: Record<string, unknown>;
   onChange: (next: Record<string, unknown>) => void;
+  fields?: RegistryFieldsType;
 }
 
 export function SchemaConfigForm({
@@ -19,6 +20,7 @@ export function SchemaConfigForm({
   uiSchema,
   formData,
   onChange,
+  fields,
 }: SchemaConfigFormProps) {
   return (
     <Form
@@ -30,6 +32,7 @@ export function SchemaConfigForm({
       }}
       validator={validator}
       widgets={customWidgets}
+      fields={fields}
       templates={customTemplates}
     >
       <div className="hidden" />

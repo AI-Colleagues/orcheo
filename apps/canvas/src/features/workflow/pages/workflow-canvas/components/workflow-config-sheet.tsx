@@ -12,6 +12,7 @@ import {
   SheetTitle,
 } from "@/design-system/ui/sheet";
 import { SchemaConfigForm } from "@features/workflow/components/forms/schema-config-form";
+import { JsonObjectField } from "@features/workflow/components/panels/json-object-field";
 import type { WorkflowRunnableConfig } from "@features/workflow/lib/workflow-storage.types";
 import {
   buildConfigurableSchema,
@@ -100,6 +101,11 @@ const baseWorkflowConfigSchema: RJSFSchema = {
 };
 
 const workflowConfigUiSchema: UiSchema = {
+  configurable: {
+    fields: {
+      "ui:field": "jsonObject",
+    },
+  },
   run_name: {
     "ui:placeholder": "Optional run label",
   },
@@ -182,6 +188,7 @@ export function WorkflowConfigSheet({
               uiSchema={workflowConfigUiSchema}
               formData={formData}
               onChange={setFormData}
+              fields={{ jsonObject: JsonObjectField }}
             />
           </div>
         </ScrollArea>
