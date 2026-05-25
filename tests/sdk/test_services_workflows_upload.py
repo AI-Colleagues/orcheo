@@ -548,6 +548,62 @@ def test_upload_workflow_data_success_injects_entrypoint_and_config(
     }
 
 
+def test_upload_workflow_data_merges_frontmatter_emoji_with_existing_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Frontmatter emoji is merged with an existing metadata dict in workflow config."""
+    workflow_path = Path("/tmp/workflow.py")
+    uploaded_payloads: list[dict[str, object]] = []
+
+    def load_workflow_frontmatter(_path: Path) -> _DummyFrontmatter:
+        return _DummyFrontmatter(is_empty=False, emoji="🚀")
+
+    def load_workflow_from_python(_path: Path) -> dict[str, object]:
+        return {
+            "_type": "langgraph_script",
+            "script": "print('hello')",
+            "metadata": {"source": "existing", "version": 2},
+        }
+
+    def upload_langgraph_script(
+        state: object,
+        workflow_config: dict[str, object],
+        workflow_id: str | None,
+        workflow_handle: str | None,
+        workflow_description: str | None,
+        path_obj: Path,
+        requested_name: str | None,
+    ) -> dict[str, object]:
+        uploaded_payloads.append({"workflow_config": workflow_config})
+        return {"id": workflow_id, "workflow_config": workflow_config}
+
+    _install_workflow_package(
+        monkeypatch=monkeypatch,
+        load_workflow_from_python=load_workflow_from_python,
+        normalize_workflow_name=lambda name: name.strip() if name else None,
+        upload_langgraph_script=upload_langgraph_script,
+        validate_local_path=lambda file_path, description: Path(file_path),
+        load_workflow_frontmatter=load_workflow_frontmatter,
+    )
+    monkeypatch.setattr(
+        upload,
+        "_apply_frontmatter_defaults",
+        lambda **kwargs: ("wf-1", None, "My Workflow", None, None, None, None),
+    )
+
+    upload.upload_workflow_data(
+        client=object(),
+        file_path=workflow_path,
+    )
+
+    assert len(uploaded_payloads) == 1
+    assert uploaded_payloads[0]["workflow_config"]["metadata"] == {
+        "source": "existing",
+        "version": 2,
+        "emoji": "🚀",
+    }
+
+
 def test_upload_workflow_data_forwards_frontmatter_emoji(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

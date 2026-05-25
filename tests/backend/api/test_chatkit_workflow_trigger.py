@@ -111,3 +111,28 @@ def test_chatkit_workflow_trigger_surfaces_credential_health_error(
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     detail = response.json()["detail"]
     assert "unhealthy credentials" in detail["message"].lower()
+
+
+def test_chatkit_workflow_trigger_allows_anonymous_when_enforcement_disabled(
+    api_client: TestClient,
+) -> None:
+    """Unauthenticated trigger continues when auth enforcement is disabled."""
+    from orcheo_backend.app.authentication import (
+        AuthorizationPolicy,
+        RequestContext,
+        get_authorization_policy,
+    )
+
+    workflow_id, _ = create_workflow_with_version(api_client)
+    anon_policy = AuthorizationPolicy(RequestContext.anonymous())
+    api_client.app.dependency_overrides[get_authorization_policy] = lambda: anon_policy
+
+    try:
+        response = api_client.post(
+            f"/api/chatkit/workflows/{workflow_id}/trigger",
+            json={"message": "Anonymous trigger"},
+        )
+    finally:
+        api_client.app.dependency_overrides.pop(get_authorization_policy, None)
+
+    assert response.status_code == status.HTTP_201_CREATED
