@@ -44,6 +44,7 @@ describe("workflow-storage-versioning", () => {
             version: 1,
             mermaid: "graph TD; A-->B",
             metadata: {
+              emoji: "📣",
               canvas: {
                 snapshot: {
                   name: "Canvas Flow",
@@ -71,6 +72,7 @@ describe("workflow-storage-versioning", () => {
 
     expect(first?.id).toBe("wf-1");
     expect(second?.id).toBe("wf-1");
+    expect(first?.avatarEmoji).toBe("📣");
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(String(mockFetch.mock.calls[0]?.[0])).toContain(
       "/api/workflows/wf-1/canvas",

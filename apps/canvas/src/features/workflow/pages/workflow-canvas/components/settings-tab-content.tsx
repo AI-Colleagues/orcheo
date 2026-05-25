@@ -23,6 +23,7 @@ export interface SettingsTabContentProps {
   workflowName: string;
   workflowDescription: string;
   workflowTags: string[];
+  missingCredentials?: string[];
   onWorkflowNameChange: (value: string) => void;
   onWorkflowDescriptionChange: (value: string) => void;
   onTagsChange: (value: string) => void;
@@ -147,6 +148,7 @@ export function SettingsTabContent({
   workflowName,
   workflowDescription,
   workflowTags,
+  missingCredentials = [],
   onWorkflowNameChange,
   onWorkflowDescriptionChange,
   onTagsChange,
@@ -163,6 +165,8 @@ export function SettingsTabContent({
   onPauseListener,
   onResumeListener,
 }: SettingsTabContentProps) {
+  const hasMissingCredentials = missingCredentials.length > 0;
+
   return (
     <div className="mx-auto max-w-5xl space-y-8">
       <div>
@@ -181,6 +185,23 @@ export function SettingsTabContent({
             {isSavingWorkflowDetails ? "Saving..." : "Save details"}
           </Button>
         </div>
+        {hasMissingCredentials ? (
+          <Alert variant="destructive" className="mb-4">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Missing credentials</AlertTitle>
+            <AlertDescription>
+              This workflow references credentials that are not in the vault.
+              Add them before running:
+              <ul className="mt-1 list-disc pl-5">
+                {missingCredentials.map((name) => (
+                  <li key={name} className="font-mono">
+                    {name}
+                  </li>
+                ))}
+              </ul>
+            </AlertDescription>
+          </Alert>
+        ) : null}
         <div className="space-y-4">
           <div className="grid gap-2">
             <label className="text-sm font-medium">Workflow Name</label>

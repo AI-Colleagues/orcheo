@@ -178,7 +178,9 @@ async def test_get_request_context_calls_authenticate_when_no_state(
     context = await get_request_context(request)
 
     assert context is not None
-    assert not context.is_authenticated  # Anonymous in this test
+    assert (
+        context.is_authenticated
+    )  # Disabled mode uses identity_type="disabled", not "anonymous"
 
 
 def test_get_authorization_policy_dependency() -> None:
@@ -225,10 +227,12 @@ async def test_authenticate_request_without_client_info(
 
     request = Request(scope, receive)  # type: ignore[arg-type]
 
-    # Should not raise - returns anonymous context
+    # Should not raise - returns disabled context with admin scopes
     context = await authenticate_request(request)
 
-    assert not context.is_authenticated
+    assert (
+        context.is_authenticated
+    )  # Disabled mode uses identity_type="disabled", not "anonymous"
 
 
 @pytest.mark.asyncio
@@ -366,3 +370,77 @@ def test_get_authenticator_postgres_backend_with_dsn(
         # Verify PostgresServiceTokenRepository was called with the DSN
         mock_postgres_repo.assert_called_once_with(test_dsn)
         assert authenticator is not None
+
+
+@pytest.mark.asyncio
+async def test_authenticate_request_malformed_auth_header_in_disabled_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """authenticate_request rejects malformed auth headers even in disabled mode."""
+    from fastapi import HTTPException
+    from starlette.requests import Request
+    from orcheo_backend.app.authentication import (
+        authenticate_request,
+        reset_authentication_state,
+    )
+    from tests.backend.authentication_test_utils import _install_test_authenticator
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    _install_test_authenticator(monkeypatch)
+    reset_authentication_state()
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "headers": [(b"authorization", b"NotBearer something")],
+        "client": None,
+    }
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request"}
+
+    request = Request(scope, receive)  # type: ignore[arg-type]
+
+    with pytest.raises(HTTPException) as exc_info:
+        await authenticate_request(request)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail["code"] == "auth.invalid_scheme"
+
+
+@pytest.mark.asyncio
+async def test_authenticate_request_invalid_bearer_token_in_disabled_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """authenticate_request rejects unrecognized bearer tokens even in disabled mode."""
+    from fastapi import HTTPException
+    from starlette.requests import Request
+    from orcheo_backend.app.authentication import (
+        authenticate_request,
+        reset_authentication_state,
+    )
+    from tests.backend.authentication_test_utils import _install_test_authenticator
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    _install_test_authenticator(monkeypatch)
+    reset_authentication_state()
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "headers": [(b"authorization", b"Bearer unrecognized-token-value")],
+        "client": None,
+    }
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request"}
+
+    request = Request(scope, receive)  # type: ignore[arg-type]
+
+    with pytest.raises(HTTPException) as exc_info:
+        await authenticate_request(request)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail["code"] == "auth.invalid_token"

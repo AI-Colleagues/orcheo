@@ -359,6 +359,28 @@ def test_collect_value_traverses_state_graph_and_model() -> None:
     assert placeholders == {"placeholder": {"[[placeholder]]"}}
 
 
+def test_collect_workflow_credential_placeholders_scans_graph_summary() -> None:
+    placeholders = collect_workflow_credential_placeholders(
+        {
+            "summary": {
+                "nodes": [
+                    {
+                        "name": "ensure_text_index",
+                        "type": "MongoDBEnsureSearchIndexNode",
+                        "connection_string": "[[mdb_connection_string]]",
+                    }
+                ],
+                "edges": [],
+            }
+        },
+        None,
+    )
+
+    assert placeholders == {
+        "mdb_connection_string": {"[[mdb_connection_string]]"},
+    }
+
+
 def test_collect_string_ignores_optional_external_agent_placeholder() -> None:
     placeholders: dict[str, set[str]] = {}
 

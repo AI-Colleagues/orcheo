@@ -66,7 +66,8 @@ export const WorkflowCard = ({
     : undefined;
   const headerLabel = isTemplate ? "Candidate" : workspaceLabel;
   const workflowSlug = workflow.handle ?? workflow.id;
-  const workflowAvatarEmoji = getWorkflowTemplateEmoji(workflow);
+  const workflowAvatarEmoji =
+    workflow.avatarEmoji ?? getWorkflowTemplateEmoji(workflow);
 
   const suppressCardOpenRef = useRef(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);

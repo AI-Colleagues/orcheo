@@ -28,7 +28,10 @@ from orcheo.graph.ingestion.summary import (
     _serialise_branch as _summary_serialise_branch,
 )
 from orcheo.graph.ingestion.summary import _unwrap_runnable as _summary_unwrap_runnable
-from orcheo.graph.ingestion.summary import summarise_graph_index
+from orcheo.graph.ingestion.summary import (
+    summarise_graph_index,
+    summarise_state_graph,
+)
 
 
 _compile_langgraph_script = _sandbox_compile_langgraph_script
@@ -62,11 +65,13 @@ def ingest_langgraph_script(
         max_script_bytes=max_script_bytes,
         execution_timeout_seconds=execution_timeout_seconds,
     )
+    summary = summarise_state_graph(graph)
     index = summarise_graph_index(graph)
     return {
         "format": LANGGRAPH_SCRIPT_FORMAT,
         "source": source,
         "entrypoint": entrypoint,
+        "summary": summary,
         "index": index,
     }
 

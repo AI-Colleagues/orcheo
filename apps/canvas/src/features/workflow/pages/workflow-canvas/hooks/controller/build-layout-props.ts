@@ -107,6 +107,7 @@ export function buildWorkflowLayoutProps(
     workflowName: core.metadata.workflowName,
     workflowDescription: core.metadata.workflowDescription,
     workflowTags: core.metadata.workflowTags,
+    missingCredentials: resources.credentialReadiness.missingCredentials,
     onWorkflowNameChange: core.metadata.setWorkflowName,
     onWorkflowDescriptionChange: core.metadata.setWorkflowDescription,
     onTagsChange: resources.saver.handleTagsChange,

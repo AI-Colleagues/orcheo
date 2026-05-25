@@ -25,13 +25,6 @@ interface UploadWorkflowDialogProps {
 
 const MAX_SCRIPT_UPLOAD_BYTES = 1024 * 1024;
 const MAX_CONFIG_UPLOAD_BYTES = 256 * 1024;
-const PYTHON_SCRIPT_MIME_TYPES = new Set([
-  "",
-  "text/plain",
-  "text/x-python",
-  "text/x-script.python",
-  "application/x-python-code",
-]);
 const JSON_CONFIG_MIME_TYPES = new Set(["", "application/json", "text/json"]);
 
 const formatUploadLimit = (bytes: number): string => {
@@ -47,14 +40,10 @@ const validateUploadFile = (
     label: string;
     extension: string;
     maxBytes: number;
-    acceptedMimeTypes: Set<string>;
   },
 ): string | null => {
   if (!file.name.toLowerCase().endsWith(options.extension)) {
     return `${options.label} must use the ${options.extension} extension.`;
-  }
-  if (!options.acceptedMimeTypes.has(file.type)) {
-    return `${options.label} has an unsupported file type.`;
   }
   if (file.size > options.maxBytes) {
     return `${options.label} must be ${formatUploadLimit(options.maxBytes)} or smaller.`;
@@ -115,7 +104,6 @@ export function UploadWorkflowDialog({
         label: "Workflow script",
         extension: ".py",
         maxBytes: MAX_SCRIPT_UPLOAD_BYTES,
-        acceptedMimeTypes: PYTHON_SCRIPT_MIME_TYPES,
       });
       if (validationError) {
         setError(validationError);

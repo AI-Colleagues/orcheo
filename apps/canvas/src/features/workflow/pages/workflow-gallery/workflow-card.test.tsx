@@ -168,6 +168,24 @@ describe("WorkflowCard", () => {
     expect(screen.getByText("🧑")).toBeInTheDocument();
   });
 
+  it("renders a stored avatar emoji when one is present on the workflow", () => {
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard
+        workflow={{
+          ...colleagueWorkflow,
+          avatarEmoji: "📣",
+        }}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
+    );
+
+    expect(screen.getByText("📣")).toBeInTheDocument();
+  });
+
   it("renders candidate badge copy and onboard action", async () => {
     const user = userEvent.setup();
     const handlers = createHandlers();

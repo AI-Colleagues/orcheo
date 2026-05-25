@@ -13,6 +13,7 @@ const baseProps = {
   workflowName: "Listener Workflow",
   workflowDescription: "A workflow with listeners.",
   workflowTags: ["bot", "listener"],
+  missingCredentials: [],
   onWorkflowNameChange: vi.fn(),
   onWorkflowDescriptionChange: vi.fn(),
   onTagsChange: vi.fn(),
@@ -106,6 +107,20 @@ describe("SettingsTabContent listener controls", () => {
     await user.click(screen.getByRole("button", { name: /save details/i }));
 
     expect(onSaveWorkflowDetails).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows missing credentials on the details page", () => {
+    render(
+      <SettingsTabContent
+        {...baseProps}
+        missingCredentials={["mdb_connection_string"]}
+      />,
+    );
+
+    expect(screen.getByText(/missing credentials/i)).toBeInTheDocument();
+    expect(
+      screen.getByText("mdb_connection_string"),
+    ).toBeInTheDocument();
   });
 
   it("renders listener actions and forwards pause/resume callbacks", async () => {

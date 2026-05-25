@@ -125,6 +125,21 @@ class _State:
         self.console = console or _RecordingConsole()
 
 
+def test_build_ingest_payload_skips_emoji_when_metadata_dict_lacks_valid_emoji() -> (
+    None
+):
+    """No emoji is added when source metadata is a dict without a valid emoji value."""
+    payload = ingest._build_ingest_payload(
+        script="print('hello')",
+        entrypoint="build_graph",
+        path=Path("/tmp/workflow.py"),
+        workflow_config={
+            "metadata": {"description": "no emoji here"},
+        },
+    )
+    assert "emoji" not in payload["metadata"]
+
+
 def test_build_ingest_payload_includes_configurable_schema() -> None:
     """The ingest payload should embed configurable schema metadata when present."""
     payload = ingest._build_ingest_payload(
@@ -132,6 +147,7 @@ def test_build_ingest_payload_includes_configurable_schema() -> None:
         entrypoint="build_graph",
         path=Path("/tmp/workflow.py"),
         workflow_config={
+            "metadata": {"emoji": "📣"},
             "configurable_schema": {
                 "mode": {"type": "string", "default": "draft"},
             },
@@ -145,6 +161,7 @@ def test_build_ingest_payload_includes_configurable_schema() -> None:
         "metadata": {
             "source": "cli-upload",
             "filename": "workflow.py",
+            "emoji": "📣",
             "configurable_schema": {
                 "mode": {"type": "string", "default": "draft"},
             },
