@@ -13,8 +13,15 @@ from orcheo.graph.ingestion import (
 
 def _assert_payload_index(payload: dict[str, object], *, node_name: str) -> None:
     index = payload.get("index")
+    summary = payload.get("summary")
     assert isinstance(index, dict)
-    assert "summary" not in payload
+    assert isinstance(summary, dict)
+    summary_nodes = summary.get("nodes")
+    assert isinstance(summary_nodes, list)
+    assert any(
+        isinstance(node, dict) and node.get("name") == node_name
+        for node in summary_nodes
+    )
     cron = index.get("cron")
     assert isinstance(cron, list)
     mermaid = index.get("mermaid")
