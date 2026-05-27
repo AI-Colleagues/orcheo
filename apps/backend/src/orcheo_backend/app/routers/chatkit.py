@@ -225,6 +225,11 @@ def _build_chatkit_request_adapter() -> TypeAdapter[ChatKitReq]:
     return cast(TypeAdapter[ChatKitReq], adapter_factory(ChatKitReq))
 
 
+def _pop_snake_or_camel(d: dict[str, Any], snake: str, camel: str) -> Any:
+    """Pop a field by snake_case name, falling back to its camelCase alias."""
+    return d.pop(snake, None) or d.pop(camel, None)
+
+
 def _resolve_chatkit_server() -> Any:
     """Retrieve the ChatKit server instance from backend exports."""
     backend_app = _resolve_backend_app_module()
@@ -516,10 +521,10 @@ async def chatkit_gateway(request: Request, repository: RepositoryDep) -> Respon
             },
         )
 
-    workflow_id_value = payload_dict.pop("workflow_id", None)
-    camel_workflow_id_value = payload_dict.pop("workflowId", None)
-    if workflow_id_value is None:
-        workflow_id_value = camel_workflow_id_value
+    workflow_id_value = _pop_snake_or_camel(payload_dict, "workflow_id", "workflowId")
+    upload_session_id_value = _pop_snake_or_camel(
+        payload_dict, "upload_session_id", "uploadSessionId"
+    )
 
     try:
         adapter = _build_chatkit_request_adapter()
@@ -550,6 +555,8 @@ async def chatkit_gateway(request: Request, repository: RepositoryDep) -> Respon
     }
     if auth_result.subject is not None:
         context["subject"] = auth_result.subject
+    if upload_session_id_value:
+        context["upload_session_id"] = str(upload_session_id_value)
 
     server = _resolve_chatkit_server()
     result = await server.process(sanitized_payload, context)
@@ -837,6 +844,7 @@ async def upload_chatkit_file(
         mime_type = file.content_type or "text/plain"
 
         server = _resolve_chatkit_server()
+        await server.store._ensure_initialized()
         attachment_service = server.store.attachment_service
 
         resolved_workspace = auth_result.workspace_id or ""
@@ -854,6 +862,7 @@ async def upload_chatkit_file(
             name=safe_name,
             mime_type=mime_type,
             content=content,
+            blob_backend=attachment_service.blob_backend,
         )
 
         response_payload: dict[str, object] = {

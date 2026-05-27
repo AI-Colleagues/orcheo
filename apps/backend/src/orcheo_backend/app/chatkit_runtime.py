@@ -88,6 +88,14 @@ async def ensure_chatkit_cleanup_task() -> None:
                             pruned,
                             cutoff.isoformat(),
                         )
+                    orphans = (
+                        await store.attachment_service.prune_orphaned_upload_sessions()
+                    )
+                    if orphans:
+                        logger.info(
+                            "Pruned %s orphaned ChatKit upload session(s)",
+                            orphans,
+                        )
                 except asyncio.CancelledError:
                     raise
                 except Exception:  # pragma: no cover

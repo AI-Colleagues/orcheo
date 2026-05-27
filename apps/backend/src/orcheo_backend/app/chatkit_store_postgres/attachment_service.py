@@ -90,6 +90,11 @@ class AttachmentService:
         self._orphan_cutoff_hours = orphan_cutoff_hours
         self._s3_backend = s3_backend
 
+    @property
+    def blob_backend(self) -> str:
+        """Return the configured blob backend name ("postgres" or "s3")."""
+        return "s3" if self._s3_backend is not None else _DEFAULT_BLOB_BACKEND
+
     # ------------------------------------------------------------------
     # Save
     # ------------------------------------------------------------------
