@@ -69,19 +69,21 @@ Public workflows complicate the obvious fix. Upload routes cannot simply require
   - `attachment_id`
   - `workspace_id`
   - `workflow_id`
-  - `thread_id` or anonymous/public session id when available
+  - `thread_id` and/or an anonymous/public `upload_session_id`
   - original/sanitized display name
   - MIME type
   - size in bytes
   - SHA-256 digest
   - storage backend identifier
   - creation time
+- New uploads must be rejected if the backend cannot resolve a workspace, workflow, and at least one thread/session binding before persistence.
 - Workflow inputs must carry attachment references, not raw file bytes.
-- `DocumentLoaderNode` or its adapter must resolve attachment references through the ChatKit attachment service.
-- Reads must verify scope before returning bytes or decoded content.
+- `DocumentLoaderNode` or its adapter must resolve attachment references through a scoped resolver supplied by the ChatKit workflow runtime.
+- Core `orcheo` nodes must not import the backend package directly; the backend owns the attachment service and injects a resolver/protocol into workflow execution.
+- Reads must verify server-trusted workspace/workflow/thread/session scope before returning bytes or decoded content. Scope values embedded in document payloads are metadata only and must not be treated as authority.
 - Existing `storage_path`-based ChatKit inputs must be removed from new upload and workflow paths.
 - Upload size and type validation must remain enforced before persistence.
-- Cleanup/pruning must delete attachment metadata and blob payloads together.
+- Cleanup/pruning must delete attachment metadata and blob payloads together, preferably through one transactional service operation for the Postgres backend.
 
 #### P1: Object/blob storage delegation extension
 - Add a configurable attachment blob backend that delegates payload bytes to S3-compatible storage, R2, MinIO, or a future provider.
@@ -91,6 +93,7 @@ Public workflows complicate the obvious fix. Upload routes cannot simply require
 
 #### P2: Hardening and operations
 - Add configurable retention by workspace or public workflow.
+- Prune orphaned upload sessions (rows with `upload_session_id` set, `thread_id IS NULL`, and `created_at` older than a configurable cutoff).
 - Add optional malware scanning or content classification.
 - Add attachment access audit events.
 - Add deduplication by SHA-256 when it is worth the complexity.
@@ -101,22 +104,27 @@ See [2_design.md](2_design.md).
 
 ### Other Teams Impacted
 - Backend: owns upload route, attachment store, workflow execution input shape, and `DocumentLoaderNode` integration.
-- Canvas/Public Chat: may need to stop depending on `storage_path` in attachment metadata.
+- Canvas/Public Chat: must send `workflow_id` (and `thread_id` or `upload_session_id` when available) in direct-upload requests, and must stop reading `storage_path` from upload responses or attachment metadata.
 - Infrastructure/SRE: owns optional object storage configuration and capacity planning.
 - Security: reviews scope checks, anonymous session binding, and filesystem removal.
+
+### Current State Observations
+- `/api/chatkit/upload` currently takes only `file` and `request` — no `workflow_id`, `thread_id`, or upload-session inputs — and constructs a minimal context with hardcoded `auth_mode: "publish"` and empty `workflow_id`. Adopting the same public/JWT authorization rules as ChatKit message invocation is a behavioral change, not a refactor.
+- `chat_attachments` already has a `storage_path` column. The new scoped columns (`workspace_id`, `workflow_id`, `upload_session_id`, `auth_mode`, `blob_backend`, `sha256`, `size_bytes`, …) must be added through additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements on the existing table, not by recreating it.
+- `_infer_thread_id` reads `chatkit_request.params.thread_id`, but at upload time the route passes `chatkit_request: None`, so today every uploaded attachment is persisted with `thread_id = NULL` and no thread linkage.
 
 ## TECHNICAL CONSIDERATIONS
 
 ### Architecture Overview
-The attachment service becomes the authority for uploaded file access. ChatKit upload persists metadata plus bytes, returns `attachment_id`, and workflow execution passes that id through state. Nodes resolve attachment ids by calling an internal attachment reader that enforces the request's workspace/workflow/thread/session context before returning content.
+The attachment service becomes the authority for uploaded file access. ChatKit upload persists metadata plus bytes, returns `attachment_id`, and workflow execution passes that id through state. Nodes resolve attachment ids through a runtime-provided resolver that calls the backend attachment reader with the request's workspace/workflow/thread/session context before returning content.
 
 LangGraph persistence remains responsible for workflow state, not file payload storage. State should contain small references so checkpoints do not repeatedly retain large bytes.
 
 ### Technical Requirements
-- Postgres migration adds an attachment blob table and scope columns/indexes.
+- Postgres schema migration or additive `ensure_schema` update adds an attachment blob table, required scope columns, and indexes. The implementation must account for the repository's current schema-bootstrap pattern.
 - Existing attachment metadata lookup must stop querying by id alone; it must include scope predicates.
-- Upload route must resolve workflow/workspace/public session context before saving.
-- `DocumentLoaderNode` must support `attachment_id` as a first-class document input.
+- Upload route must resolve workflow/workspace/public session context before saving and must use the same public/JWT authorization semantics as ChatKit message invocation.
+- `DocumentLoaderNode` must support `attachment_id` as a first-class document input through an injected resolver, without taking a dependency on backend internals.
 - Legacy `storage_path` reads must be removed from ChatKit-generated document payloads and eventually deprecated from generic document inputs.
 - Tests must cover cross-workspace/thread/session denial cases.
 
@@ -163,6 +171,8 @@ Ship behind a backend configuration flag that defaults to the new DB blob implem
 **Risk: Anonymous session ambiguity.** Public visitors may not have authenticated user ids. Mitigation: bind uploads to workflow/workspace plus thread/session identifiers and require those identifiers for later reads.
 
 **Risk: Legacy workflows depend on `storage_path`.** Mitigation: remove `storage_path` from ChatKit-generated payloads first, document the deprecation, and treat generic filesystem document loading as a separate sandboxed feature.
+
+**Risk: Backend/core dependency leak.** `DocumentLoaderNode` is part of the core package, but the attachment service belongs to the backend. Mitigation: define a small resolver protocol or callable contract that the backend injects through workflow execution config.
 
 ## APPENDIX
 

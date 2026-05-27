@@ -13,24 +13,29 @@
 
 This design replaces ChatKit's path-based file attachment handling with a scoped attachment service and database-backed blob storage. The immediate goal is to preserve public workflow uploads while removing shared server filesystem paths from the workflow execution trust model.
 
-The default implementation stores uploaded bytes in Postgres in a dedicated blob table. LangGraph state and checkpoints carry only attachment references such as `attachment_id`, `name`, `mime_type`, and `size_bytes`. `DocumentLoaderNode` resolves attachment ids through an internal service that validates workspace, workflow, thread, and anonymous session scope before returning content.
+The default implementation stores uploaded bytes in Postgres in a dedicated blob table. LangGraph state and checkpoints carry only attachment references such as `attachment_id`, `name`, `mime_type`, and `size_bytes`. `DocumentLoaderNode` resolves attachment ids through an injected resolver that delegates to the backend attachment service, which validates workspace, workflow, thread, and anonymous session scope before returning content.
 
 Object storage is an extension, not a migration requirement. If a deployment explicitly configures S3-compatible storage, R2, MinIO, or another provider, the attachment service can delegate payload bytes to that backend while the metadata table, scope checks, and workflow input contract remain the same. Deployments that do not configure object storage continue to use the Postgres blob table.
+
+The core `orcheo` package must remain independent of backend internals. Attachment resolution should therefore be exposed to `DocumentLoaderNode` as a small resolver protocol/callable supplied by the ChatKit workflow runtime, not by importing `orcheo_backend` from core node code.
 
 ## Components
 
 - **ChatKit upload route (`apps/backend/src/orcheo_backend/app/routers/chatkit.py`)**
   - Accepts direct uploads from the ChatKit composer for published/public and authenticated ChatKit sessions.
-  - Resolves workspace, workflow, thread, and session scope before persistence.
+  - Accepts new multipart form fields: `workflow_id` (required), `thread_id` (optional), `upload_session_id` (optional).
+  - Resolves workspace, workflow, thread, and session scope before persistence — replacing today's hardcoded `auth_mode: "publish"` and empty `workflow_id` context.
+  - Uses the same public/JWT authorization rules as ChatKit message invocation.
   - Validates size, filename, MIME type, and text decoding rules.
   - Persists metadata and bytes through the attachment service.
   - Returns opaque attachment metadata without `storage_path`.
 
-- **Attachment service (`orcheo_backend.app.chatkit.attachments` or equivalent)**
+- **Attachment service (`apps/backend/src/orcheo_backend/app/chatkit/attachments.py` or equivalent)**
   - Owns `save_attachment`, `load_attachment_bytes`, `delete_attachment`, and pruning operations.
   - Enforces scope checks on every read.
   - Shields workflow code and nodes from storage backend details.
   - Provides a stable contract for DB blobs now and object storage delegation later.
+  - Links upload-session-scoped attachments to a thread when the first ChatKit message creates or identifies the thread.
 
 - **Postgres ChatKit store (`apps/backend/src/orcheo_backend/app/chatkit_store_postgres`)**
   - Persists attachment metadata with explicit scope columns.
@@ -44,8 +49,9 @@ Object storage is an extension, not a migration requirement. If a deployment exp
 
 - **Document loading (`src/orcheo/nodes/rag/ingestion.py`)**
   - Supports `attachment_id` as a first-class raw document input.
-  - Resolves attachment content through an injected or runtime attachment resolver.
+  - Resolves attachment content through an injected or runtime attachment resolver supplied in `RunnableConfig` or an equivalent execution context.
   - Does not treat caller-provided filesystem paths as ChatKit attachment authority.
+  - Does not import backend modules directly.
 
 - **LangGraph persistence (`src/orcheo/persistence.py`)**
   - Continues to persist workflow state and checkpoints.
@@ -61,10 +67,10 @@ Object storage is an extension, not a migration requirement. If a deployment exp
 ### Flow 1: Public workflow upload
 
 1. Public visitor opens a published ChatKit workflow and uploads a supported file.
-2. Upload request includes enough ChatKit context to resolve `workflow_id`, workspace, thread id, and anonymous/public session id. If the client cannot provide a thread id yet, the backend creates or records a temporary upload session id and links it when the first message arrives.
+2. Upload request includes enough ChatKit context to resolve `workflow_id`, workspace, and either thread id or anonymous/public upload session id. If the client cannot provide a thread id yet, the backend creates or records a temporary upload session id, returns it with the upload metadata when needed, and links it when the first message arrives.
 3. Backend validates that the workflow is public and accepts unauthenticated ChatKit traffic.
 4. Backend reads the upload with a configured size guard and validates filename/content type.
-5. Attachment service creates an attachment metadata row and writes bytes to `chat_attachment_blobs`.
+5. Attachment service creates an attachment metadata row and writes bytes to `chat_attachment_blobs` in one service operation.
 6. Backend returns:
 
 ```json
@@ -74,11 +80,12 @@ Object storage is an extension, not a migration requirement. If a deployment exp
   "mime_type": "text/plain",
   "type": "file",
   "size": 1234,
-  "sha256": "hex digest"
+  "sha256": "hex digest",
+  "upload_session_id": "ups_abc123"
 }
 ```
 
-No server filesystem path is returned.
+`upload_session_id` is present only when the backend minted or needs the client to echo a temporary upload session. No server filesystem path is returned.
 
 ### Flow 2: Workflow execution with attachment
 
@@ -102,7 +109,7 @@ No server filesystem path is returned.
 
 3. Workflow execution builds initial LangGraph state with those references.
 4. `DocumentLoaderNode` receives the document reference.
-5. The node asks the attachment resolver for `atc_abc123` with the current workspace/workflow/thread/session context.
+5. The node asks the injected attachment resolver for `atc_abc123`. The resolver receives server-trusted workspace/workflow/thread/session context from the ChatKit runtime, not from the document payload itself.
 6. Resolver queries metadata with scope predicates, reads bytes from the configured backend, decodes content, and returns it to the node.
 7. The node emits normalized document content in its normal output shape.
 
@@ -115,7 +122,7 @@ No server filesystem path is returned.
 
 ### Flow 4: Pruning
 
-1. Retention job identifies expired ChatKit threads or orphaned upload sessions.
+1. Retention job identifies expired ChatKit threads. Orphaned upload sessions are identified by the predicate `thread_id IS NULL AND linked_at IS NULL AND created_at < (now() - orphan_cutoff)` where `orphan_cutoff` defaults to a short window (e.g., 24h) and is configurable.
 2. Attachment service selects associated attachment metadata rows.
 3. Blob payloads are deleted from `chat_attachment_blobs` or delegated storage.
 4. Metadata rows are deleted.
@@ -150,7 +157,8 @@ Response:
     "mime_type": "text/plain",
     "type": "file",
     "size": 1234,
-    "sha256": "..."
+    "sha256": "...",
+    "upload_session_id": "ups_abc123"
   }
   400 -> invalid filename/type/encoding
   403 -> workflow not public or session not authorized
@@ -160,18 +168,42 @@ Response:
 
 The exact route may remain hidden from OpenAPI if it is an internal ChatKit direct-upload contract.
 
+The backend must reject upload requests that cannot be authorized for the resolved workflow or cannot be bound to a thread/upload session scope.
+`upload_session_id` is omitted unless the backend minted one or requires the client to echo it in the later ChatKit message path.
+
 ### Internal attachment resolver
 
+The backend exposes a small Protocol that lives in core (`orcheo`) so nodes can depend on it without importing `orcheo_backend`:
+
+```python
+# src/orcheo/runtime/attachments.py (new module in core)
+from typing import Protocol, runtime_checkable
+
+class AttachmentScope(Protocol):
+    workspace_id: str
+    workflow_id: str | None
+    thread_id: str | None
+    upload_session_id: str | None
+
+class AttachmentPayload(Protocol):
+    id: str
+    name: str
+    mime_type: str
+    size_bytes: int
+    sha256: str
+    content: bytes
+    metadata: dict
+
+@runtime_checkable
+class AttachmentResolver(Protocol):
+    async def load_attachment_bytes(
+        self, attachment_id: str, scope: AttachmentScope
+    ) -> AttachmentPayload: ...
 ```
-load_attachment_bytes(
-    attachment_id: str,
-    *,
-    workspace_id: str,
-    workflow_id: str | None,
-    thread_id: str | None,
-    upload_session_id: str | None,
-) -> AttachmentPayload
-```
+
+The backend implements `AttachmentResolver` and injects an instance through `RunnableConfig["configurable"]["attachment_resolver"]` (alongside the trusted `AttachmentScope` under `configurable["attachment_scope"]`). `DocumentLoaderNode` pulls both from its `RunnableConfig` at execution time and never accepts scope or resolver references from workflow state or document payloads.
+
+The important contract is that scope is supplied by the runtime, not by the untrusted document reference.
 
 `AttachmentPayload`:
 
@@ -193,9 +225,11 @@ load_attachment_bytes(
 |-------|------|-------------|
 | id | text primary key | Opaque attachment id, for example `atc_<random>` |
 | workspace_id | text not null | Owning workspace |
-| workflow_id | text null | Workflow that accepted the upload |
+| workflow_id | text not null for new rows | Workflow that accepted the upload |
 | thread_id | text null | ChatKit thread, when known |
 | upload_session_id | text null | Anonymous/public upload session, used before thread binding |
+| auth_mode | text not null | `jwt` or `publish`, captured for diagnostics and retention policy |
+| actor_subject | text null | Authenticated subject or public actor identifier when available |
 | attachment_type | text not null | ChatKit attachment type, usually `file` or `image` |
 | name | text not null | Sanitized display filename |
 | mime_type | text not null | Client MIME type after server validation |
@@ -203,7 +237,8 @@ load_attachment_bytes(
 | sha256 | text not null | Digest for integrity and future dedupe |
 | details_json | jsonb not null | ChatKit-compatible details; not authorization source |
 | blob_backend | text not null | `postgres` by default; extension values such as `s3` |
-| blob_id | text not null | FK/id for Postgres blob table or internal backend key reference |
+| blob_key | text null | Private backend reference for delegated storage; for Postgres this can be null or equal to attachment id |
+| storage_path | text null | Existing legacy column only; never set for new blob-backed uploads |
 | created_at | timestamptz not null | Creation time |
 | linked_at | timestamptz null | When an upload session is bound to a thread |
 
@@ -215,11 +250,21 @@ Indexes:
 - `(workspace_id, created_at)`.
 - Optional unique or dedupe index on `(workspace_id, sha256, size_bytes)` after dedupe is implemented.
 
+Constraints:
+- New rows must have either `thread_id` or `upload_session_id`.
+- New rows must have `workflow_id`, `workspace_id`, `blob_backend`, `size_bytes`, and `sha256`.
+- Legacy rows may temporarily violate the new non-null shape during migration, but the service must treat them as read-only compatibility records.
+
+Migration semantics:
+- The repository bootstraps the chatkit store via `ensure_schema`, which only emits `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`. Adding columns to the existing `chat_attachments` table requires explicit `ALTER TABLE chat_attachments ADD COLUMN IF NOT EXISTS …` statements appended to `ensure_schema`, one per new column.
+- Non-null constraints on new columns must be enforced in the service layer until legacy rows are backfilled or aged out — schema-level `NOT NULL` would break existing deployments at startup.
+- The new `chat_attachment_blobs` table can be created with `CREATE TABLE IF NOT EXISTS` and a `FOREIGN KEY (attachment_id) REFERENCES chat_attachments(id) ON DELETE CASCADE`.
+
 ### `chat_attachment_blobs`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| id | text primary key | Blob id referenced by `chat_attachments.blob_id` |
+| attachment_id | text primary key | One-to-one FK to `chat_attachments.id` with `ON DELETE CASCADE` |
 | content | bytea not null | Stored upload bytes |
 | size_bytes | bigint not null | Byte length |
 | sha256 | text not null | Digest for integrity checks |
@@ -248,7 +293,9 @@ The reference is safe to checkpoint because it is small and non-authoritative. A
 - **Anonymous but scoped:** Public uploads do not require a logged-in user, but every upload must still bind to workspace, workflow, and thread/session scope.
 - **No path authority:** Workflow state, ChatKit metadata, and node inputs must not contain server filesystem paths as read authority.
 - **Read checks:** Attachment loads query with scope predicates. Id-only lookup is not sufficient.
+- **Trusted scope source:** Resolver scope comes from the authenticated ChatKit request/thread runtime. Fields inside workflow input documents are not trusted authorization inputs.
 - **Opaque ids:** Attachment ids must be random enough to prevent guessing. Scope checks remain mandatory even if ids are high entropy.
+- **Upload session ids:** Backend-minted upload session ids must be high entropy and scoped to workflow/workspace. They are a binding handle, not sufficient authorization by themselves.
 - **Input validation:** Preserve maximum upload size, filename sanitization, MIME/content validation, and rate limiting.
 - **Backend object keys:** Delegated storage keys are private implementation details. A workflow cannot provide a key and request a read.
 - **Error behavior:** Cross-scope misses should return a generic not-found/forbidden error without confirming whether an attachment exists elsewhere.
@@ -291,7 +338,7 @@ The reference is safe to checkpoint because it is small and non-authoritative. A
 ## Rollout Plan
 
 1. Add schema and attachment service behind a feature flag.
-2. Add DB blob backend and keep existing filesystem path as a temporary fallback only for old rows.
+2. Add DB blob backend and keep existing filesystem path as a temporary fallback only for old rows. Any fallback must first load a legacy metadata row by scoped predicates, verify the path remains under the configured legacy upload root, and never accept a caller-provided path as authority.
 3. Update upload route to write DB blobs and return attachment references.
 4. Update input builder and `DocumentLoaderNode` to resolve `attachment_id`.
 5. Enable in development/staging and run cross-scope tests.
@@ -308,3 +355,5 @@ Backwards compatibility: existing rows with `storage_path` may need a one-time m
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-05-27 | Codex | Initial draft |
+| 2026-05-27 | Codex | Clarified resolver injection, scoped upload binding, blob schema, and legacy path handling |
+| 2026-05-27 | Claude (review) | Added concrete `AttachmentResolver` Protocol, ALTER-TABLE migration semantics, upload-session orphan predicate, and current-state notes on upload route auth shape |
