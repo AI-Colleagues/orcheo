@@ -536,6 +536,17 @@ class AgentNode(AINode):
                 return messages[i:]
         return messages
 
+    def _check_has_checkpointer(self, config: RunnableConfig | None) -> bool:
+        """Return True when the LangGraph checkpointer is managing state."""
+        configurable = (
+            config.get("configurable", {}) if isinstance(config, Mapping) else {}
+        )
+        return (
+            isinstance(configurable, Mapping)
+            and "thread_id" in configurable
+            and "__pregel_checkpointer" in configurable
+        )
+
     def _build_messages(
         self,
         state: State,
@@ -546,15 +557,7 @@ class AgentNode(AINode):
         if existing_messages:
             messages = self._apply_reset_command(existing_messages)
 
-            configurable = (
-                config.get("configurable", {}) if isinstance(config, Mapping) else {}
-            )
-            has_checkpointer = (
-                isinstance(configurable, Mapping)
-                and "thread_id" in configurable
-                and "__pregel_checkpointer" in configurable
-            )
-            if has_checkpointer:
+            if self._check_has_checkpointer(config):
                 inputs = state.get("inputs", {}) if isinstance(state, Mapping) else {}
                 new_messages = self._messages_from_inputs(inputs)
                 if new_messages:
@@ -966,7 +969,12 @@ class AgentNode(AINode):
                     "missing.",
                     self.name,
                 )
-            elif history_key is not None:
+            elif history_key is not None and not self._check_has_checkpointer(config):
+                # When a LangGraph checkpointer is active, current_messages already
+                # contains the full checkpoint history (including ToolMessages).
+                # Prepending graph-store messages would duplicate prior turns and
+                # can leave orphaned ToolMessages at the front after max_messages
+                # trimming, causing OpenAI to reject the request.
                 try:
                     persisted_messages = await self._load_graph_history_messages(
                         store=history_store,
