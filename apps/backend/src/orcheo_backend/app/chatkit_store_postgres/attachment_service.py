@@ -20,6 +20,7 @@ from orcheo.runtime.attachments import (
     AttachmentScope,
 )
 from orcheo_backend.app.chatkit_store_postgres.blob_backends import BlobBackend
+from orcheo_backend.app.chatkit_store_postgres.utils import compact_json
 
 
 logger = logging.getLogger(__name__)
@@ -119,7 +120,7 @@ class AttachmentService:
         name: str,
         mime_type: str,
         content: bytes,
-        details_json: str = "{}",
+        details_json: str | None = None,
         blob_backend: str = _DEFAULT_BLOB_BACKEND,
     ) -> tuple[str, str | None]:
         """Persist metadata and blob in one transactional operation.
@@ -136,6 +137,16 @@ class AttachmentService:
 
         if attachment_id is None:
             attachment_id = _mint_attachment_id()
+
+        if details_json is None:
+            details_json = compact_json(
+                {
+                    "id": attachment_id,
+                    "name": name,
+                    "mime_type": mime_type,
+                    "type": attachment_type,
+                }
+            )
 
         size_bytes = len(content)
         if size_bytes > self._max_size_bytes:

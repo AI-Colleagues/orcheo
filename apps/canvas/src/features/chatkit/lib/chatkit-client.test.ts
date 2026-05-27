@@ -21,7 +21,6 @@ describe("buildPublicChatFetch", () => {
 
     const handler = buildPublicChatFetch({
       workflowId: "wf-123",
-      backendBaseUrl: "http://localhost:2025",
       metadata: { workflow_name: "LangGraph" },
     });
 
@@ -48,7 +47,6 @@ describe("buildPublicChatFetch", () => {
 
     const handler = buildPublicChatFetch({
       workflowId: "wf-456",
-      backendBaseUrl: "http://localhost:2025",
     });
 
     await handler(
@@ -65,6 +63,29 @@ describe("buildPublicChatFetch", () => {
     const payload = JSON.parse(await (input as Request).clone().text());
     expect(payload.workflow_id).toBe("wf-456");
     expect(payload.foo).toBe("bar");
+  });
+
+  it("preserves non-JSON upload urls", async () => {
+    const fetchMock = vi.fn(async () => createResponse(200, { ok: true }));
+    window.fetch = fetchMock as unknown as typeof window.fetch;
+
+    const handler = buildPublicChatFetch({
+      workflowId: "wf-upload",
+    });
+
+    await handler(
+      "http://localhost:2025/api/chatkit/upload?workflow_id=wf-upload",
+      {
+        method: "POST",
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [requestInfo, options] = fetchMock.mock.calls[0]!;
+    expect(requestInfo).toBe(
+      "http://localhost:2025/api/chatkit/upload?workflow_id=wf-upload",
+    );
+    expect(options?.credentials).toBe("include");
   });
 
   it("emits structured errors when the backend rejects a request", async () => {

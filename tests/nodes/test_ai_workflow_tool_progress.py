@@ -186,6 +186,39 @@ async def test_run_tool_graph_strips_internal_configurable_keys() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_tool_graph_strips_attachment_runtime_keys() -> None:
+    """Attachment runtime objects must not be persisted into graph state."""
+    from unittest.mock import AsyncMock
+    from orcheo.nodes.ai.tools.context import tool_execution_context
+    from orcheo.nodes.ai import _run_tool_graph
+
+    class FakeResolver:
+        pass
+
+    config: RunnableConfig = {
+        "configurable": {
+            "user_key": "keep-me",
+            "attachment_resolver": FakeResolver(),
+            "attachment_scope": object(),
+        }
+    }
+
+    captured_payload: dict[str, Any] = {}
+    fake_graph = AsyncMock()
+
+    async def capture_ainvoke(payload: Any, **kwargs: Any) -> dict[str, Any]:
+        captured_payload.update(payload)
+        return {"inputs": {}, "results": {}, "messages": []}
+
+    fake_graph.ainvoke = capture_ainvoke
+
+    with tool_execution_context(config):
+        await _run_tool_graph(fake_graph, {"inputs": {}, "results": {}, "messages": []})
+
+    assert captured_payload["config"] == {"configurable": {"user_key": "keep-me"}}
+
+
+@pytest.mark.asyncio
 async def test_run_tool_graph_streaming_no_values_raises() -> None:
     """Cover _run_tool_graph RuntimeError when streaming yields no values."""
     from unittest.mock import AsyncMock

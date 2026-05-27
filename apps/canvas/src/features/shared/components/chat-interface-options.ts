@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 
 import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
+import { buildChatKitAttachmentOptions } from "@features/chatkit/lib/chatkit-attachments";
 import {
   buildPublicChatFetch,
   getChatKitDomainKey,
@@ -184,8 +185,18 @@ export const useChatInterfaceOptions = ({
     }
     const url = buildBackendHttpUrl("/api/chatkit", backendBaseUrl);
     const domainKey = getChatKitDomainKey();
+    const uploadBase = buildBackendHttpUrl(
+      "/api/chatkit/upload",
+      backendBaseUrl,
+    );
+    const uploadUrlObj = new URL(uploadBase);
+    uploadUrlObj.searchParams.set("workflow_id", resolvedWorkflowId);
+    const uploadStrategy = {
+      type: "direct",
+      uploadUrl: uploadUrlObj.toString(),
+    } as const;
     if (typeof window === "undefined") {
-      return { url, domainKey };
+      return { url, domainKey, uploadStrategy };
     }
     // If a session getter is provided, prefer JWT-authenticated requests to the
     // custom backend. Otherwise, fall back to cookie/public mode.
@@ -194,7 +205,6 @@ export const useChatInterfaceOptions = ({
     ): typeof fetch => {
       const base = buildPublicChatFetch({
         workflowId: resolvedWorkflowId,
-        backendBaseUrl,
         metadata: sessionPayload,
       });
       return async (input: RequestInfo | URL, init: RequestInit = {}) => {
@@ -211,7 +221,6 @@ export const useChatInterfaceOptions = ({
       ? makeJwtFetch(getClientSecret)
       : buildPublicChatFetch({
           workflowId: resolvedWorkflowId,
-          backendBaseUrl,
           metadata: sessionPayload,
         });
 
@@ -219,6 +228,7 @@ export const useChatInterfaceOptions = ({
       url,
       domainKey,
       fetch: fetchImpl,
+      uploadStrategy,
     };
   }, [backendBaseUrl, getClientSecret, resolvedWorkflowId, sessionPayload]);
   const providedApi = chatkitOptions?.api;
@@ -272,6 +282,14 @@ export const useChatInterfaceOptions = ({
       merged.startScreen = { greeting: initialGreeting };
     }
 
+    if (resolvedWorkflowId) {
+      merged.composer = {
+        ...(merged.composer ?? {}),
+        attachments:
+          merged.composer?.attachments ?? buildChatKitAttachmentOptions(),
+      };
+    }
+
     merged.onResponseStart = composeHandlers(
       chatkitOptions?.onResponseStart,
       onResponseStart,
@@ -300,6 +318,7 @@ export const useChatInterfaceOptions = ({
     onResponseEnd,
     onResponseStart,
     onThreadChange,
+    resolvedWorkflowId,
     providedCustomApi,
     title,
   ]);

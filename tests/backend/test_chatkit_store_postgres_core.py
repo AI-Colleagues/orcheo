@@ -567,6 +567,31 @@ async def test_postgres_store_load_attachment_not_found(
 
 
 @pytest.mark.asyncio
+async def test_postgres_store_load_attachment_legacy_details_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = [
+        {
+            "row": {
+                "id": "a1",
+                "attachment_type": "file",
+                "name": "legacy.txt",
+                "mime_type": "text/plain",
+                "details_json": {},
+            }
+        }
+    ]
+    store = make_store(monkeypatch, responses=responses)
+
+    attachment = await store.load_attachment("a1", {})
+
+    assert attachment.id == "a1"
+    assert attachment.name == "legacy.txt"
+    assert attachment.mime_type == "text/plain"
+    assert getattr(attachment, "type", None) == "file"
+
+
+@pytest.mark.asyncio
 async def test_postgres_store_prune_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     responses = [{"rows": []}]
     store = make_store(monkeypatch, responses=responses)

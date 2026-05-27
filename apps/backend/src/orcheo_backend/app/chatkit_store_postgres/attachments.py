@@ -5,7 +5,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from chatkit.store import NotFoundError
-from chatkit.types import Attachment
+from chatkit.types import Attachment, FileAttachment
+from pydantic import ValidationError
 import orcheo.config as orcheo_config
 from orcheo_backend.app.chatkit_store_postgres.attachment_service import (
     AttachmentService,
@@ -115,13 +116,25 @@ class AttachmentStoreMixin(BasePostgresStore):
         await self._ensure_initialized()
         async with self._connection() as conn:
             cursor = await conn.execute(
-                "SELECT details_json FROM chat_attachments WHERE id = %s",
+                """
+                SELECT id, attachment_type, name, mime_type, details_json
+                  FROM chat_attachments
+                 WHERE id = %s
+                """,
                 (attachment_id,),
             )
             row = await cursor.fetchone()
         if row is None:
             raise NotFoundError(f"Attachment {attachment_id} not found")
-        return attachment_from_details(row["details_json"])
+
+        try:
+            return attachment_from_details(row["details_json"])
+        except (TypeError, ValueError, ValidationError):
+            return FileAttachment(
+                id=row["id"],
+                name=row["name"],
+                mime_type=row["mime_type"],
+            )
 
     async def delete_attachment(
         self, attachment_id: str, context: ChatKitRequestContext

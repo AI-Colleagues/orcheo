@@ -7,6 +7,7 @@ import type {
   ChatKitStartScreenPrompt as WorkflowChatKitStartScreenPrompt,
   ChatKitSupportedModel as WorkflowChatKitSupportedModel,
 } from "@features/workflow/lib/workflow-storage.types";
+import { buildChatKitAttachmentOptions } from "@features/chatkit/lib/chatkit-attachments";
 import {
   buildPublicChatFetch,
   getChatKitDomainKey,
@@ -64,7 +65,6 @@ export function PublicChatWidget({
         domainKey,
         fetch: buildPublicChatFetch({
           workflowId,
-          backendBaseUrl,
           onHttpError,
           metadata: {
             workflow_name: workflowName,
@@ -97,18 +97,7 @@ export function PublicChatWidget({
             pinned: false,
           },
         ],
-        attachments: {
-          enabled: true,
-          accept: {
-            "text/plain": [".txt"],
-            "text/markdown": [".md"],
-            "application/json": [".json"],
-            "text/csv": [".csv"],
-            "text/x-log": [".log"],
-          },
-          maxSize: 5 * 1024 * 1024, // 5MB
-          maxCount: 10,
-        },
+        attachments: buildChatKitAttachmentOptions(),
       },
       threadItemActions: {
         feedback: false,

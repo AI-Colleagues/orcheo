@@ -3,6 +3,7 @@
 from __future__ import annotations
 import asyncio
 import hashlib
+import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -197,6 +198,33 @@ async def test_save_attachment_uses_provided_attachment_id() -> None:
     )
 
     assert atc_id == "atc_custom123"
+
+
+@pytest.mark.asyncio
+async def test_save_attachment_populates_details_json_when_omitted() -> None:
+    """New attachments should persist discriminated details metadata."""
+    service, conn, _ = _make_service()
+
+    atc_id, _ = await service.save_attachment(
+        workspace_id="ws",
+        workflow_id="wf",
+        thread_id="t",
+        upload_session_id=None,
+        auth_mode="publish",
+        actor_subject=None,
+        attachment_type="file",
+        name="f.txt",
+        mime_type="text/plain",
+        content=b"x",
+    )
+
+    params = conn.execute.call_args_list[0].args[1]
+    details = json.loads(params[12])
+
+    assert details["id"] == atc_id
+    assert details["name"] == "f.txt"
+    assert details["mime_type"] == "text/plain"
+    assert details["type"] == "file"
 
 
 # ---------------------------------------------------------------------------

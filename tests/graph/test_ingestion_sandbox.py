@@ -125,6 +125,22 @@ def test_create_sandbox_namespace_allows_common_builtins() -> None:
     assert safe_builtins["min"](1, 3) == 1
 
 
+def test_create_sandbox_namespace_allows_reversed() -> None:
+    """Ensure restricted namespace exposes reversed for reverse iteration."""
+    namespace = sandbox.create_sandbox_namespace()
+    safe_builtins = namespace["__builtins__"]
+
+    assert list(safe_builtins["reversed"]([1, 2, 3])) == [3, 2, 1]
+
+
+def test_create_sandbox_namespace_allows_getattr() -> None:
+    """Ensure restricted namespace exposes getattr for attribute fallback."""
+    namespace = sandbox.create_sandbox_namespace()
+    safe_builtins = namespace["__builtins__"]
+
+    assert safe_builtins["getattr"](SimpleNamespace(value=7), "value", None) == 7
+
+
 def test_create_sandbox_namespace_allows_html_import() -> None:
     """Ensure restricted imports allow the html module."""
     namespace = sandbox.create_sandbox_namespace()

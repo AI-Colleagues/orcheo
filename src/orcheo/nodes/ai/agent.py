@@ -22,6 +22,11 @@ from orcheo.nodes.registry import NodeMetadata, registry
 
 logger = logging.getLogger(__name__)
 
+_STATE_CONFIG_EXCLUDED_KEYS = {
+    "attachment_resolver",
+    "attachment_scope",
+}
+
 
 def _ai_package() -> Any:
     """Return the public AI package module for monkeypatch-aware lookups."""
@@ -68,12 +73,13 @@ async def _run_tool_graph(
     # Propagate only the serializable configurable portion of the runnable config
     # into the sub-workflow state so that {{config.configurable.xxx}} templates
     # can be resolved. Storing the full RunnableConfig would embed non-serializable
-    # objects (e.g. Runtime/callbacks) that break checkpoint persistence.
+    # objects (e.g. Runtime/callbacks or attachment resolvers) that break
+    # checkpoint persistence.
     if config is not None:
         configurable = {
             k: v
             for k, v in (config.get("configurable") or {}).items()
-            if not k.startswith("__")
+            if not k.startswith("__") and k not in _STATE_CONFIG_EXCLUDED_KEYS
         }
         payload = {**payload, "config": {"configurable": configurable}}
 

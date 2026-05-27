@@ -149,6 +149,15 @@ def testextract_reply_from_state_with_reply_key() -> None:
     assert result == "Direct reply"
 
 
+def testextract_reply_from_state_prefers_assistant_message() -> None:
+    state = {
+        "assistant_message": "User-facing reply",
+        "reply": "Fallback reply",
+    }
+    result = extract_reply_from_state(state)
+    assert result == "User-facing reply"
+
+
 def testextract_reply_from_state_with_none_reply() -> None:
     state = {"reply": None, "messages": [{"content": "Message content"}]}
     result = extract_reply_from_state(state)
@@ -159,6 +168,19 @@ def testextract_reply_from_state_from_results_dict() -> None:
     state = {"results": {"node_a": {"reply": "Reply from results"}}}
     result = extract_reply_from_state(state)
     assert result == "Reply from results"
+
+
+def testextract_reply_from_state_from_results_assistant_message() -> None:
+    state = {
+        "results": {
+            "node_a": {
+                "phase": "awaiting_objective",
+                "assistant_message": "Assistant reply from results",
+            }
+        }
+    }
+    result = extract_reply_from_state(state)
+    assert result == "Assistant reply from results"
 
 
 def testextract_reply_from_state_from_results_string() -> None:
