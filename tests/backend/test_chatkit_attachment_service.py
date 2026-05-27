@@ -355,6 +355,56 @@ async def test_load_attachment_bytes_legacy_filesystem(tmp_path: Any) -> None:
 
 
 @pytest.mark.asyncio
+async def test_load_attachment_bytes_legacy_filesystem_without_workspace(
+    tmp_path: Any,
+) -> None:
+    """Legacy rows without workspace_id still resolve through the filesystem fallback."""
+    from pathlib import Path
+
+    content = b"legacy file content"
+    storage_file = Path(tmp_path) / "legacy-noworkspace.txt"
+    storage_file.write_bytes(content)
+
+    meta_row = _FakeRow(
+        id="atc_legacy_noworkspace",
+        name="legacy-noworkspace.txt",
+        mime_type="text/plain",
+        size_bytes=len(content),
+        sha256=_sha256(content),
+        blob_backend=None,
+        storage_path=str(storage_file),
+        workflow_id="wf1",
+        thread_id="t1",
+        upload_session_id=None,
+        workspace_id=None,
+        details_json="{}",
+    )
+
+    conn = MagicMock()
+
+    async def _execute(sql: str, params: Any) -> MagicMock:
+        cursor = MagicMock()
+        cursor.fetchone = AsyncMock(return_value=meta_row)
+        return cursor
+
+    conn.execute = _execute
+
+    @asynccontextmanager
+    async def _factory():
+        yield conn
+
+    lock = asyncio.Lock()
+    service = AttachmentService(_factory, lock)
+    scope = build_attachment_scope(
+        workspace_id="ws1", workflow_id="wf1", thread_id="t1"
+    )
+    payload = await service.load_attachment_bytes("atc_legacy_noworkspace", scope)
+
+    assert payload.id == "atc_legacy_noworkspace"
+    assert payload.content == content
+
+
+@pytest.mark.asyncio
 async def test_load_attachment_bytes_legacy_missing_file(tmp_path: Any) -> None:
     """Legacy attachment referencing a non-existent file raises AttachmentNotFoundError."""
     meta_row = _FakeRow(
@@ -440,10 +490,13 @@ async def test_delete_attachment_executes_delete() -> None:
 
     await service.delete_attachment("atc_1", "ws1")
 
-    assert conn.execute.call_count == 1
-    sql, params = conn.execute.call_args[0]
-    assert "DELETE" in sql
-    assert "atc_1" in params
+    assert conn.execute.call_count == 2
+    select_sql, select_params = conn.execute.call_args_list[0][0]
+    delete_sql, delete_params = conn.execute.call_args_list[1][0]
+    assert "SELECT" in select_sql
+    assert "atc_1" in select_params
+    assert "DELETE" in delete_sql
+    assert "atc_1" in delete_params
 
 
 # ---------------------------------------------------------------------------

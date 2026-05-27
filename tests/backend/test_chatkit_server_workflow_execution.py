@@ -6,7 +6,13 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from chatkit.errors import CustomStreamError
-from chatkit.types import ThreadMetadata
+from chatkit.types import (
+    FileAttachment,
+    InferenceOptions,
+    ThreadMetadata,
+    UserMessageItem,
+    UserMessageTextContent,
+)
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel
 from orcheo.models import WorkflowDraftAccess
@@ -217,3 +223,44 @@ def test_chatkit_server_backfills_workflow_id_from_context() -> None:
     server._ensure_workflow_metadata(thread, context)
 
     assert thread.metadata["workflow_id"] == "wf-123"
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_infers_upload_session_from_attachment_rows() -> None:
+    repository = InMemoryWorkflowRepository()
+    server = create_chatkit_test_server(repository)
+
+    attachment_service = MagicMock()
+    attachment_service.resolve_upload_session_id = AsyncMock(return_value="ups-123")
+    attachment_service.link_upload_session_to_thread = AsyncMock(return_value=2)
+    server.store.attachment_service = attachment_service
+
+    thread = ThreadMetadata(
+        id="thr_upload_session",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": "wf-123"},
+    )
+    user_item = UserMessageItem(
+        id="msg_upload_session",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Hello")],
+        attachments=[
+            FileAttachment(id="atc_1", name="first.txt", mime_type="text/plain"),
+            FileAttachment(id="atc_2", name="second.txt", mime_type="text/plain"),
+        ],
+        inference_options=InferenceOptions(model="gpt-4"),
+    )
+    context = {"workspace_id": "ws-1", "workflow_id": "wf-123"}
+
+    await server._link_upload_session(context, thread, user_item)
+
+    assert context["upload_session_id"] == "ups-123"
+    attachment_service.resolve_upload_session_id.assert_awaited_once_with(
+        ["atc_1", "atc_2"], "ws-1", workflow_id="wf-123"
+    )
+    attachment_service.link_upload_session_to_thread.assert_awaited_once_with(
+        upload_session_id="ups-123",
+        thread_id=thread.id,
+        workspace_id="ws-1",
+    )

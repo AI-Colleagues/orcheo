@@ -10,6 +10,7 @@ import asyncio
 import dataclasses
 import hashlib
 import logging
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -94,6 +95,11 @@ class AttachmentService:
     def blob_backend(self) -> str:
         """Return the configured blob backend name ("postgres" or "s3")."""
         return "s3" if self._s3_backend is not None else _DEFAULT_BLOB_BACKEND
+
+    @property
+    def s3_backend(self) -> BlobBackend | None:
+        """Return the configured S3-compatible backend, if any."""
+        return self._s3_backend
 
     # ------------------------------------------------------------------
     # Save
@@ -202,6 +208,56 @@ class AttachmentService:
 
         return attachment_id, minted_session
 
+    async def resolve_upload_session_id(
+        self,
+        attachment_ids: Iterable[str],
+        workspace_id: str,
+        *,
+        workflow_id: str | None = None,
+    ) -> str | None:
+        """Return the common upload-session id for the given attachment ids.
+
+        When the direct-upload client does not echo an upload-session id back to
+        the message request, the server can infer it from the attachment rows as
+        long as every attachment belongs to the same workspace-scoped session.
+        """
+        normalized_ids: list[str] = []
+        for attachment_id in attachment_ids:
+            normalized_id = attachment_id.strip()
+            if normalized_id:
+                normalized_ids.append(normalized_id)
+        if not normalized_ids:
+            return None
+
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT id, workflow_id, thread_id, upload_session_id
+                  FROM chat_attachments
+                 WHERE id = ANY(%s)
+                   AND (workspace_id = %s OR workspace_id IS NULL)
+                """,
+                (normalized_ids, workspace_id),
+            )
+            rows = await cursor.fetchall()
+
+        if len(rows) != len({attachment_id for attachment_id in normalized_ids}):
+            return None
+
+        upload_session_ids: set[str] = set()
+        for row in rows:
+            row_workflow_id = row.get("workflow_id")
+            if workflow_id and row_workflow_id and str(row_workflow_id) != workflow_id:
+                return None
+            session_id = row.get("upload_session_id")
+            if not session_id:
+                return None
+            upload_session_ids.add(str(session_id))
+
+        if len(upload_session_ids) != 1:
+            return None
+        return upload_session_ids.pop()
+
     # ------------------------------------------------------------------
     # Load (scoped)
     # ------------------------------------------------------------------
@@ -224,7 +280,7 @@ class AttachmentService:
                        a.thread_id, a.upload_session_id, a.details_json
                   FROM chat_attachments a
                  WHERE a.id = %s
-                   AND a.workspace_id = %s
+                   AND (a.workspace_id = %s OR a.workspace_id IS NULL)
                 """,
                 (attachment_id, scope.workspace_id),
             )
@@ -309,7 +365,12 @@ class AttachmentService:
     @staticmethod
     def _scope_matches(row: Any, scope: AttachmentScope) -> bool:
         """Return True if the attachment row is accessible within scope."""
-        if scope.workflow_id and row.get("workflow_id") != scope.workflow_id:
+        row_workflow_id = row.get("workflow_id")
+        if (
+            scope.workflow_id
+            and row_workflow_id
+            and str(row_workflow_id) != scope.workflow_id
+        ):
             return False
 
         row_thread = row.get("thread_id")
@@ -320,7 +381,7 @@ class AttachmentService:
             return True
         if scope.thread_id is None and scope.upload_session_id is None:
             return True
-        return not row_thread and not row_session
+        return False
 
     # ------------------------------------------------------------------
     # Delete
@@ -329,7 +390,7 @@ class AttachmentService:
     async def delete_attachment(
         self,
         attachment_id: str,
-        workspace_id: str,
+        workspace_id: str | None,
     ) -> None:
         """Delete attachment metadata and blob together.
 
@@ -337,28 +398,57 @@ class AttachmentService:
         DB row is deleted so the metadata is never left dangling.
         """
         s3_key: str | None = None
+        storage_path: str | None = None
+        blob_backend: str | None = None
         async with self._lock:
             async with self._connection() as conn:
-                if self._s3_backend is not None:
+                if workspace_id is None:
                     cursor = await conn.execute(
                         """
-                        SELECT blob_backend, blob_key
+                        SELECT blob_backend, blob_key, storage_path
+                          FROM chat_attachments
+                         WHERE id = %s
+                        """,
+                        (attachment_id,),
+                    )
+                    row = await cursor.fetchone()
+                    delete_params = (attachment_id,)
+                    delete_sql = "DELETE FROM chat_attachments WHERE id = %s"
+                else:
+                    cursor = await conn.execute(
+                        """
+                        SELECT blob_backend, blob_key, storage_path
                           FROM chat_attachments
                          WHERE id = %s AND workspace_id = %s
                         """,
                         (attachment_id, workspace_id),
                     )
                     row = await cursor.fetchone()
-                    if row and row.get("blob_backend") == "s3":
-                        s3_key = row.get("blob_key") or None
+                    delete_params = (attachment_id, workspace_id)
+                    delete_sql = (
+                        "DELETE FROM chat_attachments WHERE id = %s "
+                        "AND workspace_id = %s"
+                    )
 
-                await conn.execute(
-                    "DELETE FROM chat_attachments WHERE id = %s AND workspace_id = %s",
-                    (attachment_id, workspace_id),
-                )
+                if row:
+                    blob_backend = row.get("blob_backend") or None
+                    storage_path = row.get("storage_path") or None
+                if blob_backend == "s3":
+                    s3_key = row.get("blob_key") or attachment_id
+
+                await conn.execute(delete_sql, delete_params)
 
         if s3_key and self._s3_backend is not None:
             await self._s3_backend.delete(s3_key)
+        if blob_backend is None and storage_path:
+            try:
+                Path(storage_path).unlink(missing_ok=True)
+            except Exception:  # pragma: no cover - best-effort cleanup
+                logger.warning(
+                    "Failed to delete legacy ChatKit attachment file",
+                    extra={"storage_path": storage_path},
+                    exc_info=True,
+                )
 
     # ------------------------------------------------------------------
     # Link upload-session to thread
@@ -413,6 +503,19 @@ class AttachmentService:
                 if workspace_id:
                     cursor = await conn.execute(
                         """
+                        SELECT id, blob_backend, blob_key, storage_path
+                          FROM chat_attachments
+                         WHERE thread_id IS NULL
+                           AND linked_at IS NULL
+                           AND upload_session_id IS NOT NULL
+                           AND created_at < %s
+                           AND workspace_id = %s
+                        """,
+                        (cutoff, workspace_id),
+                    )
+                    rows = await cursor.fetchall()
+                    cursor = await conn.execute(
+                        """
                         DELETE FROM chat_attachments
                          WHERE thread_id IS NULL
                            AND linked_at IS NULL
@@ -425,6 +528,18 @@ class AttachmentService:
                 else:
                     cursor = await conn.execute(
                         """
+                        SELECT id, blob_backend, blob_key, storage_path
+                          FROM chat_attachments
+                         WHERE thread_id IS NULL
+                           AND linked_at IS NULL
+                           AND upload_session_id IS NOT NULL
+                           AND created_at < %s
+                        """,
+                        (cutoff,),
+                    )
+                    rows = await cursor.fetchall()
+                    cursor = await conn.execute(
+                        """
                         DELETE FROM chat_attachments
                          WHERE thread_id IS NULL
                            AND linked_at IS NULL
@@ -433,7 +548,24 @@ class AttachmentService:
                         """,
                         (cutoff,),
                     )
-                return cursor.rowcount if cursor.rowcount is not None else 0
+
+        for row in rows:
+            blob_backend = row.get("blob_backend") or None
+            if blob_backend == "s3" and self._s3_backend is not None:
+                await self._s3_backend.delete(row.get("blob_key") or row["id"])
+                continue
+            if blob_backend is None and row.get("storage_path"):
+                path = Path(str(row["storage_path"]))
+                try:
+                    path.unlink(missing_ok=True)
+                except Exception:  # pragma: no cover - best effort cleanup
+                    logger.warning(
+                        "Failed to delete orphaned ChatKit attachment file",
+                        extra={"storage_path": str(path)},
+                        exc_info=True,
+                    )
+
+        return cursor.rowcount if cursor.rowcount is not None else 0
 
 
 class _ScopedResolver:

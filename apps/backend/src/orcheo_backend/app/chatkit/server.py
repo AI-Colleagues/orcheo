@@ -582,14 +582,34 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         self,
         context: ChatKitRequestContext,
         thread: ThreadMetadata,
+        user_item: UserMessageItem | None = None,
     ) -> None:
         """Link upload-session attachments to the current thread when applicable."""
-        upload_session_id = context.get("upload_session_id") if context else None
-        if not upload_session_id:
-            return
         workspace_id = context.get("workspace_id") if context else None
         if not workspace_id:
             return
+        upload_session_id = context.get("upload_session_id") if context else None
+        if not upload_session_id and user_item is not None:
+            attachment_ids = self._attachment_ids_from_user_item(user_item)
+            if attachment_ids:
+                attachment_service = getattr(self.store, "attachment_service", None)
+                if attachment_service is not None:
+                    try:
+                        upload_session_id = (
+                            await attachment_service.resolve_upload_session_id(
+                                attachment_ids,
+                                str(workspace_id),
+                                workflow_id=str(context.get("workflow_id") or ""),
+                            )
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Failed to infer upload session for thread %s",
+                            thread.id,
+                        )
+        if not upload_session_id:
+            return
+        context["upload_session_id"] = str(upload_session_id)
         try:
             count = await self.store.attachment_service.link_upload_session_to_thread(
                 upload_session_id=str(upload_session_id),
@@ -632,7 +652,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         message_text = collect_text_from_user_content(user_item.content)
         history = await self._history(thread, context)
 
-        await self._link_upload_session(context, thread)
+        await self._link_upload_session(context, thread, user_item)
 
         inputs = self._build_inputs_payload(
             workflow,
@@ -690,6 +710,31 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         await self.store.add_thread_item(thread.id, assistant_item, context)
         await self.store.save_thread(thread, context)
         yield ThreadItemDoneEvent(item=assistant_item)
+
+    @staticmethod
+    def _attachment_ids_from_user_item(user_item: UserMessageItem | None) -> list[str]:
+        """Extract attachment ids from a user item in a tolerant, ordered way."""
+        if user_item is None:
+            return []
+        attachments = getattr(user_item, "attachments", None)
+        if not attachments:
+            return []
+
+        attachment_ids: list[str] = []
+        for attachment in attachments:
+            attachment_id: Any | None = None
+            if isinstance(attachment, str):
+                attachment_id = attachment
+            elif isinstance(attachment, Mapping):
+                attachment_id = attachment.get("id") or attachment.get("file_id")
+            else:
+                attachment_id = getattr(attachment, "id", None)
+
+            if isinstance(attachment_id, str):
+                normalized = attachment_id.strip()
+                if normalized:
+                    attachment_ids.append(normalized)
+        return attachment_ids
 
     def _log_action_failure(
         self,

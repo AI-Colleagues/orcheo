@@ -1,6 +1,7 @@
 """ChatKit-related FastAPI routes."""
 
 from __future__ import annotations
+import inspect
 import json
 import logging
 from collections.abc import Mapping
@@ -770,7 +771,7 @@ def _sanitize_filename(filename: str | None) -> str:
 
 
 @router.post("/chatkit/upload", include_in_schema=False)
-async def upload_chatkit_file(
+async def upload_chatkit_file(  # noqa: C901
     file: UploadFile,
     request: Request,
     repository: RepositoryDep,
@@ -844,7 +845,11 @@ async def upload_chatkit_file(
         mime_type = file.content_type or "text/plain"
 
         server = _resolve_chatkit_server()
-        await server.store._ensure_initialized()
+        ensure_initialized = getattr(server.store, "_ensure_initialized", None)
+        if callable(ensure_initialized):
+            initialized = ensure_initialized()
+            if inspect.isawaitable(initialized):
+                await initialized
         attachment_service = server.store.attachment_service
 
         resolved_workspace = auth_result.workspace_id or ""

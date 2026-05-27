@@ -397,6 +397,22 @@ def test_build_inputs_payload_with_dict_attachments_defaults() -> None:
     assert "documents" not in payload
 
 
+def test_build_inputs_payload_with_string_attachments() -> None:
+    """String attachment ids are ignored by the typed payload builder."""
+    thread = ThreadMetadata(
+        id="thr_string",
+        created_at=datetime.now(UTC),
+        metadata={},
+    )
+
+    user_item = MagicMock()
+    user_item.attachments = ["atc_string_1", "  atc_string_2  "]
+
+    payload = build_inputs_payload(thread, "Test", [], user_item)
+
+    assert "documents" not in payload
+
+
 def test_build_inputs_payload_converts_file_attachments() -> None:
     """File attachments are converted into opaque attachment_id references."""
     thread = ThreadMetadata(

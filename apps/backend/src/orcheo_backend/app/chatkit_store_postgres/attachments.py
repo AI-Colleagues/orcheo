@@ -128,12 +128,17 @@ class AttachmentStoreMixin(BasePostgresStore):
     ) -> None:
         """Remove attachment metadata and any persisted file reference."""
         await self._ensure_initialized()
-        async with self._lock:
-            async with self._connection() as conn:
-                await conn.execute(
-                    "DELETE FROM chat_attachments WHERE id = %s",
-                    (attachment_id,),
-                )
+        workspace_id = context.get("workspace_id") if context else None
+        if workspace_id is None:
+            async with self._lock:
+                async with self._connection() as conn:
+                    await conn.execute(
+                        "DELETE FROM chat_attachments WHERE id = %s",
+                        (attachment_id,),
+                    )
+            return
+
+        await self.attachment_service.delete_attachment(attachment_id, workspace_id)
 
     async def prune_threads_older_than(self, cutoff: datetime) -> int:
         """Delete threads (and attachments) that have not been updated recently."""
@@ -152,17 +157,13 @@ class AttachmentStoreMixin(BasePostgresStore):
 
                 cursor = await conn.execute(
                     """
-                    SELECT storage_path
+                    SELECT id, blob_backend, blob_key, storage_path
                       FROM chat_attachments
-                     WHERE thread_id = ANY(%s) AND storage_path IS NOT NULL
+                     WHERE thread_id = ANY(%s)
                     """,
                     (thread_ids,),
                 )
-                attachment_paths = [
-                    row["storage_path"]
-                    for row in await cursor.fetchall()
-                    if row.get("storage_path")
-                ]
+                attachment_rows = await cursor.fetchall()
 
                 await conn.execute(
                     "DELETE FROM chat_attachments WHERE thread_id = ANY(%s)",
@@ -173,15 +174,22 @@ class AttachmentStoreMixin(BasePostgresStore):
                     (thread_ids,),
                 )
 
-        for path_str in attachment_paths:
-            try:
-                Path(path_str).unlink(missing_ok=True)
-            except Exception:  # pragma: no cover - best-effort cleanup
-                logger.warning(
-                    "Failed to delete ChatKit attachment file",
-                    extra={"storage_path": path_str},
-                    exc_info=True,
-                )
+        s3_backend = self.attachment_service.s3_backend
+        for row in attachment_rows:
+            blob_backend = row.get("blob_backend") or None
+            if blob_backend == "s3" and s3_backend is not None:
+                await s3_backend.delete(row.get("blob_key") or row["id"])
+                continue
+            if blob_backend is None and row.get("storage_path"):
+                path_str = str(row["storage_path"])
+                try:
+                    Path(path_str).unlink(missing_ok=True)
+                except Exception:  # pragma: no cover - best-effort cleanup
+                    logger.warning(
+                        "Failed to delete ChatKit attachment file",
+                        extra={"storage_path": path_str},
+                        exc_info=True,
+                    )
 
         return len(thread_ids)
 
