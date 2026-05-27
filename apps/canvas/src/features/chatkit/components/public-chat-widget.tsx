@@ -52,10 +52,10 @@ export function PublicChatWidget({
 }: PublicChatWidgetProps) {
   const options = useMemo<UseChatKitOptions>(() => {
     const domainKey = getChatKitDomainKey();
-    const uploadUrl = buildBackendHttpUrl(
-      "/api/chatkit/upload",
-      backendBaseUrl,
-    );
+    const uploadBase = buildBackendHttpUrl("/api/chatkit/upload", backendBaseUrl);
+    const uploadUrlObj = new URL(uploadBase);
+    uploadUrlObj.searchParams.set("workflow_id", workflowId);
+    const uploadUrl = uploadUrlObj.toString();
     const modelOptions = buildModelOptions(supportedModels);
 
     return {

@@ -11,13 +11,14 @@ from importlib import import_module
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Literal, NamedTuple, cast
-from uuid import UUID, uuid4
+from uuid import UUID
 import jwt
 from chatkit.server import StreamingResult
 from chatkit.types import ChatKitReq
 from fastapi import (
     APIRouter,
     Depends,
+    Form,
     HTTPException,
     Request,
     Response,
@@ -765,22 +766,40 @@ def _sanitize_filename(filename: str | None) -> str:
 async def upload_chatkit_file(
     file: UploadFile,
     request: Request,
+    repository: RepositoryDep,
+    workflow_id: str | None = Form(default=None),  # noqa: B008
+    thread_id: str | None = Form(default=None),  # noqa: B008
+    upload_session_id: str | None = Form(default=None),  # noqa: B008
 ) -> JSONResponse:
     """Handle file uploads from ChatKit composer with direct upload strategy.
 
-    This endpoint receives files uploaded via ChatKit's direct upload strategy,
-    stores them on disk at CHATKIT_STORAGE_PATH, and returns attachment metadata.
-
-    Files are persisted to disk and content extraction is deferred to DocumentLoaderNode
-    during workflow execution to avoid redundant processing.
-
-    The response must match ChatKit's FileAttachment or ImageAttachment format:
-    - id: unique attachment identifier
-    - name: filename
-    - mime_type: content type
-    - type: 'file' or 'image'
-    - storage_path: path to the stored file (not part of standard ChatKit format)
+    Accepts ``workflow_id`` (required) as a form field or ``?workflow_id=``
+    query parameter (used when the chatkit library's direct upload strategy
+    does not support injecting extra form data). ``thread_id`` and
+    ``upload_session_id`` are accepted as optional form fields.  Bytes are
+    persisted in ``chat_attachment_blobs``; no server filesystem path is
+    returned.
     """
+    # Accept workflow_id from query params when the chatkit direct-upload
+    # strategy cannot inject form fields (e.g., public-chat-widget).
+    if not workflow_id:
+        workflow_id = request.query_params.get("workflow_id") or None
+
+    if not workflow_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": "workflow_id is required for file uploads.",
+                "code": "chatkit.upload.workflow_id_missing",
+            },
+        )
+
+    auth_result = await authenticate_chatkit_invocation(
+        request=request,
+        payload={"workflow_id": workflow_id},
+        repository=repository,
+    )
+
     try:
         settings = orcheo_config.get_settings()
         max_upload_size = int(
@@ -790,7 +809,6 @@ async def upload_chatkit_file(
             )
         )
 
-        # Read file content with a size guard
         content = await file.read(max_upload_size + 1)
         if len(content) > max_upload_size:
             raise HTTPException(
@@ -801,11 +819,9 @@ async def upload_chatkit_file(
                 },
             )
 
-        # Validate it's a text file by attempting to decode
         try:
             content.decode("utf-8")
         except UnicodeDecodeError:
-            # If not UTF-8, try other common encodings
             try:
                 content.decode("latin-1")
             except UnicodeDecodeError as exc:
@@ -817,64 +833,51 @@ async def upload_chatkit_file(
                     },
                 ) from exc
 
-        # Generate a unique ID for this attachment
-        attachment_id = f"atc_{uuid4().hex[:8]}"
-
-        # Determine storage path from settings
-        storage_base = Path(
-            str(settings.get("CHATKIT_STORAGE_PATH", "~/.orcheo/chatkit"))
-        ).expanduser()
-        storage_base.mkdir(parents=True, exist_ok=True)
-
-        # Store file on disk with attachment ID as filename
         safe_name = _sanitize_filename(file.filename)
-        storage_path = storage_base / f"{attachment_id}_{safe_name}"
-        resolved_storage_path = storage_path.resolve()
-        if not resolved_storage_path.is_relative_to(storage_base.resolve()):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "message": "Invalid filename provided",
-                    "code": "chatkit.upload.invalid_filename",
-                },
-            )
-        storage_path.write_bytes(content)
+        mime_type = file.content_type or "text/plain"
 
-        # Create attachment object matching ChatKit's FileAttachment type
-        from chatkit.types import FileAttachment
-
-        attachment = FileAttachment(
-            id=attachment_id,
-            name=safe_name,
-            mime_type=file.content_type or "text/plain",
-        )
-
-        # Save attachment metadata to store with storage_path reference
         server = _resolve_chatkit_server()
-        # Create minimal context - we don't have thread_id yet at upload time
-        context: ChatKitRequestContext = {
-            "chatkit_request": None,  # type: ignore
-            "workflow_id": "",
-            "actor": "chatkit",
-            "auth_mode": "publish",
-        }
-        await server.store.save_attachment(
-            attachment, context, storage_path=str(storage_path)
+        attachment_service = server.store.attachment_service
+
+        resolved_workspace = auth_result.workspace_id or ""
+        resolved_workflow = str(auth_result.workflow_id)
+        actor_subject = auth_result.subject
+
+        attachment_id, minted_session_id = await attachment_service.save_attachment(
+            workspace_id=resolved_workspace,
+            workflow_id=resolved_workflow,
+            thread_id=thread_id or None,
+            upload_session_id=upload_session_id or None,
+            auth_mode=auth_result.auth_mode,
+            actor_subject=actor_subject,
+            attachment_type="file",
+            name=safe_name,
+            mime_type=mime_type,
+            content=content,
         )
 
-        # Return attachment metadata in ChatKit's expected format
-        # Note: We do NOT return content here - it will be read by DocumentLoaderNode
-        return JSONResponse(
-            content={
-                "id": attachment_id,
-                "name": safe_name,
-                "mime_type": file.content_type or "text/plain",
-                "type": "file",
-                "size": len(content),
-                "storage_path": str(storage_path),
+        response_payload: dict[str, object] = {
+            "id": attachment_id,
+            "name": safe_name,
+            "mime_type": mime_type,
+            "type": "file",
+            "size": len(content),
+        }
+        if minted_session_id:
+            response_payload["upload_session_id"] = minted_session_id
+
+        logger.info(
+            "Stored ChatKit file upload via blob backend",
+            extra={
+                "attachment_id": attachment_id,
+                "workflow_id": resolved_workflow,
+                "workspace_id": resolved_workspace,
+                "thread_id": thread_id,
+                "upload_session_id": upload_session_id or minted_session_id,
+                "size_bytes": len(content),
             },
-            status_code=status.HTTP_200_OK,
         )
+        return JSONResponse(content=response_payload, status_code=status.HTTP_200_OK)
     except HTTPException:
         raise
     except Exception as exc:

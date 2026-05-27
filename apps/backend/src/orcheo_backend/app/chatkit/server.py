@@ -398,8 +398,11 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         super().__init__(store=store)
         self._repository = repository
         self._vault_provider = vault_provider
+        attachment_service = getattr(store, "attachment_service", None)
         self._workflow_executor = WorkflowExecutor(
-            repository=repository, vault_provider=vault_provider
+            repository=repository,
+            vault_provider=vault_provider,
+            attachment_service=attachment_service,
         )
 
     async def _history(
@@ -561,6 +564,8 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         actor: str = "chatkit",
         progress_callback: Callable[[Mapping[str, Any]], Awaitable[None]] | None = None,
         workspace_id: str | None = None,
+        thread_id: str | None = None,
+        upload_session_id: str | None = None,
     ) -> tuple[str, Mapping[str, Any], WorkflowRun | None]:
         """Delegate execution to the workflow executor."""
         return await self._workflow_executor.run(
@@ -569,7 +574,41 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
             actor=actor,
             progress_callback=progress_callback,
             workspace_id=workspace_id,
+            thread_id=thread_id,
+            upload_session_id=upload_session_id,
         )
+
+    async def _link_upload_session(
+        self,
+        context: ChatKitRequestContext,
+        thread: ThreadMetadata,
+    ) -> None:
+        """Link upload-session attachments to the current thread when applicable."""
+        upload_session_id = context.get("upload_session_id") if context else None
+        if not upload_session_id:
+            return
+        workspace_id = context.get("workspace_id") if context else None
+        if not workspace_id:
+            return
+        try:
+            count = await self.store.attachment_service.link_upload_session_to_thread(
+                upload_session_id=str(upload_session_id),
+                thread_id=str(thread.id),
+                workspace_id=str(workspace_id),
+            )
+            if count > 0:
+                logger.debug(
+                    "Linked %d attachment(s) from session %s to thread %s",
+                    count,
+                    upload_session_id,
+                    thread.id,
+                )
+        except Exception:
+            logger.exception(
+                "Failed to link upload session %s to thread %s",
+                upload_session_id,
+                thread.id,
+            )
 
     async def respond(
         self,
@@ -592,6 +631,9 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         sync_thread_inference_metadata(thread, user_item, selected_model=selected_model)
         message_text = collect_text_from_user_content(user_item.content)
         history = await self._history(thread, context)
+
+        await self._link_upload_session(context, thread)
+
         inputs = self._build_inputs_payload(
             workflow,
             thread,
@@ -609,6 +651,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         try:
             yield ProgressUpdateEvent(text="Agent is working...")
             workspace_id = context.get("workspace_id")
+            ctx_upload_session = context.get("upload_session_id") if context else None
             run_task = asyncio.create_task(
                 self._run_workflow(
                     workflow_id,
@@ -616,6 +659,10 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
                     actor=actor,
                     progress_callback=on_progress,
                     workspace_id=workspace_id,
+                    thread_id=str(thread.id),
+                    upload_session_id=(
+                        str(ctx_upload_session) if ctx_upload_session else None
+                    ),
                 )
             )
             run_task.add_done_callback(lambda _: progress_queue.put_nowait(None))

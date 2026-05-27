@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
-from io import BytesIO
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 import pytest
@@ -18,8 +16,6 @@ from chatkit.types import (
     UserMessageItem,
     UserMessageTextContent,
 )
-from fastapi import UploadFile
-from starlette.datastructures import Headers
 from orcheo_backend.app.chatkit import messages as chatkit_messages
 from orcheo_backend.app.chatkit.context import ChatKitRequestContext
 from orcheo_backend.app.chatkit.messages import (
@@ -355,17 +351,8 @@ def test_build_inputs_payload_with_empty_attachments() -> None:
     assert "documents" not in payload
 
 
-def test_build_inputs_payload_with_dict_attachments(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_build_inputs_payload_with_dict_attachments() -> None:
     """Test build_inputs_payload handles dict-format attachments."""
-
-    class FakeSettings:
-        def get(self, key: str, default: object | None = None) -> object | None:
-            return default
-
-    monkeypatch.setattr(chatkit_messages, "get_settings", lambda: FakeSettings())
-
     thread = ThreadMetadata(
         id="thr_dict",
         created_at=datetime.now(UTC),
@@ -388,24 +375,14 @@ def test_build_inputs_payload_with_dict_attachments(
     assert "documents" in payload
     documents = payload["documents"]
     assert len(documents) == 1
-    assert documents[0]["content"] == "File content here"
+    assert documents[0]["attachment_id"] == "file_123"
     assert documents[0]["source"] == "test.txt"
-    assert documents[0]["metadata"]["type"] == "text/plain"
+    assert documents[0]["metadata"]["mime_type"] == "text/plain"
     assert documents[0]["metadata"]["size"] == 100
-    assert documents[0]["metadata"]["file_id"] == "file_123"
 
 
-def test_build_inputs_payload_with_dict_attachments_defaults(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test build_inputs_payload handles dict attachments with missing fields."""
-
-    class FakeSettings:
-        def get(self, key: str, default: object | None = None) -> object | None:
-            return default
-
-    monkeypatch.setattr(chatkit_messages, "get_settings", lambda: FakeSettings())
-
+def test_build_inputs_payload_with_dict_attachments_defaults() -> None:
+    """Dict attachments without an id/file_id are skipped."""
     thread = ThreadMetadata(
         id="thr_dict_defaults",
         created_at=datetime.now(UTC),
@@ -413,39 +390,15 @@ def test_build_inputs_payload_with_dict_attachments_defaults(
     )
 
     user_item = MagicMock()
-    user_item.attachments = [{}]  # Empty dict
+    user_item.attachments = [{}]  # Empty dict — no attachment_id, should be skipped
 
     payload = build_inputs_payload(thread, "Test", [], user_item)
 
-    assert "documents" in payload
-    documents = payload["documents"]
-    assert len(documents) == 1
-    assert documents[0]["content"] == ""
-    assert documents[0]["source"] == "unknown"
-    assert documents[0]["metadata"]["type"] == "text/plain"
-    assert documents[0]["metadata"]["size"] == 0
-    assert documents[0]["metadata"]["file_id"] == ""
+    assert "documents" not in payload
 
 
-def test_build_inputs_payload_converts_file_attachments(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """File attachments are converted into documents with storage paths."""
-
-    class FakeSettings:
-        def __init__(self, storage_base: Path) -> None:
-            self._storage_base = storage_base
-
-        def get(self, key: str, default: object | None = None) -> object | None:
-            if key == "CHATKIT_STORAGE_PATH":
-                return str(self._storage_base)
-            return default
-
-    storage_base = tmp_path / "chatkit"
-    monkeypatch.setattr(
-        chatkit_messages, "get_settings", lambda: FakeSettings(storage_base)
-    )
-
+def test_build_inputs_payload_converts_file_attachments() -> None:
+    """File attachments are converted into opaque attachment_id references."""
     thread = ThreadMetadata(
         id="thr_docs",
         created_at=datetime.now(UTC),
@@ -471,32 +424,14 @@ def test_build_inputs_payload_converts_file_attachments(
     assert "documents" in payload
     documents = payload["documents"]
     assert isinstance(documents, list)
-    assert documents[0]["storage_path"] == str(storage_base / "atc123_notes.txt")
+    assert documents[0]["attachment_id"] == "atc123"
     assert documents[0]["source"] == "notes.txt"
     metadata = documents[0]["metadata"]
     assert metadata["mime_type"] == "text/plain"
-    assert metadata["attachment_id"] == "atc123"
 
 
-def test_build_inputs_payload_with_mixed_attachments(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Test build_inputs_payload handles mixed dict and FileAttachment types."""
-
-    class FakeSettings:
-        def __init__(self, storage_base: Path) -> None:
-            self._storage_base = storage_base
-
-        def get(self, key: str, default: object | None = None) -> object | None:
-            if key == "CHATKIT_STORAGE_PATH":
-                return str(self._storage_base)
-            return default
-
-    storage_base = tmp_path / "chatkit"
-    monkeypatch.setattr(
-        chatkit_messages, "get_settings", lambda: FakeSettings(storage_base)
-    )
-
+def test_build_inputs_payload_with_mixed_attachments() -> None:
+    """Test build_inputs_payload handles multiple FileAttachment instances."""
     thread = ThreadMetadata(
         id="thr_mixed",
         created_at=datetime.now(UTC),
@@ -528,8 +463,8 @@ def test_build_inputs_payload_with_mixed_attachments(
     assert "documents" in payload
     documents = payload["documents"]
     assert len(documents) == 2
-    assert documents[0]["storage_path"] == str(storage_base / "atc123_notes.txt")
-    assert documents[1]["storage_path"] == str(storage_base / "atc456_data.json")
+    assert documents[0]["attachment_id"] == "atc123"
+    assert documents[1]["attachment_id"] == "atc456"
 
 
 def test_record_run_metadata_with_run() -> None:
@@ -667,187 +602,6 @@ def test_build_assistant_item() -> None:
     mock_store.generate_item_id.assert_called_once_with("message", thread, context)
 
 
-@pytest.mark.asyncio
-async def test_upload_chatkit_file_success(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test successful file upload with UTF-8 encoding."""
-    from orcheo_backend.app.routers.chatkit import upload_chatkit_file
-
-    # Setup storage path
-    storage_base = tmp_path / "chatkit_storage"
-
-    class FakeSettings:
-        def get(self, key: str, default: object | None = None) -> object | None:
-            if key == "CHATKIT_STORAGE_PATH":
-                return str(storage_base)
-            return default
-
-    monkeypatch.setattr("orcheo.config.get_settings", lambda: FakeSettings())
-
-    # Mock ChatKit server and store
-    mock_store = MagicMock()
-    mock_store.save_attachment = AsyncMock()
-    mock_server = MagicMock()
-    mock_server.store = mock_store
-
-    with patch(
-        "orcheo_backend.app.routers.chatkit._resolve_chatkit_server",
-        return_value=mock_server,
-    ):
-        # Create test file
-        file_content = b"Hello, this is a UTF-8 text file!"
-        headers = Headers({"content-type": "text/plain"})
-        upload_file = UploadFile(
-            file=BytesIO(file_content), filename="test.txt", headers=headers
-        )
-        mock_request = MagicMock()
-
-        # Call the upload endpoint
-        response = await upload_chatkit_file(upload_file, mock_request)
-
-        # Verify response
-        assert response.status_code == 200
-        body = response.body.decode("utf-8")  # type: ignore[union-attr]
-        import json
-
-        data = json.loads(body)
-        assert "id" in data
-        assert data["id"].startswith("atc_")
-        assert data["name"] == "test.txt"
-        assert data["mime_type"] == "text/plain"
-        assert data["type"] == "file"
-        assert data["size"] == len(file_content)
-        assert "storage_path" in data
-
-        # Verify file was saved
-        storage_path = Path(data["storage_path"])
-        assert storage_path.exists()
-        assert storage_path.read_bytes() == file_content
-
-        # Verify store was called
-        mock_store.save_attachment.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_upload_chatkit_file_utf8_encoding(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test file upload with UTF-8 encoding."""
-    from orcheo_backend.app.routers.chatkit import upload_chatkit_file
-
-    storage_base = tmp_path / "chatkit_storage"
-
-    class FakeSettings:
-        def get(self, key: str, default: object | None = None) -> object | None:
-            if key == "CHATKIT_STORAGE_PATH":
-                return str(storage_base)
-            return default
-
-    monkeypatch.setattr("orcheo.config.get_settings", lambda: FakeSettings())
-
-    mock_store = MagicMock()
-    mock_store.save_attachment = AsyncMock()
-    mock_server = MagicMock()
-    mock_server.store = mock_store
-
-    with patch(
-        "orcheo_backend.app.routers.chatkit._resolve_chatkit_server",
-        return_value=mock_server,
-    ):
-        # UTF-8 encoded content with special characters
-        file_content = "Hello 世界 🌍".encode()
-        headers = Headers({"content-type": "text/plain"})
-        upload_file = UploadFile(
-            file=BytesIO(file_content), filename="utf8.txt", headers=headers
-        )
-        mock_request = MagicMock()
-
-        response = await upload_chatkit_file(upload_file, mock_request)
-
-        assert response.status_code == 200
-
-
-@pytest.mark.asyncio
-async def test_upload_chatkit_file_latin1_encoding(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test file upload with latin-1 encoding (non-UTF-8 but valid)."""
-    from orcheo_backend.app.routers.chatkit import upload_chatkit_file
-
-    storage_base = tmp_path / "chatkit_storage"
-
-    class FakeSettings:
-        def get(self, key: str, default: object | None = None) -> object | None:
-            if key == "CHATKIT_STORAGE_PATH":
-                return str(storage_base)
-            return default
-
-    monkeypatch.setattr("orcheo.config.get_settings", lambda: FakeSettings())
-
-    mock_store = MagicMock()
-    mock_store.save_attachment = AsyncMock()
-    mock_server = MagicMock()
-    mock_server.store = mock_store
-
-    with patch(
-        "orcheo_backend.app.routers.chatkit._resolve_chatkit_server",
-        return_value=mock_server,
-    ):
-        # Latin-1 encoded content (valid in latin-1 but not UTF-8)
-        file_content = "café résumé".encode("latin-1")
-        headers = Headers({"content-type": "text/plain"})
-        upload_file = UploadFile(
-            file=BytesIO(file_content), filename="latin1.txt", headers=headers
-        )
-        mock_request = MagicMock()
-
-        response = await upload_chatkit_file(upload_file, mock_request)
-
-        assert response.status_code == 200
-
-
-@pytest.mark.asyncio
-async def test_upload_chatkit_file_no_filename(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test file upload without filename uses default."""
-    from orcheo_backend.app.routers.chatkit import upload_chatkit_file
-
-    storage_base = tmp_path / "chatkit_storage"
-
-    class FakeSettings:
-        def get(self, key: str, default: object | None = None) -> object | None:
-            if key == "CHATKIT_STORAGE_PATH":
-                return str(storage_base)
-            return default
-
-    monkeypatch.setattr("orcheo.config.get_settings", lambda: FakeSettings())
-
-    mock_store = MagicMock()
-    mock_store.save_attachment = AsyncMock()
-    mock_server = MagicMock()
-    mock_server.store = mock_store
-
-    with patch(
-        "orcheo_backend.app.routers.chatkit._resolve_chatkit_server",
-        return_value=mock_server,
-    ):
-        file_content = b"Test content"
-        upload_file = UploadFile(file=BytesIO(file_content), filename=None)
-        mock_request = MagicMock()
-
-        response = await upload_chatkit_file(upload_file, mock_request)
-
-        assert response.status_code == 200
-        import json
-
-        data = json.loads(response.body.decode("utf-8"))  # type: ignore[union-attr]
-        assert data["name"] == "uploaded_file"
-        assert data["mime_type"] == "text/plain"
-        assert "uploaded_file" in data["storage_path"]
-
-
 def test_sanitize_filename_returns_default_when_normalized_empty() -> None:
     """Ensure filenames without safe characters fall back to default name."""
     from orcheo_backend.app.routers.chatkit import _sanitize_filename
@@ -855,169 +609,8 @@ def test_sanitize_filename_returns_default_when_normalized_empty() -> None:
     assert _sanitize_filename("...") == "uploaded_file"
 
 
-@pytest.mark.asyncio
-async def test_upload_chatkit_file_invalid_filename_path_traversal(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test upload guard rejects filenames that resolve outside storage base."""
-    from fastapi import HTTPException
-    from orcheo_backend.app.routers import chatkit as chatkit_router
-    from orcheo_backend.app.routers.chatkit import upload_chatkit_file
-
-    storage_base = tmp_path / "chatkit_storage"
-
-    class FakeSettings:
-        def get(self, key: str, default: object | None = None) -> object | None:
-            if key == "CHATKIT_STORAGE_PATH":
-                return str(storage_base)
-            return default
-
-    monkeypatch.setattr("orcheo.config.get_settings", lambda: FakeSettings())
-
-    mock_store = MagicMock()
-    mock_store.save_attachment = AsyncMock()
-    mock_server = MagicMock()
-    mock_server.store = mock_store
-
-    # Force sanitize helper to return a traversal attempt
-    monkeypatch.setattr(
-        chatkit_router,
-        "_sanitize_filename",
-        lambda filename: "../../../../../escape.txt",
-    )
-
-    with patch(
-        "orcheo_backend.app.routers.chatkit._resolve_chatkit_server",
-        return_value=mock_server,
-    ):
-        headers = Headers({"content-type": "text/plain"})
-        upload_file = UploadFile(
-            file=BytesIO(b"malicious payload"), filename="evil.txt", headers=headers
-        )
-        mock_request = MagicMock()
-
-        with pytest.raises(HTTPException) as exc_info:
-            await upload_chatkit_file(upload_file, mock_request)
-
-        assert exc_info.value.status_code == 400
-        assert exc_info.value.detail["code"] == "chatkit.upload.invalid_filename"
-
-
-@pytest.mark.asyncio
-async def test_upload_chatkit_file_exception_handling(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test file upload exception handling for general errors."""
-    from fastapi import HTTPException
-    from orcheo_backend.app.routers.chatkit import upload_chatkit_file
-
-    storage_base = tmp_path / "chatkit_storage"
-
-    class FakeSettings:
-        def get(self, key: str, default: object | None = None) -> object | None:
-            if key == "CHATKIT_STORAGE_PATH":
-                return str(storage_base)
-            return default
-
-    monkeypatch.setattr("orcheo.config.get_settings", lambda: FakeSettings())
-
-    mock_store = MagicMock()
-    # Make save_attachment raise an exception
-    mock_store.save_attachment = AsyncMock(side_effect=RuntimeError("Storage failed"))
-    mock_server = MagicMock()
-    mock_server.store = mock_store
-
-    with patch(
-        "orcheo_backend.app.routers.chatkit._resolve_chatkit_server",
-        return_value=mock_server,
-    ):
-        file_content = b"Test content"
-        headers = Headers({"content-type": "text/plain"})
-        upload_file = UploadFile(
-            file=BytesIO(file_content), filename="test.txt", headers=headers
-        )
-        mock_request = MagicMock()
-
-        with pytest.raises(HTTPException) as exc_info:
-            await upload_chatkit_file(upload_file, mock_request)
-
-        assert exc_info.value.status_code == 500
-        assert "processing_error" in exc_info.value.detail["code"]  # type: ignore[index]
-        assert "Failed to process file upload" in exc_info.value.detail["message"]  # type: ignore[index]
-
-
-@pytest.mark.asyncio
-async def test_upload_chatkit_file_invalid_encoding(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test file upload rejects binary files with invalid encoding.
-
-    Note: latin-1 can decode any byte sequence, so we mock the decode to simulate
-    a scenario where both UTF-8 and latin-1 decoding fail.
-    """
-    from fastapi import HTTPException
-    from orcheo_backend.app.routers.chatkit import upload_chatkit_file
-
-    storage_base = tmp_path / "chatkit_storage"
-
-    class FakeSettings:
-        def get(self, key: str, default: object | None = None) -> object | None:
-            if key == "CHATKIT_STORAGE_PATH":
-                return str(storage_base)
-            return default
-
-    monkeypatch.setattr("orcheo.config.get_settings", lambda: FakeSettings())
-
-    mock_store = MagicMock()
-    mock_store.save_attachment = AsyncMock()
-    mock_server = MagicMock()
-    mock_server.store = mock_store
-
-    # Create a custom bytes-like object that raises UnicodeDecodeError
-    class BadBytes(bytes):
-        """Custom bytes class that fails both UTF-8 and latin-1 decoding."""
-
-        def decode(self, encoding: str = "utf-8", errors: str = "strict") -> str:
-            raise UnicodeDecodeError(
-                encoding, self, 0, len(self), "test encoding error"
-            )
-
-    file_content = BadBytes([0xFF, 0xFE, 0x00, 0x00])
-
-    # Create an UploadFile that returns our BadBytes
-    class BadUploadFile(UploadFile):
-        async def read(self, size: int = -1) -> bytes:
-            return file_content  # type: ignore[return-value]
-
-    with patch(
-        "orcheo_backend.app.routers.chatkit._resolve_chatkit_server",
-        return_value=mock_server,
-    ):
-        headers = Headers({"content-type": "application/octet-stream"})
-        upload_file = BadUploadFile(
-            file=BytesIO(b"dummy"), filename="binary.bin", headers=headers
-        )
-        mock_request = MagicMock()
-
-        with pytest.raises(HTTPException) as exc_info:
-            await upload_chatkit_file(upload_file, mock_request)
-
-        assert exc_info.value.status_code == 400
-        assert exc_info.value.detail.get("code") == "chatkit.upload.invalid_encoding"
-        assert "must be a text file" in exc_info.value.detail.get("message", "")
-
-
-def test_build_inputs_payload_with_non_standard_attachments(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_build_inputs_payload_with_non_standard_attachments() -> None:
     """Test build_inputs_payload with invalid attachment types."""
-
-    class FakeSettings:
-        def get(self, key: str, default: object | None = None) -> object | None:
-            return default
-
-    monkeypatch.setattr(chatkit_messages, "get_settings", lambda: FakeSettings())
-
     thread = ThreadMetadata(
         id="thr_non_standard",
         created_at=datetime.now(UTC),
@@ -1038,25 +631,8 @@ def test_build_inputs_payload_with_non_standard_attachments(
     assert "documents" not in payload
 
 
-def test_build_inputs_payload_with_mixed_valid_invalid_attachments(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_build_inputs_payload_with_mixed_valid_invalid_attachments() -> None:
     """Test build_inputs_payload filters invalid attachments."""
-
-    class FakeSettings:
-        def __init__(self, storage_base: Path) -> None:
-            self._storage_base = storage_base
-
-        def get(self, key: str, default: object | None = None) -> object | None:
-            if key == "CHATKIT_STORAGE_PATH":
-                return str(self._storage_base)
-            return default
-
-    storage_base = tmp_path / "chatkit"
-    monkeypatch.setattr(
-        chatkit_messages, "get_settings", lambda: FakeSettings(storage_base)
-    )
-
     thread = ThreadMetadata(
         id="thr_mixed_valid_invalid",
         created_at=datetime.now(UTC),
@@ -1089,7 +665,7 @@ def test_build_inputs_payload_with_mixed_valid_invalid_attachments(
     assert "documents" in payload
     documents = payload["documents"]
     assert len(documents) == 2
-    assert documents[0]["content"] == "Valid dict attachment"
+    assert documents[0]["attachment_id"] == "file_abc"
     assert documents[0]["source"] == "valid.txt"
-    assert documents[1]["storage_path"] == str(storage_base / "atc789_valid_file.txt")
+    assert documents[1]["attachment_id"] == "atc789"
     assert documents[1]["source"] == "valid_file.txt"

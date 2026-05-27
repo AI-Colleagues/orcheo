@@ -6,7 +6,12 @@ from datetime import datetime
 from pathlib import Path
 from chatkit.store import NotFoundError
 from chatkit.types import Attachment
+import orcheo.config as orcheo_config
+from orcheo_backend.app.chatkit_store_postgres.attachment_service import (
+    AttachmentService,
+)
 from orcheo_backend.app.chatkit_store_postgres.base import BasePostgresStore
+from orcheo_backend.app.chatkit_store_postgres.blob_backends import build_blob_backend
 from orcheo_backend.app.chatkit_store_postgres.serialization import (
     attachment_from_details,
     serialize_attachment,
@@ -20,6 +25,43 @@ logger = logging.getLogger(__name__)
 
 class AttachmentStoreMixin(BasePostgresStore):
     """Manage attachments and pruning tasks."""
+
+    _attachment_service: AttachmentService | None = None
+
+    @property
+    def attachment_service(self) -> AttachmentService:
+        """Return the scoped attachment service backed by this store's pool."""
+        if self._attachment_service is None:
+            settings = orcheo_config.get_settings()
+            blob_backend_name = settings.get(
+                "CHATKIT_ATTACHMENT_BLOB_BACKEND", "postgres"
+            )
+            s3_backend = build_blob_backend(
+                str(blob_backend_name),
+                bucket=settings.get("CHATKIT_S3_BUCKET") or None,
+                endpoint_url=settings.get("CHATKIT_S3_ENDPOINT_URL") or None,
+                region=settings.get("CHATKIT_S3_REGION") or None,
+                access_key_id=settings.get("CHATKIT_S3_ACCESS_KEY_ID") or None,
+                secret_access_key=settings.get("CHATKIT_S3_SECRET_ACCESS_KEY") or None,
+            )
+            self._attachment_service = AttachmentService(
+                self._connection,
+                self._lock,
+                max_size_bytes=int(
+                    settings.get(
+                        "CHATKIT_MAX_UPLOAD_SIZE_BYTES",
+                        10 * 1024 * 1024,
+                    )
+                ),
+                orphan_cutoff_hours=int(
+                    settings.get(
+                        "CHATKIT_ORPHAN_CUTOFF_HOURS",
+                        24,
+                    )
+                ),
+                s3_backend=s3_backend,
+            )
+        return self._attachment_service
 
     async def save_attachment(
         self,
@@ -153,4 +195,4 @@ class AttachmentStoreMixin(BasePostgresStore):
         return None
 
 
-__all__ = ["AttachmentStoreMixin"]
+__all__ = ["AttachmentService", "AttachmentStoreMixin"]

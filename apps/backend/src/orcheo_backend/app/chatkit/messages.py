@@ -1,8 +1,8 @@
 """Utility helpers for manipulating ChatKit message threads."""
 
 from __future__ import annotations
+import logging
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 from chatkit.errors import CustomStreamError
@@ -15,13 +15,15 @@ from chatkit.types import (
     ThreadMetadata,
     UserMessageItem,
 )
-from orcheo.config import get_settings
 from orcheo_backend.app.chatkit.context import ChatKitRequestContext
 from orcheo_backend.app.chatkit.message_utils import (
     collect_text_from_assistant_content,
     collect_text_from_user_content,
 )
 from orcheo_backend.app.repository import WorkflowRun
+
+
+logger = logging.getLogger(__name__)
 
 
 _UNSET = object()
@@ -132,33 +134,36 @@ def build_inputs_payload(
     if resolved_model:
         payload["model"] = resolved_model
 
-    # Extract file attachments and convert to documents format
+    # Convert attachments into opaque attachment_id document references.
+    # No filesystem paths are used; bytes are resolved by DocumentLoaderNode
+    # through the injected attachment resolver.
     if user_item is not None and hasattr(user_item, "attachments"):
         attachments = getattr(user_item, "attachments", None)
         if attachments and isinstance(attachments, list) and len(attachments) > 0:
             documents: list[dict[str, Any]] = []
-            storage_base = _chatkit_storage_base()
             for attachment in attachments:
-                # ChatKit attachments from direct upload include file metadata
                 if isinstance(attachment, dict):
-                    doc = {
-                        "content": attachment.get("content", ""),
-                        "source": attachment.get("filename", "unknown"),
-                        "metadata": {
-                            "type": attachment.get("content_type", "text/plain"),
-                            "size": attachment.get("size", 0),
-                            "file_id": attachment.get("file_id", ""),
-                        },
-                    }
-                    documents.append(doc)
+                    attachment_id = attachment.get("id") or attachment.get(
+                        "file_id", ""
+                    )
+                    if attachment_id:
+                        doc: dict[str, Any] = {
+                            "attachment_id": attachment_id,
+                            "source": attachment.get("filename")
+                            or attachment.get("name", "unknown"),
+                            "metadata": {
+                                "mime_type": attachment.get("content_type")
+                                or attachment.get("mime_type", "text/plain"),
+                                "size": attachment.get("size", 0),
+                            },
+                        }
+                        documents.append(doc)
                 elif isinstance(attachment, AttachmentBase):
-                    storage_path = storage_base / f"{attachment.id}_{attachment.name}"
                     doc = {
-                        "storage_path": str(storage_path),
+                        "attachment_id": attachment.id,
                         "source": attachment.name,
                         "metadata": {
                             "mime_type": attachment.mime_type,
-                            "attachment_id": attachment.id,
                         },
                     }
                     documents.append(doc)
@@ -192,14 +197,6 @@ def sync_thread_inference_metadata(
         **thread.metadata,
         "chatkit_model": resolved_model,
     }
-
-
-def _chatkit_storage_base() -> Path:
-    """Return the configured storage path for ChatKit uploads."""
-    settings = get_settings()
-    return Path(
-        str(settings.get("CHATKIT_STORAGE_PATH", "~/.orcheo/chatkit"))
-    ).expanduser()
 
 
 def record_run_metadata(thread: ThreadMetadata, run: WorkflowRun | None) -> None:
