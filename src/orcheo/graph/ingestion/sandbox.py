@@ -75,6 +75,7 @@ TraceFunc = Callable[[FrameType | None, str, object], object]
 _SAFE_MODULE_PREFIXES: tuple[str, ...] = (
     "asyncio",
     "base64",
+    "csv",
     "json",
     "langgraph",
     "langchain",

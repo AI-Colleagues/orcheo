@@ -165,6 +165,16 @@ def test_create_sandbox_namespace_allows_base64_import() -> None:
     assert module is importlib.import_module("base64")
 
 
+def test_create_sandbox_namespace_allows_csv_import() -> None:
+    """Ensure restricted imports allow the csv module."""
+    namespace = sandbox.create_sandbox_namespace()
+    restricted_import = namespace["__builtins__"]["__import__"]
+
+    module = restricted_import("csv")
+
+    assert module is importlib.import_module("csv")
+
+
 def test_create_sandbox_namespace_allows_submodule_prefix_import() -> None:
     """Ensure allow-listed prefixes include submodule imports."""
     namespace = sandbox.create_sandbox_namespace()
