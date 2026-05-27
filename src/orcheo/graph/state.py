@@ -13,6 +13,7 @@ class State(MessagesState, total=False):
     results: Annotated[dict[str, Any], dict_reducer]
     structured_response: Any
     config: dict[str, Any] | None
+    assistant_message: str | None
 
 
 def dict_reducer(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:

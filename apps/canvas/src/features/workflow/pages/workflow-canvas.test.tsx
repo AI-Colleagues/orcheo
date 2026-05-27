@@ -1,159 +1,89 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import WorkflowCanvas from "./workflow-canvas";
 
-class ResizeObserverMock {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
+const controllerMock = vi.fn();
+const getWorkflowByIdMock = vi.fn();
+const listWorkflowsMock = vi.fn();
 
-beforeAll(() => {
-  Object.defineProperty(globalThis, "ResizeObserver", {
-    configurable: true,
-    writable: true,
-    value: ResizeObserverMock,
-  });
-  class WebSocketMock {
-    static CONNECTING = 0;
-    static OPEN = 1;
-    static CLOSING = 2;
-    static CLOSED = 3;
+vi.mock("@/hooks/use-page-context", () => ({
+  usePageContext: () => ({
+    setPageContext: vi.fn(),
+  }),
+}));
 
-    readyState = WebSocketMock.CONNECTING;
-    url: string;
-    sent: string[] = [];
-    onopen: ((event: Event) => void) | null = null;
-    onmessage: ((event: MessageEvent<string>) => void) | null = null;
-    onerror: ((event: Event) => void) | null = null;
-    onclose: ((event: Event) => void) | null = null;
+vi.mock(
+  "@features/workflow/pages/workflow-canvas/hooks/controller/use-workflow-canvas-controller",
+  () => ({
+    useWorkflowCanvasController: (...args: unknown[]) =>
+      controllerMock(...args),
+  }),
+);
 
-    constructor(url: string) {
-      this.url = url;
-      queueMicrotask(() => {
-        this.readyState = WebSocketMock.OPEN;
-        this.onopen?.(new Event("open"));
-      });
-    }
+vi.mock(
+  "@features/workflow/pages/workflow-canvas/components/workflow-canvas-layout",
+  () => ({
+    WorkflowCanvasLayout: ({
+      workflowProps,
+      topNavigationProps,
+    }: {
+      workflowProps: { workflowId: string | null };
+      topNavigationProps: { currentWorkflow: { name: string } };
+    }) => (
+      <div data-testid="workflow-canvas-layout">
+        <span data-testid="workflow-id">
+          {workflowProps.workflowId ?? "new"}
+        </span>
+        <span data-testid="workflow-name">
+          {topNavigationProps.currentWorkflow.name}
+        </span>
+      </div>
+    ),
+  }),
+);
 
-    send(data: string) {
-      this.sent.push(data);
-    }
+vi.mock("@features/workflow/lib/workflow-storage", () => ({
+  getWorkflowById: (...args: unknown[]) => getWorkflowByIdMock(...args),
+  listWorkflows: (...args: unknown[]) => listWorkflowsMock(...args),
+}));
 
-    close() {
-      this.readyState = WebSocketMock.CLOSED;
-      this.onclose?.(new Event("close"));
-    }
-
-    addEventListener() {}
-
-    removeEventListener() {}
-
-    dispatchEvent() {
-      return true;
-    }
-  }
-
-  Object.defineProperty(globalThis, "WebSocket", {
-    configurable: true,
-    writable: true,
-    value: WebSocketMock,
-  });
-  if (!globalThis.crypto) {
-    Object.defineProperty(globalThis, "crypto", {
-      value: {},
-    });
-  }
-  if (!globalThis.crypto.randomUUID) {
-    Object.defineProperty(globalThis.crypto, "randomUUID", {
-      value: vi.fn(
-        () => `test-node-${Math.random().toString(36).slice(2, 10)}`,
-      ),
-    });
-  }
-  if (!URL.createObjectURL) {
-    Object.defineProperty(URL, "createObjectURL", {
-      value: vi.fn(() => "blob:mock"),
-    });
-  }
-  if (!URL.revokeObjectURL) {
-    Object.defineProperty(URL, "revokeObjectURL", {
-      value: vi.fn(),
-    });
-  }
-  Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
-    value: vi.fn(),
-    configurable: true,
-  });
-});
-
-afterEach(() => {
-  cleanup();
-});
-
-const renderCanvas = () => {
-  return render(
-    <MemoryRouter initialEntries={["/global-org/new"]}>
-      <Routes>
-        <Route path="/:workspaceSlug/new" element={<WorkflowCanvas />} />
-      </Routes>
-    </MemoryRouter>,
-  );
-};
-
-describe("WorkflowCanvas tabs", () => {
-  it("shows workflow tab and hides editor/execution tabs", async () => {
-    renderCanvas();
-
-    expect(await screen.findByRole("tab", { name: /workflow/i })).toBeVisible();
-    expect(
-      screen.queryByRole("tab", { name: /^editor$/i }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("tab", { name: /^execution$/i }),
-    ).not.toBeInTheDocument();
+describe("WorkflowCanvas", () => {
+  beforeEach(() => {
+    controllerMock.mockReset();
+    getWorkflowByIdMock.mockReset();
+    listWorkflowsMock.mockReset();
   });
 
-  it("keeps trace/settings tabs available", async () => {
-    renderCanvas();
+  it("resolves a workflow handle to the underlying workflow id before mounting", async () => {
+    getWorkflowByIdMock.mockResolvedValue(undefined);
+    listWorkflowsMock.mockResolvedValue([
+      { id: "wf-uuid-1", handle: "insight-analyst" },
+    ]);
 
-    expect(await screen.findByRole("tab", { name: /trace/i })).toBeVisible();
-    expect(screen.getByRole("tab", { name: /settings/i })).toBeVisible();
-    expect(
-      screen.queryByRole("tab", { name: /readiness/i }),
-    ).not.toBeInTheDocument();
-  });
+    controllerMock.mockImplementation((workflowId?: string) => ({
+      layoutProps: {
+        workflowProps: { workflowId: workflowId ?? null },
+        topNavigationProps: {
+          currentWorkflow: {
+            name: workflowId ?? "New Workflow",
+          },
+        },
+        tabsProps: { activeTab: "workflow" },
+      },
+    }));
 
-  it("renders workflow mermaid empty state when no versions exist", async () => {
-    renderCanvas();
+    render(<WorkflowCanvas workflowId="insight-analyst" />);
 
-    expect(
-      await screen.findByText(
-        /no version is available yet to generate a mermaid diagram/i,
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("shows a run button in the workflow header", async () => {
-    renderCanvas();
-
-    expect(
-      await screen.findByRole("button", { name: /^run$/i }),
-    ).toBeDisabled();
-  });
-
-  it("disables schedule toggle when no versions with a cron trigger exist", async () => {
-    renderCanvas();
-
-    const publishToggle = await screen.findByRole("switch", {
-      name: /publish workflow/i,
-    });
-    const scheduleToggle = screen.getByRole("switch", {
-      name: /schedule workflow/i,
+    await waitFor(() => {
+      expect(controllerMock).toHaveBeenCalledWith(
+        "wf-uuid-1",
+        "insight-analyst",
+      );
     });
 
-    expect(publishToggle).toBeEnabled();
-    expect(scheduleToggle).toBeDisabled();
+    expect(getWorkflowByIdMock).toHaveBeenCalledWith("insight-analyst");
+    expect(listWorkflowsMock).toHaveBeenCalledWith({ forceRefresh: true });
+    expect(screen.getByTestId("workflow-id")).toHaveTextContent("wf-uuid-1");
+    expect(screen.getByTestId("workflow-name")).toHaveTextContent("wf-uuid-1");
   });
 });

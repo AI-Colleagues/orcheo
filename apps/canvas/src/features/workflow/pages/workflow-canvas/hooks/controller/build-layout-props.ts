@@ -77,7 +77,7 @@ export function buildWorkflowLayoutProps(
 ): WorkflowLayoutProps {
   const workflowProps: WorkflowTabContentProps = {
     workflowId: core.metadata.currentWorkflowId,
-    workflowRouteRef: core.routeWorkflowId,
+    workflowRouteRef: core.routeWorkflowRef,
     workflowName: core.metadata.workflowName,
     versions: core.metadata.workflowVersions ?? [],
     isLoading: core.metadata.isWorkflowLoading,

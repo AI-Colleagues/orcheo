@@ -1,6 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
+import { Skeleton } from "@/design-system/ui/skeleton";
 import { WorkflowCanvasLayout } from "@features/workflow/pages/workflow-canvas/components/workflow-canvas-layout";
 import { useWorkflowCanvasController } from "@features/workflow/pages/workflow-canvas/hooks/controller/use-workflow-canvas-controller";
+import {
+  getWorkflowById,
+  listWorkflows,
+} from "@features/workflow/lib/workflow-storage";
 import { usePageContext } from "@/hooks/use-page-context";
 
 interface WorkflowCanvasProps {
@@ -8,7 +14,73 @@ interface WorkflowCanvasProps {
 }
 
 export default function WorkflowCanvas({ workflowId }: WorkflowCanvasProps) {
-  const { layoutProps } = useWorkflowCanvasController(workflowId);
+  const [resolvedWorkflowId, setResolvedWorkflowId] = useState<
+    string | undefined
+  >(undefined);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveWorkflow = async () => {
+      if (!workflowId) {
+        setResolvedWorkflowId(undefined);
+        setLoadError(null);
+        return;
+      }
+
+      setLoadError(null);
+
+      try {
+        const directWorkflow = await getWorkflowById(workflowId);
+        if (cancelled) {
+          return;
+        }
+        if (directWorkflow) {
+          setResolvedWorkflowId(directWorkflow.id);
+          return;
+        }
+
+        const workflows = await listWorkflows({ forceRefresh: true });
+        if (cancelled) {
+          return;
+        }
+
+        const matchedWorkflow = workflows.find(
+          (workflow) =>
+            workflow.id === workflowId || workflow.handle === workflowId,
+        );
+        if (matchedWorkflow) {
+          setResolvedWorkflowId(matchedWorkflow.id);
+          return;
+        }
+
+        setResolvedWorkflowId(undefined);
+        setLoadError("Workflow not found.");
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setResolvedWorkflowId(undefined);
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load workflow.",
+        );
+      }
+    };
+
+    void resolveWorkflow();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workflowId]);
+
+  const { layoutProps } = useWorkflowCanvasController(
+    resolvedWorkflowId,
+    workflowId ?? null,
+  );
 
   const { setPageContext } = usePageContext();
   const activeWorkflowId = layoutProps.workflowProps.workflowId ?? null;
@@ -24,6 +96,26 @@ export default function WorkflowCanvas({ workflowId }: WorkflowCanvasProps) {
       activeTab,
     });
   }, [setPageContext, activeWorkflowId, workflowName, activeTab]);
+
+  if (workflowId && !resolvedWorkflowId) {
+    if (loadError) {
+      return (
+        <div className="flex min-h-[60vh] items-center justify-center p-6">
+          <Alert className="max-w-xl">
+            <AlertTitle>Workflow unavailable</AlertTitle>
+            <AlertDescription>{loadError}</AlertDescription>
+          </Alert>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4 p-6">
+        <Skeleton className="h-10 w-64 rounded-full" />
+        <Skeleton className="h-[72vh] w-full rounded-3xl" />
+      </div>
+    );
+  }
 
   return <WorkflowCanvasLayout {...layoutProps} />;
 }

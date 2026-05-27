@@ -11,8 +11,8 @@ export const CHATKIT_ATTACHMENT_ACCEPT: NonNullable<
   ChatKitComposerAttachments["accept"]
 > = {
   "text/plain": [".txt"],
-  "text/markdown": [".md"],
   "application/json": [".json"],
+  "text/markdown": [".md"],
   "text/csv": [".csv"],
   "text/x-log": [".log"],
   "application/pdf": [".pdf"],

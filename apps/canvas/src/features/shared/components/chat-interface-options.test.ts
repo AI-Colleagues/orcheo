@@ -24,6 +24,7 @@ describe("useChatInterfaceOptions", () => {
       }),
     );
     expect(result.current.composer?.attachments?.accept).toMatchObject({
+      "application/json": [".json"],
       "application/pdf": [".pdf"],
       "image/png": [".png"],
       "image/jpeg": [".jpg", ".jpeg"],
