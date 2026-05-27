@@ -15,6 +15,8 @@ for key, value in (
     # Tests supply a deterministic value so the FastAPI app builds at import.
     ("ORCHEO_CREDENTIAL_BROKER_SECRET", "test-broker-secret"),
     ("ORCHEO_SANDBOX_CONTROL_TOKEN", "test-sandbox-control-token"),
+    # Keep the sandbox enabled in tests unless a case explicitly overrides it.
+    ("ORCHEO_SANDBOX_DISABLED", "false"),
     ("ORCHEO_SANDBOX_REVOCATION_STORE", "memory"),
     # The sandbox bootstrap requires a runtime URL; tests inject their own
     # primitives and never actually hit this URL.

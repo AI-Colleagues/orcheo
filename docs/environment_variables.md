@@ -39,6 +39,7 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
+| `ORCHEO_SANDBOX_DISABLED` | `true` in local dev when `ORCHEO_ENV` / `NODE_ENV` indicate development or `ORCHEO_CONTAINER_RUNTIME=runc`; otherwise `false` | Boolean (`1/0`, `true/false`, etc.) | Disables workflow sandbox dispatch and agent-process sandboxing. Use `false` to force sandboxing back on in dev. |
 | `ORCHEO_SANDBOX_RUNTIME_URL` | `http://sandbox-runtime:9090` | Internal HTTP URL | Backend/worker control-plane endpoint for authenticated sandbox lifecycle and execution operations. |
 | `ORCHEO_SANDBOX_CONTROL_TOKEN` | _none; required_ | High-entropy secret | Authenticates backend/worker requests to `sandbox-runtime`; never injected into tenant sandboxes. |
 | `ORCHEO_CREDENTIAL_BROKER_SECRET` | _none; required_ | High-entropy secret | Signs run-scoped credential relay tokens; revocation is stored in Redis through `REDIS_URL`. |

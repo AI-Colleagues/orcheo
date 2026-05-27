@@ -28,6 +28,7 @@ from uuid import UUID, uuid4
 from orcheo.graph.ingestion import (
     DEFAULT_EXECUTION_TIMEOUT_SECONDS,
     DEFAULT_SCRIPT_SIZE_LIMIT,
+    ingest_langgraph_script,
 )
 from orcheo.models.credential_scope import CredentialAccessContext
 from orcheo.sandbox.broker import (
@@ -38,7 +39,11 @@ from orcheo.sandbox.broker import (
 )
 from orcheo.sandbox.config import SandboxSettings
 from orcheo.sandbox.errors import SandboxError
-from orcheo.sandbox.launcher import SandboxedProcessLauncher
+from orcheo.sandbox.launcher import (
+    LocalProcessLauncher,
+    ProcessLauncher,
+    SandboxedProcessLauncher,
+)
 from orcheo.sandbox.manager import SandboxRuntimeManager
 from orcheo.sandbox.remote import (
     RemoteContainerRuntime,
@@ -48,17 +53,66 @@ from orcheo.sandbox.remote import (
 )
 from orcheo.sandbox.workflow import (
     TRUSTED_NODE_TYPES,
+    WorkflowRunResult,
     WorkflowRunSpec,
     WorkflowSandboxDispatcher,
 )
+from orcheo.sandbox.workflow_runner import run_in_subprocess
 from orcheo_backend.app.dependencies import get_vault
 
 
 logger = logging.getLogger(__name__)
 
+_DEV_ENV_VALUES: frozenset[str] = frozenset({"development", "dev", "local"})
+_TRUTHY_VALUES: frozenset[str] = frozenset({"1", "true", "yes", "on"})
+_FALSEY_VALUES: frozenset[str] = frozenset({"0", "false", "no", "off"})
+
 
 class SandboxRuntimeNotConfiguredError(SandboxError):
     """Raised when sandbox primitives are requested without configuration."""
+
+
+class _DisabledWorkflowDispatcher:
+    """Dispatcher used when runtime sandboxing is explicitly disabled."""
+
+    def should_sandbox(self, spec: WorkflowRunSpec) -> bool:  # noqa: ARG002
+        return False
+
+    async def dispatch(self, spec: WorkflowRunSpec) -> WorkflowRunResult:
+        """Run the workflow in-process with no sandbox lease."""
+        try:
+            result = run_in_subprocess(
+                spec.workflow_definition,
+                spec.inputs,
+                runnable_config=spec.runnable_config,
+                state_config=spec.state_config,
+                run_id=spec.run_id,
+                workspace_id=spec.workspace_id,
+                spawn=False,
+            )
+        except Exception as exc:  # noqa: BLE001 - mirror sandbox failure shaping
+            detail = str(exc).strip()
+            error_message = (
+                f"{type(exc).__name__}: {detail}"
+                if detail
+                else f"{type(exc).__name__} (no message)"
+            )
+            return WorkflowRunResult(
+                run_id=spec.run_id,
+                status="failed",
+                outputs={},
+                error=error_message,
+            )
+
+        return WorkflowRunResult(
+            run_id=str(result.get("run_id", spec.run_id)),
+            status=str(result.get("status", "failed")),
+            outputs=dict(result.get("outputs") or {}),
+            error=result.get("error"),
+        )
+
+
+_WorkflowDispatcher = WorkflowSandboxDispatcher | _DisabledWorkflowDispatcher
 
 
 class _SandboxBootstrap:
@@ -67,16 +121,39 @@ class _SandboxBootstrap:
     def __init__(self) -> None:
         self._lock = Lock()
         self._manager: SandboxRuntimeManager | None = None
-        self._launcher: SandboxedProcessLauncher | None = None
-        self._dispatcher: WorkflowSandboxDispatcher | None = None
+        self._launcher: ProcessLauncher | None = None
+        self._dispatcher: _WorkflowDispatcher | None = None
         self._runtime: RemoteContainerRuntime | None = None
         self._exec_backend: RemoteSandboxExec | None = None
         self._runner: RemoteSandboxRunner | None = None
         self._ingestor: RemoteSandboxIngestor | None = None
         self._broker: CredentialBroker | None = None
+        self._sandbox_disabled: bool | None = None
+
+    def _sync_mode(self) -> bool:
+        """Reset cached runtime primitives when the sandbox mode changes."""
+        disabled = is_sandbox_disabled()
+        if self._sandbox_disabled is None:
+            self._sandbox_disabled = disabled
+            return disabled
+
+        if self._sandbox_disabled == disabled:
+            return disabled
+
+        self._manager = None
+        self._launcher = None
+        self._dispatcher = None
+        self._runtime = None
+        self._exec_backend = None
+        self._runner = None
+        self._ingestor = None
+        self._sandbox_disabled = disabled
+        return disabled
 
     def configure(self, broker: CredentialBroker) -> None:
         """Bind the credential broker. Must be called before dispatcher use."""
+        if self._sync_mode():
+            return
         self._control_token()
         with self._lock:
             self._broker = broker
@@ -113,8 +190,13 @@ class _SandboxBootstrap:
             raise SandboxRuntimeNotConfiguredError(msg)
         return token
 
-    def launcher(self) -> SandboxedProcessLauncher:
+    def launcher(self) -> ProcessLauncher:
         """Return the shared ``SandboxedProcessLauncher``."""
+        if self._sync_mode():
+            with self._lock:
+                if self._launcher is None:
+                    self._launcher = LocalProcessLauncher()
+                return self._launcher
         with self._lock:
             if self._launcher is None:
                 manager = self._ensure_manager()
@@ -126,8 +208,13 @@ class _SandboxBootstrap:
                 )
             return self._launcher
 
-    def dispatcher(self) -> WorkflowSandboxDispatcher:
+    def dispatcher(self) -> _WorkflowDispatcher:
         """Return the shared ``WorkflowSandboxDispatcher``."""
+        if self._sync_mode():
+            with self._lock:
+                if self._dispatcher is None:
+                    self._dispatcher = _DisabledWorkflowDispatcher()
+                return self._dispatcher
         with self._lock:
             if self._dispatcher is None:
                 if self._broker is None:
@@ -157,7 +244,14 @@ class _SandboxBootstrap:
         max_script_bytes: int | None,
         execution_timeout_seconds: float | None,
     ) -> dict[str, Any]:
-        """Ingest tenant source in a fresh, destroyed-after-use sandbox."""
+        """Ingest tenant source in a fresh sandbox, or locally when disabled."""
+        if self._sync_mode():
+            return ingest_langgraph_script(
+                source,
+                entrypoint=entrypoint,
+                max_script_bytes=max_script_bytes,
+                execution_timeout_seconds=execution_timeout_seconds,
+            )
         with self._lock:
             manager = self._ensure_manager()
             if self._ingestor is None:
@@ -187,12 +281,12 @@ def configure_sandbox(broker: CredentialBroker) -> None:
     _bootstrap.configure(broker)
 
 
-def get_sandbox_launcher() -> SandboxedProcessLauncher:
+def get_sandbox_launcher() -> ProcessLauncher:
     """Return the shared sandbox launcher."""
     return _bootstrap.launcher()
 
 
-def get_sandbox_dispatcher() -> WorkflowSandboxDispatcher:
+def get_sandbox_dispatcher() -> WorkflowSandboxDispatcher | _DisabledWorkflowDispatcher:
     """Return the shared workflow-sandbox dispatcher."""
     return _bootstrap.dispatcher()
 
@@ -205,7 +299,7 @@ async def ingest_sandboxed_script(
     max_script_bytes: int | None = DEFAULT_SCRIPT_SIZE_LIMIT,
     execution_timeout_seconds: float | None = DEFAULT_EXECUTION_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    """Build the stored graph payload without executing tenant source locally."""
+    """Build the stored graph payload using sandbox or local fallback."""
     return await _bootstrap.ingest_script(
         workspace_id=workspace_id,
         source=source,
@@ -326,6 +420,8 @@ def ensure_sandbox_configured() -> None:
     Safe to call from any entry point — the underlying bootstrap stores a
     single broker reference behind a lock, so repeated calls are no-ops.
     """
+    if is_sandbox_disabled():
+        return
     if _bootstrap._broker is None:  # noqa: SLF001 — module-private cache
         configure_sandbox(build_credential_broker())
 
@@ -342,3 +438,31 @@ def run_uses_trusted_nodes_only(node_types: Iterable[str]) -> bool:
     if not types:
         return False
     return all(node_type in TRUSTED_NODE_TYPES for node_type in types)
+
+
+def is_sandbox_disabled() -> bool:
+    """Return True when runtime sandboxing is disabled for this process."""
+    explicit = _parse_bool_env(os.getenv("ORCHEO_SANDBOX_DISABLED"))
+    if explicit is not None:
+        return explicit
+
+    current_env = (os.getenv("ORCHEO_ENV") or os.getenv("NODE_ENV") or "").strip()
+    if current_env.lower() in _DEV_ENV_VALUES:
+        return True
+
+    container_runtime = os.getenv("ORCHEO_CONTAINER_RUNTIME", "").strip().lower()
+    return container_runtime == "runc"
+
+
+def _parse_bool_env(value: str | None) -> bool | None:
+    """Parse a tri-state boolean env var."""
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    if normalized in _TRUTHY_VALUES:
+        return True
+    if normalized in _FALSEY_VALUES:
+        return False
+    return None
