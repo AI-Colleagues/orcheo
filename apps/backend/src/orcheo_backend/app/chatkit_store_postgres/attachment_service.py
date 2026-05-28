@@ -10,6 +10,7 @@ import asyncio
 import dataclasses
 import hashlib
 import logging
+import os
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -18,6 +19,7 @@ from uuid import uuid4
 from orcheo.runtime.attachments import (
     AttachmentResolver,
     AttachmentScope,
+    AttachmentUploader,
 )
 from orcheo_backend.app.chatkit_store_postgres.blob_backends import BlobBackend
 from orcheo_backend.app.chatkit_store_postgres.utils import compact_json
@@ -394,6 +396,55 @@ class AttachmentService:
             return True
         return False
 
+    async def load_attachment_bytes_public(
+        self,
+        attachment_id: str,
+    ) -> _AttachmentPayloadImpl:
+        """Return attachment content by id without scope enforcement.
+
+        Intended for the unauthenticated download endpoint.  Security relies on
+        the attachment id being unguessable (``atc_`` + 32 hex chars).
+        """
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT a.id, a.name, a.mime_type, a.size_bytes, a.sha256,
+                       a.blob_backend, a.blob_key, a.storage_path
+                  FROM chat_attachments a
+                 WHERE a.id = %s
+                """,
+                (attachment_id,),
+            )
+            row = await cursor.fetchone()
+
+        if row is None:
+            raise AttachmentNotFoundError(attachment_id)
+
+        blob_backend = row.get("blob_backend") or None
+        blob_key = row.get("blob_key") or None
+        storage_path = row.get("storage_path") or None
+        content = await self._load_blob(
+            attachment_id, blob_backend, storage_path=storage_path, blob_key=blob_key
+        )
+
+        stored_sha256 = row.get("sha256") or ""
+        if stored_sha256 and _sha256_hex(content) != stored_sha256:
+            logger.error(
+                "SHA-256 mismatch for attachment %s — stored %s",
+                attachment_id,
+                stored_sha256,
+            )
+            raise AttachmentNotFoundError(attachment_id)
+
+        return _AttachmentPayloadImpl(
+            id=row["id"],
+            name=row["name"],
+            mime_type=row["mime_type"],
+            size_bytes=row.get("size_bytes") or len(content),
+            sha256=stored_sha256,
+            content=content,
+        )
+
     # ------------------------------------------------------------------
     # Delete
     # ------------------------------------------------------------------
@@ -594,6 +645,46 @@ class _ScopedResolver:
         return await self._service.load_attachment_bytes(attachment_id, self._scope)
 
 
+def _resolve_download_base_url() -> str:
+    """Return the base URL used to build attachment download links.
+
+    Reads ``ORCHEO_API_BASE_URL`` from the environment (e.g.
+    ``https://api.example.com``).  Falls back to an empty string so that
+    callers receive a root-relative path when the variable is not set.
+    """
+    return os.environ.get("ORCHEO_API_BASE_URL", "").rstrip("/")
+
+
+class _ScopedUploader:
+    """Adapts AttachmentService to the AttachmentUploader protocol for a fixed scope."""
+
+    def __init__(self, service: AttachmentService, scope: _AttachmentScopeImpl) -> None:
+        self._service = service
+        self._scope = scope
+
+    async def upload_attachment(
+        self,
+        content: bytes,
+        name: str,
+        mime_type: str,
+    ) -> tuple[str, str]:
+        attachment_id, _ = await self._service.save_attachment(
+            workspace_id=self._scope.workspace_id,
+            workflow_id=self._scope.workflow_id or "",
+            thread_id=self._scope.thread_id,
+            upload_session_id=self._scope.upload_session_id,
+            auth_mode="workflow",
+            actor_subject=None,
+            attachment_type="file",
+            name=name,
+            mime_type=mime_type,
+            content=content,
+        )
+        base = _resolve_download_base_url()
+        download_url = f"{base}/api/chatkit/attachments/{attachment_id}"
+        return attachment_id, download_url
+
+
 def build_attachment_scope(
     *,
     workspace_id: str,
@@ -618,8 +709,17 @@ def build_scoped_resolver(
     return _ScopedResolver(service, scope)
 
 
-# Ensure _ScopedResolver satisfies the protocol
+def build_scoped_uploader(
+    service: AttachmentService,
+    scope: _AttachmentScopeImpl,
+) -> _ScopedUploader:
+    """Create an AttachmentUploader bound to *scope* for injection into workflows."""
+    return _ScopedUploader(service, scope)
+
+
+# Ensure protocol conformance at import time
 _resolver_check = cast(AttachmentResolver, _ScopedResolver.__new__(_ScopedResolver))
+_uploader_check = cast(AttachmentUploader, _ScopedUploader.__new__(_ScopedUploader))
 
 
 __all__ = [
@@ -627,4 +727,5 @@ __all__ = [
     "AttachmentService",
     "build_attachment_scope",
     "build_scoped_resolver",
+    "build_scoped_uploader",
 ]

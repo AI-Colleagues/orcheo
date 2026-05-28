@@ -912,6 +912,69 @@ async def upload_chatkit_file(  # noqa: C901
         ) from exc
 
 
+@router.get("/chatkit/attachments/{attachment_id}", include_in_schema=False)
+async def download_chatkit_attachment(
+    attachment_id: str,
+    request: Request,  # noqa: ARG001  # kept for middleware / logging consistency
+) -> Response:
+    """Serve a workflow-produced attachment by id.
+
+    No session authentication is required.  Security relies on the attachment
+    id being unguessable (``atc_`` + 32 hex chars of UUID4).  This matches the
+    security model of presigned object-storage URLs.
+    """
+    server = _resolve_chatkit_server()
+    attachment_service = getattr(server.store, "attachment_service", None)
+    if attachment_service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "message": "Attachment storage is not available.",
+                "code": "chatkit.attachments.unavailable",
+            },
+        )
+
+    ensure_initialized = getattr(server.store, "_ensure_initialized", None)
+    if callable(ensure_initialized):
+        initialized = ensure_initialized()
+        if inspect.isawaitable(initialized):
+            await initialized
+
+    from orcheo_backend.app.chatkit_store_postgres.attachment_service import (
+        AttachmentNotFoundError,
+    )
+
+    try:
+        payload = await attachment_service.load_attachment_bytes_public(attachment_id)
+    except AttachmentNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "message": "Attachment not found.",
+                "code": "chatkit.attachments.not_found",
+            },
+        ) from None
+    except Exception as exc:
+        logger.error(
+            "Failed to load ChatKit attachment for download",
+            extra={"attachment_id": attachment_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "message": "Failed to retrieve attachment.",
+                "code": "chatkit.attachments.load_error",
+            },
+        ) from exc
+
+    safe_name = _sanitize_filename(payload.name) or "download"
+    return Response(
+        content=payload.content,
+        media_type=payload.mime_type or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )
+
+
 __all__ = ["router"]
 
 

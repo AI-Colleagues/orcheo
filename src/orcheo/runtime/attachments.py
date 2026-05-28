@@ -51,4 +51,34 @@ class AttachmentResolver(Protocol):
         ...
 
 
-__all__ = ["AttachmentPayload", "AttachmentResolver", "AttachmentScope"]
+@runtime_checkable
+class AttachmentUploader(Protocol):
+    """Contract for uploading file content from a workflow to blob storage.
+
+    The backend implements this and injects an instance via
+    ``RunnableConfig["configurable"]["attachment_uploader"]``.  Scope is fixed
+    at injection time; callers supply only content and metadata.
+
+    Returns ``(attachment_id, download_url)`` so callers can embed the URL
+    directly in assistant messages without knowing the backend topology.
+    """
+
+    async def upload_attachment(
+        self,
+        content: bytes,
+        name: str,
+        mime_type: str,
+    ) -> tuple[str, str]:
+        """Persist *content* and return ``(attachment_id, download_url)``.
+
+        Raises on storage failure.
+        """
+        ...
+
+
+__all__ = [
+    "AttachmentPayload",
+    "AttachmentResolver",
+    "AttachmentScope",
+    "AttachmentUploader",
+]

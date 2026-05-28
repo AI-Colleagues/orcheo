@@ -33,6 +33,7 @@ from orcheo_backend.app.chatkit_store_postgres.attachment_service import (
     AttachmentService,
     build_attachment_scope,
     build_scoped_resolver,
+    build_scoped_uploader,
 )
 from orcheo_backend.app.dependencies import (
     get_external_agent_runtime_store,
@@ -355,9 +356,11 @@ class WorkflowExecutor:
             upload_session_id=upload_session_id,
         )
         resolver = build_scoped_resolver(self._attachment_service, scope)
+        uploader = build_scoped_uploader(self._attachment_service, scope)
         return {
             "attachment_resolver": resolver,
             "attachment_scope": scope,
+            "attachment_uploader": uploader,
         }
 
     @staticmethod

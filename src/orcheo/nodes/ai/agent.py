@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 _STATE_CONFIG_EXCLUDED_KEYS = {
     "attachment_resolver",
     "attachment_scope",
+    "attachment_uploader",
 }
 
 
