@@ -83,6 +83,9 @@ async def _run_tool_graph(
             if not k.startswith("__") and k not in _STATE_CONFIG_EXCLUDED_KEYS
         }
         payload = {**payload, "config": {"configurable": configurable}}
+        workspace_id = configurable.get("workspace_id")
+        if isinstance(workspace_id, str) and workspace_id.strip():
+            payload = {**payload, "workspace_id": workspace_id.strip()}
 
     if progress_callback is None or config is None:
         if config is None:
@@ -955,6 +958,12 @@ class AgentNode(AINode):
 
         current_messages = self._build_messages(state, config)
         messages = list(current_messages)
+        runtime_config = dict(config or {})
+        configurable = dict(runtime_config.get("configurable") or {})
+        workspace_id = state.get("workspace_id") if isinstance(state, Mapping) else None
+        if isinstance(workspace_id, str) and workspace_id.strip():
+            configurable.setdefault("workspace_id", workspace_id.strip())
+        runtime_config["configurable"] = configurable
 
         history_store: Any | None = None
         history_namespace: tuple[str, ...] = ()
@@ -1004,8 +1013,11 @@ class AgentNode(AINode):
 
         # Execute agent with normalized messages as input
         payload: dict[str, Any] = {"messages": messages}
-        with _ai_attr("tool_execution_context")(config):
-            result = await agent.ainvoke(payload, config)  # type: ignore[arg-type,call-overload]
+        with _ai_attr("tool_execution_context")(runtime_config):
+            result = await agent.ainvoke(  # type: ignore[arg-type,call-overload]
+                payload,
+                runtime_config,
+            )
         if isinstance(result, Mapping):  # pragma: no branch
             self._set_trace_metadata_for_run(
                 _llm_trace_metadata(self.ai_model, model=model, result=result)

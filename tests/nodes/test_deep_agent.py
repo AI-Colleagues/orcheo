@@ -506,6 +506,44 @@ async def test_run_invokes_deep_agent(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_propagates_workspace_id_to_tool_runtime(tmp_path: Path) -> None:
+    """Nested workflow tools should inherit the workspace id in runtime config."""
+    mock_agent = AsyncMock()
+    mock_agent.ainvoke.return_value = {"messages": []}
+    captured_runtime_config: dict[str, object] = {}
+
+    with (
+        patch("orcheo.nodes.ai.deep_agent.create_deep_agent", return_value=mock_agent),
+        patch("orcheo.nodes.ai.deep_agent.MultiServerMCPClient") as mock_mcp,
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
+        patch(
+            "orcheo.nodes.ai.deep_agent.tool_execution_context",
+            side_effect=lambda cfg: (
+                captured_runtime_config.update(dict(cfg or {}))
+                or contextlib.nullcontext()
+            ),
+        ),
+    ):
+        mock_mcp_instance = AsyncMock()
+        mock_mcp_instance.get_tools.return_value = []
+        mock_mcp.return_value = mock_mcp_instance
+
+        node = DeepAgentNode(
+            name="test",
+            ai_model="openai:gpt-4o",
+            input_query="Research AI agents.",
+        )
+        state = State({"workspace_id": "workspace-1"})
+        await node.run(state, RunnableConfig())
+
+    assert captured_runtime_config["configurable"]["workspace_id"] == "workspace-1"
+    assert (
+        mock_agent.ainvoke.await_args.kwargs["config"]["configurable"]["workspace_id"]
+        == "workspace-1"
+    )
+
+
+@pytest.mark.asyncio
 async def test_run_passes_model_string_without_kwargs(tmp_path: Path) -> None:
     """run() passes model as string when no model_kwargs are set."""
     mock_agent = AsyncMock()

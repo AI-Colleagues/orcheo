@@ -257,12 +257,18 @@ class DeepAgentNode(AINode):
 
         messages = self._build_messages(state)
         payload: dict[str, Any] = {"messages": messages}
+        runtime_config = dict(config or {})
+        configurable = dict(runtime_config.get("configurable") or {})
+        workspace_id = state.get("workspace_id") if isinstance(state, dict) else None
+        if isinstance(workspace_id, str) and workspace_id.strip():
+            configurable.setdefault("workspace_id", workspace_id.strip())
+        runtime_config["configurable"] = configurable
 
-        with tool_execution_context(config):
+        with tool_execution_context(runtime_config):
             result = await agent.ainvoke(
                 payload,  # type: ignore[arg-type]
                 config={
-                    **(config or {}),
+                    **runtime_config,
                     "recursion_limit": self.max_iterations,
                 },
             )

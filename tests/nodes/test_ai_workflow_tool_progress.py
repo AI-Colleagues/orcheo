@@ -7,6 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 from orcheo.graph.state import State
+from orcheo.nodes.base import TaskNode
 from orcheo.nodes.ai.tools.context import (
     tool_execution_context,
     tool_progress_context,
@@ -120,6 +121,42 @@ async def test_run_tool_graph_without_progress_but_with_config() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_tool_graph_preserves_attachment_runtime_config() -> None:
+    """Workflow-tool nodes should see attachment runtime objects in config."""
+    from orcheo.nodes.ai import _run_tool_graph
+
+    captured: dict[str, Any] = {}
+
+    class CaptureNode(TaskNode):
+        async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+            captured["configurable"] = dict((config or {}).get("configurable") or {})
+            return {"ok": True}
+
+    graph = StateGraph(State)
+    graph.add_node("capture", CaptureNode(name="capture"))
+    graph.add_edge(START, "capture")
+    graph.add_edge("capture", END)
+    compiled = graph.compile()
+
+    class FakeResolver:
+        pass
+
+    config: RunnableConfig = {
+        "configurable": {
+            "thread_id": "tool-test",
+            "attachment_resolver": FakeResolver(),
+            "attachment_scope": object(),
+        }
+    }
+
+    with tool_execution_context(config):
+        await _run_tool_graph(compiled, {"inputs": {}, "results": {}, "messages": []})
+
+    assert "attachment_resolver" in captured["configurable"]
+    assert "attachment_scope" in captured["configurable"]
+
+
+@pytest.mark.asyncio
 async def test_run_tool_graph_propagates_config_into_state() -> None:
     """Config from tool_execution_context should appear in sub-workflow state."""
     from orcheo.nodes.ai import _run_tool_graph
@@ -151,6 +188,38 @@ async def test_run_tool_graph_propagates_config_into_state() -> None:
     # Only the configurable portion is stored (full RunnableConfig is not
     # msgpack-serializable due to Runtime/callback objects in checkpoints).
     assert captured_states[0].get("config") == {"configurable": config["configurable"]}
+
+
+@pytest.mark.asyncio
+async def test_run_tool_graph_propagates_workspace_id_into_state() -> None:
+    """Workspace id must be visible to nested workflow state helpers."""
+    from orcheo.nodes.ai import _run_tool_graph
+
+    captured_states: list[dict[str, Any]] = []
+
+    graph = StateGraph(State)
+
+    def capture_node(state: State) -> dict[str, Any]:
+        captured_states.append(dict(state))
+        return {}
+
+    graph.add_node("capture", capture_node)
+    graph.add_edge(START, "capture")
+    graph.add_edge("capture", END)
+    compiled = graph.compile()
+
+    config: RunnableConfig = {
+        "configurable": {
+            "workspace_id": "workspace-123",
+            "thread_id": "tool-test",
+        }
+    }
+
+    with tool_execution_context(config):
+        await _run_tool_graph(compiled, {"inputs": {}, "results": {}, "messages": []})
+
+    assert captured_states, "Node was not executed"
+    assert captured_states[0]["workspace_id"] == "workspace-123"
 
 
 @pytest.mark.asyncio
