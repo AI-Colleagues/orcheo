@@ -179,6 +179,7 @@ def create_sandbox_namespace() -> dict[str, Any]:
             "reversed": builtins.reversed,
             "max": builtins.max,
             "min": builtins.min,
+            "enumerate": builtins.enumerate,
             "type": type,
         }
     )
