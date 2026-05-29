@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
 from orcheo.nodes.ai import AgentReplyExtractorNode
@@ -116,3 +116,56 @@ async def test_extractor_returns_fallback_for_empty_messages() -> None:
     }
     result = await node.run(state, RunnableConfig())
     assert result["agent_reply"] == node.fallback_message
+
+
+@pytest.mark.asyncio
+async def test_extractor_returns_trailing_tool_message() -> None:
+    """A turn ending on a ToolMessage (return_direct) surfaces its output verbatim."""
+    node = AgentReplyExtractorNode(name="extractor")
+    state: State = {
+        "messages": [
+            HumanMessage(content="run it"),
+            AIMessage(content="", tool_calls=[]),
+            ToolMessage(content="# Codebook\n...", tool_call_id="c1", name="gen"),
+        ],
+        "inputs": {},
+        "results": {},
+        "structured_response": None,
+    }
+    result = await node.run(state, RunnableConfig())
+    assert result == {"agent_reply": "# Codebook\n..."}
+
+
+@pytest.mark.asyncio
+async def test_extractor_prefers_trailing_ai_over_earlier_tool() -> None:
+    """Normal turns ending on an AI message keep the assistant reply (unchanged)."""
+    node = AgentReplyExtractorNode(name="extractor")
+    state: State = {
+        "messages": [
+            HumanMessage(content="q"),
+            ToolMessage(content="raw tool output", tool_call_id="c1", name="t"),
+            AIMessage(content="Here is my summary."),
+        ],
+        "inputs": {},
+        "results": {},
+        "structured_response": None,
+    }
+    result = await node.run(state, RunnableConfig())
+    assert result == {"agent_reply": "Here is my summary."}
+
+
+@pytest.mark.asyncio
+async def test_extractor_returns_trailing_dict_tool_message() -> None:
+    """Dict-style trailing tool message also surfaces verbatim."""
+    node = AgentReplyExtractorNode(name="extractor")
+    state: State = {
+        "messages": [
+            {"role": "user", "content": "go"},
+            {"role": "tool", "content": "report text"},
+        ],
+        "inputs": {},
+        "results": {},
+        "structured_response": None,
+    }
+    result = await node.run(state, RunnableConfig())
+    assert result == {"agent_reply": "report text"}

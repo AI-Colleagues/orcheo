@@ -127,6 +127,7 @@ def _create_workflow_tool_func(
     description: str,
     args_schema: type[BaseModel] | None,
     output_path: str | None = None,
+    return_direct: bool = False,
 ) -> StructuredTool:
     """Create a StructuredTool from a compiled workflow graph.
 
@@ -139,6 +140,8 @@ def _create_workflow_tool_func(
         description: Tool description
         args_schema: Optional Pydantic model for tool arguments
         output_path: Optional dotted path selecting the final tool payload
+        return_direct: When True, end the agent loop after this tool runs and
+            return its output to the user verbatim
 
     Returns:
         StructuredTool instance wrapping the workflow
@@ -167,6 +170,7 @@ def _create_workflow_tool_func(
         name=name,
         description=description,
         args_schema=args_schema,
+        return_direct=return_direct,
     )
 
 
@@ -228,6 +232,12 @@ class WorkflowTool(BaseModel):
     """Input schema for the tool."""
     output_path: str | None = None
     """Optional dotted path selecting the value returned to the caller."""
+    return_direct: bool = False
+    """When True, the tool's output is returned to the user verbatim and the
+    agent loop ends after the tool runs, instead of letting the model compose
+    (and potentially paraphrase) a follow-up reply. Use for tools whose output
+    *is* the user-facing deliverable. ``AgentReplyExtractorNode`` surfaces the
+    trailing tool message produced in this case."""
     _compiled_graph: SkipJsonSchema[Runnable | None] = None
     """Cached compiled graph to avoid recompilation."""
 
@@ -428,6 +438,7 @@ class AgentNode(AINode):
                 description=wf_tool_def.description,
                 args_schema=wf_tool_def.args_schema,
                 output_path=wf_tool_def.output_path,
+                return_direct=wf_tool_def.return_direct,
             )
             tools.append(tool)
 
@@ -1057,12 +1068,18 @@ class AgentNode(AINode):
     )
 )
 class AgentReplyExtractorNode(TaskNode):
-    """Extract the last assistant message from the agent output.
+    """Extract the final reply from the agent output.
 
     After an :class:`AgentNode` runs, the workflow state contains a
-    ``messages`` list mixing user and assistant turns.  This node scans
-    that list in reverse and returns the most recent assistant reply as
-    plain text.
+    ``messages`` list mixing user, assistant, and tool turns.  This node scans
+    that list in reverse and returns the most recent reply as plain text.
+
+    It returns the most recent assistant message, *or* a trailing tool message
+    when the turn ended on one. A turn ends on a tool message when a tool was
+    marked ``return_direct=True`` (see :class:`WorkflowTool`): the agent loop
+    exits right after the tool, so its output is surfaced verbatim instead of a
+    model-composed paraphrase. In normal turns the last message is the
+    assistant reply, so this preserves existing behaviour.
     """
 
     fallback_message: str = Field(
@@ -1071,15 +1088,19 @@ class AgentReplyExtractorNode(TaskNode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Return ``{"agent_reply": "..."}`` from the last AI message."""
+        """Return ``{"agent_reply": "..."}`` from the last assistant/tool message."""
         messages = state.get("messages", [])
         for msg in reversed(messages):
             if isinstance(msg, dict):
-                if msg.get("role") == "assistant":
+                if msg.get("role") in ("assistant", "tool"):
                     content = msg.get("content", "")
                     if content:
                         return {"agent_reply": str(content)}
-            elif isinstance(msg, BaseMessage) and msg.type == "ai" and msg.content:
+            elif (
+                isinstance(msg, BaseMessage)
+                and msg.type in ("ai", "tool")
+                and msg.content
+            ):
                 content = msg.content
                 return {
                     "agent_reply": content if isinstance(content, str) else str(content)
