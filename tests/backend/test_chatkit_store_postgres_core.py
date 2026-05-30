@@ -247,7 +247,7 @@ async def test_postgres_extract_title_from_request_branches() -> None:
 
     context = {"chatkit_request": FakeRequest()}
     blank_context = {"chatkit_request": BlankRequest()}
-    assert _extract_title_from_request(context) == "Title from request"
+    assert _extract_title_from_request(context) == "Title from request should trim"
     assert _extract_title_from_request(blank_context) is None
 
 

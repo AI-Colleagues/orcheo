@@ -197,7 +197,7 @@ async def test_in_memory_extract_title_from_request_branches() -> None:
         "chatkit_request": BlankRequest(),  # type: ignore[typeddict-item]
     }
 
-    assert _extract_title_from_request(context) == "Title from request"
+    assert _extract_title_from_request(context) == "Title from request should trim"
     assert _extract_title_from_request(blank_context) is None
 
 
@@ -273,7 +273,7 @@ async def test_in_memory_store_save_thread_sets_title_from_first_user_message() 
     await store.save_thread(thread, context)
 
     loaded = await store.load_thread("thr_title", context)
-    assert loaded.title == "Hello, world! This i"
+    assert loaded.title == "Hello, world! This is long"
 
 
 @pytest.mark.asyncio
