@@ -90,3 +90,20 @@ export function listenToSystemTheme(
     mediaQuery.removeEventListener("change", handler);
   };
 }
+
+/**
+ * Keep the applied theme in sync with the OS color scheme while the stored
+ * preference is "system". Without this, switching the OS between light and
+ * dark only takes effect after a full page reload.
+ * @returns Cleanup function to remove the listener
+ */
+export function watchSystemTheme(): () => void {
+  return listenToSystemTheme(() => {
+    const savedTheme =
+      (localStorage.getItem("theme") as Theme | null) ?? "system";
+
+    if (savedTheme === "system") {
+      applyTheme("system");
+    }
+  });
+}
