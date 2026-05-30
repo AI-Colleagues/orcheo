@@ -4,7 +4,9 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
 import { Button } from "@/design-system/ui/button";
@@ -36,6 +38,12 @@ const ChatKitSurfaceLazy = lazy(() =>
 const MINIMAP_SELECTOR = ".react-flow__panel.react-flow__minimap";
 const DEFAULT_FLOATING_OFFSET = 96;
 const MINIMAP_GAP = 16;
+
+const DEFAULT_PANEL_WIDTH = 448;
+const DEFAULT_PANEL_HEIGHT = 520;
+const MIN_PANEL_WIDTH = 320;
+const MIN_PANEL_HEIGHT = 360;
+const PANEL_VIEWPORT_MARGIN = 24;
 
 interface CanvasChatBubbleProps {
   title: string;
@@ -87,6 +95,17 @@ export function CanvasChatBubble({
   const [shouldLoadChat, setShouldLoadChat] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const [floatingOffset, setFloatingOffset] = useState(DEFAULT_FLOATING_OFFSET);
+  const [panelSize, setPanelSize] = useState({
+    width: DEFAULT_PANEL_WIDTH,
+    height: DEFAULT_PANEL_HEIGHT,
+  });
+  const resizeStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startWidth: number;
+    startHeight: number;
+  } | null>(null);
   const colorScheme = useColorScheme();
   const modelOptions = useMemo(
     () => buildModelOptions(supportedModels),
@@ -167,6 +186,75 @@ export function CanvasChatBubble({
       bottom: floatingOffset,
     }),
     [floatingOffset],
+  );
+
+  const handleResizePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      // Only react to the primary (left) button.
+      if (event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
+      // Route every subsequent pointer event to this element until release, so
+      // fast moves over the ChatKit iframe / off-window can't drop the pointerup.
+      event.currentTarget.setPointerCapture(event.pointerId);
+      resizeStateRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startWidth: panelSize.width,
+        startHeight: panelSize.height,
+      };
+    },
+    [panelSize],
+  );
+
+  const handleResizePointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const state = resizeStateRef.current;
+      if (!state || event.pointerId !== state.pointerId) {
+        return;
+      }
+
+      // Panel is anchored bottom-right, so dragging the handle up/left grows it.
+      const deltaX = state.startX - event.clientX;
+      const deltaY = state.startY - event.clientY;
+
+      const maxWidth =
+        typeof window === "undefined"
+          ? Number.POSITIVE_INFINITY
+          : window.innerWidth - PANEL_VIEWPORT_MARGIN * 2;
+      const maxHeight =
+        typeof window === "undefined"
+          ? Number.POSITIVE_INFINITY
+          : window.innerHeight - PANEL_VIEWPORT_MARGIN * 2;
+
+      const nextWidth = Math.min(
+        Math.max(state.startWidth + deltaX, MIN_PANEL_WIDTH),
+        Math.max(maxWidth, MIN_PANEL_WIDTH),
+      );
+      const nextHeight = Math.min(
+        Math.max(state.startHeight + deltaY, MIN_PANEL_HEIGHT),
+        Math.max(maxHeight, MIN_PANEL_HEIGHT),
+      );
+
+      setPanelSize({ width: nextWidth, height: nextHeight });
+    },
+    [],
+  );
+
+  const handleResizePointerEnd = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const state = resizeStateRef.current;
+      if (!state || event.pointerId !== state.pointerId) {
+        return;
+      }
+      resizeStateRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    [],
   );
 
   const handleFabClick = () => {
@@ -303,9 +391,38 @@ export function CanvasChatBubble({
 
       {isPanelOpen && (
         <div
-          className="fixed right-6 z-50 flex h-[520px] w-full max-w-md flex-col rounded-2xl border border-border bg-card text-foreground shadow-2xl"
-          style={floatingPositionStyle}
+          className="fixed right-6 z-50 flex max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-border bg-card text-foreground shadow-2xl"
+          style={{
+            ...floatingPositionStyle,
+            width: panelSize.width,
+            height: panelSize.height,
+          }}
         >
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize chat window"
+            onPointerDown={handleResizePointerDown}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={handleResizePointerEnd}
+            onPointerCancel={handleResizePointerEnd}
+            className="group absolute left-0 top-0 z-10 flex h-7 w-7 cursor-nwse-resize touch-none items-center justify-center rounded-tl-2xl"
+          >
+            <span className="pointer-events-none flex h-4 w-4 -translate-x-px -translate-y-px items-center justify-center">
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                className="h-full w-full text-muted-foreground/40 transition-colors group-hover:text-muted-foreground"
+              >
+                <path
+                  d="M14 2H5a3 3 0 0 0-3 3v9"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </span>
+          </div>
           <div className="flex-1 overflow-hidden px-2 py-2">
             {statusView}
             {sessionStatus !== "error" && shouldLoadChat && (
