@@ -588,25 +588,41 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         workspace_id = context.get("workspace_id") if context else None
         if not workspace_id:
             return
+        attachment_service = getattr(self.store, "attachment_service", None)
+        attachment_ids = self._attachment_ids_from_user_item(user_item)
+
+        # Link every attachment referenced by the message directly to the thread.
+        # This covers multi-file uploads where each file has its own upload
+        # session, so a single common session id cannot be resolved and the
+        # session-based link below would otherwise be skipped. Linking sets the
+        # attachments' thread_id, which the workflow attachment resolver matches
+        # against its scope when loading bytes.
+        if attachment_ids and attachment_service is not None:
+            try:
+                await attachment_service.link_attachments_to_thread(
+                    attachment_ids,
+                    str(thread.id),
+                    str(workspace_id),
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to link attachments to thread %s",
+                    thread.id,
+                )
+
         upload_session_id = context.get("upload_session_id") if context else None
-        if not upload_session_id and user_item is not None:
-            attachment_ids = self._attachment_ids_from_user_item(user_item)
-            if attachment_ids:
-                attachment_service = getattr(self.store, "attachment_service", None)
-                if attachment_service is not None:
-                    try:
-                        upload_session_id = (
-                            await attachment_service.resolve_upload_session_id(
-                                attachment_ids,
-                                str(workspace_id),
-                                workflow_id=str(context.get("workflow_id") or ""),
-                            )
-                        )
-                    except Exception:
-                        logger.exception(
-                            "Failed to infer upload session for thread %s",
-                            thread.id,
-                        )
+        if not upload_session_id and attachment_ids and attachment_service is not None:
+            try:
+                upload_session_id = await attachment_service.resolve_upload_session_id(
+                    attachment_ids,
+                    str(workspace_id),
+                    workflow_id=str(context.get("workflow_id") or ""),
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to infer upload session for thread %s",
+                    thread.id,
+                )
         if not upload_session_id:
             return
         context["upload_session_id"] = str(upload_session_id)

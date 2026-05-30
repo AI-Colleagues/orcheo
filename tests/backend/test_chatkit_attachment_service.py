@@ -595,6 +595,45 @@ async def test_link_upload_session_returns_row_count() -> None:
     assert count == 3
 
 
+@pytest.mark.asyncio
+async def test_link_attachments_to_thread_returns_row_count() -> None:
+    conn, cursor = _make_fake_conn([])
+    cursor.rowcount = 2
+
+    @asynccontextmanager
+    async def _factory():
+        yield conn
+
+    lock = asyncio.Lock()
+    service = AttachmentService(_factory, lock)
+
+    count = await service.link_attachments_to_thread(
+        ["atc_1", "atc_2"],
+        "thread_1",
+        "ws1",
+    )
+    assert count == 2
+    update_sql, update_params = conn.execute.call_args_list[0][0]
+    assert "UPDATE chat_attachments" in update_sql
+    assert update_params[2] == ["atc_1", "atc_2"]
+
+
+@pytest.mark.asyncio
+async def test_link_attachments_to_thread_skips_query_when_empty() -> None:
+    conn, cursor = _make_fake_conn([])
+
+    @asynccontextmanager
+    async def _factory():
+        yield conn
+
+    lock = asyncio.Lock()
+    service = AttachmentService(_factory, lock)
+
+    count = await service.link_attachments_to_thread(["", "  "], "thread_1", "ws1")
+    assert count == 0
+    conn.execute.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Prune orphaned upload sessions
 # ---------------------------------------------------------------------------

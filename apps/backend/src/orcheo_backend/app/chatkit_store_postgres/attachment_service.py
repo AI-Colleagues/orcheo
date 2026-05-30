@@ -542,6 +542,42 @@ class AttachmentService:
                 )
                 return cursor.rowcount if cursor.rowcount is not None else 0
 
+    async def link_attachments_to_thread(
+        self,
+        attachment_ids: Iterable[str],
+        thread_id: str,
+        workspace_id: str,
+    ) -> int:
+        """Bind specific attachments to a thread id.
+
+        Unlike :meth:`link_upload_session_to_thread`, this links by attachment id
+        so it works when a single message references files uploaded across more
+        than one upload session (a common upload session id cannot be resolved in
+        that case). Returns the number of rows updated.
+        """
+        normalized_ids = [
+            attachment_id.strip()
+            for attachment_id in attachment_ids
+            if attachment_id and attachment_id.strip()
+        ]
+        if not normalized_ids:
+            return 0
+        now = datetime.now(UTC)
+        async with self._lock:
+            async with self._connection() as conn:
+                cursor = await conn.execute(
+                    """
+                    UPDATE chat_attachments
+                       SET thread_id = %s,
+                           linked_at = %s
+                     WHERE id = ANY(%s)
+                       AND workspace_id = %s
+                       AND thread_id IS NULL
+                    """,
+                    (thread_id, now, normalized_ids, workspace_id),
+                )
+                return cursor.rowcount if cursor.rowcount is not None else 0
+
     # ------------------------------------------------------------------
     # Prune orphaned upload sessions
     # ------------------------------------------------------------------

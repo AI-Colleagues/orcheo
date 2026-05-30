@@ -231,6 +231,7 @@ async def test_chatkit_server_infers_upload_session_from_attachment_rows() -> No
     server = create_chatkit_test_server(repository)
 
     attachment_service = MagicMock()
+    attachment_service.link_attachments_to_thread = AsyncMock(return_value=2)
     attachment_service.resolve_upload_session_id = AsyncMock(return_value="ups-123")
     attachment_service.link_upload_session_to_thread = AsyncMock(return_value=2)
     server.store.attachment_service = attachment_service
@@ -256,6 +257,9 @@ async def test_chatkit_server_infers_upload_session_from_attachment_rows() -> No
     await server._link_upload_session(context, thread, user_item)
 
     assert context["upload_session_id"] == "ups-123"
+    attachment_service.link_attachments_to_thread.assert_awaited_once_with(
+        ["atc_1", "atc_2"], thread.id, "ws-1"
+    )
     attachment_service.resolve_upload_session_id.assert_awaited_once_with(
         ["atc_1", "atc_2"], "ws-1", workflow_id="wf-123"
     )
@@ -264,3 +268,51 @@ async def test_chatkit_server_infers_upload_session_from_attachment_rows() -> No
         thread_id=thread.id,
         workspace_id="ws-1",
     )
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_links_multi_session_attachments() -> None:
+    """Attachments uploaded across separate sessions are linked by id.
+
+    When a single message references files from more than one upload session,
+    ``resolve_upload_session_id`` returns ``None`` and the session-based link is
+    skipped. The attachments must still be linked to the thread directly so the
+    workflow attachment resolver can match them by ``thread_id``.
+    """
+    repository = InMemoryWorkflowRepository()
+    server = create_chatkit_test_server(repository)
+
+    attachment_service = MagicMock()
+    attachment_service.link_attachments_to_thread = AsyncMock(return_value=2)
+    attachment_service.resolve_upload_session_id = AsyncMock(return_value=None)
+    attachment_service.link_upload_session_to_thread = AsyncMock(return_value=0)
+    server.store.attachment_service = attachment_service
+
+    thread = ThreadMetadata(
+        id="thr_multi_session",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": "wf-123"},
+    )
+    user_item = UserMessageItem(
+        id="msg_multi_session",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        content=[UserMessageTextContent(type="input_text", text="Code the data")],
+        attachments=[
+            FileAttachment(id="atc_survey", name="survey.csv", mime_type="text/csv"),
+            FileAttachment(
+                id="atc_codebook", name="codebook.csv", mime_type="text/csv"
+            ),
+        ],
+        inference_options=InferenceOptions(model="gpt-4"),
+    )
+    context = {"workspace_id": "ws-1", "workflow_id": "wf-123"}
+
+    await server._link_upload_session(context, thread, user_item)
+
+    attachment_service.link_attachments_to_thread.assert_awaited_once_with(
+        ["atc_survey", "atc_codebook"], thread.id, "ws-1"
+    )
+    # No common session resolves, so the session-based link is never attempted.
+    attachment_service.link_upload_session_to_thread.assert_not_awaited()
+    assert "upload_session_id" not in context
