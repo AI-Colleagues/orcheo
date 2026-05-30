@@ -8,7 +8,7 @@ import re
 import sys
 from collections.abc import Mapping
 from typing import Any, ClassVar, cast
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.graph import StateGraph
@@ -578,12 +578,34 @@ class AgentNode(AINode):
                 if new_messages:
                     messages.extend(new_messages)
 
-            return messages[-self.max_messages :]
+            return self._trim_messages(messages)
 
         inputs = state.get("inputs", {}) if isinstance(state, Mapping) else {}
         messages = self._messages_from_inputs(inputs)
         messages = self._apply_reset_command(messages)
-        return messages[-self.max_messages :]
+        return self._trim_messages(messages)
+
+    def _trim_messages(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        """Trim history to ``max_messages`` without splitting tool round-trips.
+
+        A plain tail slice can keep a ``ToolMessage`` whose parent ``AIMessage``
+        (carrying the matching ``tool_calls``) was dropped, or keep a trailing
+        ``AIMessage`` whose ``tool_calls`` have no following ``ToolMessage``.
+        OpenAI rejects both shapes, so drop the orphans at each end and leave the
+        window starting and ending on a valid boundary.
+        """
+        trimmed = messages[-self.max_messages :]
+        # Drop leading tool results whose parent AIMessage was trimmed away.
+        while trimmed and isinstance(trimmed[0], ToolMessage):
+            trimmed.pop(0)
+        # Drop a trailing assistant turn whose tool calls have no results yet.
+        while (
+            trimmed
+            and isinstance(trimmed[-1], AIMessage)
+            and getattr(trimmed[-1], "tool_calls", None)
+        ):
+            trimmed.pop()
+        return trimmed
 
     def _get_graph_store(self, config: RunnableConfig | None) -> Any | None:
         """Return the runtime graph store when available."""
@@ -1020,7 +1042,9 @@ class AgentNode(AINode):
                             self.max_messages,
                             history_key,
                         )
-                    messages = messages[-self.max_messages :]
+                    messages = self._trim_messages(messages)
+            if history_key is not None:
+                configurable.setdefault("conversation_key", history_key)
 
         # Execute agent with normalized messages as input
         payload: dict[str, Any] = {"messages": messages}

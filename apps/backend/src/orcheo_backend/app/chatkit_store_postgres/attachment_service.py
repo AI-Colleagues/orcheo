@@ -648,11 +648,14 @@ class _ScopedResolver:
 def _resolve_download_base_url() -> str:
     """Return the base URL used to build attachment download links.
 
-    Reads ``ORCHEO_API_BASE_URL`` from the environment (e.g.
-    ``https://api.example.com``).  Falls back to an empty string so that
-    callers receive a root-relative path when the variable is not set.
+    Prefers ``ORCHEO_API_URL`` because that is the documented public backend
+    origin.  ``ORCHEO_API_BASE_URL`` remains as a compatibility fallback for
+    older deployments.  Falls back to an empty string only when neither is set.
     """
-    return os.environ.get("ORCHEO_API_BASE_URL", "").rstrip("/")
+    raw = os.environ.get("ORCHEO_API_URL", "").strip()
+    if not raw:
+        raw = os.environ.get("ORCHEO_API_BASE_URL", "").strip()
+    return raw.rstrip("/")
 
 
 class _ScopedUploader:

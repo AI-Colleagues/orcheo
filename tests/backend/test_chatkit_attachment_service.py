@@ -17,6 +17,7 @@ from orcheo_backend.app.chatkit_store_postgres.attachment_service import (
     _mint_upload_session_id,
     build_attachment_scope,
     build_scoped_resolver,
+    build_scoped_uploader,
 )
 
 
@@ -225,6 +226,48 @@ async def test_save_attachment_populates_details_json_when_omitted() -> None:
     assert details["name"] == "f.txt"
     assert details["mime_type"] == "text/plain"
     assert details["type"] == "file"
+
+
+@pytest.mark.asyncio
+async def test_scoped_uploader_uses_documented_api_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Download URLs should point at the backend API origin, not the Canvas host."""
+    monkeypatch.setenv("ORCHEO_API_URL", "https://api.example.com")
+    monkeypatch.delenv("ORCHEO_API_BASE_URL", raising=False)
+
+    service = MagicMock()
+    service.save_attachment = AsyncMock(return_value=("atc_123", None))
+    scope = build_attachment_scope(workspace_id="ws1", workflow_id="wf1")
+    uploader = build_scoped_uploader(service, scope)
+
+    attachment_id, download_url = await uploader.upload_attachment(
+        b"hello", "doc.txt", "text/plain"
+    )
+
+    assert attachment_id == "atc_123"
+    assert download_url == "https://api.example.com/api/chatkit/attachments/atc_123"
+    service.save_attachment.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_scoped_uploader_keeps_legacy_api_base_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Older deployments that still set ORCHEO_API_BASE_URL continue to work."""
+    monkeypatch.delenv("ORCHEO_API_URL", raising=False)
+    monkeypatch.setenv("ORCHEO_API_BASE_URL", "https://legacy.example.com")
+
+    service = MagicMock()
+    service.save_attachment = AsyncMock(return_value=("atc_456", None))
+    scope = build_attachment_scope(workspace_id="ws1", workflow_id="wf1")
+    uploader = build_scoped_uploader(service, scope)
+
+    _, download_url = await uploader.upload_attachment(
+        b"hello", "doc.txt", "text/plain"
+    )
+
+    assert download_url == "https://legacy.example.com/api/chatkit/attachments/atc_456"
 
 
 # ---------------------------------------------------------------------------
