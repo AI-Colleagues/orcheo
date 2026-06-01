@@ -166,7 +166,7 @@ export interface ApiCandidate {
   handle: string;
   name: string;
   description: string | null;
-  emoji: string | null;
+  avatar: string | null;
   subtitle: string | null;
   script: string;
   config: Record<string, unknown> | null;

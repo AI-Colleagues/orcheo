@@ -86,19 +86,9 @@ const extractAvatarEmoji = (metadata: unknown): string | undefined => {
     return undefined;
   }
 
-  const candidates = [
-    metadata.emoji,
-    metadata.avatar_emoji,
-    metadata.avatarEmoji,
-    isRecord(metadata.template) ? metadata.template.emoji : undefined,
-    isRecord(metadata.template) ? metadata.template.avatarEmoji : undefined,
-  ];
-
-  for (const candidate of candidates) {
-    if (typeof candidate !== "string") {
-      continue;
-    }
-    const normalized = candidate.trim();
+  const value = metadata.avatar;
+  if (typeof value === "string") {
+    const normalized = value.trim();
     if (normalized) {
       return normalized;
     }

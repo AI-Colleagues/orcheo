@@ -1,3 +1,4 @@
+import { seededAvatarId } from "@/assets/avatars";
 import type { Workflow } from "../workflow-types";
 import type { StoredWorkflow } from "../../lib/workflow-storage.types";
 import type {
@@ -11,7 +12,8 @@ export interface CandidateBadgeSpec {
   handle: string;
   subtitle?: string;
   description?: string;
-  emoji?: string;
+  /** Avatar ID ("avatar-01" … "avatar-21"), "random", or absent for a seeded random avatar. */
+  avatar?: string;
   script?: string;
   config?: Record<string, unknown> | null;
   entrypoint?: string | null;
@@ -59,18 +61,23 @@ const buildCandidateWorkflow = (
   const preserveHandle =
     spec.handle && !existingHandles.has(spec.handle) ? spec.handle : undefined;
 
+  const avatarId =
+    spec.avatar && spec.avatar !== "random"
+      ? spec.avatar
+      : seededAvatarId(spec.id);
+
   return {
     id: spec.id,
     handle: preserveHandle,
     name: spec.name,
     description: spec.description,
-    avatarEmoji: spec.emoji ?? undefined,
+    avatarEmoji: avatarId,
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
     owner: {
       id: `${spec.id}-owner`,
       name: spec.name,
-      avatar: spec.emoji ?? "",
+      avatar: "",
     },
     tags: ["template"],
     nodes: [],

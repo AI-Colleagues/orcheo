@@ -93,7 +93,7 @@ beforeEach(() => {
       subtitle: "AI Insights & Analytics",
       description:
         "Detects themes from text data using advanced thematic coding frameworks.",
-      emoji: "👨‍🎓",
+      avatar: "avatar-03",
     },
   ]);
 });
@@ -153,7 +153,7 @@ describe("WorkflowCard", () => {
     expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
   });
 
-  it("uses a generic avatar fallback for colleague workflows without template emoji", () => {
+  it("renders a seeded avatar image for colleague workflows without an explicit avatar", () => {
     const handlers = createHandlers();
 
     render(
@@ -165,17 +165,17 @@ describe("WorkflowCard", () => {
       />,
     );
 
-    expect(screen.getByText("🧑")).toBeInTheDocument();
+    expect(screen.getByRole("img", { hidden: true })).toBeInTheDocument();
   });
 
-  it("renders a stored avatar emoji when one is present on the workflow", () => {
+  it("renders the avatar image when an avatar id is stored on the workflow", () => {
     const handlers = createHandlers();
 
     render(
       <WorkflowCard
         workflow={{
           ...colleagueWorkflow,
-          avatarEmoji: "📣",
+          avatarEmoji: "avatar-05",
         }}
         isTemplate={false}
         workspaceLabel="AI Company"
@@ -183,7 +183,7 @@ describe("WorkflowCard", () => {
       />,
     );
 
-    expect(screen.getByText("📣")).toBeInTheDocument();
+    expect(screen.getByRole("img", { hidden: true })).toBeInTheDocument();
   });
 
   it("renders candidate badge copy and onboard action", async () => {
@@ -215,7 +215,7 @@ describe("WorkflowCard", () => {
     expect(handlers.onUseTemplate).toHaveBeenCalledWith(candidateWorkflow.id);
   });
 
-  it("keeps the candidate emoji after onboarding", () => {
+  it("renders the candidate avatar image after onboarding", () => {
     const handlers = createHandlers();
 
     render(
@@ -227,7 +227,7 @@ describe("WorkflowCard", () => {
       />,
     );
 
-    expect(screen.getByText("👨‍🎓")).toBeInTheDocument();
+    expect(screen.getByRole("img", { hidden: true })).toBeInTheDocument();
   });
 
   it("keeps dropdown transfer actions from triggering navigation", async () => {
