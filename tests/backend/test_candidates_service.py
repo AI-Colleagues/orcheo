@@ -21,6 +21,7 @@ _WORKFLOW_WITH_FRONTMATTER = (
     '# name = "LinkedIn Publisher"\n'
     '# handle = "linkedin_post"\n'
     '# description = "Publishes posts to LinkedIn."\n'
+    '# avatar = "avatar-07"\n'
     '# emoji = "📣"\n'
     '# subtitle = "AI Social Media"\n'
     "# ///\n"
@@ -68,6 +69,7 @@ def test_parse_tarball_extracts_candidate_metadata() -> None:
     assert item.id == "linkedin_post"
     assert item.handle == "linkedin_post"
     assert item.name == "LinkedIn Publisher"
+    assert item.avatar == "avatar-07"
     assert item.emoji == "📣"
     assert item.subtitle == "AI Social Media"
     assert item.description == "Publishes posts to LinkedIn."

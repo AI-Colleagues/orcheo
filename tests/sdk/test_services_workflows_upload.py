@@ -54,6 +54,7 @@ class _DummyFrontmatter:
         description: str | None = None,
         config_path: str | None = None,
         entrypoint: str | None = None,
+        avatar: str | None = None,
         emoji: str | None = None,
     ) -> None:
         self.is_empty = is_empty
@@ -63,6 +64,7 @@ class _DummyFrontmatter:
         self.description = description
         self.config_path = config_path
         self.entrypoint = entrypoint
+        self.avatar = avatar
         self.emoji = emoji
 
 
@@ -75,6 +77,7 @@ def _frontmatter(**overrides: object) -> SimpleNamespace:
         "description": None,
         "config_path": None,
         "entrypoint": None,
+        "avatar": None,
         "emoji": None,
     }
     defaults.update(overrides)
@@ -644,6 +647,87 @@ def test_upload_workflow_data_forwards_frontmatter_emoji(
             }
         )
         assert workflow_config["metadata"] == {"emoji": "📣"}
+        return {"id": workflow_id, "workflow_config": workflow_config}
+
+    _install_workflow_package(
+        monkeypatch=monkeypatch,
+        load_workflow_from_python=load_workflow_from_python,
+        normalize_workflow_name=lambda name: name.strip() if name else None,
+        upload_langgraph_script=upload_langgraph_script,
+        validate_local_path=validate_local_path,
+        load_workflow_frontmatter=load_workflow_frontmatter,
+    )
+    monkeypatch.setattr(
+        upload,
+        "_apply_frontmatter_defaults",
+        lambda **kwargs: (
+            "wf-1",
+            None,
+            "My Workflow",
+            None,
+            "build_graph",
+            {"tags": ["x"]},
+            None,
+        ),
+    )
+
+    result = upload.upload_workflow_data(
+        client=object(),
+        file_path=workflow_path,
+        workflow_id="wf-1",
+        workflow_name="My Workflow",
+        entrypoint="build_graph",
+        runnable_config={"tags": ["x"]},
+        console=_RecordingConsole(),
+    )
+
+    assert len(uploaded_payloads) == 1
+    assert result == {
+        "id": "wf-1",
+        "workflow_config": uploaded_payloads[0]["workflow_config"],
+    }
+
+
+def test_upload_workflow_data_forwards_frontmatter_avatar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow_path = Path("/tmp/workflow.py")
+    uploaded_payloads: list[dict[str, object]] = []
+
+    def validate_local_path(file_path: str | Path, description: str) -> Path:
+        del description
+        return Path(file_path)
+
+    def load_workflow_frontmatter(_path: Path) -> _DummyFrontmatter:
+        return _DummyFrontmatter(is_empty=False, avatar="avatar-07")
+
+    def load_workflow_from_python(_path: Path) -> dict[str, object]:
+        return {
+            "_type": "langgraph_script",
+            "script": "print('hello')",
+        }
+
+    def upload_langgraph_script(
+        state: object,
+        workflow_config: dict[str, object],
+        workflow_id: str | None,
+        workflow_handle: str | None,
+        workflow_description: str | None,
+        path_obj: Path,
+        requested_name: str | None,
+    ) -> dict[str, object]:
+        uploaded_payloads.append(
+            {
+                "state": state,
+                "workflow_config": workflow_config,
+                "workflow_id": workflow_id,
+                "workflow_handle": workflow_handle,
+                "workflow_description": workflow_description,
+                "path_obj": path_obj,
+                "requested_name": requested_name,
+            }
+        )
+        assert workflow_config["metadata"] == {"avatar": "avatar-07"}
         return {"id": workflow_id, "workflow_config": workflow_config}
 
     _install_workflow_package(

@@ -89,6 +89,7 @@ def test_workflow_frontmatter_is_not_empty_when_populated() -> None:
     assert not frontmatter.WorkflowFrontmatter(name="x").is_empty
     assert not frontmatter.WorkflowFrontmatter(description="x").is_empty
     assert not frontmatter.WorkflowFrontmatter(emoji="x").is_empty
+    assert not frontmatter.WorkflowFrontmatter(avatar="x").is_empty
     assert not frontmatter.WorkflowFrontmatter(subtitle="x").is_empty
     assert not frontmatter.WorkflowFrontmatter(notes="x").is_empty
     assert not frontmatter.WorkflowFrontmatter(metadata={"a": "b"}).is_empty
@@ -109,6 +110,7 @@ def test_parse_extracts_all_fields() -> None:
         '# description = "Human summary"\n'
         '# config = "./wf.config.json"\n'
         '# entrypoint = "build_graph"\n'
+        '# avatar = "avatar-07"\n'
         '# emoji = "🤖"\n'
         '# subtitle = "AI Assistant"\n'
         "# ///\n"
@@ -120,6 +122,7 @@ def test_parse_extracts_all_fields() -> None:
     assert fm.description == "Human summary"
     assert fm.config_path == "./wf.config.json"
     assert fm.entrypoint == "build_graph"
+    assert fm.avatar == "avatar-07"
     assert fm.emoji == "🤖"
     assert fm.subtitle == "AI Assistant"
     assert not fm.is_empty

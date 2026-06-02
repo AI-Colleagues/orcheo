@@ -140,6 +140,20 @@ def test_build_ingest_payload_skips_emoji_when_metadata_dict_lacks_valid_emoji()
     assert "emoji" not in payload["metadata"]
 
 
+def test_build_ingest_payload_includes_avatar_when_present() -> None:
+    """The ingest payload should preserve the workflow avatar id."""
+    payload = ingest._build_ingest_payload(
+        script="print('hello')",
+        entrypoint="build_graph",
+        path=Path("/tmp/workflow.py"),
+        workflow_config={
+            "metadata": {"avatar": "avatar-07"},
+        },
+    )
+
+    assert payload["metadata"]["avatar"] == "avatar-07"
+
+
 def test_build_ingest_payload_includes_configurable_schema() -> None:
     """The ingest payload should embed configurable schema metadata when present."""
     payload = ingest._build_ingest_payload(

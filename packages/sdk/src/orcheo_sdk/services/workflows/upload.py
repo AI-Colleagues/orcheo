@@ -143,6 +143,30 @@ def _apply_frontmatter_defaults(
     )
 
 
+def _merge_frontmatter_metadata(
+    workflow_config: dict[str, Any],
+    *,
+    emoji: str | None,
+    avatar: str | None,
+) -> None:
+    """Merge frontmatter avatar/emoji metadata into the workflow payload."""
+    if emoji is None and avatar is None:
+        return
+
+    metadata = workflow_config.get("metadata")
+    if isinstance(metadata, dict):
+        merged_metadata = dict(metadata)
+    else:
+        merged_metadata = {}
+
+    if emoji is not None:
+        merged_metadata["emoji"] = emoji
+    if avatar is not None:
+        merged_metadata["avatar"] = avatar
+
+    workflow_config["metadata"] = merged_metadata
+
+
 def upload_workflow_data(
     client: ApiClient,
     file_path: str | Path,
@@ -201,14 +225,11 @@ def upload_workflow_data(
         path_obj,
         load_python=_load_workflow_from_python,
     )
-    if frontmatter.emoji is not None:
-        metadata = workflow_config.get("metadata")
-        if isinstance(metadata, dict):
-            metadata = dict(metadata)
-        else:
-            metadata = {}
-        metadata["emoji"] = frontmatter.emoji
-        workflow_config["metadata"] = metadata
+    _merge_frontmatter_metadata(
+        workflow_config,
+        emoji=frontmatter.emoji,
+        avatar=frontmatter.avatar,
+    )
 
     if workflow_config.get("_type") != "langgraph_script":
         msg = "Only LangGraph Python scripts can be uploaded."
