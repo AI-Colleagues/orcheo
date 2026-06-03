@@ -453,7 +453,7 @@ class AttachmentService:
                         (attachment_id,),
                     )
                     row = await cursor.fetchone()
-                    delete_params = (attachment_id,)
+                    delete_params: tuple[str, ...] = (attachment_id,)
                     delete_sql = "DELETE FROM chat_attachments WHERE id = %s"
                 else:
                     cursor = await conn.execute(

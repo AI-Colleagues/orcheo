@@ -22,9 +22,10 @@ export const CHATKIT_ATTACHMENT_ACCEPT: NonNullable<
   "image/gif": [".gif"],
 };
 
-export const buildChatKitAttachmentOptions = (): ChatKitComposerAttachments => ({
-  enabled: true,
-  accept: CHATKIT_ATTACHMENT_ACCEPT,
-  maxSize: CHATKIT_ATTACHMENT_MAX_SIZE_BYTES,
-  maxCount: CHATKIT_ATTACHMENT_MAX_COUNT,
-});
+export const buildChatKitAttachmentOptions =
+  (): ChatKitComposerAttachments => ({
+    enabled: true,
+    accept: CHATKIT_ATTACHMENT_ACCEPT,
+    maxSize: CHATKIT_ATTACHMENT_MAX_SIZE_BYTES,
+    maxCount: CHATKIT_ATTACHMENT_MAX_COUNT,
+  });

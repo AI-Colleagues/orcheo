@@ -63,9 +63,7 @@ export default function WorkflowCanvas({ workflowId }: WorkflowCanvasProps) {
         }
         setResolvedWorkflowId(undefined);
         setLoadError(
-          error instanceof Error
-            ? error.message
-            : "Unable to load workflow.",
+          error instanceof Error ? error.message : "Unable to load workflow.",
         );
       }
     };

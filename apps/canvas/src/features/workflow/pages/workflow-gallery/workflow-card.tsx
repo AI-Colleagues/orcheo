@@ -30,7 +30,9 @@ const getWorkflowTemplateAvatar = (workflow: Workflow): string | undefined => {
   if (!templateId) {
     return undefined;
   }
-  return getCandidateBadgeDefinition(templateId)?.workflow.avatarEmoji ?? undefined;
+  return (
+    getCandidateBadgeDefinition(templateId)?.workflow.avatarEmoji ?? undefined
+  );
 };
 
 interface WorkflowCardProps {

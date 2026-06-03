@@ -625,9 +625,11 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
                 )
         if not upload_session_id:
             return
+        if attachment_service is None:
+            return
         context["upload_session_id"] = str(upload_session_id)
         try:
-            count = await self.store.attachment_service.link_upload_session_to_thread(
+            count = await attachment_service.link_upload_session_to_thread(
                 upload_session_id=str(upload_session_id),
                 thread_id=str(thread.id),
                 workspace_id=str(workspace_id),

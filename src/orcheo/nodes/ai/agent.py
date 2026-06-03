@@ -63,35 +63,48 @@ def _llm_trace_metadata(
     }
 
 
-async def _run_tool_graph(
+def _tool_graph_payload_with_runtime_config(
+    payload: dict[str, Any],
+    config: RunnableConfig | None,
+) -> dict[str, Any]:
+    """Attach serializable runnable config data to a tool-graph payload."""
+    if config is None:
+        return payload
+
+    configurable = {
+        k: v
+        for k, v in (config.get("configurable") or {}).items()
+        if not k.startswith("__") and k not in _STATE_CONFIG_EXCLUDED_KEYS
+    }
+    runtime_payload = {**payload, "config": {"configurable": configurable}}
+
+    workspace_id = configurable.get("workspace_id")
+    if isinstance(workspace_id, str):
+        workspace_id = workspace_id.strip()
+        if workspace_id:
+            runtime_payload = {**runtime_payload, "workspace_id": workspace_id}
+
+    return runtime_payload
+
+
+async def _ainvoke_tool_graph(
     compiled_graph: Runnable,
     payload: dict[str, Any],
+    config: RunnableConfig | None,
 ) -> Any:
-    """Execute a compiled graph, streaming updates when configured."""
-    config = _ai_attr("get_active_tool_config")()
-    progress_callback = _ai_attr("get_active_tool_progress_callback")()
+    """Invoke a tool graph with or without an explicit runnable config."""
+    if config is None:
+        return await compiled_graph.ainvoke(payload)
+    return await compiled_graph.ainvoke(payload, config=config)
 
-    # Propagate only the serializable configurable portion of the runnable config
-    # into the sub-workflow state so that {{config.configurable.xxx}} templates
-    # can be resolved. Storing the full RunnableConfig would embed non-serializable
-    # objects (e.g. Runtime/callbacks or attachment resolvers) that break
-    # checkpoint persistence.
-    if config is not None:
-        configurable = {
-            k: v
-            for k, v in (config.get("configurable") or {}).items()
-            if not k.startswith("__") and k not in _STATE_CONFIG_EXCLUDED_KEYS
-        }
-        payload = {**payload, "config": {"configurable": configurable}}
-        workspace_id = configurable.get("workspace_id")
-        if isinstance(workspace_id, str) and workspace_id.strip():
-            payload = {**payload, "workspace_id": workspace_id.strip()}
 
-    if progress_callback is None or config is None:
-        if config is None:
-            return await compiled_graph.ainvoke(payload)
-        return await compiled_graph.ainvoke(payload, config=config)
-
+async def _stream_tool_graph_updates(
+    compiled_graph: Runnable,
+    payload: dict[str, Any],
+    config: RunnableConfig,
+    progress_callback: Any,
+) -> Any:
+    """Stream tool graph updates and return the final values event."""
     last_values: Any | None = None
     stream_kwargs: dict[str, Any] = {
         "config": config,
@@ -105,10 +118,10 @@ async def _run_tool_graph(
         payload,
         **stream_kwargs,
     ):
+        mode = "updates"
+        data = event
         if isinstance(event, tuple) and len(event) == 2:
             mode, data = event
-        else:  # pragma: no cover - defensive fallback
-            mode, data = "updates", event
         if mode == "updates":
             await progress_callback(data)
         elif mode == "values":  # pragma: no branch
@@ -119,6 +132,26 @@ async def _run_tool_graph(
 
     msg = "Tool graph streaming did not produce final values."
     raise RuntimeError(msg)
+
+
+async def _run_tool_graph(
+    compiled_graph: Runnable,
+    payload: dict[str, Any],
+) -> Any:
+    """Execute a compiled graph, streaming updates when configured."""
+    config = _ai_attr("get_active_tool_config")()
+    progress_callback = _ai_attr("get_active_tool_progress_callback")()
+    payload = _tool_graph_payload_with_runtime_config(payload, config)
+
+    if progress_callback is None or config is None:
+        return await _ainvoke_tool_graph(compiled_graph, payload, config)
+
+    return await _stream_tool_graph_updates(
+        compiled_graph,
+        payload,
+        config,
+        progress_callback,
+    )
 
 
 def _create_workflow_tool_func(
@@ -965,16 +998,155 @@ class AgentNode(AINode):
             backoff = (2**attempt) * self._history_retry_base_backoff_seconds
             await asyncio.sleep(backoff + random.uniform(0.0, 0.01))
 
+    def _build_response_format_strategy(self) -> Any | None:
+        """Create the response-format strategy when one is configured."""
+        if self.response_format is None:
+            return None
+        return _ai_attr("ProviderStrategy")(self.response_format)
+
+    def _build_runtime_config(
+        self,
+        state: State,
+        config: RunnableConfig,
+    ) -> dict[str, Any]:
+        """Normalize the runnable config used for the agent invocation."""
+        runtime_config: dict[str, Any] = {}
+        if isinstance(config, Mapping):
+            runtime_config.update(config)
+
+        configurable_value = runtime_config.get("configurable")
+        configurable = (
+            dict(configurable_value) if isinstance(configurable_value, Mapping) else {}
+        )
+        workspace_id = state.get("workspace_id") if isinstance(state, Mapping) else None
+        if isinstance(workspace_id, str):
+            workspace_id = workspace_id.strip()
+            if workspace_id:
+                configurable.setdefault("workspace_id", workspace_id)
+        runtime_config["configurable"] = configurable
+        return runtime_config
+
+    def _set_conversation_key(
+        self,
+        runtime_config: dict[str, Any],
+        history_key: str | None,
+    ) -> None:
+        """Store the resolved conversation key in the runnable config."""
+        if history_key is None:
+            return
+        configurable_value = runtime_config.get("configurable")
+        configurable = (
+            dict(configurable_value) if isinstance(configurable_value, Mapping) else {}
+        )
+        configurable.setdefault("conversation_key", history_key)
+        runtime_config["configurable"] = configurable
+
+    async def _prepare_graph_chat_history(
+        self,
+        state: State,
+        config: RunnableConfig,
+        current_messages: list[BaseMessage],
+    ) -> tuple[list[BaseMessage], Any | None, tuple[str, ...], str | None]:
+        """Load persisted graph history when graph-backed chat history is enabled."""
+        messages = list(current_messages)
+        history_store: Any | None = None
+        history_namespace: tuple[str, ...] = ()
+        history_key: str | None = None
+
+        if not self.use_graph_chat_history:
+            return messages, history_store, history_namespace, history_key
+
+        history_store = self._get_graph_store(config)
+        history_key = self._resolve_history_key(state, config)
+        history_namespace = self._history_namespace_tuple()
+        if history_store is None:
+            logger.warning(
+                "AgentNode '%s' enabled graph history but runtime store is missing.",
+                self.name,
+            )
+            return messages, history_store, history_namespace, history_key
+
+        if history_key is None or self._check_has_checkpointer(config):
+            return messages, history_store, history_namespace, history_key
+
+        try:
+            persisted_messages = await self._load_graph_history_messages(
+                store=history_store,
+                namespace=history_namespace,
+                key=history_key,
+            )
+        except Exception:
+            logger.warning(
+                "AgentNode '%s' failed to read graph history (key='%s'); "
+                "falling back to in-memory messages.",
+                self.name,
+                history_key,
+            )
+            return messages, history_store, history_namespace, history_key
+
+        messages = persisted_messages + current_messages
+        if len(messages) > self.max_messages:
+            logger.info(
+                "AgentNode '%s' truncated merged history from %d to %d messages "
+                "(key='%s').",
+                self.name,
+                len(messages),
+                self.max_messages,
+                history_key,
+            )
+        return (
+            self._trim_messages(messages),
+            history_store,
+            history_namespace,
+            history_key,
+        )
+
+    def _set_run_trace_metadata(
+        self,
+        model: Any,
+        result: Any,
+    ) -> None:
+        """Attach llm trace metadata when the agent returns structured output."""
+        if not isinstance(result, Mapping):
+            return
+        self._set_trace_metadata_for_run(
+            _llm_trace_metadata(self.ai_model, model=model, result=result)
+        )
+
+    async def _persist_graph_history_for_run(
+        self,
+        current_messages: list[BaseMessage],
+        messages: list[BaseMessage],
+        result: Any,
+        history_store: Any | None,
+        history_namespace: tuple[str, ...],
+        history_key: str | None,
+    ) -> None:
+        """Persist graph history only when the current run produced mappings."""
+        if not self.use_graph_chat_history:
+            return
+        if history_store is None or history_key is None:
+            return
+        if not isinstance(result, Mapping):
+            return
+
+        observed_messages = self._extract_observed_messages(
+            current_messages,
+            messages,
+            result,
+        )
+        await self._persist_graph_history(
+            store=history_store,
+            namespace=history_namespace,
+            key=history_key,
+            observed_messages=observed_messages,
+        )
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the agent and return results."""
         self._clear_trace_metadata_for_run()
         tools = await self._prepare_tools()
-
-        response_format_strategy = None
-        if self.response_format is not None:
-            response_format_strategy = _ai_attr("ProviderStrategy")(
-                self.response_format
-            )  # type: ignore[arg-type]
+        response_format_strategy = self._build_response_format_strategy()
 
         # Initialize chat model with model_kwargs
         model = _ai_attr("init_chat_model")(
@@ -990,61 +1162,14 @@ class AgentNode(AINode):
         # TODO: for models that don't support ProviderStrategy, use ToolStrategy
 
         current_messages = self._build_messages(state, config)
-        messages = list(current_messages)
-        runtime_config = dict(config or {})
-        configurable = dict(runtime_config.get("configurable") or {})
-        workspace_id = state.get("workspace_id") if isinstance(state, Mapping) else None
-        if isinstance(workspace_id, str) and workspace_id.strip():
-            configurable.setdefault("workspace_id", workspace_id.strip())
-        runtime_config["configurable"] = configurable
-
-        history_store: Any | None = None
-        history_namespace: tuple[str, ...] = ()
-        history_key: str | None = None
-
-        if self.use_graph_chat_history:
-            history_store = self._get_graph_store(config)
-            history_key = self._resolve_history_key(state, config)
-            history_namespace = self._history_namespace_tuple()
-            if history_store is None:
-                logger.warning(
-                    "AgentNode '%s' enabled graph history but runtime store is "
-                    "missing.",
-                    self.name,
-                )
-            elif history_key is not None and not self._check_has_checkpointer(config):
-                # When a LangGraph checkpointer is active, current_messages already
-                # contains the full checkpoint history (including ToolMessages).
-                # Prepending graph-store messages would duplicate prior turns and
-                # can leave orphaned ToolMessages at the front after max_messages
-                # trimming, causing OpenAI to reject the request.
-                try:
-                    persisted_messages = await self._load_graph_history_messages(
-                        store=history_store,
-                        namespace=history_namespace,
-                        key=history_key,
-                    )
-                except Exception:
-                    logger.warning(
-                        "AgentNode '%s' failed to read graph history (key='%s'); "
-                        "falling back to in-memory messages.",
-                        self.name,
-                        history_key,
-                    )
-                else:
-                    messages = persisted_messages + current_messages
-                    if len(messages) > self.max_messages:
-                        logger.info(
-                            "AgentNode '%s' truncated merged history from %d to %d "
-                            "messages (key='%s').",
-                            self.name,
-                            len(messages),
-                            self.max_messages,
-                            history_key,
-                        )
-                    messages = self._trim_messages(messages)
-            if history_key is not None:
-                configurable.setdefault("conversation_key", history_key)
+        runtime_config = self._build_runtime_config(state, config)
+        (
+            messages,
+            history_store,
+            history_namespace,
+            history_key,
+        ) = await self._prepare_graph_chat_history(state, config, current_messages)
+        self._set_conversation_key(runtime_config, history_key)
 
         # Execute agent with normalized messages as input
         payload: dict[str, Any] = {"messages": messages}
@@ -1053,28 +1178,15 @@ class AgentNode(AINode):
                 payload,
                 runtime_config,
             )
-        if isinstance(result, Mapping):  # pragma: no branch
-            self._set_trace_metadata_for_run(
-                _llm_trace_metadata(self.ai_model, model=model, result=result)
-            )
-
-        if (
-            self.use_graph_chat_history
-            and history_store is not None
-            and history_key is not None
-            and isinstance(result, Mapping)
-        ):
-            observed_messages = self._extract_observed_messages(
-                current_messages,
-                messages,
-                result,
-            )
-            await self._persist_graph_history(
-                store=history_store,
-                namespace=history_namespace,
-                key=history_key,
-                observed_messages=observed_messages,
-            )
+        self._set_run_trace_metadata(model, result)
+        await self._persist_graph_history_for_run(
+            current_messages,
+            messages,
+            result,
+            history_store,
+            history_namespace,
+            history_key,
+        )
         return result
 
     @property
