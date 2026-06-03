@@ -3,9 +3,11 @@
 from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import AsyncMock
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
+from orcheo.nodes.storage import FileUploadNode, build_csv, upload_attachment
 from orcheo.nodes.storage.graph_store import (
     GraphStoreAppendMessageNode,
     get_graph_store,
@@ -360,3 +362,64 @@ async def test_invalid_existing_payload_types_do_not_fail() -> None:
     _, _, payload = store.put_calls[0]
     assert payload["version"] == 1
     assert payload["messages"] == [{"role": "assistant", "content": "msg"}]
+
+
+def test_build_csv_serializes_rows() -> None:
+    csv_text = build_csv(["id", "name"], [[1, "Alice"], [2, "Bob"]])
+
+    assert csv_text.startswith("id,name")
+    assert "Alice" in csv_text
+    assert "Bob" in csv_text
+
+
+@pytest.mark.asyncio
+async def test_upload_attachment_requires_runtime_uploader() -> None:
+    with pytest.raises(RuntimeError, match="No attachment_uploader is available"):
+        await upload_attachment({}, b"content", "file.txt", "text/plain")
+
+
+@pytest.mark.asyncio
+async def test_upload_attachment_delegates_to_injected_uploader() -> None:
+    uploader = SimpleNamespace(
+        upload_attachment=AsyncMock(
+            return_value=("atc_1", "https://example.invalid/file")
+        )
+    )
+    config = {"configurable": {"attachment_uploader": uploader}}
+
+    result = await upload_attachment(config, "hello", "file.txt", "text/plain")
+
+    assert result == ("atc_1", "https://example.invalid/file")
+    uploader.upload_attachment.assert_awaited_once_with(
+        b"hello", "file.txt", "text/plain"
+    )
+
+
+@pytest.mark.asyncio
+async def test_file_upload_node_returns_none_when_uploader_missing() -> None:
+    node = FileUploadNode(name="upload", content="hello", filename="file.txt")
+
+    result = await node.run(State({}), {})
+
+    assert result == {"attachment_id": None, "download_url": None}
+
+
+@pytest.mark.asyncio
+async def test_file_upload_node_returns_uploaded_attachment() -> None:
+    uploader = SimpleNamespace(
+        upload_attachment=AsyncMock(return_value=("atc_2", "https://example.invalid/2"))
+    )
+    node = FileUploadNode(name="upload", content="hello", filename="file.txt")
+
+    result = await node.run(
+        State({}),
+        {"configurable": {"attachment_uploader": uploader}},
+    )
+
+    assert result == {
+        "attachment_id": "atc_2",
+        "download_url": "https://example.invalid/2",
+    }
+    uploader.upload_attachment.assert_awaited_once_with(
+        b"hello", "file.txt", "application/octet-stream"
+    )

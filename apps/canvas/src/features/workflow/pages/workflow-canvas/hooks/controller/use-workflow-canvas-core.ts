@@ -8,6 +8,7 @@ import { useCanvasUiState } from "@features/workflow/pages/workflow-canvas/hooks
 
 export interface WorkflowCanvasCore {
   routeWorkflowId: string | null;
+  routeWorkflowRef: string | null;
   metadata: ReturnType<typeof useWorkflowMetadataState>;
   execution: ReturnType<typeof useWorkflowExecutionState>;
   ui: ReturnType<typeof useCanvasUiState>;
@@ -20,10 +21,12 @@ export interface WorkflowCanvasCore {
 
 interface UseWorkflowCanvasCoreArgs {
   workflowId?: string;
+  workflowRouteRef?: string | null;
 }
 
 export function useWorkflowCanvasCore({
   workflowId,
+  workflowRouteRef,
 }: UseWorkflowCanvasCoreArgs): WorkflowCanvasCore {
   const metadata = useWorkflowMetadataState();
   const execution = useWorkflowExecutionState();
@@ -68,6 +71,7 @@ export function useWorkflowCanvasCore({
 
   return {
     routeWorkflowId: workflowId ?? null,
+    routeWorkflowRef: workflowRouteRef ?? null,
     metadata,
     execution,
     ui,

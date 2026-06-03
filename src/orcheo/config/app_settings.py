@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from orcheo.config.chatkit_rate_limit_settings import ChatKitRateLimitSettings
 from orcheo.config.defaults import _DEFAULTS
 from orcheo.config.types import (
+    AttachmentBlobBackend,
     ChatKitBackend,
     CheckpointBackend,
     GraphStoreBackend,
@@ -36,6 +37,19 @@ class AppSettings(BaseModel):
     chatkit_storage_path: str = Field(
         default=cast(str, _DEFAULTS["CHATKIT_STORAGE_PATH"])
     )
+    chatkit_attachment_blob_backend: AttachmentBlobBackend = Field(
+        default=cast(
+            AttachmentBlobBackend, _DEFAULTS["CHATKIT_ATTACHMENT_BLOB_BACKEND"]
+        )
+    )
+    chatkit_orphan_cutoff_hours: int = Field(
+        default=cast(int, _DEFAULTS["CHATKIT_ORPHAN_CUTOFF_HOURS"]), gt=0
+    )
+    chatkit_s3_bucket: str | None = None
+    chatkit_s3_endpoint_url: str | None = None
+    chatkit_s3_region: str | None = None
+    chatkit_s3_access_key_id: str | None = None
+    chatkit_s3_secret_access_key: str | None = None
     studio_url: str | None = None
     chatkit_max_upload_size_bytes: int = Field(
         default=cast(int, _DEFAULTS["CHATKIT_MAX_UPLOAD_SIZE_BYTES"]), gt=0
@@ -154,6 +168,36 @@ class AppSettings(BaseModel):
             msg = "ORCHEO_GRAPH_STORE_BACKEND must be 'postgres'."
             raise ValueError(msg)
         return cast(GraphStoreBackend, candidate)
+
+    @field_validator("chatkit_attachment_blob_backend", mode="before")
+    @classmethod
+    def _coerce_chatkit_attachment_blob_backend(
+        cls, value: object
+    ) -> AttachmentBlobBackend:
+        candidate = (
+            cast(str, value).lower()
+            if value is not None
+            else cast(str, _DEFAULTS["CHATKIT_ATTACHMENT_BLOB_BACKEND"])
+        )
+        allowed = {"postgres", "s3"}
+        if candidate not in allowed:
+            msg = "ORCHEO_CHATKIT_ATTACHMENT_BLOB_BACKEND must be 'postgres' or 's3'."
+            raise ValueError(msg)
+        return cast(AttachmentBlobBackend, candidate)
+
+    @field_validator("chatkit_orphan_cutoff_hours", mode="before")
+    @classmethod
+    def _coerce_chatkit_orphan_cutoff_hours(cls, value: object) -> int:
+        candidate_obj = value
+        if candidate_obj is None:
+            candidate_obj = _DEFAULTS["CHATKIT_ORPHAN_CUTOFF_HOURS"]
+        if isinstance(candidate_obj, int):
+            return candidate_obj
+        try:
+            return int(str(candidate_obj))
+        except (TypeError, ValueError) as exc:
+            msg = "ORCHEO_CHATKIT_ORPHAN_CUTOFF_HOURS must be a positive integer."
+            raise ValueError(msg) from exc
 
     @field_validator("chatkit_backend", mode="before")
     @classmethod
@@ -371,6 +415,11 @@ class AppSettings(BaseModel):
             msg = "ORCHEO_TRACING_PREVIEW_MAX_LENGTH must be a positive integer."
             raise ValueError(msg) from exc
 
+    def _validate_s3_config(self) -> None:
+        if self.chatkit_attachment_blob_backend == "s3" and not self.chatkit_s3_bucket:
+            msg = "ORCHEO_CHATKIT_S3_BUCKET must be set when using the s3 blob backend."
+            raise ValueError(msg)
+
     def _validate_postgres_dsn(self) -> None:
         uses_postgres = {
             self.checkpoint_backend,
@@ -413,6 +462,7 @@ class AppSettings(BaseModel):
     @model_validator(mode="after")
     def _validate_postgres_requirements(self) -> AppSettings:
         self._validate_postgres_dsn()
+        self._validate_s3_config()
         self._apply_runtime_defaults()
         return self
 

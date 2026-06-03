@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/design-system/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { resolveAvatarUrl } from "@/assets/avatars";
 import { ConfirmDeleteWorkflowDialog } from "@features/workflow/components/dialogs/confirm-delete-workflow-dialog";
 import { getCandidateBadgeDefinition } from "@features/workflow/data/templates/candidate-badges";
 import { type Workflow } from "@features/workflow/data/workflow-data";
@@ -24,15 +25,14 @@ import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-hel
 import { VIBE_WORKFLOW_HANDLE } from "@features/vibe/constants";
 import { WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME } from "./workflow-card-size";
 
-const DEFAULT_AVATAR_EMOJI = "🧑";
-
-const getWorkflowTemplateEmoji = (workflow: Workflow) => {
+const getWorkflowTemplateAvatar = (workflow: Workflow): string | undefined => {
   const templateId = workflow.versions?.at(-1)?.templateId;
   if (!templateId) {
     return undefined;
   }
-
-  return getCandidateBadgeDefinition(templateId)?.emoji;
+  return (
+    getCandidateBadgeDefinition(templateId)?.workflow.avatarEmoji ?? undefined
+  );
 };
 
 interface WorkflowCardProps {
@@ -66,8 +66,10 @@ export const WorkflowCard = ({
     : undefined;
   const headerLabel = isTemplate ? "Candidate" : workspaceLabel;
   const workflowSlug = workflow.handle ?? workflow.id;
-  const workflowAvatarEmoji =
-    workflow.avatarEmoji ?? getWorkflowTemplateEmoji(workflow);
+  const avatarUrl = resolveAvatarUrl(
+    workflow.avatarEmoji ?? getWorkflowTemplateAvatar(workflow),
+    workflow.id,
+  );
 
   const suppressCardOpenRef = useRef(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -237,12 +239,12 @@ export const WorkflowCard = ({
             </div>
 
             <div className="flex h-[7em] w-[7em] items-center justify-center overflow-hidden rounded-full border-4 border-slate-900 bg-slate-100 shadow-[0_4px_16px_rgba(15,23,42,0.18)] dark:border-slate-100 dark:bg-slate-800 dark:shadow-[0_4px_16px_rgba(0,0,0,0.35)]">
-              <span
+              <img
+                src={avatarUrl}
+                alt={workflow.name}
+                className="h-full w-full object-cover"
                 aria-hidden="true"
-                className="select-none text-[4em] leading-none"
-              >
-                {workflowAvatarEmoji ?? candidateBadge?.emoji ?? DEFAULT_AVATAR_EMOJI}
-              </span>
+              />
             </div>
 
             {!isTemplate ? (

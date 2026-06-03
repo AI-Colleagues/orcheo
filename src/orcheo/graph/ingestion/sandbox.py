@@ -5,6 +5,7 @@ import ast
 import builtins
 import contextlib
 import importlib
+import operator
 import signal
 import sys
 import threading
@@ -75,6 +76,7 @@ TraceFunc = Callable[[FrameType | None, str, object], object]
 _SAFE_MODULE_PREFIXES: tuple[str, ...] = (
     "asyncio",
     "base64",
+    "csv",
     "json",
     "langgraph",
     "langchain",
@@ -128,6 +130,37 @@ def _resolve_compiler() -> Callable[[str, str, str], CodeType]:
     return compiler_fn or compile_restricted  # pragma: no cover
 
 
+_INPLACE_OPERATORS: dict[str, Callable[[Any, Any], Any]] = {
+    "+=": operator.iadd,
+    "-=": operator.isub,
+    "*=": operator.imul,
+    "/=": operator.itruediv,
+    "//=": operator.ifloordiv,
+    "%=": operator.imod,
+    "**=": operator.ipow,
+    ">>=": operator.irshift,
+    "<<=": operator.ilshift,
+    "&=": operator.iand,
+    "^=": operator.ixor,
+    "|=": operator.ior,
+    "@=": operator.imatmul,
+}
+
+
+def _inplacevar_(op: str, x: Any, y: Any) -> Any:
+    """Implement augmented assignment for names (e.g. ``n += 1``).
+
+    RestrictedPython rewrites ``n += 1`` into ``n = _inplacevar_("+=", n, 1)``,
+    so the sandbox must expose this helper. Augmented assignment of attributes
+    and subscripts is already rejected at compile time by the transformer.
+    """
+    try:
+        return _INPLACE_OPERATORS[op](x, y)
+    except KeyError:  # pragma: no cover - defensive
+        msg = f"Unsupported in-place operator '{op}' in LangGraph scripts"
+        raise ScriptIngestionError(msg) from None
+
+
 def create_sandbox_namespace() -> dict[str, Any]:
     """Return a namespace configured with restricted builtins for script exec."""
 
@@ -174,8 +207,12 @@ def create_sandbox_namespace() -> dict[str, Any]:
             "list": list,
             "set": set,
             "any": builtins.any,
+            "getattr": builtins.getattr,
+            "reversed": builtins.reversed,
             "max": builtins.max,
             "min": builtins.min,
+            "sum": builtins.sum,
+            "enumerate": builtins.enumerate,
             "type": type,
         }
     )
@@ -194,6 +231,7 @@ def create_sandbox_namespace() -> dict[str, Any]:
         "_unpack_sequence_": guarded_unpack_sequence,
         "_print_": print,
         "_write_": full_write_guard,
+        "_inplacevar_": _inplacevar_,
     }
     return namespace
 

@@ -539,3 +539,27 @@ def test_build_credential_broker_resolver_raises_key_error_when_no_match(
 
     with pytest.raises(BrokerScopeError):
         broker.resolve(token, credential_name="nonexistent")
+
+
+def test_create_app_skips_sandbox_bootstrap_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Local dev mode should not require sandbox runtime secrets at startup."""
+    from orcheo_backend.app import factory as factory_module
+
+    monkeypatch.setenv("ORCHEO_SANDBOX_DISABLED", "true")
+    monkeypatch.delenv("ORCHEO_CREDENTIAL_BROKER_SECRET", raising=False)
+    monkeypatch.setattr(
+        factory_module,
+        "build_credential_broker",
+        lambda: pytest.fail("build_credential_broker should not be called"),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "configure_sandbox",
+        lambda broker: pytest.fail("configure_sandbox should not be called"),
+    )
+
+    app = create_app(InMemoryWorkflowRepository())
+
+    assert isinstance(app, FastAPI)

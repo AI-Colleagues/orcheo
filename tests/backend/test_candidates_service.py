@@ -21,7 +21,7 @@ _WORKFLOW_WITH_FRONTMATTER = (
     '# name = "LinkedIn Publisher"\n'
     '# handle = "linkedin_post"\n'
     '# description = "Publishes posts to LinkedIn."\n'
-    '# emoji = "📣"\n'
+    '# avatar = "avatar-07"\n'
     '# subtitle = "AI Social Media"\n'
     "# ///\n"
     "\n"
@@ -68,7 +68,7 @@ def test_parse_tarball_extracts_candidate_metadata() -> None:
     assert item.id == "linkedin_post"
     assert item.handle == "linkedin_post"
     assert item.name == "LinkedIn Publisher"
-    assert item.emoji == "📣"
+    assert item.avatar == "avatar-07"
     assert item.subtitle == "AI Social Media"
     assert item.description == "Publishes posts to LinkedIn."
 
@@ -92,7 +92,6 @@ def test_parse_tarball_handles_nested_dirs_and_missing_frontmatter() -> None:
     assert nested.id == "wechat/daily_reminder"
     assert nested.handle == "daily_reminder"
     assert nested.name == "daily_reminder"
-    assert nested.emoji is None
 
 
 @pytest.mark.asyncio()

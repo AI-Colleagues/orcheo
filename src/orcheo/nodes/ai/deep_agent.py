@@ -3,8 +3,9 @@
 from __future__ import annotations
 import logging
 import os
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from deepagents import create_deep_agent
 from langchain.agents.structured_output import ProviderStrategy
 from langchain.chat_models import init_chat_model
@@ -257,12 +258,25 @@ class DeepAgentNode(AINode):
 
         messages = self._build_messages(state)
         payload: dict[str, Any] = {"messages": messages}
+        runtime_config: dict[str, Any] = {}
+        if isinstance(config, Mapping):
+            runtime_config.update(config)
 
-        with tool_execution_context(config):
+        configurable_value = runtime_config.get("configurable")
+        configurable = (
+            dict(configurable_value) if isinstance(configurable_value, Mapping) else {}
+        )
+        workspace_id = state.get("workspace_id") if isinstance(state, dict) else None
+        if isinstance(workspace_id, str) and workspace_id.strip():
+            configurable.setdefault("workspace_id", workspace_id.strip())
+        runtime_config["configurable"] = configurable
+
+        runnable_config = cast(RunnableConfig, runtime_config)
+        with tool_execution_context(runnable_config):
             result = await agent.ainvoke(
                 payload,  # type: ignore[arg-type]
                 config={
-                    **(config or {}),
+                    **runnable_config,
                     "recursion_limit": self.max_iterations,
                 },
             )

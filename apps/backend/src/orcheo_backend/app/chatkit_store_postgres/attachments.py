@@ -5,8 +5,14 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from chatkit.store import NotFoundError
-from chatkit.types import Attachment
+from chatkit.types import Attachment, FileAttachment
+from pydantic import ValidationError
+import orcheo.config as orcheo_config
+from orcheo_backend.app.chatkit_store_postgres.attachment_service import (
+    AttachmentService,
+)
 from orcheo_backend.app.chatkit_store_postgres.base import BasePostgresStore
+from orcheo_backend.app.chatkit_store_postgres.blob_backends import build_blob_backend
 from orcheo_backend.app.chatkit_store_postgres.serialization import (
     attachment_from_details,
     serialize_attachment,
@@ -20,6 +26,43 @@ logger = logging.getLogger(__name__)
 
 class AttachmentStoreMixin(BasePostgresStore):
     """Manage attachments and pruning tasks."""
+
+    _attachment_service: AttachmentService | None = None
+
+    @property
+    def attachment_service(self) -> AttachmentService:
+        """Return the scoped attachment service backed by this store's pool."""
+        if self._attachment_service is None:
+            settings = orcheo_config.get_settings()
+            blob_backend_name = settings.get(
+                "CHATKIT_ATTACHMENT_BLOB_BACKEND", "postgres"
+            )
+            s3_backend = build_blob_backend(
+                str(blob_backend_name),
+                bucket=settings.get("CHATKIT_S3_BUCKET") or None,
+                endpoint_url=settings.get("CHATKIT_S3_ENDPOINT_URL") or None,
+                region=settings.get("CHATKIT_S3_REGION") or None,
+                access_key_id=settings.get("CHATKIT_S3_ACCESS_KEY_ID") or None,
+                secret_access_key=settings.get("CHATKIT_S3_SECRET_ACCESS_KEY") or None,
+            )
+            self._attachment_service = AttachmentService(
+                self._connection,
+                self._lock,
+                max_size_bytes=int(
+                    settings.get(
+                        "CHATKIT_MAX_UPLOAD_SIZE_BYTES",
+                        10 * 1024 * 1024,
+                    )
+                ),
+                orphan_cutoff_hours=int(
+                    settings.get(
+                        "CHATKIT_ORPHAN_CUTOFF_HOURS",
+                        24,
+                    )
+                ),
+                s3_backend=s3_backend,
+            )
+        return self._attachment_service
 
     async def save_attachment(
         self,
@@ -73,25 +116,42 @@ class AttachmentStoreMixin(BasePostgresStore):
         await self._ensure_initialized()
         async with self._connection() as conn:
             cursor = await conn.execute(
-                "SELECT details_json FROM chat_attachments WHERE id = %s",
+                """
+                SELECT id, attachment_type, name, mime_type, details_json
+                  FROM chat_attachments
+                 WHERE id = %s
+                """,
                 (attachment_id,),
             )
             row = await cursor.fetchone()
         if row is None:
             raise NotFoundError(f"Attachment {attachment_id} not found")
-        return attachment_from_details(row["details_json"])
+
+        try:
+            return attachment_from_details(row["details_json"])
+        except (TypeError, ValueError, ValidationError):
+            return FileAttachment(
+                id=row["id"],
+                name=row["name"],
+                mime_type=row["mime_type"],
+            )
 
     async def delete_attachment(
         self, attachment_id: str, context: ChatKitRequestContext
     ) -> None:
         """Remove attachment metadata and any persisted file reference."""
         await self._ensure_initialized()
-        async with self._lock:
-            async with self._connection() as conn:
-                await conn.execute(
-                    "DELETE FROM chat_attachments WHERE id = %s",
-                    (attachment_id,),
-                )
+        workspace_id = context.get("workspace_id") if context else None
+        if workspace_id is None:
+            async with self._lock:
+                async with self._connection() as conn:
+                    await conn.execute(
+                        "DELETE FROM chat_attachments WHERE id = %s",
+                        (attachment_id,),
+                    )
+            return
+
+        await self.attachment_service.delete_attachment(attachment_id, workspace_id)
 
     async def prune_threads_older_than(self, cutoff: datetime) -> int:
         """Delete threads (and attachments) that have not been updated recently."""
@@ -110,17 +170,13 @@ class AttachmentStoreMixin(BasePostgresStore):
 
                 cursor = await conn.execute(
                     """
-                    SELECT storage_path
+                    SELECT id, blob_backend, blob_key, storage_path
                       FROM chat_attachments
-                     WHERE thread_id = ANY(%s) AND storage_path IS NOT NULL
+                     WHERE thread_id = ANY(%s)
                     """,
                     (thread_ids,),
                 )
-                attachment_paths = [
-                    row["storage_path"]
-                    for row in await cursor.fetchall()
-                    if row.get("storage_path")
-                ]
+                attachment_rows = await cursor.fetchall()
 
                 await conn.execute(
                     "DELETE FROM chat_attachments WHERE thread_id = ANY(%s)",
@@ -131,15 +187,22 @@ class AttachmentStoreMixin(BasePostgresStore):
                     (thread_ids,),
                 )
 
-        for path_str in attachment_paths:
-            try:
-                Path(path_str).unlink(missing_ok=True)
-            except Exception:  # pragma: no cover - best-effort cleanup
-                logger.warning(
-                    "Failed to delete ChatKit attachment file",
-                    extra={"storage_path": path_str},
-                    exc_info=True,
-                )
+        s3_backend = self.attachment_service.s3_backend
+        for row in attachment_rows:
+            blob_backend = row.get("blob_backend") or None
+            if blob_backend == "s3" and s3_backend is not None:
+                await s3_backend.delete(row.get("blob_key") or row["id"])
+                continue
+            if blob_backend is None and row.get("storage_path"):
+                path_str = str(row["storage_path"])
+                try:
+                    Path(path_str).unlink(missing_ok=True)
+                except Exception:  # pragma: no cover - best-effort cleanup
+                    logger.warning(
+                        "Failed to delete ChatKit attachment file",
+                        extra={"storage_path": path_str},
+                        exc_info=True,
+                    )
 
         return len(thread_ids)
 
@@ -153,4 +216,4 @@ class AttachmentStoreMixin(BasePostgresStore):
         return None
 
 
-__all__ = ["AttachmentStoreMixin"]
+__all__ = ["AttachmentService", "AttachmentStoreMixin"]

@@ -1,6 +1,7 @@
 """Tests for the backend-shared sandbox bootstrap helpers."""
 
 from __future__ import annotations
+import asyncio
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
@@ -14,6 +15,8 @@ from orcheo_backend.app.sandbox import (
     collect_node_types,
     ensure_sandbox_configured,
     install_sandbox_bootstrap,
+    ingest_sandboxed_script,
+    is_sandbox_disabled,
     reset_sandbox_bootstrap,
     run_uses_trusted_nodes_only,
     _fast_path_enabled,
@@ -31,6 +34,31 @@ def test_run_uses_trusted_nodes_only_returns_false_for_unknown_type() -> None:
 def test_run_uses_trusted_nodes_only_fails_closed_on_empty() -> None:
     """A graph with no parseable node types must not take the in-worker fast path."""
     assert not run_uses_trusted_nodes_only(())
+
+
+def test_is_sandbox_disabled_requires_explicit_true(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The runc runtime must not implicitly disable sandboxing."""
+    monkeypatch.delenv("ORCHEO_SANDBOX_DISABLED", raising=False)
+    monkeypatch.setenv("ORCHEO_CONTAINER_RUNTIME", "runc")
+    monkeypatch.setenv("ORCHEO_ENV", "development")
+    monkeypatch.setenv("NODE_ENV", "development")
+
+    assert is_sandbox_disabled() is False
+
+    monkeypatch.setenv("ORCHEO_SANDBOX_DISABLED", "true")
+    assert is_sandbox_disabled() is True
+
+
+def test_is_sandbox_disabled_explicit_flag_wins_over_dev_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit false flag should keep sandboxing enabled."""
+    monkeypatch.setenv("ORCHEO_SANDBOX_DISABLED", "false")
+    monkeypatch.setenv("ORCHEO_CONTAINER_RUNTIME", "runc")
+
+    assert is_sandbox_disabled() is False
 
 
 def test_collect_node_types_returns_empty_for_non_dict() -> None:
@@ -93,6 +121,17 @@ def test_ensure_sandbox_configured_is_idempotent(
     assert len(calls) == 1
 
 
+def test_ensure_sandbox_configured_is_noop_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sandbox bootstrap should not require runtime secrets when disabled."""
+    monkeypatch.setenv("ORCHEO_SANDBOX_DISABLED", "true")
+    monkeypatch.delenv("ORCHEO_CREDENTIAL_BROKER_SECRET", raising=False)
+    monkeypatch.setattr(sandbox_module, "_bootstrap", _SandboxBootstrap())
+
+    ensure_sandbox_configured()
+
+
 def test_module_level_sandbox_getters_delegate_to_bootstrap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -112,6 +151,168 @@ def test_module_level_sandbox_getters_delegate_to_bootstrap(
         assert sandbox_module.get_sandbox_dispatcher() == "dispatcher"
     finally:
         sandbox_module._bootstrap = original
+
+
+@pytest.mark.asyncio
+async def test_disabled_dispatcher_dispatch_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dispatcher = sandbox_module._DisabledWorkflowDispatcher()
+    spec = build_workflow_run_spec(
+        execution_id="exec-1",
+        workspace_id="ws-1",
+        graph_config={"nodes": []},
+        inputs={"input": "value"},
+    )
+
+    monkeypatch.setattr(
+        sandbox_module,
+        "run_in_subprocess",
+        lambda *args, **kwargs: {
+            "run_id": "exec-1",
+            "status": "succeeded",
+            "outputs": {"result": "ok"},
+            "error": None,
+        },
+    )
+
+    result = await dispatcher.dispatch(spec)
+
+    assert result.run_id == "exec-1"
+    assert result.status == "succeeded"
+    assert result.outputs == {"result": "ok"}
+    assert result.error is None
+
+
+@pytest.mark.asyncio
+async def test_disabled_dispatcher_dispatch_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dispatcher = sandbox_module._DisabledWorkflowDispatcher()
+    spec = build_workflow_run_spec(
+        execution_id="exec-2",
+        workspace_id="ws-1",
+        graph_config={"nodes": []},
+        inputs={"input": "value"},
+    )
+
+    def _raise(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(sandbox_module, "run_in_subprocess", _raise)
+
+    result = await dispatcher.dispatch(spec)
+
+    assert result.run_id == "exec-2"
+    assert result.status == "failed"
+    assert result.outputs == {}
+    assert result.error == "RuntimeError: boom"
+
+
+def test_bootstrap_sync_mode_resets_cached_components(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bootstrap = _SandboxBootstrap()
+    bootstrap._sandbox_disabled = False
+    bootstrap._manager = SimpleNamespace()
+    bootstrap._launcher = SimpleNamespace()
+    bootstrap._dispatcher = SimpleNamespace()
+    bootstrap._runtime = SimpleNamespace()
+    bootstrap._exec_backend = SimpleNamespace()
+    bootstrap._runner = SimpleNamespace()
+    bootstrap._ingestor = SimpleNamespace()
+
+    monkeypatch.setattr(sandbox_module, "is_sandbox_disabled", lambda: True)
+
+    assert bootstrap._sync_mode() is True
+    assert bootstrap._manager is None
+    assert bootstrap._launcher is None
+    assert bootstrap._dispatcher is None
+    assert bootstrap._runtime is None
+    assert bootstrap._exec_backend is None
+    assert bootstrap._runner is None
+    assert bootstrap._ingestor is None
+    assert bootstrap._sandbox_disabled is True
+
+
+def test_bootstrap_configure_is_noop_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bootstrap = _SandboxBootstrap()
+    monkeypatch.setattr(sandbox_module, "is_sandbox_disabled", lambda: True)
+    bootstrap.configure(SimpleNamespace())
+    assert bootstrap._broker is None
+
+
+def test_parse_bool_env_handles_blank_and_invalid() -> None:
+    assert sandbox_module._parse_bool_env("   ") is None
+    assert sandbox_module._parse_bool_env("maybe") is None
+
+
+def test_sandbox_disabled_bootstrap_uses_local_launcher_and_ingestion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Disabled mode should stay fully local and avoid runtime bootstrap."""
+    monkeypatch.setenv("ORCHEO_SANDBOX_DISABLED", "true")
+    monkeypatch.delenv("ORCHEO_SANDBOX_RUNTIME_URL", raising=False)
+    monkeypatch.delenv("ORCHEO_SANDBOX_CONTROL_TOKEN", raising=False)
+    monkeypatch.delenv("ORCHEO_CREDENTIAL_BROKER_SECRET", raising=False)
+
+    ingested: dict[str, Any] = {}
+
+    def _fake_ingest(
+        source: str,
+        *,
+        entrypoint: str | None,
+        max_script_bytes: int | None,
+        execution_timeout_seconds: float | None,
+    ) -> dict[str, Any]:
+        ingested.update(
+            {
+                "source": source,
+                "entrypoint": entrypoint,
+                "max_script_bytes": max_script_bytes,
+                "execution_timeout_seconds": execution_timeout_seconds,
+            }
+        )
+        return {"format": "langgraph-script", "source": source, "index": {}}
+
+    monkeypatch.setattr(sandbox_module, "ingest_langgraph_script", _fake_ingest)
+    monkeypatch.setattr(sandbox_module, "_bootstrap", _SandboxBootstrap())
+
+    launcher = sandbox_module.get_sandbox_launcher()
+    launcher_again = sandbox_module.get_sandbox_launcher()
+    dispatcher = sandbox_module.get_sandbox_dispatcher()
+    dispatcher_again = sandbox_module.get_sandbox_dispatcher()
+
+    from orcheo.sandbox.launcher import LocalProcessLauncher
+
+    assert isinstance(launcher, LocalProcessLauncher)
+    assert launcher_again is launcher
+    # The disabled dispatcher object still answers "False" for sandbox routing.
+    assert dispatcher_again is dispatcher
+    assert (
+        dispatcher.should_sandbox(
+            build_workflow_run_spec(
+                execution_id="exec-2",
+                workspace_id="ws-1",
+                graph_config={"nodes": [{"type": "TenantPythonNode"}]},
+                inputs={},
+            )
+        )
+        is False
+    )
+
+    result = asyncio.run(
+        ingest_sandboxed_script(
+            workspace_id="ws-1",
+            source="print('hi')",
+            entrypoint="build_graph",
+        )
+    )
+
+    assert result["source"] == "print('hi')"
+    assert ingested["entrypoint"] == "build_graph"
 
 
 def test_build_credential_broker_requires_secret(

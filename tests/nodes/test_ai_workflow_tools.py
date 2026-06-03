@@ -417,3 +417,45 @@ def test_workflow_tool_output_path_validator_rejects_empty_string() -> None:
 
     with pytest.raises(ValueError, match="output_path must not be empty"):
         WorkflowTool._validate_output_path("   ")
+
+
+def test_workflow_tool_return_direct_defaults_false() -> None:
+    """return_direct should default to False to preserve existing behaviour."""
+
+    from langgraph.graph import StateGraph
+
+    graph = StateGraph(dict)
+    graph.add_node("noop", lambda state: {"ok": True})
+    graph.set_entry_point("noop")
+    graph.set_finish_point("noop")
+
+    tool = WorkflowTool(name="t", description="d", graph=graph)
+    assert tool.return_direct is False
+
+
+def test_create_workflow_tool_func_propagates_return_direct() -> None:
+    """return_direct must be forwarded onto the underlying StructuredTool."""
+
+    from langgraph.graph import StateGraph
+
+    graph = StateGraph(dict)
+    graph.add_node("noop", lambda state: {"ok": True})
+    graph.set_entry_point("noop")
+    graph.set_finish_point("noop")
+    compiled = graph.compile()
+
+    direct = _create_workflow_tool_func(
+        compiled_graph=compiled,
+        name="direct_tool",
+        description="d",
+        args_schema=None,
+        return_direct=True,
+    )
+    indirect = _create_workflow_tool_func(
+        compiled_graph=compiled,
+        name="indirect_tool",
+        description="d",
+        args_schema=None,
+    )
+    assert direct.return_direct is True
+    assert indirect.return_direct is False

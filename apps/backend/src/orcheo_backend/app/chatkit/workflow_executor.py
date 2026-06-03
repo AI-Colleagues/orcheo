@@ -29,6 +29,12 @@ from orcheo_backend.app.chatkit.model_selection import (
     CHATKIT_MODEL_CONFIG_KEY,
     apply_chatkit_selected_model,
 )
+from orcheo_backend.app.chatkit_store_postgres.attachment_service import (
+    AttachmentService,
+    build_attachment_scope,
+    build_scoped_resolver,
+    build_scoped_uploader,
+)
 from orcheo_backend.app.dependencies import (
     get_external_agent_runtime_store,
     get_history_store,
@@ -184,10 +190,12 @@ class WorkflowExecutor:
         self,
         repository: WorkflowRepository,
         vault_provider: Callable[[], BaseCredentialVault],
+        attachment_service: AttachmentService | None = None,
     ) -> None:
         """Store collaborators used during workflow execution."""
         self._repository = repository
         self._vault_provider = vault_provider
+        self._attachment_service = attachment_service
 
     async def run(
         self,
@@ -197,6 +205,8 @@ class WorkflowExecutor:
         actor: str = "chatkit",
         progress_callback: Callable[[Mapping[str, Any]], Awaitable[None]] | None = None,
         workspace_id: str | None = None,
+        thread_id: str | None = None,
+        upload_session_id: str | None = None,
     ) -> tuple[str, Mapping[str, Any], WorkflowRun | None]:
         """Execute the workflow and return the reply, state view, and run."""
         workflow, version = await asyncio.gather(
@@ -240,19 +250,30 @@ class WorkflowExecutor:
         execution_id = self._resolve_execution_id(run)
         runtime_thread_id = _resolve_runtime_thread_id(inputs, execution_id)
         merged_config = merge_runnable_configs(version.runnable_config, None)
+
+        attachment_extras = self._build_attachment_config(
+            workspace_id=resolved_workspace_id,
+            workflow_id=str(workflow_id),
+            thread_id=thread_id or runtime_thread_id,
+            upload_session_id=upload_session_id,
+        )
+
         config = cast(
             RunnableConfig,
-            _with_chatkit_model(
-                _with_thread_id(
-                    merged_config.to_runnable_config(execution_id), runtime_thread_id
+            _with_attachment_scope(
+                _with_chatkit_model(
+                    _with_thread_id(
+                        merged_config.to_runnable_config(execution_id),
+                        runtime_thread_id,
+                    ),
+                    selected_model,
                 ),
-                selected_model,
+                attachment_extras,
             ),
         )
+        state_config_input = merged_config.to_state_config(execution_id)
         state_config = _with_chatkit_model(
-            _with_thread_id(
-                merged_config.to_state_config(execution_id), runtime_thread_id
-            ),
+            _with_thread_id(state_config_input, runtime_thread_id),
             selected_model,
         )
 
@@ -316,6 +337,31 @@ class WorkflowExecutor:
             for message in candidates
             if isinstance(message, BaseMessage)  # type: ignore[arg-type]
         ]
+
+    def _build_attachment_config(
+        self,
+        *,
+        workspace_id: str | None,
+        workflow_id: str,
+        thread_id: str | None,
+        upload_session_id: str | None,
+    ) -> dict[str, Any]:
+        """Build attachment resolver/scope extras for RunnableConfig.configurable."""
+        if self._attachment_service is None or not workspace_id:
+            return {}
+        scope = build_attachment_scope(
+            workspace_id=workspace_id,
+            workflow_id=workflow_id,
+            thread_id=thread_id,
+            upload_session_id=upload_session_id,
+        )
+        resolver = build_scoped_resolver(self._attachment_service, scope)
+        uploader = build_scoped_uploader(self._attachment_service, scope)
+        return {
+            "attachment_resolver": resolver,
+            "attachment_scope": scope,
+            "attachment_uploader": uploader,
+        }
 
     @staticmethod
     def _resolve_execution_id(run: WorkflowRun | None) -> str:
@@ -457,9 +503,8 @@ class WorkflowExecutor:
                             ):
                                 if step_callback is not None:  # pragma: no branch
                                     await step_callback(step)
-                            snapshot = await compiled.aget_state(  # type: ignore[arg-type]
-                                config
-                            )
+                            state_snapshot_config = cast(Any, config)
+                            snapshot = await compiled.aget_state(state_snapshot_config)
                             return getattr(snapshot, "values", snapshot)
 
                     return await compiled.ainvoke(payload, config=config)
@@ -604,5 +649,23 @@ def _with_chatkit_model(
         configurable_payload[CHATKIT_MODEL_CONFIG_KEY] = selected_model
     else:
         configurable_payload.pop(CHATKIT_MODEL_CONFIG_KEY, None)
+    normalized["configurable"] = configurable_payload
+    return normalized
+
+
+def _with_attachment_scope(
+    config: Mapping[str, Any],
+    attachment_extras: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return a config mapping with attachment resolver and scope injected."""
+    if not attachment_extras:
+        return dict(config)
+    normalized = dict(config)
+    configurable = normalized.get("configurable")
+    if isinstance(configurable, Mapping):
+        configurable_payload = dict(configurable)
+    else:
+        configurable_payload = {}
+    configurable_payload.update(attachment_extras)
     normalized["configurable"] = configurable_payload
     return normalized

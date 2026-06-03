@@ -125,19 +125,33 @@ class _State:
         self.console = console or _RecordingConsole()
 
 
-def test_build_ingest_payload_skips_emoji_when_metadata_dict_lacks_valid_emoji() -> (
+def test_build_ingest_payload_skips_avatar_when_metadata_dict_lacks_valid_avatar() -> (
     None
 ):
-    """No emoji is added when source metadata is a dict without a valid emoji value."""
+    """No avatar is added when source metadata lacks a valid avatar id."""
     payload = ingest._build_ingest_payload(
         script="print('hello')",
         entrypoint="build_graph",
         path=Path("/tmp/workflow.py"),
         workflow_config={
-            "metadata": {"description": "no emoji here"},
+            "metadata": {"description": "no avatar here"},
         },
     )
-    assert "emoji" not in payload["metadata"]
+    assert "avatar" not in payload["metadata"]
+
+
+def test_build_ingest_payload_includes_avatar_when_present() -> None:
+    """The ingest payload should preserve the workflow avatar id."""
+    payload = ingest._build_ingest_payload(
+        script="print('hello')",
+        entrypoint="build_graph",
+        path=Path("/tmp/workflow.py"),
+        workflow_config={
+            "metadata": {"avatar": "avatar-07"},
+        },
+    )
+
+    assert payload["metadata"]["avatar"] == "avatar-07"
 
 
 def test_build_ingest_payload_includes_configurable_schema() -> None:
@@ -147,7 +161,7 @@ def test_build_ingest_payload_includes_configurable_schema() -> None:
         entrypoint="build_graph",
         path=Path("/tmp/workflow.py"),
         workflow_config={
-            "metadata": {"emoji": "📣"},
+            "metadata": {"avatar": "avatar-07"},
             "configurable_schema": {
                 "mode": {"type": "string", "default": "draft"},
             },
@@ -161,7 +175,7 @@ def test_build_ingest_payload_includes_configurable_schema() -> None:
         "metadata": {
             "source": "cli-upload",
             "filename": "workflow.py",
-            "emoji": "📣",
+            "avatar": "avatar-07",
             "configurable_schema": {
                 "mode": {"type": "string", "default": "draft"},
             },

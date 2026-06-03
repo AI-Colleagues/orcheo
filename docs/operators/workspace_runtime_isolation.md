@@ -44,6 +44,7 @@ override:
 | `ORCHEO_CREDENTIAL_BROKER_FORWARD_URL`| `http://backend:2025/internal/credentials/resolve`                     | Upstream broker URL read only by `credential-relay` on the control network. |
 | `ORCHEO_SANDBOX_DNS`                  | _(unset)_                                                              | Compatibility override only. Hardened sandbox deployments do not inject public DNS; relay/proxy hostnames are pinned into `/etc/hosts`, and the proxy resolves external hosts. |
 | `ORCHEO_CREDENTIAL_BROKER_SECRET`     | _(required — backend refuses to start if unset)_                       | HMAC secret for run-scoped tokens — generate with `python -m orcheo.sandbox.broker --gen-secret`. |
+| `ORCHEO_SANDBOX_DISABLED`             | `true` in local dev when `ORCHEO_ENV` / `NODE_ENV` indicate development or `ORCHEO_CONTAINER_RUNTIME=runc`; otherwise `false` | Boolean | Disables sandbox runtime dispatch entirely. Keep this `false` in any deployment that should preserve workspace isolation. |
 | `ORCHEO_SANDBOX_FAST_PATH_TRUSTED`    | `false`                                                                | When `true`, workflows composed only of trusted node types skip the sandbox (workflow runs only — vibe agents always sandbox). |
 
 ## Deploy

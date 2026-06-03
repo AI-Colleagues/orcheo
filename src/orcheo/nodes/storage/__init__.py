@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 import asyncio
+import csv
+import io
 import logging
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal, cast
@@ -279,8 +281,116 @@ class GraphStoreAppendMessageNode(TaskNode):
         return {"history_written": True}
 
 
+def build_csv(headers: Sequence[str], rows: Sequence[Sequence[Any]]) -> str:
+    """Serialise *rows* to a CSV string with *headers* as the first row.
+
+    Encapsulates the ``io.StringIO`` + ``csv.writer`` pattern so that callers
+    do not need to import ``io`` or ``csv`` directly::
+
+        csv_text = build_csv(
+            ["id", "name", "score"],
+            [["1", "Alice", "0.9"], ["2", "Bob", "0.7"]],
+        )
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    writer.writerows(rows)
+    return buf.getvalue()
+
+
+async def upload_attachment(
+    config: RunnableConfig | None,
+    content: bytes | str,
+    name: str,
+    mime_type: str,
+) -> tuple[str, str]:
+    """Upload *content* to blob storage via the runtime-injected uploader.
+
+    Returns ``(attachment_id, download_url)``.  Raises ``RuntimeError`` when
+    no uploader is available (e.g. running outside the ChatKit runtime).
+
+    Call this from any ``TaskNode.run()`` that needs to produce a downloadable
+    file for the user::
+
+        attachment_id, url = await upload_attachment(
+            config, csv_bytes, "codebook.csv", "text/csv"
+        )
+    """
+    configurable = (config or {}).get("configurable") or {}
+    uploader = (
+        configurable.get("attachment_uploader")
+        if isinstance(configurable, Mapping)
+        else None
+    )
+    if uploader is None:
+        raise RuntimeError(
+            "No attachment_uploader is available in the workflow execution context. "
+            "File export requires the ChatKit runtime with blob storage configured."
+        )
+    raw: bytes = content.encode("utf-8") if isinstance(content, str) else content
+    return await uploader.upload_attachment(raw, name, mime_type)
+
+
+@registry.register(
+    NodeMetadata(
+        name="FileUploadNode",
+        description=(
+            "Upload a single file to blob storage and return a download URL. "
+            "Reads content, filename, and mime_type from state via template "
+            "references and writes attachment_id and download_url to results."
+        ),
+        category="storage",
+    )
+)
+class FileUploadNode(TaskNode):
+    """Upload a file to blob storage via the runtime-injected attachment uploader.
+
+    Field values support ``{{template}}`` resolution.  Example::
+
+        FileUploadNode(
+            name="upload_report",
+            content="{{results.build_report.csv_content}}",
+            filename="report.csv",
+            mime_type="text/csv",
+        )
+
+    On success the node returns::
+
+        {"attachment_id": "atc_...", "download_url": "https://.../chatkit/attachments/atc_..."}
+    """
+
+    content: str = Field(
+        description="File content (str or bytes). Supports {{template}}."
+    )
+    filename: str = Field(description="Download filename, e.g. 'report.csv'.")
+    mime_type: str = Field(default="application/octet-stream", description="MIME type.")
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Upload the file and return attachment_id and download_url."""
+        raw: bytes = (
+            self.content.encode("utf-8")
+            if isinstance(self.content, str)
+            else self.content  # type: ignore[assignment]
+        )
+        try:
+            attachment_id, download_url = await upload_attachment(
+                config, raw, self.filename, self.mime_type
+            )
+        except RuntimeError:
+            logger.warning(
+                "FileUploadNode '%s': no attachment_uploader available — skipping.",
+                self.name,
+            )
+            return {"attachment_id": None, "download_url": None}
+        return {"attachment_id": attachment_id, "download_url": download_url}
+
+
 __all__ = [
+    "build_csv",
+    "FileUploadNode",
     "get_graph_store",
     "GraphStoreAppendMessageNode",
     "PostgresNode",
+    "upload_attachment",
 ]

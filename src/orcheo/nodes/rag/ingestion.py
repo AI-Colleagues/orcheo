@@ -160,7 +160,9 @@ class RawDocumentInput(BaseModel):
     )
     content: str | None = Field(
         default=None,
-        description="Raw text to ingest (optional if storage_path provided)",
+        description=(
+            "Raw text to ingest (optional if storage_path or attachment_id provided)"
+        ),
     )
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="Optional metadata"
@@ -170,7 +172,17 @@ class RawDocumentInput(BaseModel):
     )
     storage_path: str | None = Field(
         default=None,
-        description="Path to file on disk containing document content",
+        description=(
+            "Path to file on disk containing document content (legacy; "
+            "prefer attachment_id)"
+        ),
+    )
+    attachment_id: str | None = Field(
+        default=None,
+        description=(
+            "Opaque attachment id resolved through the runtime attachment resolver. "
+            "Takes precedence over storage_path when both are set."
+        ),
     )
 
     model_config = ConfigDict(extra="forbid")
@@ -240,32 +252,24 @@ class DocumentLoaderNode(TaskNode):
             msg = "No documents provided to DocumentLoaderNode"
             raise ValueError(msg)
 
+        configurable = config.get("configurable", {}) if config else {}
+        attachment_resolver = configurable.get("attachment_resolver")
+        attachment_scope = configurable.get("attachment_scope")
+
         documents: list[Document] = []
         for index, raw in enumerate(raw_inputs):
             document_id = raw.id or f"{self.name}-doc-{index}"
-            metadata = {**self.default_metadata, **raw.metadata}
-
-            # Read content from storage_path if provided, otherwise use content
-            content = raw.content
-            if raw.storage_path:
-                storage_path = Path(raw.storage_path)
-                if not storage_path.exists():
-                    msg = f"Storage path does not exist: {raw.storage_path}"
-                    raise FileNotFoundError(msg)
-                # Read and decode file content
-                raw_bytes = storage_path.read_bytes()
-                try:
-                    content = raw_bytes.decode("utf-8")
-                except UnicodeDecodeError:
-                    content = raw_bytes.decode("latin-1")
-
-            if not content:
-                msg = (
-                    f"Document {document_id} has no content. "
-                    "Provide either 'content' or 'storage_path'."
-                )
-                raise ValueError(msg)
-            assert content is not None
+            content, resolved_metadata = await self._resolve_document_content(
+                raw=raw,
+                document_id=document_id,
+                attachment_resolver=attachment_resolver,
+                attachment_scope=attachment_scope,
+            )
+            metadata = {
+                **self.default_metadata,
+                **raw.metadata,
+                **resolved_metadata,
+            }
 
             documents.append(
                 Document(
@@ -278,6 +282,61 @@ class DocumentLoaderNode(TaskNode):
 
         serialized_documents = [document.model_dump() for document in documents]
         return {"documents": serialized_documents}
+
+    async def _resolve_document_content(
+        self,
+        *,
+        raw: RawDocumentInput,
+        document_id: str,
+        attachment_resolver: Any,
+        attachment_scope: Any,
+    ) -> tuple[str, dict[str, Any]]:
+        """Load and decode content from inline text, storage, or attachments."""
+        if raw.attachment_id:
+            if attachment_resolver is None or attachment_scope is None:
+                msg = (
+                    f"Document {document_id} references attachment_id "
+                    f"'{raw.attachment_id}' but no attachment resolver is "
+                    "available in the workflow execution context."
+                )
+                raise ValueError(msg)
+            payload = await attachment_resolver.load_attachment_bytes(
+                raw.attachment_id, attachment_scope
+            )
+            content = self._decode_document_bytes(payload.content)
+            return (
+                content,
+                {
+                    "mime_type": payload.mime_type,
+                    "size_bytes": payload.size_bytes,
+                    "sha256": payload.sha256,
+                },
+            )
+
+        if raw.storage_path:
+            storage_path = Path(raw.storage_path)
+            if not storage_path.exists():
+                msg = f"Storage path does not exist: {raw.storage_path}"
+                raise FileNotFoundError(msg)
+            content = self._decode_document_bytes(storage_path.read_bytes())
+            return content, {}
+
+        content = raw.content or ""
+        if not content:
+            msg = (
+                f"Document {document_id} has no content. "
+                "Provide 'content', 'attachment_id', or 'storage_path'."
+            )
+            raise ValueError(msg)
+        return content, {}
+
+    @staticmethod
+    def _decode_document_bytes(raw_bytes: bytes) -> str:
+        """Decode document bytes using UTF-8 with a Latin-1 fallback."""
+        try:
+            return raw_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            return raw_bytes.decode("latin-1")
 
     def _expand_storage_paths(
         self,

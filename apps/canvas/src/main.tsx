@@ -3,10 +3,14 @@ import * as ReactDOM from "react-dom";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
-import { initializeTheme } from "./lib/theme";
+import { initializeTheme, watchSystemTheme } from "./lib/theme";
 
 // Initialize theme before React renders to prevent flash of wrong theme
 initializeTheme();
+
+// Keep the theme in sync with the OS color scheme when "system" is selected,
+// so light/dark switches apply live without requiring a page refresh.
+watchSystemTheme();
 
 // Make React and ReactDOM globally available immediately (not in useEffect)
 window.React = React;

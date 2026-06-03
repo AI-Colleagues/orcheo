@@ -1,5 +1,3 @@
-import { buildBackendHttpUrl } from "@/lib/config";
-
 export interface PublicChatHttpError {
   status: number;
   message: string;
@@ -8,7 +6,6 @@ export interface PublicChatHttpError {
 
 interface PublicChatFetchOptions {
   workflowId: string;
-  backendBaseUrl?: string;
   onHttpError?: (error: PublicChatHttpError) => void;
   metadata?: Record<string, unknown>;
 }
@@ -91,13 +88,11 @@ export const getChatKitDomainKey = (): string => {
 
 export const buildPublicChatFetch = ({
   workflowId,
-  backendBaseUrl,
   onHttpError,
   metadata,
 }: PublicChatFetchOptions): typeof fetch => {
   // Use plain fetch to avoid attaching Canvas access tokens to public requests.
   const baseFetch = fetch;
-  const resolvedUrl = buildBackendHttpUrl("/api/chatkit", backendBaseUrl);
 
   const emitError = async (response: Response) => {
     if (!onHttpError) {
@@ -187,10 +182,9 @@ export const buildPublicChatFetch = ({
 
     nextInit.headers = requestHeaders;
 
-    const requestInfo = requestIsRequest ? input : resolvedUrl;
     const response = requestIsRequest
-      ? await baseFetch(new Request(requestInfo, nextInit))
-      : await baseFetch(requestInfo, nextInit);
+      ? await baseFetch(new Request(input, nextInit))
+      : await baseFetch(input, nextInit);
 
     if (!response.ok) {
       await emitError(response.clone());

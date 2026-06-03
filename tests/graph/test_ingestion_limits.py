@@ -12,6 +12,10 @@ from orcheo.graph.ingestion import (
 )
 
 
+def test_default_script_size_limit_is_512_kib() -> None:
+    assert DEFAULT_SCRIPT_SIZE_LIMIT == 512 * 1024
+
+
 def test_ingest_script_exceeding_size_limit() -> None:
     oversized = "a" * (DEFAULT_SCRIPT_SIZE_LIMIT + 1)
 

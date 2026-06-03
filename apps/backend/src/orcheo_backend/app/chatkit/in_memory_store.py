@@ -10,7 +10,7 @@ from orcheo_backend.app.chatkit.context import ChatKitRequestContext
 
 
 def _extract_title_from_request(context: ChatKitRequestContext | None) -> str | None:
-    """Return first 20 chars of the first user text content in the request."""
+    """Return the first user text content in the request as the thread title."""
     if not context:
         return None
     request = context.get("chatkit_request")
@@ -21,7 +21,7 @@ def _extract_title_from_request(context: ChatKitRequestContext | None) -> str | 
     for item in getattr(user_input, "content", []):
         text = getattr(item, "text", None)
         if text:
-            return text[:20].strip() or None
+            return text.strip() or None
     return None
 
 

@@ -13,6 +13,7 @@ from chatkit.types import (
 from langchain_core.messages import AIMessage, HumanMessage
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.models import Workflow, WorkflowChatKitConfig
+from orcheo_backend.app.chatkit import server as server_module
 from orcheo_backend.app.chatkit import message_utils as message_utils_module
 from orcheo_backend.app.chatkit.message_utils import (
     build_action_inputs_payload,
@@ -26,6 +27,25 @@ from orcheo_backend.app.chatkit.model_selection import (
     apply_chatkit_selected_model,
     resolve_chatkit_selected_model,
 )
+from unittest.mock import AsyncMock, Mock
+
+
+class DummyStore:
+    """Minimal store implementation used by the helper tests."""
+
+    def __init__(self) -> None:
+        self.attachment_service: object | None = None
+
+
+def create_server() -> tuple[server_module.OrcheoChatKitServer, DummyStore]:
+    store = DummyStore()
+    repository = Mock()
+    server = server_module.OrcheoChatKitServer(
+        store=store,
+        repository=repository,
+        vault_provider=lambda: None,
+    )
+    return server, store
 
 
 def teststringify_langchain_message_with_base_message() -> None:
@@ -149,6 +169,21 @@ def testextract_reply_from_state_with_reply_key() -> None:
     assert result == "Direct reply"
 
 
+def testextract_reply_from_state_prefers_assistant_message() -> None:
+    state = {
+        "assistant_message": "User-facing reply",
+        "reply": "Fallback reply",
+    }
+    result = extract_reply_from_state(state)
+    assert result == "User-facing reply"
+
+
+def testextract_reply_from_state_ignores_none_assistant_message() -> None:
+    state = {"assistant_message": None, "reply": "Fallback reply"}
+    result = extract_reply_from_state(state)
+    assert result == "Fallback reply"
+
+
 def testextract_reply_from_state_with_none_reply() -> None:
     state = {"reply": None, "messages": [{"content": "Message content"}]}
     result = extract_reply_from_state(state)
@@ -159,6 +194,32 @@ def testextract_reply_from_state_from_results_dict() -> None:
     state = {"results": {"node_a": {"reply": "Reply from results"}}}
     result = extract_reply_from_state(state)
     assert result == "Reply from results"
+
+
+def testextract_reply_from_state_from_results_assistant_message() -> None:
+    state = {
+        "results": {
+            "node_a": {
+                "phase": "awaiting_objective",
+                "assistant_message": "Assistant reply from results",
+            }
+        }
+    }
+    result = extract_reply_from_state(state)
+    assert result == "Assistant reply from results"
+
+
+def testextract_reply_from_state_from_results_none_assistant_message() -> None:
+    state = {
+        "results": {
+            "node_a": {
+                "assistant_message": None,
+                "reply": "Nested reply",
+            }
+        }
+    }
+    result = extract_reply_from_state(state)
+    assert result == "Nested reply"
 
 
 def testextract_reply_from_state_from_results_string() -> None:
@@ -321,6 +382,179 @@ def test_build_action_inputs_payload_includes_widget_and_metadata() -> None:
     assert result["action"]["type"] == "attribute"
     assert result["widget_item_id"] == "widget-id"
     assert result["widget"] == {"type": "Card", "title": "widget"}
+
+
+def test_chatkit_attachment_module_reexports_store_symbols() -> None:
+    from orcheo_backend.app.chatkit import attachments as attachments_module
+    from orcheo_backend.app.chatkit_store_postgres import (
+        attachment_service as store_module,
+    )
+
+    assert attachments_module.AttachmentService is store_module.AttachmentService
+    assert (
+        attachments_module.AttachmentNotFoundError
+        is store_module.AttachmentNotFoundError
+    )
+    assert (
+        attachments_module.build_attachment_scope is store_module.build_attachment_scope
+    )
+    assert (
+        attachments_module.build_scoped_resolver is store_module.build_scoped_resolver
+    )
+
+
+def test_attachment_ids_from_user_item_handles_mixed_payloads() -> None:
+    user_item = SimpleNamespace(
+        attachments=[
+            " atc_string ",
+            {"id": " atc_mapping "},
+            {"file_id": "atc_file"},
+            SimpleNamespace(id=" atc_object "),
+            "",
+            "   ",
+            {"id": None},
+            SimpleNamespace(id=None),
+        ]
+    )
+
+    assert server_module.OrcheoChatKitServer._attachment_ids_from_user_item(
+        user_item
+    ) == ["atc_string", "atc_mapping", "atc_file", "atc_object"]
+
+
+def test_attachment_ids_from_user_item_none_returns_empty() -> None:
+    assert server_module.OrcheoChatKitServer._attachment_ids_from_user_item(None) == []
+
+
+@pytest.mark.asyncio
+async def test_link_upload_session_handles_direct_link_failure() -> None:
+    server, _ = create_server()
+    attachment_service = SimpleNamespace(
+        link_attachments_to_thread=AsyncMock(side_effect=RuntimeError("boom")),
+        resolve_upload_session_id=AsyncMock(return_value="ups-123"),
+        link_upload_session_to_thread=AsyncMock(return_value=1),
+    )
+    server.store.attachment_service = attachment_service
+
+    thread = ThreadMetadata(id="thread-1", created_at=datetime.now(UTC))
+    user_item = SimpleNamespace(attachments=["atc-1"])
+    context = {"workspace_id": "ws-1", "workflow_id": "wf-1"}
+
+    await server._link_upload_session(context, thread, user_item)
+
+    attachment_service.link_attachments_to_thread.assert_awaited_once_with(
+        ["atc-1"], "thread-1", "ws-1"
+    )
+    attachment_service.resolve_upload_session_id.assert_awaited_once_with(
+        ["atc-1"], "ws-1", workflow_id="wf-1"
+    )
+    attachment_service.link_upload_session_to_thread.assert_awaited_once_with(
+        upload_session_id="ups-123",
+        thread_id="thread-1",
+        workspace_id="ws-1",
+    )
+
+
+@pytest.mark.asyncio
+async def test_link_upload_session_returns_when_resolution_fails() -> None:
+    server, _ = create_server()
+    attachment_service = SimpleNamespace(
+        link_attachments_to_thread=AsyncMock(return_value=1),
+        resolve_upload_session_id=AsyncMock(side_effect=RuntimeError("boom")),
+        link_upload_session_to_thread=AsyncMock(return_value=1),
+    )
+    server.store.attachment_service = attachment_service
+
+    thread = ThreadMetadata(id="thread-2", created_at=datetime.now(UTC))
+    user_item = SimpleNamespace(attachments=["atc-2"])
+    context = {"workspace_id": "ws-1", "workflow_id": "wf-1"}
+
+    await server._link_upload_session(context, thread, user_item)
+
+    attachment_service.link_attachments_to_thread.assert_awaited_once_with(
+        ["atc-2"], "thread-2", "ws-1"
+    )
+    attachment_service.resolve_upload_session_id.assert_awaited_once_with(
+        ["atc-2"], "ws-1", workflow_id="wf-1"
+    )
+    attachment_service.link_upload_session_to_thread.assert_not_awaited()
+    assert "upload_session_id" not in context
+
+
+@pytest.mark.asyncio
+async def test_link_upload_session_returns_when_service_missing() -> None:
+    server, _ = create_server()
+    server.store.attachment_service = None
+
+    thread = ThreadMetadata(id="thread-3", created_at=datetime.now(UTC))
+    user_item = SimpleNamespace(attachments=["atc-3"])
+    context = {
+        "workspace_id": "ws-1",
+        "workflow_id": "wf-1",
+        "upload_session_id": "ups-1",
+    }
+
+    await server._link_upload_session(context, thread, user_item)
+
+    assert context["upload_session_id"] == "ups-1"
+
+
+@pytest.mark.asyncio
+async def test_link_upload_session_handles_session_link_failure() -> None:
+    server, _ = create_server()
+    attachment_service = SimpleNamespace(
+        link_attachments_to_thread=AsyncMock(return_value=1),
+        resolve_upload_session_id=AsyncMock(return_value="ups-123"),
+        link_upload_session_to_thread=AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    server.store.attachment_service = attachment_service
+
+    thread = ThreadMetadata(id="thread-4", created_at=datetime.now(UTC))
+    user_item = SimpleNamespace(attachments=["atc-4"])
+    context = {
+        "workspace_id": "ws-1",
+        "workflow_id": "wf-1",
+        "upload_session_id": "ups-123",
+    }
+
+    await server._link_upload_session(context, thread, user_item)
+
+    attachment_service.link_attachments_to_thread.assert_awaited_once_with(
+        ["atc-4"], "thread-4", "ws-1"
+    )
+    attachment_service.resolve_upload_session_id.assert_not_awaited()
+    attachment_service.link_upload_session_to_thread.assert_awaited_once_with(
+        upload_session_id="ups-123",
+        thread_id="thread-4",
+        workspace_id="ws-1",
+    )
+
+
+@pytest.mark.asyncio
+async def test_link_upload_session_skips_debug_when_zero_rows() -> None:
+    server, _ = create_server()
+    attachment_service = SimpleNamespace(
+        link_attachments_to_thread=AsyncMock(return_value=1),
+        resolve_upload_session_id=AsyncMock(return_value="ups-123"),
+        link_upload_session_to_thread=AsyncMock(return_value=0),
+    )
+    server.store.attachment_service = attachment_service
+
+    thread = ThreadMetadata(id="thread-5", created_at=datetime.now(UTC))
+    user_item = SimpleNamespace(attachments=["atc-5"])
+    context = {
+        "workspace_id": "ws-1",
+        "workflow_id": "wf-1",
+        "upload_session_id": "ups-123",
+    }
+
+    await server._link_upload_session(context, thread, user_item)
+
+    attachment_service.link_upload_session_to_thread.assert_awaited_once_with(
+        upload_session_id="ups-123",
+        thread_id="thread-5",
+        workspace_id="ws-1",
+    )
 
 
 def test_dump_action_handles_non_mapping_model_dump() -> None:

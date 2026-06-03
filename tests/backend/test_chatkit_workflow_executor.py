@@ -7,6 +7,7 @@ from uuid import UUID
 import pytest
 from chatkit.errors import CustomStreamError
 from langchain_core.messages import AIMessage, HumanMessage
+from unittest.mock import AsyncMock
 from orcheo_backend.app.chatkit import workflow_executor as workflow_executor_module
 from orcheo_backend.app.chatkit.workflow_executor import (
     WorkflowExecutor,
@@ -174,6 +175,88 @@ def test_with_chatkit_model_inserts_and_removes():
     assert with_model["configurable"]["chatkit_model"] == "gpt-4"
     without = _with_chatkit_model(with_model, None)
     assert "chatkit_model" not in without["configurable"]
+
+
+def test_build_attachment_config_returns_empty_without_service() -> None:
+    executor = WorkflowExecutor(
+        SimpleNamespace(), lambda: None, attachment_service=None
+    )
+
+    assert (
+        executor._build_attachment_config(
+            workspace_id=None,
+            workflow_id="wf",
+            thread_id="thread",
+            upload_session_id=None,
+        )
+        == {}
+    )
+    assert (
+        executor._build_attachment_config(
+            workspace_id="ws",
+            workflow_id="wf",
+            thread_id="thread",
+            upload_session_id=None,
+        )
+        == {}
+    )
+
+
+def test_build_attachment_config_includes_helpers() -> None:
+    attachment_service = SimpleNamespace(
+        blob_backend="postgres",
+        load_attachment_bytes=AsyncMock(),
+        save_attachment=AsyncMock(),
+    )
+    executor = WorkflowExecutor(
+        SimpleNamespace(),
+        lambda: None,
+        attachment_service=attachment_service,
+    )
+
+    result = executor._build_attachment_config(
+        workspace_id="ws",
+        workflow_id="wf",
+        thread_id="thread",
+        upload_session_id="ups",
+    )
+
+    assert set(result) == {
+        "attachment_resolver",
+        "attachment_scope",
+        "attachment_uploader",
+    }
+    assert result["attachment_scope"].workspace_id == "ws"
+
+
+def test_with_attachment_scope_merges_extras() -> None:
+    config = {"configurable": {"existing": "value"}}
+    extras = {"attachment_resolver": object(), "attachment_scope": object()}
+
+    result = workflow_executor_module._with_attachment_scope(config, extras)
+
+    assert result["configurable"]["existing"] == "value"
+    assert (
+        result["configurable"]["attachment_resolver"] is extras["attachment_resolver"]
+    )
+    assert result["configurable"]["attachment_scope"] is extras["attachment_scope"]
+
+
+def test_with_attachment_scope_replaces_non_mapping_configurable() -> None:
+    config = {"configurable": "not-a-mapping"}
+    extras = {"attachment_resolver": object()}
+
+    result = workflow_executor_module._with_attachment_scope(config, extras)
+
+    assert result["configurable"] == extras
+
+
+def test_with_attachment_scope_returns_copy_without_extras() -> None:
+    config = {"configurable": {"existing": "value"}}
+    result = workflow_executor_module._with_attachment_scope(config, {})
+
+    assert result == config
+    assert result is not config
 
 
 def test_resolve_runtime_thread_id_prefers_inputs():

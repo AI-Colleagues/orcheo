@@ -613,7 +613,11 @@ async def test_action_streams_widgets_and_assistant(
         created_at=datetime.now(UTC),
         metadata={"workflow_id": "wf"},
     )
-    context: ChatKitRequestContext = {"actor": "actor"}
+    context: ChatKitRequestContext = {
+        "actor": "actor",
+        "workspace_id": "ws1",
+        "upload_session_id": "ups1",
+    }
     monkeypatch.setattr(server, "_ensure_workflow_metadata", lambda *_: None)
     monkeypatch.setattr(server, "_require_workflow_id", lambda *_: uuid4())
     monkeypatch.setattr(server, "_history", AsyncMock(return_value=[]))
@@ -623,10 +627,8 @@ async def test_action_streams_widgets_and_assistant(
         lambda *_: {"payload": "value"},
     )
 
-    async def fake_run_workflow(*args: Any, **kwargs: Any):
-        return "reply", {}, None
-
-    monkeypatch.setattr(server, "_run_workflow", fake_run_workflow)
+    run_workflow_mock = AsyncMock(return_value=("reply", {}, None))
+    monkeypatch.setattr(server, "_run_workflow", run_workflow_mock)
     notice = NoticeEvent(level="info", message="note")
     widget_item = WidgetItem(
         id="widget",
@@ -659,3 +661,6 @@ async def test_action_streams_widgets_and_assistant(
     store.add_thread_item.assert_any_await(thread.id, widget_item, context)
     store.add_thread_item.assert_any_await(thread.id, assistant_item, context)
     store.save_thread.assert_awaited_once_with(thread, context)
+    assert run_workflow_mock.await_args.kwargs["workspace_id"] == "ws1"
+    assert run_workflow_mock.await_args.kwargs["thread_id"] == "thread-stream"
+    assert run_workflow_mock.await_args.kwargs["upload_session_id"] == "ups1"

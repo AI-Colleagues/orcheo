@@ -118,9 +118,7 @@ describe("SettingsTabContent listener controls", () => {
     );
 
     expect(screen.getByText(/missing credentials/i)).toBeInTheDocument();
-    expect(
-      screen.getByText("mdb_connection_string"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("mdb_connection_string")).toBeInTheDocument();
   });
 
   it("renders listener actions and forwards pause/resume callbacks", async () => {

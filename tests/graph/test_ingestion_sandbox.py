@@ -30,6 +30,15 @@ def test_resolve_compiler_prefers_ingestion_module(
     assert compiler is fake_compiler
 
 
+def test_inplacevar_supports_inplace_addition() -> None:
+    assert sandbox._inplacevar_("+=", 1, 2) == 3
+
+
+def test_inplacevar_rejects_unknown_operator() -> None:
+    with pytest.raises(ScriptIngestionError, match="Unsupported in-place operator"):
+        sandbox._inplacevar_("??=", 1, 2)
+
+
 def test_async_allowing_transformer_visit_await() -> None:
     """AsyncAllowingTransformer should allow await expressions."""
     transformer = sandbox.AsyncAllowingTransformer()
@@ -125,6 +134,22 @@ def test_create_sandbox_namespace_allows_common_builtins() -> None:
     assert safe_builtins["min"](1, 3) == 1
 
 
+def test_create_sandbox_namespace_allows_reversed() -> None:
+    """Ensure restricted namespace exposes reversed for reverse iteration."""
+    namespace = sandbox.create_sandbox_namespace()
+    safe_builtins = namespace["__builtins__"]
+
+    assert list(safe_builtins["reversed"]([1, 2, 3])) == [3, 2, 1]
+
+
+def test_create_sandbox_namespace_allows_getattr() -> None:
+    """Ensure restricted namespace exposes getattr for attribute fallback."""
+    namespace = sandbox.create_sandbox_namespace()
+    safe_builtins = namespace["__builtins__"]
+
+    assert safe_builtins["getattr"](SimpleNamespace(value=7), "value", None) == 7
+
+
 def test_create_sandbox_namespace_allows_html_import() -> None:
     """Ensure restricted imports allow the html module."""
     namespace = sandbox.create_sandbox_namespace()
@@ -163,6 +188,16 @@ def test_create_sandbox_namespace_allows_base64_import() -> None:
     module = restricted_import("base64")
 
     assert module is importlib.import_module("base64")
+
+
+def test_create_sandbox_namespace_allows_csv_import() -> None:
+    """Ensure restricted imports allow the csv module."""
+    namespace = sandbox.create_sandbox_namespace()
+    restricted_import = namespace["__builtins__"]["__import__"]
+
+    module = restricted_import("csv")
+
+    assert module is importlib.import_module("csv")
 
 
 def test_create_sandbox_namespace_allows_submodule_prefix_import() -> None:

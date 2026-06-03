@@ -84,8 +84,15 @@ def build_initial_state(
     return build_runtime_state(graph_config, inputs, runtime_config, workspace_id)
 
 
-def extract_reply_from_state(state: Mapping[str, Any]) -> str | None:
+def extract_reply_from_state(  # noqa: C901, PLR0911
+    state: Mapping[str, Any],
+) -> str | None:
     """Attempt to pull an assistant reply from the workflow state."""
+    if "assistant_message" in state:
+        assistant_message = state["assistant_message"]
+        if assistant_message is not None:
+            return str(assistant_message)
+
     if "reply" in state:
         reply = state["reply"]
         if reply is not None:
@@ -94,6 +101,10 @@ def extract_reply_from_state(state: Mapping[str, Any]) -> str | None:
     results = state.get("results")
     if isinstance(results, Mapping):
         for value in results.values():
+            if isinstance(value, Mapping) and "assistant_message" in value:
+                assistant_message = value["assistant_message"]
+                if assistant_message is not None:
+                    return str(assistant_message)
             if isinstance(value, Mapping) and "reply" in value:
                 reply = value["reply"]
                 if reply is not None:

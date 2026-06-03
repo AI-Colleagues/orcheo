@@ -164,6 +164,28 @@ def test_ingest_script_rejects_relative_imports() -> None:
         ingest_langgraph_script(script)
 
 
+def test_ingest_script_allows_csv_import() -> None:
+    script = textwrap.dedent(
+        f"""
+        import csv
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        graph = StateGraph(State)
+        graph.add_node("first", lambda state: state)
+        graph.set_entry_point("first")
+        graph.set_finish_point("first")
+
+        rows = list(csv.reader(["a,b"]))
+        """
+    )
+
+    payload = ingest_langgraph_script(script)
+
+    assert payload["entrypoint"] is None
+    _assert_payload_index(payload, node_name="first")
+
+
 def test_ingest_script_missing_entrypoint_errors() -> None:
     script = textwrap.dedent(
         """

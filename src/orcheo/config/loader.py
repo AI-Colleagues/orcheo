@@ -39,6 +39,19 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
             chatkit_storage_path=source.get(
                 "CHATKIT_STORAGE_PATH", _DEFAULTS["CHATKIT_STORAGE_PATH"]
             ),
+            chatkit_attachment_blob_backend=source.get(
+                "CHATKIT_ATTACHMENT_BLOB_BACKEND",
+                _DEFAULTS["CHATKIT_ATTACHMENT_BLOB_BACKEND"],
+            ),
+            chatkit_orphan_cutoff_hours=source.get(
+                "CHATKIT_ORPHAN_CUTOFF_HOURS",
+                _DEFAULTS["CHATKIT_ORPHAN_CUTOFF_HOURS"],
+            ),
+            chatkit_s3_bucket=source.get("CHATKIT_S3_BUCKET"),
+            chatkit_s3_endpoint_url=source.get("CHATKIT_S3_ENDPOINT_URL"),
+            chatkit_s3_region=source.get("CHATKIT_S3_REGION"),
+            chatkit_s3_access_key_id=source.get("CHATKIT_S3_ACCESS_KEY_ID"),
+            chatkit_s3_secret_access_key=source.get("CHATKIT_S3_SECRET_ACCESS_KEY"),
             studio_url=source.get("STUDIO_URL", _DEFAULTS["STUDIO_URL"]),
             chatkit_max_upload_size_bytes=source.get(
                 "CHATKIT_MAX_UPLOAD_SIZE_BYTES",
@@ -116,6 +129,17 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
     normalized.set("WORKSPACE_BACKEND", settings.workspace_backend)
     normalized.set("CHATKIT_BACKEND", settings.chatkit_backend)
     normalized.set("CHATKIT_STORAGE_PATH", settings.chatkit_storage_path)
+    normalized.set(
+        "CHATKIT_ATTACHMENT_BLOB_BACKEND", settings.chatkit_attachment_blob_backend
+    )
+    normalized.set("CHATKIT_ORPHAN_CUTOFF_HOURS", settings.chatkit_orphan_cutoff_hours)
+    normalized.set("CHATKIT_S3_BUCKET", settings.chatkit_s3_bucket)
+    normalized.set("CHATKIT_S3_ENDPOINT_URL", settings.chatkit_s3_endpoint_url)
+    normalized.set("CHATKIT_S3_REGION", settings.chatkit_s3_region)
+    normalized.set("CHATKIT_S3_ACCESS_KEY_ID", settings.chatkit_s3_access_key_id)
+    normalized.set(
+        "CHATKIT_S3_SECRET_ACCESS_KEY", settings.chatkit_s3_secret_access_key
+    )
     normalized.set("STUDIO_URL", settings.studio_url)
     normalized.set(
         "CHATKIT_MAX_UPLOAD_SIZE_BYTES", settings.chatkit_max_upload_size_bytes

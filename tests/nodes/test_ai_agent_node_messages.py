@@ -1,6 +1,7 @@
 """AgentNode message construction tests."""
 
 from __future__ import annotations
+import contextlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import pytest
@@ -97,6 +98,104 @@ async def test_agentnode_prefers_existing_messages(
     assert len(messages) == 1
     assert isinstance(messages[0], HumanMessage)
     assert messages[0].content == "Use these messages instead."
+
+
+@pytest.mark.asyncio
+async def test_agentnode_propagates_workspace_id_to_tool_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace id should reach nested workflow-tool runtime config."""
+
+    fake_agent = AsyncMock()
+    fake_agent.ainvoke.return_value = {"messages": [AIMessage(content="done")]}
+    captured_runtime_config: dict[str, object] = {}
+
+    async def fake_prepare_tools(self: AgentNode):  # type: ignore[unused-argument]
+        return []
+
+    def fake_init_chat_model(*args, **kwargs):
+        return "model"
+
+    def fake_create_agent(model, tools, system_prompt=None, response_format=None):
+        return fake_agent
+
+    def fake_tool_execution_context(config):
+        captured_runtime_config.update(dict(config or {}))
+        return contextlib.nullcontext()
+
+    monkeypatch.setattr("orcheo.nodes.ai.init_chat_model", fake_init_chat_model)
+    monkeypatch.setattr("orcheo.nodes.ai.create_agent", fake_create_agent)
+    monkeypatch.setattr(AgentNode, "_prepare_tools", fake_prepare_tools)
+    monkeypatch.setattr(
+        "orcheo.nodes.ai.tool_execution_context", fake_tool_execution_context
+    )
+
+    node = AgentNode(name="agent", ai_model="test-model", system_prompt="sys-prompt")
+    state = State(
+        workspace_id="workspace-1",
+        inputs={"message": "How can you help?"},
+        results={},
+        structured_response=None,
+    )
+
+    await node.run(state, {})
+
+    assert captured_runtime_config["configurable"]["workspace_id"] == "workspace-1"
+    assert fake_agent.ainvoke.await_args.args[1]["configurable"]["workspace_id"] == (
+        "workspace-1"
+    )
+
+
+@pytest.mark.asyncio
+async def test_agentnode_propagates_conversation_key_to_tool_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resolved conversation keys should be available to workflow tools."""
+
+    fake_agent = AsyncMock()
+    fake_agent.ainvoke.return_value = {"messages": [AIMessage(content="done")]}
+    captured_runtime_config: dict[str, object] = {}
+
+    async def fake_prepare_tools(self: AgentNode):  # type: ignore[unused-argument]
+        return []
+
+    def fake_init_chat_model(*args, **kwargs):
+        return "model"
+
+    def fake_create_agent(model, tools, system_prompt=None, response_format=None):
+        return fake_agent
+
+    def fake_tool_execution_context(config):
+        captured_runtime_config.update(dict(config or {}))
+        return contextlib.nullcontext()
+
+    monkeypatch.setattr("orcheo.nodes.ai.init_chat_model", fake_init_chat_model)
+    monkeypatch.setattr("orcheo.nodes.ai.create_agent", fake_create_agent)
+    monkeypatch.setattr(AgentNode, "_prepare_tools", fake_prepare_tools)
+    monkeypatch.setattr(
+        "orcheo.nodes.ai.tool_execution_context", fake_tool_execution_context
+    )
+
+    node = AgentNode(
+        name="agent",
+        ai_model="test-model",
+        system_prompt="sys-prompt",
+        use_graph_chat_history=True,
+        history_key_candidates=["room-1"],
+    )
+    state = State(
+        workspace_id="workspace-1",
+        inputs={"message": "How can you help?"},
+        results={},
+        structured_response=None,
+    )
+
+    await node.run(state, {})
+
+    assert captured_runtime_config["configurable"]["conversation_key"] == "room-1"
+    assert fake_agent.ainvoke.await_args.args[1]["configurable"][
+        "conversation_key"
+    ] == ("room-1")
 
 
 def test_messages_from_inputs_handles_history_and_prompt() -> None:

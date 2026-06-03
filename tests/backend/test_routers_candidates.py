@@ -14,6 +14,7 @@ _SAMPLE = CandidateItem(
     handle="test_agent",
     name="Test Agent",
     description="A test agent.",
+    avatar="avatar-01",
 )
 
 

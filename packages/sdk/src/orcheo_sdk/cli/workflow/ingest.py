@@ -133,9 +133,9 @@ def _build_ingest_payload(
     }
     source_metadata = workflow_config.get("metadata")
     if isinstance(source_metadata, dict):
-        emoji = source_metadata.get("emoji")
-        if isinstance(emoji, str) and emoji.strip():
-            payload["metadata"]["emoji"] = emoji.strip()
+        avatar = source_metadata.get("avatar")
+        if isinstance(avatar, str) and avatar.strip():
+            payload["metadata"]["avatar"] = avatar.strip()
     configurable_schema = workflow_config.get("configurable_schema")
     if isinstance(configurable_schema, dict) and configurable_schema:
         payload["metadata"]["configurable_schema"] = configurable_schema

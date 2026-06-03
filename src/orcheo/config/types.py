@@ -6,11 +6,13 @@ from typing import Literal
 CheckpointBackend = Literal["postgres"]
 GraphStoreBackend = Literal["postgres"]
 ChatKitBackend = Literal["postgres"]
+AttachmentBlobBackend = Literal["postgres", "s3"]
 RepositoryBackend = Literal["postgres"]
 WorkspaceBackend = Literal["postgres"]
 VaultBackend = Literal["postgres"]
 
 __all__ = [
+    "AttachmentBlobBackend",
     "ChatKitBackend",
     "CheckpointBackend",
     "GraphStoreBackend",

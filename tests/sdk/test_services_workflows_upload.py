@@ -54,7 +54,7 @@ class _DummyFrontmatter:
         description: str | None = None,
         config_path: str | None = None,
         entrypoint: str | None = None,
-        emoji: str | None = None,
+        avatar: str | None = None,
     ) -> None:
         self.is_empty = is_empty
         self.name = name
@@ -63,7 +63,7 @@ class _DummyFrontmatter:
         self.description = description
         self.config_path = config_path
         self.entrypoint = entrypoint
-        self.emoji = emoji
+        self.avatar = avatar
 
 
 def _frontmatter(**overrides: object) -> SimpleNamespace:
@@ -75,7 +75,7 @@ def _frontmatter(**overrides: object) -> SimpleNamespace:
         "description": None,
         "config_path": None,
         "entrypoint": None,
-        "emoji": None,
+        "avatar": None,
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -548,15 +548,15 @@ def test_upload_workflow_data_success_injects_entrypoint_and_config(
     }
 
 
-def test_upload_workflow_data_merges_frontmatter_emoji_with_existing_metadata(
+def test_upload_workflow_data_merges_frontmatter_avatar_with_existing_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Frontmatter emoji is merged with an existing metadata dict in workflow config."""
+    """Frontmatter avatar is merged with an existing metadata dict in workflow config."""
     workflow_path = Path("/tmp/workflow.py")
     uploaded_payloads: list[dict[str, object]] = []
 
     def load_workflow_frontmatter(_path: Path) -> _DummyFrontmatter:
-        return _DummyFrontmatter(is_empty=False, emoji="🚀")
+        return _DummyFrontmatter(is_empty=False, avatar="avatar-07")
 
     def load_workflow_from_python(_path: Path) -> dict[str, object]:
         return {
@@ -600,11 +600,11 @@ def test_upload_workflow_data_merges_frontmatter_emoji_with_existing_metadata(
     assert uploaded_payloads[0]["workflow_config"]["metadata"] == {
         "source": "existing",
         "version": 2,
-        "emoji": "🚀",
+        "avatar": "avatar-07",
     }
 
 
-def test_upload_workflow_data_forwards_frontmatter_emoji(
+def test_upload_workflow_data_forwards_frontmatter_avatar(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workflow_path = Path("/tmp/workflow.py")
@@ -615,7 +615,7 @@ def test_upload_workflow_data_forwards_frontmatter_emoji(
         return Path(file_path)
 
     def load_workflow_frontmatter(_path: Path) -> _DummyFrontmatter:
-        return _DummyFrontmatter(is_empty=False, emoji="📣")
+        return _DummyFrontmatter(is_empty=False, avatar="avatar-07")
 
     def load_workflow_from_python(_path: Path) -> dict[str, object]:
         return {
@@ -643,7 +643,7 @@ def test_upload_workflow_data_forwards_frontmatter_emoji(
                 "requested_name": requested_name,
             }
         )
-        assert workflow_config["metadata"] == {"emoji": "📣"}
+        assert workflow_config["metadata"] == {"avatar": "avatar-07"}
         return {"id": workflow_id, "workflow_config": workflow_config}
 
     _install_workflow_package(

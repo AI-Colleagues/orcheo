@@ -12,7 +12,7 @@ class CandidateItem(BaseModel):
     handle: str
     name: str
     description: str | None = None
-    emoji: str | None = None
+    avatar: str | None = None
     subtitle: str | None = None
     script: str = ""
     config: dict[str, Any] | None = None

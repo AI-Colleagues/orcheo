@@ -109,6 +109,31 @@ def test_settings_invalid_graph_store_backend(
         config.get_settings(refresh=True)
 
 
+def test_app_settings_coerce_chatkit_attachment_blob_backend() -> None:
+    assert AppSettings._coerce_chatkit_attachment_blob_backend(None) == "postgres"
+    assert AppSettings._coerce_chatkit_attachment_blob_backend("S3") == "s3"
+
+    with pytest.raises(ValueError, match="ORCHEO_CHATKIT_ATTACHMENT_BLOB_BACKEND"):
+        AppSettings._coerce_chatkit_attachment_blob_backend("gcs")
+
+
+def test_app_settings_coerce_chatkit_orphan_cutoff_hours() -> None:
+    assert AppSettings._coerce_chatkit_orphan_cutoff_hours(None) == 24
+    assert AppSettings._coerce_chatkit_orphan_cutoff_hours("48") == 48
+
+    with pytest.raises(ValueError, match="ORCHEO_CHATKIT_ORPHAN_CUTOFF_HOURS"):
+        AppSettings._coerce_chatkit_orphan_cutoff_hours("bad")
+
+
+def test_app_settings_validates_s3_bucket_requirement() -> None:
+    with pytest.raises(ValueError, match="ORCHEO_CHATKIT_S3_BUCKET"):
+        AppSettings(
+            chatkit_attachment_blob_backend="s3",
+            postgres_dsn="postgresql://example",
+            vault=VaultSettings(encryption_key="test-vault-encryption-key"),
+        )
+
+
 def test_postgres_backend_requires_dsn(
     monkeypatch: pytest.MonkeyPatch, no_dotenv_loader: None
 ) -> None:

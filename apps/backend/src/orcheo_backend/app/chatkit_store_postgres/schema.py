@@ -65,19 +65,73 @@ CREATE INDEX IF NOT EXISTS idx_chat_attachments_created
     ON chat_attachments(created_at);
 CREATE INDEX IF NOT EXISTS idx_chat_attachments_details
     ON chat_attachments USING GIN (details_json);
+
+CREATE TABLE IF NOT EXISTS chat_attachment_blobs (
+    attachment_id TEXT PRIMARY KEY,
+    content BYTEA NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    sha256 TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    FOREIGN KEY(attachment_id) REFERENCES chat_attachments(id)
+        ON DELETE CASCADE
+);
 """
+
+# ALTER TABLE statements for new columns added to chat_attachments.
+# New columns are all nullable at the schema level so existing deployments
+# do not fail on startup — the service layer enforces required-shape rules
+# for new rows.
+_CHAT_ATTACHMENTS_ALTER_STMTS = [
+    "ALTER TABLE chat_attachments ADD COLUMN IF NOT EXISTS workspace_id TEXT",
+    "ALTER TABLE chat_attachments ADD COLUMN IF NOT EXISTS workflow_id TEXT",
+    "ALTER TABLE chat_attachments ADD COLUMN IF NOT EXISTS upload_session_id TEXT",
+    "ALTER TABLE chat_attachments ADD COLUMN IF NOT EXISTS auth_mode TEXT",
+    "ALTER TABLE chat_attachments ADD COLUMN IF NOT EXISTS actor_subject TEXT",
+    "ALTER TABLE chat_attachments ADD COLUMN IF NOT EXISTS size_bytes BIGINT",
+    "ALTER TABLE chat_attachments ADD COLUMN IF NOT EXISTS sha256 TEXT",
+    "ALTER TABLE chat_attachments ADD COLUMN IF NOT EXISTS blob_backend TEXT",
+    "ALTER TABLE chat_attachments ADD COLUMN IF NOT EXISTS blob_key TEXT",
+    (
+        "ALTER TABLE chat_attachments ADD COLUMN IF NOT EXISTS linked_at "
+        "TIMESTAMP WITH TIME ZONE"
+    ),
+]
+
+# Scoped indexes for attachment lookups.
+_ATTACHMENT_SCOPE_INDEXES = [
+    (
+        "idx_chat_threads_workspace_id",
+        "ON chat_threads(workspace_id)",
+    ),
+    (
+        "idx_chat_attachments_workspace_id",
+        "ON chat_attachments(workspace_id, id)",
+    ),
+    (
+        "idx_chat_attachments_workspace_workflow_thread",
+        "ON chat_attachments(workspace_id, workflow_id, thread_id)",
+    ),
+    (
+        "idx_chat_attachments_workspace_upload_session",
+        "ON chat_attachments(workspace_id, upload_session_id)",
+    ),
+    (
+        "idx_chat_attachments_workspace_created",
+        "ON chat_attachments(workspace_id, created_at)",
+    ),
+]
 
 
 async def ensure_schema(conn: Any) -> None:
-    """Ensure tables and indexes exist."""
+    """Ensure tables, columns, and indexes exist."""
     for raw_stmt in POSTGRES_CHATKIT_SCHEMA.strip().split(";"):
         stmt = raw_stmt.strip()
         if stmt:
             await conn.execute(stmt)
-    await conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace_id "
-        "ON chat_threads(workspace_id)"
-    )
+    for alter_stmt in _CHAT_ATTACHMENTS_ALTER_STMTS:
+        await conn.execute(alter_stmt)
+    for index_name, index_body in _ATTACHMENT_SCOPE_INDEXES:
+        await conn.execute(f"CREATE INDEX IF NOT EXISTS {index_name} {index_body}")
 
 
 __all__ = ["POSTGRES_CHATKIT_SCHEMA", "ensure_schema"]

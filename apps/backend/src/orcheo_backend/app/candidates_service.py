@@ -133,7 +133,7 @@ def _build_candidate(
         handle=handle,
         name=frontmatter.name or fallback_name,
         description=frontmatter.description,
-        emoji=frontmatter.emoji,
+        avatar=frontmatter.avatar,
         subtitle=frontmatter.subtitle,
         script=source,
         config=config,
