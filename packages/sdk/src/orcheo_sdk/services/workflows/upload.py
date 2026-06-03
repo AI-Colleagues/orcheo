@@ -146,11 +146,10 @@ def _apply_frontmatter_defaults(
 def _merge_frontmatter_metadata(
     workflow_config: dict[str, Any],
     *,
-    emoji: str | None,
     avatar: str | None,
 ) -> None:
-    """Merge frontmatter avatar/emoji metadata into the workflow payload."""
-    if emoji is None and avatar is None:
+    """Merge frontmatter avatar metadata into the workflow payload."""
+    if avatar is None:
         return
 
     metadata = workflow_config.get("metadata")
@@ -159,10 +158,7 @@ def _merge_frontmatter_metadata(
     else:
         merged_metadata = {}
 
-    if emoji is not None:
-        merged_metadata["emoji"] = emoji
-    if avatar is not None:
-        merged_metadata["avatar"] = avatar
+    merged_metadata["avatar"] = avatar
 
     workflow_config["metadata"] = merged_metadata
 
@@ -227,7 +223,6 @@ def upload_workflow_data(
     )
     _merge_frontmatter_metadata(
         workflow_config,
-        emoji=frontmatter.emoji,
         avatar=frontmatter.avatar,
     )
 

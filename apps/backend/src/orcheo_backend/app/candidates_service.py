@@ -134,7 +134,6 @@ def _build_candidate(
         name=frontmatter.name or fallback_name,
         description=frontmatter.description,
         avatar=frontmatter.avatar,
-        emoji=frontmatter.emoji,
         subtitle=frontmatter.subtitle,
         script=source,
         config=config,

@@ -10,7 +10,6 @@ The frontmatter follows the PEP 723-inspired comment block convention:
     # config = "./my-workflow.config.json"
     # entrypoint = "build_graph"
     # avatar = "avatar-07"
-    # emoji = "🤖"
     # subtitle = "AI Assistant"
     # ///
 
@@ -42,7 +41,6 @@ _ALLOWED_FIELDS = frozenset(
         "config",
         "entrypoint",
         "avatar",
-        "emoji",
         "subtitle",
         "notes",
         "metadata",
@@ -121,7 +119,6 @@ class WorkflowFrontmatter:
     config_path: str | None = None
     entrypoint: str | None = None
     avatar: str | None = None
-    emoji: str | None = None
     subtitle: str | None = None
     notes: str | None = None
     metadata: dict[str, Any] | None = None
@@ -138,7 +135,6 @@ class WorkflowFrontmatter:
                 self.config_path,
                 self.entrypoint,
                 self.avatar,
-                self.emoji,
                 self.subtitle,
                 self.notes,
                 self.metadata,
@@ -180,7 +176,6 @@ def parse_workflow_frontmatter(source: str) -> WorkflowFrontmatter:
         config_path=_string_field(data, "config"),
         entrypoint=_string_field(data, "entrypoint"),
         avatar=_string_field(data, "avatar"),
-        emoji=_string_field(data, "emoji"),
         subtitle=_string_field(data, "subtitle"),
         notes=_string_field(data, "notes"),
         metadata=_table_field(data, "metadata"),
