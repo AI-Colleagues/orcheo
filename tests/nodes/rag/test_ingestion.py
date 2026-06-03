@@ -3,6 +3,7 @@
 from __future__ import annotations
 import os
 from typing import Any
+from unittest.mock import AsyncMock
 import httpx
 import pytest
 from orcheo.graph.state import State
@@ -158,6 +159,49 @@ def test_raw_document_input_accepts_document_payload() -> None:
 def test_raw_document_input_rejects_invalid_payload_type() -> None:
     with pytest.raises(TypeError, match="Unsupported document payload"):
         RawDocumentInput.from_unknown(123)
+
+
+@pytest.mark.asyncio
+async def test_document_loader_resolves_attachment_content() -> None:
+    node = DocumentLoaderNode(
+        name="document_loader",
+        documents=[RawDocumentInput(attachment_id="atc_1", source="attachment")],
+        default_source="inline",
+    )
+    resolver = AsyncMock()
+    resolver.load_attachment_bytes.return_value = type(
+        "Payload",
+        (),
+        {
+            "content": b"Attachment text",
+            "mime_type": "text/plain",
+            "size_bytes": 15,
+            "sha256": "a" * 64,
+        },
+    )()
+    scope = type("Scope", (), {"workspace_id": "ws_1"})()
+
+    result = await node.run(
+        State(inputs={}, results={}, structured_response=None),
+        {"configurable": {"attachment_resolver": resolver, "attachment_scope": scope}},
+    )
+
+    document = result["documents"][0]
+    assert document["content"] == "Attachment text"
+    assert document["metadata"]["mime_type"] == "text/plain"
+    assert document["metadata"]["size_bytes"] == 15
+    assert document["metadata"]["sha256"] == "a" * 64
+
+
+@pytest.mark.asyncio
+async def test_document_loader_requires_attachment_resolver_for_attachment_id() -> None:
+    node = DocumentLoaderNode(
+        name="document_loader",
+        documents=[RawDocumentInput(attachment_id="atc_1")],
+    )
+
+    with pytest.raises(ValueError, match="no attachment resolver is available"):
+        await node.run(State(inputs={}, results={}, structured_response=None), {})
 
 
 @pytest.mark.asyncio

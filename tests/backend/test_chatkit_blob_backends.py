@@ -3,6 +3,8 @@
 from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
+import sys
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call, patch
 import pytest
@@ -74,6 +76,16 @@ def _make_service(
     lock = asyncio.Lock()
     service = AttachmentService(_factory, lock, s3_backend=s3_backend)
     return service, conn, cursor
+
+
+@pytest.mark.asyncio
+async def test_blob_backend_protocol_methods_are_callable() -> None:
+    dummy = object()
+
+    assert BlobBackend.make_key(dummy, "ws_1", "atc_1") is None
+    await BlobBackend.put(dummy, "key", b"data", sha256="abc", size_bytes=4)
+    assert await BlobBackend.load(dummy, "key") is None
+    assert await BlobBackend.delete(dummy, "key") is None
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +190,66 @@ def test_s3_get_client_raises_without_boto3() -> None:
     with patch.dict("sys.modules", {"boto3": None}):
         with pytest.raises(RuntimeError, match="boto3 must be installed"):
             backend._get_client()
+
+
+def test_s3_get_client_passes_configuration_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def _client(service_name: str, **kwargs: Any) -> object:
+        calls.append((service_name, kwargs))
+        return object()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "boto3",
+        SimpleNamespace(client=_client),
+    )
+
+    backend = S3BlobBackend(
+        "bucket",
+        endpoint_url="https://example.invalid",
+        region="eu-west-1",
+        access_key_id="key",
+        secret_access_key="secret",
+    )
+
+    client = backend._get_client()
+
+    assert client is backend._client
+    assert calls == [
+        (
+            "s3",
+            {
+                "endpoint_url": "https://example.invalid",
+                "region_name": "eu-west-1",
+                "aws_access_key_id": "key",
+                "aws_secret_access_key": "secret",
+            },
+        )
+    ]
+
+
+def test_s3_get_client_omits_optional_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def _client(service_name: str, **kwargs: Any) -> object:
+        calls.append((service_name, kwargs))
+        return object()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "boto3",
+        SimpleNamespace(client=_client),
+    )
+
+    backend = S3BlobBackend("bucket")
+
+    client = backend._get_client()
+
+    assert client is backend._client
+    assert calls == [("s3", {})]
 
 
 # ---------------------------------------------------------------------------

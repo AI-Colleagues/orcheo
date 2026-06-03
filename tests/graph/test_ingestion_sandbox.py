@@ -30,6 +30,15 @@ def test_resolve_compiler_prefers_ingestion_module(
     assert compiler is fake_compiler
 
 
+def test_inplacevar_supports_inplace_addition() -> None:
+    assert sandbox._inplacevar_("+=", 1, 2) == 3
+
+
+def test_inplacevar_rejects_unknown_operator() -> None:
+    with pytest.raises(ScriptIngestionError, match="Unsupported in-place operator"):
+        sandbox._inplacevar_("??=", 1, 2)
+
+
 def test_async_allowing_transformer_visit_await() -> None:
     """AsyncAllowingTransformer should allow await expressions."""
     transformer = sandbox.AsyncAllowingTransformer()

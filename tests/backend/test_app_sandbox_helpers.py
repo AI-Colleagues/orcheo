@@ -153,6 +153,102 @@ def test_module_level_sandbox_getters_delegate_to_bootstrap(
         sandbox_module._bootstrap = original
 
 
+@pytest.mark.asyncio
+async def test_disabled_dispatcher_dispatch_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dispatcher = sandbox_module._DisabledWorkflowDispatcher()
+    spec = build_workflow_run_spec(
+        execution_id="exec-1",
+        workspace_id="ws-1",
+        graph_config={"nodes": []},
+        inputs={"input": "value"},
+    )
+
+    monkeypatch.setattr(
+        sandbox_module,
+        "run_in_subprocess",
+        lambda *args, **kwargs: {
+            "run_id": "exec-1",
+            "status": "succeeded",
+            "outputs": {"result": "ok"},
+            "error": None,
+        },
+    )
+
+    result = await dispatcher.dispatch(spec)
+
+    assert result.run_id == "exec-1"
+    assert result.status == "succeeded"
+    assert result.outputs == {"result": "ok"}
+    assert result.error is None
+
+
+@pytest.mark.asyncio
+async def test_disabled_dispatcher_dispatch_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dispatcher = sandbox_module._DisabledWorkflowDispatcher()
+    spec = build_workflow_run_spec(
+        execution_id="exec-2",
+        workspace_id="ws-1",
+        graph_config={"nodes": []},
+        inputs={"input": "value"},
+    )
+
+    def _raise(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(sandbox_module, "run_in_subprocess", _raise)
+
+    result = await dispatcher.dispatch(spec)
+
+    assert result.run_id == "exec-2"
+    assert result.status == "failed"
+    assert result.outputs == {}
+    assert result.error == "RuntimeError: boom"
+
+
+def test_bootstrap_sync_mode_resets_cached_components(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bootstrap = _SandboxBootstrap()
+    bootstrap._sandbox_disabled = False
+    bootstrap._manager = SimpleNamespace()
+    bootstrap._launcher = SimpleNamespace()
+    bootstrap._dispatcher = SimpleNamespace()
+    bootstrap._runtime = SimpleNamespace()
+    bootstrap._exec_backend = SimpleNamespace()
+    bootstrap._runner = SimpleNamespace()
+    bootstrap._ingestor = SimpleNamespace()
+
+    monkeypatch.setattr(sandbox_module, "is_sandbox_disabled", lambda: True)
+
+    assert bootstrap._sync_mode() is True
+    assert bootstrap._manager is None
+    assert bootstrap._launcher is None
+    assert bootstrap._dispatcher is None
+    assert bootstrap._runtime is None
+    assert bootstrap._exec_backend is None
+    assert bootstrap._runner is None
+    assert bootstrap._ingestor is None
+    assert bootstrap._sandbox_disabled is True
+
+
+def test_bootstrap_configure_is_noop_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bootstrap = _SandboxBootstrap()
+    monkeypatch.setattr(sandbox_module, "is_sandbox_disabled", lambda: True)
+    bootstrap.configure(SimpleNamespace())
+    assert bootstrap._broker is None
+
+
+def test_parse_bool_env_handles_blank_and_invalid() -> None:
+    assert sandbox_module._parse_bool_env("   ") is None
+    assert sandbox_module._parse_bool_env("maybe") is None
+
+
 def test_sandbox_disabled_bootstrap_uses_local_launcher_and_ingestion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -185,12 +281,16 @@ def test_sandbox_disabled_bootstrap_uses_local_launcher_and_ingestion(
     monkeypatch.setattr(sandbox_module, "_bootstrap", _SandboxBootstrap())
 
     launcher = sandbox_module.get_sandbox_launcher()
+    launcher_again = sandbox_module.get_sandbox_launcher()
     dispatcher = sandbox_module.get_sandbox_dispatcher()
+    dispatcher_again = sandbox_module.get_sandbox_dispatcher()
 
     from orcheo.sandbox.launcher import LocalProcessLauncher
 
     assert isinstance(launcher, LocalProcessLauncher)
+    assert launcher_again is launcher
     # The disabled dispatcher object still answers "False" for sandbox routing.
+    assert dispatcher_again is dispatcher
     assert (
         dispatcher.should_sandbox(
             build_workflow_run_spec(

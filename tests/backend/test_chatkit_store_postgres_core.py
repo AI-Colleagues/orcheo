@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 import pytest
 from chatkit.store import NotFoundError
 from chatkit.types import (
@@ -17,6 +19,7 @@ from chatkit.types import (
 )
 from pydantic import ValidationError
 from orcheo_backend.app.chatkit_store_postgres import PostgresChatKitStore
+from orcheo_backend.app.chatkit_store_postgres import attachments as attachments_module
 from orcheo_backend.app.chatkit_store_postgres import base as pg_base
 from orcheo_backend.app.chatkit_store_postgres.schema import (
     POSTGRES_CHATKIT_SCHEMA,
@@ -1022,3 +1025,176 @@ async def test_utils_ensure_datetime_naive() -> None:
     result = ensure_datetime(dt_naive)
     assert result.tzinfo == UTC
     assert result.hour == 12
+
+
+def test_attachment_service_property_is_cached_and_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = {
+        "CHATKIT_ATTACHMENT_BLOB_BACKEND": "s3",
+        "CHATKIT_S3_BUCKET": "bucket",
+        "CHATKIT_S3_ENDPOINT_URL": "https://example.invalid",
+        "CHATKIT_S3_REGION": "eu-west-1",
+        "CHATKIT_S3_ACCESS_KEY_ID": "key",
+        "CHATKIT_S3_SECRET_ACCESS_KEY": "secret",
+        "CHATKIT_MAX_UPLOAD_SIZE_BYTES": 1234,
+        "CHATKIT_ORPHAN_CUTOFF_HOURS": 48,
+    }
+    created: list[Any] = []
+    build_calls: list[tuple[str, dict[str, Any]]] = []
+
+    class FakeAttachmentService:
+        def __init__(
+            self,
+            connection: Any,
+            lock: Any,
+            *,
+            max_size_bytes: int,
+            orphan_cutoff_hours: int,
+            s3_backend: Any,
+        ) -> None:
+            self.connection = connection
+            self.lock = lock
+            self.max_size_bytes = max_size_bytes
+            self.orphan_cutoff_hours = orphan_cutoff_hours
+            self.s3_backend = s3_backend
+            created.append(self)
+
+    def _build_blob_backend(name: str, **kwargs: Any) -> object:
+        build_calls.append((name, kwargs))
+        return SimpleNamespace(name=name, kwargs=kwargs)
+
+    monkeypatch.setattr(
+        attachments_module.orcheo_config, "get_settings", lambda: settings
+    )
+    monkeypatch.setattr(attachments_module, "AttachmentService", FakeAttachmentService)
+    monkeypatch.setattr(attachments_module, "build_blob_backend", _build_blob_backend)
+
+    store = make_store(monkeypatch, responses=[])
+    store._attachment_service = None
+
+    first = store.attachment_service
+    second = store.attachment_service
+
+    assert first is second
+    assert created == [first]
+    assert first.max_size_bytes == 1234
+    assert first.orphan_cutoff_hours == 48
+    assert first.s3_backend.name == "s3"
+    assert build_calls == [
+        (
+            "s3",
+            {
+                "bucket": "bucket",
+                "endpoint_url": "https://example.invalid",
+                "region": "eu-west-1",
+                "access_key_id": "key",
+                "secret_access_key": "secret",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_delete_attachment_delegates_to_attachment_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = make_store(monkeypatch, responses=[])
+    store._initialized = True
+    delegated = AsyncMock()
+    store._attachment_service = SimpleNamespace(delete_attachment=delegated)
+
+    await store.delete_attachment("atc_1", {"workspace_id": "ws_1"})
+
+    delegated.assert_awaited_once_with("atc_1", "ws_1")
+
+
+@pytest.mark.asyncio
+async def test_prune_threads_older_than_deletes_s3_objects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = [
+        {"rows": [{"id": "thr_1"}]},
+        {
+            "rows": [
+                {
+                    "id": "atc_1",
+                    "blob_backend": "s3",
+                    "blob_key": "attachments/ws_1/atc_1",
+                }
+            ]
+        },
+        {},
+        {},
+    ]
+    store = make_store(monkeypatch, responses=responses)
+    store._attachment_service = SimpleNamespace(
+        s3_backend=SimpleNamespace(delete=AsyncMock())
+    )
+
+    count = await store.prune_threads_older_than(datetime.now(UTC))
+
+    assert count == 1
+    store._attachment_service.s3_backend.delete.assert_awaited_once_with(
+        "attachments/ws_1/atc_1"
+    )
+
+
+@pytest.mark.asyncio
+async def test_prune_threads_older_than_deletes_storage_files(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = [
+        {"rows": [{"id": "thr_fs"}]},
+        {
+            "rows": [
+                {
+                    "id": "atc_fs",
+                    "blob_backend": None,
+                    "storage_path": "/tmp/chatkit-file.txt",
+                }
+            ]
+        },
+        {},
+        {},
+    ]
+    store = make_store(monkeypatch, responses=responses)
+    store._attachment_service = SimpleNamespace(s3_backend=None)
+    deleted_paths: list[str] = []
+
+    def _unlink(self, missing_ok: bool = False) -> None:  # type: ignore[no-untyped-def]
+        del missing_ok
+        deleted_paths.append(str(self))
+
+    monkeypatch.setattr(attachments_module.Path, "unlink", _unlink)
+
+    count = await store.prune_threads_older_than(datetime.now(UTC))
+
+    assert count == 1
+    assert deleted_paths == ["/tmp/chatkit-file.txt"]
+
+
+@pytest.mark.asyncio
+async def test_prune_threads_older_than_skips_rows_without_storage_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = [
+        {"rows": [{"id": "thr_fs"}]},
+        {"rows": [{"id": "atc_fs", "blob_backend": None}]},
+        {},
+        {},
+    ]
+    store = make_store(monkeypatch, responses=responses)
+    store._attachment_service = SimpleNamespace(s3_backend=None)
+    deleted_paths: list[str] = []
+
+    def _unlink(self, missing_ok: bool = False) -> None:  # type: ignore[no-untyped-def]
+        del missing_ok
+        deleted_paths.append(str(self))
+
+    monkeypatch.setattr(attachments_module.Path, "unlink", _unlink)
+
+    count = await store.prune_threads_older_than(datetime.now(UTC))
+
+    assert count == 1
+    assert deleted_paths == []

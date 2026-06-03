@@ -229,6 +229,43 @@ async def test_save_attachment_populates_details_json_when_omitted() -> None:
 
 
 @pytest.mark.asyncio
+async def test_save_attachment_preserves_explicit_details_json() -> None:
+    service, conn, _ = _make_service()
+    explicit_details = '{"id":"custom","name":"explicit"}'
+
+    await service.save_attachment(
+        workspace_id="ws",
+        workflow_id="wf",
+        thread_id="t",
+        upload_session_id=None,
+        auth_mode="publish",
+        actor_subject=None,
+        attachment_type="file",
+        name="f.txt",
+        mime_type="text/plain",
+        content=b"x",
+        details_json=explicit_details,
+    )
+
+    params = conn.execute.call_args_list[0].args[1]
+    assert params[12] == explicit_details
+
+
+def test_attachment_service_blob_backend_properties() -> None:
+    service, _, _ = _make_service()
+    assert service.blob_backend == "postgres"
+    assert service.s3_backend is None
+
+    s3_service = AttachmentService(
+        service._connection,
+        service._lock,
+        s3_backend=MagicMock(),
+    )
+    assert s3_service.blob_backend == "s3"
+    assert s3_service.s3_backend is not None
+
+
+@pytest.mark.asyncio
 async def test_scoped_uploader_uses_documented_api_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -268,6 +305,111 @@ async def test_scoped_uploader_keeps_legacy_api_base_fallback(
     )
 
     assert download_url == "https://legacy.example.com/api/chatkit/attachments/atc_456"
+
+
+@pytest.mark.asyncio
+async def test_resolve_upload_session_id_returns_none_for_empty_ids() -> None:
+    service, conn, _ = _make_service(rows=[])
+
+    result = await service.resolve_upload_session_id([" ", ""], "ws1")
+
+    assert result is None
+    conn.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_upload_session_id_returns_none_when_row_count_mismatches() -> (
+    None
+):
+    rows = [
+        _FakeRow(
+            id="atc_1",
+            workflow_id="wf1",
+            thread_id="t1",
+            upload_session_id="ups_1",
+        )
+    ]
+    service, _, _ = _make_service(rows=rows)
+
+    result = await service.resolve_upload_session_id(["atc_1", "atc_2"], "ws1")
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_upload_session_id_returns_none_for_workflow_mismatch() -> None:
+    rows = [
+        _FakeRow(
+            id="atc_1",
+            workflow_id="wf_A",
+            thread_id="t1",
+            upload_session_id="ups_1",
+        )
+    ]
+    service, _, _ = _make_service(rows=rows)
+
+    result = await service.resolve_upload_session_id(
+        ["atc_1"], "ws1", workflow_id="wf_B"
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_upload_session_id_returns_none_for_missing_session() -> None:
+    rows = [
+        _FakeRow(
+            id="atc_1",
+            workflow_id="wf1",
+            thread_id="t1",
+            upload_session_id=None,
+        )
+    ]
+    service, _, _ = _make_service(rows=rows)
+
+    result = await service.resolve_upload_session_id(["atc_1"], "ws1")
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_upload_session_id_returns_none_for_multiple_sessions() -> None:
+    rows = [
+        _FakeRow(
+            id="atc_1",
+            workflow_id="wf1",
+            thread_id="t1",
+            upload_session_id="ups_1",
+        ),
+        _FakeRow(
+            id="atc_2",
+            workflow_id="wf1",
+            thread_id="t1",
+            upload_session_id="ups_2",
+        ),
+    ]
+    service, _, _ = _make_service(rows=rows)
+
+    result = await service.resolve_upload_session_id(["atc_1", "atc_2"], "ws1")
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_upload_session_id_returns_common_session() -> None:
+    rows = [
+        _FakeRow(
+            id="atc_1",
+            workflow_id="wf1",
+            thread_id="t1",
+            upload_session_id="ups_1",
+        )
+    ]
+    service, _, _ = _make_service(rows=rows)
+
+    result = await service.resolve_upload_session_id(["atc_1"], "ws1")
+
+    assert result == "ups_1"
 
 
 # ---------------------------------------------------------------------------
@@ -329,6 +471,162 @@ async def test_load_attachment_bytes_returns_payload() -> None:
     assert payload.id == "atc_1"
     assert payload.content == content
     assert payload.sha256 == digest
+
+
+@pytest.mark.asyncio
+async def test_load_attachment_bytes_rejects_sha_mismatch() -> None:
+    content = b"document content"
+    meta_row = _FakeRow(
+        id="atc_1",
+        name="doc.txt",
+        mime_type="text/plain",
+        size_bytes=len(content),
+        sha256="0" * 64,
+        blob_backend="postgres",
+        storage_path=None,
+        workflow_id="wf1",
+        thread_id="t1",
+        upload_session_id=None,
+        details_json="{}",
+    )
+    blob_row = _FakeRow(content=content)
+
+    call_count = 0
+    conn = MagicMock()
+
+    async def _execute(sql: str, params: Any) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        cursor = MagicMock()
+        if call_count == 1:
+            cursor.fetchone = AsyncMock(return_value=meta_row)
+        else:
+            cursor.fetchone = AsyncMock(return_value=blob_row)
+        return cursor
+
+    conn.execute = _execute
+
+    @asynccontextmanager
+    async def _factory():
+        yield conn
+
+    lock = asyncio.Lock()
+    service = AttachmentService(_factory, lock)
+    scope = build_attachment_scope(
+        workspace_id="ws1", workflow_id="wf1", thread_id="t1"
+    )
+
+    with pytest.raises(AttachmentNotFoundError):
+        await service.load_attachment_bytes("atc_1", scope)
+
+
+@pytest.mark.asyncio
+async def test_load_attachment_bytes_public_returns_payload() -> None:
+    content = b"public content"
+    digest = _sha256(content)
+
+    meta_row = _FakeRow(
+        id="atc_public",
+        name="public.txt",
+        mime_type="text/plain",
+        size_bytes=len(content),
+        sha256=digest,
+        blob_backend="postgres",
+        blob_key="atc_public",
+    )
+    blob_row = _FakeRow(content=content)
+
+    call_count = 0
+    conn = MagicMock()
+
+    async def _execute(sql: str, params: Any) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        cursor = MagicMock()
+        if call_count == 1:
+            cursor.fetchone = AsyncMock(return_value=meta_row)
+        else:
+            cursor.fetchone = AsyncMock(return_value=blob_row)
+        return cursor
+
+    conn.execute = _execute
+
+    @asynccontextmanager
+    async def _factory():
+        yield conn
+
+    lock = asyncio.Lock()
+    service = AttachmentService(_factory, lock)
+
+    payload = await service.load_attachment_bytes_public("atc_public")
+
+    assert payload.id == "atc_public"
+    assert payload.content == content
+    assert payload.sha256 == digest
+
+
+@pytest.mark.asyncio
+async def test_load_attachment_bytes_public_rejects_sha_mismatch() -> None:
+    content = b"public content"
+    meta_row = _FakeRow(
+        id="atc_public",
+        name="public.txt",
+        mime_type="text/plain",
+        size_bytes=len(content),
+        sha256="1" * 64,
+        blob_backend="postgres",
+        blob_key="atc_public",
+    )
+    blob_row = _FakeRow(content=content)
+
+    call_count = 0
+    conn = MagicMock()
+
+    async def _execute(sql: str, params: Any) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        cursor = MagicMock()
+        if call_count == 1:
+            cursor.fetchone = AsyncMock(return_value=meta_row)
+        else:
+            cursor.fetchone = AsyncMock(return_value=blob_row)
+        return cursor
+
+    conn.execute = _execute
+
+    @asynccontextmanager
+    async def _factory():
+        yield conn
+
+    lock = asyncio.Lock()
+    service = AttachmentService(_factory, lock)
+
+    with pytest.raises(AttachmentNotFoundError):
+        await service.load_attachment_bytes_public("atc_public")
+
+
+@pytest.mark.asyncio
+async def test_load_attachment_bytes_public_raises_when_row_missing() -> None:
+    service, _, _ = _make_service(rows=[])
+
+    with pytest.raises(AttachmentNotFoundError):
+        await service.load_attachment_bytes_public("atc_missing")
+
+
+@pytest.mark.asyncio
+async def test_load_blob_rejects_missing_postgres_blob_row() -> None:
+    service, _, _ = _make_service(rows=[])
+
+    with pytest.raises(AttachmentNotFoundError):
+        await service._load_blob("atc_missing", "postgres")
+
+
+@pytest.mark.asyncio
+async def test_load_blob_rejects_s3_without_backend() -> None:
+    service, _, _ = _make_service(rows=[])
+
+    with pytest.raises(AttachmentNotFoundError):
+        await service._load_blob("atc_missing", "s3")
 
 
 @pytest.mark.asyncio
@@ -453,6 +751,12 @@ def test_scope_rejects_wrong_session() -> None:
     assert not AttachmentService._scope_matches(row, scope)
 
 
+def test_scope_matches_without_thread_or_session_is_permissive() -> None:
+    row = _FakeRow(workflow_id="wf1", thread_id="thread-1", upload_session_id="ups_A")
+    scope = build_attachment_scope(workspace_id="ws", workflow_id="wf1")
+    assert AttachmentService._scope_matches(row, scope)
+
+
 # ---------------------------------------------------------------------------
 # Delete
 # ---------------------------------------------------------------------------
@@ -471,6 +775,32 @@ async def test_delete_attachment_executes_delete() -> None:
     assert "atc_1" in select_params
     assert "DELETE" in delete_sql
     assert "atc_1" in delete_params
+
+
+@pytest.mark.asyncio
+async def test_delete_attachment_without_workspace_uses_id_only() -> None:
+    select_row = _FakeRow(blob_backend="postgres", blob_key="atc_only")
+    first_cursor = MagicMock()
+    first_cursor.fetchone = AsyncMock(return_value=select_row)
+    second_cursor = MagicMock()
+    conn = MagicMock()
+    conn.execute = AsyncMock(side_effect=[first_cursor, second_cursor])
+
+    @asynccontextmanager
+    async def _factory():
+        yield conn
+
+    lock = asyncio.Lock()
+    service = AttachmentService(_factory, lock)
+
+    await service.delete_attachment("atc_only", None)
+
+    assert conn.execute.call_args_list[0].args[0].strip().startswith("SELECT")
+    assert conn.execute.call_args_list[0].args[1] == ("atc_only",)
+    assert conn.execute.call_args_list[1].args[0].strip() == (
+        "DELETE FROM chat_attachments WHERE id = %s"
+    )
+    assert conn.execute.call_args_list[1].args[1] == ("atc_only",)
 
 
 # ---------------------------------------------------------------------------
@@ -576,6 +906,34 @@ async def test_prune_orphaned_upload_sessions_workspace_none() -> None:
 
     count = await service.prune_orphaned_upload_sessions(None)
     assert count == 2
+
+
+@pytest.mark.asyncio
+async def test_prune_orphaned_upload_sessions_deletes_s3_blobs() -> None:
+    s3_backend = MagicMock()
+    s3_backend.delete = AsyncMock()
+    rows = [
+        _FakeRow(
+            id="atc_s3",
+            blob_backend="s3",
+            blob_key="attachments/ws1/atc_s3",
+        ),
+        _FakeRow(id="atc_pg", blob_backend="postgres", blob_key="atc_pg"),
+    ]
+    conn, cursor = _make_fake_conn(rows)
+    cursor.rowcount = 2
+
+    @asynccontextmanager
+    async def _factory():
+        yield conn
+
+    lock = asyncio.Lock()
+    service = AttachmentService(_factory, lock, s3_backend=s3_backend)
+
+    count = await service.prune_orphaned_upload_sessions("ws1")
+
+    assert count == 2
+    s3_backend.delete.assert_awaited_once_with("attachments/ws1/atc_s3")
 
 
 # ---------------------------------------------------------------------------

@@ -249,6 +249,58 @@ async def test_chatkit_gateway_accepts_top_level_workflow_id_camel_case(
 
 
 @pytest.mark.asyncio
+async def test_chatkit_gateway_forwards_upload_session_id(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ChatKit gateway forwards upload_session_id into the execution context."""
+
+    workflow_id = uuid4()
+
+    async def mock_process(payload: bytes, context: Any) -> dict[str, str]:
+        assert context["workflow_id"] == str(workflow_id)
+        assert context["upload_session_id"] == "ups-123"
+        return {"result": "ok"}
+
+    mock_server = AsyncMock()
+    mock_server.process = mock_process
+
+    def mock_validate_python(payload: Any) -> dict[str, Any]:
+        assert "upload_session_id" not in payload
+        return {"type": "threads.add_user_message", "params": {}}
+
+    mock_adapter = Mock()
+    mock_adapter.validate_python.side_effect = mock_validate_python
+
+    auth_result = backend_app.routers.chatkit.ChatKitAuthResult(
+        workflow_id=workflow_id,
+        actor="jwt:tester",
+        auth_mode="jwt",
+        subject="tester",
+    )
+
+    monkeypatch.setattr(backend_app, "get_chatkit_server", lambda: mock_server)
+    monkeypatch.setattr(backend_app, "TypeAdapter", lambda x: mock_adapter)
+    monkeypatch.setattr(
+        backend_app.routers.chatkit,
+        "authenticate_chatkit_invocation",
+        AsyncMock(return_value=auth_result),
+    )
+
+    response = api_client.post(
+        "/api/chatkit",
+        json={
+            "workflow_id": str(workflow_id),
+            "upload_session_id": "ups-123",
+            "type": "threads.add_user_message",
+            "params": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"result": "ok"}
+
+
+@pytest.mark.asyncio
 async def test_chatkit_gateway_json_response_with_bytes(
     api_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
