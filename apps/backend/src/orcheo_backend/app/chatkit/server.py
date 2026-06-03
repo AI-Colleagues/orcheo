@@ -849,6 +849,13 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
                     inputs,
                     actor=actor,
                     progress_callback=on_progress,
+                    workspace_id=context.get("workspace_id"),
+                    thread_id=str(thread.id),
+                    upload_session_id=(
+                        str(context["upload_session_id"])
+                        if context.get("upload_session_id")
+                        else None
+                    ),
                 )
             )
             run_task.add_done_callback(lambda _: progress_queue.put_nowait(None))

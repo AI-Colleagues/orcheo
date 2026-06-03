@@ -9,6 +9,7 @@ import pytest
 from orcheo_backend.app.chatkit_store_postgres.attachment_service import (
     AttachmentNotFoundError,
     AttachmentService,
+    _ScopedUploader,
     build_attachment_scope,
 )
 from orcheo_backend.app.chatkit_store_postgres.blob_backends import (
@@ -451,3 +452,30 @@ async def test_delete_attachment_skips_s3_for_postgres_row() -> None:
     await service.delete_attachment("atc_pg", "ws1")
 
     s3_delete.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# _ScopedUploader backend selection
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scoped_uploader_honors_configured_blob_backend() -> None:
+    """Workflow-generated uploads must use the service's delegated backend."""
+    service = MagicMock()
+    service.blob_backend = "s3"
+    service.save_attachment = AsyncMock(return_value=("atc_workflow", None))
+    scope = build_attachment_scope(
+        workspace_id="ws1", workflow_id="wf1", thread_id="thread1"
+    )
+
+    uploader = _ScopedUploader(service, scope)  # type: ignore[arg-type]
+
+    attachment_id, download_url = await uploader.upload_attachment(
+        b"generated", "result.txt", "text/plain"
+    )
+
+    assert attachment_id == "atc_workflow"
+    assert download_url.endswith("/api/chatkit/attachments/atc_workflow")
+    service.save_attachment.assert_awaited_once()
+    assert service.save_attachment.await_args.kwargs["blob_backend"] == "s3"

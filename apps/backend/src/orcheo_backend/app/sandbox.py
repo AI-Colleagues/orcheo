@@ -63,7 +63,6 @@ from orcheo_backend.app.dependencies import get_vault
 
 logger = logging.getLogger(__name__)
 
-_DEV_ENV_VALUES: frozenset[str] = frozenset({"development", "dev", "local"})
 _TRUTHY_VALUES: frozenset[str] = frozenset({"1", "true", "yes", "on"})
 _FALSEY_VALUES: frozenset[str] = frozenset({"0", "false", "no", "off"})
 
@@ -441,17 +440,8 @@ def run_uses_trusted_nodes_only(node_types: Iterable[str]) -> bool:
 
 
 def is_sandbox_disabled() -> bool:
-    """Return True when runtime sandboxing is disabled for this process."""
-    explicit = _parse_bool_env(os.getenv("ORCHEO_SANDBOX_DISABLED"))
-    if explicit is not None:
-        return explicit
-
-    current_env = (os.getenv("ORCHEO_ENV") or os.getenv("NODE_ENV") or "").strip()
-    if current_env.lower() in _DEV_ENV_VALUES:
-        return True
-
-    container_runtime = os.getenv("ORCHEO_CONTAINER_RUNTIME", "").strip().lower()
-    return container_runtime == "runc"
+    """Return True only when sandboxing is explicitly disabled."""
+    return _parse_bool_env(os.getenv("ORCHEO_SANDBOX_DISABLED")) is True
 
 
 def _parse_bool_env(value: str | None) -> bool | None:

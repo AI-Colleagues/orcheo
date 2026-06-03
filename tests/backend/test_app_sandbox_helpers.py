@@ -36,15 +36,18 @@ def test_run_uses_trusted_nodes_only_fails_closed_on_empty() -> None:
     assert not run_uses_trusted_nodes_only(())
 
 
-def test_is_sandbox_disabled_defaults_to_dev_mode_when_runtime_is_runc(
+def test_is_sandbox_disabled_requires_explicit_true(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Local-dev runtime settings should default to sandbox-off."""
+    """The runc runtime must not implicitly disable sandboxing."""
     monkeypatch.delenv("ORCHEO_SANDBOX_DISABLED", raising=False)
     monkeypatch.setenv("ORCHEO_CONTAINER_RUNTIME", "runc")
-    monkeypatch.delenv("ORCHEO_ENV", raising=False)
-    monkeypatch.delenv("NODE_ENV", raising=False)
+    monkeypatch.setenv("ORCHEO_ENV", "development")
+    monkeypatch.setenv("NODE_ENV", "development")
 
+    assert is_sandbox_disabled() is False
+
+    monkeypatch.setenv("ORCHEO_SANDBOX_DISABLED", "true")
     assert is_sandbox_disabled() is True
 
 

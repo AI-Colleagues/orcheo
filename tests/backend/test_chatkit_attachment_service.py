@@ -374,118 +374,21 @@ async def test_load_attachment_bytes_raises_for_wrong_workspace() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Legacy filesystem fallback (Task 5.2)
+# Unsupported legacy filesystem rows
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_load_attachment_bytes_legacy_filesystem(tmp_path: Any) -> None:
-    """Legacy attachment with storage_path and no blob_backend reads from disk."""
-    from pathlib import Path
-
-    content = b"legacy file content"
-    storage_file = Path(tmp_path) / "legacy.txt"
-    storage_file.write_bytes(content)
-
+async def test_load_attachment_bytes_rejects_legacy_filesystem_rows() -> None:
+    """Rows without a blob backend no longer fall back to filesystem reads."""
     meta_row = _FakeRow(
         id="atc_legacy",
         name="legacy.txt",
         mime_type="text/plain",
-        size_bytes=len(content),
-        sha256=_sha256(content),
+        size_bytes=19,
+        sha256="",
         blob_backend=None,
-        storage_path=str(storage_file),
-        workflow_id="wf1",
-        thread_id="t1",
-        upload_session_id=None,
-        details_json="{}",
-    )
-
-    conn = MagicMock()
-
-    async def _execute(sql: str, params: Any) -> MagicMock:
-        cursor = MagicMock()
-        cursor.fetchone = AsyncMock(return_value=meta_row)
-        return cursor
-
-    conn.execute = _execute
-
-    @asynccontextmanager
-    async def _factory():
-        yield conn
-
-    lock = asyncio.Lock()
-    service = AttachmentService(_factory, lock)
-    scope = build_attachment_scope(
-        workspace_id="ws1", workflow_id="wf1", thread_id="t1"
-    )
-    payload = await service.load_attachment_bytes("atc_legacy", scope)
-
-    assert payload.id == "atc_legacy"
-    assert payload.content == content
-
-
-@pytest.mark.asyncio
-async def test_load_attachment_bytes_legacy_filesystem_without_workspace(
-    tmp_path: Any,
-) -> None:
-    """Legacy rows without workspace_id still resolve through the filesystem fallback."""
-    from pathlib import Path
-
-    content = b"legacy file content"
-    storage_file = Path(tmp_path) / "legacy-noworkspace.txt"
-    storage_file.write_bytes(content)
-
-    meta_row = _FakeRow(
-        id="atc_legacy_noworkspace",
-        name="legacy-noworkspace.txt",
-        mime_type="text/plain",
-        size_bytes=len(content),
-        sha256=_sha256(content),
-        blob_backend=None,
-        storage_path=str(storage_file),
-        workflow_id="wf1",
-        thread_id="t1",
-        upload_session_id=None,
-        workspace_id=None,
-        details_json="{}",
-    )
-
-    conn = MagicMock()
-
-    async def _execute(sql: str, params: Any) -> MagicMock:
-        cursor = MagicMock()
-        cursor.fetchone = AsyncMock(return_value=meta_row)
-        return cursor
-
-    conn.execute = _execute
-
-    @asynccontextmanager
-    async def _factory():
-        yield conn
-
-    lock = asyncio.Lock()
-    service = AttachmentService(_factory, lock)
-    scope = build_attachment_scope(
-        workspace_id="ws1", workflow_id="wf1", thread_id="t1"
-    )
-    payload = await service.load_attachment_bytes("atc_legacy_noworkspace", scope)
-
-    assert payload.id == "atc_legacy_noworkspace"
-    assert payload.content == content
-
-
-@pytest.mark.asyncio
-async def test_load_attachment_bytes_legacy_missing_file(tmp_path: Any) -> None:
-    """Legacy attachment referencing a non-existent file raises AttachmentNotFoundError."""
-    meta_row = _FakeRow(
-        id="atc_gone",
-        name="gone.txt",
-        mime_type="text/plain",
-        size_bytes=5,
-        sha256="x" * 64,
-        blob_backend=None,
-        storage_path="/nonexistent/path/gone.txt",
+        storage_path="/tmp/legacy.txt",
         workflow_id="wf1",
         thread_id="t1",
         upload_session_id=None,
@@ -511,8 +414,8 @@ async def test_load_attachment_bytes_legacy_missing_file(tmp_path: Any) -> None:
         workspace_id="ws1", workflow_id="wf1", thread_id="t1"
     )
 
-    with pytest.raises(AttachmentNotFoundError):
-        await service.load_attachment_bytes("atc_gone", scope)
+    with pytest.raises(NotImplementedError, match="Unsupported blob backend"):
+        await service.load_attachment_bytes("atc_legacy", scope)
 
 
 # ---------------------------------------------------------------------------

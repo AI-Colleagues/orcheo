@@ -13,7 +13,6 @@ import logging
 import os
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 from orcheo.runtime.attachments import (
@@ -289,7 +288,7 @@ class AttachmentService:
             cursor = await conn.execute(
                 """
                 SELECT a.id, a.name, a.mime_type, a.size_bytes, a.sha256,
-                       a.blob_backend, a.blob_key, a.storage_path, a.workflow_id,
+                       a.blob_backend, a.blob_key, a.workflow_id,
                        a.thread_id, a.upload_session_id, a.details_json
                   FROM chat_attachments a
                  WHERE a.id = %s
@@ -307,10 +306,7 @@ class AttachmentService:
 
         blob_backend = row.get("blob_backend") or None
         blob_key = row.get("blob_key") or None
-        storage_path = row.get("storage_path") or None
-        content = await self._load_blob(
-            attachment_id, blob_backend, storage_path=storage_path, blob_key=blob_key
-        )
+        content = await self._load_blob(attachment_id, blob_backend, blob_key=blob_key)
 
         stored_sha256 = row.get("sha256") or ""
         if stored_sha256 and _sha256_hex(content) != stored_sha256:
@@ -338,7 +334,6 @@ class AttachmentService:
         self,
         attachment_id: str,
         blob_backend: str | None,
-        storage_path: str | None = None,
         blob_key: str | None = None,
     ) -> bytes:
         if blob_backend == _DEFAULT_BLOB_BACKEND:
@@ -359,18 +354,6 @@ class AttachmentService:
                 raise AttachmentNotFoundError(attachment_id)
             key = blob_key or attachment_id
             return await self._s3_backend.load(key)
-
-        # Legacy filesystem fallback: attachments uploaded before blob storage.
-        if blob_backend is None and storage_path:
-            path = Path(storage_path)
-            if not path.exists():
-                logger.warning(
-                    "Legacy attachment %s references missing filesystem path %s",
-                    attachment_id,
-                    storage_path,
-                )
-                raise AttachmentNotFoundError(attachment_id)
-            return path.read_bytes()
 
         msg = f"Unsupported blob backend: {blob_backend!r}"
         raise NotImplementedError(msg)
@@ -409,7 +392,7 @@ class AttachmentService:
             cursor = await conn.execute(
                 """
                 SELECT a.id, a.name, a.mime_type, a.size_bytes, a.sha256,
-                       a.blob_backend, a.blob_key, a.storage_path
+                       a.blob_backend, a.blob_key
                   FROM chat_attachments a
                  WHERE a.id = %s
                 """,
@@ -422,10 +405,7 @@ class AttachmentService:
 
         blob_backend = row.get("blob_backend") or None
         blob_key = row.get("blob_key") or None
-        storage_path = row.get("storage_path") or None
-        content = await self._load_blob(
-            attachment_id, blob_backend, storage_path=storage_path, blob_key=blob_key
-        )
+        content = await self._load_blob(attachment_id, blob_backend, blob_key=blob_key)
 
         stored_sha256 = row.get("sha256") or ""
         if stored_sha256 and _sha256_hex(content) != stored_sha256:
@@ -460,14 +440,13 @@ class AttachmentService:
         DB row is deleted so the metadata is never left dangling.
         """
         s3_key: str | None = None
-        storage_path: str | None = None
         blob_backend: str | None = None
         async with self._lock:
             async with self._connection() as conn:
                 if workspace_id is None:
                     cursor = await conn.execute(
                         """
-                        SELECT blob_backend, blob_key, storage_path
+                        SELECT blob_backend, blob_key
                           FROM chat_attachments
                          WHERE id = %s
                         """,
@@ -479,7 +458,7 @@ class AttachmentService:
                 else:
                     cursor = await conn.execute(
                         """
-                        SELECT blob_backend, blob_key, storage_path
+                        SELECT blob_backend, blob_key
                           FROM chat_attachments
                          WHERE id = %s AND workspace_id = %s
                         """,
@@ -494,7 +473,6 @@ class AttachmentService:
 
                 if row:
                     blob_backend = row.get("blob_backend") or None
-                    storage_path = row.get("storage_path") or None
                 if blob_backend == "s3":
                     s3_key = row.get("blob_key") or attachment_id
 
@@ -502,15 +480,6 @@ class AttachmentService:
 
         if s3_key and self._s3_backend is not None:
             await self._s3_backend.delete(s3_key)
-        if blob_backend is None and storage_path:
-            try:
-                Path(storage_path).unlink(missing_ok=True)
-            except Exception:  # pragma: no cover - best-effort cleanup
-                logger.warning(
-                    "Failed to delete legacy ChatKit attachment file",
-                    extra={"storage_path": storage_path},
-                    exc_info=True,
-                )
 
     # ------------------------------------------------------------------
     # Link upload-session to thread
@@ -601,7 +570,7 @@ class AttachmentService:
                 if workspace_id:
                     cursor = await conn.execute(
                         """
-                        SELECT id, blob_backend, blob_key, storage_path
+                        SELECT id, blob_backend, blob_key
                           FROM chat_attachments
                          WHERE thread_id IS NULL
                            AND linked_at IS NULL
@@ -626,7 +595,7 @@ class AttachmentService:
                 else:
                     cursor = await conn.execute(
                         """
-                        SELECT id, blob_backend, blob_key, storage_path
+                        SELECT id, blob_backend, blob_key
                           FROM chat_attachments
                          WHERE thread_id IS NULL
                            AND linked_at IS NULL
@@ -652,16 +621,6 @@ class AttachmentService:
             if blob_backend == "s3" and self._s3_backend is not None:
                 await self._s3_backend.delete(row.get("blob_key") or row["id"])
                 continue
-            if blob_backend is None and row.get("storage_path"):
-                path = Path(str(row["storage_path"]))
-                try:
-                    path.unlink(missing_ok=True)
-                except Exception:  # pragma: no cover - best effort cleanup
-                    logger.warning(
-                        "Failed to delete orphaned ChatKit attachment file",
-                        extra={"storage_path": str(path)},
-                        exc_info=True,
-                    )
 
         return cursor.rowcount if cursor.rowcount is not None else 0
 
@@ -718,6 +677,7 @@ class _ScopedUploader:
             name=name,
             mime_type=mime_type,
             content=content,
+            blob_backend=self._service.blob_backend,
         )
         base = _resolve_download_base_url()
         download_url = f"{base}/api/chatkit/attachments/{attachment_id}"
