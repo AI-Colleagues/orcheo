@@ -430,3 +430,88 @@ def test_json_default_serializes_dataclass() -> None:
 
     result = _json_default(_Point(x=3, y=7))
     assert result == {"x": 3, "y": 7}
+
+
+def test_run_graph_hydrates_attachment_runtime_config(monkeypatch):
+    """_run_graph restores sandbox-safe attachment descriptors before invoke."""
+    from orcheo.runtime.attachments import (
+        AttachmentScopeRecord,
+        ChatKitAttachmentResolverProxy,
+    )
+    from orcheo.sandbox.workflow_runner import _run_graph
+
+    captured: dict[str, Any] = {}
+
+    class _Compiled:
+        async def ainvoke(self, state: Mapping[str, Any], config: Mapping[str, Any]):
+            captured["state_configurable"] = dict(
+                state.get("config", {}).get("configurable", {})
+            )
+            captured["runtime_configurable"] = dict(config.get("configurable", {}))
+            return {"reply": "ok"}
+
+    class _Graph:
+        def compile(self) -> _Compiled:
+            return _Compiled()
+
+    monkeypatch.setattr(
+        "orcheo.graph.builder.build_graph",
+        lambda graph: _Graph(),
+    )
+
+    result = _run_graph(
+        {
+            "format": "graph",
+        },
+        {"message": "hello"},
+        runnable_config={
+            "configurable": {
+                "attachment_resolver": {
+                    "__orcheo_attachment_resolver__": {
+                        "base_url": "https://api.example.com"
+                    }
+                },
+                "attachment_scope": {
+                    "__orcheo_attachment_scope__": {
+                        "workspace_id": "ws-1",
+                        "workflow_id": "wf-1",
+                        "thread_id": "thr-1",
+                        "upload_session_id": "ups-1",
+                    }
+                },
+            }
+        },
+        state_config={
+            "configurable": {
+                "attachment_resolver": {
+                    "__orcheo_attachment_resolver__": {
+                        "base_url": "https://api.example.com"
+                    }
+                },
+                "attachment_scope": {
+                    "__orcheo_attachment_scope__": {
+                        "workspace_id": "ws-1",
+                        "workflow_id": "wf-1",
+                        "thread_id": "thr-1",
+                        "upload_session_id": "ups-1",
+                    }
+                },
+            }
+        },
+        run_id="run-1",
+        workspace_id="ws-1",
+    )
+
+    assert result == {"reply": "ok"}
+    assert isinstance(
+        captured["state_configurable"]["attachment_resolver"],
+        ChatKitAttachmentResolverProxy,
+    )
+    assert isinstance(
+        captured["state_configurable"]["attachment_scope"],
+        AttachmentScopeRecord,
+    )
+    assert isinstance(
+        captured["runtime_configurable"]["attachment_resolver"],
+        ChatKitAttachmentResolverProxy,
+    )

@@ -29,6 +29,7 @@ from dataclasses import asdict, is_dataclass
 from queue import Empty
 from typing import Any, cast
 import httpx
+from orcheo.runtime.attachments import hydrate_attachment_runtime_config
 from orcheo.runtime.credentials import (
     UnknownCredentialPayloadError,
     credential_resolution,
@@ -176,6 +177,8 @@ def _run_graph(
     from orcheo.graph.builder import build_graph
     from orcheo.runtime.state_builder import build_initial_state
 
+    runnable_config = hydrate_attachment_runtime_config(runnable_config)
+    state_config = hydrate_attachment_runtime_config(state_config)
     graph = build_graph(dict(workflow_definition))
     compiled = graph.compile()
     state = build_initial_state(

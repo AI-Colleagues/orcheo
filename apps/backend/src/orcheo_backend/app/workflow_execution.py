@@ -20,6 +20,7 @@ from orcheo.graph.state import State
 from orcheo.nodes.ai.agentensor import AgentensorNode
 from orcheo.nodes.ai.tools.context import tool_progress_context
 from orcheo.nodes.browser import close_browser_sessions_for_scope
+from orcheo.runtime.attachments import serialize_attachment_runtime_config
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import (
     RunnableConfigModel,
@@ -182,13 +183,15 @@ async def _dispatch_sandboxed_run(
     the caller for normal completion handling.
     """
     dispatcher = get_sandbox_dispatcher()
+    sandbox_runnable_config = serialize_attachment_runtime_config(runtime_config)
+    sandbox_state_config = serialize_attachment_runtime_config(state_config)
     spec = build_workflow_run_spec(
         execution_id=execution_id,
         workspace_id=workspace_id,
         graph_config=graph_config,
         inputs=inputs,
-        runnable_config=dict(runtime_config),
-        state_config=dict(state_config),
+        runnable_config=sandbox_runnable_config,
+        state_config=sandbox_state_config,
     )
     result = await dispatcher.dispatch(spec)
     payload: dict[str, Any] = {

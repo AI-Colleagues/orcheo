@@ -1,10 +1,12 @@
 # Workspace Runtime Isolation — Operator Guide
 
 This guide tells operators how to deploy, observe, and roll out workspace
-runtime isolation. Sandboxing is **always on** as of Milestone 0 sign-off —
+runtime isolation. Sandboxing is **always on** in the deployed stack —
 every vibe agent session and tenant-authored workflow run executes inside a
-per-workspace gVisor sandbox. Self-hosted deployments still get the same
-boundary; the cost is a small per-run overhead amortized by the warm pool.
+per-workspace gVisor sandbox. The root `docker-compose.yml` keeps sandboxing
+disabled by default for local development; the sandbox infrastructure still
+starts, but the backend and worker only use it when
+`ORCHEO_SANDBOX_DISABLED=false`.
 
 For background, see the initiative documents under
 `project/initiatives/workspace_runtime_isolation/`.
@@ -20,11 +22,13 @@ For background, see the initiative documents under
    `ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest`, which CI
    publishes on `stack-v*` tags alongside the other stack images;
    `sandbox-runtime` pulls it on first use. For local development the root
-   `docker compose up -d` builds it from `Dockerfile.workspace-sandbox`
-   instead (rebuild just that image with `make workspace-sandbox-build`).
-   You can also push your own tagged build to a registry the host can pull
-   from and point `ORCHEO_SANDBOX_IMAGE` at it. One sandbox image hosts both
-   vibe agent sessions and tenant workflow runs per workspace.
+   `docker compose up -d` brings the sandbox services up, but the backend and
+   worker ignore them unless `ORCHEO_SANDBOX_DISABLED=false`. Rebuild the
+   image with `make workspace-sandbox-build` when you change
+   `Dockerfile.workspace-sandbox`. You can also push your own tagged build to
+   a registry the host can pull from and point `ORCHEO_SANDBOX_IMAGE` at it.
+   One sandbox image hosts both vibe agent sessions and tenant workflow runs
+   per workspace.
 
 ## Configuration
 
@@ -44,22 +48,22 @@ override:
 | `ORCHEO_CREDENTIAL_BROKER_FORWARD_URL`| `http://backend:2025/internal/credentials/resolve`                     | Upstream broker URL read only by `credential-relay` on the control network. |
 | `ORCHEO_SANDBOX_DNS`                  | _(unset)_                                                              | Compatibility override only. Hardened sandbox deployments do not inject public DNS; relay/proxy hostnames are pinned into `/etc/hosts`, and the proxy resolves external hosts. |
 | `ORCHEO_CREDENTIAL_BROKER_SECRET`     | _(required — backend refuses to start if unset)_                       | HMAC secret for run-scoped tokens — generate with `python -m orcheo.sandbox.broker --gen-secret`. |
-| `ORCHEO_SANDBOX_DISABLED`             | `true` in local dev when `ORCHEO_ENV` / `NODE_ENV` indicate development or `ORCHEO_CONTAINER_RUNTIME=runc`; otherwise `false` | Boolean | Disables sandbox runtime dispatch entirely. Keep this `false` in any deployment that should preserve workspace isolation. |
+| `ORCHEO_SANDBOX_DISABLED`             | `false` unless an environment sets it to `true` (the root `docker-compose.yml` does so for local development) | Boolean | Disables sandbox runtime dispatch entirely. Keep this `false` in any deployment that should preserve workspace isolation. |
 | `ORCHEO_SANDBOX_FAST_PATH_TRUSTED`    | `false`                                                                | When `true`, workflows composed only of trusted node types skip the sandbox (workflow runs only — vibe agents always sandbox). |
 
 ## Deploy
 
 ```
-docker compose up -d           # builds and starts the stack; workspace-sandbox is built as part of this
+docker compose up -d           # starts the local stack with sandboxing disabled
 nft -f deploy/stack/sandbox-egress.nft
 ```
 
-The `sandbox-runtime`, `credential-relay`, and `egress-proxy` services are
-baked into the base `docker-compose.yml`. `sandbox-runtime` is attached only
-to the control network and is the only service mounting the Docker socket.
-The relay and proxy are assigned fixed addresses on `sandbox-egress`;
-tenant addresses are allocated from `10.99.0.128/25`, which is the source
-range matched by `sandbox-egress.nft`.
+The `sandbox-runtime`, `credential-relay`, `egress-proxy`, and
+`workspace-sandbox` services are defined in the base `docker-compose.yml`.
+`sandbox-runtime` is attached only to the control network and is the only
+service mounting the Docker socket. The relay and proxy are assigned fixed
+addresses on `sandbox-egress`; tenant addresses are allocated from
+`10.99.0.128/25`, which is the source range matched by `sandbox-egress.nft`.
 
 The `workspace-sandbox` image is what the `sandbox-runtime` service spawns
 on demand to host vibe-agent sessions and tenant workflow runs — it is *not*
@@ -106,11 +110,11 @@ The recommended dashboard layout is:
 
 ## Rollout
 
-Sandboxing is always on. The phased rollout that originally gated the
-feature ended on 2026-05-19 when the Milestone 0 gVisor compatibility spike
-was signed off. Self-hosted deployments inherit the same boundary; tune
-warm-pool sizing per workspace in `WorkspaceRuntimePool` if cold-start
-latency becomes visible.
+Sandboxing is always on in the deployed stack. The phased rollout that
+originally gated the feature ended on 2026-05-19 when the Milestone 0 gVisor
+compatibility spike was signed off. Self-hosted deployments inherit the same
+boundary; tune warm-pool sizing per workspace in `WorkspaceRuntimePool` if
+cold-start latency becomes visible.
 
 ## Troubleshooting
 

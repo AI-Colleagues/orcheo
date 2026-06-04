@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
+from orcheo.runtime.attachments import (
+    AttachmentScopeRecord,
+    ChatKitAttachmentResolverProxy,
+    serialize_attachment_runtime_config,
+)
 from orcheo.runtime.state_builder import build_initial_state
 
 
@@ -61,3 +66,31 @@ def test_build_initial_state_default_shape() -> None:
     assert state["results"] == {}
     assert state["messages"] == []
     assert state["config"] == runtime_config
+
+
+def test_build_initial_state_hydrates_attachment_runtime_config(monkeypatch) -> None:
+    monkeypatch.setenv("ORCHEO_API_URL", "https://api.example.com")
+    runtime_config = serialize_attachment_runtime_config(
+        {
+            "configurable": {
+                "attachment_resolver": object(),
+                "attachment_scope": AttachmentScopeRecord(
+                    workspace_id="ws-1",
+                    workflow_id="wf-1",
+                    thread_id="thr-1",
+                    upload_session_id="ups-1",
+                ),
+            }
+        }
+    )
+
+    state = build_initial_state(
+        {"format": "graph"}, {"message": "hello"}, runtime_config
+    )
+
+    configurable = state["config"]["configurable"]
+    assert isinstance(
+        configurable["attachment_resolver"], ChatKitAttachmentResolverProxy
+    )
+    assert isinstance(configurable["attachment_scope"], AttachmentScopeRecord)
+    assert configurable["attachment_scope"].workspace_id == "ws-1"

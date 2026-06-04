@@ -61,6 +61,7 @@ services:
       ORCHEO_CORS_ALLOW_ORIGINS: ${ORCHEO_CORS_ALLOW_ORIGINS:-http://localhost:2026,http://127.0.0.1:2026}
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
+      ORCHEO_SANDBOX_DISABLED: ${ORCHEO_SANDBOX_DISABLED:-true}
       ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
       ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET}
       ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:-local-dev-sandbox-control-token}
@@ -75,10 +76,6 @@ services:
       redis:
         condition: service_healthy
       postgres:
-        condition: service_healthy
-      sandbox-runtime:
-        condition: service_healthy
-      credential-relay:
         condition: service_healthy
     command: uv run uvicorn orcheo_backend.app:app --host 0.0.0.0 --port 2025 --reload
 
@@ -116,6 +113,7 @@ services:
       ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:-local-dev-sandbox-control-token}
       ORCHEO_CREDENTIAL_BROKER_URL: http://credential-relay:9091/credentials/resolve
       ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
+      ORCHEO_SANDBOX_DISABLED: ${ORCHEO_SANDBOX_DISABLED:-true}
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
       # Use system Python from base image instead of downloading
       UV_PYTHON_PREFERENCE: system
@@ -125,10 +123,6 @@ services:
       redis:
         condition: service_healthy
       postgres:
-        condition: service_healthy
-      sandbox-runtime:
-        condition: service_healthy
-      credential-relay:
         condition: service_healthy
     command: uv run celery -A orcheo_backend.worker.celery_app worker --loglevel=info
 
@@ -200,6 +194,7 @@ services:
       sh -c 'if [ ! -d node_modules ] || [ -z "$$(ls -A node_modules 2>/dev/null)" ]; then npm ci; fi && npm run dev -- --host 0.0.0.0'
 
   sandbox-runtime:
+    profiles: [sandbox]
     # Sole service mounting the container-runtime socket. Treat as
     # root-equivalent on the host; never expose this socket to tenant code.
     build:
