@@ -477,3 +477,42 @@ async def test_prune_without_workspace_id_covers_global() -> None:
 
     count = await service.prune_orphaned_upload_sessions(None)
     assert count == 12
+
+
+# ---------------------------------------------------------------------------
+# Recent upload-session fallback safety
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_recent_upload_session_scopes_by_actor_subject() -> None:
+    """Recent fallback must not choose uploads across all workspace users."""
+    service, conn, _cursor = _make_service([_FakeRow(upload_session_id="ups_user_a")])
+
+    result = await service.resolve_recent_upload_session_id(
+        "ws_shared",
+        "wf_shared",
+        actor_subject="user-a",
+    )
+
+    assert result == "ups_user_a"
+    sql, params = conn.execute.call_args[0]
+    assert "actor_subject = %s" in sql
+    assert params == ("ws_shared", "wf_shared", "user-a", 30)
+
+
+@pytest.mark.asyncio
+async def test_resolve_recent_upload_session_rejects_anonymous_subject() -> None:
+    """Anonymous recent sessions lack user correlation and are unsafe to infer."""
+    service, conn, _cursor = _make_service(
+        [_FakeRow(upload_session_id="ups_anonymous")]
+    )
+
+    result = await service.resolve_recent_upload_session_id(
+        "ws_shared",
+        "wf_shared",
+        actor_subject="  ",
+    )
+
+    assert result is None
+    conn.execute.assert_not_awaited()

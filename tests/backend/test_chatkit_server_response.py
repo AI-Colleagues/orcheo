@@ -350,6 +350,7 @@ async def test_chatkit_server_resolves_recent_upload_session_when_missing() -> N
     context: ChatKitRequestContext = {
         "workspace_id": "ws-1",
         "workflow_id": workflow_id,
+        "subject": "user-a",
     }
     await server.store.save_thread(thread, context)
 
@@ -361,6 +362,7 @@ async def test_chatkit_server_resolves_recent_upload_session_when_missing() -> N
     server.store.attachment_service.resolve_recent_upload_session_id.assert_awaited_once_with(
         "ws-1",
         workflow_id,
+        actor_subject="user-a",
     )
     server.store.attachment_service.link_upload_session_to_thread.assert_awaited_once_with(
         upload_session_id="ups_recent",
@@ -371,6 +373,43 @@ async def test_chatkit_server_resolves_recent_upload_session_when_missing() -> N
     assert isinstance(documents, list)
     assert documents[0]["attachment_id"] == "atc_recent"
     assert documents[0]["source"] == "transcript.txt"
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_skips_recent_upload_session_without_subject() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    workflow_id = str(workflow.id)
+
+    server = create_chatkit_test_server(repository)
+    server.store.attachment_service = AsyncMock()
+    server.store.attachment_service.resolve_recent_upload_session_id = AsyncMock(
+        return_value="ups_recent"
+    )
+    server.store.attachment_service.link_upload_session_to_thread = AsyncMock(
+        return_value=1
+    )
+    server.store.attachment_service.list_attachment_summaries = AsyncMock(
+        return_value=[]
+    )
+
+    server._run_workflow = AsyncMock(return_value=("Reply", {}, None))  # type: ignore[attr-defined]
+
+    thread = _build_thread({"workflow_id": workflow_id})
+    context: ChatKitRequestContext = {
+        "workspace_id": "ws-1",
+        "workflow_id": workflow_id,
+    }
+    await server.store.save_thread(thread, context)
+
+    user_item = _build_user_item(thread.id, "Analyze this")
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    _ = [event async for event in server.respond(thread, user_item, context)]
+
+    server.store.attachment_service.resolve_recent_upload_session_id.assert_not_awaited()
+    server.store.attachment_service.link_upload_session_to_thread.assert_not_awaited()
+    assert "upload_session_id" not in context
 
 
 @pytest.mark.asyncio

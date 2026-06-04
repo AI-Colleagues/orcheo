@@ -616,6 +616,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
                 thread,
                 str(workspace_id),
                 str(context.get("workflow_id") or ""),
+                context.get("subject") if context else None,
             )
         if not upload_session_id:
             return
@@ -783,12 +784,17 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         thread: ThreadMetadata,
         workspace_id: str,
         workflow_id: str,
+        actor_subject: str | None,
     ) -> str | None:
-        """Resolve the most recent unlinked upload session when needed."""
+        """Resolve a recent unlinked upload session scoped to the current user."""
+        subject = str(actor_subject).strip() if actor_subject else ""
+        if not subject:
+            return None
         try:
             return await attachment_service.resolve_recent_upload_session_id(
                 workspace_id,
                 workflow_id,
+                actor_subject=subject,
             )
         except Exception:
             logger.exception(

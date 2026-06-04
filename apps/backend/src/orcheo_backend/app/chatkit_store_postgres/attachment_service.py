@@ -275,16 +275,20 @@ class AttachmentService:
         workspace_id: str,
         workflow_id: str,
         *,
+        actor_subject: str,
         lookback_minutes: int = 30,
     ) -> str | None:
-        """Return the most recent unlinked upload session for a workspace/workflow.
+        """Return the current user's recent unlinked upload session.
 
         This is a best-effort fallback for ChatKit clients that do not echo the
-        upload-session identifier back with the next user message.  The method
+        upload-session identifier back with the next user message. The method
         only returns a value when there is exactly one distinct unlinked upload
-        session in the recent time window.
+        session for the same workspace, workflow, and actor in the recent time
+        window. Anonymous uploads are intentionally excluded because they cannot
+        be correlated to the current user.
         """
-        if lookback_minutes < 1:
+        subject = actor_subject.strip()
+        if lookback_minutes < 1 or not subject:
             return None
 
         async with self._connection() as conn:
@@ -297,12 +301,13 @@ class AttachmentService:
                    AND thread_id IS NULL
                    AND linked_at IS NULL
                    AND upload_session_id IS NOT NULL
+                   AND actor_subject = %s
                    AND created_at >= (NOW() - (%s * INTERVAL '1 minute'))
                  GROUP BY upload_session_id
                  ORDER BY last_created_at DESC
                  LIMIT 2
                 """,
-                (workspace_id, workflow_id, lookback_minutes),
+                (workspace_id, workflow_id, subject, lookback_minutes),
             )
             rows = await cursor.fetchall()
 
