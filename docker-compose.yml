@@ -194,7 +194,6 @@ services:
       sh -c 'if [ ! -d node_modules ] || [ -z "$$(ls -A node_modules 2>/dev/null)" ]; then npm ci; fi && npm run dev -- --host 0.0.0.0'
 
   sandbox-runtime:
-    profiles: [sandbox]
     # Sole service mounting the container-runtime socket. Treat as
     # root-equivalent on the host; never expose this socket to tenant code.
     build:
