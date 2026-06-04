@@ -270,6 +270,55 @@ class AttachmentService:
             return None
         return upload_session_ids.pop()
 
+    async def resolve_recent_upload_session_id(
+        self,
+        workspace_id: str,
+        workflow_id: str,
+        *,
+        actor_subject: str,
+        lookback_minutes: int = 30,
+    ) -> str | None:
+        """Return the current user's recent unlinked upload session.
+
+        This is a best-effort fallback for ChatKit clients that do not echo the
+        upload-session identifier back with the next user message. The method
+        only returns a value when there is exactly one distinct unlinked upload
+        session for the same workspace, workflow, and actor in the recent time
+        window. Anonymous uploads are intentionally excluded because they cannot
+        be correlated to the current user.
+        """
+        subject = actor_subject.strip()
+        if lookback_minutes < 1 or not subject:
+            return None
+
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT upload_session_id, MAX(created_at) AS last_created_at
+                  FROM chat_attachments
+                 WHERE workspace_id = %s
+                   AND workflow_id = %s
+                   AND thread_id IS NULL
+                   AND linked_at IS NULL
+                   AND upload_session_id IS NOT NULL
+                   AND actor_subject = %s
+                   AND created_at >= (NOW() - (%s * INTERVAL '1 minute'))
+                 GROUP BY upload_session_id
+                 ORDER BY last_created_at DESC
+                 LIMIT 2
+                """,
+                (workspace_id, workflow_id, subject, lookback_minutes),
+            )
+            rows = await cursor.fetchall()
+
+        if len(rows) != 1:
+            return None
+
+        session_id = rows[0].get("upload_session_id")
+        if not isinstance(session_id, str) or not session_id.strip():
+            return None
+        return session_id.strip()
+
     # ------------------------------------------------------------------
     # Load (scoped)
     # ------------------------------------------------------------------
@@ -424,6 +473,54 @@ class AttachmentService:
             sha256=stored_sha256,
             content=content,
         )
+
+    async def list_attachment_summaries(
+        self,
+        *,
+        workspace_id: str,
+        workflow_id: str | None = None,
+        thread_id: str | None = None,
+        upload_session_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return attachment metadata rows for a thread or upload session."""
+        clauses = ["workspace_id = %s"]
+        params: list[Any] = [workspace_id]
+        if workflow_id:
+            clauses.append("workflow_id = %s")
+            params.append(workflow_id)
+
+        scope_clauses: list[str] = []
+        if thread_id:
+            scope_clauses.append("thread_id = %s")
+            params.append(thread_id)
+        if upload_session_id:
+            scope_clauses.append("upload_session_id = %s")
+            params.append(upload_session_id)
+        if not scope_clauses:
+            return []
+
+        clauses.append(f"({' OR '.join(scope_clauses)})")
+        sql = (
+            "SELECT id, name, mime_type, size_bytes "
+            "FROM chat_attachments "
+            f"WHERE {' AND '.join(clauses)} "
+            "ORDER BY created_at ASC"
+        )
+        async with self._connection() as conn:
+            cursor = await conn.execute(sql, tuple(params))
+            rows = await cursor.fetchall()
+
+        attachments: list[dict[str, Any]] = []
+        for row in rows:
+            attachments.append(
+                {
+                    "id": row.get("id"),
+                    "filename": row.get("name"),
+                    "content_type": row.get("mime_type"),
+                    "size": row.get("size_bytes"),
+                }
+            )
+        return attachments
 
     # ------------------------------------------------------------------
     # Delete

@@ -244,6 +244,15 @@ def _workflow_spec_payload(spec: WorkflowRunSpec) -> dict[str, Any]:
     }
 
 
+def _response_detail(response: httpx.Response) -> str:
+    """Return a useful error detail even when the response body is not JSON."""
+    try:
+        detail = response.json().get("detail", response.text)
+    except ValueError:
+        detail = response.text
+    return str(detail)
+
+
 # Default HTTP wait for ``dispatch_workflow``. Set above the agent CLI's own
 # timeout (``ExternalAgentNode.timeout_seconds`` defaults to 1800s) so the
 # HTTP client doesn't give up *before* the in-sandbox work has a chance to
@@ -367,10 +376,9 @@ class RemoteSandboxIngestor:
             timeout=(execution_timeout_seconds or 30.0) + 30.0,
         )
         if response.status_code == httpx.codes.BAD_REQUEST:
-            detail = response.json().get("detail", response.text)
-            raise ScriptIngestionError(str(detail))
+            raise ScriptIngestionError(_response_detail(response))
         if not response.is_success:
-            detail = response.json().get("detail", response.text)
+            detail = _response_detail(response)
             raise RemoteRuntimeError(
                 f"sandbox-runtime ingestion failed: {response.status_code} {detail}"
             )

@@ -229,6 +229,125 @@ def test_build_attachment_config_includes_helpers() -> None:
     assert result["attachment_scope"].workspace_id == "ws"
 
 
+@pytest.mark.asyncio
+async def test_execute_graph_sandbox_serializes_attachment_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo.sandbox.workflow import WorkflowRunResult
+
+    dispatched: list[object] = []
+
+    class _SandboxingDispatcher:
+        def should_sandbox(self, spec):  # noqa: ARG002
+            return True
+
+        async def dispatch(self, spec):
+            dispatched.append(spec)
+            return WorkflowRunResult(
+                run_id=spec.run_id,
+                status="succeeded",
+                outputs={"answer": 42},
+            )
+
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "get_sandbox_dispatcher",
+        lambda: _SandboxingDispatcher(),
+    )
+    monkeypatch.setenv(
+        "ORCHEO_CHATKIT_ATTACHMENT_BASE_URL", "http://credential-relay:9091"
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "ensure_sandbox_configured", lambda: None
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "build_graph",
+        lambda graph: SimpleNamespace(
+            compile=lambda checkpointer=None, store=None: SimpleNamespace(
+                astream=None,
+                aget_state=None,
+                ainvoke=AsyncMock(return_value={"reply": "ok"}),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "build_initial_state",
+        lambda graph_config, inputs, runtime_config=None, workspace_id=None: {
+            "inputs": dict(inputs),
+            "workspace_id": workspace_id,
+        },
+    )
+    executor = WorkflowExecutor(
+        SimpleNamespace(),
+        lambda: object(),
+        attachment_service=SimpleNamespace(
+            blob_backend="postgres",
+            load_attachment_bytes=AsyncMock(),
+            save_attachment=AsyncMock(),
+        ),
+    )
+    extras = executor._build_attachment_config(
+        workspace_id="ws-1",
+        workflow_id=str(UUID(int=0)),
+        thread_id="thread",
+        upload_session_id=None,
+    )
+    # Mirror production flow: _with_request_inputs is applied before
+    # _with_attachment_scope so inputs appear in configurable.
+    config = workflow_executor_module._with_attachment_scope(
+        workflow_executor_module._with_request_inputs(
+            {"configurable": {"thread_id": "thread"}},
+            {"message": "hello"},
+        ),
+        extras,
+    )
+    state_config = workflow_executor_module._with_attachment_scope(
+        workflow_executor_module._with_request_inputs(
+            {"configurable": {"thread_id": "thread"}},
+            {"message": "hello"},
+        ),
+        extras,
+    )
+
+    await executor._execute_graph(
+        workflow_id=UUID(int=0),
+        graph_config={"nodes": [{"type": "TenantPythonNode"}]},
+        inputs={"message": "hello"},
+        config=config,
+        state_config=state_config,
+        step_callback=None,
+        workspace_id="ws-1",
+    )
+
+    spec = dispatched[0]
+    configurable = spec.runnable_config["configurable"]
+    assert configurable["inputs"] == {"message": "hello"}
+    assert configurable["attachment_resolver"] == {
+        "__orcheo_attachment_resolver__": {
+            "base_urls": ["http://credential-relay:9091"]
+        }
+    }
+    assert configurable["attachment_uploader"] == {
+        "__orcheo_attachment_uploader__": {
+            "base_urls": ["http://credential-relay:9091"],
+            "workflow_id": str(UUID(int=0)),
+            "thread_id": "thread",
+            "upload_session_id": None,
+        }
+    }
+    assert configurable["attachment_scope"] == {
+        "__orcheo_attachment_scope__": {
+            "workspace_id": "ws-1",
+            "workflow_id": str(UUID(int=0)),
+            "thread_id": "thread",
+            "upload_session_id": None,
+        }
+    }
+    assert spec.state_config["configurable"]["inputs"] == {"message": "hello"}
+
+
 def test_with_attachment_scope_merges_extras() -> None:
     config = {"configurable": {"existing": "value"}}
     extras = {"attachment_resolver": object(), "attachment_scope": object()}
@@ -861,3 +980,26 @@ async def test_execute_graph_surfaces_sandbox_failure(
             step_callback=None,
             workspace_id="ws-1",
         )
+
+
+def test_with_request_inputs_non_mapping_configurable() -> None:
+    """_with_request_inputs uses empty dict when configurable is not a Mapping (line 693)."""
+    from orcheo_backend.app.chatkit.workflow_executor import _with_request_inputs
+
+    # configurable is a plain string → not a Mapping → use {}
+    result = _with_request_inputs(
+        {"configurable": "not-a-mapping", "run_name": "test"},
+        {"message": "hello"},
+    )
+
+    assert result["configurable"]["inputs"] == {"message": "hello"}
+    assert result["run_name"] == "test"
+
+
+def test_with_request_inputs_none_configurable() -> None:
+    """_with_request_inputs handles absent configurable key (line 693)."""
+    from orcheo_backend.app.chatkit.workflow_executor import _with_request_inputs
+
+    result = _with_request_inputs({}, {"query": "q"})
+
+    assert result["configurable"]["inputs"] == {"query": "q"}

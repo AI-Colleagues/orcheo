@@ -37,6 +37,7 @@ class ContainerSpec:
     cap_drop: tuple[str, ...] = ("ALL",)
     no_new_privileges: bool = True
     labels: Mapping[str, str] = field(default_factory=dict)
+    volumes: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
     # gVisor's userspace netstack does not honour the iptables REDIRECT that
     # Docker uses to implement embedded DNS at 127.0.0.11. Sandbox containers
     # therefore need their resolver pointed at an upstream nameserver, plus a
@@ -149,23 +150,32 @@ class DockerContainerRuntime:
         host_config = self._build_host_config(spec)
         cmd = list(spec.command) if spec.command else None
         try:
-            container = client.containers.run(  # type: ignore[attr-defined]
-                image=spec.image,
-                command=cmd,
-                detach=True,
-                runtime=spec.runtime,
-                environment=dict(spec.environment),
-                user=spec.user,
-                read_only=spec.read_only_root,
-                cap_drop=list(spec.cap_drop),
-                security_opt=self._build_security_opt(spec),
-                network_mode=spec.network_mode,
-                labels={
+            run_kwargs: dict[str, object] = {
+                "image": spec.image,
+                "command": cmd,
+                "detach": True,
+                "runtime": spec.runtime,
+                "environment": dict(spec.environment),
+                "user": spec.user,
+                "read_only": spec.read_only_root,
+                "cap_drop": list(spec.cap_drop),
+                "security_opt": self._build_security_opt(spec),
+                "network_mode": spec.network_mode,
+                "labels": {
                     "orcheo.workspace_id": spec.workspace_id,
                     **dict(spec.labels),
                 },
                 **host_config,
+            }
+            if spec.volumes:
+                run_kwargs["volumes"] = {
+                    volume_name: dict(bind_config)
+                    for volume_name, bind_config in spec.volumes.items()
+                }
+            container = client.containers.run(  # type: ignore[attr-defined]
+                **run_kwargs,
             )
+            self._ensure_writable_mounts(container, spec)
         except Exception as exc:
             self._reraise_with_helpful_runtime_error(exc, spec, client)
             raise
@@ -278,6 +288,63 @@ class DockerContainerRuntime:
         if spec.no_new_privileges:
             opts.append("no-new-privileges:true")
         return opts
+
+    @staticmethod
+    def _parse_user_ids(user: str) -> tuple[int, int]:
+        """Return numeric uid/gid pairs from Docker's ``user`` string."""
+        raw_user = user.strip()
+        if not raw_user:
+            return (0, 0)
+        if ":" in raw_user:
+            raw_uid, raw_gid = raw_user.split(":", 1)
+        else:
+            raw_uid, raw_gid = raw_user, raw_user
+        return (int(raw_uid), int(raw_gid))
+
+    def _ensure_writable_mounts(self, container: object, spec: ContainerSpec) -> None:
+        """Chown writable bind mounts to the sandbox user inside the container."""
+        if not spec.volumes:
+            return
+
+        uid, gid = self._parse_user_ids(spec.user)
+        for bind_config in spec.volumes.values():
+            bind_path = bind_config.get("bind")
+            mode = str(bind_config.get("mode", "rw"))
+            if not isinstance(bind_path, str) or not bind_path.strip():
+                continue
+            if "w" not in mode:
+                continue
+
+            script = (
+                "import os\n"
+                f"path = {bind_path!r}\n"
+                f"uid = {uid}\n"
+                f"gid = {gid}\n"
+                "os.chown(path, uid, gid)\n"
+                "for root, dirs, files in os.walk(path):\n"
+                "    os.chown(root, uid, gid)\n"
+                "    for name in dirs:\n"
+                "        os.chown(os.path.join(root, name), uid, gid)\n"
+                "    for name in files:\n"
+                "        os.chown(os.path.join(root, name), uid, gid)\n"
+            )
+            result = container.exec_run(  # type: ignore[attr-defined]
+                ["python", "-c", script],
+                user="0:0",
+            )
+            exit_code = getattr(result, "exit_code", None)
+            if exit_code not in (None, 0):
+                output = getattr(result, "output", b"")
+                if isinstance(output, bytes):
+                    output_text = output.decode("utf-8", errors="replace").strip()
+                else:
+                    output_text = str(output)
+                msg = (
+                    "Failed to initialise writable sandbox mount "
+                    f"{bind_path!r} for uid {uid}:{gid}: "
+                    f"exit_code={exit_code} output={output_text}"
+                )
+                raise RuntimeError(msg)
 
     @staticmethod
     def _build_host_config(spec: ContainerSpec) -> dict[str, object]:

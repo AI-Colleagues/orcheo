@@ -447,6 +447,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         message_text: str,
         history: list[dict[str, str]],
         user_item: UserMessageItem | None = None,
+        additional_attachments: list[Any] | None = None,
     ) -> dict[str, Any]:
         """Delegate to the payload helper."""
         selected_model = resolve_chatkit_selected_model(
@@ -459,6 +460,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
             history,
             user_item,
             selected_model=selected_model,
+            additional_attachments=additional_attachments,
         )
 
     @staticmethod
@@ -586,67 +588,45 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
     ) -> None:
         """Link upload-session attachments to the current thread when applicable."""
         workspace_id = context.get("workspace_id") if context else None
-        if not workspace_id:
-            return
         attachment_service = getattr(self.store, "attachment_service", None)
+        if not workspace_id or attachment_service is None:
+            return
         attachment_ids = self._attachment_ids_from_user_item(user_item)
 
-        # Link every attachment referenced by the message directly to the thread.
-        # This covers multi-file uploads where each file has its own upload
-        # session, so a single common session id cannot be resolved and the
-        # session-based link below would otherwise be skipped. Linking sets the
-        # attachments' thread_id, which the workflow attachment resolver matches
-        # against its scope when loading bytes.
-        if attachment_ids and attachment_service is not None:
-            try:
-                await attachment_service.link_attachments_to_thread(
-                    attachment_ids,
-                    str(thread.id),
-                    str(workspace_id),
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to link attachments to thread %s",
-                    thread.id,
-                )
+        if attachment_ids:
+            await self._link_attachments_to_thread(
+                attachment_service,
+                attachment_ids,
+                thread,
+                str(workspace_id),
+            )
 
         upload_session_id = context.get("upload_session_id") if context else None
-        if not upload_session_id and attachment_ids and attachment_service is not None:
-            try:
-                upload_session_id = await attachment_service.resolve_upload_session_id(
-                    attachment_ids,
-                    str(workspace_id),
-                    workflow_id=str(context.get("workflow_id") or ""),
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to infer upload session for thread %s",
-                    thread.id,
-                )
+        if not upload_session_id:
+            upload_session_id = await self._resolve_upload_session_id(
+                attachment_service,
+                attachment_ids,
+                thread,
+                str(workspace_id),
+                str(context.get("workflow_id") or ""),
+            )
+        if not upload_session_id:
+            upload_session_id = await self._resolve_recent_upload_session_id(
+                attachment_service,
+                thread,
+                str(workspace_id),
+                str(context.get("workflow_id") or ""),
+                context.get("subject") if context else None,
+            )
         if not upload_session_id:
             return
-        if attachment_service is None:
-            return
         context["upload_session_id"] = str(upload_session_id)
-        try:
-            count = await attachment_service.link_upload_session_to_thread(
-                upload_session_id=str(upload_session_id),
-                thread_id=str(thread.id),
-                workspace_id=str(workspace_id),
-            )
-            if count > 0:
-                logger.debug(
-                    "Linked %d attachment(s) from session %s to thread %s",
-                    count,
-                    upload_session_id,
-                    thread.id,
-                )
-        except Exception:
-            logger.exception(
-                "Failed to link upload session %s to thread %s",
-                upload_session_id,
-                thread.id,
-            )
+        await self._link_upload_session_to_thread(
+            attachment_service,
+            str(upload_session_id),
+            thread,
+            str(workspace_id),
+        )
 
     async def respond(
         self,
@@ -671,6 +651,11 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         history = await self._history(thread, context)
 
         await self._link_upload_session(context, thread, user_item)
+        additional_attachments = await self._resolve_additional_attachments(
+            thread=thread,
+            workflow_id=str(workflow_id),
+            context=context,
+        )
 
         inputs = self._build_inputs_payload(
             workflow,
@@ -678,6 +663,7 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
             message_text,
             history,
             user_item,
+            additional_attachments=additional_attachments,
         )
 
         actor = str(context.get("actor") or "chatkit")
@@ -753,6 +739,131 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
                 if normalized:
                     attachment_ids.append(normalized)
         return attachment_ids
+
+    async def _link_attachments_to_thread(
+        self,
+        attachment_service: Any,
+        attachment_ids: list[str],
+        thread: ThreadMetadata,
+        workspace_id: str,
+    ) -> None:
+        """Bind attachments referenced on the current message to the thread."""
+        try:
+            await attachment_service.link_attachments_to_thread(
+                attachment_ids,
+                str(thread.id),
+                workspace_id,
+            )
+        except Exception:
+            logger.exception("Failed to link attachments to thread %s", thread.id)
+
+    async def _resolve_upload_session_id(
+        self,
+        attachment_service: Any,
+        attachment_ids: list[str],
+        thread: ThreadMetadata,
+        workspace_id: str,
+        workflow_id: str,
+    ) -> str | None:
+        """Resolve an upload session id from current message attachments."""
+        if not attachment_ids:
+            return None
+        try:
+            return await attachment_service.resolve_upload_session_id(
+                attachment_ids,
+                workspace_id,
+                workflow_id=workflow_id,
+            )
+        except Exception:
+            logger.exception("Failed to infer upload session for thread %s", thread.id)
+            return None
+
+    async def _resolve_recent_upload_session_id(
+        self,
+        attachment_service: Any,
+        thread: ThreadMetadata,
+        workspace_id: str,
+        workflow_id: str,
+        actor_subject: str | None,
+    ) -> str | None:
+        """Resolve a recent unlinked upload session scoped to the current user."""
+        subject = str(actor_subject).strip() if actor_subject else ""
+        if not subject:
+            return None
+        try:
+            return await attachment_service.resolve_recent_upload_session_id(
+                workspace_id,
+                workflow_id,
+                actor_subject=subject,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to resolve recent upload session for thread %s",
+                thread.id,
+            )
+            return None
+
+    async def _link_upload_session_to_thread(
+        self,
+        attachment_service: Any,
+        upload_session_id: str,
+        thread: ThreadMetadata,
+        workspace_id: str,
+    ) -> None:
+        """Bind a resolved upload session to the current thread."""
+        try:
+            count = await attachment_service.link_upload_session_to_thread(
+                upload_session_id=upload_session_id,
+                thread_id=str(thread.id),
+                workspace_id=workspace_id,
+            )
+            if count > 0:
+                logger.debug(
+                    "Linked %d attachment(s) from session %s to thread %s",
+                    count,
+                    upload_session_id,
+                    thread.id,
+                )
+        except Exception:
+            logger.exception(
+                "Failed to link upload session %s to thread %s",
+                upload_session_id,
+                thread.id,
+            )
+
+    async def _resolve_additional_attachments(
+        self,
+        *,
+        thread: ThreadMetadata,
+        workflow_id: str,
+        context: ChatKitRequestContext,
+    ) -> list[dict[str, Any]]:
+        """Return attachment metadata linked to the current thread or session."""
+        workspace_id = context.get("workspace_id") if context else None
+        attachment_service = getattr(self.store, "attachment_service", None)
+        if attachment_service is None or not workspace_id:
+            return []
+
+        upload_session_id = context.get("upload_session_id") if context else None
+        try:
+            return await attachment_service.list_attachment_summaries(
+                workspace_id=str(workspace_id),
+                workflow_id=workflow_id,
+                thread_id=str(thread.id),
+                upload_session_id=(
+                    str(upload_session_id) if upload_session_id else None
+                ),
+            )
+        except Exception:
+            logger.exception(
+                "Failed to resolve ChatKit attachment summaries",
+                extra={
+                    "thread_id": str(thread.id),
+                    "workflow_id": workflow_id,
+                    "workspace_id": workspace_id,
+                },
+            )
+            return []
 
     def _log_action_failure(
         self,

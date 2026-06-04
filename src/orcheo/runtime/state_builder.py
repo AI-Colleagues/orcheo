@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
+from orcheo.runtime.attachments import hydrate_attachment_runtime_config
 
 
 def build_initial_state(
@@ -13,9 +14,7 @@ def build_initial_state(
     workspace_id: str | None = None,
 ) -> Any:
     """Return the initial workflow state used by runtime entrypoints."""
-    runtime_state_config = (
-        dict(runtime_config) if isinstance(runtime_config, Mapping) else {}
-    )
+    runtime_state_config = hydrate_attachment_runtime_config(runtime_config)
 
     if graph_config.get("format") == LANGGRAPH_SCRIPT_FORMAT:
         if not isinstance(inputs, Mapping):

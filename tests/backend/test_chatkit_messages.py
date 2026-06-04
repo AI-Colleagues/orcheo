@@ -647,6 +647,131 @@ def test_build_inputs_payload_with_non_standard_attachments() -> None:
     assert "documents" not in payload
 
 
+@pytest.mark.asyncio
+async def test_build_history_skips_unknown_item_types() -> None:
+    """Items that are neither UserMessageItem nor AssistantMessageItem are skipped (line 54->46)."""
+    thread = ThreadMetadata(
+        id="thr_skip",
+        created_at=datetime.now(UTC),
+        metadata={},
+    )
+
+    # Unknown item type - neither UserMessageItem nor AssistantMessageItem
+    class _UnknownItem:
+        id = "unknown"
+        thread_id = thread.id
+
+    mock_store = MagicMock()
+    mock_store.load_thread_items = AsyncMock(
+        return_value=Page(data=[_UnknownItem()], has_more=False)
+    )
+
+    context = ChatKitRequestContext(user_id="u1")  # type: ignore[typeddict-unknown-key]
+    history = await build_history(mock_store, thread, context)
+
+    assert history == []  # Unknown items are skipped
+
+
+@pytest.mark.asyncio
+async def test_build_inputs_payload_with_explicit_selected_model() -> None:
+    """Explicitly passing selected_model skips _UNSET path (line 135->137)."""
+    from datetime import UTC, datetime
+    from chatkit.types import ThreadMetadata
+    from orcheo_backend.app.chatkit.messages import build_inputs_payload
+
+    thread = ThreadMetadata(
+        id="thr_explicit", created_at=datetime.now(UTC), metadata={}
+    )
+
+    payload = build_inputs_payload(thread, "hello", [], selected_model="openai:gpt-4o")
+
+    assert payload["model"] == "openai:gpt-4o"
+
+
+@pytest.mark.asyncio
+async def test_build_inputs_payload_with_additional_attachments() -> None:
+    """additional_attachments are included in documents (line 148)."""
+    from datetime import UTC, datetime
+    from chatkit.types import (
+        FileAttachment,
+        InferenceOptions,
+        ThreadMetadata,
+        UserMessageItem,
+        UserMessageTextContent,
+    )
+    from orcheo_backend.app.chatkit.messages import build_inputs_payload
+
+    thread = ThreadMetadata(id="thr_add", created_at=datetime.now(UTC), metadata={})
+
+    additional = [
+        FileAttachment(id="atc_add", name="extra.txt", mime_type="text/plain")
+    ]
+
+    payload = build_inputs_payload(thread, "hi", [], additional_attachments=additional)
+
+    assert "documents" in payload
+    assert any(d["attachment_id"] == "atc_add" for d in payload["documents"])
+
+
+def test_sync_thread_inference_metadata_returns_early_when_no_model_to_clear() -> None:
+    """Returns early when resolved_model is falsy and chatkit_model not in metadata (line 219)."""
+    from datetime import UTC, datetime
+    from chatkit.types import ThreadMetadata
+    from orcheo_backend.app.chatkit.messages import sync_thread_inference_metadata
+
+    thread = ThreadMetadata(
+        id="thr_no_clear",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": "wf-1"},  # no chatkit_model key
+    )
+
+    # resolved_model is falsy and no chatkit_model to clear → line 219 early return
+    sync_thread_inference_metadata(thread, user_item=None, selected_model=None)
+
+    assert thread.metadata == {"workflow_id": "wf-1"}
+
+
+def test_dedupe_documents_keeps_no_id_docs() -> None:
+    """Documents without attachment_id (or blank/non-string) are always kept."""
+    from orcheo_backend.app.chatkit.messages import _dedupe_documents
+
+    docs = [
+        {"source": "a"},  # no attachment_id → kept (line 197-198)
+        {"attachment_id": None},  # non-string → kept
+        {"attachment_id": "   "},  # blank string → kept
+        {"attachment_id": 42},  # non-string → kept
+    ]
+    result = _dedupe_documents(docs)
+    assert result == docs
+
+
+def test_dedupe_documents_skips_duplicate_ids() -> None:
+    """Second occurrence of same attachment_id is skipped (line 201)."""
+    from orcheo_backend.app.chatkit.messages import _dedupe_documents
+
+    docs = [
+        {"attachment_id": "atc_1", "source": "first"},
+        {"attachment_id": "atc_1", "source": "duplicate"},  # line 201: continue
+        {"attachment_id": "atc_2", "source": "other"},
+    ]
+    result = _dedupe_documents(docs)
+    assert len(result) == 2
+    assert result[0]["source"] == "first"
+    assert result[1]["source"] == "other"
+
+
+def test_dedupe_documents_strips_whitespace_in_ids() -> None:
+    """Whitespace around attachment_id is normalised for dedup comparison."""
+    from orcheo_backend.app.chatkit.messages import _dedupe_documents
+
+    docs = [
+        {"attachment_id": " atc_1 "},
+        {"attachment_id": "atc_1"},
+    ]
+    result = _dedupe_documents(docs)
+    assert len(result) == 1
+
+
 def test_build_inputs_payload_with_mixed_valid_invalid_attachments() -> None:
     """Test build_inputs_payload filters invalid attachments."""
     thread = ThreadMetadata(

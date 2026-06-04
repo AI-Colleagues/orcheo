@@ -84,6 +84,13 @@ def _tool_graph_payload_with_runtime_config(
         if workspace_id:
             runtime_payload = {**runtime_payload, "workspace_id": workspace_id}
 
+    thread_state = configurable.get("thread_state")
+    if isinstance(thread_state, Mapping):
+        runtime_payload = {
+            **runtime_payload,
+            "thread_state": dict(thread_state),
+        }
+
     return runtime_payload
 
 
@@ -1004,7 +1011,7 @@ class AgentNode(AINode):
             return None
         return _ai_attr("ProviderStrategy")(self.response_format)
 
-    def _build_runtime_config(
+    def _build_runtime_config(  # noqa: C901
         self,
         state: State,
         config: RunnableConfig,
@@ -1023,6 +1030,26 @@ class AgentNode(AINode):
             workspace_id = workspace_id.strip()
             if workspace_id:
                 configurable.setdefault("workspace_id", workspace_id)
+
+        if isinstance(state, Mapping):
+            inputs_value = state.get("inputs")
+            if isinstance(inputs_value, Mapping):
+                configurable.setdefault("inputs", dict(inputs_value))
+
+        thread_state_payload: dict[str, Any] | None = None
+        if isinstance(state, Mapping):
+            thread_state = state.get("thread_state")
+            if isinstance(thread_state, Mapping):
+                thread_state_payload = dict(thread_state)
+            else:
+                results = state.get("results")
+                if isinstance(results, Mapping):
+                    maybe_thread_state = results.get("_thread_state")
+                    if isinstance(maybe_thread_state, Mapping):
+                        thread_state_payload = dict(maybe_thread_state)
+        if thread_state_payload is not None:
+            configurable.setdefault("thread_state", thread_state_payload)
+
         runtime_config["configurable"] = configurable
         return runtime_config
 

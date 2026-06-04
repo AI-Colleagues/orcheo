@@ -17,6 +17,7 @@ from orcheo.graph.builder import build_graph
 from orcheo.models import CredentialAccessContext
 from orcheo.nodes.ai.tools.context import tool_progress_context
 from orcheo.persistence import create_checkpointer, create_graph_store
+from orcheo.runtime.attachments import serialize_attachment_runtime_config
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import merge_runnable_configs
 from orcheo.sandbox.dispatch import use_launcher
@@ -261,19 +262,25 @@ class WorkflowExecutor:
         config = cast(
             RunnableConfig,
             _with_attachment_scope(
-                _with_chatkit_model(
-                    _with_thread_id(
-                        merged_config.to_runnable_config(execution_id),
-                        runtime_thread_id,
+                _with_request_inputs(
+                    _with_chatkit_model(
+                        _with_thread_id(
+                            merged_config.to_runnable_config(execution_id),
+                            runtime_thread_id,
+                        ),
+                        selected_model,
                     ),
-                    selected_model,
+                    normalized_inputs,
                 ),
                 attachment_extras,
             ),
         )
         state_config_input = merged_config.to_state_config(execution_id)
         state_config = _with_chatkit_model(
-            _with_thread_id(state_config_input, runtime_thread_id),
+            _with_request_inputs(
+                _with_thread_id(state_config_input, runtime_thread_id),
+                normalized_inputs,
+            ),
             selected_model,
         )
 
@@ -431,13 +438,15 @@ class WorkflowExecutor:
         to the workspace sandbox.
         """
         ensure_sandbox_configured()
+        sandbox_runnable_config = serialize_attachment_runtime_config(config)
+        sandbox_state_config = serialize_attachment_runtime_config(state_config)
         spec = build_workflow_run_spec(
             execution_id=str(uuid4()),
             workspace_id=workspace_id or "",
             graph_config=dict(graph_config),
             inputs=dict(inputs),
-            runnable_config=dict(config),
-            state_config=dict(state_config),
+            runnable_config=sandbox_runnable_config,
+            state_config=sandbox_state_config,
         )
         dispatcher = get_sandbox_dispatcher()
         if dispatcher.should_sandbox(spec):
@@ -667,5 +676,21 @@ def _with_attachment_scope(
     else:
         configurable_payload = {}
     configurable_payload.update(attachment_extras)
+    normalized["configurable"] = configurable_payload
+    return normalized
+
+
+def _with_request_inputs(
+    config: Mapping[str, Any],
+    inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return a config mapping with the request inputs mirrored into config."""
+    normalized = dict(config)
+    configurable = normalized.get("configurable")
+    if isinstance(configurable, Mapping):
+        configurable_payload = dict(configurable)
+    else:
+        configurable_payload = {}
+    configurable_payload.setdefault("inputs", dict(inputs))
     normalized["configurable"] = configurable_payload
     return normalized

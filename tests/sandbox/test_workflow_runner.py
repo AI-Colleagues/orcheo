@@ -418,6 +418,171 @@ def test_json_default_falls_back_to_str() -> None:
     assert result == "opaque-str"
 
 
+@pytest.mark.asyncio
+async def test_sandbox_thread_state_store_round_trips_payload(
+    tmp_path: Path,
+) -> None:
+    """The thread-state store round-trips a payload through the backing file."""
+    from orcheo.sandbox.workflow_runner import _SandboxThreadStateStore
+
+    store = _SandboxThreadStateStore(tmp_path / "thread-state.json")
+    namespace = ("ws-1", "insight_analyst", "thread-1")
+    payload = {"draft_codebook": {"themes": []}}
+
+    await store.aput(namespace, "state", payload)
+    item = await store.aget(namespace, "state")
+
+    assert item == {"value": payload}
+
+
+@pytest.mark.asyncio
+async def test_sandbox_thread_state_store_persists_across_instances(
+    tmp_path: Path,
+) -> None:
+    """A new store instance can read state written by a previous instance."""
+    from orcheo.sandbox.workflow_runner import _SandboxThreadStateStore
+
+    path = tmp_path / "thread-state.json"
+    namespace = ("ws-1", "insight_analyst", "thread-1")
+    payload = {"approved_codebook": {"themes": [{"theme_id": "T01"}]}}
+
+    first_store = _SandboxThreadStateStore(path)
+    second_store = _SandboxThreadStateStore(path)
+
+    await first_store.aput(namespace, "state", payload)
+    item = await second_store.aget(namespace, "state")
+
+    assert item == {"value": payload}
+
+
+@pytest.mark.asyncio
+async def test_sandbox_thread_state_store_returns_none_when_key_missing(
+    tmp_path: Path,
+) -> None:
+    """aget returns None when key is not present in the namespace (line 177)."""
+    from orcheo.sandbox.workflow_runner import _SandboxThreadStateStore
+
+    store = _SandboxThreadStateStore(tmp_path / "thread-state-miss.json")
+    namespace = ("ws-1", "insight_analyst", "thread-1")
+
+    # Nothing stored → key absent → None (line 177)
+    result = await store.aget(namespace, "nonexistent-key")
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_sandbox_thread_state_store_returns_none_for_missing_namespace(
+    tmp_path: Path,
+) -> None:
+    """aget returns None when the namespace does not exist at all (line 177)."""
+    from orcheo.sandbox.workflow_runner import _SandboxThreadStateStore
+
+    store = _SandboxThreadStateStore(tmp_path / "state-ns.json")
+    await store.aput(("ns-a",), "k", "v")
+
+    result = await store.aget(("ns-b",), "k")  # different namespace
+
+    assert result is None
+
+
+def test_sandbox_thread_state_store_read_payload_handles_json_error(
+    tmp_path: Path,
+) -> None:
+    """_read_payload returns {} when the file contains invalid JSON (lines 147-148)."""
+    from orcheo.sandbox.workflow_runner import _SandboxThreadStateStore
+
+    path = tmp_path / "bad.json"
+    path.write_text("not valid json {{{{", encoding="utf-8")
+
+    store = _SandboxThreadStateStore(path)
+    payload = store._read_payload()
+
+    assert payload == {}
+
+
+def test_sandbox_thread_state_store_read_payload_handles_non_dict_json(
+    tmp_path: Path,
+) -> None:
+    """_read_payload returns {} when JSON root is not a dict (line 155)."""
+    import json
+    from orcheo.sandbox.workflow_runner import _SandboxThreadStateStore
+
+    path = tmp_path / "list.json"
+    path.write_text(json.dumps(["not", "a", "dict"]), encoding="utf-8")
+
+    store = _SandboxThreadStateStore(path)
+    payload = store._read_payload()
+
+    assert payload == {}
+
+
+def test_credential_context_returns_resolver_when_both_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_credential_context returns credential_resolution context when token+URL present (line 206)."""
+    from orcheo.sandbox.workflow_runner import _credential_context
+
+    monkeypatch.setenv("ORCHEO_BROKER_TOKEN", "tok-123")
+    monkeypatch.setenv("ORCHEO_CREDENTIAL_BROKER_URL", "http://broker:9091")
+
+    ctx = _credential_context(run_id="run-1", workspace_id="ws-1")
+
+    # It should be a non-nullcontext context manager
+    from contextlib import nullcontext
+
+    assert not isinstance(ctx, type(nullcontext()))
+
+
+def test_run_in_subprocess_no_spawn_success() -> None:
+    """run_in_subprocess with spawn=False executes in-process and returns result (lines 336-351)."""
+    from orcheo.sandbox.workflow_runner import run_in_subprocess
+    from unittest.mock import patch
+
+    def _fake_run_graph(
+        workflow_def,
+        inputs,
+        *,
+        runnable_config=None,
+        state_config=None,
+        run_id=None,
+        workspace_id=None,
+    ):
+        return {"output": "hello"}
+
+    with patch(
+        "orcheo.sandbox.workflow_runner._run_graph", side_effect=_fake_run_graph
+    ):
+        result = run_in_subprocess(
+            {"nodes": []},
+            {"message": "hi"},
+            spawn=False,
+        )
+
+    assert result["status"] == "succeeded"
+    assert result["outputs"]["output"] == "hello"
+
+
+def test_run_in_subprocess_no_spawn_failure() -> None:
+    """run_in_subprocess with spawn=False handles _run_graph exception (lines 229-256)."""
+    from orcheo.sandbox.workflow_runner import run_in_subprocess
+    from unittest.mock import patch
+
+    with patch(
+        "orcheo.sandbox.workflow_runner._run_graph",
+        side_effect=ValueError("graph error"),
+    ):
+        result = run_in_subprocess(
+            {"nodes": []},
+            {},
+            spawn=False,
+        )
+
+    assert result["status"] == "failed"
+    assert "graph error" in str(result.get("error", ""))
+    assert "ValueError" in str(result.get("error", ""))
+
+
 def test_json_default_serializes_dataclass() -> None:
     """_json_default returns asdict() for a real dataclass (line 295)."""
     from dataclasses import dataclass
@@ -430,3 +595,90 @@ def test_json_default_serializes_dataclass() -> None:
 
     result = _json_default(_Point(x=3, y=7))
     assert result == {"x": 3, "y": 7}
+
+
+def test_run_graph_hydrates_attachment_runtime_config(monkeypatch):
+    """_run_graph restores sandbox-safe attachment descriptors before invoke."""
+    from orcheo.runtime.attachments import (
+        AttachmentScopeRecord,
+        ChatKitAttachmentResolverProxy,
+    )
+    from orcheo.sandbox.workflow_runner import _run_graph
+
+    captured: dict[str, Any] = {}
+
+    class _Compiled:
+        async def ainvoke(self, state: Mapping[str, Any], config: Mapping[str, Any]):
+            captured["state_configurable"] = dict(
+                state.get("config", {}).get("configurable", {})
+            )
+            captured["runtime_configurable"] = dict(config.get("configurable", {}))
+            return {"reply": "ok"}
+
+    class _Graph:
+        def compile(self, **kwargs: object) -> _Compiled:
+            captured["compile_kwargs"] = kwargs
+            return _Compiled()
+
+    monkeypatch.setattr(
+        "orcheo.graph.builder.build_graph",
+        lambda graph: _Graph(),
+    )
+
+    result = _run_graph(
+        {
+            "format": "graph",
+        },
+        {"message": "hello"},
+        runnable_config={
+            "configurable": {
+                "attachment_resolver": {
+                    "__orcheo_attachment_resolver__": {
+                        "base_url": "https://api.example.com"
+                    }
+                },
+                "attachment_scope": {
+                    "__orcheo_attachment_scope__": {
+                        "workspace_id": "ws-1",
+                        "workflow_id": "wf-1",
+                        "thread_id": "thr-1",
+                        "upload_session_id": "ups-1",
+                    }
+                },
+            }
+        },
+        state_config={
+            "configurable": {
+                "attachment_resolver": {
+                    "__orcheo_attachment_resolver__": {
+                        "base_url": "https://api.example.com"
+                    }
+                },
+                "attachment_scope": {
+                    "__orcheo_attachment_scope__": {
+                        "workspace_id": "ws-1",
+                        "workflow_id": "wf-1",
+                        "thread_id": "thr-1",
+                        "upload_session_id": "ups-1",
+                    }
+                },
+            }
+        },
+        run_id="run-1",
+        workspace_id="ws-1",
+    )
+
+    assert result == {"reply": "ok"}
+    assert "store" in captured["compile_kwargs"]
+    assert isinstance(
+        captured["state_configurable"]["attachment_resolver"],
+        ChatKitAttachmentResolverProxy,
+    )
+    assert isinstance(
+        captured["state_configurable"]["attachment_scope"],
+        AttachmentScopeRecord,
+    )
+    assert isinstance(
+        captured["runtime_configurable"]["attachment_resolver"],
+        ChatKitAttachmentResolverProxy,
+    )

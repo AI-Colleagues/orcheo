@@ -946,3 +946,178 @@ async def test_variable_interpolation_on_input_query(tmp_path: Path) -> None:
         messages = call_args[0][0]["messages"]
         assert len(messages) == 1
         assert messages[0].content == "quantum computing"
+
+
+# ---------------------------------------------------------------------------
+# Missing coverage: thread_state and non-Mapping state paths (deep_agent.py)
+# Lines 272->276, 277->287, 280, 284-286, 288
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_propagates_direct_thread_state_mapping(tmp_path: Path) -> None:
+    """state['thread_state'] as Mapping is forwarded into configurable (line 280)."""
+    mock_agent = AsyncMock()
+    mock_agent.ainvoke.return_value = {"messages": []}
+    captured_runtime_config: dict[str, object] = {}
+
+    with (
+        patch("orcheo.nodes.ai.deep_agent.create_deep_agent", return_value=mock_agent),
+        patch("orcheo.nodes.ai.deep_agent.MultiServerMCPClient") as mock_mcp,
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
+        patch(
+            "orcheo.nodes.ai.deep_agent.tool_execution_context",
+            side_effect=lambda cfg: (
+                captured_runtime_config.update(dict(cfg or {}))
+                or contextlib.nullcontext()
+            ),
+        ),
+    ):
+        mock_mcp_instance = AsyncMock()
+        mock_mcp_instance.get_tools.return_value = []
+        mock_mcp.return_value = mock_mcp_instance
+
+        node = DeepAgentNode(name="test", ai_model="openai:gpt-4o", input_query="Q.")
+        state = State(
+            {
+                "workspace_id": "ws-1",
+                "thread_state": {"pending_documents": [{"filename": "data.csv"}]},
+            }
+        )
+        await node.run(state, RunnableConfig())
+
+    assert captured_runtime_config["configurable"]["thread_state"] == {
+        "pending_documents": [{"filename": "data.csv"}]
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_propagates_thread_state_from_results(tmp_path: Path) -> None:
+    """state['results']['_thread_state'] Mapping is forwarded (lines 284-286, 288)."""
+    mock_agent = AsyncMock()
+    mock_agent.ainvoke.return_value = {"messages": []}
+    captured_runtime_config: dict[str, object] = {}
+
+    with (
+        patch("orcheo.nodes.ai.deep_agent.create_deep_agent", return_value=mock_agent),
+        patch("orcheo.nodes.ai.deep_agent.MultiServerMCPClient") as mock_mcp,
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
+        patch(
+            "orcheo.nodes.ai.deep_agent.tool_execution_context",
+            side_effect=lambda cfg: (
+                captured_runtime_config.update(dict(cfg or {}))
+                or contextlib.nullcontext()
+            ),
+        ),
+    ):
+        mock_mcp_instance = AsyncMock()
+        mock_mcp_instance.get_tools.return_value = []
+        mock_mcp.return_value = mock_mcp_instance
+
+        node = DeepAgentNode(name="test", ai_model="openai:gpt-4o", input_query="Q.")
+        state = State(
+            {
+                "workspace_id": "ws-1",
+                "results": {"_thread_state": {"approved_codebook": {"themes": []}}},
+            }
+        )
+        await node.run(state, RunnableConfig())
+
+    assert captured_runtime_config["configurable"]["thread_state"] == {
+        "approved_codebook": {"themes": []}
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_propagates_inputs_mapping_to_configurable(tmp_path: Path) -> None:
+    """state['inputs'] Mapping is forwarded into configurable (lines 272-275)."""
+    mock_agent = AsyncMock()
+    mock_agent.ainvoke.return_value = {"messages": []}
+    captured_runtime_config: dict[str, object] = {}
+
+    with (
+        patch("orcheo.nodes.ai.deep_agent.create_deep_agent", return_value=mock_agent),
+        patch("orcheo.nodes.ai.deep_agent.MultiServerMCPClient") as mock_mcp,
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
+        patch(
+            "orcheo.nodes.ai.deep_agent.tool_execution_context",
+            side_effect=lambda cfg: (
+                captured_runtime_config.update(dict(cfg or {}))
+                or contextlib.nullcontext()
+            ),
+        ),
+    ):
+        mock_mcp_instance = AsyncMock()
+        mock_mcp_instance.get_tools.return_value = []
+        mock_mcp.return_value = mock_mcp_instance
+
+        node = DeepAgentNode(name="test", ai_model="openai:gpt-4o", input_query="Q.")
+        state = State({"workspace_id": "ws-1", "inputs": {"query": "research topic"}})
+        await node.run(state, RunnableConfig())
+
+    assert captured_runtime_config["configurable"]["inputs"] == {
+        "query": "research topic"
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_handles_non_mapping_state(tmp_path: Path) -> None:
+    """Non-Mapping state skips inputs and thread_state logic (lines 272->276, 277->287)."""
+    mock_agent = AsyncMock()
+    mock_agent.ainvoke.return_value = {"messages": []}
+    captured_runtime_config: dict[str, object] = {}
+
+    with (
+        patch("orcheo.nodes.ai.deep_agent.create_deep_agent", return_value=mock_agent),
+        patch("orcheo.nodes.ai.deep_agent.MultiServerMCPClient") as mock_mcp,
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
+        patch(
+            "orcheo.nodes.ai.deep_agent.tool_execution_context",
+            side_effect=lambda cfg: (
+                captured_runtime_config.update(dict(cfg or {}))
+                or contextlib.nullcontext()
+            ),
+        ),
+    ):
+        mock_mcp_instance = AsyncMock()
+        mock_mcp_instance.get_tools.return_value = []
+        mock_mcp.return_value = mock_mcp_instance
+
+        node = DeepAgentNode(name="test", ai_model="openai:gpt-4o", input_query="Q.")
+        # Pass a non-Mapping state (bypasses lines 272 and 277 True branches)
+        await node.run(object(), RunnableConfig())  # type: ignore[arg-type]
+
+    assert "inputs" not in captured_runtime_config.get("configurable", {})
+    assert "thread_state" not in captured_runtime_config.get("configurable", {})
+
+
+@pytest.mark.asyncio
+async def test_run_skips_thread_state_when_results_thread_state_not_mapping(
+    tmp_path: Path,
+) -> None:
+    """When _thread_state is not a Mapping, thread_state_payload stays None (line 285->287)."""
+    mock_agent = AsyncMock()
+    mock_agent.ainvoke.return_value = {"messages": []}
+    captured_runtime_config: dict[str, object] = {}
+
+    with (
+        patch("orcheo.nodes.ai.deep_agent.create_deep_agent", return_value=mock_agent),
+        patch("orcheo.nodes.ai.deep_agent.MultiServerMCPClient") as mock_mcp,
+        patch.dict(os.environ, {"ORCHEO_SKILLS_DIR": str(tmp_path)}),
+        patch(
+            "orcheo.nodes.ai.deep_agent.tool_execution_context",
+            side_effect=lambda cfg: (
+                captured_runtime_config.update(dict(cfg or {}))
+                or contextlib.nullcontext()
+            ),
+        ),
+    ):
+        mock_mcp_instance = AsyncMock()
+        mock_mcp_instance.get_tools.return_value = []
+        mock_mcp.return_value = mock_mcp_instance
+
+        node = DeepAgentNode(name="test", ai_model="openai:gpt-4o", input_query="Q.")
+        state = State({"results": {"_thread_state": "not-a-mapping"}})  # line 285->287
+        await node.run(state, RunnableConfig())
+
+    assert "thread_state" not in captured_runtime_config.get("configurable", {})

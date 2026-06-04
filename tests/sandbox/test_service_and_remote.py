@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import asyncio
+import json
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -286,7 +287,18 @@ def test_ingestion_invoker_never_injects_broker_token() -> None:
     payload = ScriptIngestionPayload(source="source")
     result = asyncio.run(ScriptSandboxInvoker(executor).invoke("sandbox", payload))
     assert result == {"format": "langgraph-script"}
+    assert executor.calls[0][1].command == [
+        "python",
+        "-m",
+        "orcheo.sandbox.ingestion_runner",
+    ]
     assert executor.calls[0][1].env is None
+    assert json.loads(executor.calls[0][1].stdin or "{}") == {
+        "source": "source",
+        "entrypoint": None,
+        "max_script_bytes": 524288,
+        "execution_timeout_seconds": 60.0,
+    }
 
 
 def test_ingestion_invoker_reports_missing_json_output() -> None:
@@ -439,6 +451,189 @@ def test_credential_relay_forwards_broker_request(
     ]
 
 
+def test_credential_relay_proxies_chatkit_attachment_download(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sandbox attachment downloads are proxied through the child-facing relay."""
+    client = TestClient(build_credential_relay_app())
+    calls: list[str] = []
+
+    class _AttachmentAsyncClient:
+        def __init__(self, *, timeout: float) -> None:
+            assert timeout == 30.0
+
+        async def __aenter__(self) -> _AttachmentAsyncClient:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def get(self, url: str) -> httpx.Response:
+            calls.append(url)
+            return httpx.Response(
+                200,
+                content=b"alpha,beta\n1,2\n",
+                headers={
+                    "content-type": "text/csv",
+                    "content-disposition": 'attachment; filename="report.csv"',
+                },
+            )
+
+    monkeypatch.setenv(
+        "ORCHEO_CHATKIT_ATTACHMENT_FORWARD_URL",
+        "http://backend:2025/api/chatkit/attachments",
+    )
+    monkeypatch.setattr(service_module.httpx, "AsyncClient", _AttachmentAsyncClient)
+
+    response = client.get("/api/chatkit/attachments/atc_123")
+
+    assert response.status_code == 200
+    assert response.content == b"alpha,beta\n1,2\n"
+    assert response.headers["content-type"] == "text/csv; charset=utf-8"
+    assert (
+        response.headers["content-disposition"] == 'attachment; filename="report.csv"'
+    )
+    assert calls == ["http://backend:2025/api/chatkit/attachments/atc_123"]
+
+
+def test_credential_relay_proxies_chatkit_attachment_without_disposition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Content-Disposition header absent → branch 595->597 (False path) is taken."""
+    client = TestClient(build_credential_relay_app())
+
+    class _NoDispositionClient:
+        def __init__(self, *, timeout: float) -> None:
+            pass
+
+        async def __aenter__(self) -> _NoDispositionClient:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def get(self, url: str) -> httpx.Response:
+            return httpx.Response(
+                200,
+                content=b"raw-bytes",
+                headers={"content-type": "application/octet-stream"},
+                # No content-disposition header
+            )
+
+    monkeypatch.setattr(service_module.httpx, "AsyncClient", _NoDispositionClient)
+
+    response = client.get("/api/chatkit/attachments/atc_no_cd")
+
+    assert response.status_code == 200
+    assert response.content == b"raw-bytes"
+    # No Content-Disposition header should be present in relay response
+    assert "content-disposition" not in response.headers
+
+
+def test_credential_relay_proxies_chatkit_attachment_upload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Attachment upload is proxied through the relay (lines 608-630)."""
+    client = TestClient(build_credential_relay_app())
+    upload_calls: list[dict] = []
+
+    class _UploadClient:
+        def __init__(self, *, timeout: float) -> None:
+            assert timeout == 60.0
+
+        async def __aenter__(self) -> _UploadClient:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def post(
+            self,
+            url: str,
+            *,
+            content: bytes,
+            headers: dict,
+        ) -> httpx.Response:
+            upload_calls.append({"url": url, "headers": headers, "content": content})
+            return httpx.Response(
+                200,
+                json={
+                    "id": "atc_uploaded",
+                    "download_url": "http://backend/api/chatkit/attachments/atc_uploaded",
+                },
+                headers={"content-type": "application/json"},
+            )
+
+    monkeypatch.setenv(
+        "ORCHEO_CHATKIT_ATTACHMENT_UPLOAD_FORWARD_URL",
+        "http://backend:2025/internal/attachments/upload",
+    )
+    monkeypatch.setattr(service_module.httpx, "AsyncClient", _UploadClient)
+
+    response = client.post(
+        "/api/chatkit/attachments/upload",
+        content=b"multipart-body",
+        headers={
+            "Authorization": "Bearer sandbox-token",
+            "Content-Type": "multipart/form-data; boundary=abc",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == "atc_uploaded"
+    assert len(upload_calls) == 1
+    assert upload_calls[0]["url"] == "http://backend:2025/internal/attachments/upload"
+    assert upload_calls[0]["headers"]["Authorization"] == "Bearer sandbox-token"
+    assert upload_calls[0]["content"] == b"multipart-body"
+
+
+def test_credential_relay_proxies_chatkit_attachment_upload_without_auth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Upload without Authorization/Content-Type headers exercises lines 619->621, 622->624."""
+    client = TestClient(build_credential_relay_app())
+    upload_calls: list[dict] = []
+
+    class _UploadNoAuthClient:
+        def __init__(self, *, timeout: float) -> None:
+            pass
+
+        async def __aenter__(self) -> _UploadNoAuthClient:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def post(
+            self,
+            url: str,
+            *,
+            content: bytes,
+            headers: dict,
+        ) -> httpx.Response:
+            upload_calls.append(
+                {"url": url, "headers": dict(headers), "content": content}
+            )
+            return httpx.Response(
+                200,
+                json={"id": "atc_noauth"},
+                headers={"content-type": "application/json"},
+            )
+
+    monkeypatch.setattr(service_module.httpx, "AsyncClient", _UploadNoAuthClient)
+
+    # No Authorization, no Content-Type headers
+    response = client.post(
+        "/api/chatkit/attachments/upload",
+        content=b"raw-body",
+    )
+
+    assert response.status_code == 200
+    assert len(upload_calls) == 1
+    # No auth or content-type should be forwarded
+    assert "Authorization" not in upload_calls[0]["headers"]
+
+
 def test_provision_stop_lifecycle(
     app_with_fakes: tuple[TestClient, InMemoryContainerRuntime, Any, Any],
 ) -> None:
@@ -566,6 +761,58 @@ def test_dispatch_workflow_endpoint(
     assert spec.runnable_config == {"configurable": {"thread_id": "r-1"}}
     assert spec.state_config == {"configurable": {"ai_model": "openai:test"}}
     assert broker_token == "tok-1"
+
+
+def test_workflow_invoker_uses_stdin_for_payload() -> None:
+    """Workflow dispatch must stream JSON over stdin instead of argv."""
+    import unittest.mock as mock
+
+    async def go() -> WorkflowRunResult:
+        from orcheo.sandbox.service import WorkflowSandboxInvoker
+        from orcheo.sandbox.workflow import WorkflowRunSpec
+
+        executor = mock.AsyncMock()
+        executor.exec = mock.AsyncMock(
+            return_value=ProcessExecutionResult(
+                command=["python", "-m", "orcheo.sandbox.workflow_runner"],
+                stdout='{"status":"succeeded","outputs":{"ok":true},"error":null}\n',
+                stderr="",
+                exit_code=0,
+                timed_out=False,
+                duration_seconds=0.1,
+            )
+        )
+        invoker = WorkflowSandboxInvoker(executor)
+        spec = WorkflowRunSpec(
+            run_id="r-ok",
+            workspace_id="ws",
+            workflow_definition={"nodes": [{"type": "AINode"}]},
+            inputs={"value": 42},
+            node_types=("AINode",),
+            runnable_config={"configurable": {"thread_id": "r-ok"}},
+            state_config={"configurable": {"ai_model": "openai:test"}},
+        )
+
+        result = await invoker.invoke("sb-1", spec, "token")
+
+        call = executor.exec.await_args
+        assert call.args[0] == "sb-1"
+        request = call.args[1]
+        assert request.command == ["python", "-m", "orcheo.sandbox.workflow_runner"]
+        assert request.stdin is not None
+        payload = json.loads(request.stdin)
+        assert payload["run_id"] == "r-ok"
+        assert payload["workspace_id"] == "ws"
+        assert payload["workflow_definition"] == {"nodes": [{"type": "AINode"}]}
+        assert payload["inputs"] == {"value": 42}
+        assert payload["runnable_config"] == {"configurable": {"thread_id": "r-ok"}}
+        assert payload["state_config"] == {"configurable": {"ai_model": "openai:test"}}
+        assert request.env == {"ORCHEO_BROKER_TOKEN": "token"}
+        return result
+
+    result = asyncio.run(go())
+    assert result.status == "succeeded"
+    assert result.outputs == {"ok": True}
 
 
 def test_remote_container_runtime_round_trip() -> None:
@@ -769,6 +1016,38 @@ def test_remote_ingestor_raises_runtime_error_on_non_bad_request() -> None:
 
     async def go() -> None:
         with pytest.raises(RemoteRuntimeError, match="ingestion failed"):
+            await ingestor.ingest(
+                "sb-1",
+                source="graph = object()",
+                entrypoint=None,
+                max_script_bytes=10,
+                execution_timeout_seconds=5.0,
+            )
+
+    asyncio.run(go())
+
+
+def test_remote_ingestor_handles_non_json_error_body() -> None:
+    """Non-JSON responses still surface a readable failure."""
+
+    class _FakeAsyncClient:
+        async def post(
+            self,
+            url: str,
+            *,
+            headers: dict[str, str],
+            json: dict[str, Any],
+            timeout: float,
+        ) -> httpx.Response:
+            del url, headers, json, timeout
+            return httpx.Response(500, text="plain text error")
+
+    ingestor = RemoteSandboxIngestor(
+        "http://test", control_token="control-test-token", client=_FakeAsyncClient()
+    )
+
+    async def go() -> None:
+        with pytest.raises(RemoteRuntimeError, match="plain text error"):
             await ingestor.ingest(
                 "sb-1",
                 source="graph = object()",
@@ -1622,11 +1901,18 @@ def test_container_executor_exec_builds_argv_and_returns_result() -> None:
             command=["echo", "hi"],
             cwd="/workspace",
             env={"FOO": "bar"},
+            stdin="payload",
             timeout_seconds=10.0,
         )
 
         fake_process = mock.AsyncMock()
-        fake_process.communicate = mock.AsyncMock(return_value=(b"hi\n", b""))
+        observed: dict[str, bytes | None] = {}
+
+        async def _communicate(input: bytes | None = None) -> tuple[bytes, bytes]:
+            observed["input"] = input
+            return (b"hi\n", b"")
+
+        fake_process.communicate = mock.AsyncMock(side_effect=_communicate)
         fake_process.returncode = 0
 
         with mock.patch(
@@ -1638,11 +1924,13 @@ def test_container_executor_exec_builds_argv_and_returns_result() -> None:
         call_args = patched.call_args[0]
         assert "docker" in call_args
         assert "exec" in call_args
+        assert "-i" in call_args
         assert "-w" in call_args
         assert "/workspace" in call_args
         assert "-e" in call_args
         assert "FOO=bar" in call_args
         assert "echo" in call_args
+        assert observed["input"] == b"payload"
         assert result.stdout == "hi\n"
         assert result.exit_code == 0
         return result

@@ -8,8 +8,8 @@ that other Orcheo services call.
 
 The Docker-facing runtime app is control-plane only and requires the internal
 control token for every operation. The credential-relay app is built
-separately and exposes only credential resolution and health; tenant
-sandboxes never have a network path to the Docker-facing app.
+separately and exposes only credential resolution, attachment downloads, and
+health; tenant sandboxes never have a network path to the Docker-facing app.
 """
 
 from __future__ import annotations
@@ -18,14 +18,13 @@ import json
 import logging
 import os
 import secrets
-import shlex
 import socket
 import time
 from collections.abc import Callable, Mapping
 from typing import Annotated, Any, Final
 from urllib.parse import urlparse
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from orcheo.external_agents.models import ProcessExecutionResult
@@ -93,6 +92,7 @@ class ExecRequest(BaseModel):
     command: list[str]
     cwd: str | None = None
     env: dict[str, str] | None = None
+    stdin: str | None = None
     timeout_seconds: float | None = None
 
 
@@ -217,6 +217,8 @@ class ContainerExecutor:
     ) -> ProcessExecutionResult:
         """Run ``request.command`` inside ``sandbox_id`` via ``docker exec``."""
         argv: list[str] = ["docker", "exec"]
+        if request.stdin is not None:
+            argv.append("-i")
         if request.cwd is not None:
             argv.extend(["-w", request.cwd])
         if request.env:
@@ -229,6 +231,7 @@ class ContainerExecutor:
         try:
             process = await asyncio.create_subprocess_exec(
                 *argv,
+                stdin=(asyncio.subprocess.PIPE if request.stdin is not None else None),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -241,8 +244,11 @@ class ContainerExecutor:
 
         timed_out = False
         try:
+            stdin_bytes = (
+                request.stdin.encode("utf-8") if request.stdin is not None else None
+            )
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
+                process.communicate(stdin_bytes),
                 timeout=request.timeout_seconds,
             )
             exit_code: int | None = process.returncode
@@ -297,14 +303,9 @@ class WorkflowSandboxInvoker:
             separators=(",", ":"),
         )
         argv = [
-            "sh",
-            "-c",
-            (
-                "printf '%s\\n' "
-                + shlex.quote(payload)
-                + " | python -m "
-                + _WORKFLOW_RUNNER_MODULE
-            ),
+            "python",
+            "-m",
+            _WORKFLOW_RUNNER_MODULE,
         ]
         result = await self._executor.exec(
             sandbox_id,
@@ -312,6 +313,7 @@ class WorkflowSandboxInvoker:
                 command=argv,
                 cwd=None,
                 env={"ORCHEO_BROKER_TOKEN": broker_token} if broker_token else None,
+                stdin=payload,
                 timeout_seconds=timeout_seconds,
             ),
         )
@@ -372,14 +374,9 @@ class ScriptSandboxInvoker:
         """Run the ingestion module and return its existing graph payload."""
         encoded = json.dumps(payload.model_dump(), separators=(",", ":"))
         command = [
-            "sh",
-            "-c",
-            (
-                "printf '%s\\n' "
-                + shlex.quote(encoded)
-                + " | python -m "
-                + _INGESTION_RUNNER_MODULE
-            ),
+            "python",
+            "-m",
+            _INGESTION_RUNNER_MODULE,
         ]
         result = await self._executor.exec(
             sandbox_id,
@@ -387,6 +384,7 @@ class ScriptSandboxInvoker:
                 command=command,
                 cwd=None,
                 env=None,
+                stdin=encoded,
                 timeout_seconds=payload.execution_timeout_seconds,
             ),
         )
@@ -552,7 +550,7 @@ def _register_sandbox_routes(
 
 
 def _register_credential_relay_route(app: FastAPI) -> None:
-    """Relay credential requests from sandboxes to the backend broker."""
+    """Relay child sandbox requests to the backend over the default network."""
 
     @app.post("/credentials/resolve")
     async def relay_credential_request(
@@ -571,6 +569,64 @@ def _register_credential_relay_route(app: FastAPI) -> None:
             headers["X-Orcheo-Workspace"] = x_orcheo_workspace
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(broker_url, json=payload, headers=headers)
+        return Response(
+            content=response.content,
+            status_code=response.status_code,
+            media_type=response.headers.get("content-type"),
+        )
+
+    @app.get("/api/chatkit/attachments/{attachment_id}")
+    async def relay_chatkit_attachment(
+        attachment_id: str,
+    ) -> Response:
+        attachment_forward_url = (
+            os.getenv(
+                "ORCHEO_CHATKIT_ATTACHMENT_FORWARD_URL",
+                "http://backend:2025/api/chatkit/attachments",
+            )
+            .strip()
+            .rstrip("/")
+        )
+        upstream_url = f"{attachment_forward_url}/{attachment_id}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(upstream_url)
+        headers: dict[str, str] = {}
+        content_disposition = response.headers.get("content-disposition")
+        if content_disposition:
+            headers["Content-Disposition"] = content_disposition
+        return Response(
+            content=response.content,
+            status_code=response.status_code,
+            media_type=response.headers.get("content-type"),
+            headers=headers or None,
+        )
+
+    @app.post("/api/chatkit/attachments/upload")
+    async def relay_chatkit_attachment_upload(
+        request: Request,
+    ) -> Response:
+        upload_forward_url = (
+            os.getenv(
+                "ORCHEO_CHATKIT_ATTACHMENT_UPLOAD_FORWARD_URL",
+                "http://backend:2025/internal/attachments/upload",
+            )
+            .strip()
+            .rstrip("/")
+        )
+        body = await request.body()
+        forward_headers: dict[str, str] = {}
+        auth = request.headers.get("Authorization")
+        if auth:
+            forward_headers["Authorization"] = auth
+        content_type = request.headers.get("Content-Type", "")
+        if content_type:
+            forward_headers["Content-Type"] = content_type
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                upload_forward_url,
+                content=body,
+                headers=forward_headers,
+            )
         return Response(
             content=response.content,
             status_code=response.status_code,
