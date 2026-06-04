@@ -496,6 +496,144 @@ def test_credential_relay_proxies_chatkit_attachment_download(
     assert calls == ["http://backend:2025/api/chatkit/attachments/atc_123"]
 
 
+def test_credential_relay_proxies_chatkit_attachment_without_disposition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Content-Disposition header absent → branch 595->597 (False path) is taken."""
+    client = TestClient(build_credential_relay_app())
+
+    class _NoDispositionClient:
+        def __init__(self, *, timeout: float) -> None:
+            pass
+
+        async def __aenter__(self) -> _NoDispositionClient:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def get(self, url: str) -> httpx.Response:
+            return httpx.Response(
+                200,
+                content=b"raw-bytes",
+                headers={"content-type": "application/octet-stream"},
+                # No content-disposition header
+            )
+
+    monkeypatch.setattr(service_module.httpx, "AsyncClient", _NoDispositionClient)
+
+    response = client.get("/api/chatkit/attachments/atc_no_cd")
+
+    assert response.status_code == 200
+    assert response.content == b"raw-bytes"
+    # No Content-Disposition header should be present in relay response
+    assert "content-disposition" not in response.headers
+
+
+def test_credential_relay_proxies_chatkit_attachment_upload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Attachment upload is proxied through the relay (lines 608-630)."""
+    client = TestClient(build_credential_relay_app())
+    upload_calls: list[dict] = []
+
+    class _UploadClient:
+        def __init__(self, *, timeout: float) -> None:
+            assert timeout == 60.0
+
+        async def __aenter__(self) -> _UploadClient:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def post(
+            self,
+            url: str,
+            *,
+            content: bytes,
+            headers: dict,
+        ) -> httpx.Response:
+            upload_calls.append({"url": url, "headers": headers, "content": content})
+            return httpx.Response(
+                200,
+                json={
+                    "id": "atc_uploaded",
+                    "download_url": "http://backend/api/chatkit/attachments/atc_uploaded",
+                },
+                headers={"content-type": "application/json"},
+            )
+
+    monkeypatch.setenv(
+        "ORCHEO_CHATKIT_ATTACHMENT_UPLOAD_FORWARD_URL",
+        "http://backend:2025/internal/attachments/upload",
+    )
+    monkeypatch.setattr(service_module.httpx, "AsyncClient", _UploadClient)
+
+    response = client.post(
+        "/api/chatkit/attachments/upload",
+        content=b"multipart-body",
+        headers={
+            "Authorization": "Bearer sandbox-token",
+            "Content-Type": "multipart/form-data; boundary=abc",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == "atc_uploaded"
+    assert len(upload_calls) == 1
+    assert upload_calls[0]["url"] == "http://backend:2025/internal/attachments/upload"
+    assert upload_calls[0]["headers"]["Authorization"] == "Bearer sandbox-token"
+    assert upload_calls[0]["content"] == b"multipart-body"
+
+
+def test_credential_relay_proxies_chatkit_attachment_upload_without_auth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Upload without Authorization/Content-Type headers exercises lines 619->621, 622->624."""
+    client = TestClient(build_credential_relay_app())
+    upload_calls: list[dict] = []
+
+    class _UploadNoAuthClient:
+        def __init__(self, *, timeout: float) -> None:
+            pass
+
+        async def __aenter__(self) -> _UploadNoAuthClient:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def post(
+            self,
+            url: str,
+            *,
+            content: bytes,
+            headers: dict,
+        ) -> httpx.Response:
+            upload_calls.append(
+                {"url": url, "headers": dict(headers), "content": content}
+            )
+            return httpx.Response(
+                200,
+                json={"id": "atc_noauth"},
+                headers={"content-type": "application/json"},
+            )
+
+    monkeypatch.setattr(service_module.httpx, "AsyncClient", _UploadNoAuthClient)
+
+    # No Authorization, no Content-Type headers
+    response = client.post(
+        "/api/chatkit/attachments/upload",
+        content=b"raw-body",
+    )
+
+    assert response.status_code == 200
+    assert len(upload_calls) == 1
+    # No auth or content-type should be forwarded
+    assert "Authorization" not in upload_calls[0]["headers"]
+
+
 def test_provision_stop_lifecycle(
     app_with_fakes: tuple[TestClient, InMemoryContainerRuntime, Any, Any],
 ) -> None:

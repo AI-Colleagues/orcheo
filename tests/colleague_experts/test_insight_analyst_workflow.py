@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
@@ -9,6 +10,10 @@ import pytest
 
 
 def _load_workflow_module():
+    module_name = "insight_analyst_workflow"
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+
     workflow_path = (
         Path(__file__).resolve().parents[2]
         / "colleague-experts"
@@ -16,11 +21,12 @@ def _load_workflow_module():
         / "insight_analyst"
         / "workflow.py"
     )
-    spec = spec_from_file_location("insight_analyst_workflow", workflow_path)
+    spec = spec_from_file_location(module_name, workflow_path)
     if spec is None or spec.loader is None:
         msg = f"Unable to load workflow module from {workflow_path}"
         raise RuntimeError(msg)
     module = module_from_spec(spec)
+    sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
 

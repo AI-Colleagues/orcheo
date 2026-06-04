@@ -57,7 +57,7 @@ class AttachmentResolver(Protocol):
         scope: AttachmentScope,
     ) -> AttachmentPayload:
         """Return the attachment payload for *attachment_id* within *scope*."""
-        ...
+        ...  # pragma: no cover
 
 
 @runtime_checkable
@@ -76,7 +76,7 @@ class AttachmentUploader(Protocol):
         mime_type: str,
     ) -> tuple[str, str]:
         """Persist *content* and return ``(attachment_id, download_url)``."""
-        ...
+        ...  # pragma: no cover
 
 
 @dataclass(frozen=True, slots=True)
@@ -430,7 +430,7 @@ def _resolve_public_attachment_base_urls() -> list[str]:
     _add_candidate(os.environ.get("ORCHEO_API_BASE_URL"))
     _add_candidate("http://credential-relay:9091")
 
-    if not candidates:
+    if not candidates:  # pragma: no cover
         candidates.append("http://credential-relay:9091")
     return candidates
 

@@ -976,3 +976,184 @@ async def test_scoped_resolver_delegates_to_service() -> None:
     await resolver.load_attachment_bytes("atc_1", scope)
 
     service.load_attachment_bytes.assert_awaited_once_with("atc_1", scope)
+
+
+# ---------------------------------------------------------------------------
+# resolve_recent_upload_session_id (lines 315, 319)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_recent_upload_returns_none_when_no_rows() -> None:
+    """Returns None when 0 rows returned — len(rows) != 1 path (line 315)."""
+    service, _, _ = _make_service(rows=[])
+
+    result = await service.resolve_recent_upload_session_id(
+        "ws-1",
+        "wf-1",
+        actor_subject="user@example.com",
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_recent_upload_returns_none_when_multiple_rows() -> None:
+    """Returns None when 2 rows returned — len(rows) != 1 path (line 315)."""
+    rows = [
+        _FakeRow(upload_session_id="ups_1"),
+        _FakeRow(upload_session_id="ups_2"),
+    ]
+    service, _, _ = _make_service(rows=rows)
+
+    result = await service.resolve_recent_upload_session_id(
+        "ws-1",
+        "wf-1",
+        actor_subject="user@example.com",
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_recent_upload_returns_none_when_session_id_blank() -> None:
+    """Returns None when session_id is blank string (line 319)."""
+    rows = [_FakeRow(upload_session_id="   ")]
+    service, _, _ = _make_service(rows=rows)
+
+    result = await service.resolve_recent_upload_session_id(
+        "ws-1",
+        "wf-1",
+        actor_subject="user@example.com",
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_recent_upload_returns_none_when_session_id_not_string() -> None:
+    """Returns None when session_id is not a string (line 319)."""
+    rows = [_FakeRow(upload_session_id=None)]
+    service, _, _ = _make_service(rows=rows)
+
+    result = await service.resolve_recent_upload_session_id(
+        "ws-1",
+        "wf-1",
+        actor_subject="user@example.com",
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_recent_upload_returns_stripped_session_id() -> None:
+    """Returns stripped session_id when exactly one row with valid session_id."""
+    rows = [_FakeRow(upload_session_id="  ups_abc  ")]
+    service, _, _ = _make_service(rows=rows)
+
+    result = await service.resolve_recent_upload_session_id(
+        "ws-1",
+        "wf-1",
+        actor_subject="user@example.com",
+    )
+
+    assert result == "ups_abc"
+
+
+# ---------------------------------------------------------------------------
+# list_attachment_summaries (lines 486-523)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_list_attachment_summaries_returns_empty_without_scope() -> None:
+    """Returns [] immediately when neither thread_id nor upload_session_id given (line 500)."""
+    service, conn, _ = _make_service(rows=[])
+
+    result = await service.list_attachment_summaries(
+        workspace_id="ws-1",
+        workflow_id="wf-1",
+    )
+
+    assert result == []
+    conn.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_list_attachment_summaries_by_thread_id() -> None:
+    """Returns attachment rows when filtered by thread_id."""
+    rows = [
+        _FakeRow(
+            id="atc_1",
+            name="report.csv",
+            mime_type="text/csv",
+            size_bytes=1024,
+        )
+    ]
+    service, _, _ = _make_service(rows=rows)
+
+    result = await service.list_attachment_summaries(
+        workspace_id="ws-1",
+        workflow_id="wf-1",
+        thread_id="thr-1",
+    )
+
+    assert len(result) == 1
+    assert result[0]["id"] == "atc_1"
+    assert result[0]["filename"] == "report.csv"
+    assert result[0]["content_type"] == "text/csv"
+    assert result[0]["size"] == 1024
+
+
+@pytest.mark.asyncio
+async def test_list_attachment_summaries_by_upload_session_id() -> None:
+    """Returns attachment rows when filtered by upload_session_id."""
+    rows = [
+        _FakeRow(
+            id="atc_2",
+            name="data.json",
+            mime_type="application/json",
+            size_bytes=512,
+        )
+    ]
+    service, _, _ = _make_service(rows=rows)
+
+    result = await service.list_attachment_summaries(
+        workspace_id="ws-1",
+        upload_session_id="ups-1",
+    )
+
+    assert len(result) == 1
+    assert result[0]["id"] == "atc_2"
+
+
+@pytest.mark.asyncio
+async def test_list_attachment_summaries_by_thread_and_session() -> None:
+    """Combines thread_id and upload_session_id into an OR clause."""
+    rows = [
+        _FakeRow(id="atc_3", name="a.txt", mime_type="text/plain", size_bytes=100),
+        _FakeRow(id="atc_4", name="b.txt", mime_type="text/plain", size_bytes=200),
+    ]
+    service, _, _ = _make_service(rows=rows)
+
+    result = await service.list_attachment_summaries(
+        workspace_id="ws-1",
+        thread_id="thr-2",
+        upload_session_id="ups-2",
+    )
+
+    assert len(result) == 2
+    assert {r["id"] for r in result} == {"atc_3", "atc_4"}
+
+
+@pytest.mark.asyncio
+async def test_list_attachment_summaries_returns_empty_rows() -> None:
+    """Returns [] when DB returns no matching rows."""
+    service, _, _ = _make_service(rows=[])
+
+    result = await service.list_attachment_summaries(
+        workspace_id="ws-1",
+        thread_id="thr-empty",
+    )
+
+    assert result == []

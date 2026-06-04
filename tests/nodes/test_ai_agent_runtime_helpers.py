@@ -177,3 +177,31 @@ async def test_persist_graph_history_for_run_ignores_non_mapping_result(
     )
 
     recorder.assert_not_awaited()
+
+
+def test_build_runtime_config_non_mapping_state_skips_inputs_and_thread_state() -> None:
+    """When state is not a Mapping, branches 1034->1039 and 1040->1050 are taken."""
+    node = AgentNode(name="agent", ai_model="openai:gpt-4o")
+    # Pass a non-Mapping state object (not a dict/State)
+    result = node._build_runtime_config(object(), {"configurable": {"k": "v"}})  # type: ignore[arg-type]
+
+    # configurable from config is preserved; no inputs or thread_state added
+    assert result["configurable"].get("k") == "v"
+    assert "inputs" not in result["configurable"]
+    assert "thread_state" not in result["configurable"]
+
+
+def test_build_runtime_config_direct_thread_state_mapping() -> None:
+    """When state['thread_state'] is a Mapping, line 1043 is hit directly."""
+    node = AgentNode(name="agent", ai_model="openai:gpt-4o")
+    state = {
+        "workspace_id": "ws-1",
+        "thread_state": {"pending_documents": [{"filename": "x.csv"}]},
+    }
+
+    result = node._build_runtime_config(state, {})
+
+    assert result["configurable"]["thread_state"] == {
+        "pending_documents": [{"filename": "x.csv"}]
+    }
+    assert "workspace_id" in result["configurable"]

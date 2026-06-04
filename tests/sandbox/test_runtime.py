@@ -333,6 +333,115 @@ def test_docker_runtime_ensure_client_imports_docker_lazily(
     assert runtime._ensure_client() is fake_client
 
 
+def test_parse_user_ids_returns_zero_for_empty_string() -> None:
+    """_parse_user_ids returns (0, 0) for empty string (line 297)."""
+    assert DockerContainerRuntime._parse_user_ids("") == (0, 0)
+    assert DockerContainerRuntime._parse_user_ids("   ") == (0, 0)
+
+
+def test_parse_user_ids_returns_same_uid_gid_without_colon() -> None:
+    """_parse_user_ids uses same value for uid and gid when no colon (line 301)."""
+    assert DockerContainerRuntime._parse_user_ids("1001") == (1001, 1001)
+
+
+def test_ensure_writable_mounts_skips_invalid_bind_path() -> None:
+    """Volumes with non-string or empty bind path are skipped (lines 314, 316)."""
+    client = _FakeClient()
+    runtime = DockerContainerRuntime(client=client)
+    spec = ContainerSpec(
+        image="img",
+        workspace_id="W",
+        volumes={
+            "vol_no_bind": {},  # no 'bind' key → skip (line 314)
+            "vol_empty_bind": {
+                "bind": "  ",
+                "mode": "rw",
+            },  # blank bind → skip (line 314)
+            "vol_readonly": {
+                "bind": "/data",
+                "mode": "ro",
+            },  # read-only → skip (line 316)
+        },
+    )
+    runtime.start(spec)
+    container = client.containers.get("c0")
+    # No exec_run calls because all volumes were skipped
+    assert container.exec_calls == []
+
+
+def test_ensure_writable_mounts_raises_on_exec_failure() -> None:
+    """_ensure_writable_mounts raises RuntimeError when exec_run exits non-zero (lines 337-347)."""
+
+    class _FailingContainer(_FakeContainer):
+        def exec_run(self, cmd: list[str], user: str | None = None) -> object:
+            self.exec_calls.append({"cmd": cmd, "user": user})
+            return type(
+                "ExecResult", (), {"exit_code": 1, "output": b"permission denied"}
+            )()
+
+    class _FailingContainers(_FakeContainers):
+        def run(self, **kwargs: object) -> _FailingContainer:
+            container_id = f"c{len(self.runs)}"
+            container = _FailingContainer(container_id)
+            self._containers[container_id] = container
+            self.runs.append({"id": container_id, **kwargs})
+            return container
+
+    class _FailClient:
+        def __init__(self) -> None:
+            self.containers = _FailingContainers()
+            self.images = _FakeImages()
+
+    client = _FailClient()
+    runtime = DockerContainerRuntime(client=client)
+    spec = ContainerSpec(
+        image="img",
+        workspace_id="W",
+        volumes={"vol": {"bind": "/state", "mode": "rw"}},
+    )
+
+    with pytest.raises(
+        RuntimeError, match="Failed to initialise writable sandbox mount"
+    ):
+        runtime.start(spec)
+
+
+def test_ensure_writable_mounts_raises_with_non_bytes_output() -> None:
+    """_ensure_writable_mounts handles non-bytes output via str() (line 341)."""
+
+    class _StrOutputContainer(_FakeContainer):
+        def exec_run(self, cmd: list[str], user: str | None = None) -> object:
+            self.exec_calls.append({"cmd": cmd, "user": user})
+            # output is a string (not bytes), covering line 341
+            return type("ExecResult", (), {"exit_code": 2, "output": "string-error"})()
+
+    class _StrOutputContainers(_FakeContainers):
+        def run(self, **kwargs: object) -> _StrOutputContainer:
+            container_id = f"c{len(self.runs)}"
+            container = _StrOutputContainer(container_id)
+            self._containers[container_id] = container
+            self.runs.append({"id": container_id, **kwargs})
+            return container
+
+    class _StrOutputClient:
+        def __init__(self) -> None:
+            self.containers = _StrOutputContainers()
+            self.images = _FakeImages()
+
+    client = _StrOutputClient()
+    runtime = DockerContainerRuntime(client=client)
+    spec = ContainerSpec(
+        image="img",
+        workspace_id="W",
+        volumes={"vol": {"bind": "/state", "mode": "rw"}},
+    )
+
+    with pytest.raises(
+        RuntimeError, match="Failed to initialise writable sandbox mount"
+    ):
+        runtime.start(spec)
+
+
 def test_docker_runtime_no_new_privileges_false_omits_security_opt() -> None:
     """When no_new_privileges=False, security_opt is empty."""
     from orcheo.sandbox.runtime import DockerContainerRuntime

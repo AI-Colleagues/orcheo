@@ -663,3 +663,70 @@ def test_apply_chatkit_selected_model_drops_all_disabled_models() -> None:
 
     assert selected_model is None
     assert inputs == {"message": "hello"}
+
+
+# ---------------------------------------------------------------------------
+# _resolve_recent_upload_session_id exception path (server.py lines 799-804)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_recent_upload_session_id_catches_exception() -> None:
+    """Exception from attachment_service is swallowed and None is returned (lines 799-804)."""
+    server, _ = create_server()
+    attachment_service = SimpleNamespace(
+        resolve_recent_upload_session_id=AsyncMock(side_effect=RuntimeError("boom"))
+    )
+
+    thread = ThreadMetadata(id="thread-exc", created_at=datetime.now(UTC))
+    result = await server._resolve_recent_upload_session_id(
+        attachment_service=attachment_service,
+        thread=thread,
+        workspace_id="ws-1",
+        workflow_id="wf-1",
+        actor_subject="user@example.com",
+    )
+
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _resolve_additional_attachments exception path (server.py lines 857-866)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_additional_attachments_catches_exception() -> None:
+    """Exception from attachment_service.list_attachment_summaries is swallowed (lines 857-866)."""
+    server, store = create_server()
+    store.attachment_service = SimpleNamespace(
+        list_attachment_summaries=AsyncMock(side_effect=RuntimeError("db-gone"))
+    )
+
+    thread = ThreadMetadata(id="thread-exc2", created_at=datetime.now(UTC))
+    context = {"workspace_id": "ws-1"}
+
+    result = await server._resolve_additional_attachments(
+        thread=thread,
+        workflow_id="wf-1",
+        context=context,
+    )
+
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_additional_attachments_returns_empty_without_service() -> None:
+    """Returns [] immediately when attachment_service is None."""
+    server, _ = create_server()
+
+    thread = ThreadMetadata(id="thread-no-svc", created_at=datetime.now(UTC))
+    context = {"workspace_id": "ws-1"}
+
+    result = await server._resolve_additional_attachments(
+        thread=thread,
+        workflow_id="wf-1",
+        context=context,
+    )
+
+    assert result == []

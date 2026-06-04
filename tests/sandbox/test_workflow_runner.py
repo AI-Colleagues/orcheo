@@ -455,6 +455,134 @@ async def test_sandbox_thread_state_store_persists_across_instances(
     assert item == {"value": payload}
 
 
+@pytest.mark.asyncio
+async def test_sandbox_thread_state_store_returns_none_when_key_missing(
+    tmp_path: Path,
+) -> None:
+    """aget returns None when key is not present in the namespace (line 177)."""
+    from orcheo.sandbox.workflow_runner import _SandboxThreadStateStore
+
+    store = _SandboxThreadStateStore(tmp_path / "thread-state-miss.json")
+    namespace = ("ws-1", "insight_analyst", "thread-1")
+
+    # Nothing stored → key absent → None (line 177)
+    result = await store.aget(namespace, "nonexistent-key")
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_sandbox_thread_state_store_returns_none_for_missing_namespace(
+    tmp_path: Path,
+) -> None:
+    """aget returns None when the namespace does not exist at all (line 177)."""
+    from orcheo.sandbox.workflow_runner import _SandboxThreadStateStore
+
+    store = _SandboxThreadStateStore(tmp_path / "state-ns.json")
+    await store.aput(("ns-a",), "k", "v")
+
+    result = await store.aget(("ns-b",), "k")  # different namespace
+
+    assert result is None
+
+
+def test_sandbox_thread_state_store_read_payload_handles_json_error(
+    tmp_path: Path,
+) -> None:
+    """_read_payload returns {} when the file contains invalid JSON (lines 147-148)."""
+    from orcheo.sandbox.workflow_runner import _SandboxThreadStateStore
+
+    path = tmp_path / "bad.json"
+    path.write_text("not valid json {{{{", encoding="utf-8")
+
+    store = _SandboxThreadStateStore(path)
+    payload = store._read_payload()
+
+    assert payload == {}
+
+
+def test_sandbox_thread_state_store_read_payload_handles_non_dict_json(
+    tmp_path: Path,
+) -> None:
+    """_read_payload returns {} when JSON root is not a dict (line 155)."""
+    import json
+    from orcheo.sandbox.workflow_runner import _SandboxThreadStateStore
+
+    path = tmp_path / "list.json"
+    path.write_text(json.dumps(["not", "a", "dict"]), encoding="utf-8")
+
+    store = _SandboxThreadStateStore(path)
+    payload = store._read_payload()
+
+    assert payload == {}
+
+
+def test_credential_context_returns_resolver_when_both_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_credential_context returns credential_resolution context when token+URL present (line 206)."""
+    from orcheo.sandbox.workflow_runner import _credential_context
+
+    monkeypatch.setenv("ORCHEO_BROKER_TOKEN", "tok-123")
+    monkeypatch.setenv("ORCHEO_CREDENTIAL_BROKER_URL", "http://broker:9091")
+
+    ctx = _credential_context(run_id="run-1", workspace_id="ws-1")
+
+    # It should be a non-nullcontext context manager
+    from contextlib import nullcontext
+
+    assert not isinstance(ctx, type(nullcontext()))
+
+
+def test_run_in_subprocess_no_spawn_success() -> None:
+    """run_in_subprocess with spawn=False executes in-process and returns result (lines 336-351)."""
+    from orcheo.sandbox.workflow_runner import run_in_subprocess
+    from unittest.mock import patch
+
+    def _fake_run_graph(
+        workflow_def,
+        inputs,
+        *,
+        runnable_config=None,
+        state_config=None,
+        run_id=None,
+        workspace_id=None,
+    ):
+        return {"output": "hello"}
+
+    with patch(
+        "orcheo.sandbox.workflow_runner._run_graph", side_effect=_fake_run_graph
+    ):
+        result = run_in_subprocess(
+            {"nodes": []},
+            {"message": "hi"},
+            spawn=False,
+        )
+
+    assert result["status"] == "succeeded"
+    assert result["outputs"]["output"] == "hello"
+
+
+def test_run_in_subprocess_no_spawn_failure() -> None:
+    """run_in_subprocess with spawn=False handles _run_graph exception (lines 229-256)."""
+    from orcheo.sandbox.workflow_runner import run_in_subprocess
+    from unittest.mock import patch
+
+    with patch(
+        "orcheo.sandbox.workflow_runner._run_graph",
+        side_effect=ValueError("graph error"),
+    ):
+        result = run_in_subprocess(
+            {"nodes": []},
+            {},
+            spawn=False,
+        )
+
+    assert result["status"] == "failed"
+    assert "graph error" in str(result.get("error", ""))
+    assert "ValueError" in str(result.get("error", ""))
+
+
 def test_json_default_serializes_dataclass() -> None:
     """_json_default returns asdict() for a real dataclass (line 295)."""
     from dataclasses import dataclass

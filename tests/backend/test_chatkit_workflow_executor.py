@@ -980,3 +980,26 @@ async def test_execute_graph_surfaces_sandbox_failure(
             step_callback=None,
             workspace_id="ws-1",
         )
+
+
+def test_with_request_inputs_non_mapping_configurable() -> None:
+    """_with_request_inputs uses empty dict when configurable is not a Mapping (line 693)."""
+    from orcheo_backend.app.chatkit.workflow_executor import _with_request_inputs
+
+    # configurable is a plain string → not a Mapping → use {}
+    result = _with_request_inputs(
+        {"configurable": "not-a-mapping", "run_name": "test"},
+        {"message": "hello"},
+    )
+
+    assert result["configurable"]["inputs"] == {"message": "hello"}
+    assert result["run_name"] == "test"
+
+
+def test_with_request_inputs_none_configurable() -> None:
+    """_with_request_inputs handles absent configurable key (line 693)."""
+    from orcheo_backend.app.chatkit.workflow_executor import _with_request_inputs
+
+    result = _with_request_inputs({}, {"query": "q"})
+
+    assert result["configurable"]["inputs"] == {"query": "q"}
