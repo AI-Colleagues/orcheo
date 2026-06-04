@@ -338,7 +338,7 @@ def _serialize_attachment_uploader(
             scope_data: dict[str, Any] = dict(marker_payload)
         else:
             scope_data = dict(scope)
-    elif dataclasses.is_dataclass(scope):
+    elif dataclasses.is_dataclass(scope) and not isinstance(scope, type):
         scope_data = dataclasses.asdict(scope)
     else:
         scope_data = {}
@@ -469,7 +469,7 @@ def _serialize_attachment_scope(scope: Any) -> dict[str, Any] | None:
             payload = dict(marker_payload)
         else:
             payload = dict(scope)
-    elif dataclasses.is_dataclass(scope):
+    elif dataclasses.is_dataclass(scope) and not isinstance(scope, type):
         payload = dataclasses.asdict(scope)
     else:
         payload = {}

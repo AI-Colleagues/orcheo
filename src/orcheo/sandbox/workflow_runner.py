@@ -278,7 +278,7 @@ def _run_graph(
     runnable_config = hydrate_attachment_runtime_config(runnable_config)
     state_config = hydrate_attachment_runtime_config(state_config)
     graph = build_graph(dict(workflow_definition))
-    compiled = graph.compile(store=_SandboxThreadStateStore.from_env())
+    compiled = graph.compile(store=cast(Any, _SandboxThreadStateStore.from_env()))
     state = build_initial_state(
         workflow_definition,
         inputs,
