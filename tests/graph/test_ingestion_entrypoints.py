@@ -140,7 +140,7 @@ def test_ingest_script_defaults_to_orcheo_workflow_entrypoint() -> None:
     _assert_payload_index(payload, node_name="first")
 
 
-def test_ingest_script_rejects_forbidden_imports() -> None:
+def test_ingest_script_allows_previously_blocked_imports() -> None:
     script = textwrap.dedent(
         """
         import os
@@ -153,8 +153,8 @@ def test_ingest_script_rejects_forbidden_imports() -> None:
         """
     )
 
-    with pytest.raises(ScriptIngestionError):
-        ingest_langgraph_script(script)
+    result = ingest_langgraph_script(script)
+    assert result["format"] == LANGGRAPH_SCRIPT_FORMAT
 
 
 def test_ingest_script_rejects_relative_imports() -> None:

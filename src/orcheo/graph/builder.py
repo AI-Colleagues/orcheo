@@ -38,4 +38,6 @@ def build_graph(graph_json: Mapping[str, Any]) -> StateGraph:
     if entrypoint_value is not None and not isinstance(entrypoint_value, str):
         msg = "Entrypoint must be a string when provided"
         raise ValueError(msg)
-    return load_graph_from_script(source, entrypoint=entrypoint_value)
+    return load_graph_from_script(
+        source, entrypoint=entrypoint_value, max_script_bytes=None
+    )
