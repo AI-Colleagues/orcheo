@@ -8,19 +8,27 @@ from pathlib import Path
 
 import pytest
 
+_WORKFLOW_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "colleague-experts"
+    / "colleagues"
+    / "insight_analyst"
+    / "workflow.py"
+)
+
+if not _WORKFLOW_PATH.exists():
+    pytest.skip(
+        "colleague-experts repo not checked out alongside orcheo",
+        allow_module_level=True,
+    )
+
 
 def _load_workflow_module():
     module_name = "insight_analyst_workflow"
     if module_name in sys.modules:
         return sys.modules[module_name]
 
-    workflow_path = (
-        Path(__file__).resolve().parents[2]
-        / "colleague-experts"
-        / "colleagues"
-        / "insight_analyst"
-        / "workflow.py"
-    )
+    workflow_path = _WORKFLOW_PATH
     spec = spec_from_file_location(module_name, workflow_path)
     if spec is None or spec.loader is None:
         msg = f"Unable to load workflow module from {workflow_path}"
