@@ -9,14 +9,16 @@ import dataclasses
 import hashlib
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
+from urllib.parse import urlparse
 import httpx
 
 
 _ATTACHMENT_RESOLVER_MARKER = "__orcheo_attachment_resolver__"
 _ATTACHMENT_SCOPE_MARKER = "__orcheo_attachment_scope__"
+_ATTACHMENT_UPLOADER_MARKER = "__orcheo_attachment_uploader__"
 
 
 class AttachmentScope(Protocol):
@@ -103,9 +105,13 @@ class AttachmentPayloadRecord:
 class ChatKitAttachmentResolverProxy:
     """Resolve workflow attachments via the public ChatKit download endpoint."""
 
-    def __init__(self, base_url: str) -> None:
-        """Store the backend origin used for attachment downloads."""
-        self._base_url = base_url.rstrip("/")
+    def __init__(self, base_url: str | Sequence[str]) -> None:
+        """Store candidate origins used for attachment downloads."""
+        if isinstance(base_url, str):
+            candidates = [base_url]
+        else:
+            candidates = list(base_url)
+        self._base_urls = tuple(_normalize_base_urls(candidates))
 
     async def load_attachment_bytes(
         self,
@@ -114,35 +120,128 @@ class ChatKitAttachmentResolverProxy:
     ) -> AttachmentPayloadRecord:
         """Fetch an attachment from the backend's public download endpoint."""
         del scope
-        url = f"{self._base_url}/api/chatkit/attachments/{attachment_id}"
+        errors: list[str] = []
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url)
-        if not response.is_success:
-            raise RuntimeError(
-                f"Failed to load attachment {attachment_id!r}: "
-                f"{response.status_code} {response.text}"
-            )
+            for base_url in self._base_urls:
+                url = f"{base_url}/api/chatkit/attachments/{attachment_id}"
+                try:
+                    response = await client.get(url)
+                except Exception as exc:  # noqa: BLE001 - continue to fallback
+                    errors.append(f"{base_url}: {type(exc).__name__}: {exc}")
+                    continue
+                if not response.is_success:
+                    errors.append(f"{base_url}: {response.status_code} {response.text}")
+                    continue
 
-        content = bytes(response.content)
-        sha256 = hashlib.sha256(content).hexdigest()
-        mime_type = response.headers.get("content-type", "application/octet-stream")
-        name = _filename_from_content_disposition(
-            response.headers.get("content-disposition")
+                content = bytes(response.content)
+                sha256 = hashlib.sha256(content).hexdigest()
+                mime_type = response.headers.get(
+                    "content-type", "application/octet-stream"
+                )
+                name = _filename_from_content_disposition(
+                    response.headers.get("content-disposition")
+                )
+                if not name:
+                    name = attachment_id
+                metadata = {
+                    "download_url": url,
+                    "source": "chatkit_download",
+                }
+                return AttachmentPayloadRecord(
+                    id=attachment_id,
+                    name=name,
+                    mime_type=mime_type,
+                    size_bytes=len(content),
+                    sha256=sha256,
+                    content=content,
+                    metadata=metadata,
+                )
+
+        raise RuntimeError(
+            f"Failed to load attachment {attachment_id!r}: "
+            + "; ".join(errors or ["no download endpoints configured"])
         )
-        if not name:
-            name = attachment_id
-        metadata = {
-            "download_url": url,
-            "source": "chatkit_download",
-        }
-        return AttachmentPayloadRecord(
-            id=attachment_id,
-            name=name,
-            mime_type=mime_type,
-            size_bytes=len(content),
-            sha256=sha256,
-            content=content,
-            metadata=metadata,
+
+
+class ChatKitAttachmentUploaderProxy:
+    """Upload workflow-produced attachments via the internal relay endpoint.
+
+    Uses the broker token from the sandbox environment to authenticate against
+    the credential-relay, which forwards the request to the backend's internal
+    attachment upload endpoint.
+    """
+
+    def __init__(
+        self,
+        base_url: str | Sequence[str],
+        *,
+        workflow_id: str | None = None,
+        thread_id: str | None = None,
+        upload_session_id: str | None = None,
+    ) -> None:
+        """Store candidate origins and optional upload-session context."""
+        if isinstance(base_url, str):
+            candidates = [base_url]
+        else:
+            candidates = list(base_url)
+        self._base_urls = tuple(_normalize_base_urls(candidates))
+        self._workflow_id = workflow_id
+        self._thread_id = thread_id
+        self._upload_session_id = upload_session_id
+
+    async def upload_attachment(
+        self,
+        content: bytes,
+        name: str,
+        mime_type: str,
+    ) -> tuple[str, str]:
+        """Upload content and return ``(attachment_id, download_url)``."""
+        broker_token = os.getenv("ORCHEO_BROKER_TOKEN", "").strip()
+        errors: list[str] = []
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            for base_url in self._base_urls:
+                url = f"{base_url}/api/chatkit/attachments/upload"
+                headers: dict[str, str] = {}
+                if broker_token:
+                    headers["Authorization"] = f"Bearer {broker_token}"
+
+                form_data: dict[str, str] = {}
+                if self._workflow_id:
+                    form_data["workflow_id"] = self._workflow_id
+                if self._thread_id:
+                    form_data["thread_id"] = self._thread_id
+                if self._upload_session_id:
+                    form_data["upload_session_id"] = self._upload_session_id
+
+                try:
+                    response = await client.post(
+                        url,
+                        files={"file": (name, content, mime_type)},
+                        data=form_data,
+                        headers=headers,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(f"{base_url}: {type(exc).__name__}: {exc}")
+                    continue
+
+                if not response.is_success:
+                    errors.append(f"{base_url}: {response.status_code} {response.text}")
+                    continue
+
+                result = response.json()
+                attachment_id = result.get("id") or result.get("attachment_id")
+                if not attachment_id:
+                    errors.append(f"{base_url}: missing attachment id in response")
+                    continue
+
+                download_url = result.get("download_url") or (
+                    f"{base_url}/api/chatkit/attachments/{attachment_id}"
+                )
+                return str(attachment_id), download_url
+
+        raise RuntimeError(
+            f"Failed to upload attachment {name!r}: "
+            + "; ".join(errors or ["no upload endpoints configured"])
         )
 
 
@@ -165,11 +264,13 @@ def serialize_attachment_runtime_config(
         return sanitized
 
     payload = dict(configurable)
+    original_scope = payload.get("attachment_scope")
+
     resolver = payload.get("attachment_resolver")
     if resolver is not None:
         payload["attachment_resolver"] = {
             _ATTACHMENT_RESOLVER_MARKER: {
-                "base_url": _resolve_public_backend_base_url(),
+                "base_urls": _resolve_public_attachment_base_urls(),
             }
         }
 
@@ -181,7 +282,16 @@ def serialize_attachment_runtime_config(
         else:
             payload.pop("attachment_scope", None)
 
-    payload.pop("attachment_uploader", None)
+    uploader = payload.pop("attachment_uploader", None)
+    if uploader is not None:
+        if isinstance(uploader, Mapping) and _ATTACHMENT_UPLOADER_MARKER in uploader:
+            payload["attachment_uploader"] = uploader
+        elif original_scope is not None:
+            base_urls = _resolve_public_attachment_base_urls()
+            uploader_payload = _serialize_attachment_uploader(original_scope, base_urls)
+            if uploader_payload is not None:
+                payload["attachment_uploader"] = uploader_payload
+
     sanitized["configurable"] = payload
     return sanitized
 
@@ -199,15 +309,8 @@ def hydrate_attachment_runtime_config(
         return hydrated
 
     payload = dict(configurable)
-    resolver = payload.get("attachment_resolver")
-    if isinstance(resolver, Mapping):
-        resolver_payload = resolver.get(_ATTACHMENT_RESOLVER_MARKER)
-        if isinstance(resolver_payload, Mapping):
-            base_url = resolver_payload.get("base_url")
-            if isinstance(base_url, str) and base_url.strip():
-                payload["attachment_resolver"] = ChatKitAttachmentResolverProxy(
-                    base_url.strip()
-                )
+    _hydrate_attachment_resolver(payload)
+    _hydrate_attachment_uploader(payload)
 
     scope = payload.get("attachment_scope")
     if isinstance(scope, Mapping):
@@ -221,14 +324,138 @@ def hydrate_attachment_runtime_config(
     return hydrated
 
 
-def _resolve_public_backend_base_url() -> str:
-    """Return the backend origin used for attachment download links."""
-    raw = os.environ.get("ORCHEO_API_URL", "").strip()
+def _serialize_attachment_uploader(
+    scope: Any,
+    base_urls: list[str],
+) -> dict[str, Any] | None:
+    """Return a sandbox-safe marker for an attachment uploader bound to *scope*."""
+    if not base_urls:
+        return None
+
+    if isinstance(scope, Mapping):
+        marker_payload = scope.get(_ATTACHMENT_SCOPE_MARKER)
+        if isinstance(marker_payload, Mapping):
+            scope_data: dict[str, Any] = dict(marker_payload)
+        else:
+            scope_data = dict(scope)
+    elif dataclasses.is_dataclass(scope):
+        scope_data = dataclasses.asdict(scope)
+    else:
+        scope_data = {}
+        for key in ("workflow_id", "thread_id", "upload_session_id"):
+            value = getattr(scope, key, None)
+            if value is not None:
+                scope_data[key] = value
+
+    return {
+        _ATTACHMENT_UPLOADER_MARKER: {
+            "base_urls": base_urls,
+            "workflow_id": scope_data.get("workflow_id"),
+            "thread_id": scope_data.get("thread_id"),
+            "upload_session_id": scope_data.get("upload_session_id"),
+        }
+    }
+
+
+def _hydrate_attachment_uploader(payload: dict[str, Any]) -> None:
+    """Hydrate a serialized attachment uploader marker in place."""
+    uploader = payload.get("attachment_uploader")
+    if not isinstance(uploader, Mapping):
+        return
+    uploader_payload = uploader.get(_ATTACHMENT_UPLOADER_MARKER)
+    if not isinstance(uploader_payload, Mapping):
+        return
+
+    base_urls_raw = uploader_payload.get("base_urls")
+    if not isinstance(base_urls_raw, Sequence) or isinstance(base_urls_raw, str):
+        return
+    normalized = [u.strip() for u in base_urls_raw if isinstance(u, str) and u.strip()]
+    if not normalized:
+        return
+
+    payload["attachment_uploader"] = ChatKitAttachmentUploaderProxy(
+        normalized,
+        workflow_id=uploader_payload.get("workflow_id"),
+        thread_id=uploader_payload.get("thread_id"),
+        upload_session_id=uploader_payload.get("upload_session_id"),
+    )
+
+
+def _hydrate_attachment_resolver(payload: dict[str, Any]) -> None:
+    """Hydrate a serialized attachment resolver marker in place."""
+    resolver = payload.get("attachment_resolver")
+    if not isinstance(resolver, Mapping):
+        return
+    resolver_payload = resolver.get(_ATTACHMENT_RESOLVER_MARKER)
+    if not isinstance(resolver_payload, Mapping):
+        return
+
+    base_urls = resolver_payload.get("base_urls")
+    if isinstance(base_urls, Sequence) and not isinstance(base_urls, str):
+        normalized = [
+            base_url.strip()
+            for base_url in base_urls
+            if isinstance(base_url, str) and base_url.strip()
+        ]
+        if normalized:
+            payload["attachment_resolver"] = ChatKitAttachmentResolverProxy(normalized)
+            return
+
+    base_url = resolver_payload.get("base_url")
+    if isinstance(base_url, str) and base_url.strip():
+        payload["attachment_resolver"] = ChatKitAttachmentResolverProxy(
+            base_url.strip()
+        )
+
+
+def _resolve_public_attachment_base_urls() -> list[str]:
+    """Return candidate child-facing origins for sandbox attachment resolution."""
+    candidates: list[str] = []
+
+    def _add_candidate(raw: str | None) -> None:
+        if not raw:
+            return
+        normalized = raw.strip().rstrip("/")
+        if not normalized:
+            return
+        host = urlparse(normalized).hostname
+        if host in {"localhost", "127.0.0.1", "::1"}:
+            return
+        if normalized not in candidates:
+            candidates.append(normalized)
+
+    _add_candidate(_origin_from_url(os.environ.get("ORCHEO_CREDENTIAL_BROKER_URL")))
+    _add_candidate(os.environ.get("ORCHEO_CHATKIT_ATTACHMENT_BASE_URL"))
+    _add_candidate(os.environ.get("ORCHEO_API_URL"))
+    _add_candidate(os.environ.get("ORCHEO_API_BASE_URL"))
+    _add_candidate("http://credential-relay:9091")
+
+    if not candidates:
+        candidates.append("http://credential-relay:9091")
+    return candidates
+
+
+def _origin_from_url(raw: str | None) -> str | None:
+    """Return the scheme/authority portion of ``raw`` when valid."""
     if not raw:
-        raw = os.environ.get("ORCHEO_API_BASE_URL", "").strip()
-    if not raw:
-        raw = "http://localhost:2025"
-    return raw.rstrip("/")
+        return None
+    normalized = raw.strip().rstrip("/")
+    if not normalized:
+        return None
+    parsed = urlparse(normalized)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _normalize_base_urls(base_urls: Sequence[str]) -> list[str]:
+    """Normalize a sequence of candidate URLs while preserving order."""
+    normalized: list[str] = []
+    for base_url in base_urls:
+        candidate = base_url.strip().rstrip("/")
+        if candidate and candidate not in normalized:
+            normalized.append(candidate)
+    return normalized
 
 
 def _serialize_attachment_scope(scope: Any) -> dict[str, Any] | None:
@@ -237,7 +464,11 @@ def _serialize_attachment_scope(scope: Any) -> dict[str, Any] | None:
         return None
 
     if isinstance(scope, Mapping):
-        payload = dict(scope)
+        marker_payload = scope.get(_ATTACHMENT_SCOPE_MARKER)
+        if isinstance(marker_payload, Mapping):
+            payload = dict(marker_payload)
+        else:
+            payload = dict(scope)
     elif dataclasses.is_dataclass(scope):
         payload = dataclasses.asdict(scope)
     else:
@@ -299,6 +530,7 @@ __all__ = [
     "AttachmentScopeRecord",
     "AttachmentUploader",
     "ChatKitAttachmentResolverProxy",
+    "ChatKitAttachmentUploaderProxy",
     "hydrate_attachment_runtime_config",
     "serialize_attachment_runtime_config",
 ]

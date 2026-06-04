@@ -214,7 +214,7 @@ class DeepAgentNode(AINode):
 
         return paths if paths else None
 
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:  # noqa: C901, PLR0912
         """Execute the deep research agent and return results.
 
         Creates a deep agent via ``create_deep_agent`` from the
@@ -269,6 +269,23 @@ class DeepAgentNode(AINode):
         workspace_id = state.get("workspace_id") if isinstance(state, dict) else None
         if isinstance(workspace_id, str) and workspace_id.strip():
             configurable.setdefault("workspace_id", workspace_id.strip())
+        if isinstance(state, Mapping):
+            inputs_value = state.get("inputs")
+            if isinstance(inputs_value, Mapping):
+                configurable.setdefault("inputs", dict(inputs_value))
+        thread_state_payload: dict[str, Any] | None = None
+        if isinstance(state, Mapping):
+            thread_state = state.get("thread_state")
+            if isinstance(thread_state, Mapping):
+                thread_state_payload = dict(thread_state)
+            else:
+                results = state.get("results")
+                if isinstance(results, Mapping):
+                    maybe_thread_state = results.get("_thread_state")
+                    if isinstance(maybe_thread_state, Mapping):
+                        thread_state_payload = dict(maybe_thread_state)
+        if thread_state_payload is not None:
+            configurable.setdefault("thread_state", thread_state_payload)
         runtime_config["configurable"] = configurable
 
         runnable_config = cast(RunnableConfig, runtime_config)

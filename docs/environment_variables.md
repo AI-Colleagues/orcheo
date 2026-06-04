@@ -34,6 +34,7 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD` | `1000` | Positive integer | Token usage threshold that emits `token.chunk` events (`tracing/workflow.py`). |
 | `ORCHEO_TRACING_PREVIEW_MAX_LENGTH` | `512` | Positive integer ≥ 16 | Maximum characters retained for prompt/response previews (`tracing/workflow.py`). |
 | `ORCHEO_CHATKIT_PUBLIC_BASE_URL` | _none_ | HTTP(S) URL | Optional frontend origin used when generating ChatKit share links in the backend API responses and the CLI/MCP; defaults to `ORCHEO_API_URL` with any `/api` suffix removed when unset in the CLI/MCP (`publish.py`). One-off overrides can be supplied via `orcheo workflow publish --chatkit-public-base-url`. |
+| `ORCHEO_CHATKIT_ATTACHMENT_BASE_URL` | `http://credential-relay:9091` in compose stacks | HTTP URL | Child-facing base URL used by sandboxed workflow runs to resolve ChatKit attachment bytes. Keep this pointed at the credential relay, not the backend directly. |
 
 ## Sandbox isolation
 
@@ -45,6 +46,7 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_CREDENTIAL_BROKER_SECRET` | _none; required_ | High-entropy secret | Signs run-scoped credential relay tokens; revocation is stored in Redis through `REDIS_URL`. |
 | `ORCHEO_CREDENTIAL_BROKER_URL` | `http://credential-relay:9091/credentials/resolve` | Internal HTTP URL | Minimal relay endpoint injected into tenant sandboxes. |
 | `ORCHEO_CREDENTIAL_BROKER_FORWARD_URL` | `http://backend:2025/internal/credentials/resolve` | Internal HTTP URL | Relay-to-backend endpoint; never child-facing. |
+| `ORCHEO_CHATKIT_ATTACHMENT_FORWARD_URL` | `http://backend:2025/api/chatkit/attachments` | Internal HTTP URL | Relay-to-backend endpoint used to proxy ChatKit attachment downloads; never child-facing. |
 | `ORCHEO_EGRESS_PROXY_URL` | _none_ | HTTP proxy URL | Sole supported child path to external HTTP/HTTPS services. |
 | `ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS` | _empty_ | Comma-separated hostnames | Operator-managed global proxy allowlist; empty configuration denies external hosts. |
 | `ORCHEO_SANDBOX_DNS` | _empty_ | Comma-separated DNS IPs | Compatibility override; hardened children use pinned relay/proxy hosts and proxy-side external DNS resolution. |

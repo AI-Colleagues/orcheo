@@ -418,6 +418,43 @@ def test_json_default_falls_back_to_str() -> None:
     assert result == "opaque-str"
 
 
+@pytest.mark.asyncio
+async def test_sandbox_thread_state_store_round_trips_payload(
+    tmp_path: Path,
+) -> None:
+    """The thread-state store round-trips a payload through the backing file."""
+    from orcheo.sandbox.workflow_runner import _SandboxThreadStateStore
+
+    store = _SandboxThreadStateStore(tmp_path / "thread-state.json")
+    namespace = ("ws-1", "insight_analyst", "thread-1")
+    payload = {"draft_codebook": {"themes": []}}
+
+    await store.aput(namespace, "state", payload)
+    item = await store.aget(namespace, "state")
+
+    assert item == {"value": payload}
+
+
+@pytest.mark.asyncio
+async def test_sandbox_thread_state_store_persists_across_instances(
+    tmp_path: Path,
+) -> None:
+    """A new store instance can read state written by a previous instance."""
+    from orcheo.sandbox.workflow_runner import _SandboxThreadStateStore
+
+    path = tmp_path / "thread-state.json"
+    namespace = ("ws-1", "insight_analyst", "thread-1")
+    payload = {"approved_codebook": {"themes": [{"theme_id": "T01"}]}}
+
+    first_store = _SandboxThreadStateStore(path)
+    second_store = _SandboxThreadStateStore(path)
+
+    await first_store.aput(namespace, "state", payload)
+    item = await second_store.aget(namespace, "state")
+
+    assert item == {"value": payload}
+
+
 def test_json_default_serializes_dataclass() -> None:
     """_json_default returns asdict() for a real dataclass (line 295)."""
     from dataclasses import dataclass
@@ -451,7 +488,8 @@ def test_run_graph_hydrates_attachment_runtime_config(monkeypatch):
             return {"reply": "ok"}
 
     class _Graph:
-        def compile(self) -> _Compiled:
+        def compile(self, **kwargs: object) -> _Compiled:
+            captured["compile_kwargs"] = kwargs
             return _Compiled()
 
     monkeypatch.setattr(
@@ -503,6 +541,7 @@ def test_run_graph_hydrates_attachment_runtime_config(monkeypatch):
     )
 
     assert result == {"reply": "ok"}
+    assert "store" in captured["compile_kwargs"]
     assert isinstance(
         captured["state_configurable"]["attachment_resolver"],
         ChatKitAttachmentResolverProxy,

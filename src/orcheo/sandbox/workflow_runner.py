@@ -18,14 +18,17 @@ which bypasses the stdin loop for simpler testability.
 
 from __future__ import annotations
 import asyncio
+import fcntl
 import json
 import multiprocessing as mp
 import os
 import sys
+import threading
 import traceback
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import asdict, is_dataclass
+from pathlib import Path
 from queue import Empty
 from typing import Any, cast
 import httpx
@@ -37,6 +40,10 @@ from orcheo.runtime.credentials import (
 from orcheo.runtime.credentials.references import CredentialReference
 from orcheo.sandbox.dispatch import use_launcher
 from orcheo.sandbox.launcher import LocalProcessLauncher
+
+
+_THREAD_STATE_FILE_ENV: str = "ORCHEO_WORKFLOW_THREAD_STATE_FILE"
+_DEFAULT_THREAD_STATE_FILE: Path = Path("/scratch/orcheo-thread-state.json")
 
 
 class _BrokerCredentialResolver:
@@ -90,6 +97,97 @@ class _BrokerCredentialResolver:
             )
             raise RuntimeError(msg)
         return value
+
+
+class _SandboxThreadStateStore:
+    """Persist thread state inside the sandbox container between runs.
+
+    The workflow runner executes in a fresh child process for every dispatch,
+    but the surrounding workspace sandbox container is warm-reused. A small
+    file-backed store under ``/scratch`` lets ``save_thread_state`` survive
+    across follow-up turns without exposing backend database credentials to
+    tenant code.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._lock = threading.RLock()
+        self._lock_path = self._path.with_name(f"{self._path.name}.lock")
+
+    @classmethod
+    def from_env(cls) -> _SandboxThreadStateStore:
+        """Build the store path from the sandbox environment."""
+        raw_path = os.getenv(_THREAD_STATE_FILE_ENV, str(_DEFAULT_THREAD_STATE_FILE))
+        return cls(Path(raw_path))
+
+    @staticmethod
+    def _namespace_key(namespace: tuple[str, ...]) -> str:
+        return json.dumps(list(namespace), separators=(",", ":"))
+
+    def _with_file_lock(self, callback: Callable[[], Any]) -> Any:
+        """Run ``callback`` while holding an exclusive lock on the backing file."""
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock_path.open("a+", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                return callback()
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+    def _read_payload(self) -> dict[str, dict[str, Any]]:
+        with self._lock:
+
+            def _load() -> dict[str, dict[str, Any]]:
+                try:
+                    with self._path.open("r", encoding="utf-8") as handle:
+                        payload = json.load(handle)
+                except FileNotFoundError:
+                    return {}
+                except Exception:  # noqa: BLE001
+                    return {}
+                if isinstance(payload, dict):
+                    return {
+                        str(namespace): value
+                        for namespace, value in payload.items()
+                        if isinstance(value, dict)
+                    }
+                return {}
+
+            return self._with_file_lock(_load)
+
+    def _write_payload(self, payload: dict[str, dict[str, Any]]) -> None:
+        with self._lock:
+
+            def _store() -> None:
+                tmp_path = self._path.with_name(f"{self._path.name}.tmp")
+                with tmp_path.open("w", encoding="utf-8") as handle:
+                    json.dump(
+                        payload, handle, separators=(",", ":"), ensure_ascii=False
+                    )
+                tmp_path.replace(self._path)
+
+            self._with_file_lock(_store)
+
+    async def aget(self, namespace: tuple[str, ...], key: str) -> Any:
+        """Return a stored item using the LangGraph store protocol."""
+        payload = await asyncio.to_thread(self._read_payload)
+        namespace_payload = payload.get(self._namespace_key(namespace), {})
+        if key not in namespace_payload:
+            return None
+        return {"value": namespace_payload[key]}
+
+    async def aput(self, namespace: tuple[str, ...], key: str, value: Any) -> None:
+        """Persist an item using the LangGraph store protocol."""
+
+        def _store() -> None:
+            payload = self._read_payload()
+            namespace_key = self._namespace_key(namespace)
+            namespace_payload = payload.setdefault(namespace_key, {})
+            namespace_payload[key] = value
+            self._write_payload(payload)
+
+        await asyncio.to_thread(_store)
 
 
 def _credential_context(
@@ -180,7 +278,7 @@ def _run_graph(
     runnable_config = hydrate_attachment_runtime_config(runnable_config)
     state_config = hydrate_attachment_runtime_config(state_config)
     graph = build_graph(dict(workflow_definition))
-    compiled = graph.compile()
+    compiled = graph.compile(store=_SandboxThreadStateStore.from_env())
     state = build_initial_state(
         workflow_definition,
         inputs,

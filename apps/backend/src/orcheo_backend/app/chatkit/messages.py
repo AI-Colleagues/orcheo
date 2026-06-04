@@ -108,6 +108,7 @@ def build_inputs_payload(
     user_item: UserMessageItem | None = None,
     *,
     selected_model: str | None | object = _UNSET,
+    additional_attachments: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Construct the workflow input payload with optional file attachments.
 
@@ -117,6 +118,8 @@ def build_inputs_payload(
         history: Conversation history
         user_item: The user message item containing potential attachments
         selected_model: Validated ChatKit model override for this request
+        additional_attachments: Thread-linked attachments to include alongside
+            the current user message attachments
 
     Returns:
         Input payload for the workflow, including documents if attachments present
@@ -137,41 +140,68 @@ def build_inputs_payload(
     # Convert attachments into opaque attachment_id document references.
     # No filesystem paths are used; bytes are resolved by DocumentLoaderNode
     # through the injected attachment resolver.
-    if user_item is not None and hasattr(user_item, "attachments"):
-        attachments = getattr(user_item, "attachments", None)
-        if attachments and isinstance(attachments, list) and len(attachments) > 0:
-            documents: list[dict[str, Any]] = []
-            for attachment in attachments:
-                if isinstance(attachment, dict):
-                    attachment_id = attachment.get("id") or attachment.get(
-                        "file_id", ""
-                    )
-                    if attachment_id:
-                        doc: dict[str, Any] = {
-                            "attachment_id": attachment_id,
-                            "source": attachment.get("filename")
-                            or attachment.get("name", "unknown"),
-                            "metadata": {
-                                "mime_type": attachment.get("content_type")
-                                or attachment.get("mime_type", "text/plain"),
-                                "size": attachment.get("size", 0),
-                            },
-                        }
-                        documents.append(doc)
-                elif isinstance(attachment, AttachmentBase):
-                    doc = {
-                        "attachment_id": attachment.id,
-                        "source": attachment.name,
-                        "metadata": {
-                            "mime_type": attachment.mime_type,
-                        },
-                    }
-                    documents.append(doc)
-
-            if documents:
-                payload["documents"] = documents
+    documents: list[dict[str, Any]] = []
+    documents.extend(
+        _documents_from_attachments(getattr(user_item, "attachments", None))
+    )
+    if additional_attachments:
+        documents.extend(_documents_from_attachments(additional_attachments))
+    if documents:
+        payload["documents"] = _dedupe_documents(documents)
 
     return payload
+
+
+def _documents_from_attachments(
+    attachments: list[Any] | tuple[Any, ...] | None,
+) -> list[dict[str, Any]]:
+    """Convert attachment payloads into document references."""
+    if not attachments:
+        return []
+
+    documents: list[dict[str, Any]] = []
+    for attachment in attachments:
+        if isinstance(attachment, dict):
+            attachment_id = attachment.get("id") or attachment.get("file_id", "")
+            if attachment_id:
+                doc: dict[str, Any] = {
+                    "attachment_id": attachment_id,
+                    "source": attachment.get("filename")
+                    or attachment.get("name", "unknown"),
+                    "metadata": {
+                        "mime_type": attachment.get("content_type")
+                        or attachment.get("mime_type", "text/plain"),
+                        "size": attachment.get("size", 0),
+                    },
+                }
+                documents.append(doc)
+        elif isinstance(attachment, AttachmentBase):
+            doc = {
+                "attachment_id": attachment.id,
+                "source": attachment.name,
+                "metadata": {
+                    "mime_type": attachment.mime_type,
+                },
+            }
+            documents.append(doc)
+    return documents
+
+
+def _dedupe_documents(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Deduplicate attachment documents by attachment id while preserving order."""
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for document in documents:
+        attachment_id = document.get("attachment_id")
+        if not isinstance(attachment_id, str) or not attachment_id.strip():
+            deduped.append(document)
+            continue
+        normalized = attachment_id.strip()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(document)
+    return deduped
 
 
 def sync_thread_inference_metadata(

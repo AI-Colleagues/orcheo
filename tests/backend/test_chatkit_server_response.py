@@ -271,6 +271,109 @@ async def test_chatkit_server_builds_history() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chatkit_server_includes_thread_linked_attachments() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    workflow_id = str(workflow.id)
+
+    server = create_chatkit_test_server(repository)
+    server.store.attachment_service = AsyncMock()
+    server.store.attachment_service.list_attachment_summaries = AsyncMock(
+        return_value=[
+            {
+                "id": "atc_thread",
+                "filename": "survey.csv",
+                "content_type": "text/csv",
+                "size": 42,
+            }
+        ]
+    )
+
+    captured_inputs: dict[str, object] = {}
+
+    async def mock_run(_workflow_uuid, inputs, _actor="chatkit", **_: object):
+        captured_inputs.update(inputs)
+        return ("Reply", {}, None)
+
+    server._run_workflow = AsyncMock(side_effect=mock_run)  # type: ignore[attr-defined]
+
+    thread = _build_thread({"workflow_id": workflow_id})
+    context: ChatKitRequestContext = {"workspace_id": "ws-1"}
+    await server.store.save_thread(thread, context)
+
+    user_item = _build_user_item(thread.id, "Analyze this")
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    _ = [event async for event in server.respond(thread, user_item, context)]
+
+    documents = captured_inputs["documents"]
+    assert isinstance(documents, list)
+    assert documents[0]["attachment_id"] == "atc_thread"
+    assert documents[0]["source"] == "survey.csv"
+    assert documents[0]["metadata"]["mime_type"] == "text/csv"
+
+
+@pytest.mark.asyncio
+async def test_chatkit_server_resolves_recent_upload_session_when_missing() -> None:
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    workflow_id = str(workflow.id)
+
+    server = create_chatkit_test_server(repository)
+    server.store.attachment_service = AsyncMock()
+    server.store.attachment_service.resolve_recent_upload_session_id = AsyncMock(
+        return_value="ups_recent"
+    )
+    server.store.attachment_service.link_upload_session_to_thread = AsyncMock(
+        return_value=1
+    )
+    server.store.attachment_service.list_attachment_summaries = AsyncMock(
+        return_value=[
+            {
+                "id": "atc_recent",
+                "filename": "transcript.txt",
+                "content_type": "text/plain",
+                "size": 128,
+            }
+        ]
+    )
+
+    captured_inputs: dict[str, object] = {}
+
+    async def mock_run(_workflow_uuid, inputs, _actor="chatkit", **_: object):
+        captured_inputs.update(inputs)
+        return ("Reply", {}, None)
+
+    server._run_workflow = AsyncMock(side_effect=mock_run)  # type: ignore[attr-defined]
+
+    thread = _build_thread({"workflow_id": workflow_id})
+    context: ChatKitRequestContext = {
+        "workspace_id": "ws-1",
+        "workflow_id": workflow_id,
+    }
+    await server.store.save_thread(thread, context)
+
+    user_item = _build_user_item(thread.id, "Analyze this")
+    await server.store.add_thread_item(thread.id, user_item, context)
+
+    _ = [event async for event in server.respond(thread, user_item, context)]
+
+    server.store.attachment_service.resolve_recent_upload_session_id.assert_awaited_once_with(
+        "ws-1",
+        workflow_id,
+    )
+    server.store.attachment_service.link_upload_session_to_thread.assert_awaited_once_with(
+        upload_session_id="ups_recent",
+        thread_id=thread.id,
+        workspace_id="ws-1",
+    )
+    documents = captured_inputs["documents"]
+    assert isinstance(documents, list)
+    assert documents[0]["attachment_id"] == "atc_recent"
+    assert documents[0]["source"] == "transcript.txt"
+
+
+@pytest.mark.asyncio
 async def test_chatkit_server_history_with_unknown_item_type() -> None:
     repository = InMemoryWorkflowRepository()
     workflow = await create_workflow_with_graph(repository)

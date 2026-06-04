@@ -262,19 +262,25 @@ class WorkflowExecutor:
         config = cast(
             RunnableConfig,
             _with_attachment_scope(
-                _with_chatkit_model(
-                    _with_thread_id(
-                        merged_config.to_runnable_config(execution_id),
-                        runtime_thread_id,
+                _with_request_inputs(
+                    _with_chatkit_model(
+                        _with_thread_id(
+                            merged_config.to_runnable_config(execution_id),
+                            runtime_thread_id,
+                        ),
+                        selected_model,
                     ),
-                    selected_model,
+                    normalized_inputs,
                 ),
                 attachment_extras,
             ),
         )
         state_config_input = merged_config.to_state_config(execution_id)
         state_config = _with_chatkit_model(
-            _with_thread_id(state_config_input, runtime_thread_id),
+            _with_request_inputs(
+                _with_thread_id(state_config_input, runtime_thread_id),
+                normalized_inputs,
+            ),
             selected_model,
         )
 
@@ -670,5 +676,21 @@ def _with_attachment_scope(
     else:
         configurable_payload = {}
     configurable_payload.update(attachment_extras)
+    normalized["configurable"] = configurable_payload
+    return normalized
+
+
+def _with_request_inputs(
+    config: Mapping[str, Any],
+    inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return a config mapping with the request inputs mirrored into config."""
+    normalized = dict(config)
+    configurable = normalized.get("configurable")
+    if isinstance(configurable, Mapping):
+        configurable_payload = dict(configurable)
+    else:
+        configurable_payload = {}
+    configurable_payload.setdefault("inputs", dict(inputs))
     normalized["configurable"] = configurable_payload
     return normalized

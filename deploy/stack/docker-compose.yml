@@ -57,12 +57,13 @@ services:
       ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN: ${ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN:-}
       ORCHEO_STUDIO_URL: ${ORCHEO_STUDIO_URL:-http://localhost:2026}
       ORCHEO_CORS_ALLOW_ORIGINS: ${ORCHEO_CORS_ALLOW_ORIGINS:-http://localhost:2026,http://127.0.0.1:2026}
+      ORCHEO_CHATKIT_ATTACHMENT_BASE_URL: http://10.99.0.2:9091
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
       ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET:?set ORCHEO_CREDENTIAL_BROKER_SECRET}
       ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:?set ORCHEO_SANDBOX_CONTROL_TOKEN}
-      ORCHEO_CREDENTIAL_BROKER_URL: http://credential-relay:9091/credentials/resolve
+      ORCHEO_CREDENTIAL_BROKER_URL: http://10.99.0.2:9091/credentials/resolve
       ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
       ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest}
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
@@ -111,13 +112,14 @@ services:
       ORCHEO_AUTH_DEV_LOGIN_ENABLED: ${ORCHEO_AUTH_DEV_LOGIN_ENABLED:-false}
       ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN: ${ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN:-}
       ORCHEO_STUDIO_URL: ${ORCHEO_STUDIO_URL:-http://localhost:2026}
+      ORCHEO_CHATKIT_ATTACHMENT_BASE_URL: http://10.99.0.2:9091
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_BACKEND_INTERNAL_URL: http://backend:2025
       ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
       ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET:?set ORCHEO_CREDENTIAL_BROKER_SECRET}
       ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:?set ORCHEO_SANDBOX_CONTROL_TOKEN}
-      ORCHEO_CREDENTIAL_BROKER_URL: http://credential-relay:9091/credentials/resolve
+      ORCHEO_CREDENTIAL_BROKER_URL: http://10.99.0.2:9091/credentials/resolve
       ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
       ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest}
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
@@ -248,6 +250,7 @@ services:
     command: ["uv", "run", "uvicorn", "orcheo.sandbox.service:build_credential_relay_app", "--factory", "--host", "0.0.0.0", "--port", "9091"]
     environment:
       ORCHEO_CREDENTIAL_BROKER_FORWARD_URL: http://backend:2025/internal/credentials/resolve
+      ORCHEO_CHATKIT_ATTACHMENT_FORWARD_URL: http://backend:2025/api/chatkit/attachments
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:9091/healthz"]
       interval: 10s

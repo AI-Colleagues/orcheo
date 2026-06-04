@@ -46,6 +46,7 @@ from orcheo_backend.app.dependencies import (
     set_vault,
 )
 from orcheo_backend.app.history import RunHistoryStore
+from orcheo_backend.app.internal_attachments import build_internal_attachment_router
 from orcheo_backend.app.listener_runtime_service import ListenerRuntimeService
 from orcheo_backend.app.logging_config import configure_logging
 from orcheo_backend.app.managed_workflows import ensure_managed_vibe_workflow
@@ -270,6 +271,7 @@ def _configure_application(application: FastAPI) -> None:
         broker = build_credential_broker()
         configure_sandbox(broker)
         application.include_router(build_credential_broker_router(broker))
+        application.include_router(build_internal_attachment_router(broker))
     application.add_exception_handler(
         AuthenticationError, _authentication_error_handler
     )

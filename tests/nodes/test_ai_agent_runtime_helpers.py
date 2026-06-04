@@ -32,6 +32,24 @@ def test_tool_graph_payload_with_runtime_config_strips_private_keys() -> None:
     }
 
 
+def test_tool_graph_payload_with_runtime_config_carries_thread_state() -> None:
+    payload = {"messages": ["hello"]}
+    config = {
+        "configurable": {
+            "workspace_id": "workspace-1",
+            "thread_state": {
+                "pending_documents": [{"filename": "survey.csv"}],
+            },
+        }
+    }
+
+    result = agent_module._tool_graph_payload_with_runtime_config(payload, config)
+
+    assert result["thread_state"] == {
+        "pending_documents": [{"filename": "survey.csv"}],
+    }
+
+
 def test_tool_graph_payload_with_runtime_config_ignores_blank_workspace_id() -> None:
     payload = {"messages": ["hello"]}
     config = {"configurable": {"workspace_id": "   ", "custom": "value"}}
@@ -91,13 +109,29 @@ async def test_stream_tool_graph_updates_uses_plain_update_events() -> None:
 
 def test_build_runtime_config_merges_mapping_and_strips_workspace_id() -> None:
     node = AgentNode(name="agent", ai_model="openai:gpt-4o")
-    state = {"workspace_id": " workspace-1 "}
+    state = {
+        "workspace_id": " workspace-1 ",
+        "inputs": {
+            "documents": [{"filename": "survey.csv"}],
+        },
+        "results": {
+            "_thread_state": {
+                "pending_documents": [{"filename": "survey.csv"}],
+            }
+        },
+    }
     config = {"configurable": {"custom": "value"}}
 
     result = node._build_runtime_config(state, config)
 
     assert result["configurable"]["workspace_id"] == "workspace-1"
     assert result["configurable"]["custom"] == "value"
+    assert result["configurable"]["inputs"] == {
+        "documents": [{"filename": "survey.csv"}],
+    }
+    assert result["configurable"]["thread_state"] == {
+        "pending_documents": [{"filename": "survey.csv"}],
+    }
 
 
 def test_build_runtime_config_handles_non_mapping_config() -> None:

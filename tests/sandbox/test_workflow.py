@@ -275,7 +275,8 @@ def test_run_graph_delegates_to_build_graph(monkeypatch: pytest.MonkeyPatch) -> 
             return fake_outputs
 
     class _FakeGraph:
-        def compile(self) -> _FakeCompiled:
+        def compile(self, **kwargs: object) -> _FakeCompiled:
+            captured["compile_kwargs"] = kwargs
             return _FakeCompiled()
 
     import orcheo.graph.builder as _builder_module
@@ -291,6 +292,9 @@ def test_run_graph_delegates_to_build_graph(monkeypatch: pytest.MonkeyPatch) -> 
     )
     assert result == fake_outputs
     assert captured == {
+        "compile_kwargs": {
+            "store": captured["compile_kwargs"]["store"],
+        },
         "inputs": {
             "x": 1,
             "inputs": {"x": 1},

@@ -254,6 +254,9 @@ async def test_execute_graph_sandbox_serializes_attachment_config(
         "get_sandbox_dispatcher",
         lambda: _SandboxingDispatcher(),
     )
+    monkeypatch.setenv(
+        "ORCHEO_CHATKIT_ATTACHMENT_BASE_URL", "http://credential-relay:9091"
+    )
     monkeypatch.setattr(
         workflow_executor_module, "ensure_sandbox_configured", lambda: None
     )
@@ -291,12 +294,20 @@ async def test_execute_graph_sandbox_serializes_attachment_config(
         thread_id="thread",
         upload_session_id=None,
     )
+    # Mirror production flow: _with_request_inputs is applied before
+    # _with_attachment_scope so inputs appear in configurable.
     config = workflow_executor_module._with_attachment_scope(
-        {"configurable": {"thread_id": "thread"}},
+        workflow_executor_module._with_request_inputs(
+            {"configurable": {"thread_id": "thread"}},
+            {"message": "hello"},
+        ),
         extras,
     )
     state_config = workflow_executor_module._with_attachment_scope(
-        {"configurable": {"thread_id": "thread"}},
+        workflow_executor_module._with_request_inputs(
+            {"configurable": {"thread_id": "thread"}},
+            {"message": "hello"},
+        ),
         extras,
     )
 
@@ -312,10 +323,20 @@ async def test_execute_graph_sandbox_serializes_attachment_config(
 
     spec = dispatched[0]
     configurable = spec.runnable_config["configurable"]
+    assert configurable["inputs"] == {"message": "hello"}
     assert configurable["attachment_resolver"] == {
-        "__orcheo_attachment_resolver__": {"base_url": "http://localhost:2025"}
+        "__orcheo_attachment_resolver__": {
+            "base_urls": ["http://credential-relay:9091"]
+        }
     }
-    assert "attachment_uploader" not in configurable
+    assert configurable["attachment_uploader"] == {
+        "__orcheo_attachment_uploader__": {
+            "base_urls": ["http://credential-relay:9091"],
+            "workflow_id": str(UUID(int=0)),
+            "thread_id": "thread",
+            "upload_session_id": None,
+        }
+    }
     assert configurable["attachment_scope"] == {
         "__orcheo_attachment_scope__": {
             "workspace_id": "ws-1",
@@ -324,6 +345,7 @@ async def test_execute_graph_sandbox_serializes_attachment_config(
             "upload_session_id": None,
         }
     }
+    assert spec.state_config["configurable"]["inputs"] == {"message": "hello"}
 
 
 def test_with_attachment_scope_merges_extras() -> None:
