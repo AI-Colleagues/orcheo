@@ -647,14 +647,9 @@ def test_build_inputs_payload_with_non_standard_attachments() -> None:
     assert "documents" not in payload
 
 
-def test_build_history_skips_unknown_item_types() -> None:
+@pytest.mark.asyncio
+async def test_build_history_skips_unknown_item_types() -> None:
     """Items that are neither UserMessageItem nor AssistantMessageItem are skipped (line 54->46)."""
-    from datetime import UTC, datetime
-    from unittest.mock import AsyncMock, MagicMock
-    from chatkit.types import Page, ThreadMetadata
-    from orcheo_backend.app.chatkit.context import ChatKitRequestContext
-    from orcheo_backend.app.chatkit.messages import build_history
-
     thread = ThreadMetadata(
         id="thr_skip",
         created_at=datetime.now(UTC),
@@ -671,12 +666,8 @@ def test_build_history_skips_unknown_item_types() -> None:
         return_value=Page(data=[_UnknownItem()], has_more=False)
     )
 
-    import asyncio
-
     context = ChatKitRequestContext(user_id="u1")  # type: ignore[typeddict-unknown-key]
-    history = asyncio.get_event_loop().run_until_complete(
-        build_history(mock_store, thread, context)
-    )
+    history = await build_history(mock_store, thread, context)
 
     assert history == []  # Unknown items are skipped
 

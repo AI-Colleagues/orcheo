@@ -27,7 +27,11 @@ def _load_workflow_module():
         raise RuntimeError(msg)
     module = module_from_spec(spec)
     sys.modules[module_name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        del sys.modules[module_name]
+        raise
     return module
 
 
