@@ -3666,7 +3666,7 @@ sandbox-runtime = [{ name = "docker", specifier = ">=7.0.0" }]
 
 [[package]]
 name = "orcheo-backend"
-version = "0.33.1"
+version = "0.33.2"
 source = { editable = "apps/backend" }
 dependencies = [
     { name = "celery", extra = ["redis"] },
