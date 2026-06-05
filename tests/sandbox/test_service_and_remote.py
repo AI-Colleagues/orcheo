@@ -2322,3 +2322,293 @@ def test_remote_sandbox_manager_release_idempotent_on_404() -> None:
         lease_id="gone", workspace_id="ws", sandbox_id="sb", state=SandboxState.IN_USE
     )
     remote.release(lease)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# RemoteSandboxManager.close(), release() error, destroy() error (lines 374-375, 424, 439)
+# ---------------------------------------------------------------------------
+
+
+def test_remote_sandbox_manager_close_owned_client() -> None:
+    """close() disposes of the client when this manager owns it (lines 374-375)."""
+    closed: list[bool] = []
+
+    class _TrackingClient:
+        def close(self) -> None:
+            closed.append(True)
+
+    transport = httpx.MockTransport(lambda r: httpx.Response(200))
+    real_client = httpx.Client(transport=transport)
+    remote = RemoteSandboxManager("http://test", client=real_client)
+    remote._client = _TrackingClient()  # type: ignore[assignment]
+    remote._owns_client = True
+    remote.close()
+    assert closed == [True]
+
+
+def test_remote_sandbox_manager_close_unowned_client_skips() -> None:
+    """close() skips disposal when the manager does not own the client."""
+    closed: list[bool] = []
+
+    class _TrackingClient:
+        def close(self) -> None:
+            closed.append(True)
+
+    transport = httpx.MockTransport(lambda r: httpx.Response(200))
+    real_client = httpx.Client(transport=transport)
+    remote = RemoteSandboxManager("http://test", client=real_client)
+    remote._client = _TrackingClient()  # type: ignore[assignment]
+    remote._owns_client = False
+    remote.close()
+    assert closed == []
+
+
+def test_remote_sandbox_manager_release_raises_on_server_error() -> None:
+    """release() raises RemoteRuntimeError on a non-2xx/non-404/non-409 response (line 424)."""
+    from orcheo.sandbox.models import SandboxLease
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"detail": "internal error"})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url="http://test")
+    remote = RemoteSandboxManager("http://test", client=client)
+    lease = SandboxLease(
+        lease_id="l1", workspace_id="ws", sandbox_id="sb", state=SandboxState.IN_USE
+    )
+    with pytest.raises(RemoteRuntimeError, match="release lease failed"):
+        remote.release(lease)
+
+
+def test_remote_sandbox_manager_destroy_raises_on_server_error() -> None:
+    """destroy() raises RemoteRuntimeError on a non-2xx/non-404 response (line 439)."""
+    from orcheo.sandbox.models import SandboxLease
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"detail": "internal error"})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url="http://test")
+    remote = RemoteSandboxManager("http://test", client=client)
+    lease = SandboxLease(
+        lease_id="l2", workspace_id="ws", sandbox_id="sb", state=SandboxState.IN_USE
+    )
+    with pytest.raises(RemoteRuntimeError, match="destroy lease failed"):
+        remote.destroy(lease)
+
+
+# ---------------------------------------------------------------------------
+# service.py lease route error paths (lines 583-584, 600-601)
+# ---------------------------------------------------------------------------
+
+
+def test_release_lease_returns_409_on_lifecycle_error(
+    app_with_manager: tuple[
+        TestClient, InMemoryContainerRuntime, SandboxRuntimeManager
+    ],
+) -> None:
+    """POST /internal/leases/{id}/release returns 409 when manager.release raises (lines 583-584)."""
+    from orcheo.sandbox.errors import SandboxLifecycleError
+
+    client, _runtime, manager = app_with_manager
+    acquire = client.post("/internal/leases", json={"workspace_id": "ws-lc"})
+    assert acquire.status_code == 201
+    lease_id = acquire.json()["lease_id"]
+
+    original_release = manager.release
+
+    def _boom(lease: Any) -> None:
+        raise SandboxLifecycleError("forced lifecycle error")
+
+    manager.release = _boom  # type: ignore[method-assign]
+    try:
+        response = client.post(f"/internal/leases/{lease_id}/release")
+    finally:
+        manager.release = original_release  # type: ignore[method-assign]
+
+    assert response.status_code == 409
+    assert "forced lifecycle error" in response.json()["detail"]
+
+
+def test_destroy_lease_handles_notfound_during_destroy(
+    app_with_manager: tuple[
+        TestClient, InMemoryContainerRuntime, SandboxRuntimeManager
+    ],
+) -> None:
+    """DELETE /internal/leases/{id} silently handles SandboxNotFoundError (lines 600-601)."""
+    from orcheo.sandbox.errors import SandboxNotFoundError
+
+    client, _runtime, manager = app_with_manager
+    acquire = client.post("/internal/leases", json={"workspace_id": "ws-nf"})
+    assert acquire.status_code == 201
+    lease_id = acquire.json()["lease_id"]
+
+    original_destroy = manager.destroy
+
+    def _raise_notfound(lease: Any) -> None:
+        raise SandboxNotFoundError("race condition")
+
+    manager.destroy = _raise_notfound  # type: ignore[method-assign]
+    try:
+        response = client.delete(f"/internal/leases/{lease_id}")
+    finally:
+        manager.destroy = original_destroy  # type: ignore[method-assign]
+
+    assert response.status_code == 204
+
+
+# ---------------------------------------------------------------------------
+# _manager_lifespan and _lifespan coverage (lines 735-764, 807-808)
+# ---------------------------------------------------------------------------
+
+
+def test_service_app_lifespan_runs_and_shuts_down_cleanly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Using TestClient as context manager triggers _lifespan (lines 807-808)."""
+    from orcheo.sandbox.service import _manager_lifespan, build_service_app
+
+    runtime = InMemoryContainerRuntime()
+    settings = SandboxSettings(
+        credential_broker_url="http://10.99.0.2:9091/credentials/resolve"
+    )
+    manager = SandboxRuntimeManager(runtime=runtime, settings=settings)
+    app = build_service_app(
+        runtime=runtime,
+        executor=_FakeExecutor(),
+        invoker=_FakeInvoker(),
+        settings=settings,
+        control_token="control-test-token",
+        manager=manager,
+    )
+    with TestClient(app, headers=_CONTROL_HEADERS) as client:
+        response = client.get("/healthz")
+        assert response.status_code == 200
+
+
+def test_manager_lifespan_covers_reap_loop_and_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_manager_lifespan starts the reaper task and shuts down the manager (lines 735-764)."""
+    monkeypatch.setenv("ORCHEO_SANDBOX_REAP_INTERVAL_SECONDS", "0.01")
+
+    from orcheo.sandbox.service import _manager_lifespan
+
+    runtime = InMemoryContainerRuntime()
+    settings = SandboxSettings(
+        credential_broker_url="http://10.99.0.2:9091/credentials/resolve"
+    )
+    manager = SandboxRuntimeManager(runtime=runtime, settings=settings)
+
+    async def go() -> None:
+        async with _manager_lifespan(manager):
+            await asyncio.sleep(0.05)
+
+    asyncio.run(go())
+
+
+def test_manager_lifespan_reaper_logs_when_leases_reaped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reaper logs when idle leases are found (lines 742-751)."""
+    import logging
+
+    monkeypatch.setenv("ORCHEO_SANDBOX_REAP_INTERVAL_SECONDS", "0.01")
+
+    from orcheo.sandbox.service import _manager_lifespan
+
+    runtime = InMemoryContainerRuntime()
+    settings = SandboxSettings(
+        credential_broker_url="http://10.99.0.2:9091/credentials/resolve",
+        default_idle_ttl_seconds=1,
+    )
+    manager = SandboxRuntimeManager(runtime=runtime, settings=settings)
+
+    lease = manager.acquire("ws")
+    manager.release(lease)
+    # Back-date to make it immediately idle.
+    from datetime import UTC, datetime, timedelta
+
+    lease.last_used_at = datetime.now(tz=UTC) - timedelta(seconds=9999)
+
+    logged: list[str] = []
+
+    class _CapturingHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            logged.append(record.getMessage())
+
+    handler = _CapturingHandler()
+    logging.getLogger("orcheo.sandbox.service").addHandler(handler)
+    try:
+
+        async def go() -> None:
+            async with _manager_lifespan(manager):
+                await asyncio.sleep(0.05)
+
+        asyncio.run(go())
+    finally:
+        logging.getLogger("orcheo.sandbox.service").removeHandler(handler)
+
+    assert any("reaper" in m.lower() for m in logged)
+
+
+def test_manager_lifespan_reaper_handles_unexpected_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unexpected exceptions in the reaper loop are logged, not propagated (lines 754-755)."""
+    monkeypatch.setenv("ORCHEO_SANDBOX_REAP_INTERVAL_SECONDS", "0.01")
+
+    from orcheo.sandbox.service import _manager_lifespan
+
+    runtime = InMemoryContainerRuntime()
+    settings = SandboxSettings(
+        credential_broker_url="http://10.99.0.2:9091/credentials/resolve"
+    )
+    manager = SandboxRuntimeManager(runtime=runtime, settings=settings)
+
+    call_count = 0
+
+    def _boom() -> list:
+        nonlocal call_count
+        call_count += 1
+        raise ValueError("reaper boom")
+
+    manager.reap_idle = _boom  # type: ignore[method-assign]
+
+    async def go() -> None:
+        async with _manager_lifespan(manager):
+            await asyncio.sleep(0.05)
+
+    asyncio.run(go())
+    assert call_count > 0
+
+
+def test_manager_lifespan_reaper_reraises_cancelled_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CancelledError inside the try block is re-raised, not swallowed (line 753)."""
+    monkeypatch.setenv("ORCHEO_SANDBOX_REAP_INTERVAL_SECONDS", "0.01")
+
+    from orcheo.sandbox.service import _manager_lifespan
+
+    runtime = InMemoryContainerRuntime()
+    settings = SandboxSettings(
+        credential_broker_url="http://10.99.0.2:9091/credentials/resolve"
+    )
+    manager = SandboxRuntimeManager(runtime=runtime, settings=settings)
+
+    call_count = 0
+
+    def _raise_cancelled() -> list:
+        nonlocal call_count
+        call_count += 1
+        raise asyncio.CancelledError("simulated cancellation")
+
+    manager.reap_idle = _raise_cancelled  # type: ignore[method-assign]
+
+    async def go() -> None:
+        async with _manager_lifespan(manager):
+            await asyncio.sleep(0.05)
+
+    asyncio.run(go())
+    assert call_count > 0

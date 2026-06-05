@@ -435,3 +435,44 @@ def test_reap_stale_in_use_handles_already_destroyed_lease() -> None:
     # Should not raise — catches SandboxNotFoundError internally.
     reaped = manager.reap_stale_in_use(max_duration_seconds=1)
     assert reaped == []  # lease was already gone when destroy was attempted
+
+
+def test_acquire_cleans_up_provisioning_on_start_failure() -> None:
+    """acquire() removes the PROVISIONING placeholder when runtime.start() raises (lines 206-209)."""
+
+    class _FailOnStart(InMemoryContainerRuntime):
+        def start(self, spec: ContainerSpec) -> None:  # type: ignore[override]
+            raise RuntimeError("container start failed")
+
+    runtime = _FailOnStart()
+    manager = SandboxRuntimeManager(runtime=runtime)
+    with pytest.raises(RuntimeError, match="container start failed"):
+        manager.acquire("ws")
+    assert len(manager._leases) == 0
+
+
+def test_reap_stale_in_use_skips_ready_leases() -> None:
+    """READY leases are not considered stale IN_USE — branch 341->340 covered."""
+    manager, _ = _manager()
+    lease = manager.acquire("ws")
+    manager.release(lease)  # state becomes READY, stays in _leases
+    reaped = manager.reap_stale_in_use(max_duration_seconds=1)
+    assert reaped == []
+    assert lease.state is SandboxState.READY
+
+
+def test_reap_stale_in_use_swallows_notfound_during_destroy() -> None:
+    """SandboxNotFoundError from destroy() is silently swallowed (lines 356-357)."""
+    manager, _ = _manager()
+    lease = manager.acquire("ws")
+    lease.created_at = datetime.now(tz=UTC) - timedelta(seconds=999)
+
+    original_destroy = manager.destroy
+
+    def _raise_not_found(l: SandboxLease) -> None:
+        raise SandboxNotFoundError("race condition")
+
+    manager.destroy = _raise_not_found  # type: ignore[method-assign]
+
+    reaped = manager.reap_stale_in_use(max_duration_seconds=1)
+    assert reaped == [lease]  # lease was collected; destroy just failed silently
