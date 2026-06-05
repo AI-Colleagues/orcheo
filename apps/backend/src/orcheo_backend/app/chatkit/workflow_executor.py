@@ -3,9 +3,8 @@
 from __future__ import annotations
 import asyncio
 import logging
-import os
-from collections.abc import Awaitable, Callable, Iterator, Mapping
-from contextlib import contextmanager, nullcontext
+from collections.abc import Awaitable, Callable, Mapping
+from contextlib import nullcontext
 from typing import Any, cast
 from uuid import UUID, uuid4
 from chatkit.errors import CustomStreamError
@@ -37,15 +36,7 @@ from orcheo_backend.app.chatkit_store_postgres.attachment_service import (
     build_scoped_uploader,
 )
 from orcheo_backend.app.dependencies import (
-    get_external_agent_runtime_store,
     get_history_store,
-    get_vault,
-)
-from orcheo_backend.app.external_agent_auth import (
-    load_external_agent_vault_environment,
-)
-from orcheo_backend.app.external_agent_runtime_store import (
-    list_external_agent_providers,
 )
 from orcheo_backend.app.history import RunHistoryError, RunHistoryStore
 from orcheo_backend.app.repository import (
@@ -62,44 +53,6 @@ from orcheo_backend.app.sandbox import (
 
 
 logger = logging.getLogger(__name__)
-
-
-def _external_agent_provider_environment(
-    workspace_id: str | None = None,
-) -> dict[str, str]:
-    """Return shared external-agent auth env from the runtime store."""
-    runtime_store = get_external_agent_runtime_store()
-    vault = get_vault()
-    merged: dict[str, str] = {}
-    for provider_name in list_external_agent_providers():
-        provider_env = runtime_store.get_provider_environment(
-            provider_name,
-            workspace_id=workspace_id,
-        )
-        provider_env.update(
-            load_external_agent_vault_environment(
-                vault,
-                workspace_id=workspace_id,
-            )
-        )
-        merged.update(provider_env)
-    return merged
-
-
-@contextmanager
-def _patched_environment(updates: Mapping[str, str]) -> Iterator[None]:
-    """Temporarily apply environment variables for the current backend process."""
-    original = {key: os.environ.get(key) for key in updates}
-    for key, value in updates.items():
-        os.environ[key] = value
-    try:
-        yield
-    finally:
-        for key, old_value in original.items():
-            if old_value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = old_value
 
 
 async def _start_chatkit_history(
@@ -466,7 +419,6 @@ class WorkflowExecutor:
             workspace_id=UUID(workspace_id) if workspace_id else None,
         )
         credential_resolver = CredentialResolver(vault, context=credential_context)
-        external_agent_environ = _external_agent_provider_environment(workspace_id)
 
         async with create_checkpointer(settings) as checkpointer:
             async with create_graph_store(settings) as graph_store:
@@ -491,7 +443,6 @@ class WorkflowExecutor:
 
                 with (
                     use_launcher(get_sandbox_launcher()),
-                    _patched_environment(external_agent_environ),
                     credential_resolution(credential_resolver),
                 ):
                     if (

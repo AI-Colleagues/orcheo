@@ -13,10 +13,8 @@ from orcheo_backend.app.chatkit.workflow_executor import (
     WorkflowExecutor,
     _append_chatkit_history_step,
     _build_reply_state,
-    _external_agent_provider_environment,
     _mark_chatkit_history_completed,
     _mark_chatkit_history_failed,
-    _patched_environment,
     _resolve_runtime_thread_id,
     _start_chatkit_history,
     _with_chatkit_model,
@@ -24,7 +22,6 @@ from orcheo_backend.app.chatkit.workflow_executor import (
 )
 from orcheo_backend.app.history.models import RunHistoryError
 from orcheo_backend.app.repository import WorkflowNotFoundError
-from orcheo_backend.app.schemas.system import ExternalAgentProviderName
 
 
 class DummyHistoryStore:
@@ -391,38 +388,6 @@ def test_resolve_runtime_thread_id_uses_session_id_when_thread_id_is_blank():
         _resolve_runtime_thread_id({"thread_id": "   ", "session_id": "sess"}, "exec")
         == "sess"
     )
-
-
-def test_external_agent_provider_environment(monkeypatch):
-    class DummyStore:
-        def __init__(self):
-            self.calls = []
-
-        def get_provider_environment(self, provider, workspace_id=None):
-            self.calls.append((provider, workspace_id))
-            return {provider.name: "ok"}
-
-    store = DummyStore()
-    workspace_id = "workspace-1"
-
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "get_external_agent_runtime_store",
-        lambda: store,
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "list_external_agent_providers",
-        lambda: [ExternalAgentProviderName.CLAUDE_CODE],
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "load_external_agent_vault_environment",
-        lambda vault, workspace_id=None: {},
-    )
-    env = _external_agent_provider_environment(workspace_id)
-    assert env == {"CLAUDE_CODE": "ok"}
-    assert store.calls == [(ExternalAgentProviderName.CLAUDE_CODE, workspace_id)]
 
 
 def test_build_reply_state_and_extract_messages():

@@ -36,7 +36,6 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
-from orcheo.external_agents.models import ProcessExecutionResult
 from orcheo.graph.ingestion import (
     DEFAULT_EXECUTION_TIMEOUT_SECONDS,
     DEFAULT_SCRIPT_SIZE_LIMIT,
@@ -50,6 +49,7 @@ from orcheo.sandbox.errors import (
 )
 from orcheo.sandbox.manager import SandboxRuntimeManager
 from orcheo.sandbox.metrics import WarmPoolAutoscaler
+from orcheo.sandbox.models import ProcessExecutionResult
 from orcheo.sandbox.runtime import (
     ContainerHandle,
     ContainerRuntime,

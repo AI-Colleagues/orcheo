@@ -33,10 +33,6 @@ from .agent import (
 )
 from .agentensor import AgentensorNode
 from .deep_agent import DeepAgentNode
-from .external.base import ExternalAgentNode
-from .external.claude_code import ClaudeCodeNode
-from .external.codex import CodexNode
-from .external.gemini import GeminiNode
 
 
 __all__ = [
@@ -61,10 +57,6 @@ __all__ = [
     "random",
     "AgentensorNode",
     "DeepAgentNode",
-    "ExternalAgentNode",
-    "ClaudeCodeNode",
-    "CodexNode",
-    "GeminiNode",
     "_create_workflow_tool_func",
     "build_ai_trace_metadata",
     "_llm_trace_metadata",

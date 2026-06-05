@@ -1017,150 +1017,22 @@ async def test_attempt_workflow_remediation_async_catches_unexpected_failure(
 
 
 @pytest.mark.asyncio
-async def test_invoke_orcheo_vibe_branches(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+async def test_invoke_orcheo_vibe_returns_not_supported(
+    tmp_path: Path,
 ) -> None:
+    """In production mode, _invoke_orcheo_vibe returns a not_supported stub."""
     candidate = _remediation_candidate(status=WorkflowRunRemediationStatus.CLAIMED)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    workflow_source = "print('before')"
-    workflow_remediation._materialize_workspace(workspace, candidate, workflow_source)
+    settings = workflow_remediation.WorkflowAutofixSettings(agent_provider="codex")
 
-    class Runtime:
-        version = "1.0"
-
-    class Resolution:
-        runtime = Runtime()
-
-    class Provider:
-        def __init__(self, *, authenticated: bool) -> None:
-            self.authenticated = authenticated
-
-        def probe_auth(self, runtime: Any, environ: dict[str, str]) -> Any:
-            del runtime, environ
-            return SimpleNamespace(
-                authenticated=self.authenticated,
-                message="not authenticated" if not self.authenticated else None,
-            )
-
-        def build_command(
-            self, runtime: Any, *, prompt: str, system_prompt: str
-        ) -> list[str]:
-            del runtime, prompt, system_prompt
-            return ["orcheo", "vibe"]
-
-        def build_environment(self, environment: dict[str, str]) -> dict[str, str]:
-            return dict(environment)
-
-        def execution_audit_metadata(
-            self,
-            runtime: Any,
-            *,
-            command: list[str],
-            working_directory: Path,
-        ) -> dict[str, Any]:
-            del runtime, command, working_directory
-            return {"audit": True}
-
-    class Manager:
-        def __init__(self, *, authenticated: bool) -> None:
-            self._provider = Provider(authenticated=authenticated)
-
-        async def resolve_runtime(self, provider_name: str) -> Any:
-            del provider_name
-            return Resolution()
-
-        def get_provider(self, provider_name: str) -> Provider:
-            del provider_name
-            return self._provider
-
-        def environment_for_provider(self, provider_name: str) -> dict[str, str]:
-            del provider_name
-            return {"TOKEN": "1"}
-
-    success_process = AsyncMock(
-        return_value=SimpleNamespace(
-            exit_code=0,
-            timed_out=False,
-            duration_seconds=1.5,
-            stdout="out",
-            stderr="err",
-        )
-    )
-    monkeypatch.setattr(
-        workflow_remediation,
-        "ExternalAgentRuntimeManager",
-        lambda: Manager(authenticated=True),
-    )
-    monkeypatch.setattr(workflow_remediation, "execute_process", success_process)
     metadata = await workflow_remediation._invoke_orcheo_vibe(
         workspace,
         candidate,
-        workflow_remediation.WorkflowAutofixSettings(agent_provider="codex"),
+        settings,
     )
-    assert metadata["provider"] == "codex"
-    assert metadata["execution_audit"] == {"audit": True}
-
-    class ProviderWithoutAudit(Provider):
-        def execution_audit_metadata(
-            self,
-            runtime: Any,
-            *,
-            command: list[str],
-            working_directory: Path,
-        ) -> None:
-            del runtime, command, working_directory
-
-    class ManagerWithoutAudit(Manager):
-        def __init__(self) -> None:
-            self._provider = ProviderWithoutAudit(authenticated=True)
-
-    monkeypatch.setattr(
-        workflow_remediation,
-        "ExternalAgentRuntimeManager",
-        lambda: ManagerWithoutAudit(),
-    )
-    monkeypatch.setattr(workflow_remediation, "execute_process", success_process)
-    metadata_without_audit = await workflow_remediation._invoke_orcheo_vibe(
-        workspace,
-        candidate,
-        workflow_remediation.WorkflowAutofixSettings(agent_provider="codex"),
-    )
-    assert "execution_audit" not in metadata_without_audit
-
-    monkeypatch.setattr(
-        workflow_remediation,
-        "ExternalAgentRuntimeManager",
-        lambda: Manager(authenticated=False),
-    )
-    with pytest.raises(RuntimeError, match="not authenticated"):
-        await workflow_remediation._invoke_orcheo_vibe(
-            workspace,
-            candidate,
-            workflow_remediation.WorkflowAutofixSettings(agent_provider="codex"),
-        )
-
-    failing_process = AsyncMock(
-        return_value=SimpleNamespace(
-            exit_code=1,
-            timed_out=False,
-            duration_seconds=1.5,
-            stdout="out",
-            stderr="err",
-        )
-    )
-    monkeypatch.setattr(
-        workflow_remediation,
-        "ExternalAgentRuntimeManager",
-        lambda: Manager(authenticated=True),
-    )
-    monkeypatch.setattr(workflow_remediation, "execute_process", failing_process)
-    with pytest.raises(RuntimeError, match="exit code 1"):
-        await workflow_remediation._invoke_orcheo_vibe(
-            workspace,
-            candidate,
-            workflow_remediation.WorkflowAutofixSettings(agent_provider="codex"),
-        )
+    assert metadata["status"] == "not_supported"
+    assert "production mode" in metadata["message"]
 
 
 @pytest.mark.asyncio

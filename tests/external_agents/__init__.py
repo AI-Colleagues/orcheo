@@ -1,1 +1,0 @@
-"""External agent test package."""

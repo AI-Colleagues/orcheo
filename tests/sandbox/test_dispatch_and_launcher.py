@@ -5,11 +5,10 @@ import asyncio
 from collections.abc import Mapping
 from pathlib import Path
 import pytest
-from orcheo.external_agents.models import ProcessExecutionResult
+from orcheo.sandbox.models import ProcessExecutionResult
 from orcheo.sandbox.dispatch import (
     SandboxDispatchError,
     get_active_launcher,
-    run_external_agent_process,
     use_launcher,
 )
 from orcheo.sandbox.launcher import SandboxedProcessLauncher
@@ -44,72 +43,22 @@ class _FakeExec:
         )
 
 
-def test_no_launcher_active_raises() -> None:
-    """Without an active launcher, dispatch fails closed — no host fallback."""
-    with pytest.raises(SandboxDispatchError, match="No sandbox launcher"):
-        asyncio.run(
-            run_external_agent_process(
-                ["echo", "hi"],
-                workspace_id="ws",
-                cwd=None,
-                env=None,
-                timeout_seconds=None,
-            )
-        )
+def test_no_active_launcher() -> None:
+    """Without an active launcher, get_active_launcher returns None."""
+    assert get_active_launcher() is None
 
 
-def test_active_launcher_routes_through_sandbox() -> None:
-    """When a launcher is bound, the dispatcher uses it."""
+def test_use_launcher_binds_and_unbinds() -> None:
+    """use_launcher binds the launcher within context and clears it after."""
     runtime = InMemoryContainerRuntime()
     manager = SandboxRuntimeManager(runtime=runtime)
     fake_exec = _FakeExec()
     launcher = SandboxedProcessLauncher(manager=manager, exec_backend=fake_exec)
 
-    async def go() -> ProcessExecutionResult:
-        with use_launcher(launcher):
-            assert get_active_launcher() is launcher
-            return await run_external_agent_process(
-                ["agent-cli"],
-                workspace_id="ws",
-                cwd=None,
-                env=None,
-                timeout_seconds=None,
-            )
-
-    result = asyncio.run(go())
-    assert result.exit_code == 0
-    assert len(fake_exec.calls) == 1
-    # A workspace sandbox should have been provisioned and released to the pool.
-    started = runtime.started[0][1]
-    assert started.labels["orcheo.workspace_id"] == "ws"
-    assert runtime.stopped == [], (
-        "sandbox should return to the warm pool, not be destroyed"
-    )
-    # Reacquiring the same workspace must hit the warm pool rather than start a new container.
-    asyncio.run(asyncio.to_thread(manager.acquire, "ws"))
-    assert len(runtime.started) == 1
     assert get_active_launcher() is None
-
-
-def test_dispatcher_missing_workspace_id_raises() -> None:
-    """Without a workspace_id, dispatch fails closed — no host fallback."""
-    runtime = InMemoryContainerRuntime()
-    manager = SandboxRuntimeManager(runtime=runtime)
-    launcher = SandboxedProcessLauncher(manager=manager, exec_backend=_FakeExec())
-
-    async def go() -> ProcessExecutionResult:
-        with use_launcher(launcher):
-            return await run_external_agent_process(
-                ["cmd"],
-                workspace_id=None,
-                cwd=None,
-                env=None,
-                timeout_seconds=None,
-            )
-
-    with pytest.raises(SandboxDispatchError, match="workspace_id is required"):
-        asyncio.run(go())
-    assert runtime.started == []
+    with use_launcher(launcher):
+        assert get_active_launcher() is launcher
+    assert get_active_launcher() is None
 
 
 # ---------------------------------------------------------------------------

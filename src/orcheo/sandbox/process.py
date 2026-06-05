@@ -1,4 +1,4 @@
-"""Managed subprocess execution helpers for external agent runtimes."""
+"""Managed subprocess execution helpers for sandboxed process launch."""
 
 from __future__ import annotations
 import asyncio
@@ -7,7 +7,7 @@ import signal
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from orcheo.external_agents.models import ProcessExecutionResult
+from orcheo.sandbox.models import ProcessExecutionResult
 
 
 async def execute_process(
