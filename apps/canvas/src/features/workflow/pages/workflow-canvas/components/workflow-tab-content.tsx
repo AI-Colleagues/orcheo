@@ -28,7 +28,6 @@ import { toast } from "@/hooks/use-toast";
 import { ConfirmDeleteWorkflowDialog } from "@features/workflow/components/dialogs/confirm-delete-workflow-dialog";
 import { UpdateWorkflowDialog } from "@features/workflow/components/dialogs/update-workflow-dialog";
 import { deleteWorkflow } from "@features/workflow/lib/workflow-storage";
-import { VIBE_WORKFLOW_HANDLE } from "@features/vibe/constants";
 import {
   fetchCronTriggerConfig,
   publishWorkflow,
@@ -210,8 +209,7 @@ export function WorkflowTabContent({
   const [isMissingCredentialsDialogOpen, setIsMissingCredentialsDialogOpen] =
     useState(false);
   const hasMissingCredentials = missingCredentials.length > 0;
-  const canDeleteWorkflow =
-    Boolean(workflowId) && workflowRouteRef !== VIBE_WORKFLOW_HANDLE;
+  const canDeleteWorkflow = Boolean(workflowId);
 
   useEffect(() => {
     if (!workflowId) {

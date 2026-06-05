@@ -8,8 +8,6 @@ import {
 } from "react-router-dom";
 import { Toaster } from "@/design-system/ui/toaster";
 import { BrowserContextProvider } from "@/hooks/browser-context-provider";
-import { VibeProvider } from "@features/vibe/context/vibe-provider";
-import { VibeAuthenticatedLayout } from "@features/vibe/components/vibe-authenticated-layout";
 import WorkflowGallery from "@features/workflow/pages/workflow-gallery";
 import WorkflowCanvas from "@features/workflow/pages/workflow-canvas";
 import WorkflowRemediations from "@features/workflow/pages/workflow-remediations";
@@ -79,7 +77,6 @@ export default function OrcheoCanvasApp() {
   return (
     <Router>
       <BrowserContextProvider>
-        <VibeProvider>
           <Routes>
             <Route path="/login" element={<Login />} />
 
@@ -87,7 +84,6 @@ export default function OrcheoCanvasApp() {
             <Route path="/chat/:workflowId" element={<PublicChatPage />} />
 
             <Route element={<RequireAuth />}>
-              <Route element={<VibeAuthenticatedLayout />}>
                 <Route path="/" element={<WorkspaceHomeRedirect />} />
                 <Route
                   path="/:workspaceSlug"
@@ -116,11 +112,9 @@ export default function OrcheoCanvasApp() {
                 <Route path="/profile" element={<Profile />} />
 
                 <Route path="/settings" element={<Settings />} />
-              </Route>
             </Route>
           </Routes>
           <Toaster />
-        </VibeProvider>
       </BrowserContextProvider>
     </Router>
   );
