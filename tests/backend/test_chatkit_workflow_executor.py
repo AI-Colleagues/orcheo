@@ -144,19 +144,23 @@ async def test_mark_chatkit_history_failed_handles_error(caplog):
     assert "Failed to mark chatkit history failed" in caplog.text
 
 
+@pytest.mark.skip(
+    reason="_patched_environment was removed from chatkit workflow_executor"
+)
 def test_patched_environment_restores_value(tmp_path):
     os_env_key = "TEST_CHATKIT"
     original = os.environ.get(os_env_key)
-    with _patched_environment({os_env_key: "value"}):
-        assert os.environ[os_env_key] == "value"
+    # _patched_environment no longer exists in this module
     assert os.environ.get(os_env_key) == original
 
 
+@pytest.mark.skip(
+    reason="_patched_environment was removed from chatkit workflow_executor"
+)
 def test_patched_environment_restores_existing_value(monkeypatch):
     os_env_key = "TEST_CHATKIT_EXISTING"
     monkeypatch.setenv(os_env_key, "original")
-    with _patched_environment({os_env_key: "new"}):
-        assert os.environ[os_env_key] == "new"
+    # _patched_environment no longer exists in this module
     assert os.environ[os_env_key] == "original"
 
 
@@ -532,14 +536,6 @@ async def test_execute_graph_streams_updates_with_step_callback(
     )
     monkeypatch.setattr(
         workflow_executor_module,
-        "_external_agent_provider_environment",
-        lambda workspace_id=None: {
-            "EXTERNAL_AGENT_TOKEN": "secret",
-            "WORKSPACE_ID": workspace_id or "",
-        },
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
         "tool_progress_context",
         lambda callback: ProgressContext(),
     )
@@ -796,11 +792,6 @@ async def test_execute_graph_passes_workspace_id_to_initial_state(
         workflow_executor_module,
         "credential_resolution",
         lambda resolver: nullcontext(),
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "_external_agent_provider_environment",
-        lambda workspace_id=None: {"WORKSPACE_ID": workspace_id or ""},
     )
 
     executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())

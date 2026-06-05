@@ -62,6 +62,7 @@ services:
       ORCHEO_CHATKIT_ATTACHMENT_BASE_URL: http://10.99.0.2:9091
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
+      ORCHEO_WORKFLOW_TRUST_MODE: ${ORCHEO_WORKFLOW_TRUST_MODE:-self_host_unsafe}
       ORCHEO_SANDBOX_DISABLED: ${ORCHEO_SANDBOX_DISABLED:-true}
       ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
       ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET}
@@ -115,6 +116,7 @@ services:
       ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:-local-dev-sandbox-control-token}
       ORCHEO_CREDENTIAL_BROKER_URL: http://10.99.0.2:9091/credentials/resolve
       ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
+      ORCHEO_WORKFLOW_TRUST_MODE: ${ORCHEO_WORKFLOW_TRUST_MODE:-self_host_unsafe}
       ORCHEO_SANDBOX_DISABLED: ${ORCHEO_SANDBOX_DISABLED:-true}
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
       # Use system Python from base image instead of downloading

@@ -74,10 +74,13 @@ class TestGetEventLoop:
         new_loop.close()
 
 
+@pytest.mark.skip(
+    reason="_patched_environment was removed from tasks (sandbox dispatch removed)"
+)
 def test_patched_environment_restores_existing_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from orcheo_backend.worker.tasks import _patched_environment
+    from orcheo_backend.worker.tasks import _patched_environment  # type: ignore[attr-defined]
 
     key = "ORCHEO_TASKS_TEST_ENV"
     monkeypatch.setenv(key, "original")

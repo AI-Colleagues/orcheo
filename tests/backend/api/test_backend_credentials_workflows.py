@@ -245,10 +245,10 @@ def orcheo_workflow() -> StateGraph:
     assert payload["missing_credentials"] == ["telegram_chat_id"]
 
 
-def test_workflow_credential_readiness_ignores_optional_gemini_auth_files(
+def test_workflow_credential_readiness_no_credentials_required(
     api_client: TestClient,
 ) -> None:
-    """Gemini optional auth placeholders should not be treated as required."""
+    """Workflows with no credential placeholders report not_required status."""
     workflow_id = _create_workflow(api_client)
 
     response = api_client.post(
@@ -257,20 +257,12 @@ def test_workflow_credential_readiness_ignores_optional_gemini_auth_files(
             "script": """
 from langgraph.graph import END, START, StateGraph
 from orcheo.graph.state import State
-from orcheo.nodes.ai.external.gemini import GeminiNode
 
 def orcheo_workflow() -> StateGraph:
     graph = StateGraph(State)
-    graph.add_node(
-        "gemini",
-        GeminiNode(
-            name="gemini",
-            prompt="Implement the task",
-            working_directory="/workspace/agents",
-        ),
-    )
-    graph.add_edge(START, "gemini")
-    graph.add_edge("gemini", END)
+    graph.add_node("noop", lambda state: state)
+    graph.add_edge(START, "noop")
+    graph.add_edge("noop", END)
     return graph
 """,
             "created_by": "tester",

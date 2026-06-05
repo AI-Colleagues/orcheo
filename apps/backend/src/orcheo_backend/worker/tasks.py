@@ -171,26 +171,18 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:  # noqa: PLR0915
     from orcheo.persistence import create_checkpointer, create_graph_store
     from orcheo.runtime.credentials import CredentialResolver, credential_resolution
     from orcheo.runtime.runnable_config import merge_runnable_configs
-    from orcheo.sandbox.dispatch import use_launcher
     from orcheo_backend.app.dependencies import (
         get_history_store,
         get_repository,
         get_vault,
     )
     from orcheo_backend.app.history import RunHistoryError
-    from orcheo_backend.app.sandbox import (
-        build_workflow_run_spec,
-        ensure_sandbox_configured,
-        get_sandbox_dispatcher,
-        get_sandbox_launcher,
-    )
     from orcheo_backend.app.workflow_execution import _build_initial_state
 
     repository = get_repository()
     history_store = get_history_store()
     run_id = str(run.id)
     workspace_id = getattr(run, "workspace_id", None)
-    ensure_sandbox_configured()
 
     try:
         version = await repository.get_version(run.workflow_version_id)
@@ -220,53 +212,31 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:  # noqa: PLR0915
             workspace_id=workspace_id,
         )
 
-        spec = build_workflow_run_spec(
-            execution_id=execution_id,
-            workspace_id=str(workspace_id) if workspace_id else "",
-            graph_config=graph_config,
-            inputs=inputs,
-            runnable_config=dict(runtime_config),
-            state_config=dict(state_config),
-        )
-        dispatcher = get_sandbox_dispatcher()
         final_state: Any
-        if dispatcher.should_sandbox(spec):
-            if not workspace_id:
-                msg = "workspace_id is required to dispatch a sandboxed workflow run"
-                raise RuntimeError(msg)
-            final_state = await _execute_sandboxed_run_in_worker(
-                dispatcher=dispatcher,
-                spec=spec,
-                history_store=history_store,
-                execution_id=execution_id,
-                history_error_cls=RunHistoryError,
-            )
-        else:
-            with use_launcher(get_sandbox_launcher()):
-                with credential_resolution(resolver):
-                    async with create_checkpointer(settings) as checkpointer:
-                        async with create_graph_store(settings) as graph_store:
-                            graph = build_graph(graph_config)
-                            compiled = graph.compile(
-                                checkpointer=checkpointer,
-                                store=graph_store,
-                            )
-                            state = _build_initial_state(
-                                graph_config,
-                                inputs,
-                                state_config,
-                                workspace_id,
-                            )
-                            await _stream_run_history_steps(
-                                compiled=compiled,
-                                state=state,
-                                runtime_config=runtime_config,
-                                history_store=history_store,
-                                execution_id=execution_id,
-                                history_error_cls=RunHistoryError,
-                            )
-                            final_state = await compiled.aget_state(runtime_config)
-                            final_state = getattr(final_state, "values", final_state)
+        with credential_resolution(resolver):
+            async with create_checkpointer(settings) as checkpointer:
+                async with create_graph_store(settings) as graph_store:
+                    graph = build_graph(graph_config)
+                    compiled = graph.compile(
+                        checkpointer=checkpointer,
+                        store=graph_store,
+                    )
+                    state = _build_initial_state(
+                        graph_config,
+                        inputs,
+                        state_config,
+                        workspace_id,
+                    )
+                    await _stream_run_history_steps(
+                        compiled=compiled,
+                        state=state,
+                        runtime_config=runtime_config,
+                        history_store=history_store,
+                        execution_id=execution_id,
+                        history_error_cls=RunHistoryError,
+                    )
+                    final_state = await compiled.aget_state(runtime_config)
+                    final_state = getattr(final_state, "values", final_state)
 
         output = _extract_output(final_state)
         await repository.mark_run_succeeded(
@@ -292,41 +262,6 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:  # noqa: PLR0915
             exc,
             history_store=history_store,
         )
-
-
-async def _execute_sandboxed_run_in_worker(
-    *,
-    dispatcher: Any,
-    spec: Any,
-    history_store: Any,
-    execution_id: str,
-    history_error_cls: type[Exception],
-) -> dict[str, Any]:
-    """Dispatch ``spec`` through the sandbox and persist the aggregated result.
-
-    The sandbox returns a single ``WorkflowRunResult`` rather than a stream of
-    node updates, so we persist one ``sandbox_result`` step (mirroring the
-    WebSocket path) and surface a failure if the run did not succeed.
-    """
-    result = await dispatcher.dispatch(spec)
-    payload: dict[str, Any] = {
-        "event": "sandbox_result",
-        "status": result.status,
-        "outputs": dict(result.outputs),
-    }
-    if result.error:
-        payload["error"] = result.error
-    try:
-        await history_store.append_step(execution_id, payload)
-    except history_error_cls:
-        logger.exception(
-            "Failed to append sandbox result for execution %s",
-            execution_id,
-        )
-    if result.status != "succeeded":
-        msg = result.error or f"sandboxed run finished with {result.status}"
-        raise RuntimeError(msg)
-    return {"sandbox_outputs": dict(result.outputs)}
 
 
 async def _start_history_record(

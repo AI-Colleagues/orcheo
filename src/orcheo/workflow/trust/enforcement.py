@@ -38,8 +38,10 @@ def enforce_ingestion_policy(
     result = policy.validate(graph, mode=mode)
     if not result.allowed:
         logger.warning(
-            "Workflow graph rejected at ingestion: %s",
-            [v.detail for v in result.violations],
+            "Workflow policy rejection at ingestion: %d violations. mode=%s",
+            len(result.violations),
+            mode.value,
+            extra={"violations": [v.detail for v in result.violations]},
         )
         raise WorkflowPolicyViolationError(result)
 
@@ -58,8 +60,10 @@ def enforce_execution_policy(
     result = policy.validate(graph, mode=mode)
     if not result.allowed:
         logger.warning(
-            "Workflow graph rejected at execution: %s",
-            [v.detail for v in result.violations],
+            "Workflow policy rejection at execution: %d violations. mode=%s",
+            len(result.violations),
+            mode.value,
+            extra={"violations": [v.detail for v in result.violations]},
         )
         raise WorkflowPolicyViolationError(result)
 

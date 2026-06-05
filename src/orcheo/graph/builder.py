@@ -5,6 +5,10 @@ from collections.abc import Mapping
 from typing import Any
 from langgraph.graph import StateGraph
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT, load_graph_from_script
+from orcheo.workflow.declarative_builder import (
+    DECLARATIVE_GRAPH_FORMAT,
+    build_graph_from_declarative,
+)
 
 
 class UnsupportedWorkflowGraphFormatError(ValueError):
@@ -20,13 +24,25 @@ def _describe_graph_format(graph_json: Mapping[str, Any]) -> str:
 
 
 def build_graph(graph_json: Mapping[str, Any]) -> StateGraph:
-    """Build a LangGraph graph from a configuration payload."""
-    if graph_json.get("format") != LANGGRAPH_SCRIPT_FORMAT:
+    """Build a LangGraph graph from a configuration payload.
+
+    Supports two formats:
+    - ``orcheo-declarative-graph``: built from declarative node/edge definitions
+      without executing any tenant Python.
+    - ``langgraph-script``: built by executing a tenant Python script (only
+      permitted in non-production trust modes).
+    """
+    fmt = graph_json.get("format")
+
+    if fmt == DECLARATIVE_GRAPH_FORMAT:
+        return build_graph_from_declarative(dict(graph_json))
+
+    if fmt != LANGGRAPH_SCRIPT_FORMAT:
         observed_format = _describe_graph_format(graph_json)
         msg = (
             "Unsupported workflow graph format "
-            f"'{observed_format}'. Only '{LANGGRAPH_SCRIPT_FORMAT}' workflow "
-            "versions can execute. Re-ingest this workflow from a Python script."
+            f"'{observed_format}'. Only '{LANGGRAPH_SCRIPT_FORMAT}' and "
+            f"'{DECLARATIVE_GRAPH_FORMAT}' workflow versions can execute."
         )
         raise UnsupportedWorkflowGraphFormatError(msg)
 

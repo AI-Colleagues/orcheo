@@ -44,11 +44,23 @@ class _WeComWsReplyNode(TaskNode):
 
 
 def _template_paths() -> list[Path]:
-    return sorted(
-        path
-        for path in _TEMPLATE_DIR.glob("*.ts")
-        if _MERMAID_RE.search(path.read_text())
-    )
+    """Return template TS paths that have both a Mermaid constant and a workflow.py."""
+    result = []
+    for path in sorted(_TEMPLATE_DIR.glob("*.ts")):
+        text = path.read_text()
+        if not _MERMAID_RE.search(text):
+            continue
+        # Skip templates whose workflow.py has been removed (e.g. after external
+        # agent removal).  The corresponding TS assets are retained for the canvas
+        # build; the Python side simply has nothing to validate against.
+        asset_match = _ASSET_IMPORT_RE.search(text)
+        if asset_match is None:
+            continue
+        script_path = _TEMPLATE_DIR / "assets" / asset_match.group(1) / "workflow.py"
+        if not script_path.exists():
+            continue
+        result.append(path)
+    return result
 
 
 @pytest.fixture()

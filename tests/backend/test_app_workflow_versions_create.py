@@ -28,6 +28,8 @@ _MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 @pytest.fixture(autouse=True)
 def _stub_load_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
     """Replace `_load_workflow_for_request` so tests can stub Repository.resolve_workflow_ref alone."""
+    # Use self_host_unsafe so tests can exercise the Python script ingest path.
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
 
     async def _load(
         repository, workflow_ref, *, include_archived=True, workspace_id=None

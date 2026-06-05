@@ -624,37 +624,6 @@ async def execute_workflow(
                 include_root=True,
             )
 
-            spec = build_workflow_run_spec(
-                execution_id=execution_id,
-                workspace_id=workspace_id or "",
-                graph_config=graph_config,
-                inputs=inputs,
-                runnable_config=dict(runtime_config),
-                state_config=dict(state_config),
-            )
-            # Consult the dispatcher so the operator's
-            # ORCHEO_SANDBOX_FAST_PATH_TRUSTED flag is authoritative. With the
-            # flag off (the default), every run is sandboxed; with the flag on,
-            # trusted-only graphs may take the in-worker fast path.
-            dispatcher = get_sandbox_dispatcher()
-            if dispatcher.should_sandbox(spec):
-                if not workspace_id:
-                    msg = "workspace_id is required to dispatch a workflow run"
-                    raise RuntimeError(msg)
-                await _execute_sandboxed_workflow(
-                    workspace_id=workspace_id,
-                    execution_id=execution_id,
-                    graph_config=graph_config,
-                    inputs=inputs,
-                    runtime_config=runtime_config,
-                    state_config=state_config,
-                    history_store=history_store,
-                    websocket=websocket,
-                    tracer=tracer,
-                    span=span_context.span,
-                )
-                return
-
             await _execute_trusted_workflow_in_worker(
                 settings=settings,
                 graph_config=graph_config,
