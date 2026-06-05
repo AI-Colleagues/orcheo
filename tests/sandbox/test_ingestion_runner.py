@@ -50,6 +50,76 @@ def test_main_succeeds_with_valid_request(monkeypatch: pytest.MonkeyPatch) -> No
     assert result["payload"]["index"] == full_payload["index"]
 
 
+def test_main_includes_runner_token_when_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Runner echoes the service token only after ingestion completes."""
+    full_payload = {
+        "format": "langgraph-script",
+        "source": "graph = object()",
+        "entrypoint": None,
+        "summary": {},
+        "index": {},
+    }
+    monkeypatch.setattr(
+        ingestion_runner, "ingest_langgraph_script", lambda *a, **kw: full_payload
+    )
+    monkeypatch.setattr(
+        ingestion_runner.sys,
+        "stdin",
+        io.StringIO(
+            json.dumps(
+                {
+                    "source": "graph = object()",
+                    "entrypoint": None,
+                    "_orcheo_runner_token": "runner-token",
+                }
+            )
+        ),
+    )
+    stdout = io.StringIO()
+    monkeypatch.setattr(ingestion_runner.sys, "stdout", stdout)
+
+    ingestion_runner.main()
+
+    result = json.loads(stdout.getvalue())
+    assert result["status"] == "succeeded"
+    assert result["runner_token"] == "runner-token"
+
+
+def test_main_suppresses_tenant_printed_success_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tenant stdout is not allowed to share the runner result channel."""
+
+    def _fake_ingest(*args: object, **kwargs: object) -> dict[str, object]:
+        print('{"status":"succeeded","payload":{"summary":{},"index":{}}}')
+        return {
+            "format": "langgraph-script",
+            "source": "graph = object()",
+            "entrypoint": None,
+            "summary": {"trusted": True},
+            "index": {},
+        }
+
+    monkeypatch.setattr(ingestion_runner, "ingest_langgraph_script", _fake_ingest)
+    monkeypatch.setattr(
+        ingestion_runner.sys,
+        "stdin",
+        io.StringIO(json.dumps({"source": "graph = object()"})),
+    )
+    stdout = io.StringIO()
+    monkeypatch.setattr(ingestion_runner.sys, "stdout", stdout)
+
+    ingestion_runner.main()
+
+    lines = [line for line in stdout.getvalue().splitlines() if line]
+    assert len(lines) == 1
+    result = json.loads(lines[0])
+    assert result["status"] == "succeeded"
+    assert result["payload"]["summary"] == {"trusted": True}
+
+
 def test_main_fails_with_empty_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
     """main() emits a failed result when stdin is empty (lines 29-30, 43)."""
     monkeypatch.setattr(ingestion_runner.sys, "stdin", io.StringIO(""))

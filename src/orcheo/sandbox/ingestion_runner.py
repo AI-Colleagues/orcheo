@@ -1,6 +1,8 @@
 """One-shot script ingestion entrypoint executed only inside a sandbox."""
 
 from __future__ import annotations
+import contextlib
+import io
 import json
 import sys
 from collections.abc import Mapping
@@ -17,14 +19,18 @@ def main() -> None:
     """Read one ingestion request from stdin and emit one JSON result."""
     try:
         request = _read_request()
-        payload = ingest_langgraph_script(
-            str(request["source"]),
-            entrypoint=request.get("entrypoint"),
-            max_script_bytes=request.get("max_script_bytes", DEFAULT_SCRIPT_SIZE_LIMIT),
-            execution_timeout_seconds=request.get(
-                "execution_timeout_seconds", DEFAULT_EXECUTION_TIMEOUT_SECONDS
-            ),
-        )
+        runner_token = request.pop("_orcheo_runner_token", None)
+        with contextlib.redirect_stdout(io.StringIO()):
+            payload = ingest_langgraph_script(
+                str(request["source"]),
+                entrypoint=request.get("entrypoint"),
+                max_script_bytes=request.get(
+                    "max_script_bytes", DEFAULT_SCRIPT_SIZE_LIMIT
+                ),
+                execution_timeout_seconds=request.get(
+                    "execution_timeout_seconds", DEFAULT_EXECUTION_TIMEOUT_SECONDS
+                ),
+            )
     except (KeyError, TypeError, ValueError, ScriptIngestionError) as exc:
         print(json.dumps({"status": "failed", "error": str(exc)}), flush=True)
         return
@@ -38,7 +44,10 @@ def main() -> None:
     # sandbox exec stream.
     _skip = {"source", "format", "entrypoint"}
     derived = {k: v for k, v in payload.items() if k not in _skip}
-    print(json.dumps({"status": "succeeded", "payload": derived}), flush=True)
+    result: dict[str, Any] = {"status": "succeeded", "payload": derived}
+    if runner_token is not None:
+        result["runner_token"] = runner_token
+    print(json.dumps(result), flush=True)
 
 
 def _read_request() -> Mapping[str, Any]:

@@ -502,7 +502,10 @@ class ScriptSandboxInvoker:
         payload: ScriptIngestionPayload,
     ) -> dict[str, Any]:
         """Run the ingestion module and return its existing graph payload."""
-        encoded = json.dumps(payload.model_dump(), separators=(",", ":"))
+        runner_token = secrets.token_urlsafe(32)
+        runner_request = payload.model_dump()
+        runner_request["_orcheo_runner_token"] = runner_token
+        encoded = json.dumps(runner_request, separators=(",", ":"))
         command = [
             "python",
             "-m",
@@ -524,13 +527,16 @@ class ScriptSandboxInvoker:
                 detail="script ingestion timed out inside sandbox",
             )
         output = _last_json_line(result.stdout)
-        # Prioritise the JSON result printed by the runner over the exit code.
-        # The process may be killed by the OOM reaper or a cleanup signal after
-        # it has already flushed its result, so a non-zero exit code alone is
-        # not sufficient evidence of failure when we have a complete JSON line.
+        # Prioritise an authenticated JSON result printed by the runner over the
+        # exit code. The process may be killed by the OOM reaper or a cleanup
+        # signal after it has already flushed its result, so a non-zero exit
+        # code alone is not sufficient evidence of failure when we have a
+        # complete JSON line that carries the per-invocation runner token.
         if output is not None:
             parsed = json.loads(output)
-            if parsed.get("status") == "succeeded":
+            if parsed.get("status") == "succeeded" and (
+                parsed.get("runner_token") == runner_token
+            ):
                 # Reconstruct the full graph payload: merge the derived data
                 # from the runner with the fields stripped before transmission
                 # (source, format, entrypoint) that the service already holds.
@@ -540,10 +546,11 @@ class ScriptSandboxInvoker:
                     "entrypoint": payload.entrypoint,
                     **parsed["payload"],
                 }
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(parsed.get("error") or "script ingestion failed"),
-            )
+            if parsed.get("status") != "succeeded":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(parsed.get("error") or "script ingestion failed"),
+                )
         stderr = result.stderr.strip()
         stdout = result.stdout.strip()
         if stderr:
