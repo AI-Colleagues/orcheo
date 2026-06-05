@@ -1807,7 +1807,9 @@ def test_pool_returns_failed_on_eof() -> None:
         pool = ResidentRunnerPool()
         # Both the first attempt and the retry return EOF → final failure.
         pool._runners["sb-1"] = _make_fake_pool_process(response_line=b"")
-        pool._start_runner = lambda sid, token="": _make_fake_pool_process(response_line=b"")  # type: ignore[method-assign]
+        pool._start_runner = lambda sid, token="": _make_fake_pool_process(
+            response_line=b""
+        )  # type: ignore[method-assign]
 
         spec = WorkflowRunSpec(
             run_id="r-eof", workspace_id="ws", workflow_definition={}, inputs={}
@@ -1829,7 +1831,9 @@ def test_pool_returns_failed_on_invalid_json() -> None:
         pool = ResidentRunnerPool()
         bad_line = b"{not valid json}\n"
         pool._runners["sb-1"] = _make_fake_pool_process(response_line=bad_line)
-        pool._start_runner = lambda sid, token="": _make_fake_pool_process(response_line=bad_line)  # type: ignore[method-assign]
+        pool._start_runner = lambda sid, token="": _make_fake_pool_process(
+            response_line=bad_line
+        )  # type: ignore[method-assign]
 
         spec = WorkflowRunSpec(
             run_id="r-badjson", workspace_id="ws", workflow_definition={}, inputs={}
@@ -2577,3 +2581,287 @@ def test_manager_lifespan_reaper_reraises_cancelled_error(
 
     asyncio.run(go())
     assert call_count > 0
+
+
+# ---------------------------------------------------------------------------
+# ResidentRunnerPool._start_runner (lines 330-355)
+# ---------------------------------------------------------------------------
+
+
+def test_start_runner_builds_command_with_broker_token() -> None:
+    """_start_runner includes -e ORCHEO_BROKER_TOKEN when broker_token is given (lines 330-355)."""
+    import unittest.mock as mock
+
+    async def go() -> None:
+        pool = ResidentRunnerPool()
+
+        fake_process = mock.MagicMock()
+        fake_process.returncode = None
+
+        with mock.patch(
+            "orcheo.sandbox.service.asyncio.create_subprocess_exec",
+            return_value=fake_process,
+        ) as patched:
+            result = await pool._start_runner("sb-tok", "secret-token")
+
+        call_args = patched.call_args[0]
+        assert "docker" in call_args
+        assert "exec" in call_args
+        assert "-e" in call_args
+        assert "ORCHEO_BROKER_TOKEN=secret-token" in call_args
+        assert "sb-tok" in call_args
+        assert result is fake_process
+        assert pool._runners["sb-tok"] is fake_process
+
+    asyncio.run(go())
+
+
+def test_start_runner_builds_command_without_broker_token() -> None:
+    """_start_runner omits -e when broker_token is empty (lines 330-355)."""
+    import unittest.mock as mock
+
+    async def go() -> None:
+        pool = ResidentRunnerPool()
+
+        fake_process = mock.MagicMock()
+        fake_process.returncode = None
+
+        with mock.patch(
+            "orcheo.sandbox.service.asyncio.create_subprocess_exec",
+            return_value=fake_process,
+        ) as patched:
+            result = await pool._start_runner("sb-notok")
+
+        call_args = patched.call_args[0]
+        assert "-e" not in call_args
+        assert "sb-notok" in call_args
+        assert result is fake_process
+
+    asyncio.run(go())
+
+
+# ---------------------------------------------------------------------------
+# ResidentRunnerPool.shutdown_all (line 461)
+# ---------------------------------------------------------------------------
+
+
+def test_resident_runner_pool_shutdown_all_kills_all_runners() -> None:
+    """shutdown_all() terminates every registered runner (line 461)."""
+    import unittest.mock as mock
+
+    pool = ResidentRunnerPool()
+
+    killed: list[str] = []
+
+    def _make_process(sandbox_id: str) -> mock.MagicMock:
+        p = mock.MagicMock()
+        p.returncode = None
+        p.kill = mock.MagicMock(side_effect=lambda: killed.append(sandbox_id))
+        return p
+
+    pool._runners["sb-a"] = _make_process("sb-a")
+    pool._runners["sb-b"] = _make_process("sb-b")
+
+    pool.shutdown_all()
+
+    assert set(killed) == {"sb-a", "sb-b"}
+    assert pool._runners == {}
+
+
+# ---------------------------------------------------------------------------
+# WorkflowSandboxInvoker.invoke() (line 486)
+# ---------------------------------------------------------------------------
+
+
+def test_workflow_sandbox_invoker_delegates_to_pool() -> None:
+    """WorkflowSandboxInvoker.invoke() forwards to the underlying pool (line 486)."""
+    import unittest.mock as mock
+
+    async def go() -> WorkflowRunResult:
+        pool = ResidentRunnerPool()
+
+        expected = WorkflowRunResult(
+            run_id="r-del",
+            status="succeeded",
+            outputs={"x": 1},
+            error=None,
+        )
+        pool.invoke = mock.AsyncMock(return_value=expected)  # type: ignore[method-assign]
+
+        invoker = WorkflowSandboxInvoker(pool)
+        spec = WorkflowRunSpec(
+            run_id="r-del",
+            workspace_id="ws",
+            workflow_definition={},
+            inputs={},
+        )
+        return await invoker.invoke("sb-1", spec, "tok", timeout_seconds=5.0)
+
+    result = asyncio.run(go())
+    assert result.status == "succeeded"
+    assert result.outputs == {"x": 1}
+
+
+# ---------------------------------------------------------------------------
+# ScriptSandboxInvoker error branches (lines 530, 537, 541)
+# ---------------------------------------------------------------------------
+
+
+def test_ingestion_invoker_reports_stderr_as_detail() -> None:
+    """ScriptSandboxInvoker uses stderr as the error detail when present (line 530)."""
+    executor = _FakeExecutor()
+    executor.result = ProcessExecutionResult(
+        command=[],
+        stdout="",
+        stderr="import error: bad module",
+        exit_code=1,
+        timed_out=False,
+        duration_seconds=0.01,
+    )
+    with pytest.raises(Exception, match="import error: bad module"):
+        asyncio.run(
+            ScriptSandboxInvoker(executor).invoke(
+                "sandbox", ScriptIngestionPayload(source="graph = object()")
+            )
+        )
+
+
+def test_ingestion_invoker_reports_exit_code_with_stdout() -> None:
+    """ScriptSandboxInvoker appends stdout to the exit-code message (line 537)."""
+    executor = _FakeExecutor()
+    executor.result = ProcessExecutionResult(
+        command=[],
+        stdout="Traceback: something went wrong",
+        stderr="",
+        exit_code=1,
+        timed_out=False,
+        duration_seconds=0.01,
+    )
+    with pytest.raises(Exception, match="exited with code 1.*something went wrong"):
+        asyncio.run(
+            ScriptSandboxInvoker(executor).invoke(
+                "sandbox", ScriptIngestionPayload(source="graph = object()")
+            )
+        )
+
+
+def test_ingestion_invoker_reports_no_output_fallback() -> None:
+    """ScriptSandboxInvoker falls back to 'no output' when all fields are empty (line 541)."""
+    executor = _FakeExecutor()
+    executor.result = ProcessExecutionResult(
+        command=[],
+        stdout="",
+        stderr="",
+        exit_code=0,
+        timed_out=False,
+        duration_seconds=0.01,
+    )
+    with pytest.raises(Exception, match="no output"):
+        asyncio.run(
+            ScriptSandboxInvoker(executor).invoke(
+                "sandbox", ScriptIngestionPayload(source="graph = object()")
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
+# _run_prewarm: max_total_warm break (line 865) and add logging (883->887)
+# ---------------------------------------------------------------------------
+
+
+def test_manager_lifespan_prewarm_respects_max_total_warm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_run_prewarm breaks early when total_warm >= max_total_warm (line 865)."""
+    monkeypatch.setenv("ORCHEO_SANDBOX_REAP_INTERVAL_SECONDS", "0.01")
+
+    runtime = InMemoryContainerRuntime()
+    settings = SandboxSettings(
+        credential_broker_url="http://10.99.0.2:9091/credentials/resolve",
+        max_total_warm=1,
+        default_pool_min=1,
+        default_pool_max=4,
+    )
+    manager = SandboxRuntimeManager(runtime=runtime, settings=settings)
+
+    # Prewarm one sandbox so current_pool_size("ws") == 1 == max_total_warm.
+    # _run_prewarm will receive total_warm=1 and break immediately.
+    manager.prewarm("ws", 1)
+
+    async def go() -> None:
+        async with _manager_lifespan(manager, settings, ResidentRunnerPool()):
+            await asyncio.sleep(0.05)
+
+    asyncio.run(go())
+    # No additional containers were started beyond the initial prewarm.
+    assert runtime.started and len(runtime.started) == 1
+
+
+def test_manager_lifespan_prewarm_logs_added_sandboxes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_run_prewarm logs prewarmed counts when sandboxes are added (lines 883-887)."""
+    import logging
+
+    monkeypatch.setenv("ORCHEO_SANDBOX_REAP_INTERVAL_SECONDS", "0.01")
+
+    runtime = InMemoryContainerRuntime()
+    settings = SandboxSettings(
+        credential_broker_url="http://10.99.0.2:9091/credentials/resolve",
+        max_total_warm=0,  # unbounded
+        default_pool_min=1,  # autoscaler always recommends >=1
+        default_pool_max=4,
+    )
+    manager = SandboxRuntimeManager(runtime=runtime, settings=settings)
+    # Register the workspace so known_workspace_ids() returns it.
+    manager.get_workspace_pool("ws-pre")
+
+    logged: list[str] = []
+
+    class _CapturingHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            logged.append(record.getMessage())
+
+    handler = _CapturingHandler()
+    logging.getLogger("orcheo.sandbox.service").addHandler(handler)
+    try:
+
+        async def go() -> None:
+            async with _manager_lifespan(manager, settings, ResidentRunnerPool()):
+                await asyncio.sleep(0.1)
+
+        asyncio.run(go())
+    finally:
+        logging.getLogger("orcheo.sandbox.service").removeHandler(handler)
+
+    assert any("Prewarmed" in m for m in logged)
+
+
+def test_manager_lifespan_prewarm_delta_positive_but_nothing_added(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_run_prewarm takes the branch 883->887 when delta>0 but prewarm returns 0."""
+    from orcheo.sandbox.models import WorkspaceRuntimePool
+
+    monkeypatch.setenv("ORCHEO_SANDBOX_REAP_INTERVAL_SECONDS", "0.01")
+
+    runtime = InMemoryContainerRuntime()
+    settings = SandboxSettings(
+        credential_broker_url="http://10.99.0.2:9091/credentials/resolve",
+        max_total_warm=0,
+        default_pool_min=1,
+        default_pool_max=1,
+    )
+    manager = SandboxRuntimeManager(runtime=runtime, settings=settings)
+    # pool_min=1, pool_max=1; acquire the one slot so the pool is at capacity.
+    # delta will be 1 (target 1 > current 0) but prewarm returns 0 (total >= pool_max).
+    manager.configure_workspace(
+        WorkspaceRuntimePool(workspace_id="ws-cap", pool_min=1, pool_max=1)
+    )
+    manager.acquire("ws-cap")  # in-use; total = 1 = pool_max
+
+    async def go() -> None:
+        async with _manager_lifespan(manager, settings, ResidentRunnerPool()):
+            await asyncio.sleep(0.05)
+
+    asyncio.run(go())

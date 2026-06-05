@@ -505,12 +505,15 @@ def test_recent_concurrent_max_returns_peak_within_window() -> None:
 
 def test_recent_concurrent_max_returns_zero_for_stagnant_workspace() -> None:
     """Workspaces with no samples within the window return 0."""
+    import time as _time
+
     manager, _ = _manager()
-    # Acquire and release without any recent usage
     l = manager.acquire("ws")
     manager.release(l)
-    # Use a tiny window so the samples fall outside it
-    peak = manager.recent_concurrent_max("ws", window_seconds=0.0001)
+    # Back-date all samples so they are clearly outside any reasonable window.
+    for sample in manager._usage_samples.get("ws", []):
+        sample.timestamp = _time.monotonic() - 9999.0
+    peak = manager.recent_concurrent_max("ws", window_seconds=600.0)
     assert peak == 0
 
 
@@ -567,3 +570,21 @@ def test_prewarm_zero_count_is_noop() -> None:
     manager, runtime = _manager()
     assert manager.prewarm("ws", 0) == 0
     assert len(runtime.started) == 0
+
+
+def test_prewarm_stops_early_when_runtime_raises() -> None:
+    """prewarm() stops after the first provision failure (lines 443-448)."""
+    from orcheo.sandbox.runtime import ContainerHandle, ContainerSpec
+
+    class _BoomRuntime(InMemoryContainerRuntime):
+        def start(self, spec: ContainerSpec) -> ContainerHandle:
+            raise RuntimeError("docker is gone")
+
+    runtime = _BoomRuntime()
+    mgr = SandboxRuntimeManager(
+        runtime=runtime,
+        settings=SandboxSettings(),
+    )
+    added = mgr.prewarm("ws", 3)
+    assert added == 0
+    assert mgr.current_pool_size("ws") == 0
