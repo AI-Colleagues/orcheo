@@ -349,7 +349,9 @@ def test_build_candidate_defers_remote_script_rendering() -> None:
 async def test_render_candidate_previews_uses_sandboxed_catalog_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Remote preview derivation routes through the no-credential sandbox path."""
+    """Remote preview derivation routes through the no-credential sandbox path in non-production mode."""
+    # Use self_host_unsafe so the sandbox fallback path is exercised.
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
     candidate = candidates_service._build_candidate(
         "linkedin_post", _WORKFLOW_WITH_FRONTMATTER, None
     )

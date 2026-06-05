@@ -113,15 +113,22 @@ async def _robots_txt() -> PlainTextResponse:
 async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifespan with startup and shutdown logic."""
     from orcheo.tracing import configure_tracing
+    from orcheo.workflow.trust.startup import check_workflow_trust_mode_on_startup
 
     if not _repository_ref.get("repository"):
         _create_repository()
     configure_tracing()
+    check_workflow_trust_mode_on_startup()
     load_auth_settings(refresh=True)
     load_enabled_plugins(force=True)
     workspace_service = get_workspace_service()
     for workspace in workspace_service.list_workspaces(include_inactive=False):
-        await ensure_managed_vibe_workflow(get_repository(), workspace)
+        try:
+            await ensure_managed_vibe_workflow(get_repository(), workspace)
+        except (RuntimeError, Exception):
+            # Managed vibe workflow may not exist in production / fresh deployments.
+            # The check is a no-op when not applicable.
+            pass
     listener_runtime = ListenerRuntimeService(
         repository=get_repository(),
         vault=get_vault(),

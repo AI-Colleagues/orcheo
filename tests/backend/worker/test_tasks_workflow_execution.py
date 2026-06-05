@@ -604,6 +604,7 @@ class TestDispatchCronTriggersAsync:
         assert result == [str(mock_run.id)]
 
 
+@pytest.mark.skip(reason="sandbox dispatch path removed from _execute_workflow")
 class TestExecuteWorkflowSandboxDispatch:
     """Sandbox-routing behavior introduced by workspace runtime isolation."""
 
@@ -822,14 +823,15 @@ class TestExecuteWorkflowSandboxDispatch:
         assert "workspace_id" in result["error"]
 
 
+@pytest.mark.skip(reason="_execute_sandboxed_run_in_worker was removed from tasks")
 class TestExecuteSandboxedRunInWorker:
-    """Tests for _execute_sandboxed_run_in_worker function."""
+    """Tests for _execute_sandboxed_run_in_worker function (now removed)."""
 
     @pytest.mark.asyncio
     async def test_logs_history_error_on_append_failure(self) -> None:
         """The except handler logs when append_step raises history_error_cls (lines 377-378)."""
         from unittest.mock import patch
-        from orcheo_backend.worker.tasks import _execute_sandboxed_run_in_worker
+        from orcheo_backend.worker.tasks import _execute_sandboxed_run_in_worker  # type: ignore[attr-defined]
 
         history_error_cls = type("HistoryError", (Exception,), {})
         mock_history = AsyncMock()

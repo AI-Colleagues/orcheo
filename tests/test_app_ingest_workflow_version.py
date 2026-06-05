@@ -1,6 +1,7 @@
 """Tests for the workflow version ingestion endpoints."""
 
 import asyncio
+import os
 import textwrap
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -26,6 +27,7 @@ def test_ingest_workflow_version_endpoint_creates_version(
     """LangGraph scripts can be submitted to create workflow versions."""
 
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
     reset_authentication_state()
 
     repository = InMemoryWorkflowRepository()
@@ -91,6 +93,7 @@ def test_ingest_workflow_version_invalid_script_returns_400(
     """Invalid LangGraph scripts return a 400 error."""
 
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
     reset_authentication_state()
 
     repository = InMemoryWorkflowRepository()
@@ -136,6 +139,7 @@ def test_ingest_workflow_version_missing_workflow_returns_404(
     """Ingesting a script for a non-existent workflow returns 404."""
 
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
     reset_authentication_state()
 
     repository = InMemoryWorkflowRepository()
@@ -179,9 +183,12 @@ def test_ingest_workflow_version_missing_workflow_returns_404(
 
 
 @pytest.mark.asyncio
-async def test_ingest_workflow_version_raises_not_found_error() -> None:
+async def test_ingest_workflow_version_raises_not_found_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Repository lookups raising ``WorkflowNotFoundError`` propagate as 404s."""
 
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
     script = textwrap.dedent(
         """
         from langgraph.graph import StateGraph

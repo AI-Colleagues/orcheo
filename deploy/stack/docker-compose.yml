@@ -67,6 +67,7 @@ services:
       ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
       ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest}
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
+      ORCHEO_WORKFLOW_TRUST_MODE: ${ORCHEO_WORKFLOW_TRUST_MODE:-production}
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
       PYTHONUNBUFFERED: "1"
     depends_on:
@@ -123,6 +124,7 @@ services:
       ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
       ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest}
       ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
+      ORCHEO_WORKFLOW_TRUST_MODE: ${ORCHEO_WORKFLOW_TRUST_MODE:-production}
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
       PYTHONUNBUFFERED: "1"
     depends_on:
