@@ -161,7 +161,9 @@ def _execute_langgraph_script(
     try:
         compiled = _compile_langgraph_script(source)
         with execution_timeout(execution_timeout_seconds):
-            exec(compiled, namespace)  # noqa: S102
+            result = eval(compiled, namespace)  # noqa: S307
+            if inspect.isawaitable(result):
+                _run_awaitable(result)
     except ScriptIngestionError:
         raise
     except SyntaxError as exc:
@@ -260,6 +262,23 @@ async def _await_awaitable(awaitable: Awaitable[Any]) -> Any:
     return await awaitable
 
 
+def _run_awaitable(awaitable: Awaitable[Any]) -> Any:
+    """Execute ``awaitable`` from synchronous ingestion code."""
+    if _is_event_loop_running():
+        return _run_awaitable_in_thread(awaitable)
+
+    try:
+        awaitable_wrapper = _await_awaitable(awaitable)
+        return asyncio.run(awaitable_wrapper)
+    except RuntimeError:
+        awaitable_wrapper.close()
+        if inspect.iscoroutine(awaitable) and (
+            inspect.getcoroutinestate(awaitable) is not inspect.CORO_CREATED
+        ):
+            raise
+        return _run_awaitable_with_new_loop(awaitable)
+
+
 def _resolve_graph(obj: Any) -> StateGraph | None:
     """Return a ``StateGraph`` from the supplied object if possible."""
     resolved: StateGraph | None = None
@@ -269,16 +288,7 @@ def _resolve_graph(obj: Any) -> StateGraph | None:
     elif isinstance(obj, CompiledStateGraph):
         resolved = obj.builder
     elif inspect.isawaitable(obj):
-        result: Any
-        if _is_event_loop_running():
-            result = _run_awaitable_in_thread(obj)
-        else:
-            try:
-                awaitable_wrapper = _await_awaitable(obj)
-                result = asyncio.run(awaitable_wrapper)
-            except RuntimeError:
-                awaitable_wrapper.close()
-                result = _run_awaitable_with_new_loop(obj)
+        result = _run_awaitable(obj)
         resolved = _resolve_graph(result)
     elif callable(obj):
         signature = inspect.signature(obj)
