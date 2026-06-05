@@ -10,10 +10,16 @@ from orcheo.sandbox import ingestion_runner
 
 
 def test_main_succeeds_with_valid_request(monkeypatch: pytest.MonkeyPatch) -> None:
-    """main() emits succeeded JSON when ingestion completes (line 36)."""
-    expected_payload = {"format": "langgraph-script"}
+    """Runner emits only derived fields; source/format/entrypoint are stripped."""
+    full_payload = {
+        "format": "langgraph-script",
+        "source": "graph = object()",
+        "entrypoint": "orcheo_workflow",
+        "summary": {"nodes": [], "edges": [], "conditional_edges": []},
+        "index": {"cron": [], "listeners": [], "mermaid": "graph TD;"},
+    }
     monkeypatch.setattr(
-        ingestion_runner, "ingest_langgraph_script", lambda *a, **kw: expected_payload
+        ingestion_runner, "ingest_langgraph_script", lambda *a, **kw: full_payload
     )
     monkeypatch.setattr(
         ingestion_runner.sys,
@@ -22,7 +28,7 @@ def test_main_succeeds_with_valid_request(monkeypatch: pytest.MonkeyPatch) -> No
             json.dumps(
                 {
                     "source": "graph = object()",
-                    "entrypoint": None,
+                    "entrypoint": "orcheo_workflow",
                     "max_script_bytes": 1,
                     "execution_timeout_seconds": 1.0,
                 }
@@ -36,7 +42,12 @@ def test_main_succeeds_with_valid_request(monkeypatch: pytest.MonkeyPatch) -> No
 
     result = json.loads(stdout.getvalue())
     assert result["status"] == "succeeded"
-    assert result["payload"] == expected_payload
+    # source, format and entrypoint are stripped — only derived data is emitted
+    assert "source" not in result["payload"]
+    assert "format" not in result["payload"]
+    assert "entrypoint" not in result["payload"]
+    assert result["payload"]["summary"] == full_payload["summary"]
+    assert result["payload"]["index"] == full_payload["index"]
 
 
 def test_main_fails_with_empty_stdin(monkeypatch: pytest.MonkeyPatch) -> None:

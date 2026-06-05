@@ -40,6 +40,7 @@ from orcheo.external_agents.models import ProcessExecutionResult
 from orcheo.graph.ingestion import (
     DEFAULT_EXECUTION_TIMEOUT_SECONDS,
     DEFAULT_SCRIPT_SIZE_LIMIT,
+    LANGGRAPH_SCRIPT_FORMAT,
 )
 from orcheo.sandbox.config import SandboxSettings
 from orcheo.sandbox.errors import (
@@ -523,33 +524,43 @@ class ScriptSandboxInvoker:
                 detail="script ingestion timed out inside sandbox",
             )
         output = _last_json_line(result.stdout)
-        if result.exit_code not in (0, None) or output is None:
-            stderr = result.stderr.strip()
-            stdout = result.stdout.strip()
-            if stderr:
-                detail = stderr
-            elif output is None and result.exit_code not in (0, None):
-                detail = (
-                    f"ingestion runner exited with code {result.exit_code} "
-                    "without producing JSON output"
-                )
-                if stdout:
-                    detail = f"{detail}: {stdout}"
-            elif stdout:
-                detail = stdout
-            else:
-                detail = "ingestion runner produced no output"
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=detail,
-            )
-        parsed = json.loads(output)
-        if parsed.get("status") != "succeeded":
+        # Prioritise the JSON result printed by the runner over the exit code.
+        # The process may be killed by the OOM reaper or a cleanup signal after
+        # it has already flushed its result, so a non-zero exit code alone is
+        # not sufficient evidence of failure when we have a complete JSON line.
+        if output is not None:
+            parsed = json.loads(output)
+            if parsed.get("status") == "succeeded":
+                # Reconstruct the full graph payload: merge the derived data
+                # from the runner with the fields stripped before transmission
+                # (source, format, entrypoint) that the service already holds.
+                return {
+                    "format": LANGGRAPH_SCRIPT_FORMAT,
+                    "source": payload.source,
+                    "entrypoint": payload.entrypoint,
+                    **parsed["payload"],
+                }
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(parsed.get("error") or "script ingestion failed"),
             )
-        return dict(parsed["payload"])
+        stderr = result.stderr.strip()
+        stdout = result.stdout.strip()
+        if stderr:
+            detail = stderr
+        elif result.exit_code not in (0, None):
+            detail = (
+                f"ingestion runner exited with code {result.exit_code} "
+                "without producing JSON output"
+            )
+            if stdout:
+                detail = f"{detail}: {stdout}"
+        else:
+            detail = stdout or "ingestion runner produced no output"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        )
 
 
 def _last_json_line(blob: str) -> str | None:

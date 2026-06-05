@@ -33,7 +33,12 @@ def main() -> None:
         message = f"{type(exc).__name__}: {error}" if error else type(exc).__name__
         print(json.dumps({"status": "failed", "error": message}), flush=True)
         return
-    print(json.dumps({"status": "succeeded", "payload": payload}), flush=True)
+    # Strip fields the caller already has from the request so only the data
+    # uniquely derived by running the script is transmitted through the
+    # sandbox exec stream.
+    _skip = {"source", "format", "entrypoint"}
+    derived = {k: v for k, v in payload.items() if k not in _skip}
+    print(json.dumps({"status": "succeeded", "payload": derived}), flush=True)
 
 
 def _read_request() -> Mapping[str, Any]:

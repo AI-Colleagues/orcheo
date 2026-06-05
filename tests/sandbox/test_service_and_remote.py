@@ -280,19 +280,29 @@ def test_control_headers_require_token(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_ingestion_invoker_never_injects_broker_token() -> None:
-    """Script validation executes with no credential token environment."""
+    """Script validation executes with no credential token environment.
+
+    The runner emits only derived data (summary, index); the invoker merges it
+    with the known fields (format, source, entrypoint) from the request.
+    """
     executor = _FakeExecutor()
     executor.result = ProcessExecutionResult(
         command=[],
-        stdout='{"status":"succeeded","payload":{"format":"langgraph-script"}}',
+        stdout='{"status":"succeeded","payload":{"summary":{},"index":{}}}',
         stderr="",
         exit_code=0,
         timed_out=False,
         duration_seconds=0.01,
     )
-    payload = ScriptIngestionPayload(source="source")
+    payload = ScriptIngestionPayload(source="source", entrypoint="orcheo_workflow")
     result = asyncio.run(ScriptSandboxInvoker(executor).invoke("sandbox", payload))
-    assert result == {"format": "langgraph-script"}
+    assert result == {
+        "format": "langgraph-script",
+        "source": "source",
+        "entrypoint": "orcheo_workflow",
+        "summary": {},
+        "index": {},
+    }
     assert executor.calls[0][1].command == [
         "python",
         "-m",
@@ -301,7 +311,7 @@ def test_ingestion_invoker_never_injects_broker_token() -> None:
     assert executor.calls[0][1].env is None
     assert json.loads(executor.calls[0][1].stdin or "{}") == {
         "source": "source",
-        "entrypoint": None,
+        "entrypoint": "orcheo_workflow",
         "max_script_bytes": 524288,
         "execution_timeout_seconds": 60.0,
     }
@@ -406,7 +416,7 @@ def test_ingestion_endpoint_calls_invoker(
     client, _runtime, executor, _invoker = app_with_fakes
     executor.result = ProcessExecutionResult(
         command=[],
-        stdout='{"status":"succeeded","payload":{"graph":"ok"}}',
+        stdout='{"status":"succeeded","payload":{"summary":{},"index":{}}}',
         stderr="",
         exit_code=0,
         timed_out=False,
@@ -417,7 +427,12 @@ def test_ingestion_endpoint_calls_invoker(
         json={"source": "graph = object()"},
     )
     assert response.status_code == 200, response.text
-    assert response.json() == {"graph": "ok"}
+    # Invoker merges derived runner output with request fields
+    result = response.json()
+    assert result["format"] == "langgraph-script"
+    assert result["source"] == "graph = object()"
+    assert result["summary"] == {}
+    assert result["index"] == {}
 
 
 def test_credential_relay_forwards_broker_request(
