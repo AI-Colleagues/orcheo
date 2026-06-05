@@ -423,7 +423,21 @@ class ScriptSandboxInvoker:
             )
         output = _last_json_line(result.stdout)
         if result.exit_code not in (0, None) or output is None:
-            detail = result.stderr.strip() or "ingestion runner produced no output"
+            stderr = result.stderr.strip()
+            stdout = result.stdout.strip()
+            if stderr:
+                detail = stderr
+            elif output is None and result.exit_code not in (0, None):
+                detail = (
+                    f"ingestion runner exited with code {result.exit_code} "
+                    "without producing JSON output"
+                )
+                if stdout:
+                    detail = f"{detail}: {stdout}"
+            elif stdout:
+                detail = stdout
+            else:
+                detail = "ingestion runner produced no output"
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=detail,

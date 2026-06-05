@@ -3,6 +3,7 @@
 from __future__ import annotations
 import json
 import sys
+from collections.abc import Mapping
 from typing import Any
 from orcheo.graph.ingestion import (
     DEFAULT_EXECUTION_TIMEOUT_SECONDS,
@@ -15,7 +16,7 @@ from orcheo.graph.ingestion import (
 def main() -> None:
     """Read one ingestion request from stdin and emit one JSON result."""
     try:
-        request: dict[str, Any] = json.loads(sys.stdin.readline())
+        request = _read_request()
         payload = ingest_langgraph_script(
             str(request["source"]),
             entrypoint=request.get("entrypoint"),
@@ -25,9 +26,25 @@ def main() -> None:
             ),
         )
     except (KeyError, TypeError, ValueError, ScriptIngestionError) as exc:
-        print(json.dumps({"status": "failed", "error": str(exc)}))
+        print(json.dumps({"status": "failed", "error": str(exc)}), flush=True)
         return
-    print(json.dumps({"status": "succeeded", "payload": payload}))
+    except BaseException as exc:  # noqa: BLE001
+        error = str(exc).strip()
+        message = f"{type(exc).__name__}: {error}" if error else type(exc).__name__
+        print(json.dumps({"status": "failed", "error": message}), flush=True)
+        return
+    print(json.dumps({"status": "succeeded", "payload": payload}), flush=True)
+
+
+def _read_request() -> Mapping[str, Any]:
+    """Read the complete JSON request body from stdin."""
+    raw = sys.stdin.read()
+    if not raw.strip():
+        raise ValueError("missing ingestion request")
+    request = json.loads(raw)
+    if not isinstance(request, Mapping):
+        raise TypeError("ingestion request must be a JSON object")
+    return request
 
 
 if __name__ == "__main__":

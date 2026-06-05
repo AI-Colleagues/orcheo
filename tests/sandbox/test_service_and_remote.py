@@ -316,7 +316,26 @@ def test_ingestion_invoker_reports_missing_json_output() -> None:
         timed_out=False,
         duration_seconds=0.01,
     )
-    with pytest.raises(Exception, match="no output"):
+    with pytest.raises(Exception, match="not json"):
+        asyncio.run(
+            ScriptSandboxInvoker(executor).invoke(
+                "sandbox", ScriptIngestionPayload(source="graph = object()")
+            )
+        )
+
+
+def test_ingestion_invoker_reports_exit_code_without_output() -> None:
+    """A silent child exit surfaces the exit code for debugging."""
+    executor = _FakeExecutor()
+    executor.result = ProcessExecutionResult(
+        command=[],
+        stdout="",
+        stderr="",
+        exit_code=137,
+        timed_out=False,
+        duration_seconds=0.01,
+    )
+    with pytest.raises(Exception, match="exited with code 137"):
         asyncio.run(
             ScriptSandboxInvoker(executor).invoke(
                 "sandbox", ScriptIngestionPayload(source="graph = object()")
