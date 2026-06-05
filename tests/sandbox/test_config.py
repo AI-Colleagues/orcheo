@@ -124,3 +124,23 @@ def test_from_env_reads_process_environment(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert settings.container_runtime == "runc"
     assert settings.default_pool_max == 12
+
+
+def test_warm_window_seconds_default_and_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """warm_window_seconds defaults to 600 and reads from env."""
+    assert SandboxSettings().warm_window_seconds == 600
+
+    monkeypatch.setenv("ORCHEO_SANDBOX_WARM_WINDOW_SECONDS", "300")
+    assert SandboxSettings.from_env().warm_window_seconds == 300
+
+
+def test_max_total_warm_default_and_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """max_total_warm defaults to 12 and reads from env."""
+    assert SandboxSettings().max_total_warm == 12
+
+    monkeypatch.setenv("ORCHEO_SANDBOX_MAX_TOTAL_WARM", "0")
+    assert SandboxSettings.from_env().max_total_warm == 0  # 0 means unbounded

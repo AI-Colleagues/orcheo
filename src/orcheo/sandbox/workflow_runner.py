@@ -194,9 +194,9 @@ def _credential_context(
     *,
     run_id: str,
     workspace_id: str | None,
+    broker_token: str = "",
 ) -> AbstractContextManager[Any]:
     """Bind the broker credential resolver when this run has a broker token."""
-    broker_token = os.getenv("ORCHEO_BROKER_TOKEN", "").strip()
     if not broker_token:
         return nullcontext()
     broker_url = os.getenv("ORCHEO_CREDENTIAL_BROKER_URL", "").strip()
@@ -224,12 +224,10 @@ def _execute_workflow_in_child(
     state_config: Mapping[str, Any],
     run_id: str,
     workspace_id: str | None,
+    broker_token: str = "",
 ) -> None:
     """Execute the workflow in a forked child and send the result back."""
     try:
-        # In a real deployment this calls the graph builder + runner.
-        # The runner module ships with the workflow-sandbox image, so the
-        # heavy imports stay out of the worker.
         outputs = _run_graph(
             workflow_definition,
             inputs,
@@ -237,6 +235,7 @@ def _execute_workflow_in_child(
             state_config=state_config,
             run_id=run_id,
             workspace_id=workspace_id,
+            broker_token=broker_token,
         )
         queue.put({"status": "succeeded", "outputs": dict(outputs), "error": None})
     except Exception as exc:  # noqa: BLE001 — propagate failure to parent
@@ -264,6 +263,7 @@ def _run_graph(
     state_config: Mapping[str, Any] | None = None,
     run_id: str = "",
     workspace_id: str | None = None,
+    broker_token: str = "",
 ) -> Mapping[str, Any]:
     """Execute the workflow graph and return its outputs.
 
@@ -294,7 +294,9 @@ def _run_graph(
     # backend / worker process, not the child mp.Process that the runner
     # spawns).
     with (
-        _credential_context(run_id=run_id, workspace_id=workspace_id),
+        _credential_context(
+            run_id=run_id, workspace_id=workspace_id, broker_token=broker_token
+        ),
         use_launcher(LocalProcessLauncher()),
     ):
         result = asyncio.run(
@@ -314,6 +316,8 @@ def run_in_subprocess(
     state_config: Mapping[str, Any] | None = None,
     run_id: str = "",
     workspace_id: str | None = None,
+    broker_token: str = "",
+    timeout_seconds: float | None = None,
     spawn: bool = True,
 ) -> Mapping[str, Any]:
     """Run a workflow definition in a fresh child process and return its result.
@@ -326,8 +330,13 @@ def run_in_subprocess(
         run_id: Run identifier used by the run-scoped credential broker.
         workspace_id: Workspace identifier injected into the initial state and
             credential broker calls.
-        spawn: When True (default), use ``multiprocessing`` to fork a fresh
-            child. Set to False in unit tests to execute in-process.
+        broker_token: Run-scoped credential broker token. Passed explicitly
+            rather than via env so the resident runner can accept a fresh token
+            per run without restarting the process.
+        timeout_seconds: Wall-clock cap on the child process. None means no
+            per-run timeout (the HTTP-level timeout on the caller side applies).
+        spawn: When True (default), fork a fresh child via ``multiprocessing``.
+            Set to False in unit tests to execute in-process.
 
     Returns:
         The result dict produced by ``_execute_workflow_in_child``.
@@ -347,9 +356,14 @@ def run_in_subprocess(
             state_config or {},
             run_id,
             workspace_id,
+            broker_token,
         )
         return queue[0]
-    ctx = mp.get_context("spawn")
+    # fork shares the parent's already-loaded modules via copy-on-write so
+    # the child does not re-pay the langgraph import cost (~3 s) on every run.
+    # The parent's serve_stdin_loop pre-imports build_graph / build_initial_state
+    # before entering the request loop so they are resident in memory at fork time.
+    ctx = mp.get_context("fork")
     q: mp.Queue[Mapping[str, Any]] = ctx.Queue()
     process = ctx.Process(
         target=_execute_workflow_in_child,
@@ -361,19 +375,28 @@ def run_in_subprocess(
             state_config or {},
             run_id,
             workspace_id,
+            broker_token,
         ),
         daemon=True,
     )
     process.start()
-    process.join()
+    process.join(timeout_seconds)
+    if process.is_alive():
+        process.kill()
+        process.join()
+        return {
+            "status": "failed",
+            "outputs": {},
+            "error": "workflow run timed out in sandbox child process",
+        }
     try:
         return q.get_nowait()
     except Empty:
         # The child exited without putting a result on the queue: either it
         # was killed (signal / OOM) or it died before reaching the try/except
-        # in ``_execute_workflow_in_child`` (e.g. import-time crash during
-        # spawn). Surface the exit status so the failure is debuggable from
-        # the dispatcher logs instead of just ``_queue.Empty``.
+        # in ``_execute_workflow_in_child`` (e.g. import-time crash at fork).
+        # Surface the exit status so the failure is debuggable from the
+        # dispatcher logs instead of just ``_queue.Empty``.
         exitcode = process.exitcode
         if exitcode is None:
             detail = "child process is still running after join()"
@@ -411,17 +434,38 @@ def _json_default(value: Any) -> Any:
 
 
 def serve_stdin_loop() -> None:  # pragma: no cover - long-running entrypoint
-    """Read newline-delimited JSON specs from stdin until EOF."""
+    """Read newline-delimited JSON specs from stdin until EOF.
+
+    Pre-imports the graph runtime once so every fork child inherits loaded
+    modules via copy-on-write, eliminating the ~3 s per-run import tax.
+    """
+    # Heavy imports happen here in the resident parent process so fork children
+    # find them already in sys.modules and skip re-importing.
+    from orcheo.graph.builder import build_graph as _build_graph_preload  # noqa: F401
+    from orcheo.runtime.state_builder import (
+        build_initial_state as _state_preload,  # noqa: F401
+    )
+
     for line in sys.stdin:
-        payload = json.loads(line)
-        result = run_in_subprocess(
-            payload["workflow_definition"],
-            payload["inputs"],
-            runnable_config=payload.get("runnable_config") or {},
-            state_config=payload.get("state_config") or {},
-            run_id=str(payload.get("run_id") or ""),
-            workspace_id=payload.get("workspace_id"),
-        )
+        try:
+            payload = json.loads(line)
+            result: Mapping[str, Any] = run_in_subprocess(
+                payload["workflow_definition"],
+                payload["inputs"],
+                runnable_config=payload.get("runnable_config") or {},
+                state_config=payload.get("state_config") or {},
+                run_id=str(payload.get("run_id") or ""),
+                workspace_id=payload.get("workspace_id"),
+                broker_token=str(payload.get("broker_token") or ""),
+                timeout_seconds=payload.get("timeout_seconds"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            tb = traceback.format_exc()
+            result = {
+                "status": "failed",
+                "outputs": {},
+                "error": f"{type(exc).__name__}: {exc}\n{tb}",
+            }
         if is_dataclass(result) and not isinstance(result, type):
             serialized: Mapping[str, Any] = asdict(cast(Any, result))
         else:

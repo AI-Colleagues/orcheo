@@ -29,6 +29,7 @@ from orcheo.sandbox.runtime import ContainerSpec, InMemoryContainerRuntime
 from orcheo.sandbox.service import (
     ContainerExecutor,
     ExecRequest,
+    ResidentRunnerPool,
     ScriptIngestionPayload,
     ScriptSandboxInvoker,
     SandboxProvisionRequest,
@@ -36,6 +37,7 @@ from orcheo.sandbox.service import (
     build_credential_relay_app,
     build_service_app,
     _control_dependency,
+    _manager_lifespan,
     _resolve_extra_hosts,
     _sandbox_environment,
 )
@@ -767,26 +769,30 @@ def test_dispatch_workflow_endpoint(
     assert broker_token == "tok-1"
 
 
-def test_workflow_invoker_uses_stdin_for_payload() -> None:
-    """Workflow dispatch must stream JSON over stdin instead of argv."""
+def test_resident_runner_pool_sends_full_payload_and_parses_result() -> None:
+    """ResidentRunnerPool writes a complete JSON payload and parses the result line."""
     import unittest.mock as mock
 
     async def go() -> WorkflowRunResult:
-        from orcheo.sandbox.service import WorkflowSandboxInvoker
+        from orcheo.sandbox.service import ResidentRunnerPool
         from orcheo.sandbox.workflow import WorkflowRunSpec
 
-        executor = mock.AsyncMock()
-        executor.exec = mock.AsyncMock(
-            return_value=ProcessExecutionResult(
-                command=["python", "-m", "orcheo.sandbox.workflow_runner"],
-                stdout='{"status":"succeeded","outputs":{"ok":true},"error":null}\n',
-                stderr="",
-                exit_code=0,
-                timed_out=False,
-                duration_seconds=0.1,
-            )
-        )
-        invoker = WorkflowSandboxInvoker(executor)
+        pool = ResidentRunnerPool()
+
+        # Fake process: readable stdout returns the result line, stdin is a sink.
+        result_line = b'{"run_id":"r-ok","status":"succeeded","outputs":{"ok":true},"error":null}\n'
+        fake_stdout = mock.AsyncMock()
+        fake_stdout.readline = mock.AsyncMock(return_value=result_line)
+        fake_stdin = mock.MagicMock()
+        fake_stdin.write = mock.MagicMock()
+        fake_stdin.drain = mock.AsyncMock()
+        fake_process = mock.MagicMock()
+        fake_process.returncode = None
+        fake_process.stdin = fake_stdin
+        fake_process.stdout = fake_stdout
+
+        pool._runners["sb-1"] = fake_process  # inject pre-started runner
+
         spec = WorkflowRunSpec(
             run_id="r-ok",
             workspace_id="ws",
@@ -797,26 +803,68 @@ def test_workflow_invoker_uses_stdin_for_payload() -> None:
             state_config={"configurable": {"ai_model": "openai:test"}},
         )
 
-        result = await invoker.invoke("sb-1", spec, "token")
+        result = await pool.invoke("sb-1", spec, "tok-1")
 
-        call = executor.exec.await_args
-        assert call.args[0] == "sb-1"
-        request = call.args[1]
-        assert request.command == ["python", "-m", "orcheo.sandbox.workflow_runner"]
-        assert request.stdin is not None
-        payload = json.loads(request.stdin)
+        # Verify the payload written to stdin includes all expected fields.
+        write_call = fake_stdin.write.call_args
+        assert write_call is not None
+        payload = json.loads(write_call.args[0].decode("utf-8"))
         assert payload["run_id"] == "r-ok"
         assert payload["workspace_id"] == "ws"
         assert payload["workflow_definition"] == {"nodes": [{"type": "AINode"}]}
         assert payload["inputs"] == {"value": 42}
         assert payload["runnable_config"] == {"configurable": {"thread_id": "r-ok"}}
         assert payload["state_config"] == {"configurable": {"ai_model": "openai:test"}}
-        assert request.env == {"ORCHEO_BROKER_TOKEN": "token"}
+        assert payload["broker_token"] == "tok-1"
+
         return result
 
     result = asyncio.run(go())
     assert result.status == "succeeded"
     assert result.outputs == {"ok": True}
+
+
+def test_resident_runner_pool_reuses_process_across_calls() -> None:
+    """The same runner process is reused for sequential dispatches to one sandbox."""
+    import unittest.mock as mock
+
+    async def go() -> None:
+        from orcheo.sandbox.service import ResidentRunnerPool
+        from orcheo.sandbox.workflow import WorkflowRunSpec
+
+        pool = ResidentRunnerPool()
+
+        start_calls: list[str] = []
+        original_start = pool._start_runner
+
+        async def _tracking_start(sandbox_id: str):
+            start_calls.append(sandbox_id)
+            return await original_start(sandbox_id)
+
+        result_line = b'{"run_id":"r","status":"succeeded","outputs":{},"error":null}\n'
+        fake_stdout = mock.AsyncMock()
+        fake_stdout.readline = mock.AsyncMock(return_value=result_line)
+        fake_stdin = mock.MagicMock()
+        fake_stdin.write = mock.MagicMock()
+        fake_stdin.drain = mock.AsyncMock()
+        fake_process = mock.MagicMock()
+        fake_process.returncode = None
+        fake_process.stdin = fake_stdin
+        fake_process.stdout = fake_stdout
+
+        pool._runners["sb-1"] = fake_process
+
+        spec = WorkflowRunSpec(
+            run_id="r", workspace_id="ws", workflow_definition={}, inputs={}
+        )
+        await pool.invoke("sb-1", spec, "")
+        await pool.invoke("sb-1", spec, "")
+
+        # No new processes should have been started since the existing one is alive.
+        assert len(start_calls) == 0
+        assert pool._runners.get("sb-1") is fake_process
+
+    asyncio.run(go())
 
 
 def test_remote_container_runtime_round_trip() -> None:
@@ -1516,12 +1564,17 @@ def test_serialize_workflow_run_result_non_dataclass() -> None:
 
 
 def test_container_executor_init_and_invoker_init() -> None:
-    """ContainerExecutor and WorkflowSandboxInvoker can be constructed directly (line 183)."""
-    from orcheo.sandbox.service import ContainerExecutor, WorkflowSandboxInvoker
+    """ContainerExecutor and WorkflowSandboxInvoker can be constructed directly."""
+    from orcheo.sandbox.service import (
+        ContainerExecutor,
+        ResidentRunnerPool,
+        WorkflowSandboxInvoker,
+    )
 
-    executor = ContainerExecutor()
-    invoker = WorkflowSandboxInvoker(executor)
-    assert invoker._executor is executor
+    ContainerExecutor()
+    pool = ResidentRunnerPool()
+    invoker = WorkflowSandboxInvoker(pool)
+    assert invoker._pool is pool
 
 
 def test_last_json_line_returns_last_valid_json() -> None:
@@ -1705,183 +1758,84 @@ def test_credential_relay_without_optional_headers(
 # ---------------------------------------------------------------------------
 
 
-def test_invoker_returns_failed_on_timeout() -> None:
-    """invoke() returns a failed WorkflowRunResult when executor times out."""
+def _make_fake_pool_process(
+    *, response_line: bytes | None, returncode: int | None = None
+):
+    """Build a fake asyncio subprocess for ResidentRunnerPool injection."""
+    import unittest.mock as mock
+
+    fake_stdout = mock.AsyncMock()
+    fake_stdout.readline = mock.AsyncMock(
+        return_value=response_line if response_line is not None else b""
+    )
+    fake_stdin = mock.MagicMock()
+    fake_stdin.write = mock.MagicMock()
+    fake_stdin.drain = mock.AsyncMock()
+    fake_process = mock.MagicMock()
+    fake_process.returncode = returncode
+    fake_process.stdin = fake_stdin
+    fake_process.stdout = fake_stdout
+    return fake_process
+
+
+def test_pool_returns_failed_on_eof() -> None:
+    """ResidentRunnerPool returns failed when the runner produces EOF (runner died)."""
 
     async def go() -> WorkflowRunResult:
-        executor = _FakeExecutor()
-        executor.result = asyncio.get_event_loop()
-        # Override to return timed_out=True.
-        from orcheo.external_agents.models import ProcessExecutionResult
-
-        timed_out_result = ProcessExecutionResult(
-            command=["sh"],
-            stdout="",
-            stderr="",
-            exit_code=None,
-            timed_out=True,
-            duration_seconds=30.0,
-        )
-        executor.result = timed_out_result
-
-        from orcheo.sandbox.service import WorkflowSandboxInvoker
+        from orcheo.sandbox.service import ResidentRunnerPool
         from orcheo.sandbox.workflow import WorkflowRunSpec
 
-        invoker = WorkflowSandboxInvoker(executor)
+        pool = ResidentRunnerPool()
+        # Both the first attempt and the retry return EOF → final failure.
+        pool._runners["sb-1"] = _make_fake_pool_process(response_line=b"")
+        pool._start_runner = lambda sid: _make_fake_pool_process(response_line=b"")  # type: ignore[method-assign]
+
         spec = WorkflowRunSpec(
-            run_id="r-timeout",
-            workspace_id="ws",
-            workflow_definition={},
-            inputs={},
-            node_types=(),
-            runnable_config={},
-            state_config={},
+            run_id="r-eof", workspace_id="ws", workflow_definition={}, inputs={}
         )
-        return await invoker.invoke("sb-1", spec, "token")
+        return await pool.invoke("sb-1", spec, "token")
 
     result = asyncio.run(go())
     assert result.status == "failed"
-    assert "timed out" in (result.error or "")
+    assert result.error is not None
 
 
-def test_invoker_returns_failed_on_non_zero_exit() -> None:
-    """invoke() returns failed when the runner exits with non-zero code."""
+def test_pool_returns_failed_on_invalid_json() -> None:
+    """ResidentRunnerPool returns failed when the runner emits invalid JSON."""
 
     async def go() -> WorkflowRunResult:
-        from orcheo.external_agents.models import ProcessExecutionResult
-
-        executor = _FakeExecutor()
-        executor.result = ProcessExecutionResult(
-            command=["sh"],
-            stdout="",
-            stderr="runner crashed",
-            exit_code=1,
-            timed_out=False,
-            duration_seconds=0.1,
-        )
-        from orcheo.sandbox.service import WorkflowSandboxInvoker
+        from orcheo.sandbox.service import ResidentRunnerPool
         from orcheo.sandbox.workflow import WorkflowRunSpec
 
-        invoker = WorkflowSandboxInvoker(executor)
+        pool = ResidentRunnerPool()
+        bad_line = b"{not valid json}\n"
+        pool._runners["sb-1"] = _make_fake_pool_process(response_line=bad_line)
+        pool._start_runner = lambda sid: _make_fake_pool_process(response_line=bad_line)  # type: ignore[method-assign]
+
         spec = WorkflowRunSpec(
-            run_id="r-exitcode",
-            workspace_id="ws",
-            workflow_definition={},
-            inputs={},
-            node_types=(),
-            runnable_config={},
-            state_config={},
+            run_id="r-badjson", workspace_id="ws", workflow_definition={}, inputs={}
         )
-        return await invoker.invoke("sb-1", spec, "token")
+        return await pool.invoke("sb-1", spec, "token")
 
     result = asyncio.run(go())
     assert result.status == "failed"
-    assert "exited with" in (result.error or "") or result.error is not None
 
 
-def test_invoker_returns_failed_when_no_json_output() -> None:
-    """invoke() returns failed when runner produces no JSON on stdout."""
-
-    async def go() -> WorkflowRunResult:
-        from orcheo.external_agents.models import ProcessExecutionResult
-
-        executor = _FakeExecutor()
-        executor.result = ProcessExecutionResult(
-            command=["sh"],
-            stdout="some non-json log output",
-            stderr="",
-            exit_code=0,
-            timed_out=False,
-            duration_seconds=0.1,
-        )
-        from orcheo.sandbox.service import WorkflowSandboxInvoker
-        from orcheo.sandbox.workflow import WorkflowRunSpec
-
-        invoker = WorkflowSandboxInvoker(executor)
-        spec = WorkflowRunSpec(
-            run_id="r-nojson",
-            workspace_id="ws",
-            workflow_definition={},
-            inputs={},
-            node_types=(),
-            runnable_config={},
-            state_config={},
-        )
-        return await invoker.invoke("sb-1", spec, "token")
-
-    result = asyncio.run(go())
-    assert result.status == "failed"
-    assert "no JSON output" in (result.error or "")
-
-
-def test_invoker_returns_failed_on_json_decode_error() -> None:
-    """invoke() returns failed when runner output is invalid JSON."""
+def test_pool_returns_succeeded_on_valid_result() -> None:
+    """ResidentRunnerPool parses a valid JSON result line from the runner."""
 
     async def go() -> WorkflowRunResult:
-        from orcheo.external_agents.models import ProcessExecutionResult
-
-        executor = _FakeExecutor()
-        executor.result = ProcessExecutionResult(
-            command=["sh"],
-            stdout="{not valid json}",
-            stderr="",
-            exit_code=0,
-            timed_out=False,
-            duration_seconds=0.1,
-        )
-        from orcheo.sandbox.service import WorkflowSandboxInvoker
+        from orcheo.sandbox.service import ResidentRunnerPool
         from orcheo.sandbox.workflow import WorkflowRunSpec
 
-        invoker = WorkflowSandboxInvoker(executor)
+        pool = ResidentRunnerPool()
+        line = b'{"run_id":"r-ok","status":"succeeded","outputs":{"answer":42},"error":null}\n'
+        pool._runners["sb-1"] = _make_fake_pool_process(response_line=line)
+
         spec = WorkflowRunSpec(
-            run_id="r-badjson",
-            workspace_id="ws",
-            workflow_definition={},
-            inputs={},
-            node_types=(),
-            runnable_config={},
-            state_config={},
+            run_id="r-ok", workspace_id="ws", workflow_definition={}, inputs={}
         )
-        return await invoker.invoke("sb-1", spec, "token")
-
-    result = asyncio.run(go())
-    assert result.status == "failed"
-    assert "parse" in (result.error or "").lower()
-
-
-def test_invoker_returns_succeeded_on_valid_json_output() -> None:
-    """invoke() parses a valid JSON result from runner stdout."""
-    import json
-
-    async def go() -> WorkflowRunResult:
-        from orcheo.external_agents.models import ProcessExecutionResult
-
-        result_json = json.dumps(
-            {"status": "succeeded", "outputs": {"answer": 42}, "error": None}
-        )
-        executor = _FakeExecutor()
-        executor.result = ProcessExecutionResult(
-            command=["sh"],
-            stdout=f"some logs\n{result_json}\n",
-            stderr="",
-            exit_code=0,
-            timed_out=False,
-            duration_seconds=0.1,
-        )
-        from orcheo.sandbox.service import WorkflowSandboxInvoker
-        from orcheo.sandbox.workflow import WorkflowRunSpec
-
-        invoker = WorkflowSandboxInvoker(executor)
-        spec = WorkflowRunSpec(
-            run_id="r-ok",
-            workspace_id="ws",
-            workflow_definition={},
-            inputs={},
-            node_types=(),
-            runnable_config={},
-            state_config={},
-        )
-        return await invoker.invoke("sb-1", spec, "token")
+        return await pool.invoke("sb-1", spec, "token")
 
     result = asyncio.run(go())
     assert result.status == "succeeded"
@@ -2466,7 +2420,7 @@ def test_service_app_lifespan_runs_and_shuts_down_cleanly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Using TestClient as context manager triggers _lifespan (lines 807-808)."""
-    from orcheo.sandbox.service import _manager_lifespan, build_service_app
+    from orcheo.sandbox.service import build_service_app
 
     runtime = InMemoryContainerRuntime()
     settings = SandboxSettings(
@@ -2492,8 +2446,6 @@ def test_manager_lifespan_covers_reap_loop_and_shutdown(
     """_manager_lifespan starts the reaper task and shuts down the manager (lines 735-764)."""
     monkeypatch.setenv("ORCHEO_SANDBOX_REAP_INTERVAL_SECONDS", "0.01")
 
-    from orcheo.sandbox.service import _manager_lifespan
-
     runtime = InMemoryContainerRuntime()
     settings = SandboxSettings(
         credential_broker_url="http://10.99.0.2:9091/credentials/resolve"
@@ -2501,7 +2453,7 @@ def test_manager_lifespan_covers_reap_loop_and_shutdown(
     manager = SandboxRuntimeManager(runtime=runtime, settings=settings)
 
     async def go() -> None:
-        async with _manager_lifespan(manager):
+        async with _manager_lifespan(manager, settings, ResidentRunnerPool()):
             await asyncio.sleep(0.05)
 
     asyncio.run(go())
@@ -2514,8 +2466,6 @@ def test_manager_lifespan_reaper_logs_when_leases_reaped(
     import logging
 
     monkeypatch.setenv("ORCHEO_SANDBOX_REAP_INTERVAL_SECONDS", "0.01")
-
-    from orcheo.sandbox.service import _manager_lifespan
 
     runtime = InMemoryContainerRuntime()
     settings = SandboxSettings(
@@ -2542,7 +2492,7 @@ def test_manager_lifespan_reaper_logs_when_leases_reaped(
     try:
 
         async def go() -> None:
-            async with _manager_lifespan(manager):
+            async with _manager_lifespan(manager, settings, ResidentRunnerPool()):
                 await asyncio.sleep(0.05)
 
         asyncio.run(go())
@@ -2557,8 +2507,6 @@ def test_manager_lifespan_reaper_handles_unexpected_exception(
 ) -> None:
     """Unexpected exceptions in the reaper loop are logged, not propagated (lines 754-755)."""
     monkeypatch.setenv("ORCHEO_SANDBOX_REAP_INTERVAL_SECONDS", "0.01")
-
-    from orcheo.sandbox.service import _manager_lifespan
 
     runtime = InMemoryContainerRuntime()
     settings = SandboxSettings(
@@ -2576,7 +2524,7 @@ def test_manager_lifespan_reaper_handles_unexpected_exception(
     manager.reap_idle = _boom  # type: ignore[method-assign]
 
     async def go() -> None:
-        async with _manager_lifespan(manager):
+        async with _manager_lifespan(manager, settings, ResidentRunnerPool()):
             await asyncio.sleep(0.05)
 
     asyncio.run(go())
@@ -2588,8 +2536,6 @@ def test_manager_lifespan_reaper_reraises_cancelled_error(
 ) -> None:
     """CancelledError inside the try block is re-raised, not swallowed (line 753)."""
     monkeypatch.setenv("ORCHEO_SANDBOX_REAP_INTERVAL_SECONDS", "0.01")
-
-    from orcheo.sandbox.service import _manager_lifespan
 
     runtime = InMemoryContainerRuntime()
     settings = SandboxSettings(
@@ -2607,7 +2553,7 @@ def test_manager_lifespan_reaper_reraises_cancelled_error(
     manager.reap_idle = _raise_cancelled  # type: ignore[method-assign]
 
     async def go() -> None:
-        async with _manager_lifespan(manager):
+        async with _manager_lifespan(manager, settings, ResidentRunnerPool()):
             await asyncio.sleep(0.05)
 
     asyncio.run(go())

@@ -100,6 +100,25 @@ class SandboxSettings(BaseModel):
         ),
     )
     audit_logger_name: str = Field(default="orcheo.sandbox.audit")
+    warm_window_seconds: int = Field(
+        default=600,
+        ge=1,
+        description=(
+            "Sliding window (seconds) used to compute peak concurrent usage for "
+            "warm-pool autoscaling. Workspaces with no usage samples within this "
+            "window target pool size 0 and are not proactively prewarmed."
+        ),
+    )
+    max_total_warm: int = Field(
+        default=12,
+        ge=0,
+        description=(
+            "Global cap on the total number of warm (READY) sandboxes across all "
+            "workspaces. 0 = unbounded (rely only on per-workspace pool_max). "
+            "Applied only to proactive prewarm provisioning; per-workspace "
+            "pool_max still bounds each workspace independently."
+        ),
+    )
 
     @field_validator("sandbox_dns", mode="before")
     @classmethod
@@ -169,6 +188,8 @@ class SandboxSettings(BaseModel):
         "credential_broker_forward_url": "ORCHEO_CREDENTIAL_BROKER_FORWARD_URL",
         "sandbox_dns": "ORCHEO_SANDBOX_DNS",
         "audit_logger_name": "ORCHEO_SANDBOX_AUDIT_LOGGER_NAME",
+        "warm_window_seconds": "ORCHEO_SANDBOX_WARM_WINDOW_SECONDS",
+        "max_total_warm": "ORCHEO_SANDBOX_MAX_TOTAL_WARM",
     }
 
     @classmethod

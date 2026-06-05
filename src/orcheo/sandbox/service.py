@@ -28,7 +28,7 @@ import os
 import secrets
 import socket
 import time
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
 from typing import Annotated, Any, Final
 from urllib.parse import urlparse
@@ -48,6 +48,7 @@ from orcheo.sandbox.errors import (
     SandboxNotFoundError,
 )
 from orcheo.sandbox.manager import SandboxRuntimeManager
+from orcheo.sandbox.metrics import WarmPoolAutoscaler
 from orcheo.sandbox.runtime import (
     ContainerHandle,
     ContainerRuntime,
@@ -296,19 +297,62 @@ class ContainerExecutor:
         )
 
 
-class WorkflowSandboxInvoker:
-    """Invoke the workflow runner inside a sandbox container and parse its result.
+# Default timeout used when the caller passes timeout_seconds=None.  Matches
+# the agent CLI default so the HTTP-level safety margin in RemoteSandboxRunner
+# is still the last-resort guard.
+_DEFAULT_RUNNER_TIMEOUT_SECONDS: Final[float] = 1800.0
+# Extra time beyond the run timeout for the outer readline() read to account
+# for fork startup and result serialisation.
+_RUNNER_SAFETY_MARGIN_SECONDS: Final[float] = 60.0
 
-    The invoker pipes a single newline-delimited ``WorkflowRunSpec`` payload
-    to ``python -m orcheo.sandbox.workflow_runner`` running in the sandbox
-    and reads the response from stdout. The broker token is passed as the
-    ``ORCHEO_BROKER_TOKEN`` env var so tenant code in the sandbox cannot see
-    it on the command line via ``ps``.
+
+class ResidentRunnerPool:
+    """One long-lived ``workflow_runner`` process per sandbox container.
+
+    The runner process is started on the first dispatch to a sandbox and kept
+    alive for the container's lifetime.  It pre-imports the graph runtime once,
+    so every subsequent fork child inherits loaded modules via copy-on-write
+    instead of re-paying the ~3 s import cost per run.
+
+    The sandbox lease model guarantees at most one concurrent dispatch per
+    sandbox, so no per-sandbox lock is needed here.
     """
 
-    def __init__(self, executor: ContainerExecutor) -> None:
-        """Initialize the invoker."""
-        self._executor = executor
+    def __init__(self) -> None:
+        """Initialize the pool with an empty runner registry."""
+        # sandbox_id → asyncio subprocess handle
+        self._runners: dict[str, asyncio.subprocess.Process] = {}
+
+    async def _start_runner(self, sandbox_id: str) -> asyncio.subprocess.Process:
+        """Start a fresh resident runner inside the container and register it."""
+        process = await asyncio.create_subprocess_exec(
+            "docker",
+            "exec",
+            "-i",
+            sandbox_id,
+            "python",
+            "-m",
+            _WORKFLOW_RUNNER_MODULE,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        self._runners[sandbox_id] = process
+        return process
+
+    async def _get_or_start(self, sandbox_id: str) -> asyncio.subprocess.Process:
+        """Return the live runner for sandbox_id, starting one if absent or dead."""
+        process = self._runners.get(sandbox_id)
+        if process is not None and process.returncode is None:
+            return process
+        return await self._start_runner(sandbox_id)
+
+    def _kill_runner(self, sandbox_id: str) -> None:
+        """Terminate and forget the runner for sandbox_id."""
+        process = self._runners.pop(sandbox_id, None)
+        if process is not None and process.returncode is None:
+            with suppress(ProcessLookupError, OSError):
+                process.kill()
 
     async def invoke(
         self,
@@ -318,72 +362,113 @@ class WorkflowSandboxInvoker:
         *,
         timeout_seconds: float | None = None,
     ) -> WorkflowRunResult:
-        """Send ``spec`` into the sandbox and parse its ``WorkflowRunResult``."""
-        payload = json.dumps(
-            {
-                "workflow_definition": dict(spec.workflow_definition),
-                "inputs": dict(spec.inputs),
-                "run_id": spec.run_id,
-                "workspace_id": spec.workspace_id,
-                "runnable_config": dict(spec.runnable_config),
-                "state_config": dict(spec.state_config),
-            },
-            separators=(",", ":"),
+        """Dispatch ``spec`` to the resident runner and return its result."""
+        return await self._invoke_with_retry(
+            sandbox_id, spec, broker_token, timeout_seconds
         )
-        argv = [
-            "python",
-            "-m",
-            _WORKFLOW_RUNNER_MODULE,
-        ]
-        result = await self._executor.exec(
-            sandbox_id,
-            ExecRequest(
-                command=argv,
-                cwd=None,
-                env={"ORCHEO_BROKER_TOKEN": broker_token} if broker_token else None,
-                stdin=payload,
-                timeout_seconds=timeout_seconds,
-            ),
-        )
-        if result.timed_out:
-            return WorkflowRunResult(
-                run_id=spec.run_id,
-                status="failed",
-                outputs={},
-                error="workflow run timed out inside sandbox",
-            )
-        if result.exit_code not in (0, None):
-            return WorkflowRunResult(
-                run_id=spec.run_id,
-                status="failed",
-                outputs={},
-                error=(
-                    f"workflow runner exited with {result.exit_code}: "
-                    f"{result.stderr.strip() or result.stdout.strip()}"
-                ),
-            )
-        last_line = _last_json_line(result.stdout)
-        if last_line is None:
-            return WorkflowRunResult(
-                run_id=spec.run_id,
-                status="failed",
-                outputs={},
-                error="workflow runner produced no JSON output",
-            )
+
+    async def _invoke_with_retry(
+        self,
+        sandbox_id: str,
+        spec: WorkflowRunSpec,
+        broker_token: str,
+        timeout_seconds: float | None,
+        *,
+        _retry: bool = False,
+    ) -> WorkflowRunResult:
+        failure_reason: str = ""
         try:
-            parsed: Mapping[str, Any] = json.loads(last_line)
-        except json.JSONDecodeError as exc:
-            return WorkflowRunResult(
-                run_id=spec.run_id,
-                status="failed",
-                outputs={},
-                error=f"could not parse workflow runner output: {exc}",
+            process = await self._get_or_start(sandbox_id)
+            payload_bytes = (
+                json.dumps(
+                    {
+                        "workflow_definition": dict(spec.workflow_definition),
+                        "inputs": dict(spec.inputs),
+                        "run_id": spec.run_id,
+                        "workspace_id": spec.workspace_id,
+                        "runnable_config": dict(spec.runnable_config),
+                        "state_config": dict(spec.state_config),
+                        "broker_token": broker_token,
+                        "timeout_seconds": timeout_seconds,
+                    },
+                    separators=(",", ":"),
+                )
+                + "\n"
+            ).encode("utf-8")
+            assert process.stdin is not None
+            process.stdin.write(payload_bytes)
+            await process.stdin.drain()
+            read_timeout = (
+                timeout_seconds or _DEFAULT_RUNNER_TIMEOUT_SECONDS
+            ) + _RUNNER_SAFETY_MARGIN_SECONDS
+            line = await asyncio.wait_for(
+                process.stdout.readline(),  # type: ignore[union-attr]
+                timeout=read_timeout,
+            )
+            if not line:
+                failure_reason = "resident runner produced EOF without a result"
+            else:
+                parsed = json.loads(line.decode("utf-8"))
+                return WorkflowRunResult(
+                    run_id=str(parsed.get("run_id") or spec.run_id),
+                    status=str(parsed.get("status", "failed")),
+                    outputs=dict(parsed.get("outputs") or {}),
+                    error=parsed.get("error"),
+                )
+        except Exception as exc:  # noqa: BLE001
+            failure_reason = f"{type(exc).__name__}: {exc}"
+
+        self._kill_runner(sandbox_id)
+        if not _retry:
+            logger.warning(
+                "Resident runner for sandbox %s failed (%s); retrying once",
+                sandbox_id,
+                failure_reason,
+            )
+            return await self._invoke_with_retry(
+                sandbox_id, spec, broker_token, timeout_seconds, _retry=True
             )
         return WorkflowRunResult(
             run_id=spec.run_id,
-            status=str(parsed.get("status", "failed")),
-            outputs=dict(parsed.get("outputs") or {}),
-            error=parsed.get("error"),
+            status="failed",
+            outputs={},
+            error=f"resident runner failed after retry: {failure_reason}",
+        )
+
+    def shutdown(self, sandbox_id: str) -> None:
+        """Kill the runner for one sandbox (called when a lease is destroyed)."""
+        self._kill_runner(sandbox_id)
+
+    def shutdown_all(self) -> None:
+        """Kill all resident runners (called on service shutdown)."""
+        for sandbox_id in list(self._runners):
+            self._kill_runner(sandbox_id)
+
+
+class WorkflowSandboxInvoker:
+    """Invoke the workflow runner inside a sandbox container and parse its result.
+
+    Dispatches each run to the ``ResidentRunnerPool``, which keeps one
+    long-lived ``python -m orcheo.sandbox.workflow_runner`` process alive per
+    sandbox so the heavy graph-runtime imports are paid once at runner startup
+    rather than on every run.
+    """
+
+    def __init__(self, runner_pool: ResidentRunnerPool) -> None:
+        """Initialize the invoker."""
+        self._pool = runner_pool
+
+    async def invoke(
+        self,
+        sandbox_id: str,
+        spec: WorkflowRunSpec,
+        broker_token: str,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> WorkflowRunResult:
+        """Dispatch ``spec`` to the resident runner and return the result."""
+        return await self._pool.invoke(
+            sandbox_id, spec, broker_token, timeout_seconds=timeout_seconds
         )
 
 
@@ -538,6 +623,7 @@ def _register_lease_routes(
     app: FastAPI,
     manager: SandboxRuntimeManager,
     authorize: Callable[..., None],
+    resident_pool: ResidentRunnerPool,
 ) -> None:
     """Register the central pool lease endpoints on ``app``.
 
@@ -595,10 +681,12 @@ def _register_lease_routes(
         lease = manager.get_lease(lease_id)
         if lease is None:
             return  # idempotent — already gone
+        sandbox_id = lease.sandbox_id
         try:
             manager.destroy(lease)
         except SandboxNotFoundError:
             pass
+        resident_pool.shutdown(sandbox_id)
 
 
 def _register_sandbox_routes(
@@ -730,10 +818,44 @@ def _register_credential_relay_route(app: FastAPI) -> None:
 
 
 @asynccontextmanager
-async def _manager_lifespan(manager: SandboxRuntimeManager) -> AsyncIterator[None]:
-    """Run the sandbox reaper and shut the manager down on exit."""
+async def _manager_lifespan(  # noqa: C901
+    manager: SandboxRuntimeManager,
+    settings: SandboxSettings,
+    resident_pool: ResidentRunnerPool,
+) -> AsyncIterator[None]:
+    """Run the sandbox reaper + prewarm loop and shut everything down on exit."""
     reap_interval = float(os.getenv(_ENV_REAP_INTERVAL, str(_DEFAULT_REAP_INTERVAL)))
     max_in_use = float(os.getenv(_ENV_MAX_IN_USE, str(_DEFAULT_MAX_IN_USE)))
+    autoscaler = WarmPoolAutoscaler()
+
+    async def _run_prewarm(total_warm: int) -> int:
+        """Prewarm active workspaces and return the updated total_warm count."""
+        for ws_id in manager.known_workspace_ids():
+            if settings.max_total_warm > 0 and total_warm >= settings.max_total_warm:
+                break
+            pool_cfg = manager.get_workspace_pool(ws_id)
+            current = manager.current_pool_size(ws_id)
+            recent_max = manager.recent_concurrent_max(
+                ws_id, window_seconds=settings.warm_window_seconds
+            )
+            delta = autoscaler.decide(
+                pool_cfg,
+                current_pool_size=current,
+                recent_concurrent_max=recent_max,
+            )
+            if delta > 0:
+                cap = (
+                    settings.max_total_warm - total_warm
+                    if settings.max_total_warm > 0
+                    else delta
+                )
+                added = await asyncio.to_thread(manager.prewarm, ws_id, min(delta, cap))
+                if added:
+                    logger.info(
+                        "Prewarmed %d sandbox(es) for workspace %s", added, ws_id
+                    )
+                total_warm += added
+        return total_warm
 
     async def _reap_loop() -> None:
         while True:
@@ -749,6 +871,13 @@ async def _manager_lifespan(manager: SandboxRuntimeManager) -> AsyncIterator[Non
                         len(reaped_idle),
                         len(reaped_stale),
                     )
+                for lease in reaped_idle + reaped_stale:
+                    resident_pool.shutdown(lease.sandbox_id)
+                total_warm = sum(
+                    manager.current_pool_size(ws_id)
+                    for ws_id in manager.known_workspace_ids()
+                )
+                await _run_prewarm(total_warm)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -759,6 +888,7 @@ async def _manager_lifespan(manager: SandboxRuntimeManager) -> AsyncIterator[Non
         yield
     finally:
         task.cancel()
+        resident_pool.shutdown_all()
         with suppress(asyncio.CancelledError):
             await task
         manager.shutdown()
@@ -791,7 +921,8 @@ def build_service_app(
     settings = settings or SandboxSettings.from_env()
     manager = manager or SandboxRuntimeManager(runtime=runtime, settings=settings)
     executor = executor or ContainerExecutor()
-    invoker = invoker or WorkflowSandboxInvoker(executor)
+    resident_pool = ResidentRunnerPool()
+    invoker = invoker or WorkflowSandboxInvoker(resident_pool)
     ingestion_invoker = ingestion_invoker or ScriptSandboxInvoker(executor)
     authorize = _control_dependency(
         control_token
@@ -801,10 +932,12 @@ def build_service_app(
     handles: dict[str, ContainerHandle] = {}
 
     _manager = manager  # capture for closure
+    _settings = settings
+    _resident_pool = resident_pool
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
-        async with _manager_lifespan(_manager):
+        async with _manager_lifespan(_manager, _settings, _resident_pool):
             yield
 
     app = FastAPI(
@@ -816,7 +949,7 @@ def build_service_app(
         lifespan=_lifespan,
     )
     _register_container_routes(app, runtime, handles, settings, authorize)
-    _register_lease_routes(app, manager, authorize)
+    _register_lease_routes(app, manager, authorize, resident_pool)
     _register_sandbox_routes(
         app,
         executor,

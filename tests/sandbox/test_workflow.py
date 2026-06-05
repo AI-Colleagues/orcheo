@@ -326,11 +326,12 @@ def test_broker_credential_context_resolves_secret(
         calls.append((url, json, headers))
         return httpx.Response(200, json={"value": "vault-secret"})
 
-    monkeypatch.setenv("ORCHEO_BROKER_TOKEN", "broker-token")
     monkeypatch.setenv("ORCHEO_CREDENTIAL_BROKER_URL", "http://runtime/broker")
     monkeypatch.setattr(workflow_runner.httpx, "post", _post)
 
-    with workflow_runner._credential_context(run_id="run-1", workspace_id="ws-1"):
+    with workflow_runner._credential_context(
+        run_id="run-1", workspace_id="ws-1", broker_token="broker-token"
+    ):
         resolver = get_active_credential_resolver()
         assert resolver is not None
         assert resolver.resolve(credential_ref("openai_api_key")) == "vault-secret"
@@ -384,8 +385,11 @@ def test_run_in_subprocess_spawn_mode_creates_child_process(
         def start(self) -> None:
             calls.append("start")
 
-        def join(self) -> None:
+        def join(self, timeout: float | None = None) -> None:
             calls.append("join")
+
+        def is_alive(self) -> bool:
+            return False
 
     class _FakeContext:
         def Queue(self) -> _FakeQueue:
@@ -405,6 +409,6 @@ def test_run_in_subprocess_spawn_mode_creates_child_process(
 
     result = workflow_runner.run_in_subprocess({}, {}, spawn=True)
     assert result == fake_result
-    assert "get_context:spawn" in calls
+    assert "get_context:fork" in calls
     assert "start" in calls
     assert "join" in calls
