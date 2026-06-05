@@ -57,26 +57,15 @@ services:
       ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN: ${ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN:-}
       ORCHEO_STUDIO_URL: ${ORCHEO_STUDIO_URL:-http://localhost:2026}
       ORCHEO_CORS_ALLOW_ORIGINS: ${ORCHEO_CORS_ALLOW_ORIGINS:-http://localhost:2026,http://127.0.0.1:2026}
-      ORCHEO_CHATKIT_ATTACHMENT_BASE_URL: http://10.99.0.2:9091
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
-      ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
       ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET:?set ORCHEO_CREDENTIAL_BROKER_SECRET}
-      ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:?set ORCHEO_SANDBOX_CONTROL_TOKEN}
-      ORCHEO_CREDENTIAL_BROKER_URL: http://10.99.0.2:9091/credentials/resolve
-      ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
-      ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest}
-      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
       PYTHONUNBUFFERED: "1"
     depends_on:
       redis:
         condition: service_healthy
       postgres:
-        condition: service_healthy
-      sandbox-runtime:
-        condition: service_healthy
-      credential-relay:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:2025/api/system/health > /dev/null"]
@@ -112,27 +101,16 @@ services:
       ORCHEO_AUTH_DEV_LOGIN_ENABLED: ${ORCHEO_AUTH_DEV_LOGIN_ENABLED:-false}
       ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN: ${ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN:-}
       ORCHEO_STUDIO_URL: ${ORCHEO_STUDIO_URL:-http://localhost:2026}
-      ORCHEO_CHATKIT_ATTACHMENT_BASE_URL: http://10.99.0.2:9091
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_BACKEND_INTERNAL_URL: http://backend:2025
-      ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
       ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET:?set ORCHEO_CREDENTIAL_BROKER_SECRET}
-      ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:?set ORCHEO_SANDBOX_CONTROL_TOKEN}
-      ORCHEO_CREDENTIAL_BROKER_URL: http://10.99.0.2:9091/credentials/resolve
-      ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
-      ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest}
-      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
       PYTHONUNBUFFERED: "1"
     depends_on:
       redis:
         condition: service_healthy
       postgres:
-        condition: service_healthy
-      sandbox-runtime:
-        condition: service_healthy
-      credential-relay:
         condition: service_healthy
     command: python -m celery -A orcheo_backend.worker.celery_app worker --loglevel=info
 
@@ -216,100 +194,9 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
-  nft-init:
-    # One-shot init that loads the L3/L4 egress deny ruleset onto the host.
-    # Uses `|| true` so it exits cleanly on non-Linux hosts (e.g. macOS dev).
-    image: alpine:3
-    network_mode: host
-    privileged: true
-    restart: "no"
-    command:
-      - sh
-      - -c
-      - "apk add -q --no-cache nftables >/dev/null 2>&1 && nft -f /nft/sandbox-egress.nft || true"
-    volumes:
-      - ./sandbox-egress.nft:/nft/sandbox-egress.nft:ro
-
-  sandbox-runtime:
-    # Sole service mounting the container-runtime socket. Treat as
-    # root-equivalent on the host; never expose this socket to tenant code.
-    image: ${ORCHEO_SANDBOX_RUNTIME_IMAGE:-ghcr.io/ai-colleagues/orcheo-sandbox-runtime:latest}
-    restart: unless-stopped
-    depends_on:
-      nft-init:
-        condition: service_completed_successfully
-    volumes:
-      # Writable: the runtime calls `docker run` / `docker exec` to spawn
-      # per-workspace sandbox children.
-      - /var/run/docker.sock:/var/run/docker.sock
-      - sandbox_scratch:/scratch
-    environment:
-      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runsc}
-      ORCHEO_SANDBOX_IMAGE: ${ORCHEO_SANDBOX_IMAGE:-ghcr.io/ai-colleagues/orcheo-workspace-sandbox:latest}
-      ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:?set ORCHEO_SANDBOX_CONTROL_TOKEN}
-      # Use literal sandbox-egress IPs (matching the static ipv4_address
-      # assignments below) so spawned sandboxes — which live on sandbox-egress
-      # and cannot reach the default-network DNS resolution of these names —
-      # connect directly to the right interface.
-      ORCHEO_EGRESS_PROXY_URL: http://10.99.0.3:3128
-      ORCHEO_CREDENTIAL_BROKER_URL: http://10.99.0.2:9091/credentials/resolve
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:9090/healthz"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - default
-
-  credential-relay:
-    image: ${ORCHEO_SANDBOX_RUNTIME_IMAGE:-ghcr.io/ai-colleagues/orcheo-sandbox-runtime:latest}
-    restart: unless-stopped
-    command: ["uv", "run", "uvicorn", "orcheo.sandbox.service:build_credential_relay_app", "--factory", "--host", "0.0.0.0", "--port", "9091"]
-    environment:
-      ORCHEO_CREDENTIAL_BROKER_FORWARD_URL: http://backend:2025/internal/credentials/resolve
-      ORCHEO_CHATKIT_ATTACHMENT_FORWARD_URL: http://backend:2025/api/chatkit/attachments
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:9091/healthz"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      default:
-      sandbox-egress:
-        ipv4_address: 10.99.0.2
-
-  egress-proxy:
-    image: ${ORCHEO_EGRESS_PROXY_IMAGE:-envoyproxy/envoy:v1.33-latest}
-    restart: unless-stopped
-    command: ["envoy", "-c", "/etc/envoy/envoy.yaml"]
-    volumes:
-      - ${ORCHEO_EGRESS_PROXY_CONFIG:-./envoy-forward-proxy.yaml}:/etc/envoy/envoy.yaml:ro
-    networks:
-      default:
-      sandbox-egress:
-        ipv4_address: 10.99.0.3
-
-networks:
-  sandbox-egress:
-    # Sandbox child containers are created through the host Docker API with
-    # network_mode=sandbox-egress, so this must be the real Docker network
-    # name rather than Compose's project-prefixed default.
-    name: sandbox-egress
-    # nftables rules attached to this bridge enforce the L3/L4 deny policy.
-    # See deploy/stack/sandbox-egress.nft.
-    driver: bridge
-    driver_opts:
-      com.docker.network.bridge.name: sandbox0
-    ipam:
-      config:
-        - subnet: 10.99.0.0/24
-          ip_range: 10.99.0.128/25
-          gateway: 10.99.0.1
-
 volumes:
   postgres_data:
   redis_data:
   orcheo_data:
   caddy_data:
   caddy_config:
-  sandbox_scratch:

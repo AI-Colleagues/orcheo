@@ -59,16 +59,9 @@ services:
       ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN: ${ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN:-}
       ORCHEO_STUDIO_URL: ${ORCHEO_STUDIO_URL:-http://localhost:2026}
       ORCHEO_CORS_ALLOW_ORIGINS: ${ORCHEO_CORS_ALLOW_ORIGINS:-http://localhost:2026,http://127.0.0.1:2026}
-      ORCHEO_CHATKIT_ATTACHMENT_BASE_URL: http://10.99.0.2:9091
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
-      ORCHEO_SANDBOX_DISABLED: ${ORCHEO_SANDBOX_DISABLED:-true}
-      ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
       ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET}
-      ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:-local-dev-sandbox-control-token}
-      ORCHEO_CREDENTIAL_BROKER_URL: http://10.99.0.2:9091/credentials/resolve
-      ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
-      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
       # Use system Python from base image instead of downloading
       UV_PYTHON_PREFERENCE: system
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
@@ -106,17 +99,10 @@ services:
       ORCHEO_AUTH_DEV_LOGIN_ENABLED: ${ORCHEO_AUTH_DEV_LOGIN_ENABLED:-false}
       ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN: ${ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN:-}
       ORCHEO_STUDIO_URL: ${ORCHEO_STUDIO_URL:-http://localhost:2026}
-      ORCHEO_CHATKIT_ATTACHMENT_BASE_URL: http://10.99.0.2:9091
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_BACKEND_INTERNAL_URL: http://backend:2025
-      ORCHEO_SANDBOX_RUNTIME_URL: ${ORCHEO_SANDBOX_RUNTIME_URL:-http://sandbox-runtime:9090}
       ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET}
-      ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:-local-dev-sandbox-control-token}
-      ORCHEO_CREDENTIAL_BROKER_URL: http://10.99.0.2:9091/credentials/resolve
-      ORCHEO_EGRESS_PROXY_URL: http://egress-proxy:3128
-      ORCHEO_SANDBOX_DISABLED: ${ORCHEO_SANDBOX_DISABLED:-true}
-      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
       # Use system Python from base image instead of downloading
       UV_PYTHON_PREFERENCE: system
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
@@ -195,97 +181,6 @@ services:
     command: >
       sh -c 'if [ ! -d node_modules ] || [ -z "$$(ls -A node_modules 2>/dev/null)" ]; then npm ci; fi && npm run dev -- --host 0.0.0.0'
 
-  sandbox-runtime:
-    # Sole service mounting the container-runtime socket. Treat as
-    # root-equivalent on the host; never expose this socket to tenant code.
-    build:
-      context: .
-      dockerfile: Dockerfile.sandbox-runtime
-    image: ${ORCHEO_SANDBOX_RUNTIME_IMAGE:-orcheo/sandbox-runtime:local}
-    restart: unless-stopped
-    # Docker socket must be writable so we can `docker run` and `docker exec`.
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - sandbox_scratch:/scratch
-    environment:
-      ORCHEO_CONTAINER_RUNTIME: ${ORCHEO_CONTAINER_RUNTIME:-runc}
-      ORCHEO_SANDBOX_IMAGE: orcheo/workspace-sandbox:local
-      ORCHEO_SANDBOX_CONTROL_TOKEN: ${ORCHEO_SANDBOX_CONTROL_TOKEN:-local-dev-sandbox-control-token}
-      # Use literal sandbox-egress IPs (matching the static ipv4_address
-      # assignments below) so spawned sandboxes — which live on sandbox-egress
-      # and cannot reach the default-network DNS resolution of these names —
-      # connect directly to the right interface.
-      ORCHEO_EGRESS_PROXY_URL: http://10.99.0.3:3128
-      ORCHEO_CREDENTIAL_BROKER_URL: http://10.99.0.2:9091/credentials/resolve
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:9090/healthz"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - default
-
-  credential-relay:
-    build:
-      context: .
-      dockerfile: Dockerfile.sandbox-runtime
-    image: ${ORCHEO_SANDBOX_RUNTIME_IMAGE:-orcheo/sandbox-runtime:local}
-    restart: unless-stopped
-    command: ["uv", "run", "uvicorn", "orcheo.sandbox.service:build_credential_relay_app", "--factory", "--host", "0.0.0.0", "--port", "9091"]
-    environment:
-      ORCHEO_CREDENTIAL_BROKER_FORWARD_URL: http://backend:2025/internal/credentials/resolve
-      ORCHEO_CHATKIT_ATTACHMENT_FORWARD_URL: http://backend:2025/api/chatkit/attachments
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:9091/healthz"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      default:
-      sandbox-egress:
-        ipv4_address: 10.99.0.2
-
-  egress-proxy:
-    image: ${ORCHEO_EGRESS_PROXY_IMAGE:-envoyproxy/envoy:v1.33-latest}
-    restart: unless-stopped
-    command: ["envoy", "-c", "/etc/envoy/envoy.yaml"]
-    volumes:
-      - ${ORCHEO_EGRESS_PROXY_CONFIG:-./deploy/stack/envoy-forward-proxy.yaml}:/etc/envoy/envoy.yaml:ro
-    networks:
-      default:
-      sandbox-egress:
-        ipv4_address: 10.99.0.3
-
-  # The workspace-sandbox image is *not* run as part of the long-lived stack
-  # — it is the image the `sandbox-runtime` service spawns on demand to host
-  # vibe-agent sessions and tenant workflow runs. Declaring it as a service
-  # lets `docker compose up` build it automatically; the no-op command below
-  # makes the resulting container exit immediately so it leaves no long-lived
-  # process behind (default restart policy `no` keeps it from coming back).
-  workspace-sandbox:
-    build:
-      context: .
-      dockerfile: Dockerfile.workspace-sandbox
-    image: orcheo/workspace-sandbox:local
-    command: ["sh", "-c", "echo 'workspace-sandbox image is only consumed by sandbox-runtime at run time; nothing to run here.' && exit 0"]
-
-networks:
-  sandbox-egress:
-    # Sandbox child containers are created through the host Docker API with
-    # network_mode=sandbox-egress, so this must be the real Docker network
-    # name rather than Compose's project-prefixed default.
-    name: sandbox-egress
-    # nftables rules attached to this bridge enforce the L3/L4 deny policy.
-    # See deploy/stack/sandbox-egress.nft.
-    driver: bridge
-    driver_opts:
-      com.docker.network.bridge.name: sandbox0
-    ipam:
-      config:
-        - subnet: 10.99.0.0/24
-          ip_range: 10.99.0.128/25
-          gateway: 10.99.0.1
-
 volumes:
   postgres_data:
   redis_data:
@@ -295,4 +190,3 @@ volumes:
   backend_venv:
   worker_venv:
   celery_venv:
-  sandbox_scratch:

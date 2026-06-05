@@ -12,13 +12,6 @@ afterEach(() => {
 });
 
 describe("template compatibility", () => {
-  it("resolves the vibe-agent template from the static registry", () => {
-    const template = getWorkflowTemplateDefinition("template-vibe-agent");
-    expect(template).toBeDefined();
-    expect(template!.workflow.name).toBe("Orcheo Vibe");
-    expect(() => assertWorkflowTemplateCompatibility(template!)).not.toThrow();
-  });
-
   it("resolves candidate templates from the runtime registry", () => {
     setCandidateBadges([
       {

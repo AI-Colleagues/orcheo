@@ -4,15 +4,12 @@ import {
   type WorkflowTemplateDefinition,
 } from "./template-definition";
 import { getCandidateTemplateDefinition } from "./candidate-badges";
-import { VIBE_AGENT_TEMPLATE } from "./vibe-agent";
 
 export const SAMPLE_WORKFLOWS: Workflow[] = [];
 
 export const GALLERY_TEMPLATE_WORKFLOWS: Workflow[] = [];
 
-export const WORKFLOW_TEMPLATE_DEFINITIONS: WorkflowTemplateDefinition[] = [
-  VIBE_AGENT_TEMPLATE,
-];
+export const WORKFLOW_TEMPLATE_DEFINITIONS: WorkflowTemplateDefinition[] = [];
 
 const TEMPLATE_BY_ID = new Map(
   WORKFLOW_TEMPLATE_DEFINITIONS.map((definition) => [
