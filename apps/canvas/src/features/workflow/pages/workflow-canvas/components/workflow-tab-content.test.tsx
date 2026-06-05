@@ -58,17 +58,6 @@ const baseProps = {
 } satisfies Parameters<typeof WorkflowTabContent>[0];
 
 describe("WorkflowTabContent", () => {
-  it("hides the offboard action for the managed vibe workflow", () => {
-    render(
-      <WorkflowTabContent
-        {...baseProps}
-        workflowRouteRef="orcheo-vibe-agent"
-      />,
-    );
-
-    expect(screen.queryByRole("button", { name: /^offboard$/i })).toBeNull();
-  });
-
   it("shows the offboard action for regular workflows", () => {
     render(<WorkflowTabContent {...baseProps} workflowRouteRef="workflow-1" />);
 

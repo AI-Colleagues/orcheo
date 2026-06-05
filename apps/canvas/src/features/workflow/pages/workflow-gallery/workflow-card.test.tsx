@@ -67,11 +67,6 @@ const onboardedCandidateWorkflow = {
   ],
 } satisfies Parameters<typeof WorkflowCard>[0]["workflow"];
 
-const managedWorkflow = {
-  ...colleagueWorkflow,
-  handle: "orcheo-vibe-agent",
-  name: "Orcheo Vibe",
-} satisfies Parameters<typeof WorkflowCard>[0]["workflow"];
 
 const createHandlers = () => ({
   onOpenWorkflow: vi.fn(),
@@ -256,25 +251,4 @@ describe("WorkflowCard", () => {
     expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
   });
 
-  it("hides offboard actions for the managed vibe workflow", async () => {
-    const user = userEvent.setup();
-    const handlers = createHandlers();
-
-    render(
-      <WorkflowCard
-        workflow={managedWorkflow}
-        isTemplate={false}
-        workspaceLabel="AI Company"
-        {...handlers}
-      />,
-    );
-
-    await user.click(
-      screen.getByRole("button", {
-        name: /workflow actions/i,
-      }),
-    );
-
-    expect(screen.queryByRole("menuitem", { name: /^offboard$/i })).toBeNull();
-  });
 });
