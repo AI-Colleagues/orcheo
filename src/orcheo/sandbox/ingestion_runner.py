@@ -5,7 +5,6 @@ import contextlib
 import io
 import json
 import sys
-from collections.abc import Mapping
 from typing import Any
 from orcheo.graph.ingestion import (
     DEFAULT_EXECUTION_TIMEOUT_SECONDS,
@@ -50,13 +49,13 @@ def main() -> None:
     print(json.dumps(result), flush=True)
 
 
-def _read_request() -> Mapping[str, Any]:
+def _read_request() -> dict[str, Any]:
     """Read the complete JSON request body from stdin."""
     raw = sys.stdin.read()
     if not raw.strip():
         raise ValueError("missing ingestion request")
     request = json.loads(raw)
-    if not isinstance(request, Mapping):
+    if not isinstance(request, dict):
         raise TypeError("ingestion request must be a JSON object")
     return request
 
