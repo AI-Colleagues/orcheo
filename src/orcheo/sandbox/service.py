@@ -323,29 +323,39 @@ class ResidentRunnerPool:
         # sandbox_id → asyncio subprocess handle
         self._runners: dict[str, asyncio.subprocess.Process] = {}
 
-    async def _start_runner(self, sandbox_id: str) -> asyncio.subprocess.Process:
+    async def _start_runner(self, sandbox_id: str, broker_token: str = "") -> asyncio.subprocess.Process:
         """Start a fresh resident runner inside the container and register it."""
-        process = await asyncio.create_subprocess_exec(
+        cmd = [
             "docker",
             "exec",
             "-i",
+        ]
+        # Add broker token environment variable if provided
+        if broker_token:
+            cmd.extend(["-e", f"ORCHEO_BROKER_TOKEN={broker_token}"])
+        
+        cmd.extend([
             sandbox_id,
             "python",
             "-m",
             _WORKFLOW_RUNNER_MODULE,
+        ])
+        
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,  # Redirect stderr to avoid pipe blocking
         )
         self._runners[sandbox_id] = process
         return process
 
-    async def _get_or_start(self, sandbox_id: str) -> asyncio.subprocess.Process:
+    async def _get_or_start(self, sandbox_id: str, broker_token: str = "") -> asyncio.subprocess.Process:
         """Return the live runner for sandbox_id, starting one if absent or dead."""
         process = self._runners.get(sandbox_id)
         if process is not None and process.returncode is None:
             return process
-        return await self._start_runner(sandbox_id)
+        return await self._start_runner(sandbox_id, broker_token)
 
     def _kill_runner(self, sandbox_id: str) -> None:
         """Terminate and forget the runner for sandbox_id."""
@@ -378,7 +388,7 @@ class ResidentRunnerPool:
     ) -> WorkflowRunResult:
         failure_reason: str = ""
         try:
-            process = await self._get_or_start(sandbox_id)
+            process = await self._get_or_start(sandbox_id, broker_token)
             payload_bytes = (
                 json.dumps(
                     {

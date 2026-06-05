@@ -856,9 +856,9 @@ def test_resident_runner_pool_reuses_process_across_calls() -> None:
         start_calls: list[str] = []
         original_start = pool._start_runner
 
-        async def _tracking_start(sandbox_id: str):
+        async def _tracking_start(sandbox_id: str, broker_token: str = ""):
             start_calls.append(sandbox_id)
-            return await original_start(sandbox_id)
+            return await original_start(sandbox_id, broker_token)
 
         result_line = b'{"run_id":"r","status":"succeeded","outputs":{},"error":null}\n'
         fake_stdout = mock.AsyncMock()
@@ -1807,7 +1807,7 @@ def test_pool_returns_failed_on_eof() -> None:
         pool = ResidentRunnerPool()
         # Both the first attempt and the retry return EOF → final failure.
         pool._runners["sb-1"] = _make_fake_pool_process(response_line=b"")
-        pool._start_runner = lambda sid: _make_fake_pool_process(response_line=b"")  # type: ignore[method-assign]
+        pool._start_runner = lambda sid, token="": _make_fake_pool_process(response_line=b"")  # type: ignore[method-assign]
 
         spec = WorkflowRunSpec(
             run_id="r-eof", workspace_id="ws", workflow_definition={}, inputs={}
@@ -1829,7 +1829,7 @@ def test_pool_returns_failed_on_invalid_json() -> None:
         pool = ResidentRunnerPool()
         bad_line = b"{not valid json}\n"
         pool._runners["sb-1"] = _make_fake_pool_process(response_line=bad_line)
-        pool._start_runner = lambda sid: _make_fake_pool_process(response_line=bad_line)  # type: ignore[method-assign]
+        pool._start_runner = lambda sid, token="": _make_fake_pool_process(response_line=bad_line)  # type: ignore[method-assign]
 
         spec = WorkflowRunSpec(
             run_id="r-badjson", workspace_id="ws", workflow_definition={}, inputs={}
