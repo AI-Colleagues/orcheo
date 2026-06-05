@@ -161,10 +161,6 @@ def test_install_ensure_stack_env_command_renders_egress_config_when_compose_exi
         "orcheo_sdk.cli.main.ensure_stack_env_file",
         lambda **kwargs: calls.append(("env", kwargs)),
     )
-    monkeypatch.setattr(
-        "orcheo_sdk.cli.main.ensure_egress_proxy_config",
-        lambda **kwargs: calls.append(("egress", kwargs)),
-    )
 
     ensure_stack_env_command(
         SimpleNamespace(obj=None),
@@ -172,7 +168,7 @@ def test_install_ensure_stack_env_command_renders_egress_config_when_compose_exi
         env_template=str(env_template),
     )
 
-    assert [call[0] for call in calls] == ["env", "egress"]
+    assert [call[0] for call in calls] == ["env"]
 
 
 def test_stack_logs_treats_sigint_exit_as_success(

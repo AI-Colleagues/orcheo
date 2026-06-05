@@ -1,4 +1,4 @@
-"""Attachment resolver protocol and sandbox transport helpers.
+"""Attachment resolver protocol and runtime transport helpers.
 
 Defines the small cross-boundary contract that lets workflow nodes resolve
 attachment bytes without importing ``orcheo_backend`` internals.
@@ -81,7 +81,7 @@ class AttachmentUploader(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class AttachmentScopeRecord:
-    """Concrete attachment scope representation used by sandbox hydration."""
+    """Concrete attachment scope representation used by runtime hydration."""
 
     workspace_id: str
     workflow_id: str | None = None
@@ -91,7 +91,7 @@ class AttachmentScopeRecord:
 
 @dataclass(frozen=True, slots=True)
 class AttachmentPayloadRecord:
-    """Concrete attachment payload returned by sandbox-side resolver proxies."""
+    """Concrete attachment payload returned by resolver proxies."""
 
     id: str
     name: str
@@ -164,12 +164,7 @@ class ChatKitAttachmentResolverProxy:
 
 
 class ChatKitAttachmentUploaderProxy:
-    """Upload workflow-produced attachments via the internal relay endpoint.
-
-    Uses the broker token from the sandbox environment to authenticate against
-    the credential-relay, which forwards the request to the backend's internal
-    attachment upload endpoint.
-    """
+    """Upload workflow-produced attachments via the backend attachment endpoint."""
 
     def __init__(
         self,
@@ -248,12 +243,11 @@ class ChatKitAttachmentUploaderProxy:
 def serialize_attachment_runtime_config(
     config: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    """Return a sandbox-safe copy of a runtime config mapping.
+    """Return a JSON-safe copy of a runtime config mapping.
 
     Attachment resolver and scope values are converted into plain JSON-safe
-    payloads so the config can cross the sandbox dispatch boundary. Attachment
-    uploaders are intentionally dropped in sandboxed runs because the current
-    sandbox image does not expose a supported upload proxy.
+    payloads so the config can cross process boundaries. Attachment uploaders
+    are intentionally dropped when they cannot be represented safely.
     """
     if not isinstance(config, Mapping):
         return {}
@@ -299,7 +293,7 @@ def serialize_attachment_runtime_config(
 def hydrate_attachment_runtime_config(
     config: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    """Hydrate sandbox-safe attachment descriptors back into runtime objects."""
+    """Hydrate serialized attachment descriptors back into runtime objects."""
     if not isinstance(config, Mapping):
         return {}
 
@@ -328,7 +322,7 @@ def _serialize_attachment_uploader(
     scope: Any,
     base_urls: list[str],
 ) -> dict[str, Any] | None:
-    """Return a sandbox-safe marker for an attachment uploader bound to *scope*."""
+    """Return a serialized marker for an attachment uploader bound to *scope*."""
     if not base_urls:
         return None
 
@@ -409,7 +403,7 @@ def _hydrate_attachment_resolver(payload: dict[str, Any]) -> None:
 
 
 def _resolve_public_attachment_base_urls() -> list[str]:
-    """Return candidate child-facing origins for sandbox attachment resolution."""
+    """Return candidate child-facing origins for attachment resolution."""
     candidates: list[str] = []
 
     def _add_candidate(raw: str | None) -> None:
@@ -424,14 +418,11 @@ def _resolve_public_attachment_base_urls() -> list[str]:
         if normalized not in candidates:
             candidates.append(normalized)
 
-    _add_candidate(_origin_from_url(os.environ.get("ORCHEO_CREDENTIAL_BROKER_URL")))
-    _add_candidate(os.environ.get("ORCHEO_CHATKIT_ATTACHMENT_BASE_URL"))
-    _add_candidate(os.environ.get("ORCHEO_API_URL"))
-    _add_candidate(os.environ.get("ORCHEO_API_BASE_URL"))
-    _add_candidate("http://credential-relay:9091")
-
-    if not candidates:  # pragma: no cover
-        candidates.append("http://credential-relay:9091")
+    _add_candidate(
+        _origin_from_url(os.environ.get("ORCHEO_CHATKIT_ATTACHMENT_BASE_URL"))
+    )
+    _add_candidate(_origin_from_url(os.environ.get("ORCHEO_API_URL")))
+    _add_candidate(_origin_from_url(os.environ.get("ORCHEO_API_BASE_URL")))
     return candidates
 
 

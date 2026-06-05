@@ -36,7 +36,6 @@ _STACK_ASSET_FILES = (
     "docker-compose.yml",
     "Caddyfile",
     "Dockerfile.orcheo",
-    "envoy-forward-proxy.yaml",
     ".env.example",
     "chatkit_widgets/Single-choice list.widget",
     "chatkit_widgets/Multi-choice Selector.widget",
@@ -558,129 +557,6 @@ def _attempt_docker_autoinstall(*, console: Console) -> bool:
     message, installer = message_and_installer
     console.print(message)
     return installer(console=console)
-
-
-# Pipelines run as root via `sh -c` so the apt key + source list land in the
-# locations the official gVisor install docs use.
-_GVISOR_KEYRING_COMMAND = (
-    "curl -fsSL https://gvisor.dev/archive.key | "
-    "gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg"
-)
-_GVISOR_SOURCES_COMMAND = (
-    'echo "deb [arch=$(dpkg --print-architecture) '
-    "signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] "
-    'https://storage.googleapis.com/gvisor/releases release main" '
-    "> /etc/apt/sources.list.d/gvisor.list"
-)
-
-
-def _docker_runtimes(*, use_privileged: bool) -> set[str] | None:
-    """Return the runtime names Docker has registered, or None if unknown."""
-    docker_command = _docker_command()
-    if docker_command is None:
-        return None
-    command = [*docker_command, "info", "--format", "{{json .Runtimes}}"]
-    if use_privileged and os.geteuid() != 0:
-        if not _has_binary("sudo"):
-            return None
-        command = ["sudo", *command]
-    result = subprocess.run(command, check=False, capture_output=True, text=True)
-    if result.returncode != 0:
-        return None
-    try:
-        data = json.loads(result.stdout.strip() or "{}")
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(data, dict):
-        return None
-    return set(data.keys())
-
-
-def _attempt_linux_gvisor_autoinstall(*, console: Console) -> bool:
-    if not _is_supported_docker_autoinstall_linux():
-        console.print(
-            "[yellow]Automatic gVisor installation currently supports apt-based "
-            "Ubuntu/Debian systems on Linux. Install runsc manually or set "
-            "ORCHEO_CONTAINER_RUNTIME=runc.[/yellow]"
-        )
-        return False
-    if not _has_binary("apt-get"):
-        console.print(
-            "[yellow]Automatic gVisor installation currently supports apt-based "
-            "Ubuntu/Debian systems on Linux.[/yellow]"
-        )
-        return False
-
-    try:
-        _run_privileged_command(["apt-get", "update"], console=console)
-        _run_privileged_command(
-            [
-                "apt-get",
-                "install",
-                "-y",
-                "--no-install-recommends",
-                "ca-certificates",
-                "curl",
-                "gnupg",
-            ],
-            console=console,
-        )
-        _run_privileged_command(["sh", "-c", _GVISOR_KEYRING_COMMAND], console=console)
-        _run_privileged_command(["sh", "-c", _GVISOR_SOURCES_COMMAND], console=console)
-        _run_privileged_command(["apt-get", "update"], console=console)
-        _run_privileged_command(["apt-get", "install", "-y", "runsc"], console=console)
-        # `runsc install` registers the runtime in /etc/docker/daemon.json; the
-        # daemon must be restarted to pick it up.
-        _run_privileged_command(["runsc", "install"], console=console)
-        _run_privileged_command(["systemctl", "restart", "docker"], console=console)
-    except (typer.BadParameter, FileNotFoundError) as exc:
-        console.print(
-            "[yellow]Automatic gVisor installation failed: "
-            f"{exc}. The stack will start, but sandboxed workflows will fail "
-            "until runsc is installed and registered with Docker.[/yellow]"
-        )
-        return False
-
-    if not _has_binary("runsc"):
-        console.print(
-            "[yellow]gVisor installation completed but the runsc binary is still "
-            "not available in PATH.[/yellow]"
-        )
-        return False
-    return True
-
-
-def _ensure_gvisor_runtime(
-    config: SetupConfig,
-    *,
-    env_file: Path,
-    use_privileged_docker: bool,
-    console: Console,
-) -> None:
-    """Install + register gVisor when the stack is configured to use runsc."""
-    runtime = _read_env_value(env_file, "ORCHEO_CONTAINER_RUNTIME") or "runsc"
-    if runtime != "runsc":
-        return
-    if not config.install_docker_if_missing:
-        return
-    if platform.system() != "Linux":
-        console.print(
-            "[yellow]ORCHEO_CONTAINER_RUNTIME=runsc, but gVisor only runs on "
-            "Linux. Set ORCHEO_CONTAINER_RUNTIME=runc for a local Docker Desktop "
-            "host, or run sandboxes on a Linux host.[/yellow]"
-        )
-        return
-
-    runtimes = _docker_runtimes(use_privileged=use_privileged_docker)
-    if runtimes is not None and "runsc" in runtimes:
-        return
-
-    console.print(
-        "[cyan]ORCHEO_CONTAINER_RUNTIME=runsc but the runsc runtime is not "
-        "registered with Docker. Attempting automatic gVisor installation..."
-        "[/cyan]"
-    )
-    _attempt_linux_gvisor_autoinstall(console=console)
 
 
 def _resolve_mode(
@@ -1340,8 +1216,6 @@ def build_generated_stack_env_defaults() -> dict[str, str]:
         "ORCHEO_POSTGRES_PASSWORD": secrets.token_urlsafe(16),
         "ORCHEO_VAULT_ENCRYPTION_KEY": secrets.token_hex(32),
         "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY": secrets.token_urlsafe(32),
-        "ORCHEO_CREDENTIAL_BROKER_SECRET": secrets.token_urlsafe(32),
-        "ORCHEO_SANDBOX_CONTROL_TOKEN": secrets.token_urlsafe(32),
     }
 
 
@@ -1365,34 +1239,6 @@ def _read_env_value(env_file: Path, key: str) -> str | None:
         _, _, value = line.partition("=")
         return _normalize_dotenv_value(value)
     return None
-
-
-def ensure_egress_proxy_config(
-    *,
-    env_file: Path,
-    stack_dir: Path,
-    console: Console,
-) -> Path:
-    """Render the Envoy forward-proxy config from the stack env file.
-
-    Materializes ``ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS`` into a concrete
-    ``envoy-forward-proxy.yaml`` next to the compose file so the
-    egress-proxy container mounts a config that reflects the operator's
-    allowlist without a separate manual step. Returns the output path.
-    """
-    # Local import to avoid a hard dependency from the SDK CLI on the core
-    # ``orcheo`` package at import time (CLI loads even when the core is
-    # not available, e.g. during a partial install).
-    from orcheo.sandbox.egress.proxy import EnvoyForwardProxyConfig
-
-    raw = _read_env_value(env_file, "ORCHEO_SANDBOX_EGRESS_ALLOWED_HOSTS") or ""
-    hosts = tuple(item.strip() for item in raw.split(",") if item.strip())
-    config = EnvoyForwardProxyConfig(global_allowed_hosts=hosts)
-    output = stack_dir / "envoy-forward-proxy.yaml"
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(config.render_yaml(), encoding="utf-8")
-    console.print(f"[green]Rendered envoy egress config to {output}[/green]")
-    return output
 
 
 def _warn_chatkit_domain_key_missing(*, env_file: Path, console: Console) -> None:
@@ -1564,7 +1410,6 @@ def _ensure_stack_assets(
         )
 
     _upsert_env_values(env_file, updates, console=console)
-    ensure_egress_proxy_config(env_file=env_file, stack_dir=stack_dir, console=console)
     return stack_dir, env_file
 
 
@@ -1864,14 +1709,6 @@ def execute_setup(
     _, use_privileged_docker = _prepare_stack_start(config, console=console)
 
     if config.start_stack and _has_binary("docker"):
-        # Register gVisor before `compose up` — `runsc install` restarts the
-        # Docker daemon, which would otherwise bounce freshly-started services.
-        _ensure_gvisor_runtime(
-            config,
-            env_file=env_file,
-            use_privileged_docker=use_privileged_docker,
-            console=console,
-        )
         compose_args = _compose_args(stack_dir)
         command_runner = (
             _run_privileged_command if use_privileged_docker else _run_command

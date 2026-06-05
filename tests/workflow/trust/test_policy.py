@@ -53,18 +53,6 @@ def test_production_rejects_code_node(policy: TrustedWorkflowPolicy) -> None:
     )
 
 
-def test_production_rejects_javascript_sandbox_node(
-    policy: TrustedWorkflowPolicy,
-) -> None:
-    result = policy.validate(
-        _graph("JavaScriptSandboxNode"), mode=WorkflowTrustMode.PRODUCTION
-    )
-    assert not result.allowed
-    assert any(
-        v.reason == PolicyRejectionReason.BLOCKED_NODE_TYPE for v in result.violations
-    )
-
-
 def test_production_rejects_unknown_node(policy: TrustedWorkflowPolicy) -> None:
     result = policy.validate(
         _graph("SomeFancyPluginNode"), mode=WorkflowTrustMode.PRODUCTION

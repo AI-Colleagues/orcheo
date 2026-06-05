@@ -28,11 +28,11 @@ def test_serialize_attachment_runtime_config_sanitizes_runtime_objects(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv(
-        "ORCHEO_CREDENTIAL_BROKER_URL",
+        "ORCHEO_API_URL",
         "http://10.99.0.2:9091/credentials/resolve",
     )
     monkeypatch.setenv(
-        "ORCHEO_CHATKIT_ATTACHMENT_BASE_URL", "http://credential-relay:9091"
+        "ORCHEO_CHATKIT_ATTACHMENT_BASE_URL", "http://backend.local:2025"
     )
     config = {
         "configurable": {
@@ -55,8 +55,8 @@ def test_serialize_attachment_runtime_config_sanitizes_runtime_objects(
     assert sanitized["configurable"]["attachment_resolver"] == {
         "__orcheo_attachment_resolver__": {
             "base_urls": [
+                "http://backend.local:2025",
                 "http://10.99.0.2:9091",
-                "http://credential-relay:9091",
             ],
         }
     }
@@ -71,8 +71,8 @@ def test_serialize_attachment_runtime_config_sanitizes_runtime_objects(
     assert sanitized["configurable"]["attachment_uploader"] == {
         "__orcheo_attachment_uploader__": {
             "base_urls": [
+                "http://backend.local:2025",
                 "http://10.99.0.2:9091",
-                "http://credential-relay:9091",
             ],
             "workflow_id": "wf-1",
             "thread_id": "thr-1",
@@ -107,11 +107,11 @@ def test_serialize_attachment_runtime_config_preserves_scope_marker() -> None:
     }
 
 
-def test_serialize_attachment_runtime_config_prefers_broker_origin(
+def test_serialize_attachment_runtime_config_prefers_api_origin(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv(
-        "ORCHEO_CREDENTIAL_BROKER_URL",
+        "ORCHEO_API_URL",
         "http://10.99.0.2:9091/credentials/resolve",
     )
 
@@ -121,10 +121,7 @@ def test_serialize_attachment_runtime_config_prefers_broker_origin(
 
     assert sanitized["configurable"]["attachment_resolver"] == {
         "__orcheo_attachment_resolver__": {
-            "base_urls": [
-                "http://10.99.0.2:9091",
-                "http://credential-relay:9091",
-            ],
+            "base_urls": ["http://10.99.0.2:9091"],
         }
     }
 
@@ -132,14 +129,11 @@ def test_serialize_attachment_runtime_config_prefers_broker_origin(
 def test_hydrate_attachment_runtime_config_restores_proxy_objects(
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv(
-        "ORCHEO_CHATKIT_ATTACHMENT_BASE_URL", "http://credential-relay:9091"
-    )
     serialized = {
         "configurable": {
             "attachment_resolver": {
                 "__orcheo_attachment_resolver__": {
-                    "base_urls": ["http://credential-relay:9091"],
+                    "base_urls": ["http://backend.local:2025"],
                 }
             },
             "attachment_scope": {
@@ -171,7 +165,7 @@ def test_hydrate_attachment_runtime_config_supports_legacy_base_url_field() -> N
         "configurable": {
             "attachment_resolver": {
                 "__orcheo_attachment_resolver__": {
-                    "base_url": "http://credential-relay:9091",
+                    "base_url": "http://backend.local:2025",
                 }
             }
         }
@@ -238,7 +232,7 @@ def test_hydrate_attachment_runtime_config_restores_uploader_proxy() -> None:
         "configurable": {
             "attachment_uploader": {
                 "__orcheo_attachment_uploader__": {
-                    "base_urls": ["http://credential-relay:9091"],
+                    "base_urls": ["http://backend.local:2025"],
                     "workflow_id": "wf-1",
                     "thread_id": "thr-1",
                     "upload_session_id": None,
@@ -261,7 +255,7 @@ def test_serialize_attachment_runtime_config_preserves_uploader_marker() -> None
         "configurable": {
             "attachment_uploader": {
                 "__orcheo_attachment_uploader__": {
-                    "base_urls": ["http://credential-relay:9091"],
+                    "base_urls": ["http://backend.local:2025"],
                     "workflow_id": "wf-1",
                     "thread_id": None,
                     "upload_session_id": None,
@@ -274,7 +268,7 @@ def test_serialize_attachment_runtime_config_preserves_uploader_marker() -> None
 
     assert sanitized["configurable"]["attachment_uploader"] == {
         "__orcheo_attachment_uploader__": {
-            "base_urls": ["http://credential-relay:9091"],
+            "base_urls": ["http://backend.local:2025"],
             "workflow_id": "wf-1",
             "thread_id": None,
             "upload_session_id": None,
@@ -1000,7 +994,6 @@ def test_resolve_public_attachment_base_urls_skips_empty_normalized(
     """Empty-after-strip URLs (e.g., all slashes) are skipped (line 420 return)."""
     from orcheo.runtime.attachments import _resolve_public_attachment_base_urls
 
-    monkeypatch.delenv("ORCHEO_CREDENTIAL_BROKER_URL", raising=False)
     monkeypatch.delenv("ORCHEO_API_URL", raising=False)
     monkeypatch.delenv("ORCHEO_API_BASE_URL", raising=False)
     # Set to a URL that strips to empty after rstrip('/')
@@ -1008,10 +1001,7 @@ def test_resolve_public_attachment_base_urls_skips_empty_normalized(
 
     candidates = _resolve_public_attachment_base_urls()
 
-    # credential-relay is always added as hard-coded fallback
-    assert "http://credential-relay:9091" in candidates
-    # The whitespace/slash-only URL should not appear
-    assert "///" not in candidates
+    assert candidates == []
 
 
 def test_resolve_public_attachment_base_urls_skips_localhost(
@@ -1021,7 +1011,6 @@ def test_resolve_public_attachment_base_urls_skips_localhost(
     from orcheo.runtime.attachments import _resolve_public_attachment_base_urls
 
     monkeypatch.setenv("ORCHEO_CHATKIT_ATTACHMENT_BASE_URL", "http://localhost:9091")
-    monkeypatch.delenv("ORCHEO_CREDENTIAL_BROKER_URL", raising=False)
     monkeypatch.delenv("ORCHEO_API_URL", raising=False)
     monkeypatch.delenv("ORCHEO_API_BASE_URL", raising=False)
 

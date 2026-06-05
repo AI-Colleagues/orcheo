@@ -17,15 +17,12 @@ from orcheo.graph.state import State
 from orcheo.nodes.ai.agentensor import AgentensorNode
 from orcheo.nodes.ai.tools.context import tool_progress_context
 from orcheo.nodes.browser import close_browser_sessions_for_scope
-from orcheo.runtime.attachments import serialize_attachment_runtime_config
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import (
     RunnableConfigModel,
     merge_runnable_configs,
 )
 from orcheo.runtime.state_builder import build_initial_state
-from orcheo.sandbox.dispatch import use_launcher
-from orcheo.sandbox.workflow import WorkflowRunResult
 from orcheo.tracing import (
     get_tracer,
     record_workflow_cancellation,
@@ -35,6 +32,13 @@ from orcheo.tracing import (
     workflow_span,
 )
 from orcheo.tracing.model_metadata import strip_trace_metadata
+from orcheo.workflow.trust import (
+    DECLARATIVE_FORMAT,
+    DeclarativeWorkflowGraph,
+    WorkflowTrustMode,
+    enforce_execution_policy,
+    get_workflow_trust_mode,
+)
 from orcheo_backend.app.dependencies import (
     credential_context_from_workflow,
     get_checkpoint_store,
@@ -49,13 +53,6 @@ from orcheo_backend.app.history import (
     RunHistoryStep,
     RunHistoryStore,
 )
-from orcheo_backend.app.sandbox import (
-    build_workflow_run_spec,
-    collect_node_types,
-    get_sandbox_dispatcher,
-    get_sandbox_launcher,
-    run_uses_trusted_nodes_only,
-)
 from orcheo_backend.app.trace_utils import build_trace_update
 
 
@@ -66,11 +63,11 @@ class UntrustedNodeNotAllowedError(RuntimeError):
     """Raised when an in-worker path receives an untrusted node type.
 
     The evaluation / training / single-node paths cannot wrap an entire
-    inner workflow in a sandbox the way ``execute_workflow`` does (they wrap
-    an already-compiled graph or run a single Python node directly). Rather
+    inner workflow the way ``execute_workflow`` does (they wrap an
+    already-compiled graph or run a single Python node directly). Rather
     than silently executing tenant code in-worker, those paths reject the
     request and tell the caller to author the workflow with trusted nodes
-    only or trigger it through the normal sandboxed execution path.
+    only.
     """
 
 
@@ -80,14 +77,54 @@ def _require_trusted_node_types(node_types: Iterable[str], *, context: str) -> N
     Raises ``UntrustedNodeNotAllowedError`` if any node type would have to
     execute as tenant Python in the host process.
     """
-    if not run_uses_trusted_nodes_only(node_types):
+    trusted_node_types = {
+        "AINode",
+        "BrowserNode",
+        "CodeExecutionNode",
+        "CronTriggerNode",
+        "DiscordBotListenerNode",
+        "DiscordEventsParserNode",
+        "HttpPollingTriggerNode",
+        "MongoDBNode",
+        "QQBotListenerNode",
+        "RSSNode",
+        "SlackEventsParserNode",
+        "SlackNode",
+        "TelegramBotListenerNode",
+        "TelegramEventsParserNode",
+        "TelegramNode",
+        "WebhookTriggerNode",
+        "WeComEventsParserNode",
+    }
+    if not node_types or any(
+        node_type not in trusted_node_types for node_type in node_types
+    ):
         offending = sorted(set(node_types))
         msg = (
-            f"{context} cannot execute untrusted node types in-worker: "
+            f"{context} cannot execute untrusted node types in-process: "
             f"{offending}. Refactor the workflow to use trusted built-in nodes "
-            "only, or invoke it through the standard sandboxed execution path."
+            "only."
         )
         raise UntrustedNodeNotAllowedError(msg)
+
+
+def _ensure_production_trusted_graph(graph_config: Mapping[str, Any]) -> None:
+    """Validate production workflow payloads against the declarative trust policy."""
+    if get_workflow_trust_mode() != WorkflowTrustMode.PRODUCTION:
+        return
+    if (
+        not isinstance(graph_config, Mapping)
+        or graph_config.get("format") != DECLARATIVE_FORMAT
+    ):
+        raise UntrustedNodeNotAllowedError(
+            "Production workflows must use a declarative graph payload."
+        )
+
+    declarative_graph = DeclarativeWorkflowGraph.model_validate(dict(graph_config))
+    enforce_execution_policy(
+        declarative_graph,
+        mode=WorkflowTrustMode.PRODUCTION,
+    )
 
 
 _should_log_sensitive_debug = False
@@ -129,72 +166,6 @@ def _log_final_state_debug(state_values: Mapping[str, Any] | Any) -> None:
     app_logger.debug("=" * 80)
     app_logger.debug("Final state values: %s", state_values)
     app_logger.debug("=" * 80)
-
-
-def _get_sandbox_launcher() -> Any:
-    """Return the shared sandbox launcher (delegates to the bootstrap)."""
-    return get_sandbox_launcher()
-
-
-async def _dispatch_sandboxed_run(
-    *,
-    workspace_id: str,
-    execution_id: str,
-    graph_config: dict[str, Any],
-    inputs: dict[str, Any],
-    runtime_config: Mapping[str, Any],
-    state_config: Mapping[str, Any],
-    history_store: RunHistoryStore,
-    websocket: WebSocket,
-    tracer: Tracer,
-    span: Span,
-) -> WorkflowRunResult:
-    """Run a workflow inside the per-workspace sandbox via the dispatcher.
-
-    The dispatcher returns a single ``WorkflowRunResult`` (no live streaming
-    from inside the sandbox). We persist a single ``sandbox_result`` step so
-    history clients still see something, then surface success / failure to
-    the caller for normal completion handling.
-    """
-    dispatcher = get_sandbox_dispatcher()
-    sandbox_runnable_config = serialize_attachment_runtime_config(runtime_config)
-    sandbox_state_config = serialize_attachment_runtime_config(state_config)
-    spec = build_workflow_run_spec(
-        execution_id=execution_id,
-        workspace_id=workspace_id,
-        graph_config=graph_config,
-        inputs=inputs,
-        runnable_config=sandbox_runnable_config,
-        state_config=sandbox_state_config,
-    )
-    result = await dispatcher.dispatch(spec)
-    payload: dict[str, Any] = {
-        "event": "sandbox_result",
-        "status": result.status,
-        "outputs": dict(result.outputs),
-    }
-    if result.error:
-        payload["error"] = result.error
-    record_workflow_step(tracer, payload)
-    history_step = await history_store.append_step(execution_id, payload)
-    await _safe_send_json(websocket, _sanitize_public_step_payload(payload))
-    await _emit_trace_update(
-        history_store,
-        websocket,
-        execution_id,
-        step=history_step,
-    )
-    if result.status != "succeeded":
-        error_message = result.error or f"sandboxed run finished with {result.status}"
-        record_workflow_failure(span, RuntimeError(error_message))
-        await _persist_failure_history(
-            history_store,
-            execution_id,
-            {"status": "error", "error": error_message},
-            error_message,
-            span,
-        )
-    return result
 
 
 _CANNOT_SEND_AFTER_CLOSE = 'Cannot call "send" once a close message has been sent.'
@@ -462,47 +433,6 @@ async def _resolve_stored_runnable_config(
     return version.runnable_config
 
 
-async def _execute_sandboxed_workflow(
-    *,
-    workspace_id: str,
-    execution_id: str,
-    graph_config: dict[str, Any],
-    inputs: dict[str, Any],
-    runtime_config: Mapping[str, Any],
-    state_config: Mapping[str, Any],
-    history_store: RunHistoryStore,
-    websocket: WebSocket,
-    tracer: Tracer,
-    span: Span,
-) -> None:
-    """Dispatch a workflow into the per-workspace sandbox and finalize history."""
-    result = await _dispatch_sandboxed_run(
-        workspace_id=workspace_id,
-        execution_id=execution_id,
-        graph_config=graph_config,
-        inputs=inputs,
-        runtime_config=runtime_config,
-        state_config=state_config,
-        history_store=history_store,
-        websocket=websocket,
-        tracer=tracer,
-        span=span,
-    )
-    if result.status == "succeeded":
-        completion_payload = {"status": "completed"}
-        record_workflow_completion(span)
-        await history_store.append_step(execution_id, completion_payload)
-        await history_store.mark_completed(execution_id)
-        await _safe_send_json(websocket, completion_payload)  # pragma: no cover
-    await _emit_trace_update(
-        history_store,
-        websocket,
-        execution_id,
-        include_root=True,
-        complete=True,
-    )
-
-
 async def _execute_trusted_workflow_in_worker(
     *,
     settings: Any,
@@ -521,34 +451,33 @@ async def _execute_trusted_workflow_in_worker(
     """Run a trusted-only workflow in-worker with the existing streaming path."""
     from orcheo_backend.app import build_graph, create_checkpointer, create_graph_store
 
-    with use_launcher(_get_sandbox_launcher()):
-        with credential_resolution(resolver):
-            async with create_checkpointer(settings) as checkpointer:
-                async with create_graph_store(settings) as graph_store:
-                    graph = build_graph(graph_config)
-                    compiled_graph = graph.compile(
-                        checkpointer=checkpointer,
-                        store=graph_store,
-                    )
-
-                state = _build_initial_state(
-                    graph_config,
-                    inputs,
-                    state_config,
-                    workspace_id,
+    with credential_resolution(resolver):
+        async with create_checkpointer(settings) as checkpointer:
+            async with create_graph_store(settings) as graph_store:
+                graph = build_graph(graph_config)
+                compiled_graph = graph.compile(
+                    checkpointer=checkpointer,
+                    store=graph_store,
                 )
-                _log_sensitive_debug("Initial state: %s", state)
 
-                await _run_workflow_stream(
-                    compiled_graph,
-                    state,
-                    runtime_config,
-                    history_store,
-                    execution_id,
-                    websocket,
-                    tracer,
-                    span,
-                )
+            state = _build_initial_state(
+                graph_config,
+                inputs,
+                state_config,
+                workspace_id,
+            )
+            _log_sensitive_debug("Initial state: %s", state)
+
+            await _run_workflow_stream(
+                compiled_graph,
+                state,
+                runtime_config,
+                history_store,
+                execution_id,
+                websocket,
+                tracer,
+                span,
+            )
 
 
 async def execute_workflow(
@@ -564,6 +493,12 @@ async def execute_workflow(
     """Execute a workflow and stream results over the provided websocket."""
     logger.info("Starting workflow %s with execution_id: %s", workflow_id, execution_id)
     _log_sensitive_debug("Initial inputs: %s", inputs)
+
+    try:
+        _ensure_production_trusted_graph(graph_config)
+    except UntrustedNodeNotAllowedError as exc:
+        await _safe_send_json(websocket, {"status": "error", "error": str(exc)})
+        return
 
     settings = get_settings()
     history_store = get_history_store()
@@ -595,7 +530,6 @@ async def execute_workflow(
             stored_runnable_config,
         )
     )
-
     try:
         with workflow_span(
             tracer,
@@ -687,95 +621,94 @@ async def _run_evaluation_node(
             step=history_step,
         )
 
-    with use_launcher(_get_sandbox_launcher()):
-        with credential_resolution(resolver):
-            async with create_checkpointer(settings) as checkpointer:
-                async with create_graph_store(settings) as graph_store:
-                    graph = build_graph(graph_config)
-                    compiled_graph = graph.compile(
-                        checkpointer=checkpointer,
-                        store=graph_store,
-                    )
-            node = AgentensorNode(
-                name="agentensor_evaluator",
-                mode="evaluate",
-                prompts=parsed_config.prompts or {},
-                dataset=evaluation_request.dataset,
-                evaluators=evaluation_request.evaluators,
-                max_cases=evaluation_request.max_cases,
-                compiled_graph=compiled_graph,
-                graph_config=graph_config,
-                state_config=state_config,
-                progress_callback=on_progress,
-            )
-            state = _build_initial_state(
-                graph_config,
-                inputs,
-                state_config,
-                workspace_id,
-            )
-            _log_sensitive_debug("Initial state: %s", state)
+    with credential_resolution(resolver):
+        async with create_checkpointer(settings) as checkpointer:
+            async with create_graph_store(settings) as graph_store:
+                graph = build_graph(graph_config)
+                compiled_graph = graph.compile(
+                    checkpointer=checkpointer,
+                    store=graph_store,
+                )
+        node = AgentensorNode(
+            name="agentensor_evaluator",
+            mode="evaluate",
+            prompts=parsed_config.prompts or {},
+            dataset=evaluation_request.dataset,
+            evaluators=evaluation_request.evaluators,
+            max_cases=evaluation_request.max_cases,
+            compiled_graph=compiled_graph,
+            graph_config=graph_config,
+            state_config=state_config,
+            progress_callback=on_progress,
+        )
+        state = _build_initial_state(
+            graph_config,
+            inputs,
+            state_config,
+            workspace_id,
+        )
+        _log_sensitive_debug("Initial state: %s", state)
 
-            try:
-                result = await node(state, runtime_config)
-                node_payload = result.get("results", {}).get(
-                    node.name, result.get("results", result)
-                )
-                final_step = await history_store.append_step(
-                    execution_id,
-                    {
-                        "node": node.name,
-                        "event": "evaluation_result",
-                        "payload": node_payload,
-                    },
-                )
-                await _safe_send_json(
-                    websocket,
-                    {
-                        "node": node.name,
-                        "event": "evaluation_result",
-                        "payload": node_payload,
-                    },
-                )
-                await _emit_trace_update(
-                    history_store,
-                    websocket,
-                    execution_id,
-                    step=final_step,
-                )
-            except asyncio.CancelledError as exc:
-                reason = str(exc) or "Evaluation cancelled"
-                record_workflow_cancellation(span, reason=reason)
-                cancellation_payload = {"status": "cancelled", "reason": reason}
-                await history_store.append_step(execution_id, cancellation_payload)
-                await history_store.mark_cancelled(execution_id, reason=reason)
-                await _emit_trace_update(
-                    history_store,
-                    websocket,
-                    execution_id,
-                    include_root=True,
-                    complete=True,
-                )
-                raise
-            except Exception as exc:
-                record_workflow_failure(span, exc)
-                error_message = str(exc)
-                error_payload = {"status": "error", "error": error_message}
-                await _persist_failure_history(
-                    history_store,
-                    execution_id,
-                    error_payload,
-                    error_message,
-                    span,
-                )
-                await _emit_trace_update(
-                    history_store,
-                    websocket,
-                    execution_id,
-                    include_root=True,
-                    complete=True,
-                )
-                raise
+        try:
+            result = await node(state, runtime_config)
+            node_payload = result.get("results", {}).get(
+                node.name, result.get("results", result)
+            )
+            final_step = await history_store.append_step(
+                execution_id,
+                {
+                    "node": node.name,
+                    "event": "evaluation_result",
+                    "payload": node_payload,
+                },
+            )
+            await _safe_send_json(
+                websocket,
+                {
+                    "node": node.name,
+                    "event": "evaluation_result",
+                    "payload": node_payload,
+                },
+            )
+            await _emit_trace_update(
+                history_store,
+                websocket,
+                execution_id,
+                step=final_step,
+            )
+        except asyncio.CancelledError as exc:
+            reason = str(exc) or "Evaluation cancelled"
+            record_workflow_cancellation(span, reason=reason)
+            cancellation_payload = {"status": "cancelled", "reason": reason}
+            await history_store.append_step(execution_id, cancellation_payload)
+            await history_store.mark_cancelled(execution_id, reason=reason)
+            await _emit_trace_update(
+                history_store,
+                websocket,
+                execution_id,
+                include_root=True,
+                complete=True,
+            )
+            raise
+        except Exception as exc:
+            record_workflow_failure(span, exc)
+            error_message = str(exc)
+            error_payload = {"status": "error", "error": error_message}
+            await _persist_failure_history(
+                history_store,
+                execution_id,
+                error_payload,
+                error_message,
+                span,
+            )
+            await _emit_trace_update(
+                history_store,
+                websocket,
+                execution_id,
+                include_root=True,
+                complete=True,
+            )
+            raise
 
 
 async def _run_training_node(
@@ -811,98 +744,97 @@ async def _run_training_node(
             step=history_step,
         )
 
-    with use_launcher(_get_sandbox_launcher()):
-        with credential_resolution(resolver):
-            async with create_checkpointer(settings) as checkpointer:
-                async with create_graph_store(settings) as graph_store:
-                    graph = build_graph(graph_config)
-                    compiled_graph = graph.compile(
-                        checkpointer=checkpointer,
-                        store=graph_store,
-                    )
-            node = AgentensorNode(
-                name="agentensor_trainer",
-                mode="train",
-                prompts=parsed_config.prompts or {},
-                dataset=training_request.dataset,
-                evaluators=training_request.evaluators,
-                max_cases=training_request.max_cases,
-                optimizer=training_request.optimizer,
-                compiled_graph=compiled_graph,
-                graph_config=graph_config,
-                state_config=state_config,
-                progress_callback=on_progress,
-                workflow_id=workflow_id,
-                checkpoint_store=checkpoint_store,
-            )
-            state = _build_initial_state(
-                graph_config,
-                inputs,
-                state_config,
-                workspace_id,
-            )
-            _log_sensitive_debug("Initial state: %s", state)
+    with credential_resolution(resolver):
+        async with create_checkpointer(settings) as checkpointer:
+            async with create_graph_store(settings) as graph_store:
+                graph = build_graph(graph_config)
+                compiled_graph = graph.compile(
+                    checkpointer=checkpointer,
+                    store=graph_store,
+                )
+        node = AgentensorNode(
+            name="agentensor_trainer",
+            mode="train",
+            prompts=parsed_config.prompts or {},
+            dataset=training_request.dataset,
+            evaluators=training_request.evaluators,
+            max_cases=training_request.max_cases,
+            optimizer=training_request.optimizer,
+            compiled_graph=compiled_graph,
+            graph_config=graph_config,
+            state_config=state_config,
+            progress_callback=on_progress,
+            workflow_id=workflow_id,
+            checkpoint_store=checkpoint_store,
+        )
+        state = _build_initial_state(
+            graph_config,
+            inputs,
+            state_config,
+            workspace_id,
+        )
+        _log_sensitive_debug("Initial state: %s", state)
 
-            try:
-                result = await node(state, runtime_config)
-                node_payload = result.get("results", {}).get(
-                    node.name, result.get("results", result)
-                )
-                final_step = await history_store.append_step(
-                    execution_id,
-                    {
-                        "node": node.name,
-                        "event": "training_result",
-                        "payload": node_payload,
-                    },
-                )
-                await _safe_send_json(
-                    websocket,
-                    {
-                        "node": node.name,
-                        "event": "training_result",
-                        "payload": node_payload,
-                    },
-                )
-                await _emit_trace_update(
-                    history_store,
-                    websocket,
-                    execution_id,
-                    step=final_step,
-                )
-            except asyncio.CancelledError as exc:
-                reason = str(exc) or "Training cancelled"
-                record_workflow_cancellation(span, reason=reason)
-                cancellation_payload = {"status": "cancelled", "reason": reason}
-                await history_store.append_step(execution_id, cancellation_payload)
-                await history_store.mark_cancelled(execution_id, reason=reason)
-                await _emit_trace_update(
-                    history_store,
-                    websocket,
-                    execution_id,
-                    include_root=True,
-                    complete=True,
-                )
-                raise
-            except Exception as exc:
-                record_workflow_failure(span, exc)
-                error_message = str(exc)
-                error_payload = {"status": "error", "error": error_message}
-                await _persist_failure_history(
-                    history_store,
-                    execution_id,
-                    error_payload,
-                    error_message,
-                    span,
-                )
-                await _emit_trace_update(
-                    history_store,
-                    websocket,
-                    execution_id,
-                    include_root=True,
-                    complete=True,
-                )
-                raise
+        try:
+            result = await node(state, runtime_config)
+            node_payload = result.get("results", {}).get(
+                node.name, result.get("results", result)
+            )
+            final_step = await history_store.append_step(
+                execution_id,
+                {
+                    "node": node.name,
+                    "event": "training_result",
+                    "payload": node_payload,
+                },
+            )
+            await _safe_send_json(
+                websocket,
+                {
+                    "node": node.name,
+                    "event": "training_result",
+                    "payload": node_payload,
+                },
+            )
+            await _emit_trace_update(
+                history_store,
+                websocket,
+                execution_id,
+                step=final_step,
+            )
+        except asyncio.CancelledError as exc:
+            reason = str(exc) or "Training cancelled"
+            record_workflow_cancellation(span, reason=reason)
+            cancellation_payload = {"status": "cancelled", "reason": reason}
+            await history_store.append_step(execution_id, cancellation_payload)
+            await history_store.mark_cancelled(execution_id, reason=reason)
+            await _emit_trace_update(
+                history_store,
+                websocket,
+                execution_id,
+                include_root=True,
+                complete=True,
+            )
+            raise
+        except Exception as exc:
+            record_workflow_failure(span, exc)
+            error_message = str(exc)
+            error_payload = {"status": "error", "error": error_message}
+            await _persist_failure_history(
+                history_store,
+                execution_id,
+                error_payload,
+                error_message,
+                span,
+            )
+            await _emit_trace_update(
+                history_store,
+                websocket,
+                execution_id,
+                include_root=True,
+                complete=True,
+            )
+            raise
 
 
 async def execute_workflow_evaluation(
@@ -934,10 +866,7 @@ async def execute_workflow_evaluation(
         return
 
     try:
-        _require_trusted_node_types(
-            collect_node_types(graph_config),
-            context="Workflow evaluation",
-        )
+        _ensure_production_trusted_graph(graph_config)
     except UntrustedNodeNotAllowedError as exc:
         await _safe_send_json(websocket, {"status": "error", "error": str(exc)})
         return
@@ -972,6 +901,11 @@ async def execute_workflow_evaluation(
             stored_runnable_config,
         )
     )
+    try:
+        _ensure_production_trusted_graph(graph_config)
+    except UntrustedNodeNotAllowedError as exc:
+        await _safe_send_json(websocket, {"status": "error", "error": str(exc)})
+        return
 
     try:
         with workflow_span(
@@ -1062,10 +996,7 @@ async def execute_workflow_training(
         return
 
     try:
-        _require_trusted_node_types(
-            collect_node_types(graph_config),
-            context="Workflow training",
-        )
+        _ensure_production_trusted_graph(graph_config)
     except UntrustedNodeNotAllowedError as exc:
         await _safe_send_json(websocket, {"status": "error", "error": str(exc)})
         return
@@ -1101,7 +1032,6 @@ async def execute_workflow_training(
             stored_runnable_config,
         )
     )
-
     try:
         with workflow_span(
             tracer,
@@ -1176,10 +1106,8 @@ async def execute_node(
     """Execute a single node instance with credential resolution.
 
     Refuses untrusted node types up front — the single-node path cannot
-    sandbox tenant Python the way ``execute_workflow`` can, so callers must
-    use only first-party trusted node classes here. Untrusted nodes belong
-    inside a workflow run, which dispatches through the per-workspace
-    sandbox.
+    execute tenant Python safely in-process, so callers must use only
+    first-party trusted node classes here.
     """
     _require_trusted_node_types(
         (getattr(node_class, "__name__", ""),),
@@ -1195,22 +1123,21 @@ async def execute_node(
     context = credential_context_from_workflow(workflow_id, workspace_id=workspace_id)
     resolver = CredentialResolver(vault, context=context)
 
-    with use_launcher(_get_sandbox_launcher()):
-        with credential_resolution(resolver):
-            node_instance = node_class(**node_params)
-            execution_id = str(uuid.uuid4())
-            _, runtime_config, state_config, _ = _prepare_runnable_config(
-                execution_id, None
-            )
-            state: State = {
-                "messages": [],
-                "results": {},
-                "inputs": inputs,
-                "structured_response": None,
-                "workspace_id": workspace_id,
-                "config": state_config,
-            }
-            return await node_instance(state, runtime_config)
+    with credential_resolution(resolver):
+        node_instance = node_class(**node_params)
+        execution_id = str(uuid.uuid4())
+        _, runtime_config, state_config, _ = _prepare_runnable_config(
+            execution_id, None
+        )
+        state: State = {
+            "messages": [],
+            "results": {},
+            "inputs": inputs,
+            "structured_response": None,
+            "workspace_id": workspace_id,
+            "config": state_config,
+        }
+        return await node_instance(state, runtime_config)
 
 
 __all__ = [

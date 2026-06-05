@@ -18,9 +18,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 import httpx
-from orcheo.graph.ingestion import ScriptIngestionError
+from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
 from orcheo.workflow.trust.modes import WorkflowTrustMode, get_workflow_trust_mode
-from orcheo_backend.app.sandbox import ingest_sandboxed_script
 from orcheo_backend.app.schemas.candidates import CandidateItem
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.workflow.frontmatter import parse_workflow_frontmatter
@@ -36,7 +35,6 @@ _CONFIG_FILENAME = "config.json"
 _CACHE_TTL_SECONDS = 300.0
 _FETCH_TIMEOUT_SECONDS = 30.0
 _MAX_TARBALL_BYTES = 16 * 1024 * 1024
-_CANDIDATE_PREVIEW_WORKSPACE_ID = "__candidate_catalog_preview__"
 
 
 class CandidateFetchError(RuntimeError):
@@ -141,8 +139,8 @@ def _build_candidate(
         entrypoint=frontmatter.entrypoint,
         notes=frontmatter.notes,
         metadata=frontmatter.metadata,
-        # Populated later by sandboxed catalog preview enrichment; parsing the
-        # archive itself must not execute remotely sourced Python.
+        # Populated later by catalog preview enrichment; parsing the archive
+        # itself must not execute remotely sourced Python.
         mermaid=None,
     )
 
@@ -213,7 +211,7 @@ async def _enrich_cached_with_previews() -> None:
     """Render mermaid previews for the current cached entry without re-fetching.
 
     Called as a fire-and-forget task after a cold-cache fetch so callers are
-    not blocked on sandbox rendering.  Only updates the entry if it has not
+    not blocked on preview rendering.  Only updates the entry if it has not
     been replaced by a full background refresh in the meantime.
     """
     entry = _state.entry
@@ -234,7 +232,7 @@ async def _render_candidate_previews(
 
     In production trust mode, only candidates with a declarative graph manifest
     in their ``config.json`` receive a mermaid preview.  In other modes the
-    sandboxed script path is used as a fallback.
+    local script ingestion path is used as a fallback.
     """
     from orcheo.workflow.mermaid import render_mermaid_from_graph_payload
 
@@ -251,12 +249,11 @@ async def _render_candidate_previews(
             if graph_payload is not None:
                 mermaid = render_mermaid_from_graph_payload(graph_payload)
 
-        # Fall back to sandboxed script ingestion in non-production modes.
+        # Fall back to local script ingestion in non-production modes.
         if mermaid is None and not production_mode:
             try:
-                script_payload = await ingest_sandboxed_script(
-                    workspace_id=_CANDIDATE_PREVIEW_WORKSPACE_ID,
-                    source=candidate.script,
+                script_payload = ingest_langgraph_script(
+                    candidate.script,
                     entrypoint=candidate.entrypoint,
                 )
                 mermaid = script_payload.get("index", {}).get("mermaid")
@@ -307,7 +304,7 @@ async def get_candidates() -> list[CandidateItem]:
                 except Exception as exc:
                     raise CandidateFetchError(str(exc)) from exc
         # Enrich with mermaid in the background so callers are not blocked on
-        # sequential sandbox rendering (~20s per candidate).
+        # sequential preview rendering (~20s per candidate).
         task = _state.preview_task
         if task is None or task.done():
             _state.preview_task = asyncio.create_task(_enrich_cached_with_previews())

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from uuid import UUID
-from orcheo.graph.ingestion import ScriptIngestionError
+from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
 from orcheo.models import (
     WorkflowRun,
     WorkflowRunRemediation,
@@ -27,7 +27,6 @@ from orcheo.models import (
 from orcheo_backend.app.history import RunHistoryNotFoundError
 from orcheo_backend.app.providers import settings_value
 from orcheo_backend.app.repository import WorkflowRepository
-from orcheo_backend.app.sandbox import ingest_sandboxed_script
 
 
 logger = logging.getLogger(__name__)
@@ -569,9 +568,8 @@ async def attempt_workflow_remediation_async(  # noqa: PLR0911
                 else None
             )
             try:
-                graph_payload = await ingest_sandboxed_script(
-                    workspace_id=version.workspace_id or "__remediation_preview__",
-                    source=artifacts.workflow_source,
+                graph_payload = ingest_langgraph_script(
+                    artifacts.workflow_source,
                     entrypoint=entrypoint,
                 )
             except ScriptIngestionError as exc:

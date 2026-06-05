@@ -39,7 +39,6 @@ from orcheo.nodes.data import (
     JsonProcessingNode,
     MergeNode,
 )
-from orcheo.nodes.javascript_sandbox import JavaScriptSandboxNode
 from orcheo.nodes.logic import (
     DelayNode,
     ForLoopNode,
@@ -126,7 +125,6 @@ __all__ = [
     "MessageTelegram",
     "MessageTelegramNode",
     "TelegramEventsParserNode",
-    "JavaScriptSandboxNode",
     "LarkSendMessageNode",
     "LarkTenantAccessTokenNode",
     "LinkedInPostNode",

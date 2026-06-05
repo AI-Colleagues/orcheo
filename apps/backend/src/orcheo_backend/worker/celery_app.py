@@ -1,14 +1,8 @@
 """Celery application configuration for the Orcheo execution worker."""
 
 from __future__ import annotations
-import logging
 import os
-from typing import Any
 from celery import Celery
-from celery.signals import worker_process_init
-
-
-logger = logging.getLogger(__name__)
 
 
 # Configuration from environment
@@ -51,25 +45,6 @@ celery_app.conf.beat_schedule = {
     },
 }
 celery_app.conf.beat_schedule_filename = ORCHEO_CELERY_BEAT_SCHEDULE_FILE
-
-
-@worker_process_init.connect
-def _configure_sandbox_for_worker(**_: Any) -> None:
-    """Bind the shared sandbox bootstrap inside every worker process.
-
-    Celery forks worker processes after import; the shared
-    ``WorkflowSandboxDispatcher`` / ``SandboxedProcessLauncher`` cache lives
-    inside ``orcheo_backend.app.sandbox`` and must be bootstrapped per
-    process so workflow execution paths can dispatch sandboxed runs and
-    bind the launcher for vibe-agent subprocesses.
-    """
-    from orcheo_backend.app.sandbox import ensure_sandbox_configured
-
-    try:
-        ensure_sandbox_configured()
-    except Exception:
-        logger.exception("Failed to configure sandbox runtime for worker process")
-        raise
 
 
 __all__ = ["celery_app"]

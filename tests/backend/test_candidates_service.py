@@ -5,7 +5,7 @@ import asyncio
 import io
 import tarfile
 from collections.abc import Iterator
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 import httpx
 import pytest
 import respx
@@ -346,34 +346,30 @@ def test_build_candidate_defers_remote_script_rendering() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_render_candidate_previews_uses_sandboxed_catalog_identity(
+async def test_render_candidate_previews_uses_local_catalog_ingestion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Remote preview derivation routes through the no-credential sandbox path in non-production mode."""
-    # Use self_host_unsafe so the sandbox fallback path is exercised.
+    """Preview derivation uses local ingestion in non-production mode."""
+    # Use self_host_unsafe so the fallback path is exercised.
     monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
     candidate = candidates_service._build_candidate(
         "linkedin_post", _WORKFLOW_WITH_FRONTMATTER, None
     )
     assert candidate is not None
-    ingestor = AsyncMock(return_value={"index": {"mermaid": "graph TD; A-->B"}})
-    monkeypatch.setattr(candidates_service, "ingest_sandboxed_script", ingestor)
+    ingestor = Mock(return_value={"index": {"mermaid": "graph TD; A-->B"}})
+    monkeypatch.setattr(candidates_service, "ingest_langgraph_script", ingestor)
 
     result = await candidates_service._render_candidate_previews([candidate])
 
     assert result[0].mermaid == "graph TD; A-->B"
-    ingestor.assert_awaited_once_with(
-        workspace_id="__candidate_catalog_preview__",
-        source=_WORKFLOW_WITH_FRONTMATTER,
-        entrypoint=None,
-    )
+    ingestor.assert_called_once_with(_WORKFLOW_WITH_FRONTMATTER, entrypoint=None)
 
 
 @pytest.mark.asyncio()
 async def test_render_candidate_previews_handles_ingestion_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Sandbox ingestion errors are downgraded to a missing mermaid preview."""
+    """Ingestion errors are downgraded to a missing mermaid preview."""
     first = candidates_service._build_candidate(
         "first", _WORKFLOW_WITH_FRONTMATTER, None
     )
@@ -383,13 +379,13 @@ async def test_render_candidate_previews_handles_ingestion_failures(
     assert first is not None
     assert second is not None
 
-    ingestor = AsyncMock(
+    ingestor = Mock(
         side_effect=[
             ScriptIngestionError("bad graph"),
-            RuntimeError("sandbox crashed"),
+            RuntimeError("preview crashed"),
         ]
     )
-    monkeypatch.setattr(candidates_service, "ingest_sandboxed_script", ingestor)
+    monkeypatch.setattr(candidates_service, "ingest_langgraph_script", ingestor)
 
     result = await candidates_service._render_candidate_previews([first, second])
 

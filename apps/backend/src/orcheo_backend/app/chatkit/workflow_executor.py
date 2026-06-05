@@ -16,10 +16,8 @@ from orcheo.graph.builder import build_graph
 from orcheo.models import CredentialAccessContext
 from orcheo.nodes.ai.tools.context import tool_progress_context
 from orcheo.persistence import create_checkpointer, create_graph_store
-from orcheo.runtime.attachments import serialize_attachment_runtime_config
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import merge_runnable_configs
-from orcheo.sandbox.dispatch import use_launcher
 from orcheo.vault import BaseCredentialVault
 from orcheo_backend.app.chatkit.message_utils import (
     build_initial_state,
@@ -44,12 +42,7 @@ from orcheo_backend.app.repository import (
     WorkflowRepository,
     WorkflowRun,
 )
-from orcheo_backend.app.sandbox import (
-    build_workflow_run_spec,
-    ensure_sandbox_configured,
-    get_sandbox_dispatcher,
-    get_sandbox_launcher,
-)
+from orcheo_backend.app.workflow_execution import _ensure_production_trusted_graph
 
 
 logger = logging.getLogger(__name__)
@@ -381,37 +374,8 @@ class WorkflowExecutor:
         step_callback: Callable[[Mapping[str, Any]], Awaitable[None]] | None,
         workspace_id: str | None = None,
     ) -> Any:
-        """Execute the compiled graph and return the final state payload.
-
-        Routes through the per-workspace sandbox dispatcher when the graph
-        contains anything other than trusted built-in node types (or when the
-        operator's fast-path flag is off). For trusted-only graphs the
-        execution still runs in-process but with the sandbox launcher bound so
-        any ``ExternalAgentNode`` (vibe-agent) subprocess is itself confined
-        to the workspace sandbox.
-        """
-        ensure_sandbox_configured()
-        sandbox_runnable_config = serialize_attachment_runtime_config(config)
-        sandbox_state_config = serialize_attachment_runtime_config(state_config)
-        spec = build_workflow_run_spec(
-            execution_id=str(uuid4()),
-            workspace_id=workspace_id or "",
-            graph_config=dict(graph_config),
-            inputs=dict(inputs),
-            runnable_config=sandbox_runnable_config,
-            state_config=sandbox_state_config,
-        )
-        dispatcher = get_sandbox_dispatcher()
-        if dispatcher.should_sandbox(spec):
-            if not workspace_id:
-                msg = "workspace_id is required to dispatch a sandboxed ChatKit run"
-                raise RuntimeError(msg)
-            return await self._dispatch_sandboxed(
-                dispatcher=dispatcher,
-                spec=spec,
-                step_callback=step_callback,
-            )
-
+        """Execute the compiled graph and return the final state payload."""
+        _ensure_production_trusted_graph(graph_config)
         settings = get_settings()
         vault = self._vault_provider()
         credential_context = CredentialAccessContext(
@@ -441,10 +405,7 @@ class WorkflowExecutor:
                         workspace_id=workspace_id,
                     )
 
-                with (
-                    use_launcher(get_sandbox_launcher()),
-                    credential_resolution(credential_resolver),
-                ):
+                with credential_resolution(credential_resolver):
                     if (
                         step_callback is not None
                         and hasattr(compiled, "astream")
@@ -468,35 +429,6 @@ class WorkflowExecutor:
                             return getattr(snapshot, "values", snapshot)
 
                     return await compiled.ainvoke(payload, config=config)
-
-    @staticmethod
-    async def _dispatch_sandboxed(
-        *,
-        dispatcher: Any,
-        spec: Any,
-        step_callback: Callable[[Mapping[str, Any]], Awaitable[None]] | None,
-    ) -> Mapping[str, Any]:
-        """Run ``spec`` through the per-workspace sandbox dispatcher.
-
-        The sandbox returns a single ``WorkflowRunResult`` instead of a stream;
-        we surface a single ``sandbox_result`` step so the chat surface still
-        sees progress, then return the aggregated outputs as the final state.
-        Failure inside the sandbox is raised so the caller's error path fires.
-        """
-        result = await dispatcher.dispatch(spec)
-        payload: dict[str, Any] = {
-            "event": "sandbox_result",
-            "status": result.status,
-            "outputs": dict(result.outputs),
-        }
-        if result.error:
-            payload["error"] = result.error
-        if step_callback is not None:
-            await step_callback(payload)
-        if result.status != "succeeded":
-            msg = result.error or f"sandboxed run finished with {result.status}"
-            raise RuntimeError(msg)
-        return dict(result.outputs)
 
     async def _mark_run_succeeded(
         self,

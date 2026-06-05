@@ -62,7 +62,6 @@ services:
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_WORKFLOW_TRUST_MODE: ${ORCHEO_WORKFLOW_TRUST_MODE:-self_host_unsafe}
-      ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET}
       # Use system Python from base image instead of downloading
       UV_PYTHON_PREFERENCE: system
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
@@ -103,7 +102,6 @@ services:
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_BACKEND_INTERNAL_URL: http://backend:2025
-      ORCHEO_CREDENTIAL_BROKER_SECRET: ${ORCHEO_CREDENTIAL_BROKER_SECRET}
       ORCHEO_WORKFLOW_TRUST_MODE: ${ORCHEO_WORKFLOW_TRUST_MODE:-self_host_unsafe}
       # Use system Python from base image instead of downloading
       UV_PYTHON_PREFERENCE: system

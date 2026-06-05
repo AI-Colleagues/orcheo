@@ -19,7 +19,6 @@ _BLOCKED_NODE_TYPES: frozenset[str] = frozenset(
         "ClaudeCodeNode",
         "CodexNode",
         "GeminiNode",
-        "JavaScriptSandboxNode",
         "CodeNode",
     }
 )
@@ -62,7 +61,7 @@ class TrustedWorkflowPolicy:
     """Validates declarative workflow graphs against the production trust policy.
 
     In production mode only registered first-party nodes are allowed and
-    blocked node types (external agents, code nodes, JS sandbox) are rejected.
+    blocked node types (external agents and code nodes) are rejected.
     In self_host_unsafe/developer modes validation is skipped entirely.
     """
 

@@ -6,7 +6,7 @@ import textwrap
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 from uuid import uuid4
 import pytest
 from orcheo.models import (
@@ -936,10 +936,8 @@ async def test_attempt_workflow_remediation_async_handles_ingest_and_retry(
     )
     monkeypatch.setattr(
         workflow_remediation,
-        "ingest_sandboxed_script",
-        AsyncMock(
-            return_value={"format": "langgraph-script", "source": WORKFLOW_SCRIPT}
-        ),
+        "ingest_langgraph_script",
+        Mock(return_value={"format": "langgraph-script", "source": WORKFLOW_SCRIPT}),
     )
     result = await workflow_remediation.attempt_workflow_remediation_async(
         repository=repository,
@@ -958,8 +956,8 @@ async def test_attempt_workflow_remediation_async_handles_ingest_and_retry(
 
     monkeypatch.setattr(
         workflow_remediation,
-        "ingest_sandboxed_script",
-        AsyncMock(side_effect=workflow_remediation.ScriptIngestionError("bad script")),
+        "ingest_langgraph_script",
+        Mock(side_effect=workflow_remediation.ScriptIngestionError("bad script")),
     )
     repository.mark_remediation_failed.reset_mock()
     result = await workflow_remediation.attempt_workflow_remediation_async(
