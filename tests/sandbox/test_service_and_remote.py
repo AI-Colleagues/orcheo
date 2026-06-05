@@ -11,7 +11,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from orcheo.sandbox import service as service_module
-from orcheo.external_agents.models import ProcessExecutionResult
+from orcheo.sandbox.models import ProcessExecutionResult
 from orcheo.sandbox.errors import SandboxAcquireError
 from orcheo.sandbox.manager import SandboxRuntimeManager
 from orcheo.sandbox.remote import (

@@ -4,6 +4,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+from pydantic import BaseModel
+
+
+class ProcessExecutionResult(BaseModel):
+    """Captured result for a managed subprocess invocation."""
+
+    command: list[str]
+    stdout: str = ""
+    stderr: str = ""
+    exit_code: int | None = None
+    timed_out: bool = False
+    duration_seconds: float
 
 
 class SandboxState(str, Enum):

@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from uuid import UUID
-from orcheo.external_agents import ExternalAgentRuntimeManager, execute_process
 from orcheo.graph.ingestion import ScriptIngestionError
 from orcheo.models import (
     WorkflowRun,
@@ -980,55 +979,15 @@ def _materialize_workspace(
 
 async def _invoke_orcheo_vibe(
     workspace: Path,
-    candidate: WorkflowRunRemediation,
+    remediation: WorkflowRunRemediation,
     settings: WorkflowAutofixSettings,
 ) -> dict[str, Any]:
-    """Invoke the configured CLI coding agent through the Orcheo runtime path."""
-    manager = ExternalAgentRuntimeManager()
-    resolution = await manager.resolve_runtime(settings.agent_provider)
-    provider = manager.get_provider(settings.agent_provider)
-    provider_environment = manager.environment_for_provider(settings.agent_provider)
-    probe = provider.probe_auth(resolution.runtime, environ=provider_environment)
-    if not probe.authenticated:
-        msg = probe.message or f"{settings.agent_provider} is not authenticated."
-        raise RuntimeError(msg)
-    prompt = (workspace / "instructions.md").read_text(encoding="utf-8")
-    command = provider.build_command(
-        resolution.runtime,
-        prompt=prompt,
-        system_prompt=(
-            "You are Orcheo Vibe remediation. Work only inside the supplied "
-            "temporary workspace and write the requested artifact files."
-        ),
-    )
-    result = await execute_process(
-        command,
-        cwd=workspace,
-        env=provider.build_environment(provider_environment),
-        timeout_seconds=settings.agent_timeout_seconds,
-    )
-    metadata: dict[str, Any] = {
-        "provider": settings.agent_provider,
-        "runtime_version": resolution.runtime.version,
-        "exit_code": result.exit_code,
-        "timed_out": result.timed_out,
-        "duration_seconds": result.duration_seconds,
-        "stdout_sha256": _sha256_text(result.stdout),
-        "stderr_sha256": _sha256_text(result.stderr),
+    """Placeholder: external agent autofix is not supported in production mode."""
+    del workspace, remediation, settings
+    return {
+        "status": "not_supported",
+        "message": "External agent autofix is not supported in production mode.",
     }
-    audit = provider.execution_audit_metadata(
-        resolution.runtime,
-        command=command,
-        working_directory=workspace,
-    )
-    if audit is not None:
-        metadata["execution_audit"] = audit
-    if result.exit_code != 0:
-        raise RuntimeError(
-            f"Orcheo Vibe remediation command failed with exit code {result.exit_code}"
-        )
-    del candidate
-    return metadata
 
 
 def _instructions_text(candidate: WorkflowRunRemediation) -> str:

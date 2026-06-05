@@ -30,14 +30,13 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, cast
 import httpx
-from orcheo.external_agents.models import ProcessExecutionResult
 from orcheo.graph.ingestion import (
     DEFAULT_EXECUTION_TIMEOUT_SECONDS,
     DEFAULT_SCRIPT_SIZE_LIMIT,
     ScriptIngestionError,
 )
 from orcheo.sandbox.errors import SandboxAcquireError, SandboxLifecycleError
-from orcheo.sandbox.models import SandboxLease, SandboxState
+from orcheo.sandbox.models import ProcessExecutionResult, SandboxLease, SandboxState
 from orcheo.sandbox.runtime import ContainerHandle, ContainerSpec
 from orcheo.sandbox.workflow import WorkflowRunResult, WorkflowRunSpec
 

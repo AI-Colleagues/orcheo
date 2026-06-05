@@ -3,10 +3,7 @@
 from __future__ import annotations
 import asyncio
 import logging
-import os
 import time
-from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
 from typing import Any
 from uuid import UUID
 from celery import Task
@@ -90,55 +87,6 @@ def _get_event_loop() -> asyncio.AbstractEventLoop:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         return loop
-
-
-def _external_agent_provider_environment(
-    workspace_id: str | None = None,
-) -> dict[str, str]:
-    """Return shared external-agent auth env from the runtime store."""
-    from orcheo_backend.app.dependencies import (
-        get_external_agent_runtime_store,
-        get_vault,
-    )
-    from orcheo_backend.app.external_agent_auth import (
-        load_external_agent_vault_environment,
-    )
-    from orcheo_backend.app.external_agent_runtime_store import (
-        list_external_agent_providers,
-    )
-
-    runtime_store = get_external_agent_runtime_store()
-    vault = get_vault()
-    merged: dict[str, str] = {}
-    for provider_name in list_external_agent_providers():
-        provider_env = runtime_store.get_provider_environment(
-            provider_name,
-            workspace_id=workspace_id,
-        )
-        provider_env.update(
-            load_external_agent_vault_environment(
-                vault,
-                workspace_id=workspace_id,
-            )
-        )
-        merged.update(provider_env)
-    return merged
-
-
-@contextmanager
-def _patched_environment(updates: Mapping[str, str]) -> Iterator[None]:
-    """Temporarily apply environment variables for the current worker process."""
-    original = {key: os.environ.get(key) for key in updates}
-    for key, value in updates.items():
-        os.environ[key] = value
-    try:
-        yield
-    finally:
-        for key, old_value in original.items():
-            if old_value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = old_value
 
 
 async def _load_and_validate_run(
@@ -294,35 +242,31 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:  # noqa: PLR0915
                 history_error_cls=RunHistoryError,
             )
         else:
-            external_agent_environ = _external_agent_provider_environment(workspace_id)
             with use_launcher(get_sandbox_launcher()):
-                with _patched_environment(external_agent_environ):
-                    with credential_resolution(resolver):
-                        async with create_checkpointer(settings) as checkpointer:
-                            async with create_graph_store(settings) as graph_store:
-                                graph = build_graph(graph_config)
-                                compiled = graph.compile(
-                                    checkpointer=checkpointer,
-                                    store=graph_store,
-                                )
-                                state = _build_initial_state(
-                                    graph_config,
-                                    inputs,
-                                    state_config,
-                                    workspace_id,
-                                )
-                                await _stream_run_history_steps(
-                                    compiled=compiled,
-                                    state=state,
-                                    runtime_config=runtime_config,
-                                    history_store=history_store,
-                                    execution_id=execution_id,
-                                    history_error_cls=RunHistoryError,
-                                )
-                                final_state = await compiled.aget_state(runtime_config)
-                                final_state = getattr(
-                                    final_state, "values", final_state
-                                )
+                with credential_resolution(resolver):
+                    async with create_checkpointer(settings) as checkpointer:
+                        async with create_graph_store(settings) as graph_store:
+                            graph = build_graph(graph_config)
+                            compiled = graph.compile(
+                                checkpointer=checkpointer,
+                                store=graph_store,
+                            )
+                            state = _build_initial_state(
+                                graph_config,
+                                inputs,
+                                state_config,
+                                workspace_id,
+                            )
+                            await _stream_run_history_steps(
+                                compiled=compiled,
+                                state=state,
+                                runtime_config=runtime_config,
+                                history_store=history_store,
+                                execution_id=execution_id,
+                                history_error_cls=RunHistoryError,
+                            )
+                            final_state = await compiled.aget_state(runtime_config)
+                            final_state = getattr(final_state, "values", final_state)
 
         output = _extract_output(final_state)
         await repository.mark_run_succeeded(
@@ -594,51 +538,6 @@ async def _dispatch_cron_triggers_async() -> list[str]:
     return [str(run.id) for run in runs]
 
 
-async def _refresh_external_agent_status_async(
-    provider_name: str,
-    workspace_id: str | None = None,
-) -> dict[str, str]:
-    """Refresh worker-scoped status for one external agent provider."""
-    from orcheo_backend.worker.external_agents import (
-        refresh_external_agent_status_async,
-    )
-
-    return await refresh_external_agent_status_async(
-        provider_name,
-        workspace_id=workspace_id,
-    )
-
-
-async def _start_external_agent_login_async(
-    provider_name: str,
-    session_id: str,
-    workspace_id: str | None = None,
-) -> dict[str, str]:
-    """Run a worker-side external agent OAuth session."""
-    from orcheo_backend.worker.external_agents import (
-        start_external_agent_login_async,
-    )
-
-    return await start_external_agent_login_async(
-        provider_name,
-        session_id,
-        workspace_id=workspace_id,
-    )
-
-
-async def _disconnect_external_agent_async(
-    provider_name: str,
-    workspace_id: str | None = None,
-) -> dict[str, str]:
-    """Clear worker-side auth state for one external agent provider."""
-    from orcheo_backend.worker.external_agents import disconnect_external_agent_async
-
-    return await disconnect_external_agent_async(
-        provider_name,
-        workspace_id=workspace_id,
-    )
-
-
 @celery_app.task(bind=True)
 def dispatch_cron_triggers(self: Task) -> dict[str, Any]:  # noqa: ARG001
     """Dispatch due cron triggers by calling the cron dispatch endpoint.
@@ -709,57 +608,9 @@ def attempt_workflow_remediation(
     return loop.run_until_complete(_attempt_workflow_remediation_async(remediation_id))
 
 
-@celery_app.task(bind=True)
-def refresh_external_agent_status(
-    self: Task,  # noqa: ARG001
-    provider_name: str,
-    workspace_id: str | None = None,
-) -> dict[str, str]:
-    """Refresh worker-scoped status for one external agent provider."""
-    logger.info("Refreshing external agent status for %s", provider_name)
-    loop = _get_event_loop()
-    return loop.run_until_complete(
-        _refresh_external_agent_status_async(provider_name, workspace_id)
-    )
-
-
-@celery_app.task(bind=True)
-def start_external_agent_login(
-    self: Task,  # noqa: ARG001
-    provider_name: str,
-    session_id: str,
-    workspace_id: str | None = None,
-) -> dict[str, str]:
-    """Run a worker-side external agent OAuth login session."""
-    logger.info(
-        "Starting external agent login for %s (session=%s)",
-        provider_name,
-        session_id,
-    )
-    loop = _get_event_loop()
-    return loop.run_until_complete(
-        _start_external_agent_login_async(provider_name, session_id, workspace_id)
-    )
-
-
-@celery_app.task(bind=True)
-def disconnect_external_agent(
-    self: Task,  # noqa: ARG001
-    provider_name: str,
-    workspace_id: str | None = None,
-) -> dict[str, str]:
-    """Clear worker-side auth state for one external agent provider."""
-    logger.info("Disconnecting external agent auth for %s", provider_name)
-    loop = _get_event_loop()
-    return loop.run_until_complete(
-        _disconnect_external_agent_async(provider_name, workspace_id)
-    )
-
-
 __all__ = [
-    "disconnect_external_agent",
+    "attempt_workflow_remediation",
     "dispatch_cron_triggers",
     "execute_run",
-    "refresh_external_agent_status",
-    "start_external_agent_login",
+    "scan_workflow_remediations",
 ]

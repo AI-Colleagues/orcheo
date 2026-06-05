@@ -19,9 +19,9 @@ import asyncio
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol
-from orcheo.external_agents.models import ProcessExecutionResult
-from orcheo.external_agents.process import execute_process
 from orcheo.sandbox.manager import SandboxManager
+from orcheo.sandbox.models import ProcessExecutionResult
+from orcheo.sandbox.process import execute_process
 
 
 class ProcessLauncher(Protocol):

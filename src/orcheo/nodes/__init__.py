@@ -3,9 +3,6 @@
 from orcheo.nodes.ai import AgentNode, AgentReplyExtractorNode, LLMNode
 from orcheo.nodes.ai.agentensor import AgentensorNode
 from orcheo.nodes.ai.deep_agent import DeepAgentNode
-from orcheo.nodes.ai.external.claude_code import ClaudeCodeNode
-from orcheo.nodes.ai.external.codex import CodexNode
-from orcheo.nodes.ai.external.gemini import GeminiNode
 from orcheo.nodes.browser import (
     BrowserActionNode,
     BrowserCloseNode,
@@ -98,9 +95,6 @@ __all__ = [
     "BrowserWaitNode",
     "BrowserScriptNode",
     "BrowserCloseNode",
-    "ClaudeCodeNode",
-    "CodexNode",
-    "GeminiNode",
     "AgentensorNode",
     "HttpRequestNode",
     "JsonProcessingNode",

@@ -9,7 +9,6 @@ from orcheo.models import CredentialAccessContext
 from orcheo.vault import BaseCredentialVault
 from orcheo.vault.oauth import OAuthCredentialService
 from orcheo_backend.app.errors import raise_not_found
-from orcheo_backend.app.external_agent_runtime_store import ExternalAgentRuntimeStore
 from orcheo_backend.app.history import RunHistoryStore
 from orcheo_backend.app.listener_runtime import ListenerRuntimeStore
 from orcheo_backend.app.plugin_installation_store import (
@@ -29,9 +28,6 @@ _history_store_ref: dict[str, RunHistoryStore] = {}
 _checkpoint_store_ref: dict[str, object] = {}
 _listener_runtime_store_ref: dict[str, ListenerRuntimeStore] = {
     "store": ListenerRuntimeStore()
-}
-_external_agent_runtime_store_ref: dict[str, ExternalAgentRuntimeStore | None] = {
-    "store": None
 }
 _credential_service_ref: dict[str, OAuthCredentialService | None] = {"service": None}
 _vault_ref: dict[str, BaseCredentialVault | None] = {"vault": None}
@@ -163,27 +159,6 @@ def set_listener_runtime_store(store: ListenerRuntimeStore | None) -> None:
     )
 
 
-def get_external_agent_runtime_store() -> ExternalAgentRuntimeStore:
-    """Return the external-agent runtime store singleton."""
-    store = _external_agent_runtime_store_ref["store"]
-    if store is None:
-        store = ExternalAgentRuntimeStore()
-        _external_agent_runtime_store_ref["store"] = store
-    return store
-
-
-ExternalAgentRuntimeStoreDep = Annotated[
-    ExternalAgentRuntimeStore, Depends(get_external_agent_runtime_store)
-]
-
-
-def set_external_agent_runtime_store(store: ExternalAgentRuntimeStore | None) -> None:
-    """Override the external-agent runtime store singleton."""
-    _external_agent_runtime_store_ref["store"] = (
-        store if store is not None else ExternalAgentRuntimeStore()
-    )
-
-
 def get_credential_service() -> OAuthCredentialService | None:
     """Return the configured credential service if available."""
     return _credential_service_ref["service"]
@@ -299,7 +274,6 @@ async def resolve_optional_workflow_ref_id(
 __all__ = [
     "CheckpointStoreDep",
     "CredentialServiceDep",
-    "ExternalAgentRuntimeStoreDep",
     "HistoryStoreDep",
     "IncludeAcknowledgedQuery",
     "ListenerRuntimeStoreDep",
@@ -313,7 +287,6 @@ __all__ = [
     "credential_context_from_workflow",
     "get_checkpoint_store",
     "get_credential_service",
-    "get_external_agent_runtime_store",
     "get_history_store",
     "get_listener_runtime_store",
     "get_plugin_installation_store",
@@ -324,7 +297,6 @@ __all__ = [
     "resolve_workflow_workspace_id",
     "set_checkpoint_store",
     "set_credential_service",
-    "set_external_agent_runtime_store",
     "set_history_store",
     "set_listener_runtime_store",
     "set_plugin_installation_store",
