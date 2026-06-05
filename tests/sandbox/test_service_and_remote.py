@@ -279,20 +279,38 @@ def test_control_headers_require_token(monkeypatch: pytest.MonkeyPatch) -> None:
         _control_headers(None)
 
 
-def test_ingestion_invoker_never_injects_broker_token() -> None:
-    """Script validation executes with no credential token environment."""
+def test_ingestion_invoker_never_injects_broker_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Script validation executes with no credential token environment.
+
+    The runner emits only derived data (summary, index); the invoker merges it
+    with the known fields (format, source, entrypoint) from the request.
+    """
+    monkeypatch.setattr(
+        service_module.secrets, "token_urlsafe", lambda n: "runner-token"
+    )
     executor = _FakeExecutor()
     executor.result = ProcessExecutionResult(
         command=[],
-        stdout='{"status":"succeeded","payload":{"format":"langgraph-script"}}',
+        stdout=(
+            '{"status":"succeeded","runner_token":"runner-token",'
+            '"payload":{"summary":{},"index":{}}}'
+        ),
         stderr="",
         exit_code=0,
         timed_out=False,
         duration_seconds=0.01,
     )
-    payload = ScriptIngestionPayload(source="source")
+    payload = ScriptIngestionPayload(source="source", entrypoint="orcheo_workflow")
     result = asyncio.run(ScriptSandboxInvoker(executor).invoke("sandbox", payload))
-    assert result == {"format": "langgraph-script"}
+    assert result == {
+        "format": "langgraph-script",
+        "source": "source",
+        "entrypoint": "orcheo_workflow",
+        "summary": {},
+        "index": {},
+    }
     assert executor.calls[0][1].command == [
         "python",
         "-m",
@@ -301,10 +319,67 @@ def test_ingestion_invoker_never_injects_broker_token() -> None:
     assert executor.calls[0][1].env is None
     assert json.loads(executor.calls[0][1].stdin or "{}") == {
         "source": "source",
-        "entrypoint": None,
+        "entrypoint": "orcheo_workflow",
         "max_script_bytes": 524288,
         "execution_timeout_seconds": 60.0,
+        "_orcheo_runner_token": "runner-token",
     }
+
+
+def test_ingestion_invoker_accepts_authenticated_success_after_nonzero_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Runner-authenticated success JSON wins over shutdown exit noise."""
+    monkeypatch.setattr(
+        service_module.secrets, "token_urlsafe", lambda n: "runner-token"
+    )
+    executor = _FakeExecutor()
+    executor.result = ProcessExecutionResult(
+        command=[],
+        stdout=(
+            '{"status":"succeeded","runner_token":"runner-token",'
+            '"payload":{"summary":{},"index":{}}}'
+        ),
+        stderr="",
+        exit_code=137,
+        timed_out=False,
+        duration_seconds=0.01,
+    )
+
+    result = asyncio.run(
+        ScriptSandboxInvoker(executor).invoke(
+            "sandbox", ScriptIngestionPayload(source="graph = object()")
+        )
+    )
+
+    assert result["source"] == "graph = object()"
+    assert result["summary"] == {}
+    assert result["index"] == {}
+
+
+def test_ingestion_invoker_rejects_spoofed_success_without_runner_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-zero exits cannot be bypassed by tenant-printed success JSON."""
+    monkeypatch.setattr(
+        service_module.secrets, "token_urlsafe", lambda n: "runner-token"
+    )
+    executor = _FakeExecutor()
+    executor.result = ProcessExecutionResult(
+        command=[],
+        stdout='{"status":"succeeded","payload":{"summary":{},"index":{}}}',
+        stderr="",
+        exit_code=1,
+        timed_out=False,
+        duration_seconds=0.01,
+    )
+
+    with pytest.raises(Exception, match="exited with code 1"):
+        asyncio.run(
+            ScriptSandboxInvoker(executor).invoke(
+                "sandbox", ScriptIngestionPayload(source="graph = object()")
+            )
+        )
 
 
 def test_ingestion_invoker_reports_missing_json_output() -> None:
@@ -401,12 +476,19 @@ def test_ingestion_endpoint_rejects_disabled_limits(
 
 def test_ingestion_endpoint_calls_invoker(
     app_with_fakes: tuple[TestClient, Any, _FakeExecutor, Any],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A valid payload reaches the sandbox ingestion path."""
+    monkeypatch.setattr(
+        service_module.secrets, "token_urlsafe", lambda n: "runner-token"
+    )
     client, _runtime, executor, _invoker = app_with_fakes
     executor.result = ProcessExecutionResult(
         command=[],
-        stdout='{"status":"succeeded","payload":{"graph":"ok"}}',
+        stdout=(
+            '{"status":"succeeded","runner_token":"runner-token",'
+            '"payload":{"summary":{},"index":{}}}'
+        ),
         stderr="",
         exit_code=0,
         timed_out=False,
@@ -417,7 +499,12 @@ def test_ingestion_endpoint_calls_invoker(
         json={"source": "graph = object()"},
     )
     assert response.status_code == 200, response.text
-    assert response.json() == {"graph": "ok"}
+    # Invoker merges derived runner output with request fields
+    result = response.json()
+    assert result["format"] == "langgraph-script"
+    assert result["source"] == "graph = object()"
+    assert result["summary"] == {}
+    assert result["index"] == {}
 
 
 def test_credential_relay_forwards_broker_request(

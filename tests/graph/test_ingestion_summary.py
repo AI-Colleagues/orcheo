@@ -208,16 +208,12 @@ def test_summarise_graph_index_renders_workflow_tool_subgraph() -> None:
     index = summarise_graph_index(graph)
 
     mermaid = index.get("mermaid")
-    compact_mermaid = index.get("mermaid_compact")
     assert isinstance(mermaid, str)
-    assert isinstance(compact_mermaid, str)
+    assert "mermaid_compact" not in index
     assert 'subgraph root__agent__tool__tool__subgraph["tool"]' in mermaid
     assert "root__node__agent -.-> root__agent__tool__tool__start;" in mermaid
     assert 'root__start(["START"]):::first' in mermaid
     assert 'root__end(["END"]):::last' in mermaid
-    assert "[<p>START</p>]" in compact_mermaid
-    assert "[<p>END</p>]" in compact_mermaid
-    assert "graph TD" in compact_mermaid
 
 
 def test_extract_cron_index_skips_missing_cron_keys(

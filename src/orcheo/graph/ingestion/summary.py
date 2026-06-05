@@ -54,8 +54,6 @@ def summarise_graph_index(
     )
     if mermaid:
         index["mermaid"] = mermaid
-    if compact_mermaid and mermaid and compact_mermaid != mermaid:
-        index["mermaid_compact"] = compact_mermaid
     return index
 
 
