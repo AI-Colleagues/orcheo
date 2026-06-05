@@ -373,3 +373,65 @@ def test_pop_from_pool_skips_non_ready_lease() -> None:
     # The pool has one entry, but it is IN_USE — should be skipped.
     popped = manager._pop_from_pool("ws")
     assert popped is None
+
+
+def test_acquire_provisioning_counts_toward_pool_max() -> None:
+    """A PROVISIONING placeholder reserves a pool slot for concurrent acquires."""
+    manager, runtime = _manager(pool_max=1)
+    lease = manager.acquire("ws")
+    # lease is IN_USE; pool_max=1 is full.
+    with pytest.raises(SandboxAcquireError):
+        manager.acquire("ws")
+    # After release, a second acquire can proceed.
+    manager.release(lease)
+    lease2 = manager.acquire("ws")
+    assert lease2.state is SandboxState.IN_USE
+    assert len(runtime.started) == 1  # warm-reuse, no new container
+
+
+def test_get_lease_returns_tracked_lease() -> None:
+    """get_lease() returns the lease by ID when it exists."""
+    manager, _ = _manager()
+    lease = manager.acquire("ws")
+    assert manager.get_lease(lease.lease_id) is lease
+
+
+def test_get_lease_returns_none_for_unknown_id() -> None:
+    """get_lease() returns None when the lease ID is not tracked."""
+    manager, _ = _manager()
+    assert manager.get_lease("no-such-lease") is None
+
+
+def test_reap_stale_in_use_destroys_old_in_use_leases() -> None:
+    """IN_USE leases held past max_duration_seconds are force-destroyed."""
+    manager, runtime = _manager(pool_max=2)
+    lease_old = manager.acquire("ws")
+    lease_young = manager.acquire("ws")
+    # Back-date lease_old's creation time.
+    lease_old.created_at = datetime.now(tz=UTC) - timedelta(seconds=200)
+    reaped = manager.reap_stale_in_use(max_duration_seconds=100)
+    assert reaped == [lease_old]
+    assert lease_old.state is SandboxState.DESTROYED
+    assert lease_young.state is SandboxState.IN_USE
+    assert len(runtime.stopped) == 1
+
+
+def test_reap_stale_in_use_skips_recent_leases() -> None:
+    """Young IN_USE leases are not touched by reap_stale_in_use."""
+    manager, runtime = _manager()
+    manager.acquire("ws")
+    reaped = manager.reap_stale_in_use(max_duration_seconds=9999)
+    assert reaped == []
+    assert len(runtime.stopped) == 0
+
+
+def test_reap_stale_in_use_handles_already_destroyed_lease() -> None:
+    """reap_stale_in_use() skips leases that disappear between scan and destroy."""
+    manager, runtime = _manager()
+    lease = manager.acquire("ws")
+    lease.created_at = datetime.now(tz=UTC) - timedelta(seconds=999)
+    # Manually destroy before reaper runs to simulate a race.
+    manager.destroy(lease)
+    # Should not raise — catches SandboxNotFoundError internally.
+    reaped = manager.reap_stale_in_use(max_duration_seconds=1)
+    assert reaped == []  # lease was already gone when destroy was attempted

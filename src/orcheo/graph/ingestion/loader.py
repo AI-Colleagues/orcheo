@@ -125,9 +125,24 @@ def _ensure_plugin_sys_path() -> None:
 
 @lru_cache(maxsize=128)
 def _compile_langgraph_script(source: str) -> CodeType:
-    """Compile a LangGraph script with top-level await support, with caching."""
+    """Compile a LangGraph script with top-level await support, with caching.
+
+    ``dont_inherit=True`` prevents the compile() call from inheriting the
+    ``CO_FUTURE_ANNOTATIONS`` flag (or any other future feature) from
+    *this* module (which has ``from __future__ import annotations``). Without
+    it, every tenant script would silently get PEP-563 lazy annotation
+    semantics, turning type annotations into strings. That breaks
+    ``@dataclass`` field-type resolution because ``dataclasses._is_type``
+    calls ``sys.modules.get(cls.__module__).__dict__`` to resolve string
+    annotations, but the exec namespace is not a real registered module and
+    ``sys.modules.get('__orcheo_ingest__')`` returns ``None``.
+    """
     return compile(
-        source, "<langgraph-script>", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
+        source,
+        "<langgraph-script>",
+        "exec",
+        flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+        dont_inherit=True,
     )
 
 

@@ -299,6 +299,11 @@ export const WorkflowCard = ({
               data-card-action="true"
               onClick={(event) => {
                 stopPropagation(event);
+                toast({
+                  title: "Onboarding agent…",
+                  description:
+                    "Setting up your new agent. This may take a few seconds.",
+                });
                 onUseTemplate(workflow.id);
               }}
               onPointerDown={stopPropagation}

@@ -217,7 +217,6 @@ def test_bootstrap_sync_mode_resets_cached_components(
     bootstrap._manager = SimpleNamespace()
     bootstrap._launcher = SimpleNamespace()
     bootstrap._dispatcher = SimpleNamespace()
-    bootstrap._runtime = SimpleNamespace()
     bootstrap._exec_backend = SimpleNamespace()
     bootstrap._runner = SimpleNamespace()
     bootstrap._ingestor = SimpleNamespace()
@@ -228,7 +227,6 @@ def test_bootstrap_sync_mode_resets_cached_components(
     assert bootstrap._manager is None
     assert bootstrap._launcher is None
     assert bootstrap._dispatcher is None
-    assert bootstrap._runtime is None
     assert bootstrap._exec_backend is None
     assert bootstrap._runner is None
     assert bootstrap._ingestor is None
@@ -383,10 +381,10 @@ def test_build_credential_broker_resolves_credentials_from_vault(
 
 
 @pytest.mark.asyncio()
-async def test_bootstrap_ingest_script_creates_ingestor_and_destroys_lease(
+async def test_bootstrap_ingest_script_acquires_real_workspace_and_releases_on_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The ingestion path acquires a lease and always destroys it afterward."""
+    """Successful ingestion acquires from the real workspace pool and releases."""
 
     class _FakeLease:
         def __init__(self, sandbox_id: str) -> None:
@@ -395,11 +393,15 @@ async def test_bootstrap_ingest_script_creates_ingestor_and_destroys_lease(
     class _FakeManager:
         def __init__(self) -> None:
             self.acquired: list[tuple[str, str]] = []
+            self.released: list[_FakeLease] = []
             self.destroyed: list[_FakeLease] = []
 
         def acquire(self, workspace_id: str, *, run_id: str) -> _FakeLease:
             self.acquired.append((workspace_id, run_id))
             return _FakeLease("sandbox-1")
+
+        def release(self, lease: _FakeLease) -> None:
+            self.released.append(lease)
 
         def destroy(self, lease: _FakeLease) -> None:
             self.destroyed.append(lease)
@@ -445,9 +447,59 @@ async def test_bootstrap_ingest_script_creates_ingestor_and_destroys_lease(
     )
 
     assert result == {"ok": True}
-    assert manager.acquired[0][0].startswith("ingest:ws-1:")
-    assert manager.acquired[0][1] == "script-ingestion"
+    # Acquires under the real workspace id (not a synthetic ingest:ws-1:uuid key).
+    assert manager.acquired[0] == ("ws-1", "script-ingestion")
+    # Releases on success — container goes back to the warm pool.
+    assert len(manager.released) == 1
+    assert len(manager.destroyed) == 0
+
+
+@pytest.mark.asyncio()
+async def test_bootstrap_ingest_script_destroys_lease_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Failed ingestion destroys the lease rather than returning it to the pool."""
+
+    class _FakeLease:
+        def __init__(self, sandbox_id: str) -> None:
+            self.sandbox_id = sandbox_id
+
+    class _FakeManager:
+        def __init__(self) -> None:
+            self.released: list[_FakeLease] = []
+            self.destroyed: list[_FakeLease] = []
+
+        def acquire(self, workspace_id: str, *, run_id: str) -> _FakeLease:
+            return _FakeLease("sandbox-err")
+
+        def release(self, lease: _FakeLease) -> None:
+            self.released.append(lease)
+
+        def destroy(self, lease: _FakeLease) -> None:
+            self.destroyed.append(lease)
+
+    class _FailingIngestor:
+        async def ingest(self, sandbox_id: str, **kwargs: Any) -> dict[str, Any]:
+            raise RuntimeError("ingestion failed")
+
+    manager = _FakeManager()
+    ingestor = _FailingIngestor()
+    bootstrap = _SandboxBootstrap()
+    bootstrap._ingestor = ingestor  # type: ignore[assignment]
+    monkeypatch.setattr(bootstrap, "_ensure_manager", lambda: manager)
+
+    with pytest.raises(RuntimeError, match="ingestion failed"):
+        await bootstrap.ingest_script(
+            workspace_id="ws-err",
+            source="bad code",
+            entrypoint=None,
+            max_script_bytes=10,
+            execution_timeout_seconds=1.0,
+        )
+
+    # Destroyed on failure — keeps the pool clean.
     assert len(manager.destroyed) == 1
+    assert len(manager.released) == 0
 
 
 @pytest.mark.asyncio()
@@ -462,14 +514,16 @@ async def test_bootstrap_ingest_script_reuses_cached_ingestor(
 
     class _FakeManager:
         def __init__(self) -> None:
-            self.destroyed: list[_FakeLease] = []
+            self.released: list[_FakeLease] = []
 
         def acquire(self, workspace_id: str, *, run_id: str) -> _FakeLease:
-            del workspace_id, run_id
             return _FakeLease("sandbox-2")
 
+        def release(self, lease: _FakeLease) -> None:
+            self.released.append(lease)
+
         def destroy(self, lease: _FakeLease) -> None:
-            self.destroyed.append(lease)
+            pass
 
     class _FakeIngestor:
         def __init__(self) -> None:
@@ -504,7 +558,7 @@ async def test_bootstrap_ingest_script_reuses_cached_ingestor(
 
     assert result == {"ok": True}
     assert ingestor.calls == ["sandbox-2"]
-    assert len(manager.destroyed) == 1
+    assert len(manager.released) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -545,31 +599,21 @@ def test_bootstrap_configure_requires_control_token(
         bootstrap.configure(SimpleNamespace())  # type: ignore[arg-type]
 
 
-def test_bootstrap_ensure_manager_creates_manager(
+def test_bootstrap_ensure_manager_creates_remote_manager(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_ensure_manager lazily creates runtime and manager."""
+    """_ensure_manager lazily creates a RemoteSandboxManager."""
     monkeypatch.setenv("ORCHEO_SANDBOX_RUNTIME_URL", "http://sandbox-runtime:9090")
 
-    created_runtimes: list[Any] = []
     created_managers: list[Any] = []
 
-    class _FakeRuntime:
+    class _FakeRemoteManager:
         def __init__(self, url: str, *, control_token: str) -> None:
             self.url = url
             assert control_token == "test-sandbox-control-token"
-            created_runtimes.append(self)
-
-    class _FakeManager:
-        def __init__(self, *, runtime: Any, settings: Any) -> None:
-            self.runtime = runtime
             created_managers.append(self)
 
-    monkeypatch.setattr(sandbox_module, "RemoteContainerRuntime", _FakeRuntime)
-    monkeypatch.setattr(sandbox_module, "SandboxRuntimeManager", _FakeManager)
-    monkeypatch.setattr(
-        sandbox_module, "SandboxSettings", SimpleNamespace(from_env=lambda: {})
-    )
+    monkeypatch.setattr(sandbox_module, "RemoteSandboxManager", _FakeRemoteManager)
 
     bootstrap = _SandboxBootstrap()
     manager = bootstrap._ensure_manager()
@@ -588,13 +632,8 @@ def test_bootstrap_launcher_creates_and_caches(
     """launcher() creates a SandboxedProcessLauncher on first call and caches it."""
     monkeypatch.setenv("ORCHEO_SANDBOX_RUNTIME_URL", "http://sandbox-runtime:9090")
 
-    class _FakeRuntime:
+    class _FakeRemoteManager:
         def __init__(self, url: str, *, control_token: str) -> None:
-            assert control_token == "test-sandbox-control-token"
-            pass
-
-    class _FakeManager:
-        def __init__(self, *, runtime: Any, settings: Any) -> None:
             pass
 
     class _FakeExec:
@@ -606,11 +645,7 @@ def test_bootstrap_launcher_creates_and_caches(
         def __init__(self, manager: Any, *, exec_backend: Any) -> None:
             self.exec_backend = exec_backend
 
-    monkeypatch.setattr(sandbox_module, "RemoteContainerRuntime", _FakeRuntime)
-    monkeypatch.setattr(sandbox_module, "SandboxRuntimeManager", _FakeManager)
-    monkeypatch.setattr(
-        sandbox_module, "SandboxSettings", SimpleNamespace(from_env=lambda: {})
-    )
+    monkeypatch.setattr(sandbox_module, "RemoteSandboxManager", _FakeRemoteManager)
     monkeypatch.setattr(sandbox_module, "RemoteSandboxExec", _FakeExec)
     monkeypatch.setattr(sandbox_module, "SandboxedProcessLauncher", _FakeLauncher)
 
@@ -636,13 +671,8 @@ def test_bootstrap_dispatcher_creates_dispatcher(
     """dispatcher() creates a WorkflowSandboxDispatcher after configure() is called."""
     monkeypatch.setenv("ORCHEO_SANDBOX_RUNTIME_URL", "http://sandbox-runtime:9090")
 
-    class _FakeRuntime:
+    class _FakeRemoteManager:
         def __init__(self, url: str, *, control_token: str) -> None:
-            assert control_token == "test-sandbox-control-token"
-            pass
-
-    class _FakeManager:
-        def __init__(self, *, runtime: Any, settings: Any) -> None:
             pass
 
     class _FakeRunner:
@@ -664,11 +694,7 @@ def test_bootstrap_dispatcher_creates_dispatcher(
             self.broker = broker
             dispatchers_created.append(self)
 
-    monkeypatch.setattr(sandbox_module, "RemoteContainerRuntime", _FakeRuntime)
-    monkeypatch.setattr(sandbox_module, "SandboxRuntimeManager", _FakeManager)
-    monkeypatch.setattr(
-        sandbox_module, "SandboxSettings", SimpleNamespace(from_env=lambda: {})
-    )
+    monkeypatch.setattr(sandbox_module, "RemoteSandboxManager", _FakeRemoteManager)
     monkeypatch.setattr(sandbox_module, "RemoteSandboxRunner", _FakeRunner)
     monkeypatch.setattr(sandbox_module, "WorkflowSandboxDispatcher", _FakeDispatcher)
 

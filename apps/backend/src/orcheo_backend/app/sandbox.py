@@ -3,14 +3,16 @@
 This module owns the *single* set of sandbox primitives used by every
 workflow execution path:
 
-- one :class:`SandboxRuntimeManager` backed by
-  :class:`RemoteContainerRuntime`,
+- one :class:`RemoteSandboxManager` that acquires / releases / destroys
+  leases via the sandbox-runtime service's central pool (replacing the old
+  per-process ``SandboxRuntimeManager`` + ``RemoteContainerRuntime`` pair),
 - one :class:`SandboxedProcessLauncher` for ``ExternalAgentNode``,
 - one :class:`WorkflowSandboxDispatcher` for tenant-authored workflow runs.
 
-Centralizing the construction here keeps Docker-socket access out of the
-backend (per the design's container-runtime socket note) and ensures all
-call sites share lease accounting.
+Centralizing the pool in the sandbox-runtime service means every caller —
+FastAPI ingest, every Celery worker — draws from one shared pool per
+workspace instead of maintaining independent per-process pools that would
+each keep their own warm containers alive indefinitely.
 
 The dispatcher routes runs through a per-workspace gVisor sandbox by
 default. Operators may opt trusted-only graphs into an in-worker fast path
@@ -19,12 +21,13 @@ design's Open Issue #1 (fast path vs uniform routing) and is otherwise off.
 """
 
 from __future__ import annotations
+import asyncio
 import logging
 import os
 from collections.abc import Iterable
 from threading import Lock
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 from orcheo.graph.ingestion import (
     DEFAULT_EXECUTION_TIMEOUT_SECONDS,
     DEFAULT_SCRIPT_SIZE_LIMIT,
@@ -37,18 +40,17 @@ from orcheo.sandbox.broker import (
     RedisRevocationStore,
     RevocationStore,
 )
-from orcheo.sandbox.config import SandboxSettings
 from orcheo.sandbox.errors import SandboxError
 from orcheo.sandbox.launcher import (
     LocalProcessLauncher,
     ProcessLauncher,
     SandboxedProcessLauncher,
 )
-from orcheo.sandbox.manager import SandboxRuntimeManager
+from orcheo.sandbox.manager import SandboxManager
 from orcheo.sandbox.remote import (
-    RemoteContainerRuntime,
     RemoteSandboxExec,
     RemoteSandboxIngestor,
+    RemoteSandboxManager,
     RemoteSandboxRunner,
 )
 from orcheo.sandbox.workflow import (
@@ -119,10 +121,9 @@ class _SandboxBootstrap:
 
     def __init__(self) -> None:
         self._lock = Lock()
-        self._manager: SandboxRuntimeManager | None = None
+        self._manager: SandboxManager | None = None
         self._launcher: ProcessLauncher | None = None
         self._dispatcher: _WorkflowDispatcher | None = None
-        self._runtime: RemoteContainerRuntime | None = None
         self._exec_backend: RemoteSandboxExec | None = None
         self._runner: RemoteSandboxRunner | None = None
         self._ingestor: RemoteSandboxIngestor | None = None
@@ -142,7 +143,6 @@ class _SandboxBootstrap:
         self._manager = None
         self._launcher = None
         self._dispatcher = None
-        self._runtime = None
         self._exec_backend = None
         self._runner = None
         self._ingestor = None
@@ -168,14 +168,11 @@ class _SandboxBootstrap:
             raise SandboxRuntimeNotConfiguredError(msg)
         return url
 
-    def _ensure_manager(self) -> SandboxRuntimeManager:
+    def _ensure_manager(self) -> SandboxManager:
+        """Return the shared ``RemoteSandboxManager`` for this process."""
         if self._manager is None:
-            self._runtime = RemoteContainerRuntime(
+            self._manager = RemoteSandboxManager(
                 self._runtime_url(), control_token=self._control_token()
-            )
-            self._manager = SandboxRuntimeManager(
-                runtime=self._runtime,
-                settings=SandboxSettings.from_env(),
             )
         return self._manager
 
@@ -243,7 +240,13 @@ class _SandboxBootstrap:
         max_script_bytes: int | None,
         execution_timeout_seconds: float | None,
     ) -> dict[str, Any]:
-        """Ingest tenant source in a fresh sandbox, or locally when disabled."""
+        """Ingest tenant source using the central sandbox pool.
+
+        Acquires from the shared per-workspace pool (same pool workflow runs
+        and agent sessions draw from), runs ingestion, then releases the
+        container back on success or destroys it on failure to contain any
+        blast from crashed or malicious candidate code.
+        """
         if self._sync_mode():
             return ingest_langgraph_script(
                 source,
@@ -258,18 +261,23 @@ class _SandboxBootstrap:
                     self._runtime_url(), control_token=self._control_token()
                 )
             ingestor = self._ingestor
-        preview_workspace = f"ingest:{workspace_id}:{uuid4().hex}"
-        lease = manager.acquire(preview_workspace, run_id="script-ingestion")
+
+        lease = await asyncio.to_thread(
+            manager.acquire, workspace_id, run_id="script-ingestion"
+        )
         try:
-            return await ingestor.ingest(
+            result = await ingestor.ingest(
                 lease.sandbox_id,
                 source=source,
                 entrypoint=entrypoint,
                 max_script_bytes=max_script_bytes,
                 execution_timeout_seconds=execution_timeout_seconds,
             )
-        finally:
-            manager.destroy(lease)
+        except Exception:
+            await asyncio.to_thread(manager.destroy, lease)
+            raise
+        await asyncio.to_thread(manager.release, lease)
+        return result
 
 
 _bootstrap = _SandboxBootstrap()
@@ -298,7 +306,7 @@ async def ingest_sandboxed_script(
     max_script_bytes: int | None = DEFAULT_SCRIPT_SIZE_LIMIT,
     execution_timeout_seconds: float | None = DEFAULT_EXECUTION_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    """Build the stored graph payload using sandbox or local fallback."""
+    """Build the stored graph payload using the central sandbox pool."""
     return await _bootstrap.ingest_script(
         workspace_id=workspace_id,
         source=source,

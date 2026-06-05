@@ -12,15 +12,19 @@ import pytest
 from fastapi.testclient import TestClient
 from orcheo.sandbox import service as service_module
 from orcheo.external_agents.models import ProcessExecutionResult
+from orcheo.sandbox.errors import SandboxAcquireError
+from orcheo.sandbox.manager import SandboxRuntimeManager
 from orcheo.sandbox.remote import (
     RemoteContainerRuntime,
     RemoteRuntimeError,
     RemoteSandboxExec,
     RemoteSandboxIngestor,
+    RemoteSandboxManager,
     RemoteSandboxRunner,
     _control_headers,
 )
 from orcheo.sandbox.config import SandboxSettings
+from orcheo.sandbox.models import SandboxState
 from orcheo.sandbox.runtime import ContainerSpec, InMemoryContainerRuntime
 from orcheo.sandbox.service import (
     ContainerExecutor,
@@ -2037,3 +2041,284 @@ def test_serialize_workflow_run_result_with_real_dataclass() -> None:
     assert serialized["status"] == "succeeded"
     assert serialized["outputs"] == {"k": "v"}
     assert serialized["error"] is None
+
+
+# ---------------------------------------------------------------------------
+# Central lease API — service side (/internal/leases)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def app_with_manager() -> tuple[
+    TestClient, InMemoryContainerRuntime, SandboxRuntimeManager
+]:
+    """Build the service app and return the embedded manager for inspection."""
+    runtime = InMemoryContainerRuntime()
+    settings = SandboxSettings(
+        credential_broker_url="http://10.99.0.2:9091/credentials/resolve"
+    )
+    manager = SandboxRuntimeManager(runtime=runtime, settings=settings)
+    executor = _FakeExecutor()
+    invoker = _FakeInvoker()
+    app = build_service_app(
+        runtime=runtime,
+        executor=executor,
+        invoker=invoker,
+        settings=settings,
+        control_token="control-test-token",
+        manager=manager,
+    )
+    return TestClient(app, headers=_CONTROL_HEADERS), runtime, manager
+
+
+def test_lease_acquire_returns_in_use_lease(
+    app_with_manager: tuple[
+        TestClient, InMemoryContainerRuntime, SandboxRuntimeManager
+    ],
+) -> None:
+    """POST /internal/leases provisions a container and returns a lease."""
+    client, runtime, manager = app_with_manager
+    response = client.post("/internal/leases", json={"workspace_id": "ws-lease"})
+    assert response.status_code == 201, response.text
+    data = response.json()
+    assert data["workspace_id"] == "ws-lease"
+    assert data["state"] == SandboxState.IN_USE.value
+    assert data["sandbox_id"]
+    assert data["lease_id"]
+    assert len(runtime.started) == 1
+    assert manager.get_lease(data["lease_id"]) is not None
+
+
+def test_lease_acquire_with_run_id(
+    app_with_manager: tuple[
+        TestClient, InMemoryContainerRuntime, SandboxRuntimeManager
+    ],
+) -> None:
+    """POST /internal/leases forwards run_id to the manager."""
+    client, _runtime, manager = app_with_manager
+    response = client.post(
+        "/internal/leases", json={"workspace_id": "ws-rid", "run_id": "run-abc"}
+    )
+    assert response.status_code == 201, response.text
+
+
+def test_lease_release_returns_lease_to_pool(
+    app_with_manager: tuple[
+        TestClient, InMemoryContainerRuntime, SandboxRuntimeManager
+    ],
+) -> None:
+    """POST /internal/leases/{id}/release returns the lease to the warm pool."""
+    client, runtime, manager = app_with_manager
+    acquire = client.post("/internal/leases", json={"workspace_id": "ws-rel"})
+    assert acquire.status_code == 201
+    lease_id = acquire.json()["lease_id"]
+
+    release = client.post(f"/internal/leases/{lease_id}/release")
+    assert release.status_code == 204
+
+    # The container was not stopped — it went to the pool.
+    assert len(runtime.stopped) == 0
+    lease = manager.get_lease(lease_id)
+    assert lease is not None
+    assert lease.state is SandboxState.READY
+
+    # A second acquire should warm-reuse the same container.
+    acquire2 = client.post("/internal/leases", json={"workspace_id": "ws-rel"})
+    assert acquire2.status_code == 201
+    assert acquire2.json()["lease_id"] == lease_id
+    assert len(runtime.started) == 1  # no new container
+
+
+def test_lease_destroy_stops_container(
+    app_with_manager: tuple[
+        TestClient, InMemoryContainerRuntime, SandboxRuntimeManager
+    ],
+) -> None:
+    """DELETE /internal/leases/{id} tears down the container."""
+    client, runtime, manager = app_with_manager
+    acquire = client.post("/internal/leases", json={"workspace_id": "ws-del"})
+    lease_id = acquire.json()["lease_id"]
+
+    destroy = client.delete(f"/internal/leases/{lease_id}")
+    assert destroy.status_code == 204
+    assert len(runtime.stopped) == 1
+    assert manager.get_lease(lease_id) is None
+
+
+def test_lease_destroy_is_idempotent(
+    app_with_manager: tuple[
+        TestClient, InMemoryContainerRuntime, SandboxRuntimeManager
+    ],
+) -> None:
+    """DELETE /internal/leases/{id} returns 204 even when already gone."""
+    client, _runtime, _manager = app_with_manager
+    response = client.delete("/internal/leases/no-such-lease")
+    assert response.status_code == 204
+
+
+def test_lease_release_returns_404_for_unknown_lease(
+    app_with_manager: tuple[
+        TestClient, InMemoryContainerRuntime, SandboxRuntimeManager
+    ],
+) -> None:
+    """POST /internal/leases/{id}/release returns 404 when lease is unknown."""
+    client, _runtime, _manager = app_with_manager
+    response = client.post("/internal/leases/no-such-lease/release")
+    assert response.status_code == 404
+
+
+def test_lease_acquire_409_when_pool_exhausted(
+    app_with_manager: tuple[
+        TestClient, InMemoryContainerRuntime, SandboxRuntimeManager
+    ],
+) -> None:
+    """POST /internal/leases returns 409 when the workspace pool is exhausted."""
+    client, _runtime, manager = app_with_manager
+    # Set pool_max=1 for this workspace.
+    from orcheo.sandbox.models import WorkspaceRuntimePool
+
+    manager.configure_workspace(
+        WorkspaceRuntimePool(workspace_id="ws-full", pool_max=1)
+    )
+    client.post("/internal/leases", json={"workspace_id": "ws-full"})
+    response = client.post("/internal/leases", json={"workspace_id": "ws-full"})
+    assert response.status_code == 409
+
+
+def test_lease_routes_require_control_token(
+    app_with_manager: tuple[
+        TestClient, InMemoryContainerRuntime, SandboxRuntimeManager
+    ],
+) -> None:
+    """Lease endpoints fail closed without the control token."""
+    client, _runtime, _manager = app_with_manager
+    unauthed = TestClient(client.app)
+    assert (
+        unauthed.post("/internal/leases", json={"workspace_id": "ws"}).status_code
+        == 401
+    )
+    assert unauthed.post("/internal/leases/x/release").status_code == 401
+    assert unauthed.delete("/internal/leases/x").status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# RemoteSandboxManager — client side
+# ---------------------------------------------------------------------------
+
+
+def test_remote_sandbox_manager_acquire_release_destroy(
+    app_with_manager: tuple[
+        TestClient, InMemoryContainerRuntime, SandboxRuntimeManager
+    ],
+) -> None:
+    """RemoteSandboxManager round-trips through the service lease API.
+
+    Uses the TestClient as the HTTP transport so the sync client talks to the
+    ASGI app without needing a real server.
+    """
+    test_client, runtime, _manager = app_with_manager
+
+    class _TestClientTransport(httpx.BaseTransport):
+        """Forward httpx requests to a Starlette TestClient."""
+
+        def handle_request(self, request: httpx.Request) -> httpx.Response:
+            resp = test_client.request(
+                request.method,
+                str(request.url),
+                content=request.content,
+                headers=dict(request.headers),
+            )
+            return httpx.Response(
+                status_code=resp.status_code,
+                headers=dict(resp.headers),
+                content=resp.content,
+            )
+
+    sync_client = httpx.Client(
+        transport=_TestClientTransport(), base_url="http://testserver"
+    )
+    remote = RemoteSandboxManager(
+        "http://testserver",
+        control_token="control-test-token",
+        client=sync_client,
+    )
+
+    lease = remote.acquire("ws-remote", run_id="r-1")
+    assert lease.state is SandboxState.IN_USE
+    assert lease.workspace_id == "ws-remote"
+    assert len(runtime.started) == 1
+
+    # Release returns to warm pool — no container stop.
+    remote.release(lease)
+    assert lease.state is SandboxState.READY
+    assert len(runtime.stopped) == 0
+
+    # Acquire again — warm reuse.
+    lease2 = remote.acquire("ws-remote")
+    assert lease2.lease_id == lease.lease_id
+    assert len(runtime.started) == 1
+
+    # Destroy terminates the container.
+    remote.destroy(lease2)
+    assert lease2.state is SandboxState.DESTROYED
+    assert len(runtime.stopped) == 1
+
+    sync_client.close()
+
+
+def test_remote_sandbox_manager_destroy_idempotent() -> None:
+    """RemoteSandboxManager.destroy() is idempotent for unknown leases."""
+    from orcheo.sandbox.models import SandboxLease
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"detail": "not found"})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url="http://test")
+    remote = RemoteSandboxManager("http://test", client=client)
+    lease = SandboxLease(
+        lease_id="gone", workspace_id="ws", sandbox_id="sb", state=SandboxState.IN_USE
+    )
+    remote.destroy(lease)  # must not raise
+
+
+def test_remote_sandbox_manager_acquire_raises_on_pool_exhausted() -> None:
+    """RemoteSandboxManager.acquire() raises SandboxAcquireError on 409."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(409, json={"detail": "pool exhausted"})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url="http://test")
+    remote = RemoteSandboxManager("http://test", client=client)
+    with pytest.raises(SandboxAcquireError, match="pool exhausted"):
+        remote.acquire("ws")
+
+
+def test_remote_sandbox_manager_acquire_raises_on_server_error() -> None:
+    """RemoteSandboxManager.acquire() raises RemoteRuntimeError on 5xx."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"detail": "internal error"})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url="http://test")
+    remote = RemoteSandboxManager("http://test", client=client)
+    with pytest.raises(RemoteRuntimeError, match="acquire lease failed"):
+        remote.acquire("ws")
+
+
+def test_remote_sandbox_manager_release_idempotent_on_404() -> None:
+    """RemoteSandboxManager.release() is idempotent when the lease is gone."""
+    from orcheo.sandbox.models import SandboxLease
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"detail": "not found"})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport, base_url="http://test")
+    remote = RemoteSandboxManager("http://test", client=client)
+    lease = SandboxLease(
+        lease_id="gone", workspace_id="ws", sandbox_id="sb", state=SandboxState.IN_USE
+    )
+    remote.release(lease)  # must not raise
