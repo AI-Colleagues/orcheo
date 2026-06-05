@@ -1,60 +1,22 @@
 """Tests for ingestion loader error handling."""
 
 from __future__ import annotations
+import asyncio
+import inspect
+import pytest
 from orcheo.graph.ingestion import loader
-
-
-def test_format_syntax_error_with_line_prefix() -> None:
-    """Test _format_syntax_error_message with 'Line' prefix."""
-    exc = SyntaxError("Line 39: AnnAssign statements are not allowed.")
-    result = loader._format_syntax_error_message(exc)
-    assert result == "Compilation error: Line 39: AnnAssign statements are not allowed."
-
-
-def test_format_syntax_error_with_multiple_string_args() -> None:
-    """Test _format_syntax_error_message with multiple string args."""
-    exc = SyntaxError()
-    exc.args = ("Error 1", "Error 2", "Error 3")
-    result = loader._format_syntax_error_message(exc)
-    assert result == "Compilation error: Error 1, Error 2, Error 3"
-
-
-def test_format_syntax_error_with_mixed_args() -> None:
-    """Test _format_syntax_error_message with mixed arg types."""
-    exc = SyntaxError()
-    exc.args = ("String error", 123, "Another string")
-    result = loader._format_syntax_error_message(exc)
-    assert result == "Compilation error: String error, Another string"
-
-
-def test_format_syntax_error_without_string_args() -> None:
-    """Test _format_syntax_error_message without string args."""
-    exc = SyntaxError()
-    exc.args = (123, 456)
-    result = loader._format_syntax_error_message(exc)
-    assert result.startswith("Compilation error:")
-
-
-def test_format_syntax_error_without_args() -> None:
-    """Test _format_syntax_error_message without args."""
-    exc = SyntaxError()
-    result = loader._format_syntax_error_message(exc)
-    assert result.startswith("Compilation error:")
+from orcheo.graph.ingestion.exceptions import ScriptIngestionError
 
 
 def test_returns_state_graph_handles_type_error() -> None:
-    """Ensure _returns_state_graph returns False when inspect.signature fails."""
     assert loader._returns_state_graph(object()) is False
 
 
 def test_returns_state_graph_handles_value_error() -> None:
-    """Ensure _returns_state_graph handles ValueError from inspect.signature."""
     assert loader._returns_state_graph(type) is False
 
 
 def test_returns_state_graph_requires_return_annotation() -> None:
-    """Ensure callables without return annotations do not qualify."""
-
     def builder():
         return None
 
@@ -62,13 +24,11 @@ def test_returns_state_graph_requires_return_annotation() -> None:
 
 
 def test_is_state_graph_annotation_accepts_forward_refs() -> None:
-    """String annotations referencing graphs should be accepted."""
     assert loader._is_state_graph_annotation("StateGraph") is True
     assert loader._is_state_graph_annotation("CompiledStateGraph") is True
 
 
 def test_is_state_graph_annotation_accepts_generic_origin(monkeypatch) -> None:
-    """Annotations whose origin is a graph class should be treated as graphs."""
     sentinel = object()
     original_get_origin = loader.get_origin
 
@@ -79,3 +39,34 @@ def test_is_state_graph_annotation_accepts_generic_origin(monkeypatch) -> None:
 
     monkeypatch.setattr(loader, "get_origin", fake_get_origin)
     assert loader._is_state_graph_annotation(sentinel) is True
+
+
+def test_execute_langgraph_script_reraises_script_ingestion_error() -> None:
+    """ScriptIngestionError raised during script execution is re-raised (line 168)."""
+    source = (
+        "from orcheo.graph.ingestion.exceptions import ScriptIngestionError\n"
+        "raise ScriptIngestionError('propagated from script')\n"
+    )
+    with pytest.raises(ScriptIngestionError, match="propagated from script"):
+        loader._execute_langgraph_script(source, None, None)
+
+
+def test_is_graph_candidate_returns_false_for_wrong_module() -> None:
+    """Function from a different module is rejected as a candidate (line 254)."""
+    from langgraph.graph import StateGraph
+
+    def builder() -> StateGraph: ...  # type: ignore[empty-body]
+
+    builder.__module__ = "some.other.module"
+    assert loader._is_graph_candidate(builder, "__orcheo_ingest__") is False
+
+
+def test_run_awaitable_reraises_runtime_error_from_coroutine() -> None:
+    """RuntimeError raised inside a coroutine is re-raised by _run_awaitable (line 278)."""
+
+    async def _raising() -> None:
+        raise RuntimeError("boom from coroutine")
+
+    coro = _raising()
+    with pytest.raises(RuntimeError, match="boom from coroutine"):
+        loader._run_awaitable(coro)

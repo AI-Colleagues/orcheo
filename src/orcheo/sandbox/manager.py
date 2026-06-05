@@ -11,12 +11,13 @@ the workspace's ``WorkspaceRuntimePool``.
 """
 
 from __future__ import annotations
+import logging
 import socket
 import threading
 import uuid
 from collections import defaultdict, deque
 from datetime import UTC, timedelta
-from typing import Final
+from typing import Final, Protocol
 from urllib.parse import urlparse
 from orcheo.sandbox.audit import SandboxAuditLogger
 from orcheo.sandbox.config import SandboxSettings
@@ -38,6 +39,8 @@ from orcheo.sandbox.runtime import (
 )
 
 
+logger = logging.getLogger(__name__)
+
 _DEFAULT_NETWORK: Final[str] = "sandbox-egress"
 
 # Sandbox containers run with a read-only rootfs (see ContainerSpec defaults)
@@ -46,6 +49,28 @@ _DEFAULT_NETWORK: Final[str] = "sandbox-egress"
 # from inside the sandbox; without it the default ~/.orcheo path fails with
 # EACCES against the read-only rootfs.
 _SANDBOX_AGENT_RUNTIME_ROOT: Final[str] = "/scratch/agent-runtimes"
+
+
+class SandboxManager(Protocol):
+    """Protocol satisfied by ``SandboxRuntimeManager`` and ``RemoteSandboxManager``.
+
+    Any object implementing ``acquire`` / ``release`` / ``destroy`` can be
+    used wherever the dispatcher, launcher, or ingest path needs a manager.
+    """
+
+    def acquire(
+        self,
+        workspace_id: str,
+        *,
+        run_id: str | None = None,
+    ) -> SandboxLease:
+        """Return an ``IN_USE`` lease for ``workspace_id``."""
+
+    def release(self, lease: SandboxLease) -> None:
+        """Return ``lease`` to the warm pool."""
+
+    def destroy(self, lease: SandboxLease) -> None:
+        """Tear down the container and remove the lease record."""
 
 
 class SandboxRuntimeManager:
@@ -105,6 +130,11 @@ class SandboxRuntimeManager:
             self._workspace_configs[workspace_id] = pool
             return pool
 
+    def get_lease(self, lease_id: str) -> SandboxLease | None:
+        """Return the lease for ``lease_id``, or ``None`` if not tracked."""
+        with self._lock:
+            return self._leases.get(lease_id)
+
     def acquire(
         self,
         workspace_id: str,
@@ -116,6 +146,10 @@ class SandboxRuntimeManager:
         Returns a warm pooled sandbox when one is available, otherwise cold-
         provisions a new container up to ``pool_max``. Raises
         ``SandboxAcquireError`` if the workspace's pool is exhausted.
+
+        The slow Docker ``start()`` call happens *outside* the manager lock so
+        concurrent acquires for different workspaces (or the same workspace up
+        to ``pool_max``) do not serialize behind each other's cold boot.
 
         Args:
             workspace_id: Owning workspace.
@@ -151,10 +185,45 @@ class SandboxRuntimeManager:
                     f"({in_use}/{pool.pool_max} in use)"
                 )
                 raise SandboxAcquireError(msg)
+            # Reserve a slot with a PROVISIONING placeholder before releasing
+            # the lock. _count_in_use() includes PROVISIONING leases so
+            # concurrent callers see the reserved capacity immediately.
+            lease_id = uuid.uuid4().hex
+            placeholder = SandboxLease(
+                lease_id=lease_id,
+                workspace_id=workspace_id,
+                sandbox_id="",
+                state=SandboxState.PROVISIONING,
+            )
+            self._leases[lease_id] = placeholder
 
-            lease = self._provision(workspace_id, pool, run_id=run_id)
-            lease.state = SandboxState.IN_USE
-            return lease
+        # Cold-provision outside the lock so concurrent acquires for other
+        # workspaces (or up to pool_max for this workspace) are not blocked
+        # by the Docker start() latency.
+        spec = self._build_spec(workspace_id, pool)
+        try:
+            handle = self._runtime.start(spec)
+        except Exception:
+            with self._lock:
+                self._leases.pop(lease_id, None)
+            raise
+
+        with self._lock:
+            placeholder.sandbox_id = handle.container_id
+            placeholder.state = SandboxState.IN_USE
+            placeholder.touch()
+            self._handles[lease_id] = handle
+
+        self._audit.emit(
+            SandboxAuditEvent(
+                event="provision",
+                workspace_id=workspace_id,
+                sandbox_id=handle.container_id,
+                run_id=run_id,
+                detail=f"image={spec.image}",
+            )
+        )
+        return placeholder
 
     def release(self, lease: SandboxLease) -> None:
         """Return a lease to the workspace's warm pool."""
@@ -240,6 +309,54 @@ class SandboxRuntimeManager:
             self.destroy(lease)
         return reaped
 
+    def reap_stale_in_use(
+        self,
+        *,
+        max_duration_seconds: float,
+        now_seconds: float | None = None,
+    ) -> list[SandboxLease]:
+        """Force-destroy ``IN_USE``/``PROVISIONING`` leases held too long.
+
+        Handles client crashes where a lease was acquired but never released,
+        permanently consuming a ``pool_max`` slot.
+
+        Args:
+            max_duration_seconds: Leases older than this are force-destroyed.
+            now_seconds: Override "now" in seconds-since-epoch (for tests).
+
+        Returns:
+            The leases that were force-destroyed.
+        """
+        from datetime import datetime
+
+        reference = (
+            datetime.fromtimestamp(now_seconds, tz=UTC)
+            if now_seconds is not None
+            else datetime.now(tz=UTC)
+        )
+        cutoff = timedelta(seconds=max_duration_seconds)
+        stale: list[SandboxLease] = []
+        with self._lock:
+            for lease in list(self._leases.values()):
+                if lease.state in (SandboxState.IN_USE, SandboxState.PROVISIONING):
+                    if reference - lease.created_at >= cutoff:
+                        stale.append(lease)
+        for lease in stale:
+            logger.warning(
+                "Force-destroying stale %s lease %s for workspace %s "
+                "(age=%.0fs, created_at=%s)",
+                lease.state.value,
+                lease.lease_id,
+                lease.workspace_id,
+                (reference - lease.created_at).total_seconds(),
+                lease.created_at.isoformat(),
+            )
+            try:
+                self.destroy(lease)
+            except SandboxNotFoundError:
+                pass
+        return stale
+
     def shutdown(self) -> None:
         """Destroy every tracked lease — used on process exit."""
         with self._lock:
@@ -261,41 +378,17 @@ class SandboxRuntimeManager:
         return None
 
     def _count_in_use(self, workspace_id: str) -> int:
-        """Count leases currently in use for ``workspace_id``."""
+        """Count leases currently reserved or in use for ``workspace_id``.
+
+        Includes ``PROVISIONING`` leases so a slot reserved by an in-flight
+        cold-boot is not double-counted by a concurrent acquire.
+        """
         return sum(
             1
             for lease in self._leases.values()
-            if lease.workspace_id == workspace_id and lease.state is SandboxState.IN_USE
+            if lease.workspace_id == workspace_id
+            and lease.state in (SandboxState.IN_USE, SandboxState.PROVISIONING)
         )
-
-    def _provision(
-        self,
-        workspace_id: str,
-        pool: WorkspaceRuntimePool,
-        *,
-        run_id: str | None,
-    ) -> SandboxLease:
-        """Cold-provision a sandbox and register its lease."""
-        spec = self._build_spec(workspace_id, pool)
-        handle = self._runtime.start(spec)
-        lease = SandboxLease(
-            lease_id=uuid.uuid4().hex,
-            workspace_id=workspace_id,
-            sandbox_id=handle.container_id,
-            state=SandboxState.READY,
-        )
-        self._leases[lease.lease_id] = lease
-        self._handles[lease.lease_id] = handle
-        self._audit.emit(
-            SandboxAuditEvent(
-                event="provision",
-                workspace_id=workspace_id,
-                sandbox_id=lease.sandbox_id,
-                run_id=run_id,
-                detail=f"image={spec.image}",
-            )
-        )
-        return lease
 
     def _build_spec(
         self,

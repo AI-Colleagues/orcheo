@@ -63,7 +63,6 @@ dependencies = [
   "dynaconf>=3.2.4",
   "structlog>=24.4.0",
   "cryptography>=43.0.1",
-  "RestrictedPython>=7.2",
   "py-mini-racer>=0.6.0",
   "langchain-google-genai>=3.0.0",
   "fastmcp>=2.13.0.2",

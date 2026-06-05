@@ -5,11 +5,14 @@ Considerations). The backend and Celery worker therefore never touch it
 directly — they call the dedicated ``sandbox-runtime`` container over HTTP,
 and that container is the only process with the socket mount.
 
-This module provides three clients:
+This module provides four clients:
 
 - ``RemoteContainerRuntime`` implements ``ContainerRuntime`` by POSTing to
-  ``/containers``. The :class:`SandboxRuntimeManager` uses it for
-  acquire/destroy.
+  ``/containers``. Kept for backward-compatibility; production code uses
+  ``RemoteSandboxManager`` instead.
+- ``RemoteSandboxManager`` implements the ``SandboxManager`` protocol via the
+  central ``/internal/leases`` endpoints, drawing from the service's single
+  shared pool rather than maintaining a per-process pool.
 - ``RemoteSandboxExec`` implements ``_SandboxExec`` for
   :class:`SandboxedProcessLauncher`, dispatching a one-shot ``docker exec``
   via ``/sandboxes/{sandbox_id}/exec``.
@@ -21,6 +24,7 @@ This module provides three clients:
 
 from __future__ import annotations
 import os
+import threading
 from collections.abc import Mapping
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -33,7 +37,7 @@ from orcheo.graph.ingestion import (
     ScriptIngestionError,
 )
 from orcheo.sandbox.errors import SandboxAcquireError, SandboxLifecycleError
-from orcheo.sandbox.models import SandboxLease
+from orcheo.sandbox.models import SandboxLease, SandboxState
 from orcheo.sandbox.runtime import ContainerHandle, ContainerSpec
 from orcheo.sandbox.workflow import WorkflowRunResult, WorkflowRunSpec
 
@@ -328,6 +332,115 @@ class RemoteSandboxRunner:
             outputs=cast(Mapping[str, Any], dict(data.get("outputs") or {})),
             error=data.get("error"),
         )
+
+
+class RemoteSandboxManager:
+    """``SandboxManager`` backed by the sandbox-runtime central lease API.
+
+    Replaces the per-process ``SandboxRuntimeManager`` + ``RemoteContainerRuntime``
+    pair. All callers (FastAPI ingest, every Celery worker) share the service's
+    single pool, eliminating per-process pool duplication and letting the
+    service's reaper manage container lifetimes centrally.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        control_token: str | None = None,
+        client: httpx.Client | None = None,
+        timeout: float = 30.0,
+    ) -> None:
+        """Initialize the manager.
+
+        Args:
+            base_url: Base URL of the sandbox-runtime service.
+            control_token: Internal authentication token for control routes.
+            client: Optional pre-configured ``httpx.Client``; one is created
+                if omitted.
+            timeout: Default request timeout in seconds for acquire/destroy.
+                For acquire, the cold-provision timeout on the service side is
+                up to the service's container runtime; this timeout covers the
+                HTTP round-trip including that wait.
+        """
+        self._base_url = base_url.rstrip("/")
+        self._headers = _control_headers(control_token)
+        self._owns_client = client is None
+        self._client = client or httpx.Client(timeout=timeout)
+        self._lock = threading.Lock()
+
+    def close(self) -> None:
+        """Close the underlying HTTP client if owned by this manager."""
+        if self._owns_client:
+            self._client.close()
+
+    def acquire(
+        self,
+        workspace_id: str,
+        *,
+        run_id: str | None = None,
+    ) -> SandboxLease:
+        """Request an ``IN_USE`` lease from the central pool.
+
+        The service cold-provisions a container when the warm pool is empty,
+        so this call can block for several seconds. Callers in async contexts
+        should wrap with ``asyncio.to_thread``.
+        """
+        payload: dict[str, Any] = {"workspace_id": workspace_id}
+        if run_id is not None:
+            payload["run_id"] = run_id
+        response = self._client.post(
+            f"{self._base_url}/internal/leases",
+            json=payload,
+            headers=self._headers,
+        )
+        if response.status_code == httpx.codes.CONFLICT:
+            raise SandboxAcquireError(_response_detail(response))
+        if not response.is_success:
+            raise RemoteRuntimeError(
+                f"acquire lease failed: {response.status_code} "
+                f"{_response_detail(response)}"
+            )
+        data = response.json()
+        return SandboxLease(
+            lease_id=str(data["lease_id"]),
+            workspace_id=str(data["workspace_id"]),
+            sandbox_id=str(data["sandbox_id"]),
+            state=SandboxState.IN_USE,
+        )
+
+    def release(self, lease: SandboxLease) -> None:
+        """Return ``lease`` to the service's warm pool."""
+        response = self._client.post(
+            f"{self._base_url}/internal/leases/{lease.lease_id}/release",
+            headers=self._headers,
+        )
+        if response.status_code in (
+            httpx.codes.NOT_FOUND,
+            httpx.codes.CONFLICT,
+        ):
+            return  # already released / destroyed — idempotent
+        if not response.is_success:
+            raise RemoteRuntimeError(
+                f"release lease failed: {response.status_code} "
+                f"{_response_detail(response)}"
+            )
+        lease.state = SandboxState.READY
+
+    def destroy(self, lease: SandboxLease) -> None:
+        """Tear down the container and remove the lease from the central pool."""
+        response = self._client.delete(
+            f"{self._base_url}/internal/leases/{lease.lease_id}",
+            headers=self._headers,
+        )
+        if response.status_code == httpx.codes.NOT_FOUND:
+            return  # already gone — idempotent
+        if not response.is_success:
+            raise RemoteRuntimeError(
+                f"destroy lease failed: {response.status_code} "
+                f"{_response_detail(response)}"
+            )
+        lease.state = SandboxState.DESTROYED
 
 
 class RemoteSandboxIngestor:

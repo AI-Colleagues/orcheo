@@ -56,9 +56,13 @@ override:
 ## Deploy
 
 ```
-docker compose up -d           # starts the local stack with sandboxing disabled
-nft -f deploy/stack/sandbox-egress.nft
+docker compose up -d
 ```
+
+`docker compose up` now applies the L3/L4 egress deny ruleset automatically via
+the `nft-init` one-shot service (runs `nft -f sandbox-egress.nft` on the host
+before `sandbox-runtime` starts). On non-Linux hosts the `nft-init` step exits
+cleanly without effect.
 
 The `sandbox-runtime`, `credential-relay`, `egress-proxy`, and
 `workspace-sandbox` services are defined in the base `docker-compose.yml`.

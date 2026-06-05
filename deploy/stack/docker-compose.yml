@@ -216,11 +216,28 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
+  nft-init:
+    # One-shot init that loads the L3/L4 egress deny ruleset onto the host.
+    # Uses `|| true` so it exits cleanly on non-Linux hosts (e.g. macOS dev).
+    image: alpine:3
+    network_mode: host
+    privileged: true
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - "apk add -q --no-cache nftables >/dev/null 2>&1 && nft -f /nft/sandbox-egress.nft || true"
+    volumes:
+      - ./sandbox-egress.nft:/nft/sandbox-egress.nft:ro
+
   sandbox-runtime:
     # Sole service mounting the container-runtime socket. Treat as
     # root-equivalent on the host; never expose this socket to tenant code.
     image: ${ORCHEO_SANDBOX_RUNTIME_IMAGE:-ghcr.io/ai-colleagues/orcheo-sandbox-runtime:latest}
     restart: unless-stopped
+    depends_on:
+      nft-init:
+        condition: service_completed_successfully
     volumes:
       # Writable: the runtime calls `docker run` / `docker exec` to spawn
       # per-workspace sandbox children.

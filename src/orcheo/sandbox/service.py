@@ -10,6 +10,14 @@ The Docker-facing runtime app is control-plane only and requires the internal
 control token for every operation. The credential-relay app is built
 separately and exposes only credential resolution, attachment downloads, and
 health; tenant sandboxes never have a network path to the Docker-facing app.
+
+Pool ownership
+--------------
+The ``SandboxRuntimeManager`` lives here — in the singleton service process
+that owns the Docker socket — so every caller (FastAPI ingest, every Celery
+worker) draws from one shared pool per workspace. Clients use the
+``/internal/leases`` endpoints to acquire, release, and destroy leases; the
+service handles idle-reaping and stale-in-use reaping via a background task.
 """
 
 from __future__ import annotations
@@ -20,7 +28,8 @@ import os
 import secrets
 import socket
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import asynccontextmanager, suppress
 from typing import Annotated, Any, Final
 from urllib.parse import urlparse
 import httpx
@@ -33,6 +42,12 @@ from orcheo.graph.ingestion import (
     DEFAULT_SCRIPT_SIZE_LIMIT,
 )
 from orcheo.sandbox.config import SandboxSettings
+from orcheo.sandbox.errors import (
+    SandboxAcquireError,
+    SandboxLifecycleError,
+    SandboxNotFoundError,
+)
+from orcheo.sandbox.manager import SandboxRuntimeManager
 from orcheo.sandbox.runtime import (
     ContainerHandle,
     ContainerRuntime,
@@ -50,6 +65,12 @@ _INGESTION_RUNNER_MODULE: Final[str] = "orcheo.sandbox.ingestion_runner"
 CONTROL_HEADER: Final[str] = "X-Orcheo-Sandbox-Control-Token"
 _SANDBOX_NETWORK: Final[str] = "sandbox-egress"
 _SANDBOX_AGENT_RUNTIME_ROOT: Final[str] = "/scratch/agent-runtimes"
+
+# Env-var names for the reaper background task.
+_ENV_REAP_INTERVAL: Final[str] = "ORCHEO_SANDBOX_REAP_INTERVAL_SECONDS"
+_ENV_MAX_IN_USE: Final[str] = "ORCHEO_SANDBOX_MAX_IN_USE_SECONDS"
+_DEFAULT_REAP_INTERVAL: Final[float] = 60.0
+_DEFAULT_MAX_IN_USE: Final[float] = 7200.0  # 2 hours
 
 
 class SandboxProvisionRequest(BaseModel):
@@ -84,6 +105,13 @@ class SandboxProvisionRequest(BaseModel):
             dns=tuple(settings.sandbox_dns),
             extra_hosts=_resolve_extra_hosts(settings),
         )
+
+
+class LeaseAcquireRequest(BaseModel):
+    """Request body for ``POST /internal/leases``."""
+
+    workspace_id: str
+    run_id: str | None = None
 
 
 class ExecRequest(BaseModel):
@@ -506,6 +534,73 @@ def _register_container_routes(
         return {**handle.as_dict(), "running": runtime.is_running(handle)}
 
 
+def _register_lease_routes(
+    app: FastAPI,
+    manager: SandboxRuntimeManager,
+    authorize: Callable[..., None],
+) -> None:
+    """Register the central pool lease endpoints on ``app``.
+
+    Clients call these instead of managing containers directly. The service
+    maintains a single warm pool per workspace; all callers (FastAPI ingest,
+    every Celery worker) draw from it, eliminating per-process pool duplication.
+    """
+
+    @app.post(
+        "/internal/leases",
+        status_code=status.HTTP_201_CREATED,
+        dependencies=[Depends(authorize)],
+    )
+    def acquire_lease(payload: LeaseAcquireRequest) -> dict[str, Any]:
+        try:
+            lease = manager.acquire(payload.workspace_id, run_id=payload.run_id)
+        except SandboxAcquireError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+        return {
+            "lease_id": lease.lease_id,
+            "sandbox_id": lease.sandbox_id,
+            "workspace_id": lease.workspace_id,
+            "state": lease.state.value,
+        }
+
+    @app.post(
+        "/internal/leases/{lease_id}/release",
+        status_code=status.HTTP_204_NO_CONTENT,
+        dependencies=[Depends(authorize)],
+    )
+    def release_lease(lease_id: str) -> None:
+        lease = manager.get_lease(lease_id)
+        if lease is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"lease {lease_id!r} not found",
+            )
+        try:
+            manager.release(lease)
+        except (SandboxLifecycleError, SandboxNotFoundError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+
+    @app.delete(
+        "/internal/leases/{lease_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        dependencies=[Depends(authorize)],
+    )
+    def destroy_lease(lease_id: str) -> None:
+        lease = manager.get_lease(lease_id)
+        if lease is None:
+            return  # idempotent — already gone
+        try:
+            manager.destroy(lease)
+        except SandboxNotFoundError:
+            pass
+
+
 def _register_sandbox_routes(
     app: FastAPI,
     executor: ContainerExecutor,
@@ -634,6 +729,41 @@ def _register_credential_relay_route(app: FastAPI) -> None:
         )
 
 
+@asynccontextmanager
+async def _manager_lifespan(manager: SandboxRuntimeManager) -> AsyncIterator[None]:
+    """Run the sandbox reaper and shut the manager down on exit."""
+    reap_interval = float(os.getenv(_ENV_REAP_INTERVAL, str(_DEFAULT_REAP_INTERVAL)))
+    max_in_use = float(os.getenv(_ENV_MAX_IN_USE, str(_DEFAULT_MAX_IN_USE)))
+
+    async def _reap_loop() -> None:
+        while True:
+            await asyncio.sleep(reap_interval)
+            try:
+                reaped_idle = manager.reap_idle()
+                reaped_stale = manager.reap_stale_in_use(
+                    max_duration_seconds=max_in_use
+                )
+                if reaped_idle or reaped_stale:
+                    logger.info(
+                        "Sandbox reaper: %d idle, %d stale-in-use leases destroyed",
+                        len(reaped_idle),
+                        len(reaped_stale),
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Sandbox reaper loop error")
+
+    task = asyncio.create_task(_reap_loop(), name="sandbox_reaper")
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+        manager.shutdown()
+
+
 def build_service_app(
     runtime: ContainerRuntime | None = None,
     executor: ContainerExecutor | None = None,
@@ -641,13 +771,28 @@ def build_service_app(
     ingestion_invoker: ScriptSandboxInvoker | None = None,
     settings: SandboxSettings | None = None,
     control_token: str | None = None,
+    manager: SandboxRuntimeManager | None = None,
 ) -> FastAPI:
-    """Build the FastAPI app for the sandbox-runtime service."""
+    """Build the FastAPI app for the sandbox-runtime service.
+
+    Args:
+        runtime: Container runtime. Defaults to ``DockerContainerRuntime``.
+        executor: Docker-exec adapter. Defaults to ``ContainerExecutor``.
+        invoker: Workflow dispatch adapter. Defaults to ``WorkflowSandboxInvoker``.
+        ingestion_invoker: Ingestion adapter. Defaults to ``ScriptSandboxInvoker``.
+        settings: Sandbox settings. Defaults to ``SandboxSettings.from_env()``.
+        control_token: Internal auth token. Defaults to the
+            ``ORCHEO_SANDBOX_CONTROL_TOKEN`` env var.
+        manager: Pre-built ``SandboxRuntimeManager``. When omitted, one is
+            created from ``runtime`` and ``settings``. Tests may inject a
+            manager backed by ``InMemoryContainerRuntime``.
+    """
     runtime = runtime or DockerContainerRuntime()
+    settings = settings or SandboxSettings.from_env()
+    manager = manager or SandboxRuntimeManager(runtime=runtime, settings=settings)
     executor = executor or ContainerExecutor()
     invoker = invoker or WorkflowSandboxInvoker(executor)
     ingestion_invoker = ingestion_invoker or ScriptSandboxInvoker(executor)
-    settings = settings or SandboxSettings.from_env()
     authorize = _control_dependency(
         control_token
         if control_token is not None
@@ -655,14 +800,23 @@ def build_service_app(
     )
     handles: dict[str, ContainerHandle] = {}
 
+    _manager = manager  # capture for closure
+
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
+        async with _manager_lifespan(_manager):
+            yield
+
     app = FastAPI(
         title="Orcheo Sandbox Runtime",
         description=(
             "Internal service that brokers Docker/gVisor sandbox operations. "
             "Mounts the container-runtime socket; never expose publicly."
         ),
+        lifespan=_lifespan,
     )
     _register_container_routes(app, runtime, handles, settings, authorize)
+    _register_lease_routes(app, manager, authorize)
     _register_sandbox_routes(
         app,
         executor,

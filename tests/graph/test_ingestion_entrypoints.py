@@ -95,6 +95,32 @@ def test_ingest_script_with_async_entrypoint() -> None:
     _assert_payload_index(payload, node_name="first")
 
 
+def test_ingest_script_awaits_top_level_coroutine() -> None:
+    script = textwrap.dedent(
+        """
+        import asyncio
+
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        async def build_graph():
+            await asyncio.sleep(0)
+            graph = StateGraph(State)
+            graph.add_node("first", lambda state: state)
+            graph.set_entry_point("first")
+            graph.set_finish_point("first")
+            return graph
+
+        orcheo_workflow = await build_graph()
+        """
+    )
+
+    payload = ingest_langgraph_script(script)
+
+    assert payload["entrypoint"] is None
+    _assert_payload_index(payload, node_name="first")
+
+
 def test_ingest_script_with_multiple_candidates_requires_entrypoint() -> None:
     script = textwrap.dedent(
         """
@@ -140,7 +166,7 @@ def test_ingest_script_defaults_to_orcheo_workflow_entrypoint() -> None:
     _assert_payload_index(payload, node_name="first")
 
 
-def test_ingest_script_rejects_forbidden_imports() -> None:
+def test_ingest_script_allows_previously_blocked_imports() -> None:
     script = textwrap.dedent(
         """
         import os
@@ -153,8 +179,8 @@ def test_ingest_script_rejects_forbidden_imports() -> None:
         """
     )
 
-    with pytest.raises(ScriptIngestionError):
-        ingest_langgraph_script(script)
+    result = ingest_langgraph_script(script)
+    assert result["format"] == LANGGRAPH_SCRIPT_FORMAT
 
 
 def test_ingest_script_rejects_relative_imports() -> None:

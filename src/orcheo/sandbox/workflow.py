@@ -19,7 +19,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from orcheo.sandbox.broker import CredentialBroker
-from orcheo.sandbox.manager import SandboxRuntimeManager
+from orcheo.sandbox.manager import SandboxManager
 from orcheo.sandbox.models import SandboxLease
 
 
@@ -107,7 +107,7 @@ class WorkflowSandboxDispatcher:
 
     def __init__(
         self,
-        manager: SandboxRuntimeManager,
+        manager: SandboxManager,
         runner: SandboxRunner,
         broker: CredentialBroker,
         *,

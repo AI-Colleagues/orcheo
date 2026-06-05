@@ -62,7 +62,12 @@ def test_build_graph_script_format_delegates_to_ingestion_loader(
 
     captured: dict[str, object] = {}
 
-    def fake_loader(source: str, *, entrypoint: str | None = None):
+    def fake_loader(
+        source: str,
+        *,
+        entrypoint: str | None = None,
+        max_script_bytes: int | None = None,
+    ):
         captured["source"] = source
         captured["entrypoint"] = entrypoint
         return sentinel.graph

@@ -14,7 +14,7 @@ from orcheo.sandbox.errors import (
     SandboxLifecycleError,
     SandboxNotFoundError,
 )
-from orcheo.sandbox.manager import SandboxRuntimeManager
+from orcheo.sandbox.manager import SandboxManager, SandboxRuntimeManager
 from orcheo.sandbox.models import (
     SandboxAuditEvent,
     SandboxLease,
@@ -38,6 +38,7 @@ __all__ = [
     "SandboxError",
     "SandboxLease",
     "SandboxLifecycleError",
+    "SandboxManager",
     "SandboxNotFoundError",
     "SandboxRuntimeManager",
     "SandboxSettings",

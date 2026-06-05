@@ -1,7 +1,9 @@
 """Tests covering ingestion size limits, timeouts, and caching."""
 
 from __future__ import annotations
+import sys
 import textwrap
+from pathlib import Path
 import pytest
 from orcheo.graph.ingestion import (
     DEFAULT_SCRIPT_SIZE_LIMIT,
@@ -32,6 +34,19 @@ def test_validate_script_size_rejects_non_positive_limits() -> None:
         _validate_script_size("payload", 0)
 
 
+def test_validate_script_size_accepts_equal_limit() -> None:
+    source = "hello"
+    _validate_script_size(source, max_script_bytes=len(source.encode("utf-8")))
+
+
+def test_validate_script_size_rejects_payload_above_limit() -> None:
+    with pytest.raises(
+        ScriptIngestionError,
+        match="LangGraph script exceeds the permitted size of 1 bytes",
+    ):
+        _validate_script_size("ab", max_script_bytes=1)
+
+
 def test_ingest_script_enforces_execution_timeout() -> None:
     script = "while True:\n    pass\n"
 
@@ -41,7 +56,7 @@ def test_ingest_script_enforces_execution_timeout() -> None:
         ingest_langgraph_script(script, execution_timeout_seconds=0.1)
 
 
-def test_compile_langgraph_script_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_compile_langgraph_script_is_cached() -> None:
     script = textwrap.dedent(
         """
         from langgraph.graph import StateGraph
@@ -53,22 +68,38 @@ def test_compile_langgraph_script_is_cached(monkeypatch: pytest.MonkeyPatch) -> 
         """
     )
 
-    call_count = 0
-
-    def _fake_compile(source: str, filename: str, mode: str, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        # Extract flags if provided, pass to compile
-        flags = kwargs.get("flags", 0)
-        return compile(source, filename, mode, flags=flags)
-
     _compile_langgraph_script.cache_clear()
-    monkeypatch.setattr("orcheo.graph.ingestion.compile_restricted", _fake_compile)
-
     try:
-        ingest_langgraph_script(script)
-        ingest_langgraph_script(script)
+        result1 = _compile_langgraph_script(script)
+        result2 = _compile_langgraph_script(script)
+        assert result1 is result2
     finally:
         _compile_langgraph_script.cache_clear()
 
-    assert call_count == 1
+
+def test_ingest_loads_plugin_site_packages(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    site_packages = (
+        tmp_path
+        / "plugins"
+        / "venv"
+        / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages"
+    )
+    module_dir = site_packages / "orcheo_plugin_fixture_runtime"
+    module_dir.mkdir(parents=True)
+    (module_dir / "__init__.py").write_text("VALUE = 'ok'\n", encoding="utf-8")
+    monkeypatch.setenv("ORCHEO_PLUGIN_DIR", str(tmp_path / "plugins"))
+
+    # Ensure the path insertion in _ensure_plugin_sys_path is triggered
+    from orcheo.graph.ingestion.loader import _ensure_plugin_sys_path
+
+    before = list(sys.path)
+    try:
+        _ensure_plugin_sys_path()
+        assert str(site_packages) in sys.path
+    finally:
+        sys.path[:] = before
+        sys.modules.pop("orcheo_plugin_fixture_runtime", None)
