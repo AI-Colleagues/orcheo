@@ -128,7 +128,8 @@ python_version = "3.12"
 [tool.pytest.ini_options]
 filterwarnings = [
   "ignore:.*named widget classes is deprecated.*:DeprecationWarning",
-  "ignore:.*named action classes is deprecated.*:DeprecationWarning"
+  "ignore:.*named action classes is deprecated.*:DeprecationWarning",
+  "ignore:This process.*multi-threaded.*use of fork.*may lead to deadlocks:DeprecationWarning"
 ]
 markers = [
   "no_mock_celery: disable the autouse Celery enqueue mock in repository tests"

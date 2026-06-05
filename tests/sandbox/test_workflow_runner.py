@@ -3,6 +3,7 @@
 from __future__ import annotations
 import os
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 import pytest
 
@@ -137,26 +138,21 @@ def test_broker_resolver_raises_when_value_is_not_string(
 def test_credential_context_raises_when_broker_url_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_credential_context raises RuntimeError when ORCHEO_CREDENTIAL_BROKER_URL is unset (lines 105-106)."""
+    """_credential_context raises RuntimeError when ORCHEO_CREDENTIAL_BROKER_URL is unset."""
     from orcheo.sandbox.workflow_runner import _credential_context
 
-    monkeypatch.setenv("ORCHEO_BROKER_TOKEN", "some-token")
     monkeypatch.delenv("ORCHEO_CREDENTIAL_BROKER_URL", raising=False)
 
     with pytest.raises(RuntimeError, match="ORCHEO_CREDENTIAL_BROKER_URL"):
-        _credential_context(run_id="r1", workspace_id="ws-1")
+        _credential_context(run_id="r1", workspace_id="ws-1", broker_token="some-token")
 
 
-def test_credential_context_returns_nullcontext_when_no_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """_credential_context returns nullcontext() when no broker token is set."""
+def test_credential_context_returns_nullcontext_when_no_token() -> None:
+    """_credential_context returns nullcontext() when broker_token is empty."""
     from contextlib import nullcontext
     from orcheo.sandbox.workflow_runner import _credential_context
 
-    monkeypatch.delenv("ORCHEO_BROKER_TOKEN", raising=False)
-    ctx = _credential_context(run_id="r1", workspace_id="ws-1")
-    # nullcontext is the expected type when no token is available.
+    ctx = _credential_context(run_id="r1", workspace_id="ws-1", broker_token="")
     assert isinstance(ctx, type(nullcontext()))
 
 
@@ -186,8 +182,11 @@ def test_run_in_subprocess_handles_empty_queue_on_child_exit() -> None:
         def start(self) -> None:
             pass
 
-        def join(self) -> None:
+        def join(self, timeout: float | None = None) -> None:
             pass
+
+        def is_alive(self) -> bool:
+            return False
 
     class _EmptyQueue:
         def get_nowait(self) -> Any:
@@ -232,8 +231,11 @@ def test_run_in_subprocess_handles_clean_exit_with_empty_queue() -> None:
         def start(self) -> None:
             pass
 
-        def join(self) -> None:
+        def join(self, timeout: float | None = None) -> None:
             pass
+
+        def is_alive(self) -> bool:
+            return False
 
     class _EmptyQueue:
         def get_nowait(self) -> Any:
@@ -278,8 +280,11 @@ def test_run_in_subprocess_handles_nonzero_exit_with_empty_queue() -> None:
         def start(self) -> None:
             pass
 
-        def join(self) -> None:
+        def join(self, timeout: float | None = None) -> None:
             pass
+
+        def is_alive(self) -> bool:
+            return False
 
     class _EmptyQueue:
         def get_nowait(self) -> Any:
@@ -324,8 +329,11 @@ def test_run_in_subprocess_handles_still_running_child() -> None:
         def start(self) -> None:
             pass
 
-        def join(self) -> None:
+        def join(self, timeout: float | None = None) -> None:
             pass
+
+        def is_alive(self) -> bool:
+            return False
 
     class _EmptyQueue:
         def get_nowait(self) -> Any:
@@ -520,15 +528,15 @@ def test_sandbox_thread_state_store_read_payload_handles_non_dict_json(
 def test_credential_context_returns_resolver_when_both_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_credential_context returns credential_resolution context when token+URL present (line 206)."""
+    """_credential_context returns credential_resolution context when token+URL present."""
     from orcheo.sandbox.workflow_runner import _credential_context
 
-    monkeypatch.setenv("ORCHEO_BROKER_TOKEN", "tok-123")
     monkeypatch.setenv("ORCHEO_CREDENTIAL_BROKER_URL", "http://broker:9091")
 
-    ctx = _credential_context(run_id="run-1", workspace_id="ws-1")
+    ctx = _credential_context(
+        run_id="run-1", workspace_id="ws-1", broker_token="tok-123"
+    )
 
-    # It should be a non-nullcontext context manager
     from contextlib import nullcontext
 
     assert not isinstance(ctx, type(nullcontext()))
@@ -547,6 +555,7 @@ def test_run_in_subprocess_no_spawn_success() -> None:
         state_config=None,
         run_id=None,
         workspace_id=None,
+        broker_token="",
     ):
         return {"output": "hello"}
 
@@ -682,3 +691,73 @@ def test_run_graph_hydrates_attachment_runtime_config(monkeypatch):
         captured["runtime_configurable"]["attachment_resolver"],
         ChatKitAttachmentResolverProxy,
     )
+
+
+# ---------------------------------------------------------------------------
+# WS1: broker_token threading and fork-based timeout
+# ---------------------------------------------------------------------------
+
+
+def test_run_in_subprocess_threads_broker_token_to_child(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """broker_token is forwarded through run_in_subprocess → _execute_workflow_in_child."""
+    from orcheo.sandbox.workflow_runner import run_in_subprocess
+    from unittest.mock import patch
+
+    received: dict[str, Any] = {}
+
+    def _fake_run_graph(
+        workflow_def: Any,
+        inputs: Any,
+        *,
+        runnable_config: Any = None,
+        state_config: Any = None,
+        run_id: Any = None,
+        workspace_id: Any = None,
+        broker_token: str = "",
+    ) -> dict[str, Any]:
+        received["broker_token"] = broker_token
+        return {"output": "ok"}
+
+    with patch(
+        "orcheo.sandbox.workflow_runner._run_graph", side_effect=_fake_run_graph
+    ):
+        result = run_in_subprocess(
+            {},
+            {},
+            broker_token="tok-xyz",
+            spawn=False,
+        )
+
+    assert result["status"] == "succeeded"
+    assert received["broker_token"] == "tok-xyz"
+
+
+def test_run_in_subprocess_timeout_kills_child() -> None:
+    """A zero timeout kills the child and returns a timed-out failure result."""
+    import multiprocessing as mp
+    import time
+    from orcheo.sandbox.workflow_runner import run_in_subprocess
+
+    # Use a real subprocess that sleeps forever so the timeout fires.
+    # spawn=True + fork so the child inherits this process and can sleep.
+    import orcheo.sandbox.workflow_runner as runner_module
+    from unittest.mock import patch
+
+    def _sleeping_graph(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        time.sleep(60)
+        return {}
+
+    with patch(
+        "orcheo.sandbox.workflow_runner._run_graph", side_effect=_sleeping_graph
+    ):
+        result = run_in_subprocess(
+            {},
+            {},
+            timeout_seconds=0.1,
+            spawn=True,
+        )
+
+    assert result["status"] == "failed"
+    assert "timed out" in str(result.get("error", "")).lower()

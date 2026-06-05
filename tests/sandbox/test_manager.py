@@ -476,3 +476,115 @@ def test_reap_stale_in_use_swallows_notfound_during_destroy() -> None:
 
     reaped = manager.reap_stale_in_use(max_duration_seconds=1)
     assert reaped == [lease]  # lease was collected; destroy just failed silently
+
+
+# ---------------------------------------------------------------------------
+# WS2: usage tracking and prewarm
+# ---------------------------------------------------------------------------
+
+
+def test_recent_concurrent_max_returns_peak_within_window() -> None:
+    """recent_concurrent_max tracks the highest concurrent count in the window."""
+    import time
+
+    manager, _ = _manager(pool_max=4)
+
+    # First acquire: 1 in-use
+    l1 = manager.acquire("ws")
+    # Second acquire: 2 in-use
+    l2 = manager.acquire("ws")
+
+    peak = manager.recent_concurrent_max("ws", window_seconds=600.0)
+    assert peak == 2
+
+    manager.release(l1)
+    manager.release(l2)
+    # Peak is still 2 within the window
+    assert manager.recent_concurrent_max("ws", window_seconds=600.0) == 2
+
+
+def test_recent_concurrent_max_returns_zero_for_stagnant_workspace() -> None:
+    """Workspaces with no samples within the window return 0."""
+    import time as _time
+
+    manager, _ = _manager()
+    l = manager.acquire("ws")
+    manager.release(l)
+    # Back-date all samples so they are clearly outside any reasonable window.
+    for sample in manager._usage_samples.get("ws", []):
+        sample.timestamp = _time.monotonic() - 9999.0
+    peak = manager.recent_concurrent_max("ws", window_seconds=600.0)
+    assert peak == 0
+
+
+def test_recent_concurrent_max_returns_zero_for_unknown_workspace() -> None:
+    """Workspaces never seen return 0."""
+    manager, _ = _manager()
+    assert manager.recent_concurrent_max("never-seen", window_seconds=600.0) == 0
+
+
+def test_current_pool_size_reflects_ready_pool() -> None:
+    """current_pool_size returns the number of warm-ready sandboxes."""
+    manager, _ = _manager(pool_max=2)
+    assert manager.current_pool_size("ws") == 0
+    l = manager.acquire("ws")
+    assert manager.current_pool_size("ws") == 0  # IN_USE, not in pool
+    manager.release(l)
+    assert manager.current_pool_size("ws") == 1
+
+
+def test_known_workspace_ids_includes_configured_workspaces() -> None:
+    """known_workspace_ids returns workspaces whose pool configs are registered."""
+    manager, _ = _manager()
+    # Implicitly registers via acquire / get_workspace_pool
+    manager.acquire("ws-a")
+    manager.acquire("ws-b")
+    ids = manager.known_workspace_ids()
+    assert "ws-a" in ids
+    assert "ws-b" in ids
+
+
+def test_prewarm_adds_ready_containers_to_pool() -> None:
+    """prewarm provisions containers directly into the READY pool."""
+    manager, runtime = _manager(pool_max=4)
+    added = manager.prewarm("ws", 2)
+    assert added == 2
+    assert manager.current_pool_size("ws") == 2
+    assert len(runtime.started) == 2
+    # Prewarmed sandboxes should be immediately acquirable
+    l = manager.acquire("ws")
+    assert l.state is SandboxState.IN_USE
+    assert manager.current_pool_size("ws") == 1
+
+
+def test_prewarm_respects_pool_max() -> None:
+    """prewarm does not exceed the workspace pool_max."""
+    manager, _ = _manager(pool_max=2)
+    added = manager.prewarm("ws", 5)  # ask for 5, cap is 2
+    assert added == 2
+    assert manager.current_pool_size("ws") == 2
+
+
+def test_prewarm_zero_count_is_noop() -> None:
+    """prewarm(ws, 0) is a no-op and returns 0."""
+    manager, runtime = _manager()
+    assert manager.prewarm("ws", 0) == 0
+    assert len(runtime.started) == 0
+
+
+def test_prewarm_stops_early_when_runtime_raises() -> None:
+    """prewarm() stops after the first provision failure (lines 443-448)."""
+    from orcheo.sandbox.runtime import ContainerHandle, ContainerSpec
+
+    class _BoomRuntime(InMemoryContainerRuntime):
+        def start(self, spec: ContainerSpec) -> ContainerHandle:
+            raise RuntimeError("docker is gone")
+
+    runtime = _BoomRuntime()
+    mgr = SandboxRuntimeManager(
+        runtime=runtime,
+        settings=SandboxSettings(),
+    )
+    added = mgr.prewarm("ws", 3)
+    assert added == 0
+    assert mgr.current_pool_size("ws") == 0

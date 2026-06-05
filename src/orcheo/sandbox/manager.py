@@ -14,8 +14,10 @@ from __future__ import annotations
 import logging
 import socket
 import threading
+import time
 import uuid
 from collections import defaultdict, deque
+from dataclasses import dataclass
 from datetime import UTC, timedelta
 from typing import Final, Protocol
 from urllib.parse import urlparse
@@ -49,6 +51,14 @@ _DEFAULT_NETWORK: Final[str] = "sandbox-egress"
 # from inside the sandbox; without it the default ~/.orcheo path fails with
 # EACCES against the read-only rootfs.
 _SANDBOX_AGENT_RUNTIME_ROOT: Final[str] = "/scratch/agent-runtimes"
+
+
+@dataclass
+class _UsageSample:
+    """A single timestamped reading of concurrent in-use sandboxes."""
+
+    timestamp: float
+    count: int
 
 
 class SandboxManager(Protocol):
@@ -100,6 +110,7 @@ class SandboxRuntimeManager:
         self._handles: dict[str, ContainerHandle] = {}
         self._pools: dict[str, deque[str]] = defaultdict(deque)
         self._workspace_configs: dict[str, WorkspaceRuntimePool] = {}
+        self._usage_samples: dict[str, list[_UsageSample]] = defaultdict(list)
 
     @property
     def settings(self) -> SandboxSettings:
@@ -169,6 +180,7 @@ class SandboxRuntimeManager:
             if lease is not None:
                 lease.state = SandboxState.IN_USE
                 lease.touch()
+                self._record_usage_sample(workspace_id)
                 self._audit.emit(
                     SandboxAuditEvent(
                         event="acquire_warm",
@@ -213,6 +225,7 @@ class SandboxRuntimeManager:
             placeholder.state = SandboxState.IN_USE
             placeholder.touch()
             self._handles[lease_id] = handle
+            self._record_usage_sample(workspace_id)
 
         self._audit.emit(
             SandboxAuditEvent(
@@ -366,6 +379,104 @@ class SandboxRuntimeManager:
                 self.destroy(lease)
             except SandboxNotFoundError:
                 continue
+
+    # ------------------------------------------------------------------
+    # Usage tracking and warm-pool prewarm (WS2)
+    # ------------------------------------------------------------------
+
+    def recent_concurrent_max(
+        self,
+        workspace_id: str,
+        *,
+        window_seconds: float = 600.0,
+    ) -> int:
+        """Return the peak concurrent in-use sandbox count in the recent window.
+
+        Workspaces with no samples in the window return 0, which the autoscaler
+        maps to a prewarm target of 0 — stagnant workspaces are never prewarmed.
+        """
+        cutoff = time.monotonic() - window_seconds
+        with self._lock:
+            samples = self._usage_samples.get(workspace_id, [])
+            fresh = [s for s in samples if s.timestamp >= cutoff]
+            self._usage_samples[workspace_id] = fresh
+            return max((s.count for s in fresh), default=0)
+
+    def current_pool_size(self, workspace_id: str) -> int:
+        """Return the number of warm-ready sandboxes currently in the pool."""
+        with self._lock:
+            return len(self._pools[workspace_id])
+
+    def known_workspace_ids(self) -> list[str]:
+        """Return all workspace IDs for which pool configs have been registered."""
+        with self._lock:
+            return list(self._workspace_configs)
+
+    def prewarm(self, workspace_id: str, count: int) -> int:
+        """Provision up to ``count`` containers directly into the READY pool.
+
+        Each container is started outside the manager lock so concurrent
+        prewarms for different workspaces do not serialise. Stops early if
+        ``pool_max`` is reached or if a provision attempt fails.
+
+        Args:
+            workspace_id: Target workspace.
+            count: Maximum number of containers to add.
+
+        Returns:
+            The number actually added (may be less than ``count``).
+        """
+        if count <= 0:
+            return 0
+        pool = self.get_workspace_pool(workspace_id)
+        added = 0
+        for _ in range(count):
+            with self._lock:
+                total = len(self._pools[workspace_id]) + self._count_in_use(
+                    workspace_id
+                )
+                if total >= pool.pool_max:
+                    break
+            spec = self._build_spec(workspace_id, pool)
+            try:
+                handle = self._runtime.start(spec)
+            except Exception:
+                logger.warning(
+                    "Prewarm provision failed for workspace %s; stopping early",
+                    workspace_id,
+                )
+                break
+            lease_id = uuid.uuid4().hex
+            with self._lock:
+                lease = SandboxLease(
+                    lease_id=lease_id,
+                    workspace_id=workspace_id,
+                    sandbox_id=handle.container_id,
+                    state=SandboxState.READY,
+                )
+                self._leases[lease_id] = lease
+                self._handles[lease_id] = handle
+                self._pools[workspace_id].append(lease_id)
+            self._audit.emit(
+                SandboxAuditEvent(
+                    event="prewarm",
+                    workspace_id=workspace_id,
+                    sandbox_id=handle.container_id,
+                )
+            )
+            added += 1
+        return added
+
+    def _record_usage_sample(self, workspace_id: str) -> None:
+        """Append the current in-use count to the sliding-window buffer.
+
+        Must be called while ``self._lock`` is held.
+        """
+        self._usage_samples[workspace_id].append(
+            _UsageSample(
+                timestamp=time.monotonic(), count=self._count_in_use(workspace_id)
+            )
+        )
 
     def _pop_from_pool(self, workspace_id: str) -> SandboxLease | None:
         """Pop the oldest pooled lease, returning None if the pool is empty."""
