@@ -72,6 +72,7 @@ _SAFE_MODULE_PREFIXES: tuple[str, ...] = (
     "langchain_community",
     "langchain_openai",
     "orcheo.nodes",
+    "orcheo.graph.state",
     "orcheo.models",
     "orcheo.edges",
     "orcheo.workflow",

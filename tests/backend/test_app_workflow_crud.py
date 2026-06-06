@@ -712,8 +712,8 @@ async def test_archive_workflow_not_found() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_archive_workflow_blocks_managed_vibe_workflow() -> None:
-    """Archive workflow endpoint rejects the managed Orcheo Vibe workflow."""
+async def test_archive_workflow_allows_managed_vibe_workflow() -> None:
+    """Archive workflow endpoint allows the managed Orcheo Vibe workflow."""
     workflow_id = uuid4()
 
     class Repository:
@@ -734,13 +734,21 @@ async def test_archive_workflow_blocks_managed_vibe_workflow() -> None:
             )
 
         async def archive_workflow(self, wf_id, actor):
-            del wf_id, actor
-            raise AssertionError("archive_workflow should not be called")
+            assert wf_id == workflow_id
+            assert actor == "admin"
+            return Workflow(
+                id=wf_id,
+                handle="orcheo-vibe-agent",
+                name="Orcheo Vibe",
+                slug="orcheo-vibe-agent",
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+                is_archived=True,
+            )
 
-    with pytest.raises(HTTPException) as exc_info:
-        await archive_workflow(
-            str(workflow_id), Repository(), _MOCK_WORKSPACE, actor="admin"
-        )
+    result = await archive_workflow(
+        str(workflow_id), Repository(), _MOCK_WORKSPACE, actor="admin"
+    )
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail["code"] == "workflow.delete.protected"
+    assert result.id == workflow_id
+    assert result.is_archived is True

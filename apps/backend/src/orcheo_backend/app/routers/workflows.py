@@ -31,7 +31,6 @@ from orcheo_backend.app.chatkit_tokens import ChatKitSessionTokenIssuer
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import WorkspaceQuotaExceededError, raise_not_found
 from orcheo_backend.app.managed_workflows import (
-    MANAGED_VIBE_WORKFLOW_HANDLE,
     ensure_managed_vibe_workflow,
 )
 from orcheo_backend.app.plugin_inventory import missing_required_plugins
@@ -599,14 +598,6 @@ async def archive_workflow(
         workflow_ref,
         workspace_id=tid,
     )
-    if workflow.handle == MANAGED_VIBE_WORKFLOW_HANDLE:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "message": "The managed Orcheo Vibe workflow cannot be deleted.",
-                "code": "workflow.delete.protected",
-            },
-        )
     workflow = await repository.archive_workflow(workflow.id, actor=resolved_actor)
     return _apply_share_url(workflow, _resolve_studio_url())
 

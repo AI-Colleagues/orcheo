@@ -210,6 +210,16 @@ def test_create_sandbox_namespace_allows_submodule_prefix_import() -> None:
     assert module is importlib.import_module("html.parser")
 
 
+def test_create_sandbox_namespace_allows_graph_state_import() -> None:
+    """Ensure workflow scripts can import the shared graph state model."""
+    namespace = sandbox.create_sandbox_namespace()
+    restricted_import = namespace["__builtins__"]["__import__"]
+
+    module = restricted_import("orcheo.graph.state")
+
+    assert module is importlib.import_module("orcheo.graph.state")
+
+
 def test_create_sandbox_namespace_loads_plugin_site_packages_for_plugin_imports(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
