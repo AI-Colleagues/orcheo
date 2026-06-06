@@ -130,6 +130,12 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | --- | --- | --- | --- |
 | `ORCHEO_MCP_STDIO_LOG` | `/tmp/orcheo-mcp-stdio.log` | Filesystem path | Log file path for stdio-based MCP transport in `SlackNode`; useful for debugging MCP integration issues (`nodes/slack.py`). |
 
+## Workflow execution
+
+| Variable | Default | Valid values | Purpose |
+| --- | --- | --- | --- |
+| `ORCHEO_WORKFLOW_UNSAFE_EXECUTION` | `false` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | When `true`, bypasses the RestrictedPython sandbox and executes workflow scripts with full Python builtins and unrestricted imports. Leave `false` (the default) on any multi-tenant or internet-facing deployment. Set to `true` only on self-hosted instances where every workflow author is trusted (`graph/ingestion/sandbox.py`). |
+
 ## Celery worker configuration
 
 | Variable | Default | Valid values | Purpose |

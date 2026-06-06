@@ -1,7 +1,9 @@
 """Load LangGraph StateGraph instances from Python scripts."""
 
 from __future__ import annotations
+import ast
 import asyncio
+import builtins
 import inspect
 from collections.abc import Awaitable
 from concurrent.futures import ThreadPoolExecutor
@@ -17,6 +19,7 @@ from orcheo.graph.ingestion.sandbox import (
     compile_langgraph_script,
     create_sandbox_namespace,
     execution_timeout,
+    is_sandbox_enabled,
     validate_script_size,
 )
 
@@ -28,9 +31,15 @@ def _execute_langgraph_script(
 ) -> dict[str, Any]:
     """Execute the LangGraph script inside the RP sandbox and return its namespace."""
     validate_script_size(source, max_script_bytes)
-    namespace = create_sandbox_namespace()
-    try:
+    if is_sandbox_enabled():
+        namespace = create_sandbox_namespace()
         compiled = compile_langgraph_script(source)
+    else:
+        namespace = {"__builtins__": vars(builtins), "__name__": "__orcheo_ingest__"}
+        compiled = compile(  # noqa: S307
+            source, "<langgraph-script>", "exec", ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
+        )
+    try:
         with execution_timeout(execution_timeout_seconds):
             result = eval(compiled, namespace)  # noqa: S307
             if inspect.isawaitable(result):

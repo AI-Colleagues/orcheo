@@ -6,6 +6,7 @@ import builtins
 import contextlib
 import importlib
 import operator
+import os
 import signal
 import sys
 import threading
@@ -292,6 +293,17 @@ def compile_langgraph_script(source: str) -> CodeType:
     )
 
 
+def is_sandbox_enabled() -> bool:
+    """Return True unless ``ORCHEO_WORKFLOW_UNSAFE_EXECUTION=true``.
+
+    When False the RP compiler and restricted namespace are bypassed and the
+    script runs with full builtins.  Set this only on self-hosted deployments
+    where you trust every workflow author.
+    """
+    val = os.environ.get("ORCHEO_WORKFLOW_UNSAFE_EXECUTION", "false").strip().lower()
+    return val not in {"1", "true", "yes", "on"}
+
+
 def validate_script_size(source: str, max_script_bytes: int | None) -> None:
     """Raise ``ScriptIngestionError`` when the script exceeds the byte limit."""
     if max_script_bytes is None:
@@ -312,5 +324,6 @@ __all__ = [
     "compile_langgraph_script",
     "create_sandbox_namespace",
     "execution_timeout",
+    "is_sandbox_enabled",
     "validate_script_size",
 ]
