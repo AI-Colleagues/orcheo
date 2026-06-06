@@ -76,6 +76,7 @@ _SAFE_MODULE_PREFIXES: tuple[str, ...] = (
     "orcheo.models",
     "orcheo.edges",
     "orcheo.workflow",
+    "orcheo.runtime.attachments",
     "typing",
     "typing_extensions",
     "collections",
