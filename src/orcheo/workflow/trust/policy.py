@@ -284,35 +284,37 @@ class TrustedWorkflowPolicy:
                     )
                 )
 
-        for edge in graph.conditional_edges:
-            if edge.source not in node_ids:
+        for cond_edge in graph.conditional_edges:
+            if cond_edge.source not in node_ids:
                 result.add_violation(
                     PolicyViolation(
                         reason=PolicyRejectionReason.INVALID_EDGE,
                         detail=(
-                            f"Conditional edge source '{edge.source}' references "
+                            f"Conditional edge source '{cond_edge.source}' references "
                             "an undeclared node."
                         ),
                     )
                 )
-            for label, target in edge.mapping.items():
+            for label, target in cond_edge.mapping.items():
                 if target not in valid_targets:
                     result.add_violation(
                         PolicyViolation(
                             reason=PolicyRejectionReason.INVALID_EDGE,
                             detail=(
                                 f"Conditional edge branch '{label}' from "
-                                f"'{edge.source}' targets undeclared node '{target}'."
+                                f"'{cond_edge.source}' targets undeclared"
+                                f" node '{target}'."
                             ),
                         )
                     )
-            if edge.default is not None and edge.default not in valid_targets:
+            if cond_edge.default is not None and cond_edge.default not in valid_targets:
                 result.add_violation(
                     PolicyViolation(
                         reason=PolicyRejectionReason.INVALID_EDGE,
                         detail=(
-                            f"Conditional edge default from '{edge.source}' targets "
-                            f"undeclared node '{edge.default}'."
+                            f"Conditional edge default from '{cond_edge.source}'"
+                            f" targets "
+                            f"undeclared node '{cond_edge.default}'."
                         ),
                     )
                 )

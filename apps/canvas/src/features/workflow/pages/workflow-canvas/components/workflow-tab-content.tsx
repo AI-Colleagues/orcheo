@@ -180,7 +180,6 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 
 export function WorkflowTabContent({
   workflowId,
-  workflowRouteRef,
   workflowName,
   versions,
   isLoading,
