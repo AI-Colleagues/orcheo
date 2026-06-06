@@ -25,7 +25,11 @@ def _literal_value(node: ast.expr) -> Any:
         val = _literal_value(node.operand)
         if isinstance(val, (int, float)):
             return -val
-    return None
+    # Handle literal collections (lists, dicts, tuples)
+    try:
+        return ast.literal_eval(node)
+    except (ValueError, TypeError):
+        return None
 
 
 def _extract_kwargs(call_node: ast.Call) -> dict[str, Any]:

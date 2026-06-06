@@ -19,10 +19,11 @@ def render_mermaid_from_graph_payload(graph_payload: dict[str, Any]) -> str | No
     source = graph_payload.get("source")
     if not isinstance(source, str) or not source.strip():
         return None
-    return _render_mermaid_from_script(source)
+    entrypoint = graph_payload.get("entrypoint")
+    return _render_mermaid_from_script(source, entrypoint)
 
 
-def _render_mermaid_from_script(source: str) -> str | None:
+def _render_mermaid_from_script(source: str, entrypoint: str | None = None) -> str | None:
     """Execute ``source`` in the RP sandbox and render a Mermaid diagram."""
     from orcheo.graph.ingestion.exceptions import ScriptIngestionError
     from orcheo.graph.ingestion.loader import load_graph_from_script
@@ -33,7 +34,7 @@ def _render_mermaid_from_script(source: str) -> str | None:
     from orcheo.graph.mermaid import has_workflow_tool_subgraphs, render_summary_mermaid
 
     try:
-        graph = load_graph_from_script(source)
+        graph = load_graph_from_script(source, entrypoint=entrypoint)
         summary = summarise_state_graph(graph)
         if has_workflow_tool_subgraphs(summary):
             return render_summary_mermaid(summary)
