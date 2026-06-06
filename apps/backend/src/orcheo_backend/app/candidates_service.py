@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 import httpx
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
+from orcheo.workflow.mermaid import render_mermaid_from_graph_payload
 from orcheo_backend.app.schemas.candidates import CandidateItem
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.workflow.frontmatter import parse_workflow_frontmatter
@@ -216,7 +217,7 @@ async def _render_candidate_previews(
                 candidate.script,
                 entrypoint=candidate.entrypoint,
             )
-            mermaid = script_payload.get("index", {}).get("mermaid")
+            mermaid = render_mermaid_from_graph_payload(script_payload)
         except ScriptIngestionError:
             logger.debug("Graph derivation failed for candidate %s", candidate.id)
         except Exception:
