@@ -27,7 +27,6 @@ def test_ingest_workflow_version_endpoint_creates_version(
     """LangGraph scripts can be submitted to create workflow versions."""
 
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
-    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
     reset_authentication_state()
 
     repository = InMemoryWorkflowRepository()
@@ -82,7 +81,6 @@ def test_ingest_workflow_version_endpoint_creates_version(
     assert version["metadata"] == {"language": "python"}
     assert version["notes"] == "Initial LangGraph import"
     assert version["graph"]["format"] == LANGGRAPH_SCRIPT_FORMAT
-    assert version["graph"]["summary"]["nodes"][0]["name"] == "noop"
     assert "index" in version["graph"]
     assert isinstance(version["graph"]["index"].get("cron"), list)
 
@@ -93,7 +91,6 @@ def test_ingest_workflow_version_invalid_script_returns_400(
     """Invalid LangGraph scripts return a 400 error."""
 
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
-    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
     reset_authentication_state()
 
     repository = InMemoryWorkflowRepository()
@@ -139,7 +136,6 @@ def test_ingest_workflow_version_missing_workflow_returns_404(
     """Ingesting a script for a non-existent workflow returns 404."""
 
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
-    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
     reset_authentication_state()
 
     repository = InMemoryWorkflowRepository()
@@ -188,7 +184,6 @@ async def test_ingest_workflow_version_raises_not_found_error(
 ) -> None:
     """Repository lookups raising ``WorkflowNotFoundError`` propagate as 404s."""
 
-    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
     script = textwrap.dedent(
         """
         from langgraph.graph import StateGraph

@@ -4,7 +4,7 @@ from __future__ import annotations
 import itertools
 from types import SimpleNamespace
 import pytest
-from orcheo.graph.ingestion.loader import execution_timeout
+from orcheo.graph.ingestion.sandbox import execution_timeout
 
 
 def test_execution_timeout_disabled_for_non_positive_values() -> None:
@@ -132,7 +132,7 @@ def test_execution_timeout_restores_existing_traces() -> None:
 def test_execution_timeout_signal_path_restores_alarm_handler() -> None:
     """Signal-based timeout mode should arm and restore signal state."""
     import signal as _signal
-    from orcheo.graph.ingestion.loader import execution_timeout
+    from orcheo.graph.ingestion.sandbox import execution_timeout
 
     class FakeSignal:
         SIGALRM = 14

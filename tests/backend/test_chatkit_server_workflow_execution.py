@@ -46,10 +46,6 @@ def _patched_workflow_executor_persistence() -> None:
             "orcheo_backend.app.chatkit.workflow_executor.create_graph_store",
             lambda settings: _DummyAsyncContext(object()),
         ),
-        patch(
-            "orcheo_backend.app.chatkit.workflow_executor._ensure_production_trusted_graph",
-            lambda graph_config: None,
-        ),
     ):
         yield
 

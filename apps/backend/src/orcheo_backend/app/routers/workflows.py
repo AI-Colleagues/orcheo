@@ -18,7 +18,6 @@ from orcheo.runtime.configurable_schema import (
     split_configurable,
 )
 from orcheo.runtime.runnable_config import RunnableConfigModel
-from orcheo.workflow.trust.modes import WorkflowTrustMode, get_workflow_trust_mode
 from orcheo_backend.app.authentication import (
     AuthorizationError,
     AuthorizationPolicy,
@@ -647,13 +646,6 @@ async def ingest_workflow_version(
                 "Install them into the runtime before importing the template."
             ),
         )
-    if get_workflow_trust_mode() == WorkflowTrustMode.PRODUCTION:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Python-source workflow ingestion is not permitted in production mode."
-            ),
-        )
     try:
         graph_payload = ingest_langgraph_script(
             request.script,
@@ -772,7 +764,7 @@ async def get_workflow_version_mermaid(
     repository: RepositoryDep,
     workspace: WorkspaceContextDep,
 ) -> dict:
-    """Render a Mermaid diagram from a stored declarative workflow version."""
+    """Render a Mermaid diagram from a stored workflow version."""
     from orcheo.workflow.mermaid import render_mermaid_from_graph_payload
 
     tid = str(workspace.workspace_id)

@@ -1,75 +1,40 @@
-"""Render Mermaid diagrams from declarative workflow graph summaries."""
+"""Render Mermaid diagrams from workflow graph payloads."""
 
 from __future__ import annotations
 from typing import Any
-
-
-def _render_nodes(nodes: list[dict[str, Any]], lines: list[str]) -> None:
-    """Append Mermaid node declarations to lines."""
-    seen: set[str] = set()
-    for node in nodes:
-        name = node.get("name") or node.get("id", "")
-        node_type = node.get("type", "")
-        if name and name not in seen:
-            label = f"{name}\\n[{node_type}]" if node_type else name
-            lines.append(f'    {name}["{label}"]')
-            seen.add(name)
-
-
-def _render_edges(edges: list, lines: list[str]) -> None:
-    """Append Mermaid edge declarations to lines."""
-    for edge in edges:
-        if isinstance(edge, (list, tuple)) and len(edge) == 2:
-            src, tgt = edge
-        elif isinstance(edge, dict):
-            src = edge.get("source", "")
-            tgt = edge.get("target", "")
-        else:
-            continue
-        if src and tgt:
-            lines.append(f"    {src} --> {tgt}")
-
-
-def _render_conditional_edges(
-    conditional_edges: list[dict[str, Any]], lines: list[str]
-) -> None:
-    """Append Mermaid conditional edge declarations to lines."""
-    for ce in conditional_edges:
-        src = ce.get("source", "")
-        mapping = ce.get("mapping", {})
-        for key, tgt in mapping.items():
-            if src and tgt:
-                lines.append(f"    {src} -->|{key}| {tgt}")
-        default = ce.get("default")
-        if src and default:
-            lines.append(f"    {src} -->|default| {default}")
-
-
-def render_declarative_mermaid(summary: dict[str, Any]) -> str:
-    """Render a Mermaid flowchart from a declarative graph summary dict."""
-    lines: list[str] = ["graph TD"]
-    _render_nodes(summary.get("nodes", []), lines)
-    _render_edges(summary.get("edges", []), lines)
-    _render_conditional_edges(summary.get("conditional_edges", []), lines)
-    return "\n".join(lines)
+from orcheo.graph.ingestion.config import LANGGRAPH_SCRIPT_FORMAT
 
 
 def render_mermaid_from_graph_payload(graph_payload: dict[str, Any]) -> str | None:
-    """Render Mermaid from a stored workflow graph payload.
+    """Render a Mermaid diagram from a stored workflow graph payload.
 
-    Returns None if the payload does not contain a summary or is not a
-    declarative graph.
+    For ``langgraph-script`` payloads the script is executed inside the
+    RP-sandboxed loader and LangGraph's native ``draw_mermaid()`` is used.
+    Returns ``None`` if the payload does not contain a valid script or
+    rendering fails.
     """
     fmt = graph_payload.get("format", "")
-    if fmt != "orcheo-declarative-graph":
+    if fmt != LANGGRAPH_SCRIPT_FORMAT:
         return None
-    summary = graph_payload.get("summary")
-    if not isinstance(summary, dict):
+    source = graph_payload.get("source")
+    if not isinstance(source, str) or not source.strip():
         return None
-    return render_declarative_mermaid(summary)
+    return _render_mermaid_from_script(source)
+
+
+def _render_mermaid_from_script(source: str) -> str | None:
+    """Execute ``source`` in the RP sandbox and render a Mermaid diagram."""
+    from orcheo.graph.ingestion.exceptions import ScriptIngestionError
+    from orcheo.graph.ingestion.loader import load_graph_from_script
+    from orcheo.graph.ingestion.summary import _render_compact_mermaid
+
+    try:
+        graph = load_graph_from_script(source)
+        return _render_compact_mermaid(graph)
+    except (ScriptIngestionError, Exception):
+        return None
 
 
 __all__ = [
-    "render_declarative_mermaid",
     "render_mermaid_from_graph_payload",
 ]

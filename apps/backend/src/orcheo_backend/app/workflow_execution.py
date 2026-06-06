@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, cast
 from uuid import UUID
 from fastapi import WebSocket, WebSocketDisconnect
@@ -32,14 +32,6 @@ from orcheo.tracing import (
     workflow_span,
 )
 from orcheo.tracing.model_metadata import strip_trace_metadata
-from orcheo.workflow.trust import (
-    DECLARATIVE_FORMAT,
-    DeclarativeWorkflowGraph,
-    WorkflowTrustMode,
-    enforce_execution_policy,
-    get_workflow_trust_mode,
-    validate_production_node_types,
-)
 from orcheo_backend.app.dependencies import (
     credential_context_from_workflow,
     get_checkpoint_store,
@@ -58,56 +50,6 @@ from orcheo_backend.app.trace_utils import build_trace_update
 
 
 logger = logging.getLogger(__name__)
-
-
-class UntrustedNodeNotAllowedError(RuntimeError):
-    """Raised when an in-worker path receives an untrusted node type.
-
-    The evaluation / training / single-node paths cannot wrap an entire
-    inner workflow the way ``execute_workflow`` does (they wrap an
-    already-compiled graph or run a single Python node directly). Rather
-    than silently executing tenant code in-worker, those paths reject the
-    request and tell the caller to author the workflow with trusted nodes
-    only.
-    """
-
-
-def _require_trusted_node_types(node_types: Iterable[str], *, context: str) -> None:
-    """Reject node types that fall outside the trusted in-worker set.
-
-    Raises ``UntrustedNodeNotAllowedError`` if any node type would have to
-    execute as tenant Python in the host process.
-    """
-    node_type_list = list(node_types)
-    offending = validate_production_node_types(node_type_list)
-    if not node_type_list or offending:
-        if not offending:
-            offending = sorted(set(node_type_list))
-        msg = (
-            f"{context} cannot execute untrusted node types in-process: "
-            f"{offending}. Refactor the workflow to use trusted built-in nodes "
-            "only."
-        )
-        raise UntrustedNodeNotAllowedError(msg)
-
-
-def _ensure_production_trusted_graph(graph_config: Mapping[str, Any]) -> None:
-    """Validate production workflow payloads against the declarative trust policy."""
-    if get_workflow_trust_mode() != WorkflowTrustMode.PRODUCTION:
-        return
-    if (
-        not isinstance(graph_config, Mapping)
-        or graph_config.get("format") != DECLARATIVE_FORMAT
-    ):
-        raise UntrustedNodeNotAllowedError(
-            "Production workflows must use a declarative graph payload."
-        )
-
-    declarative_graph = DeclarativeWorkflowGraph.model_validate(dict(graph_config))
-    enforce_execution_policy(
-        declarative_graph,
-        mode=WorkflowTrustMode.PRODUCTION,
-    )
 
 
 _should_log_sensitive_debug = False
@@ -477,12 +419,6 @@ async def execute_workflow(
     logger.info("Starting workflow %s with execution_id: %s", workflow_id, execution_id)
     _log_sensitive_debug("Initial inputs: %s", inputs)
 
-    try:
-        _ensure_production_trusted_graph(graph_config)
-    except UntrustedNodeNotAllowedError as exc:
-        await _safe_send_json(websocket, {"status": "error", "error": str(exc)})
-        return
-
     settings = get_settings()
     history_store = get_history_store()
     vault = get_vault()
@@ -848,12 +784,6 @@ async def execute_workflow_evaluation(
         await _safe_send_json(websocket, {"status": "error", "error": error_msg})
         return
 
-    try:
-        _ensure_production_trusted_graph(graph_config)
-    except UntrustedNodeNotAllowedError as exc:
-        await _safe_send_json(websocket, {"status": "error", "error": str(exc)})
-        return
-
     settings = get_settings()
     history_store = get_history_store()
     vault = get_vault()
@@ -884,12 +814,6 @@ async def execute_workflow_evaluation(
             stored_runnable_config,
         )
     )
-    try:
-        _ensure_production_trusted_graph(graph_config)
-    except UntrustedNodeNotAllowedError as exc:
-        await _safe_send_json(websocket, {"status": "error", "error": str(exc)})
-        return
-
     try:
         with workflow_span(
             tracer,
@@ -976,12 +900,6 @@ async def execute_workflow_training(
     except Exception as exc:
         error_msg = f"Invalid training payload: {exc}"
         await _safe_send_json(websocket, {"status": "error", "error": error_msg})
-        return
-
-    try:
-        _ensure_production_trusted_graph(graph_config)
-    except UntrustedNodeNotAllowedError as exc:
-        await _safe_send_json(websocket, {"status": "error", "error": str(exc)})
         return
 
     settings = get_settings()
@@ -1086,17 +1004,7 @@ async def execute_node(
     workflow_id: UUID | None = None,
     workspace_id: str | None = None,
 ) -> Any:
-    """Execute a single node instance with credential resolution.
-
-    Refuses untrusted node types up front — the single-node path cannot
-    execute tenant Python safely in-process, so callers must use only
-    first-party trusted node classes here.
-    """
-    _require_trusted_node_types(
-        (getattr(node_class, "__name__", ""),),
-        context="Single-node execution",
-    )
-
+    """Execute a single node instance with credential resolution."""
     vault = get_vault()
     workspace_id = await resolve_workflow_workspace_id(
         get_repository(),

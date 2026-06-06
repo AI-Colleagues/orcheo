@@ -399,11 +399,6 @@ async def test_execute_graph_streams_updates_with_step_callback(
         "tool_progress_context",
         lambda callback: ProgressContext(),
     )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "_ensure_production_trusted_graph",
-        lambda graph_config: None,
-    )
 
     executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
     result = await executor._execute_graph(
@@ -657,11 +652,6 @@ async def test_execute_graph_passes_workspace_id_to_initial_state(
         workflow_executor_module,
         "credential_resolution",
         lambda resolver: nullcontext(),
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "_ensure_production_trusted_graph",
-        lambda graph_config: None,
     )
 
     executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())

@@ -5,44 +5,21 @@ from collections.abc import Mapping
 from typing import Any
 from langgraph.graph import StateGraph
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT, load_graph_from_script
-from orcheo.workflow.declarative_builder import (
-    DECLARATIVE_GRAPH_FORMAT,
-    build_graph_from_declarative,
-)
 
 
 class UnsupportedWorkflowGraphFormatError(ValueError):
-    """Raised when runtime receives a non-script workflow graph payload."""
-
-
-def _describe_graph_format(graph_json: Mapping[str, Any]) -> str:
-    """Return a human-readable format label for error messages."""
-    graph_format = graph_json.get("format")
-    if isinstance(graph_format, str) and graph_format.strip():
-        return graph_format
-    return "unknown"
+    """Raised when runtime receives an unsupported workflow graph payload."""
 
 
 def build_graph(graph_json: Mapping[str, Any]) -> StateGraph:
-    """Build a LangGraph graph from a configuration payload.
-
-    Supports two formats:
-    - ``orcheo-declarative-graph``: built from declarative node/edge definitions
-      without executing any tenant Python.
-    - ``langgraph-script``: built by executing a tenant Python script (only
-      permitted in non-production trust modes).
-    """
+    """Build a LangGraph graph from a langgraph-script configuration payload."""
     fmt = graph_json.get("format")
 
-    if fmt == DECLARATIVE_GRAPH_FORMAT:
-        return build_graph_from_declarative(dict(graph_json))
-
     if fmt != LANGGRAPH_SCRIPT_FORMAT:
-        observed_format = _describe_graph_format(graph_json)
+        observed = fmt if isinstance(fmt, str) and fmt.strip() else "unknown"
         msg = (
-            "Unsupported workflow graph format "
-            f"'{observed_format}'. Only '{LANGGRAPH_SCRIPT_FORMAT}' and "
-            f"'{DECLARATIVE_GRAPH_FORMAT}' workflow versions can execute."
+            f"Unsupported workflow graph format '{observed}'. "
+            f"Only '{LANGGRAPH_SCRIPT_FORMAT}' workflow versions can execute."
         )
         raise UnsupportedWorkflowGraphFormatError(msg)
 

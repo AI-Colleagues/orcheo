@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from typing import Any
 import httpx
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
-from orcheo.workflow.trust.modes import WorkflowTrustMode, get_workflow_trust_mode
 from orcheo_backend.app.schemas.candidates import CandidateItem
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.workflow.frontmatter import parse_workflow_frontmatter
@@ -177,27 +176,6 @@ def _parse_tarball(payload: bytes) -> list[CandidateItem]:
     return candidates
 
 
-def _try_ingest_declarative_manifest(candidate_config: dict) -> dict | None:
-    """Try to build a graph payload from a candidate's declarative manifest.
-
-    Returns a graph payload dict if a valid declarative manifest is present,
-    or None when the config does not contain one.
-    """
-    graph_data = candidate_config.get("graph")
-    if not isinstance(graph_data, dict):
-        return None
-    if graph_data.get("format") != "orcheo-declarative-graph":
-        return None
-    from orcheo.workflow.declarative_summary import ingest_declarative_graph
-    from orcheo.workflow.trust.schema import DeclarativeWorkflowGraph
-
-    try:
-        graph = DeclarativeWorkflowGraph.model_validate(graph_data)
-        return ingest_declarative_graph(graph)
-    except Exception:
-        return None
-
-
 async def _refresh_cache() -> None:
     """Fetch candidates from GitHub and replace the cached snapshot."""
     payload = await _download_tarball()
@@ -228,43 +206,25 @@ async def _enrich_cached_with_previews() -> None:
 async def _render_candidate_previews(
     candidates: list[CandidateItem],
 ) -> list[CandidateItem]:
-    """Derive remote-candidate previews without executing tenant Python in production.
-
-    In production trust mode, only candidates with a declarative graph manifest
-    in their ``config.json`` receive a mermaid preview.  In other modes the
-    local script ingestion path is used as a fallback.
-    """
-    from orcheo.workflow.mermaid import render_mermaid_from_graph_payload
-
-    trust_mode = get_workflow_trust_mode()
-    production_mode = trust_mode == WorkflowTrustMode.PRODUCTION
-
+    """Derive remote-candidate previews using the RP-sandboxed script loader."""
     rendered: list[CandidateItem] = []
     for candidate in candidates:
         mermaid: str | None = None
 
-        # Try declarative manifest first (no Python execution required).
-        if candidate.config:
-            graph_payload = _try_ingest_declarative_manifest(candidate.config)
-            if graph_payload is not None:
-                mermaid = render_mermaid_from_graph_payload(graph_payload)
-
-        # Fall back to local script ingestion in non-production modes.
-        if mermaid is None and not production_mode:
-            try:
-                script_payload = ingest_langgraph_script(
-                    candidate.script,
-                    entrypoint=candidate.entrypoint,
-                )
-                mermaid = script_payload.get("index", {}).get("mermaid")
-            except ScriptIngestionError:
-                logger.debug("Graph derivation failed for candidate %s", candidate.id)
-            except Exception:
-                logger.debug(
-                    "Unexpected error during graph derivation for %s",
-                    candidate.id,
-                    exc_info=True,
-                )
+        try:
+            script_payload = ingest_langgraph_script(
+                candidate.script,
+                entrypoint=candidate.entrypoint,
+            )
+            mermaid = script_payload.get("index", {}).get("mermaid")
+        except ScriptIngestionError:
+            logger.debug("Graph derivation failed for candidate %s", candidate.id)
+        except Exception:
+            logger.debug(
+                "Unexpected error during graph derivation for %s",
+                candidate.id,
+                exc_info=True,
+            )
 
         rendered.append(candidate.model_copy(update={"mermaid": mermaid}))
     return rendered

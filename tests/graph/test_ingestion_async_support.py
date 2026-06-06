@@ -1,7 +1,9 @@
 """Tests for async function support in LangGraph script ingestion."""
 
 from __future__ import annotations
-from orcheo.graph.ingestion import _compile_langgraph_script
+from orcheo.graph.ingestion.sandbox import (
+    compile_langgraph_script as _compile_langgraph_script,
+)
 
 
 def test_compile_script_with_async_function() -> None:

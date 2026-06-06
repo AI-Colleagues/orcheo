@@ -8,10 +8,13 @@ import pytest
 from orcheo.graph.ingestion import (
     DEFAULT_SCRIPT_SIZE_LIMIT,
     ScriptIngestionError,
-    _compile_langgraph_script,
-    _validate_script_size,
     ingest_langgraph_script,
 )
+from orcheo.graph.ingestion.sandbox import (
+    compile_langgraph_script as _compile_langgraph_script,
+    validate_script_size as _validate_script_size,
+)
+from orcheo.graph.ingestion.loader import load_graph_from_script
 
 
 def test_default_script_size_limit_is_512_kib() -> None:
@@ -53,7 +56,7 @@ def test_ingest_script_enforces_execution_timeout() -> None:
     with pytest.raises(
         ScriptIngestionError, match="execution exceeded the configured timeout"
     ):
-        ingest_langgraph_script(script, execution_timeout_seconds=0.1)
+        load_graph_from_script(script, execution_timeout_seconds=0.1)
 
 
 def test_compile_langgraph_script_is_cached() -> None:
@@ -94,7 +97,7 @@ def test_ingest_loads_plugin_site_packages(
     monkeypatch.setenv("ORCHEO_PLUGIN_DIR", str(tmp_path / "plugins"))
 
     # Ensure the path insertion in _ensure_plugin_sys_path is triggered
-    from orcheo.graph.ingestion.loader import _ensure_plugin_sys_path
+    from orcheo.graph.ingestion.sandbox import _ensure_plugin_sys_path
 
     before = list(sys.path)
     try:

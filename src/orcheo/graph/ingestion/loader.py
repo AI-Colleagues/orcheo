@@ -1,21 +1,11 @@
 """Load LangGraph StateGraph instances from Python scripts."""
 
 from __future__ import annotations
-import ast
 import asyncio
-import builtins
-import contextlib
 import inspect
-import signal
-import sys
-import threading
-import time
-from collections.abc import Awaitable, Callable, Generator
+from collections.abc import Awaitable
 from concurrent.futures import ThreadPoolExecutor
-from functools import lru_cache
-from pathlib import Path
-from types import CodeType, FrameType
-from typing import Any, cast, get_origin
+from typing import Any, get_origin
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from orcheo.graph.ingestion.config import (
@@ -23,127 +13,12 @@ from orcheo.graph.ingestion.config import (
     DEFAULT_SCRIPT_SIZE_LIMIT,
 )
 from orcheo.graph.ingestion.exceptions import ScriptIngestionError
-
-
-TraceFunc = Callable[[FrameType | None, str, object], object]
-
-
-def validate_script_size(source: str, max_script_bytes: int | None) -> None:
-    """Raise ``ScriptIngestionError`` when the script exceeds the byte limit."""
-    if max_script_bytes is None:
-        return
-
-    if max_script_bytes <= 0:
-        msg = "LangGraph script size limit must be a positive integer"
-        raise ScriptIngestionError(msg)
-
-    encoded_length = len(source.encode("utf-8"))
-    if encoded_length > max_script_bytes:
-        msg = f"LangGraph script exceeds the permitted size of {max_script_bytes} bytes"
-        raise ScriptIngestionError(msg)
-
-
-@contextlib.contextmanager
-def execution_timeout(
-    timeout_seconds: float | None,
-    *,
-    sys_module: Any | None = None,
-    threading_module: Any | None = None,
-    time_module: Any | None = None,
-) -> Generator[None, None, None]:
-    """Enforce a wall-clock timeout around script execution."""
-    if timeout_seconds is None or timeout_seconds <= 0:
-        yield
-        return
-
-    sys_obj = sys_module or sys
-    threading_obj = threading_module or threading
-    time_obj = time_module or time
-
-    use_signal = (
-        hasattr(signal, "setitimer")
-        and threading_obj.current_thread() is threading_obj.main_thread()
-    )
-
-    if use_signal:
-        previous_handler = signal.getsignal(signal.SIGALRM)
-
-        def _handle_timeout(_signum: int, _frame: FrameType | None) -> None:
-            raise TimeoutError(
-                "LangGraph script execution timed out"
-            )  # pragma: no cover
-
-        try:
-            signal.signal(signal.SIGALRM, _handle_timeout)
-            signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
-            yield
-        finally:
-            signal.setitimer(signal.ITIMER_REAL, 0)
-            signal.signal(signal.SIGALRM, previous_handler)
-        return
-
-    deadline = time_obj.perf_counter() + timeout_seconds
-
-    def _trace_timeout(_frame: FrameType | None, event: str, _arg: object) -> TraceFunc:
-        if event == "line" and time_obj.perf_counter() > deadline:
-            raise TimeoutError("LangGraph script execution timed out")
-        return _trace_timeout
-
-    previous_trace = cast(TraceFunc | None, sys_obj.gettrace())
-    previous_thread_trace = cast(TraceFunc | None, threading_obj.gettrace())
-
-    sys_obj.settrace(cast(Any, _trace_timeout))
-    threading_obj.settrace(cast(Any, _trace_timeout))
-    try:
-        yield
-    finally:
-        if previous_trace is None:
-            sys_obj.settrace(cast(Any, None))
-        else:
-            sys_obj.settrace(cast(Any, previous_trace))
-
-        if previous_thread_trace is None:
-            threading_obj.settrace(cast(Any, None))
-        else:
-            threading_obj.settrace(cast(Any, previous_thread_trace))
-
-
-def _ensure_plugin_sys_path() -> None:
-    """Expose the managed plugin site-packages directory to imports."""
-    from orcheo.plugins.paths import build_storage_paths
-
-    install_dir = Path(build_storage_paths().install_dir)
-    site_packages = (
-        install_dir
-        / "lib"
-        / f"python{sys.version_info.major}.{sys.version_info.minor}"
-        / "site-packages"
-    )
-    if site_packages.exists() and str(site_packages) not in sys.path:
-        sys.path.insert(0, str(site_packages))
-
-
-@lru_cache(maxsize=128)
-def _compile_langgraph_script(source: str) -> CodeType:
-    """Compile a LangGraph script with top-level await support, with caching.
-
-    ``dont_inherit=True`` prevents the compile() call from inheriting the
-    ``CO_FUTURE_ANNOTATIONS`` flag (or any other future feature) from
-    *this* module (which has ``from __future__ import annotations``). Without
-    it, every tenant script would silently get PEP-563 lazy annotation
-    semantics, turning type annotations into strings. That breaks
-    ``@dataclass`` field-type resolution because ``dataclasses._is_type``
-    calls ``sys.modules.get(cls.__module__).__dict__`` to resolve string
-    annotations, but the exec namespace is not a real registered module and
-    ``sys.modules.get('__orcheo_ingest__')`` returns ``None``.
-    """
-    return compile(
-        source,
-        "<langgraph-script>",
-        "exec",
-        flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
-        dont_inherit=True,
-    )
+from orcheo.graph.ingestion.sandbox import (
+    compile_langgraph_script,
+    create_sandbox_namespace,
+    execution_timeout,
+    validate_script_size,
+)
 
 
 def _execute_langgraph_script(
@@ -151,15 +26,11 @@ def _execute_langgraph_script(
     max_script_bytes: int | None,
     execution_timeout_seconds: float | None,
 ) -> dict[str, Any]:
-    """Execute the LangGraph script and return its namespace."""
+    """Execute the LangGraph script inside the RP sandbox and return its namespace."""
     validate_script_size(source, max_script_bytes)
-    _ensure_plugin_sys_path()
-    namespace: dict[str, Any] = {
-        "__name__": "__orcheo_ingest__",
-        "__builtins__": builtins,
-    }
+    namespace = create_sandbox_namespace()
     try:
-        compiled = _compile_langgraph_script(source)
+        compiled = compile_langgraph_script(source)
         with execution_timeout(execution_timeout_seconds):
             result = eval(compiled, namespace)  # noqa: S307
             if inspect.isawaitable(result):
@@ -215,7 +86,7 @@ def load_graph_from_script(
     max_script_bytes: int | None = DEFAULT_SCRIPT_SIZE_LIMIT,
     execution_timeout_seconds: float | None = DEFAULT_EXECUTION_TIMEOUT_SECONDS,
 ) -> StateGraph:
-    """Execute a LangGraph Python script and return the discovered ``StateGraph``."""
+    """Execute a LangGraph Python script inside the RP sandbox and return the graph."""
     namespace = _execute_langgraph_script(
         source, max_script_bytes, execution_timeout_seconds
     )
@@ -311,9 +182,6 @@ def _resolve_graph(obj: Any) -> StateGraph | None:
     return resolved
 
 
-__all__ = ["load_graph_from_script"]
-
-
 def _is_event_loop_running() -> bool:
     """Return ``True`` when called from an active asyncio event loop."""
     try:
@@ -363,3 +231,6 @@ def _is_state_graph_annotation(annotation: Any) -> bool:
     if origin is not None:
         return origin in (StateGraph, CompiledStateGraph)
     return annotation in (StateGraph, CompiledStateGraph)
+
+
+__all__ = ["load_graph_from_script"]
