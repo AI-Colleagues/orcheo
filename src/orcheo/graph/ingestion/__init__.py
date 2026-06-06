@@ -8,7 +8,10 @@ from orcheo.graph.ingestion.config import (
     LANGGRAPH_SCRIPT_FORMAT,
 )
 from orcheo.graph.ingestion.exceptions import ScriptIngestionError
-from orcheo.graph.ingestion.loader import load_graph_from_script
+from orcheo.graph.ingestion.loader import (
+    load_graph_from_script,
+    load_graph_from_script_full_env,
+)
 from orcheo.graph.ingestion.sandbox import (
     compile_langgraph_script,
     validate_script_size,
@@ -53,5 +56,6 @@ __all__ = [
     "extract_graph_index",
     "ingest_langgraph_script",
     "load_graph_from_script",
+    "load_graph_from_script_full_env",
     "validate_script_size",
 ]

@@ -83,6 +83,7 @@ def test_ingest_workflow_version_endpoint_creates_version(
     assert version["graph"]["format"] == LANGGRAPH_SCRIPT_FORMAT
     assert "index" in version["graph"]
     assert isinstance(version["graph"]["index"].get("cron"), list)
+    assert isinstance(version["graph"]["index"].get("mermaid"), str)
 
 
 def test_ingest_workflow_version_invalid_script_returns_400(

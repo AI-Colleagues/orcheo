@@ -18,7 +18,10 @@ from orcheo.runtime.configurable_schema import (
     split_configurable,
 )
 from orcheo.runtime.runnable_config import RunnableConfigModel
-from orcheo.workflow.mermaid import render_mermaid_from_graph_payload
+from orcheo.workflow.mermaid import (
+    render_mermaid_from_graph_payload,
+    render_mermaid_from_graph_payload_full_env,
+)
 from orcheo_backend.app.authentication import (
     AuthorizationError,
     AuthorizationPolicy,
@@ -642,6 +645,13 @@ async def ingest_workflow_version(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+    # Pre-compute mermaid using the full Python environment and store it in the
+    # graph index so the canvas can read it without re-executing the script
+    # through the RestrictedPython sandbox (which blocks non-allowlisted imports).
+    mermaid = render_mermaid_from_graph_payload_full_env(graph_payload)
+    if mermaid and isinstance(graph_payload.get("index"), dict):
+        graph_payload["index"]["mermaid"] = mermaid
 
     runnable_config, metadata = _resolve_ingest_configurable_schema(
         request.runnable_config,
