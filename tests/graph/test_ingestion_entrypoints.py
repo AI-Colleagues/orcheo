@@ -9,27 +9,54 @@ from orcheo.graph.ingestion import (
     ScriptIngestionError,
     ingest_langgraph_script,
 )
+from orcheo.graph.ingestion.loader import load_graph_from_script
 
 
-def _assert_payload_index(payload: dict[str, object], *, node_name: str) -> None:
-    index = payload.get("index")
-    summary = payload.get("summary")
-    assert isinstance(index, dict)
-    assert isinstance(summary, dict)
-    summary_nodes = summary.get("nodes")
-    assert isinstance(summary_nodes, list)
-    assert any(
-        isinstance(node, dict) and node.get("name") == node_name
-        for node in summary_nodes
+def test_ingest_script_returns_format_and_source() -> None:
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        def build_graph():
+            graph = StateGraph(State)
+            graph.add_node("rss_node", lambda state: state)
+            graph.set_entry_point("rss_node")
+            graph.set_finish_point("rss_node")
+            return graph
+        """
     )
-    cron = index.get("cron")
-    assert isinstance(cron, list)
-    mermaid = index.get("mermaid")
-    assert isinstance(mermaid, str)
-    assert node_name in mermaid
+
+    payload = ingest_langgraph_script(script, entrypoint="build_graph")
+
+    assert payload["format"] == LANGGRAPH_SCRIPT_FORMAT
+    assert payload["entrypoint"] == "build_graph"
+    assert payload["source"] == script
+    index = payload["index"]
+    assert isinstance(index, dict)
+    assert "cron" in index
+    assert "listeners" in index
 
 
-def test_ingest_script_with_entrypoint() -> None:
+def test_ingest_script_no_execution_during_ingestion() -> None:
+    """ingest_langgraph_script should not execute the script — only RP-compile it."""
+    script = textwrap.dedent(
+        """
+        raise RuntimeError("this should not execute during ingestion")
+        """
+    )
+
+    # Should not raise — ingestion only compiles, doesn't execute
+    payload = ingest_langgraph_script(script)
+    assert payload["format"] == LANGGRAPH_SCRIPT_FORMAT
+
+
+def test_ingest_script_rejects_syntax_errors() -> None:
+    with pytest.raises(ScriptIngestionError, match="[Cc]ompilation"):
+        ingest_langgraph_script("def broken(:\n    pass")
+
+
+def test_load_graph_from_script_with_entrypoint() -> None:
     script = textwrap.dedent(
         """
         from langgraph.graph import StateGraph
@@ -45,17 +72,11 @@ def test_ingest_script_with_entrypoint() -> None:
         """
     )
 
-    payload = ingest_langgraph_script(script, entrypoint="build_graph")
-
-    assert payload["format"] == LANGGRAPH_SCRIPT_FORMAT
-    assert payload["entrypoint"] == "build_graph"
-    _assert_payload_index(payload, node_name="rss")
-
-    graph = build_graph(payload)
+    graph = load_graph_from_script(script, entrypoint="build_graph")
     assert set(graph.nodes.keys()) == {"rss"}
 
 
-def test_ingest_script_without_entrypoint_auto_discovers_graph() -> None:
+def test_load_graph_from_script_auto_discovers_graph() -> None:
     script = textwrap.dedent(
         """
         from langgraph.graph import StateGraph
@@ -68,13 +89,11 @@ def test_ingest_script_without_entrypoint_auto_discovers_graph() -> None:
         """
     )
 
-    payload = ingest_langgraph_script(script)
-
-    assert payload["entrypoint"] is None
-    _assert_payload_index(payload, node_name="first")
+    graph = load_graph_from_script(script)
+    assert "first" in graph.nodes
 
 
-def test_ingest_script_with_async_entrypoint() -> None:
+def test_load_graph_from_script_with_async_entrypoint() -> None:
     script = textwrap.dedent(
         """
         from langgraph.graph import StateGraph
@@ -89,13 +108,11 @@ def test_ingest_script_with_async_entrypoint() -> None:
         """
     )
 
-    payload = ingest_langgraph_script(script, entrypoint="build_graph")
-
-    assert payload["entrypoint"] == "build_graph"
-    _assert_payload_index(payload, node_name="first")
+    graph = load_graph_from_script(script, entrypoint="build_graph")
+    assert "first" in graph.nodes
 
 
-def test_ingest_script_awaits_top_level_coroutine() -> None:
+def test_load_graph_awaits_top_level_coroutine() -> None:
     script = textwrap.dedent(
         """
         import asyncio
@@ -115,13 +132,11 @@ def test_ingest_script_awaits_top_level_coroutine() -> None:
         """
     )
 
-    payload = ingest_langgraph_script(script)
-
-    assert payload["entrypoint"] is None
-    _assert_payload_index(payload, node_name="first")
+    graph = load_graph_from_script(script)
+    assert "first" in graph.nodes
 
 
-def test_ingest_script_with_multiple_candidates_requires_entrypoint() -> None:
+def test_load_graph_with_multiple_candidates_requires_entrypoint() -> None:
     script = textwrap.dedent(
         """
         from langgraph.graph import StateGraph
@@ -133,10 +148,10 @@ def test_ingest_script_with_multiple_candidates_requires_entrypoint() -> None:
     )
 
     with pytest.raises(ScriptIngestionError):
-        ingest_langgraph_script(script)
+        load_graph_from_script(script)
 
 
-def test_ingest_script_defaults_to_orcheo_workflow_entrypoint() -> None:
+def test_load_graph_defaults_to_orcheo_workflow_entrypoint() -> None:
     script = textwrap.dedent(
         """
         from langgraph.graph import StateGraph
@@ -160,13 +175,12 @@ def test_ingest_script_defaults_to_orcheo_workflow_entrypoint() -> None:
         """
     )
 
-    payload = ingest_langgraph_script(script)
-
-    assert payload["entrypoint"] is None
-    _assert_payload_index(payload, node_name="first")
+    graph = load_graph_from_script(script)
+    assert "first" in graph.nodes
 
 
 def test_ingest_script_allows_previously_blocked_imports() -> None:
+    """Ingestion does not block imports — only execution does (via RP sandbox)."""
     script = textwrap.dedent(
         """
         import os
@@ -183,36 +197,15 @@ def test_ingest_script_allows_previously_blocked_imports() -> None:
     assert result["format"] == LANGGRAPH_SCRIPT_FORMAT
 
 
-def test_ingest_script_rejects_relative_imports() -> None:
+def test_load_graph_rejects_relative_imports() -> None:
+    """Relative imports are rejected when the script is executed in the sandbox."""
     script = "from .foo import bar"
 
     with pytest.raises(ScriptIngestionError):
-        ingest_langgraph_script(script)
+        load_graph_from_script(script)
 
 
-def test_ingest_script_allows_csv_import() -> None:
-    script = textwrap.dedent(
-        f"""
-        import csv
-        from langgraph.graph import StateGraph
-        from orcheo.graph.state import State
-
-        graph = StateGraph(State)
-        graph.add_node("first", lambda state: state)
-        graph.set_entry_point("first")
-        graph.set_finish_point("first")
-
-        rows = list(csv.reader(["a,b"]))
-        """
-    )
-
-    payload = ingest_langgraph_script(script)
-
-    assert payload["entrypoint"] is None
-    _assert_payload_index(payload, node_name="first")
-
-
-def test_ingest_script_missing_entrypoint_errors() -> None:
+def test_load_graph_from_script_missing_entrypoint_errors() -> None:
     script = textwrap.dedent(
         """
         from langgraph.graph import StateGraph
@@ -225,15 +218,15 @@ def test_ingest_script_missing_entrypoint_errors() -> None:
     )
 
     with pytest.raises(ScriptIngestionError):
-        ingest_langgraph_script(script, entrypoint="missing")
+        load_graph_from_script(script, entrypoint="missing")
 
 
-def test_ingest_script_without_candidates_errors() -> None:
+def test_load_graph_without_candidates_errors() -> None:
     with pytest.raises(ScriptIngestionError):
-        ingest_langgraph_script("value = 42")
+        load_graph_from_script("value = 42")
 
 
-def test_ingest_script_entrypoint_requires_arguments() -> None:
+def test_load_graph_entrypoint_requires_no_arguments() -> None:
     script = textwrap.dedent(
         """
         from langgraph.graph import StateGraph
@@ -248,10 +241,10 @@ def test_ingest_script_entrypoint_requires_arguments() -> None:
     )
 
     with pytest.raises(ScriptIngestionError):
-        ingest_langgraph_script(script, entrypoint="build_graph")
+        load_graph_from_script(script, entrypoint="build_graph")
 
 
-def test_ingest_script_handles_compiled_graph_entrypoint() -> None:
+def test_load_graph_handles_compiled_graph_entrypoint() -> None:
     script = textwrap.dedent(
         """
         from langgraph.graph import StateGraph
@@ -265,26 +258,11 @@ def test_ingest_script_handles_compiled_graph_entrypoint() -> None:
         """
     )
 
-    payload = ingest_langgraph_script(script, entrypoint="compiled")
-
-    _assert_payload_index(payload, node_name="first")
-
-
-def test_ingest_script_entrypoint_not_resolvable() -> None:
-    script = textwrap.dedent(
-        """
-        class Dummy:
-            pass
-
-        candidate = Dummy()
-        """
-    )
-
-    with pytest.raises(ScriptIngestionError):
-        ingest_langgraph_script(script, entrypoint="candidate")
+    result = load_graph_from_script(script, entrypoint="compiled")
+    assert "first" in result.nodes
 
 
-def test_ingest_script_ignores_non_graph_functions() -> None:
+def test_load_graph_ignores_non_graph_functions() -> None:
     script = textwrap.dedent(
         """
         from langgraph.graph import StateGraph
@@ -302,7 +280,42 @@ def test_ingest_script_ignores_non_graph_functions() -> None:
         """
     )
 
-    payload = ingest_langgraph_script(script)
+    graph = load_graph_from_script(script)
+    assert "first" in graph.nodes
 
-    assert payload["entrypoint"] is None
-    _assert_payload_index(payload, node_name="first")
+
+def test_build_graph_round_trips_through_ingest() -> None:
+    """build_graph can consume a payload produced by ingest_langgraph_script."""
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+        from orcheo.nodes.connectors.rss import RSSNode
+
+        def build_graph():
+            graph = StateGraph(State)
+            graph.add_node("rss", RSSNode(name="rss", sources=["https://example.com/feed"]))
+            graph.set_entry_point("rss")
+            graph.set_finish_point("rss")
+            return graph
+        """
+    )
+
+    payload = ingest_langgraph_script(script, entrypoint="build_graph")
+    graph = build_graph(payload)
+    assert set(graph.nodes.keys()) == {"rss"}
+
+
+def test_ingest_script_reraises_script_ingestion_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ingest_langgraph_script re-raises ScriptIngestionError from compile step (line 35)."""
+    import orcheo.graph.ingestion as ingestion_pkg
+
+    def _raise(_src: str):  # noqa: ANN001
+        raise ScriptIngestionError("from compile")
+
+    monkeypatch.setattr(ingestion_pkg, "compile_langgraph_script", _raise)
+
+    with pytest.raises(ScriptIngestionError, match="from compile"):
+        ingest_langgraph_script("x = 1")

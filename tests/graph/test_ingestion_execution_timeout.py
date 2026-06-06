@@ -4,7 +4,7 @@ from __future__ import annotations
 import itertools
 from types import SimpleNamespace
 import pytest
-from orcheo.graph.ingestion.loader import execution_timeout
+from orcheo.graph.ingestion.sandbox import execution_timeout
 
 
 def test_execution_timeout_disabled_for_non_positive_values() -> None:
@@ -131,8 +131,7 @@ def test_execution_timeout_restores_existing_traces() -> None:
 
 def test_execution_timeout_signal_path_restores_alarm_handler() -> None:
     """Signal-based timeout mode should arm and restore signal state."""
-    import signal as _signal
-    from orcheo.graph.ingestion.loader import execution_timeout
+    from orcheo.graph.ingestion.sandbox import execution_timeout
 
     class FakeSignal:
         SIGALRM = 14
@@ -176,11 +175,11 @@ def test_execution_timeout_signal_path_restores_alarm_handler() -> None:
     fake_signal_obj = FakeSignal()
     fake_threading = FakeThreading()
 
-    import orcheo.graph.ingestion.loader as loader_module
+    import orcheo.graph.ingestion.sandbox as sandbox_module
 
-    original_signal = loader_module.signal
+    original_signal = sandbox_module.signal
     try:
-        loader_module.signal = fake_signal_obj  # type: ignore[assignment]
+        sandbox_module.signal = fake_signal_obj  # type: ignore[assignment]
         with execution_timeout(
             0.25,
             threading_module=fake_threading,
@@ -189,7 +188,7 @@ def test_execution_timeout_signal_path_restores_alarm_handler() -> None:
         ):
             assert callable(fake_signal_obj.installed_handler)
     finally:
-        loader_module.signal = original_signal  # type: ignore[assignment]
+        sandbox_module.signal = original_signal  # type: ignore[assignment]
 
     assert fake_signal_obj.itimer_calls == [0.25, 0]
     assert fake_signal_obj.signal_calls[-1] is fake_signal_obj.previous_handler

@@ -20,6 +20,16 @@ from orcheo_backend.app.routers import workflows as workflow_router
 
 
 _MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
+_MERMAID_SCRIPT = (
+    "from langgraph.graph import END, START, StateGraph\n"
+    "\n"
+    "def build_graph():\n"
+    "    graph = StateGraph(dict)\n"
+    "    graph.add_node('fetch', lambda state: state)\n"
+    "    graph.add_edge(START, 'fetch')\n"
+    "    graph.add_edge('fetch', END)\n"
+    "    return graph\n"
+)
 
 
 @pytest.fixture(autouse=True)
@@ -69,7 +79,11 @@ async def test_list_workflow_versions_success() -> None:
                     id=version1_id,
                     workflow_id=wf_id,
                     version=1,
-                    graph={},
+                    graph={
+                        "format": "langgraph-script",
+                        "source": _MERMAID_SCRIPT,
+                        "entrypoint": "build_graph",
+                    },
                     created_by="admin",
                     created_at=datetime.now(tz=UTC),
                     updated_at=datetime.now(tz=UTC),
@@ -78,7 +92,11 @@ async def test_list_workflow_versions_success() -> None:
                     id=version2_id,
                     workflow_id=wf_id,
                     version=2,
-                    graph={},
+                    graph={
+                        "format": "langgraph-script",
+                        "source": _MERMAID_SCRIPT,
+                        "entrypoint": "build_graph",
+                    },
                     created_by="admin",
                     created_at=datetime.now(tz=UTC),
                     updated_at=datetime.now(tz=UTC),
@@ -94,6 +112,7 @@ async def test_list_workflow_versions_success() -> None:
     assert result[1].id == version2_id
     assert isinstance(result[0].mermaid, str)
     assert isinstance(result[1].mermaid, str)
+    assert "fetch" in result[0].mermaid
 
 
 @pytest.mark.asyncio()
@@ -138,7 +157,11 @@ async def test_get_workflow_version_success() -> None:
                 id=version_id,
                 workflow_id=wf_id,
                 version=version_number,
-                graph={},
+                graph={
+                    "format": "langgraph-script",
+                    "source": _MERMAID_SCRIPT,
+                    "entrypoint": "build_graph",
+                },
                 created_by="admin",
                 created_at=datetime.now(tz=UTC),
                 updated_at=datetime.now(tz=UTC),
@@ -151,6 +174,7 @@ async def test_get_workflow_version_success() -> None:
     assert result.id == version_id
     assert result.version == 1
     assert isinstance(result.mermaid, str)
+    assert "fetch" in result.mermaid
 
 
 @pytest.mark.asyncio()
@@ -228,10 +252,8 @@ async def test_diff_workflow_versions_success() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_list_workflow_versions_handles_mermaid_render_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """List workflow versions falls back to null Mermaid if rendering fails."""
+async def test_list_workflow_versions_handles_mermaid_render_failure() -> None:
+    """List workflow versions leaves Mermaid unset when no script payload exists."""
 
     workflow_id = uuid4()
     version_id = uuid4()
@@ -255,11 +277,6 @@ async def test_list_workflow_versions_handles_mermaid_render_failure(
                     updated_at=datetime.now(tz=UTC),
                 ),
             ]
-
-    def _raise_mermaid_failure(_graph: object) -> str:
-        raise ValueError("boom")
-
-    monkeypatch.setattr(workflow_router, "_mermaid_from_graph", _raise_mermaid_failure)
 
     result = await list_workflow_versions(
         str(workflow_id), Repository(), _MOCK_WORKSPACE
@@ -320,7 +337,7 @@ async def test_diff_workflow_versions_version_not_found() -> None:
 def test_attach_mermaid_non_mapping_graph_uses_renderer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_attach_mermaid should fall back to renderer when graph is not a mapping."""
+    """_attach_mermaid should fall back to the renderer when graph is not a mapping."""
 
     version = WorkflowVersion(
         id=uuid4(),
@@ -332,12 +349,52 @@ def test_attach_mermaid_non_mapping_graph_uses_renderer(
         updated_at=datetime.now(tz=UTC),
     )
     object.__setattr__(version, "graph", "serialized-graph")
+    called: dict[str, object] = {}
+
+    def _render(graph_payload: object) -> str:
+        called["graph"] = graph_payload
+        return "flowchart TD; A-->B"
+
     monkeypatch.setattr(
         workflow_router,
-        "_mermaid_from_graph",
-        lambda _graph: "flowchart TD; A-->B",
+        "render_mermaid_from_graph_payload",
+        _render,
     )
 
     result = workflow_router._attach_mermaid(version)
 
     assert result.mermaid == "flowchart TD; A-->B"
+    assert called["graph"] == "serialized-graph"
+
+
+def test_attach_mermaid_prefers_precomputed_index_mermaid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_attach_mermaid should use graph.index.mermaid before regenerating."""
+
+    version = WorkflowVersion(
+        id=uuid4(),
+        workflow_id=uuid4(),
+        version=1,
+        graph={
+            "index": {"mermaid": "graph TD;\n\tA --> B;"},
+            "summary": {
+                "nodes": [{"name": "ignored", "type": "TaskNode"}],
+                "edges": [],
+                "conditional_edges": [],
+            },
+        },
+        created_by="admin",
+        created_at=datetime.now(tz=UTC),
+        updated_at=datetime.now(tz=UTC),
+    )
+
+    monkeypatch.setattr(
+        workflow_router,
+        "render_mermaid_from_graph_payload",
+        lambda _graph: pytest.fail("renderer should not be called"),
+    )
+
+    result = workflow_router._attach_mermaid(version)
+
+    assert result.mermaid == "graph TD;\n\tA --> B;"

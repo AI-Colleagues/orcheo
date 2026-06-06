@@ -2,28 +2,16 @@
 
 from __future__ import annotations
 from typing import Any
+from orcheo.graph.ingestion.ast_extraction import extract_graph_index
 from orcheo.graph.ingestion.config import (
-    DEFAULT_EXECUTION_TIMEOUT_SECONDS,
     DEFAULT_SCRIPT_SIZE_LIMIT,
     LANGGRAPH_SCRIPT_FORMAT,
 )
 from orcheo.graph.ingestion.exceptions import ScriptIngestionError
-from orcheo.graph.ingestion.loader import (
-    _compile_langgraph_script,
-    _resolve_graph,
-    load_graph_from_script,
-)
-from orcheo.graph.ingestion.loader import (
-    execution_timeout as _execution_timeout,
-)
-from orcheo.graph.ingestion.loader import (
-    validate_script_size as _validate_script_size,
-)
-from orcheo.graph.ingestion.summary import (
-    _serialise_branch,
-    _unwrap_runnable,
-    summarise_graph_index,
-    summarise_state_graph,
+from orcheo.graph.ingestion.loader import load_graph_from_script
+from orcheo.graph.ingestion.sandbox import (
+    compile_langgraph_script,
+    validate_script_size,
 )
 
 
@@ -32,44 +20,38 @@ def ingest_langgraph_script(
     *,
     entrypoint: str | None = None,
     max_script_bytes: int | None = DEFAULT_SCRIPT_SIZE_LIMIT,
-    execution_timeout_seconds: float | None = DEFAULT_EXECUTION_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    """Return a workflow graph payload produced from a LangGraph Python script.
+    """Validate and index a LangGraph Python script without executing it.
 
-    The returned payload embeds the original script alongside a compact index
-    containing derived metadata (for example, Mermaid output and cron trigger
-    fields) while the original script is required to faithfully rebuild the
-    graph during execution.
+    The returned payload stores the source alongside a lightweight index of
+    derived metadata (cron triggers, listener subscriptions). Mermaid
+    rendering is deferred to the dedicated endpoint which builds the graph
+    on demand using the RP-sandboxed loader.
     """
-    graph = load_graph_from_script(
-        source,
-        entrypoint=entrypoint,
-        max_script_bytes=max_script_bytes,
-        execution_timeout_seconds=execution_timeout_seconds,
-    )
-    summary = summarise_state_graph(graph)
-    index = summarise_graph_index(graph)
+    validate_script_size(source, max_script_bytes)
+    try:
+        compile_langgraph_script(source)
+    except ScriptIngestionError:
+        raise
+    except SyntaxError as exc:
+        raise ScriptIngestionError(f"Compilation error: {exc}") from exc
+
+    index = extract_graph_index(source)
     return {
         "format": LANGGRAPH_SCRIPT_FORMAT,
         "source": source,
         "entrypoint": entrypoint,
-        "summary": summary,
         "index": index,
     }
 
 
 __all__ = [
-    "DEFAULT_EXECUTION_TIMEOUT_SECONDS",
     "DEFAULT_SCRIPT_SIZE_LIMIT",
     "LANGGRAPH_SCRIPT_FORMAT",
     "ScriptIngestionError",
-    "_compile_langgraph_script",
-    "_execution_timeout",
-    "_resolve_graph",
-    "_serialise_branch",
-    "_unwrap_runnable",
-    "_validate_script_size",
+    "compile_langgraph_script",
+    "extract_graph_index",
     "ingest_langgraph_script",
     "load_graph_from_script",
-    "summarise_graph_index",
+    "validate_script_size",
 ]

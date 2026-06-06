@@ -42,7 +42,6 @@ from orcheo_backend.app.repository import (
     WorkflowRepository,
     WorkflowRun,
 )
-from orcheo_backend.app.workflow_execution import _ensure_production_trusted_graph
 
 
 logger = logging.getLogger(__name__)
@@ -375,7 +374,6 @@ class WorkflowExecutor:
         workspace_id: str | None = None,
     ) -> Any:
         """Execute the compiled graph and return the final state payload."""
-        _ensure_production_trusted_graph(graph_config)
         settings = get_settings()
         vault = self._vault_provider()
         credential_context = CredentialAccessContext(

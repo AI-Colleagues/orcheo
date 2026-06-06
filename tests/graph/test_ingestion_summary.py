@@ -231,3 +231,23 @@ def test_extract_cron_index_skips_missing_cron_keys(
 
     cron = summary_module._extract_cron_index(graph)
     assert cron == [{}]
+
+
+def test_summarise_graph_index_omits_mermaid_key_when_render_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When Mermaid rendering fails the index dict has no 'mermaid' key (line 55->57)."""
+    graph = StateGraph(State)
+    graph.add_node("noop", lambda state: state)
+    graph.add_edge(START, "noop")
+    graph.add_edge("noop", END)
+
+    monkeypatch.setattr(summary_module, "_render_compact_mermaid", lambda _g: None)
+    monkeypatch.setattr(
+        summary_module,
+        "has_workflow_tool_subgraphs",
+        lambda _summary: False,
+    )
+
+    index = summary_module.summarise_graph_index(graph)
+    assert "mermaid" not in index

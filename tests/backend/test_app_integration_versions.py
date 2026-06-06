@@ -113,7 +113,7 @@ def test_ingest_workflow_version_invalid_script(client: TestClient) -> None:
 
     response = client.post(
         f"/api/workflows/{workflow_id}/versions/ingest",
-        json={"script": "# Not a valid LangGraph script", "created_by": "admin"},
+        json={"script": "def broken(:\n    pass", "created_by": "admin"},
     )
     assert response.status_code == 400
 

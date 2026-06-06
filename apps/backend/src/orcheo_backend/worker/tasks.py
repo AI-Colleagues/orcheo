@@ -179,7 +179,6 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:  # noqa: PLR0915
     from orcheo_backend.app.history import RunHistoryError
     from orcheo_backend.app.workflow_execution import (
         _build_initial_state,
-        _ensure_production_trusted_graph,
     )
 
     repository = get_repository()
@@ -190,7 +189,6 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:  # noqa: PLR0915
     try:
         version = await repository.get_version(run.workflow_version_id)
         graph_config = version.graph
-        _ensure_production_trusted_graph(graph_config)
         inputs = run.input_payload or {}
 
         settings = get_settings()

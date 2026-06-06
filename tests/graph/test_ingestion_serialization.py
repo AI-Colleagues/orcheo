@@ -5,7 +5,8 @@ import asyncio
 from types import SimpleNamespace
 import pytest
 from langgraph.graph import StateGraph
-from orcheo.graph.ingestion import _resolve_graph, _serialise_branch, _unwrap_runnable
+from orcheo.graph.ingestion.loader import _resolve_graph
+from orcheo.graph.ingestion.summary import _serialise_branch, _unwrap_runnable
 from orcheo.nodes.connectors.rss import RSSNode
 
 

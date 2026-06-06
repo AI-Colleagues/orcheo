@@ -106,12 +106,10 @@ async def _robots_txt() -> PlainTextResponse:
 async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifespan with startup and shutdown logic."""
     from orcheo.tracing import configure_tracing
-    from orcheo.workflow.trust.startup import check_workflow_trust_mode_on_startup
 
     if not _repository_ref.get("repository"):
         _create_repository()
     configure_tracing()
-    check_workflow_trust_mode_on_startup()
     load_auth_settings(refresh=True)
     load_enabled_plugins(force=True)
     workspace_service = get_workspace_service()

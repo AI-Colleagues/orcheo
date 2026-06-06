@@ -560,13 +560,14 @@ async def test_update_workflow_version_runnable_config_missing_workflow() -> Non
 
 
 @pytest.mark.asyncio()
-async def test_ingest_workflow_version_forbidden_in_production(
+async def test_ingest_workflow_version_succeeds_in_production(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Python-source ingestion is rejected in production trust mode."""
+    """Production trust mode does not block workflow version ingestion."""
     monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "production")
 
     workflow_id = uuid4()
+    version_id = uuid4()
 
     class Repository:
         async def resolve_workflow_ref(
@@ -575,39 +576,79 @@ async def test_ingest_workflow_version_forbidden_in_production(
             del workflow_ref, include_archived
             return workflow_id
 
+        async def create_version(
+            self,
+            wf_id,
+            graph,
+            metadata,
+            notes,
+            created_by,
+            runnable_config=None,
+        ):
+            del graph, metadata, notes, runnable_config
+            return WorkflowVersion(
+                id=version_id,
+                workflow_id=wf_id,
+                version=1,
+                graph={
+                    "format": "langgraph-script",
+                    "source": "from langgraph.graph import StateGraph\ngraph = StateGraph(dict)",
+                    "entrypoint": "graph",
+                },
+                created_by=created_by,
+                created_at=datetime.now(tz=UTC),
+                updated_at=datetime.now(tz=UTC),
+            )
+
     request = WorkflowVersionIngestRequest(
         script="from langgraph.graph import StateGraph\ngraph = StateGraph(dict)",
         entrypoint="graph",
         created_by="admin",
     )
 
-    with pytest.raises(HTTPException) as exc_info:
-        await ingest_workflow_version(
-            str(workflow_id), request, Repository(), _MOCK_WORKSPACE
-        )
+    result = await ingest_workflow_version(
+        str(workflow_id), request, Repository(), _MOCK_WORKSPACE
+    )
 
-    assert exc_info.value.status_code == 403
+    assert result.id == version_id
 
 
 @pytest.mark.asyncio()
-async def test_get_workflow_version_mermaid_success() -> None:
-    """Mermaid endpoint returns rendered diagram for declarative workflows."""
+async def test_get_workflow_version_mermaid_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mermaid endpoint returns rendered diagram for script payloads."""
     workflow_id = uuid4()
+    script = (
+        "from langgraph.graph import END, START, StateGraph\n"
+        "\n"
+        "def build_graph():\n"
+        "    graph = StateGraph(dict)\n"
+        "    graph.add_node('fetch', lambda state: state)\n"
+        "    graph.add_edge(START, 'fetch')\n"
+        "    graph.add_edge('fetch', END)\n"
+        "    return graph\n"
+    )
     version = WorkflowVersion(
         id=uuid4(),
         workflow_id=workflow_id,
         version=1,
         graph={
-            "format": "orcheo-declarative-graph",
-            "summary": {
-                "nodes": [{"name": "fetch", "type": "RSSNode"}],
-                "edges": [("START", "fetch")],
-                "conditional_edges": [],
-            },
+            "format": "langgraph-script",
+            "source": script,
+            "entrypoint": "build_graph",
         },
         created_by="admin",
         created_at=datetime.now(tz=UTC),
         updated_at=datetime.now(tz=UTC),
+    )
+
+    from orcheo_backend.app.routers import workflows as workflow_router
+
+    monkeypatch.setattr(
+        workflow_router,
+        "render_mermaid_from_graph_payload",
+        lambda graph: "flowchart TD;\n\tfetch --> __end__;",
     )
 
     class Repository:
@@ -624,8 +665,7 @@ async def test_get_workflow_version_mermaid_success() -> None:
         str(workflow_id), 1, Repository(), _MOCK_WORKSPACE
     )
 
-    assert "mermaid" in result
-    assert "fetch" in result["mermaid"]
+    assert result == {"mermaid": "flowchart TD;\n\tfetch --> __end__;"}
 
 
 @pytest.mark.asyncio()

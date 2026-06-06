@@ -18,7 +18,7 @@ from orcheo.runtime.configurable_schema import (
     split_configurable,
 )
 from orcheo.runtime.runnable_config import RunnableConfigModel
-from orcheo.workflow.trust.modes import WorkflowTrustMode, get_workflow_trust_mode
+from orcheo.workflow.mermaid import render_mermaid_from_graph_payload
 from orcheo_backend.app.authentication import (
     AuthorizationError,
     AuthorizationPolicy,
@@ -59,7 +59,6 @@ from orcheo_backend.app.schemas.workflows import (
 )
 from orcheo_backend.app.workspace import WorkspaceContextDep, get_workspace_repository
 from orcheo_backend.app.workspace_governance import ensure_workspace_workflow_quota
-from orcheo_sdk.cli.workflow import _mermaid_from_graph
 
 
 router = APIRouter()
@@ -220,15 +219,7 @@ def _attach_mermaid(version: WorkflowVersion) -> WorkflowVersion:
                 mermaid = index_mermaid
 
     if mermaid is None:
-        try:
-            mermaid = _mermaid_from_graph(version.graph)
-        except Exception as exc:  # pragma: no cover - defensive fallback
-            logger.warning(
-                "Failed to render Mermaid for workflow version %s: %s",
-                version.id,
-                exc,
-                exc_info=True,
-            )
+        mermaid = render_mermaid_from_graph_payload(version.graph or {})
     return version.model_copy(update={"mermaid": mermaid})
 
 
@@ -290,7 +281,10 @@ def _to_canvas_version_summary(
         id=version.id,
         workflow_id=version.workflow_id,
         version=version.version,
-        mermaid=_extract_index_mermaid(version.graph),
+        mermaid=(
+            _extract_index_mermaid(version.graph)
+            or render_mermaid_from_graph_payload(version.graph or {})
+        ),
         has_cron_trigger=_graph_has_cron_trigger(version.graph),
         metadata=version.metadata,
         runnable_config=version.runnable_config,
@@ -647,13 +641,6 @@ async def ingest_workflow_version(
                 "Install them into the runtime before importing the template."
             ),
         )
-    if get_workflow_trust_mode() == WorkflowTrustMode.PRODUCTION:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Python-source workflow ingestion is not permitted in production mode."
-            ),
-        )
     try:
         graph_payload = ingest_langgraph_script(
             request.script,
@@ -772,9 +759,7 @@ async def get_workflow_version_mermaid(
     repository: RepositoryDep,
     workspace: WorkspaceContextDep,
 ) -> dict:
-    """Render a Mermaid diagram from a stored declarative workflow version."""
-    from orcheo.workflow.mermaid import render_mermaid_from_graph_payload
-
+    """Render a Mermaid diagram from a stored workflow version."""
     tid = str(workspace.workspace_id)
     workflow = await _load_workflow_for_request(
         repository,
