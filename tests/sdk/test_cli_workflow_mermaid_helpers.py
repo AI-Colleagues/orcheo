@@ -44,6 +44,32 @@ def test_workflow_mermaid_prefers_precomputed_index_mermaid() -> None:
     assert mermaid == precomputed
 
 
+def test_workflow_mermaid_ignores_blank_precomputed_index_mermaid(
+    monkeypatch,
+) -> None:
+    """Blank precomputed Mermaid should fall through to the graph summary."""
+    from orcheo_sdk.cli.workflow import mermaid as mermaid_module
+
+    monkeypatch.setattr(
+        mermaid_module,
+        "_compiled_mermaid",
+        lambda graph: "compiled-mermaid",
+    )
+
+    graph = {
+        "format": "langgraph-script",
+        "index": {"mermaid": "   "},
+        "summary": {
+            "nodes": [{"id": "node1"}],
+            "edges": [],
+            "conditional_edges": [],
+        },
+    }
+
+    mermaid = mermaid_module._mermaid_from_graph(graph)
+    assert mermaid == "compiled-mermaid"
+
+
 def test_workflow_mermaid_with_langgraph_conditional_edges() -> None:
     """Conditional edges from LangGraph summary should be rendered."""
     from orcheo_sdk.cli.workflow import _mermaid_from_graph

@@ -23,7 +23,9 @@ def render_mermaid_from_graph_payload(graph_payload: dict[str, Any]) -> str | No
     return _render_mermaid_from_script(source, entrypoint)
 
 
-def _render_mermaid_from_script(source: str, entrypoint: str | None = None) -> str | None:
+def _render_mermaid_from_script(
+    source: str, entrypoint: str | None = None
+) -> str | None:
     """Execute ``source`` in the RP sandbox and render a Mermaid diagram."""
     from orcheo.graph.ingestion.exceptions import ScriptIngestionError
     from orcheo.graph.ingestion.loader import load_graph_from_script

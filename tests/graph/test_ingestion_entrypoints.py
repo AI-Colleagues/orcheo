@@ -197,12 +197,12 @@ def test_ingest_script_allows_previously_blocked_imports() -> None:
     assert result["format"] == LANGGRAPH_SCRIPT_FORMAT
 
 
-def test_ingest_script_rejects_relative_imports_at_compile() -> None:
-    """Relative imports cause RP compile errors."""
+def test_load_graph_rejects_relative_imports() -> None:
+    """Relative imports are rejected when the script is executed in the sandbox."""
     script = "from .foo import bar"
 
     with pytest.raises(ScriptIngestionError):
-        ingest_langgraph_script(script)
+        load_graph_from_script(script)
 
 
 def test_load_graph_from_script_missing_entrypoint_errors() -> None:
@@ -304,3 +304,18 @@ def test_build_graph_round_trips_through_ingest() -> None:
     payload = ingest_langgraph_script(script, entrypoint="build_graph")
     graph = build_graph(payload)
     assert set(graph.nodes.keys()) == {"rss"}
+
+
+def test_ingest_script_reraises_script_ingestion_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ingest_langgraph_script re-raises ScriptIngestionError from compile step (line 35)."""
+    import orcheo.graph.ingestion as ingestion_pkg
+
+    def _raise(_src: str):  # noqa: ANN001
+        raise ScriptIngestionError("from compile")
+
+    monkeypatch.setattr(ingestion_pkg, "compile_langgraph_script", _raise)
+
+    with pytest.raises(ScriptIngestionError, match="from compile"):
+        ingest_langgraph_script("x = 1")

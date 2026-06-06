@@ -354,13 +354,18 @@ async def test_render_candidate_previews_uses_local_catalog_ingestion(
         "linkedin_post", _WORKFLOW_WITH_FRONTMATTER, None
     )
     assert candidate is not None
-    ingestor = Mock(return_value={"index": {"mermaid": "graph TD; A-->B"}})
+    ingestor = Mock(return_value={"format": "langgraph-script", "source": "x"})
+    renderer = Mock(return_value="graph TD; A-->B")
     monkeypatch.setattr(candidates_service, "ingest_langgraph_script", ingestor)
+    monkeypatch.setattr(
+        candidates_service, "render_mermaid_from_graph_payload", renderer
+    )
 
     result = await candidates_service._render_candidate_previews([candidate])
 
     assert result[0].mermaid == "graph TD; A-->B"
     ingestor.assert_called_once_with(_WORKFLOW_WITH_FRONTMATTER, entrypoint=None)
+    renderer.assert_called_once_with({"format": "langgraph-script", "source": "x"})
 
 
 @pytest.mark.asyncio()

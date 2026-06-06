@@ -100,7 +100,7 @@ class _AddNodeVisitor(ast.NodeVisitor):
             platform = kwargs.get("platform") or _LISTENER_NODE_PLATFORMS.get(
                 class_name, ""
             )
-            entry: dict[str, Any] = {
+            entry = {
                 "node_name": node_name,
                 "type": class_name,
                 "platform": platform,
