@@ -76,6 +76,27 @@ def test_load_graph_from_script_with_entrypoint() -> None:
     assert set(graph.nodes.keys()) == {"rss"}
 
 
+def test_load_graph_from_script_allows_graph_state_import_in_sandbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ORCHEO_WORKFLOW_UNSAFE_EXECUTION", "false")
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        graph = StateGraph(State)
+        graph.add_node("first", lambda state: state)
+        graph.set_entry_point("first")
+        graph.set_finish_point("first")
+        """
+    )
+
+    graph = load_graph_from_script(script)
+
+    assert "first" in graph.nodes
+
+
 def test_load_graph_from_script_auto_discovers_graph() -> None:
     script = textwrap.dedent(
         """

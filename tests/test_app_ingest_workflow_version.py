@@ -83,6 +83,7 @@ def test_ingest_workflow_version_endpoint_creates_version(
     assert version["graph"]["format"] == LANGGRAPH_SCRIPT_FORMAT
     assert "index" in version["graph"]
     assert isinstance(version["graph"]["index"].get("cron"), list)
+    assert isinstance(version["graph"]["index"].get("mermaid"), str)
 
 
 def test_ingest_workflow_version_invalid_script_returns_400(
@@ -238,3 +239,69 @@ async def test_ingest_workflow_version_raises_not_found_error(
 
     assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
     assert exc_info.value.detail == "Workflow not found"
+
+
+def test_ingest_workflow_version_stores_mermaid_in_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When mermaid rendering succeeds, the diagram is written into the graph index."""
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    reset_authentication_state()
+
+    import importlib
+
+    _workflows_module = importlib.import_module("orcheo_backend.app.routers.workflows")
+    monkeypatch.setattr(
+        _workflows_module,
+        "render_mermaid_from_graph_payload_full_env",
+        lambda payload: "graph TD\n  A --> B",
+    )
+
+    repository = InMemoryWorkflowRepository()
+    workflow = asyncio.run(
+        repository.create_workflow(
+            name="MermaidWorkflow",
+            slug=None,
+            description=None,
+            tags=[],
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="tester",
+        )
+    )
+
+    app = create_app(repository)
+    workspace_context = WorkspaceContext(
+        workspace_id=uuid4(),
+        workspace_slug="default",
+        user_id="tester",
+        role=Role.OWNER,
+    )
+    app.dependency_overrides[resolve_workspace_context] = lambda: workspace_context
+    client = TestClient(app)
+
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        def build_graph():
+            graph = StateGraph(State)
+            graph.add_node("noop", lambda state: state)
+            graph.set_entry_point("noop")
+            graph.set_finish_point("noop")
+            return graph
+        """
+    )
+
+    response = client.post(
+        f"/api/workflows/{workflow.id}/versions/ingest",
+        json={
+            "script": script,
+            "entrypoint": "build_graph",
+            "created_by": "tester",
+        },
+    )
+
+    assert response.status_code == 201
+    index = response.json()["graph"]["index"]
+    assert index.get("mermaid") == "graph TD\n  A --> B"

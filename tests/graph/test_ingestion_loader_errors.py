@@ -320,3 +320,55 @@ def test_is_state_graph_annotation_direct_class() -> None:
     assert loader._is_state_graph_annotation(StateGraph) is True
     assert loader._is_state_graph_annotation(CompiledStateGraph) is True
     assert loader._is_state_graph_annotation(int) is False
+
+
+# ---------------------------------------------------------------------------
+# load_graph_from_script_full_env — bypasses the sandbox allowlist
+# ---------------------------------------------------------------------------
+
+
+def test_load_graph_from_script_full_env_resolves_graph() -> None:
+    """load_graph_from_script_full_env resolves a simple StateGraph without sandbox."""
+    source = """
+from langgraph.graph import StateGraph
+from orcheo.graph.state import State
+
+def build() -> StateGraph:
+    g = StateGraph(State)
+    g.add_node("step", lambda s: s)
+    g.set_entry_point("step")
+    g.set_finish_point("step")
+    return g
+"""
+    graph = loader.load_graph_from_script_full_env(source, entrypoint="build")
+    assert "step" in graph.nodes
+
+
+def test_load_graph_from_script_full_env_allows_blocked_imports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """load_graph_from_script_full_env succeeds even when sandbox is enabled
+    and the script imports a module not in the allowlist (e.g. orcheo.runtime.attachments)."""
+    # Ensure sandbox is enabled so the regular loader *would* block the import.
+    monkeypatch.setenv("ORCHEO_WORKFLOW_UNSAFE_EXECUTION", "false")
+
+    source = """
+import orcheo.runtime.attachments  # blocked by sandbox allowlist
+from langgraph.graph import StateGraph
+from orcheo.graph.state import State
+
+def build() -> StateGraph:
+    g = StateGraph(State)
+    g.add_node("step", lambda s: s)
+    g.set_entry_point("step")
+    g.set_finish_point("step")
+    return g
+"""
+    graph = loader.load_graph_from_script_full_env(source, entrypoint="build")
+    assert "step" in graph.nodes
+
+
+def test_load_graph_from_script_full_env_raises_on_syntax_error() -> None:
+    """Syntax errors are wrapped as ScriptIngestionError."""
+    with pytest.raises(ScriptIngestionError):
+        loader.load_graph_from_script_full_env("def bad syntax!!!")

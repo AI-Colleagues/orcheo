@@ -18,7 +18,10 @@ from orcheo.runtime.configurable_schema import (
     split_configurable,
 )
 from orcheo.runtime.runnable_config import RunnableConfigModel
-from orcheo.workflow.mermaid import render_mermaid_from_graph_payload
+from orcheo.workflow.mermaid import (
+    render_mermaid_from_graph_payload,
+    render_mermaid_from_graph_payload_full_env,
+)
 from orcheo_backend.app.authentication import (
     AuthorizationError,
     AuthorizationPolicy,
@@ -31,7 +34,6 @@ from orcheo_backend.app.chatkit_tokens import ChatKitSessionTokenIssuer
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import WorkspaceQuotaExceededError, raise_not_found
 from orcheo_backend.app.managed_workflows import (
-    MANAGED_VIBE_WORKFLOW_HANDLE,
     ensure_managed_vibe_workflow,
 )
 from orcheo_backend.app.plugin_inventory import missing_required_plugins
@@ -437,8 +439,10 @@ async def list_workflows(
         include_archived=include_archived,
         workspace_id=str(workspace.workspace_id),
     )
-    if managed_workflow is not None and all(
-        workflow.id != managed_workflow.id for workflow in workflows
+    if (
+        managed_workflow is not None
+        and all(workflow.id != managed_workflow.id for workflow in workflows)
+        and (include_archived or not managed_workflow.is_archived)
     ):
         workflows.append(managed_workflow)
     public_base_url = _resolve_studio_url()
@@ -599,14 +603,6 @@ async def archive_workflow(
         workflow_ref,
         workspace_id=tid,
     )
-    if workflow.handle == MANAGED_VIBE_WORKFLOW_HANDLE:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "message": "The managed Orcheo Vibe workflow cannot be deleted.",
-                "code": "workflow.delete.protected",
-            },
-        )
     workflow = await repository.archive_workflow(workflow.id, actor=resolved_actor)
     return _apply_share_url(workflow, _resolve_studio_url())
 
@@ -651,6 +647,13 @@ async def ingest_workflow_version(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+    # Pre-compute mermaid using the full Python environment and store it in the
+    # graph index so the canvas can read it without re-executing the script
+    # through the RestrictedPython sandbox (which blocks non-allowlisted imports).
+    mermaid = render_mermaid_from_graph_payload_full_env(graph_payload)
+    if mermaid and isinstance(graph_payload.get("index"), dict):
+        graph_payload["index"]["mermaid"] = mermaid
 
     runnable_config, metadata = _resolve_ingest_configurable_schema(
         request.runnable_config,
