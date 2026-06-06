@@ -49,9 +49,6 @@ const WECOM_LARK_SHARED_LISTENER_SCRIPT = [
   "LarkSendMessageNode",
   "LarkTenantAccessTokenNode",
 ].join("\n");
-const GEMINI_SCRIPT =
-  "from orcheo.nodes.ai.external.gemini import GeminiNode\n";
-
 describe("workflow-storage API integration - template creation", () => {
   it("creates a workflow and ingests a Python version from template", async () => {
     setCandidateBadges([
@@ -382,114 +379,6 @@ describe("workflow-storage API integration - template creation", () => {
     ) as { runnable_config?: { configurable?: { database?: string } } };
     expect(ingestBody.runnable_config?.configurable?.database).toBe(
       "my_database",
-    );
-  });
-
-  it("creates a workflow from the Gemini external-agent template", async () => {
-    setCandidateBadges([
-      {
-        id: "template-gemini-agent",
-        handle: "gemini-agent",
-        name: "Gemini Agent",
-        script: GEMINI_SCRIPT,
-        config: { configurable: { working_directory: "/workspace/agents" } },
-        notes: "Gemini external-agent template.",
-      },
-    ]);
-    const mockFetch = getFetchMock();
-    const timestamp = new Date().toISOString();
-
-    queueResponses([
-      jsonResponse([]),
-      jsonResponse({
-        id: "workflow-template-gemini",
-        name: "Gemini Agent",
-        slug: "workflow-template-gemini",
-        description: "Gemini external-agent template.",
-        tags: ["gemini", "agent", "external-agent"],
-        is_archived: false,
-        created_at: timestamp,
-        updated_at: timestamp,
-      }),
-      jsonResponse({
-        id: "workflow-template-gemini-version-1",
-        workflow_id: "workflow-template-gemini",
-        version: 1,
-        graph: {
-          format: "langgraph-script",
-          source: "from langgraph.graph import StateGraph\n",
-          entrypoint: null,
-          index: { cron: [] },
-        },
-        metadata: {
-          source: "canvas-template",
-          template_id: "template-gemini-agent",
-        },
-        runnable_config: {
-          configurable: {
-            working_directory: "/workspace/agents",
-          },
-        },
-        notes: "Template ingest",
-        created_by: "canvas-app",
-        created_at: timestamp,
-        updated_at: timestamp,
-      }),
-      jsonResponse({
-        id: "workflow-template-gemini",
-        name: "Gemini Agent",
-        slug: "workflow-template-gemini",
-        description: "Gemini external-agent template.",
-        tags: ["gemini", "agent", "external-agent"],
-        is_archived: false,
-        created_at: timestamp,
-        updated_at: timestamp,
-      }),
-      jsonResponse([
-        {
-          id: "workflow-template-gemini-version-1",
-          workflow_id: "workflow-template-gemini",
-          version: 1,
-          graph: {
-            format: "langgraph-script",
-            source: "from langgraph.graph import StateGraph\n",
-            entrypoint: null,
-            index: { cron: [] },
-          },
-          metadata: {
-            source: "canvas-template",
-            template_id: "template-gemini-agent",
-          },
-          runnable_config: {
-            configurable: {
-              working_directory: "/workspace/agents",
-            },
-          },
-          notes: "Template ingest",
-          created_by: "canvas-app",
-          created_at: timestamp,
-          updated_at: timestamp,
-        },
-      ]),
-    ]);
-
-    const created = await createWorkflowFromTemplate("template-gemini-agent");
-
-    expect(created?.id).toBe("workflow-template-gemini");
-
-    const ingestBody = JSON.parse(
-      String(mockFetch.mock.calls[2]?.[1]?.body ?? "{}"),
-    ) as {
-      script?: string;
-      metadata?: { source?: string; template_id?: string };
-      runnable_config?: { configurable?: { working_directory?: string } };
-    };
-    expect(ingestBody.script).toContain(
-      "from orcheo.nodes.ai.external.gemini import GeminiNode",
-    );
-    expect(ingestBody.metadata?.template_id).toBe("template-gemini-agent");
-    expect(ingestBody.runnable_config?.configurable?.working_directory).toBe(
-      "/workspace/agents",
     );
   });
 

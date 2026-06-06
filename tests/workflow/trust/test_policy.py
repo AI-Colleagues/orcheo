@@ -7,7 +7,12 @@ from orcheo.workflow.trust.policy import (
     PolicyRejectionReason,
     TrustedWorkflowPolicy,
 )
-from orcheo.workflow.trust.schema import DeclarativeNodeDef, DeclarativeWorkflowGraph
+from orcheo.workflow.trust.schema import (
+    DeclarativeConditionalEdgeDef,
+    DeclarativeEdgeDef,
+    DeclarativeNodeDef,
+    DeclarativeWorkflowGraph,
+)
 
 
 @pytest.fixture()
@@ -59,7 +64,7 @@ def test_production_rejects_unknown_node(policy: TrustedWorkflowPolicy) -> None:
     )
     assert not result.allowed
     assert any(
-        v.reason == PolicyRejectionReason.UNKNOWN_NODE_TYPE for v in result.violations
+        v.reason == PolicyRejectionReason.UNTRUSTED_NODE_TYPE for v in result.violations
     )
 
 
@@ -80,3 +85,45 @@ def test_empty_graph_passes_production(policy: TrustedWorkflowPolicy) -> None:
         DeclarativeWorkflowGraph(), mode=WorkflowTrustMode.PRODUCTION
     )
     assert result.allowed
+
+
+def test_production_rejects_executable_config_keys(
+    policy: TrustedWorkflowPolicy,
+) -> None:
+    graph = DeclarativeWorkflowGraph(
+        nodes=[
+            DeclarativeNodeDef(
+                id="rss",
+                type="RSSNode",
+                config={"nested": {"script": "print('unsafe')"}},
+            )
+        ]
+    )
+
+    result = policy.validate(graph, mode=WorkflowTrustMode.PRODUCTION)
+
+    assert not result.allowed
+    assert any(
+        v.reason == PolicyRejectionReason.EXECUTABLE_CONFIG for v in result.violations
+    )
+
+
+def test_production_rejects_edges_to_undeclared_nodes(
+    policy: TrustedWorkflowPolicy,
+) -> None:
+    graph = DeclarativeWorkflowGraph(
+        nodes=[DeclarativeNodeDef(id="rss", type="RSSNode")],
+        edges=[DeclarativeEdgeDef(source="START", target="missing")],
+        conditional_edges=[
+            DeclarativeConditionalEdgeDef(
+                source="rss", branch="route", mapping={"ok": "also_missing"}
+            )
+        ],
+    )
+
+    result = policy.validate(graph, mode=WorkflowTrustMode.PRODUCTION)
+
+    assert not result.allowed
+    assert any(
+        v.reason == PolicyRejectionReason.INVALID_EDGE for v in result.violations
+    )

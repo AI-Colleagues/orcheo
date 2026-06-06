@@ -38,6 +38,7 @@ from orcheo.workflow.trust import (
     WorkflowTrustMode,
     enforce_execution_policy,
     get_workflow_trust_mode,
+    validate_production_node_types,
 )
 from orcheo_backend.app.dependencies import (
     credential_context_from_workflow,
@@ -77,29 +78,11 @@ def _require_trusted_node_types(node_types: Iterable[str], *, context: str) -> N
     Raises ``UntrustedNodeNotAllowedError`` if any node type would have to
     execute as tenant Python in the host process.
     """
-    trusted_node_types = {
-        "AINode",
-        "BrowserNode",
-        "CodeExecutionNode",
-        "CronTriggerNode",
-        "DiscordBotListenerNode",
-        "DiscordEventsParserNode",
-        "HttpPollingTriggerNode",
-        "MongoDBNode",
-        "QQBotListenerNode",
-        "RSSNode",
-        "SlackEventsParserNode",
-        "SlackNode",
-        "TelegramBotListenerNode",
-        "TelegramEventsParserNode",
-        "TelegramNode",
-        "WebhookTriggerNode",
-        "WeComEventsParserNode",
-    }
-    if not node_types or any(
-        node_type not in trusted_node_types for node_type in node_types
-    ):
-        offending = sorted(set(node_types))
+    node_type_list = list(node_types)
+    offending = validate_production_node_types(node_type_list)
+    if not node_type_list or offending:
+        if not offending:
+            offending = sorted(set(node_type_list))
         msg = (
             f"{context} cannot execute untrusted node types in-process: "
             f"{offending}. Refactor the workflow to use trusted built-in nodes "

@@ -41,7 +41,6 @@ nav:
   - Deployment:
       - Overview: deployment.md
       - Execution Worker: execution_worker/deployment.md
-      - External Agent CLI Nodes: external_agent_nodes.md
       - PostgreSQL Migration: production/postgresql_migration_plan.md
   - Chatkit Integration:
       - Workflow Publishing: chatkit_integration/workflow_publish_guide.md

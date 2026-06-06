@@ -34,8 +34,6 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 | Node | Description |
 |---|---|
 | **AgentNode** | Execute an AI agent with tools |
-| **ClaudeCodeNode** | Execute Claude Code as a non-interactive coding-agent step. |
-| **CodexNode** | Execute Codex as a non-interactive coding-agent step. |
 | **LLMNode** | Execute a text-only LLM call |
 
 ## Base Nodes
