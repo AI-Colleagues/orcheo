@@ -33,10 +33,6 @@ vi.mock("@features/account/pages/workspace-members", () => ({
   default: () => <div data-testid="members-panel" />,
 }));
 
-vi.mock("@features/account/components/external-agents-section", () => ({
-  default: () => <div data-testid="agents-panel" />,
-}));
-
 vi.mock("@features/account/pages/service-tokens", () => ({
   default: () => <div data-testid="api-keys-panel" />,
 }));
@@ -54,16 +50,12 @@ describe("WorkspaceManagement", () => {
     setPageContextMock.mockReset();
   });
 
-  it("shows the members tab by default and switches to other tabs", async () => {
+  it("shows the members tab by default and switches to API Keys tab", async () => {
     const user = userEvent.setup();
     renderPage();
 
     expect(setPageContextMock).toHaveBeenCalledWith({ page: "workspace" });
     expect(screen.getByTestId("members-panel")).toBeInTheDocument();
-    expect(screen.queryByTestId("agents-panel")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("tab", { name: "External Agents" }));
-    expect(screen.getByTestId("agents-panel")).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "API Keys" }));
     expect(screen.getByTestId("api-keys-panel")).toBeInTheDocument();

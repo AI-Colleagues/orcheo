@@ -3,16 +3,10 @@ import {
   addWorkspaceMember,
   getActiveWorkspace,
   createWorkspace,
-  disconnectExternalAgent,
   executeNode,
-  getExternalAgentLoginSession,
-  getExternalAgents,
   getSystemInfo,
   listWorkspaceMembers,
-  refreshExternalAgents,
   removeWorkspaceMember,
-  startExternalAgentLogin,
-  submitExternalAgentLoginInput,
   updateWorkspaceMemberRole,
 } from "./api";
 import {
@@ -250,161 +244,6 @@ describe("executeNode", () => {
     clearSelectedWorkspaceSlug();
   });
 
-  it("should fetch external agent status", async () => {
-    const mockResponse = {
-      providers: [
-        {
-          provider: "gemini",
-          display_name: "Gemini CLI",
-          state: "needs_login",
-          installed: true,
-          authenticated: false,
-          supports_oauth: true,
-          resolved_version: "0.36.0",
-          executable_path: "/data/gemini/bin/gemini",
-          checked_at: "2026-03-31T10:00:00Z",
-          last_auth_ok_at: null,
-          detail: "OAuth login is required on the worker.",
-          active_session_id: null,
-        },
-        {
-          provider: "codex",
-          display_name: "Codex",
-          state: "needs_login",
-          installed: true,
-          authenticated: false,
-          supports_oauth: true,
-          resolved_version: "0.30.0",
-          executable_path: "/data/codex/bin/codex",
-          checked_at: "2026-03-31T10:00:00Z",
-          last_auth_ok_at: null,
-          detail: "OAuth login is required on the worker.",
-          active_session_id: null,
-        },
-      ],
-    };
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      json: async () => mockResponse,
-    });
-
-    const result = await getExternalAgents();
-    expect(result.providers[0].provider).toBe("gemini");
-    expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/api/system/external-agents"),
-      expect.objectContaining({ method: "GET" }),
-    );
-  });
-
-  it("should request an external agent status refresh", async () => {
-    const mockResponse = { providers: [] };
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      json: async () => mockResponse,
-    });
-
-    await refreshExternalAgents();
-
-    expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/api/system/external-agents/refresh"),
-      expect.objectContaining({ method: "POST" }),
-    );
-  });
-
-  it("should start an external agent login session", async () => {
-    const mockResponse = {
-      session_id: "session-1",
-      provider: "claude_code",
-      display_name: "Claude Code",
-      state: "pending",
-      created_at: "2026-03-31T10:00:00Z",
-      updated_at: "2026-03-31T10:00:00Z",
-      completed_at: null,
-      auth_url: null,
-      device_code: null,
-      detail: "Preparing the worker-side OAuth flow.",
-      recent_output: null,
-      resolved_version: null,
-      executable_path: null,
-    };
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      json: async () => mockResponse,
-    });
-
-    const result = await startExternalAgentLogin("claude_code");
-    expect(result.session_id).toBe("session-1");
-    expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/api/system/external-agents/claude_code/login"),
-      expect.objectContaining({ method: "POST" }),
-    );
-  });
-
-  it("should submit input to an external agent login session", async () => {
-    const mockResponse = {
-      session_id: "session-1",
-      provider: "claude_code",
-      display_name: "Claude Code",
-      state: "awaiting_oauth",
-      created_at: "2026-03-31T10:00:00Z",
-      updated_at: "2026-03-31T10:00:00Z",
-      completed_at: null,
-      auth_url: "https://example.com",
-      device_code: null,
-      detail: "Auth code submitted to the worker. Waiting for completion.",
-      recent_output: null,
-      resolved_version: "2.1.89",
-      executable_path: "/data/claude/bin/claude",
-    };
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      json: async () => mockResponse,
-    });
-
-    const result = await submitExternalAgentLoginInput("session-1", {
-      input_text: "ABCD-1234",
-    });
-    expect(result.session_id).toBe("session-1");
-    expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "/api/system/external-agents/sessions/session-1/input",
-      ),
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ input_text: "ABCD-1234" }),
-      }),
-    );
-  });
-
-  it("should fetch an external agent login session", async () => {
-    const mockResponse = {
-      session_id: "session-2",
-      provider: "codex",
-      display_name: "Codex",
-      state: "awaiting_oauth",
-      created_at: "2026-03-31T10:00:00Z",
-      updated_at: "2026-03-31T10:00:10Z",
-      completed_at: null,
-      auth_url: "https://auth.openai.com/codex/device",
-      device_code: "ABCD-1234",
-      detail: "Complete the browser sign-in.",
-      recent_output: "Visit the URL to continue.",
-      resolved_version: "0.30.0",
-      executable_path: "/data/codex/bin/codex",
-    };
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      json: async () => mockResponse,
-    });
-
-    const result = await getExternalAgentLoginSession("session-2");
-    expect(result.auth_url).toContain("auth.openai.com");
-    expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/api/system/external-agents/sessions/session-2"),
-      expect.objectContaining({ method: "GET" }),
-    );
-  });
-
   it("should list workspace members", async () => {
     const mockMembers = [
       {
@@ -512,31 +351,4 @@ describe("executeNode", () => {
     );
   });
 
-  it("should disconnect an external agent", async () => {
-    const mockResponse = {
-      provider: "gemini",
-      display_name: "Gemini CLI",
-      state: "checking",
-      installed: true,
-      authenticated: false,
-      supports_oauth: true,
-      resolved_version: "0.36.0",
-      executable_path: "/data/gemini/bin/gemini",
-      checked_at: "2026-03-31T10:00:00Z",
-      last_auth_ok_at: null,
-      detail: "Disconnecting worker auth state.",
-      active_session_id: null,
-    };
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      ok: true,
-      json: async () => mockResponse,
-    });
-
-    const result = await disconnectExternalAgent("gemini");
-    expect(result.provider).toBe("gemini");
-    expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/api/system/external-agents/gemini/disconnect"),
-      expect.objectContaining({ method: "POST" }),
-    );
-  });
 });

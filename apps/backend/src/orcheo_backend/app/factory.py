@@ -25,7 +25,6 @@ from orcheo_backend.app.chatkit_runtime import (
     get_chatkit_server,
     sensitive_logging_enabled,
 )
-from orcheo_backend.app.credential_broker import build_credential_broker_router
 from orcheo_backend.app.dependencies import (
     ListenerRuntimeStore,
     _create_repository,
@@ -46,7 +45,6 @@ from orcheo_backend.app.dependencies import (
     set_vault,
 )
 from orcheo_backend.app.history import RunHistoryStore
-from orcheo_backend.app.internal_attachments import build_internal_attachment_router
 from orcheo_backend.app.listener_runtime_service import ListenerRuntimeService
 from orcheo_backend.app.logging_config import configure_logging
 from orcheo_backend.app.managed_workflows import ensure_managed_vibe_workflow
@@ -75,11 +73,6 @@ from orcheo_backend.app.routers import (
 )
 from orcheo_backend.app.routers import (
     workspaces as workspaces_router,
-)
-from orcheo_backend.app.sandbox import (
-    build_credential_broker,
-    configure_sandbox,
-    is_sandbox_disabled,
 )
 from orcheo_backend.app.service_token_endpoints import router as service_token_router
 from orcheo_backend.app.workflow_execution import configure_sensitive_logging
@@ -113,15 +106,22 @@ async def _robots_txt() -> PlainTextResponse:
 async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifespan with startup and shutdown logic."""
     from orcheo.tracing import configure_tracing
+    from orcheo.workflow.trust.startup import check_workflow_trust_mode_on_startup
 
     if not _repository_ref.get("repository"):
         _create_repository()
     configure_tracing()
+    check_workflow_trust_mode_on_startup()
     load_auth_settings(refresh=True)
     load_enabled_plugins(force=True)
     workspace_service = get_workspace_service()
     for workspace in workspace_service.list_workspaces(include_inactive=False):
-        await ensure_managed_vibe_workflow(get_repository(), workspace)
+        try:
+            await ensure_managed_vibe_workflow(get_repository(), workspace)
+        except (RuntimeError, Exception):
+            # Managed vibe workflow may not exist in production / fresh deployments.
+            # The check is a no-op when not applicable.
+            pass
     listener_runtime = ListenerRuntimeService(
         repository=get_repository(),
         vault=get_vault(),
@@ -267,11 +267,6 @@ def _configure_application(application: FastAPI) -> None:
     application.include_router(triggers.workspace_webhook_router)
     application.include_router(chatkit_assets.router)
     application.include_router(websocket.router)
-    if not is_sandbox_disabled():
-        broker = build_credential_broker()
-        configure_sandbox(broker)
-        application.include_router(build_credential_broker_router(broker))
-        application.include_router(build_internal_attachment_router(broker))
     application.add_exception_handler(
         AuthenticationError, _authentication_error_handler
     )

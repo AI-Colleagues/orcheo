@@ -3,10 +3,7 @@
 from __future__ import annotations
 import asyncio
 import logging
-import os
 import time
-from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
 from typing import Any
 from uuid import UUID
 from celery import Task
@@ -92,55 +89,6 @@ def _get_event_loop() -> asyncio.AbstractEventLoop:
         return loop
 
 
-def _external_agent_provider_environment(
-    workspace_id: str | None = None,
-) -> dict[str, str]:
-    """Return shared external-agent auth env from the runtime store."""
-    from orcheo_backend.app.dependencies import (
-        get_external_agent_runtime_store,
-        get_vault,
-    )
-    from orcheo_backend.app.external_agent_auth import (
-        load_external_agent_vault_environment,
-    )
-    from orcheo_backend.app.external_agent_runtime_store import (
-        list_external_agent_providers,
-    )
-
-    runtime_store = get_external_agent_runtime_store()
-    vault = get_vault()
-    merged: dict[str, str] = {}
-    for provider_name in list_external_agent_providers():
-        provider_env = runtime_store.get_provider_environment(
-            provider_name,
-            workspace_id=workspace_id,
-        )
-        provider_env.update(
-            load_external_agent_vault_environment(
-                vault,
-                workspace_id=workspace_id,
-            )
-        )
-        merged.update(provider_env)
-    return merged
-
-
-@contextmanager
-def _patched_environment(updates: Mapping[str, str]) -> Iterator[None]:
-    """Temporarily apply environment variables for the current worker process."""
-    original = {key: os.environ.get(key) for key in updates}
-    for key, value in updates.items():
-        os.environ[key] = value
-    try:
-        yield
-    finally:
-        for key, old_value in original.items():
-            if old_value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = old_value
-
-
 async def _load_and_validate_run(
     run_id: str,
     workspace_id: str | None,
@@ -223,30 +171,26 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:  # noqa: PLR0915
     from orcheo.persistence import create_checkpointer, create_graph_store
     from orcheo.runtime.credentials import CredentialResolver, credential_resolution
     from orcheo.runtime.runnable_config import merge_runnable_configs
-    from orcheo.sandbox.dispatch import use_launcher
     from orcheo_backend.app.dependencies import (
         get_history_store,
         get_repository,
         get_vault,
     )
     from orcheo_backend.app.history import RunHistoryError
-    from orcheo_backend.app.sandbox import (
-        build_workflow_run_spec,
-        ensure_sandbox_configured,
-        get_sandbox_dispatcher,
-        get_sandbox_launcher,
+    from orcheo_backend.app.workflow_execution import (
+        _build_initial_state,
+        _ensure_production_trusted_graph,
     )
-    from orcheo_backend.app.workflow_execution import _build_initial_state
 
     repository = get_repository()
     history_store = get_history_store()
     run_id = str(run.id)
     workspace_id = getattr(run, "workspace_id", None)
-    ensure_sandbox_configured()
 
     try:
         version = await repository.get_version(run.workflow_version_id)
         graph_config = version.graph
+        _ensure_production_trusted_graph(graph_config)
         inputs = run.input_payload or {}
 
         settings = get_settings()
@@ -272,57 +216,31 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:  # noqa: PLR0915
             workspace_id=workspace_id,
         )
 
-        spec = build_workflow_run_spec(
-            execution_id=execution_id,
-            workspace_id=str(workspace_id) if workspace_id else "",
-            graph_config=graph_config,
-            inputs=inputs,
-            runnable_config=dict(runtime_config),
-            state_config=dict(state_config),
-        )
-        dispatcher = get_sandbox_dispatcher()
         final_state: Any
-        if dispatcher.should_sandbox(spec):
-            if not workspace_id:
-                msg = "workspace_id is required to dispatch a sandboxed workflow run"
-                raise RuntimeError(msg)
-            final_state = await _execute_sandboxed_run_in_worker(
-                dispatcher=dispatcher,
-                spec=spec,
-                history_store=history_store,
-                execution_id=execution_id,
-                history_error_cls=RunHistoryError,
-            )
-        else:
-            external_agent_environ = _external_agent_provider_environment(workspace_id)
-            with use_launcher(get_sandbox_launcher()):
-                with _patched_environment(external_agent_environ):
-                    with credential_resolution(resolver):
-                        async with create_checkpointer(settings) as checkpointer:
-                            async with create_graph_store(settings) as graph_store:
-                                graph = build_graph(graph_config)
-                                compiled = graph.compile(
-                                    checkpointer=checkpointer,
-                                    store=graph_store,
-                                )
-                                state = _build_initial_state(
-                                    graph_config,
-                                    inputs,
-                                    state_config,
-                                    workspace_id,
-                                )
-                                await _stream_run_history_steps(
-                                    compiled=compiled,
-                                    state=state,
-                                    runtime_config=runtime_config,
-                                    history_store=history_store,
-                                    execution_id=execution_id,
-                                    history_error_cls=RunHistoryError,
-                                )
-                                final_state = await compiled.aget_state(runtime_config)
-                                final_state = getattr(
-                                    final_state, "values", final_state
-                                )
+        with credential_resolution(resolver):
+            async with create_checkpointer(settings) as checkpointer:
+                async with create_graph_store(settings) as graph_store:
+                    graph = build_graph(graph_config)
+                    compiled = graph.compile(
+                        checkpointer=checkpointer,
+                        store=graph_store,
+                    )
+                    state = _build_initial_state(
+                        graph_config,
+                        inputs,
+                        state_config,
+                        workspace_id,
+                    )
+                    await _stream_run_history_steps(
+                        compiled=compiled,
+                        state=state,
+                        runtime_config=runtime_config,
+                        history_store=history_store,
+                        execution_id=execution_id,
+                        history_error_cls=RunHistoryError,
+                    )
+                    final_state = await compiled.aget_state(runtime_config)
+                    final_state = getattr(final_state, "values", final_state)
 
         output = _extract_output(final_state)
         await repository.mark_run_succeeded(
@@ -348,41 +266,6 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:  # noqa: PLR0915
             exc,
             history_store=history_store,
         )
-
-
-async def _execute_sandboxed_run_in_worker(
-    *,
-    dispatcher: Any,
-    spec: Any,
-    history_store: Any,
-    execution_id: str,
-    history_error_cls: type[Exception],
-) -> dict[str, Any]:
-    """Dispatch ``spec`` through the sandbox and persist the aggregated result.
-
-    The sandbox returns a single ``WorkflowRunResult`` rather than a stream of
-    node updates, so we persist one ``sandbox_result`` step (mirroring the
-    WebSocket path) and surface a failure if the run did not succeed.
-    """
-    result = await dispatcher.dispatch(spec)
-    payload: dict[str, Any] = {
-        "event": "sandbox_result",
-        "status": result.status,
-        "outputs": dict(result.outputs),
-    }
-    if result.error:
-        payload["error"] = result.error
-    try:
-        await history_store.append_step(execution_id, payload)
-    except history_error_cls:
-        logger.exception(
-            "Failed to append sandbox result for execution %s",
-            execution_id,
-        )
-    if result.status != "succeeded":
-        msg = result.error or f"sandboxed run finished with {result.status}"
-        raise RuntimeError(msg)
-    return {"sandbox_outputs": dict(result.outputs)}
 
 
 async def _start_history_record(
@@ -594,51 +477,6 @@ async def _dispatch_cron_triggers_async() -> list[str]:
     return [str(run.id) for run in runs]
 
 
-async def _refresh_external_agent_status_async(
-    provider_name: str,
-    workspace_id: str | None = None,
-) -> dict[str, str]:
-    """Refresh worker-scoped status for one external agent provider."""
-    from orcheo_backend.worker.external_agents import (
-        refresh_external_agent_status_async,
-    )
-
-    return await refresh_external_agent_status_async(
-        provider_name,
-        workspace_id=workspace_id,
-    )
-
-
-async def _start_external_agent_login_async(
-    provider_name: str,
-    session_id: str,
-    workspace_id: str | None = None,
-) -> dict[str, str]:
-    """Run a worker-side external agent OAuth session."""
-    from orcheo_backend.worker.external_agents import (
-        start_external_agent_login_async,
-    )
-
-    return await start_external_agent_login_async(
-        provider_name,
-        session_id,
-        workspace_id=workspace_id,
-    )
-
-
-async def _disconnect_external_agent_async(
-    provider_name: str,
-    workspace_id: str | None = None,
-) -> dict[str, str]:
-    """Clear worker-side auth state for one external agent provider."""
-    from orcheo_backend.worker.external_agents import disconnect_external_agent_async
-
-    return await disconnect_external_agent_async(
-        provider_name,
-        workspace_id=workspace_id,
-    )
-
-
 @celery_app.task(bind=True)
 def dispatch_cron_triggers(self: Task) -> dict[str, Any]:  # noqa: ARG001
     """Dispatch due cron triggers by calling the cron dispatch endpoint.
@@ -709,57 +547,9 @@ def attempt_workflow_remediation(
     return loop.run_until_complete(_attempt_workflow_remediation_async(remediation_id))
 
 
-@celery_app.task(bind=True)
-def refresh_external_agent_status(
-    self: Task,  # noqa: ARG001
-    provider_name: str,
-    workspace_id: str | None = None,
-) -> dict[str, str]:
-    """Refresh worker-scoped status for one external agent provider."""
-    logger.info("Refreshing external agent status for %s", provider_name)
-    loop = _get_event_loop()
-    return loop.run_until_complete(
-        _refresh_external_agent_status_async(provider_name, workspace_id)
-    )
-
-
-@celery_app.task(bind=True)
-def start_external_agent_login(
-    self: Task,  # noqa: ARG001
-    provider_name: str,
-    session_id: str,
-    workspace_id: str | None = None,
-) -> dict[str, str]:
-    """Run a worker-side external agent OAuth login session."""
-    logger.info(
-        "Starting external agent login for %s (session=%s)",
-        provider_name,
-        session_id,
-    )
-    loop = _get_event_loop()
-    return loop.run_until_complete(
-        _start_external_agent_login_async(provider_name, session_id, workspace_id)
-    )
-
-
-@celery_app.task(bind=True)
-def disconnect_external_agent(
-    self: Task,  # noqa: ARG001
-    provider_name: str,
-    workspace_id: str | None = None,
-) -> dict[str, str]:
-    """Clear worker-side auth state for one external agent provider."""
-    logger.info("Disconnecting external agent auth for %s", provider_name)
-    loop = _get_event_loop()
-    return loop.run_until_complete(
-        _disconnect_external_agent_async(provider_name, workspace_id)
-    )
-
-
 __all__ = [
-    "disconnect_external_agent",
+    "attempt_workflow_remediation",
     "dispatch_cron_triggers",
     "execute_run",
-    "refresh_external_agent_status",
-    "start_external_agent_login",
+    "scan_workflow_remediations",
 ]

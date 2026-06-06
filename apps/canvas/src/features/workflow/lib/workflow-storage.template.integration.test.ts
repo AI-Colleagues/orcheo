@@ -7,7 +7,6 @@ import {
 import { setCandidateBadges } from "@features/workflow/data/templates/candidate-badges";
 import { jsonResponse } from "@/testing/mocks/backend/request-utils";
 import { createFetchMockHarness } from "@/testing/mocks/fetch-mock";
-import { VIBE_WORKFLOW_HANDLE } from "@features/vibe/constants";
 
 const { getFetchMock, queueResponses, setupFetchMock } =
   createFetchMockHarness();
@@ -50,9 +49,6 @@ const WECOM_LARK_SHARED_LISTENER_SCRIPT = [
   "LarkSendMessageNode",
   "LarkTenantAccessTokenNode",
 ].join("\n");
-const GEMINI_SCRIPT =
-  "from orcheo.nodes.ai.external.gemini import GeminiNode\n";
-
 describe("workflow-storage API integration - template creation", () => {
   it("creates a workflow and ingests a Python version from template", async () => {
     setCandidateBadges([
@@ -155,97 +151,6 @@ describe("workflow-storage API integration - template creation", () => {
       "from orcheo.nodes.ai import AgentNode",
     );
     expect(ingestBody.metadata?.source).toBe("canvas-template");
-  });
-
-  it("creates the vibe workflow with a stable handle", async () => {
-    const mockFetch = getFetchMock();
-    const timestamp = new Date().toISOString();
-
-    queueResponses([
-      jsonResponse([]),
-      jsonResponse({
-        id: "workflow-vibe-1",
-        handle: VIBE_WORKFLOW_HANDLE,
-        name: "Orcheo Vibe",
-        slug: "workflow-vibe-1",
-        description: "Routes ChatKit conversations to external agent runtimes.",
-        tags: ["orcheo-vibe-agent", "external-agent"],
-        is_archived: false,
-        created_at: timestamp,
-        updated_at: timestamp,
-      }),
-      jsonResponse({
-        id: "workflow-vibe-1-version-1",
-        workflow_id: "workflow-vibe-1",
-        version: 1,
-        graph: {
-          format: "langgraph-script",
-          source:
-            "from langgraph.graph import StateGraph\nfrom orcheo.graph.state import State\n",
-          entrypoint: null,
-          index: { cron: [] },
-        },
-        metadata: {
-          source: "canvas-template",
-          template_id: "template-vibe-agent",
-        },
-        notes: "Template ingest",
-        created_by: "canvas-app",
-        created_at: timestamp,
-        updated_at: timestamp,
-      }),
-      jsonResponse({
-        id: "workflow-vibe-1",
-        handle: VIBE_WORKFLOW_HANDLE,
-        name: "Orcheo Vibe",
-        slug: "workflow-vibe-1",
-        description: "Routes ChatKit conversations to external agent runtimes.",
-        tags: ["orcheo-vibe-agent", "external-agent"],
-        is_archived: false,
-        created_at: timestamp,
-        updated_at: timestamp,
-      }),
-      jsonResponse([
-        {
-          id: "workflow-vibe-1-version-1",
-          workflow_id: "workflow-vibe-1",
-          version: 1,
-          graph: {
-            format: "langgraph-script",
-            source:
-              "from langgraph.graph import StateGraph\nfrom orcheo.graph.state import State\n",
-            entrypoint: null,
-            index: { cron: [] },
-          },
-          metadata: {
-            source: "canvas-template",
-            template_id: "template-vibe-agent",
-          },
-          notes: "Template ingest",
-          created_by: "canvas-app",
-          created_at: timestamp,
-          updated_at: timestamp,
-        },
-      ]),
-    ]);
-
-    const created = await createWorkflowFromTemplate("template-vibe-agent", {
-      name: "Orcheo Vibe",
-      handle: VIBE_WORKFLOW_HANDLE,
-      tags: ["orcheo-vibe-agent", "external-agent"],
-    });
-    expect(created).toBeDefined();
-
-    const createCall = mockFetch.mock.calls.find(
-      ([path, options]) =>
-        String(path).includes("/api/workflows") &&
-        options?.method === "POST" &&
-        !String(path).includes("/versions/ingest"),
-    );
-    const createBody = JSON.parse(String(createCall?.[1]?.body ?? "{}")) as {
-      handle?: string | null;
-    };
-    expect(createBody.handle).toBe(VIBE_WORKFLOW_HANDLE);
   });
 
   it("starts numeric suffixes at 1 and ignores archived workflow names", async () => {
@@ -474,114 +379,6 @@ describe("workflow-storage API integration - template creation", () => {
     ) as { runnable_config?: { configurable?: { database?: string } } };
     expect(ingestBody.runnable_config?.configurable?.database).toBe(
       "my_database",
-    );
-  });
-
-  it("creates a workflow from the Gemini external-agent template", async () => {
-    setCandidateBadges([
-      {
-        id: "template-gemini-agent",
-        handle: "gemini-agent",
-        name: "Gemini Agent",
-        script: GEMINI_SCRIPT,
-        config: { configurable: { working_directory: "/workspace/agents" } },
-        notes: "Gemini external-agent template.",
-      },
-    ]);
-    const mockFetch = getFetchMock();
-    const timestamp = new Date().toISOString();
-
-    queueResponses([
-      jsonResponse([]),
-      jsonResponse({
-        id: "workflow-template-gemini",
-        name: "Gemini Agent",
-        slug: "workflow-template-gemini",
-        description: "Gemini external-agent template.",
-        tags: ["gemini", "agent", "external-agent"],
-        is_archived: false,
-        created_at: timestamp,
-        updated_at: timestamp,
-      }),
-      jsonResponse({
-        id: "workflow-template-gemini-version-1",
-        workflow_id: "workflow-template-gemini",
-        version: 1,
-        graph: {
-          format: "langgraph-script",
-          source: "from langgraph.graph import StateGraph\n",
-          entrypoint: null,
-          index: { cron: [] },
-        },
-        metadata: {
-          source: "canvas-template",
-          template_id: "template-gemini-agent",
-        },
-        runnable_config: {
-          configurable: {
-            working_directory: "/workspace/agents",
-          },
-        },
-        notes: "Template ingest",
-        created_by: "canvas-app",
-        created_at: timestamp,
-        updated_at: timestamp,
-      }),
-      jsonResponse({
-        id: "workflow-template-gemini",
-        name: "Gemini Agent",
-        slug: "workflow-template-gemini",
-        description: "Gemini external-agent template.",
-        tags: ["gemini", "agent", "external-agent"],
-        is_archived: false,
-        created_at: timestamp,
-        updated_at: timestamp,
-      }),
-      jsonResponse([
-        {
-          id: "workflow-template-gemini-version-1",
-          workflow_id: "workflow-template-gemini",
-          version: 1,
-          graph: {
-            format: "langgraph-script",
-            source: "from langgraph.graph import StateGraph\n",
-            entrypoint: null,
-            index: { cron: [] },
-          },
-          metadata: {
-            source: "canvas-template",
-            template_id: "template-gemini-agent",
-          },
-          runnable_config: {
-            configurable: {
-              working_directory: "/workspace/agents",
-            },
-          },
-          notes: "Template ingest",
-          created_by: "canvas-app",
-          created_at: timestamp,
-          updated_at: timestamp,
-        },
-      ]),
-    ]);
-
-    const created = await createWorkflowFromTemplate("template-gemini-agent");
-
-    expect(created?.id).toBe("workflow-template-gemini");
-
-    const ingestBody = JSON.parse(
-      String(mockFetch.mock.calls[2]?.[1]?.body ?? "{}"),
-    ) as {
-      script?: string;
-      metadata?: { source?: string; template_id?: string };
-      runnable_config?: { configurable?: { working_directory?: string } };
-    };
-    expect(ingestBody.script).toContain(
-      "from orcheo.nodes.ai.external.gemini import GeminiNode",
-    );
-    expect(ingestBody.metadata?.template_id).toBe("template-gemini-agent");
-    expect(ingestBody.runnable_config?.configurable?.working_directory).toBe(
-      "/workspace/agents",
     );
   });
 

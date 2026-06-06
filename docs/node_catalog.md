@@ -34,8 +34,6 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 | Node | Description |
 |---|---|
 | **AgentNode** | Execute an AI agent with tools |
-| **ClaudeCodeNode** | Execute Claude Code as a non-interactive coding-agent step. |
-| **CodexNode** | Execute Codex as a non-interactive coding-agent step. |
 | **LLMNode** | Execute a text-only LLM call |
 
 ## Base Nodes
@@ -172,7 +170,6 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 |---|---|
 | **DebugNode** | Capture state snapshots and emit debug information. |
 | **DelayNode** | Pause execution for a fixed duration |
-| **JavaScriptSandboxNode** | Execute JavaScript using js2py sandboxing. |
 | **SetVariableNode** | Store variables for downstream nodes |
 | **SubWorkflowNode** | Execute a mini workflow inline using the node registry. |
 

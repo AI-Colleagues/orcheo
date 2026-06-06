@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from orcheo.config import get_settings
-from orcheo.graph.ingestion import ScriptIngestionError
+from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
 from orcheo.models import (
     Workflow,
     WorkflowDraftAccess,
@@ -18,6 +18,7 @@ from orcheo.runtime.configurable_schema import (
     split_configurable,
 )
 from orcheo.runtime.runnable_config import RunnableConfigModel
+from orcheo.workflow.trust.modes import WorkflowTrustMode, get_workflow_trust_mode
 from orcheo_backend.app.authentication import (
     AuthorizationError,
     AuthorizationPolicy,
@@ -41,7 +42,6 @@ from orcheo_backend.app.repository import (
     WorkflowPublishStateError,
     WorkflowVersionNotFoundError,
 )
-from orcheo_backend.app.sandbox import ingest_sandboxed_script
 from orcheo_backend.app.schemas.chatkit import ChatKitSessionResponse
 from orcheo_backend.app.schemas.workflows import (
     PublicWorkflow,
@@ -431,12 +431,21 @@ async def list_workflows(
 ) -> list[WorkflowListItem]:
     """Return workflows with latest-version and schedule summaries."""
     workspace_record = get_workspace_repository().get_workspace(workspace.workspace_id)
-    managed_workflow = await ensure_managed_vibe_workflow(repository, workspace_record)
+    managed_workflow = None
+    try:
+        managed_workflow = await ensure_managed_vibe_workflow(
+            repository, workspace_record
+        )
+    except (RuntimeError, Exception):
+        # Managed vibe workflow may not exist in production mode.
+        pass
     workflows = await repository.list_workflows(
         include_archived=include_archived,
         workspace_id=str(workspace.workspace_id),
     )
-    if all(workflow.id != managed_workflow.id for workflow in workflows):
+    if managed_workflow is not None and all(
+        workflow.id != managed_workflow.id for workflow in workflows
+    ):
         workflows.append(managed_workflow)
     public_base_url = _resolve_studio_url()
     return await asyncio.gather(
@@ -638,10 +647,16 @@ async def ingest_workflow_version(
                 "Install them into the runtime before importing the template."
             ),
         )
+    if get_workflow_trust_mode() == WorkflowTrustMode.PRODUCTION:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Python-source workflow ingestion is not permitted in production mode."
+            ),
+        )
     try:
-        graph_payload = await ingest_sandboxed_script(
-            workspace_id=tid,
-            source=request.script,
+        graph_payload = ingest_langgraph_script(
+            request.script,
             entrypoint=request.entrypoint,
         )
     except ScriptIngestionError as exc:
@@ -745,6 +760,40 @@ async def get_workflow_version(
         raise_not_found("Workflow not found", exc)
     except WorkflowVersionNotFoundError as exc:
         raise_not_found("Workflow version not found", exc)
+
+
+@router.get(
+    "/workflows/{workflow_ref}/versions/{version_number}/mermaid",
+    response_model=dict,
+)
+async def get_workflow_version_mermaid(
+    workflow_ref: str,
+    version_number: int,
+    repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
+) -> dict:
+    """Render a Mermaid diagram from a stored declarative workflow version."""
+    from orcheo.workflow.mermaid import render_mermaid_from_graph_payload
+
+    tid = str(workspace.workspace_id)
+    workflow = await _load_workflow_for_request(
+        repository,
+        workflow_ref,
+        workspace_id=tid,
+    )
+    try:
+        version = await repository.get_version_by_number(workflow.id, version_number)
+    except WorkflowNotFoundError as exc:
+        raise_not_found("Workflow not found", exc)
+    except WorkflowVersionNotFoundError as exc:
+        raise_not_found("Workflow version not found", exc)
+    mermaid = render_mermaid_from_graph_payload(version.graph or {})
+    if mermaid is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Mermaid cannot be rendered for this workflow version.",
+        )
+    return {"mermaid": mermaid}
 
 
 @router.get(

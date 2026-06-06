@@ -22,7 +22,6 @@ import { ConfirmDeleteWorkflowDialog } from "@features/workflow/components/dialo
 import { getCandidateBadgeDefinition } from "@features/workflow/data/templates/candidate-badges";
 import { type Workflow } from "@features/workflow/data/workflow-data";
 import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
-import { VIBE_WORKFLOW_HANDLE } from "@features/vibe/constants";
 import { WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME } from "./workflow-card-size";
 
 const getWorkflowTemplateAvatar = (workflow: Workflow): string | undefined => {
@@ -59,8 +58,7 @@ export const WorkflowCard = ({
 }: WorkflowCardProps) => {
   const workflowRouteRef = getWorkflowRouteRef(workflow);
   const isClickable = !isTemplate;
-  const canDeleteWorkflow =
-    !isTemplate && workflow.handle !== VIBE_WORKFLOW_HANDLE;
+  const canDeleteWorkflow = !isTemplate;
   const candidateBadge = isTemplate
     ? getCandidateBadgeDefinition(workflow.id)
     : undefined;

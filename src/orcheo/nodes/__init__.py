@@ -3,9 +3,6 @@
 from orcheo.nodes.ai import AgentNode, AgentReplyExtractorNode, LLMNode
 from orcheo.nodes.ai.agentensor import AgentensorNode
 from orcheo.nodes.ai.deep_agent import DeepAgentNode
-from orcheo.nodes.ai.external.claude_code import ClaudeCodeNode
-from orcheo.nodes.ai.external.codex import CodexNode
-from orcheo.nodes.ai.external.gemini import GeminiNode
 from orcheo.nodes.browser import (
     BrowserActionNode,
     BrowserCloseNode,
@@ -42,7 +39,6 @@ from orcheo.nodes.data import (
     JsonProcessingNode,
     MergeNode,
 )
-from orcheo.nodes.javascript_sandbox import JavaScriptSandboxNode
 from orcheo.nodes.logic import (
     DelayNode,
     ForLoopNode,
@@ -98,9 +94,6 @@ __all__ = [
     "BrowserWaitNode",
     "BrowserScriptNode",
     "BrowserCloseNode",
-    "ClaudeCodeNode",
-    "CodexNode",
-    "GeminiNode",
     "AgentensorNode",
     "HttpRequestNode",
     "JsonProcessingNode",
@@ -132,7 +125,6 @@ __all__ = [
     "MessageTelegram",
     "MessageTelegramNode",
     "TelegramEventsParserNode",
-    "JavaScriptSandboxNode",
     "LarkSendMessageNode",
     "LarkTenantAccessTokenNode",
     "LinkedInPostNode",

@@ -7,7 +7,6 @@ import {
 } from "@/design-system/ui/tabs";
 import useCredentialVault from "@/hooks/use-credential-vault";
 import { usePageContext } from "@/hooks/use-page-context";
-import ExternalAgentsSection from "@features/account/components/external-agents-section";
 import ServiceTokens from "@features/account/pages/service-tokens";
 import WorkspaceMembers from "@features/account/pages/workspace-members";
 import TopNavigation from "@features/shared/components/top-navigation";
@@ -47,15 +46,11 @@ export default function WorkspaceManagement() {
           <Tabs defaultValue="members" className="flex flex-col gap-4">
             <TabsList className="self-start">
               <TabsTrigger value="members">Workspace Members</TabsTrigger>
-              <TabsTrigger value="agents">External Agents</TabsTrigger>
               <TabsTrigger value="api-keys">API Keys</TabsTrigger>
             </TabsList>
 
             <TabsContent value="members">
               <WorkspaceMembers />
-            </TabsContent>
-            <TabsContent value="agents">
-              <ExternalAgentsSection />
             </TabsContent>
             <TabsContent value="api-keys">
               <ServiceTokens />

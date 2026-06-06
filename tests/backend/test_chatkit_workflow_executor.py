@@ -1,5 +1,4 @@
 import asyncio
-import os
 from collections.abc import Mapping
 from contextlib import nullcontext
 from types import SimpleNamespace
@@ -13,10 +12,8 @@ from orcheo_backend.app.chatkit.workflow_executor import (
     WorkflowExecutor,
     _append_chatkit_history_step,
     _build_reply_state,
-    _external_agent_provider_environment,
     _mark_chatkit_history_completed,
     _mark_chatkit_history_failed,
-    _patched_environment,
     _resolve_runtime_thread_id,
     _start_chatkit_history,
     _with_chatkit_model,
@@ -24,7 +21,6 @@ from orcheo_backend.app.chatkit.workflow_executor import (
 )
 from orcheo_backend.app.history.models import RunHistoryError
 from orcheo_backend.app.repository import WorkflowNotFoundError
-from orcheo_backend.app.schemas.system import ExternalAgentProviderName
 
 
 class DummyHistoryStore:
@@ -147,22 +143,6 @@ async def test_mark_chatkit_history_failed_handles_error(caplog):
     assert "Failed to mark chatkit history failed" in caplog.text
 
 
-def test_patched_environment_restores_value(tmp_path):
-    os_env_key = "TEST_CHATKIT"
-    original = os.environ.get(os_env_key)
-    with _patched_environment({os_env_key: "value"}):
-        assert os.environ[os_env_key] == "value"
-    assert os.environ.get(os_env_key) == original
-
-
-def test_patched_environment_restores_existing_value(monkeypatch):
-    os_env_key = "TEST_CHATKIT_EXISTING"
-    monkeypatch.setenv(os_env_key, "original")
-    with _patched_environment({os_env_key: "new"}):
-        assert os.environ[os_env_key] == "new"
-    assert os.environ[os_env_key] == "original"
-
-
 def test_with_thread_id_injects():
     config = {"configurable": {"foo": "bar"}}
     result = _with_thread_id(config, "abc")
@@ -229,125 +209,6 @@ def test_build_attachment_config_includes_helpers() -> None:
     assert result["attachment_scope"].workspace_id == "ws"
 
 
-@pytest.mark.asyncio
-async def test_execute_graph_sandbox_serializes_attachment_config(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from orcheo.sandbox.workflow import WorkflowRunResult
-
-    dispatched: list[object] = []
-
-    class _SandboxingDispatcher:
-        def should_sandbox(self, spec):  # noqa: ARG002
-            return True
-
-        async def dispatch(self, spec):
-            dispatched.append(spec)
-            return WorkflowRunResult(
-                run_id=spec.run_id,
-                status="succeeded",
-                outputs={"answer": 42},
-            )
-
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "get_sandbox_dispatcher",
-        lambda: _SandboxingDispatcher(),
-    )
-    monkeypatch.setenv(
-        "ORCHEO_CHATKIT_ATTACHMENT_BASE_URL", "http://credential-relay:9091"
-    )
-    monkeypatch.setattr(
-        workflow_executor_module, "ensure_sandbox_configured", lambda: None
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "build_graph",
-        lambda graph: SimpleNamespace(
-            compile=lambda checkpointer=None, store=None: SimpleNamespace(
-                astream=None,
-                aget_state=None,
-                ainvoke=AsyncMock(return_value={"reply": "ok"}),
-            )
-        ),
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "build_initial_state",
-        lambda graph_config, inputs, runtime_config=None, workspace_id=None: {
-            "inputs": dict(inputs),
-            "workspace_id": workspace_id,
-        },
-    )
-    executor = WorkflowExecutor(
-        SimpleNamespace(),
-        lambda: object(),
-        attachment_service=SimpleNamespace(
-            blob_backend="postgres",
-            load_attachment_bytes=AsyncMock(),
-            save_attachment=AsyncMock(),
-        ),
-    )
-    extras = executor._build_attachment_config(
-        workspace_id="ws-1",
-        workflow_id=str(UUID(int=0)),
-        thread_id="thread",
-        upload_session_id=None,
-    )
-    # Mirror production flow: _with_request_inputs is applied before
-    # _with_attachment_scope so inputs appear in configurable.
-    config = workflow_executor_module._with_attachment_scope(
-        workflow_executor_module._with_request_inputs(
-            {"configurable": {"thread_id": "thread"}},
-            {"message": "hello"},
-        ),
-        extras,
-    )
-    state_config = workflow_executor_module._with_attachment_scope(
-        workflow_executor_module._with_request_inputs(
-            {"configurable": {"thread_id": "thread"}},
-            {"message": "hello"},
-        ),
-        extras,
-    )
-
-    await executor._execute_graph(
-        workflow_id=UUID(int=0),
-        graph_config={"nodes": [{"type": "TenantPythonNode"}]},
-        inputs={"message": "hello"},
-        config=config,
-        state_config=state_config,
-        step_callback=None,
-        workspace_id="ws-1",
-    )
-
-    spec = dispatched[0]
-    configurable = spec.runnable_config["configurable"]
-    assert configurable["inputs"] == {"message": "hello"}
-    assert configurable["attachment_resolver"] == {
-        "__orcheo_attachment_resolver__": {
-            "base_urls": ["http://credential-relay:9091"]
-        }
-    }
-    assert configurable["attachment_uploader"] == {
-        "__orcheo_attachment_uploader__": {
-            "base_urls": ["http://credential-relay:9091"],
-            "workflow_id": str(UUID(int=0)),
-            "thread_id": "thread",
-            "upload_session_id": None,
-        }
-    }
-    assert configurable["attachment_scope"] == {
-        "__orcheo_attachment_scope__": {
-            "workspace_id": "ws-1",
-            "workflow_id": str(UUID(int=0)),
-            "thread_id": "thread",
-            "upload_session_id": None,
-        }
-    }
-    assert spec.state_config["configurable"]["inputs"] == {"message": "hello"}
-
-
 def test_with_attachment_scope_merges_extras() -> None:
     config = {"configurable": {"existing": "value"}}
     extras = {"attachment_resolver": object(), "attachment_scope": object()}
@@ -391,38 +252,6 @@ def test_resolve_runtime_thread_id_uses_session_id_when_thread_id_is_blank():
         _resolve_runtime_thread_id({"thread_id": "   ", "session_id": "sess"}, "exec")
         == "sess"
     )
-
-
-def test_external_agent_provider_environment(monkeypatch):
-    class DummyStore:
-        def __init__(self):
-            self.calls = []
-
-        def get_provider_environment(self, provider, workspace_id=None):
-            self.calls.append((provider, workspace_id))
-            return {provider.name: "ok"}
-
-    store = DummyStore()
-    workspace_id = "workspace-1"
-
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "get_external_agent_runtime_store",
-        lambda: store,
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "list_external_agent_providers",
-        lambda: [ExternalAgentProviderName.CLAUDE_CODE],
-    )
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "load_external_agent_vault_environment",
-        lambda vault, workspace_id=None: {},
-    )
-    env = _external_agent_provider_environment(workspace_id)
-    assert env == {"CLAUDE_CODE": "ok"}
-    assert store.calls == [(ExternalAgentProviderName.CLAUDE_CODE, workspace_id)]
 
 
 def test_build_reply_state_and_extract_messages():
@@ -567,16 +396,13 @@ async def test_execute_graph_streams_updates_with_step_callback(
     )
     monkeypatch.setattr(
         workflow_executor_module,
-        "_external_agent_provider_environment",
-        lambda workspace_id=None: {
-            "EXTERNAL_AGENT_TOKEN": "secret",
-            "WORKSPACE_ID": workspace_id or "",
-        },
+        "tool_progress_context",
+        lambda callback: ProgressContext(),
     )
     monkeypatch.setattr(
         workflow_executor_module,
-        "tool_progress_context",
-        lambda callback: ProgressContext(),
+        "_ensure_production_trusted_graph",
+        lambda graph_config: None,
     )
 
     executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
@@ -834,8 +660,8 @@ async def test_execute_graph_passes_workspace_id_to_initial_state(
     )
     monkeypatch.setattr(
         workflow_executor_module,
-        "_external_agent_provider_environment",
-        lambda workspace_id=None: {"WORKSPACE_ID": workspace_id or ""},
+        "_ensure_production_trusted_graph",
+        lambda graph_config: None,
     )
 
     executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
@@ -855,131 +681,6 @@ async def test_execute_graph_passes_workspace_id_to_initial_state(
         "inputs": {"message": "hello"},
         "workspace_id": str(UUID(int=1)),
     }
-
-
-@pytest.mark.asyncio
-async def test_execute_graph_dispatches_to_sandbox_when_untrusted(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Untrusted graphs hit the sandbox dispatcher and emit a sandbox_result."""
-    from orcheo.sandbox.workflow import WorkflowRunResult
-
-    dispatched: list[object] = []
-    callbacks: list[Mapping[str, object]] = []
-
-    class _SandboxingDispatcher:
-        def should_sandbox(self, spec):  # noqa: ARG002
-            return True
-
-        async def dispatch(self, spec):
-            dispatched.append(spec)
-            return WorkflowRunResult(
-                run_id=spec.run_id,
-                status="succeeded",
-                outputs={"answer": 42},
-            )
-
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "get_sandbox_dispatcher",
-        lambda: _SandboxingDispatcher(),
-    )
-    # ensure_sandbox_configured is a no-op when the stub bootstrap is already
-    # wired by conftest; calling it must not blow up.
-    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
-
-    async def _step_callback(step: Mapping[str, object]) -> None:
-        callbacks.append(step)
-
-    result = await executor._execute_graph(
-        workflow_id=UUID(int=0),
-        graph_config={"nodes": [{"type": "TenantPythonNode"}]},
-        inputs={"x": 1},
-        config={"configurable": {"thread_id": "thread"}},
-        state_config={"configurable": {"thread_id": "thread"}},
-        step_callback=_step_callback,
-        workspace_id="ws-1",
-    )
-
-    assert dispatched and dispatched[0].workspace_id == "ws-1"
-    assert result == {"answer": 42}
-    assert callbacks == [
-        {
-            "event": "sandbox_result",
-            "status": "succeeded",
-            "outputs": {"answer": 42},
-        }
-    ]
-
-
-@pytest.mark.asyncio
-async def test_execute_graph_raises_without_workspace_for_sandbox_route(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Sandboxed dispatch requires a workspace id; absence is a hard error."""
-
-    class _SandboxingDispatcher:
-        def should_sandbox(self, spec):  # noqa: ARG002
-            return True
-
-        async def dispatch(self, spec):  # pragma: no cover - never reached
-            raise AssertionError("should not dispatch")
-
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "get_sandbox_dispatcher",
-        lambda: _SandboxingDispatcher(),
-    )
-    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
-
-    with pytest.raises(RuntimeError, match="workspace_id is required"):
-        await executor._execute_graph(
-            workflow_id=UUID(int=0),
-            graph_config={"nodes": [{"type": "TenantPythonNode"}]},
-            inputs={},
-            config={"configurable": {"thread_id": "thread"}},
-            state_config={"configurable": {"thread_id": "thread"}},
-            step_callback=None,
-            workspace_id=None,
-        )
-
-
-@pytest.mark.asyncio
-async def test_execute_graph_surfaces_sandbox_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A non-succeeded sandbox result must be raised so the caller fails."""
-    from orcheo.sandbox.workflow import WorkflowRunResult
-
-    class _SandboxingDispatcher:
-        def should_sandbox(self, spec):  # noqa: ARG002
-            return True
-
-        async def dispatch(self, spec):
-            return WorkflowRunResult(
-                run_id=spec.run_id,
-                status="failed",
-                outputs={},
-                error="kaboom",
-            )
-
-    monkeypatch.setattr(
-        workflow_executor_module,
-        "get_sandbox_dispatcher",
-        lambda: _SandboxingDispatcher(),
-    )
-    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
-
-    with pytest.raises(RuntimeError, match="kaboom"):
-        await executor._execute_graph(
-            workflow_id=UUID(int=0),
-            graph_config={"nodes": [{"type": "TenantPythonNode"}]},
-            inputs={},
-            config={"configurable": {"thread_id": "thread"}},
-            state_config={"configurable": {"thread_id": "thread"}},
-            step_callback=None,
-            workspace_id="ws-1",
-        )
 
 
 def test_with_request_inputs_non_mapping_configurable() -> None:
@@ -1003,3 +704,60 @@ def test_with_request_inputs_none_configurable() -> None:
     result = _with_request_inputs({}, {"query": "q"})
 
     assert result["configurable"]["inputs"] == {"query": "q"}
+
+
+@pytest.mark.asyncio
+async def test_mark_run_succeeded_calls_repository() -> None:
+    """_mark_run_succeeded should call repository.mark_run_succeeded with the reply."""
+    from orcheo_backend.app.chatkit.workflow_executor import WorkflowExecutor
+
+    calls: list[dict] = []
+
+    class Repository:
+        async def mark_run_succeeded(self, run_id, *, actor, output):
+            calls.append({"run_id": run_id, "actor": actor, "output": output})
+
+    run = SimpleNamespace(id="run-123")
+    executor = WorkflowExecutor(
+        repository=Repository(), vault_provider=lambda: object()
+    )
+    await executor._mark_run_succeeded(run, "admin", "The answer is 42")
+
+    assert len(calls) == 1
+    assert calls[0]["run_id"] == "run-123"
+    assert calls[0]["actor"] == "admin"
+    assert calls[0]["output"] == {"reply": "The answer is 42"}
+
+
+@pytest.mark.asyncio
+async def test_mark_run_succeeded_returns_early_when_run_is_none() -> None:
+    """_mark_run_succeeded should be a no-op when run is None."""
+    from orcheo_backend.app.chatkit.workflow_executor import WorkflowExecutor
+
+    calls: list[dict] = []
+
+    class Repository:
+        async def mark_run_succeeded(self, run_id, *, actor, output):
+            calls.append({})
+
+    executor = WorkflowExecutor(
+        repository=Repository(), vault_provider=lambda: object()
+    )
+    await executor._mark_run_succeeded(None, "admin", "reply text")
+
+    assert calls == []
+
+
+def test_build_reply_state_with_pydantic_base_model() -> None:
+    """_build_reply_state should call model_dump() when state is a BaseModel."""
+    from pydantic import BaseModel
+
+    class FakeState(BaseModel):
+        reply: str
+        extra: str = "value"
+
+    final_state = FakeState(reply="pydantic reply")
+    reply, state_view = _build_reply_state(final_state)
+
+    assert reply == "pydantic reply"
+    assert state_view.get("extra") == "value"

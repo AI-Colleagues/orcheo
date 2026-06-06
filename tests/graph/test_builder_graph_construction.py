@@ -86,3 +86,18 @@ def test_build_graph_script_format_delegates_to_ingestion_loader(
         "source": "from langgraph.graph import StateGraph",
         "entrypoint": "build_graph",
     }
+
+
+def test_build_graph_declarative_format_delegates_to_declarative_builder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Declarative format payloads are delegated to ``build_graph_from_declarative``."""
+
+    monkeypatch.setattr(
+        builder,
+        "build_graph_from_declarative",
+        lambda payload: sentinel.declarative_graph,
+    )
+    result = builder.build_graph({"format": "orcheo-declarative-graph"})
+
+    assert result is sentinel.declarative_graph

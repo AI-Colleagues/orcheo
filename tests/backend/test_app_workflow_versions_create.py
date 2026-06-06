@@ -16,6 +16,7 @@ from orcheo_backend.app.repository import (
     WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.routers import workflows as workflow_routes
+from orcheo_backend.app.routers.workflows import get_workflow_version_mermaid
 from orcheo_backend.app.schemas.workflows import (
     WorkflowVersionIngestRequest,
     WorkflowVersionRunnableConfigUpdateRequest,
@@ -28,6 +29,8 @@ _MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 @pytest.fixture(autouse=True)
 def _stub_load_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
     """Replace `_load_workflow_for_request` so tests can stub Repository.resolve_workflow_ref alone."""
+    # Use self_host_unsafe so tests can exercise the Python script ingest path.
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
 
     async def _load(
         repository, workflow_ref, *, include_archived=True, workspace_id=None
@@ -551,6 +554,151 @@ async def test_update_workflow_version_runnable_config_missing_workflow() -> Non
             request,
             Repository(),
             _MOCK_WORKSPACE,
+        )
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_ingest_workflow_version_forbidden_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Python-source ingestion is rejected in production trust mode."""
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "production")
+
+    workflow_id = uuid4()
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del workflow_ref, include_archived
+            return workflow_id
+
+    request = WorkflowVersionIngestRequest(
+        script="from langgraph.graph import StateGraph\ngraph = StateGraph(dict)",
+        entrypoint="graph",
+        created_by="admin",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await ingest_workflow_version(
+            str(workflow_id), request, Repository(), _MOCK_WORKSPACE
+        )
+
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_version_mermaid_success() -> None:
+    """Mermaid endpoint returns rendered diagram for declarative workflows."""
+    workflow_id = uuid4()
+    version = WorkflowVersion(
+        id=uuid4(),
+        workflow_id=workflow_id,
+        version=1,
+        graph={
+            "format": "orcheo-declarative-graph",
+            "summary": {
+                "nodes": [{"name": "fetch", "type": "RSSNode"}],
+                "edges": [("START", "fetch")],
+                "conditional_edges": [],
+            },
+        },
+        created_by="admin",
+        created_at=datetime.now(tz=UTC),
+        updated_at=datetime.now(tz=UTC),
+    )
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def get_version_by_number(self, wf_id, version_number):
+            return version
+
+    result = await get_workflow_version_mermaid(
+        str(workflow_id), 1, Repository(), _MOCK_WORKSPACE
+    )
+
+    assert "mermaid" in result
+    assert "fetch" in result["mermaid"]
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_version_mermaid_raises_for_non_declarative() -> None:
+    """Mermaid endpoint returns 422 for non-declarative workflow versions."""
+    workflow_id = uuid4()
+    version = WorkflowVersion(
+        id=uuid4(),
+        workflow_id=workflow_id,
+        version=1,
+        graph={"format": "langgraph-script", "source": "graph = None"},
+        created_by="admin",
+        created_at=datetime.now(tz=UTC),
+        updated_at=datetime.now(tz=UTC),
+    )
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def get_version_by_number(self, wf_id, version_number):
+            return version
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_workflow_version_mermaid(
+            str(workflow_id), 1, Repository(), _MOCK_WORKSPACE
+        )
+
+    assert exc_info.value.status_code == 422
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_version_mermaid_raises_404_for_workflow_not_found() -> None:
+    """get_workflow_version_mermaid returns 404 when get_version_by_number raises WorkflowNotFoundError."""
+    workflow_id = uuid4()
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            return workflow_id
+
+        async def get_version_by_number(self, wf_id, version_number):
+            raise WorkflowNotFoundError("workflow gone")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_workflow_version_mermaid(
+            str(workflow_id), 1, Repository(), _MOCK_WORKSPACE
+        )
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_get_workflow_version_mermaid_raises_404_for_version_not_found() -> None:
+    """get_workflow_version_mermaid returns 404 when get_version_by_number raises WorkflowVersionNotFoundError."""
+    workflow_id = uuid4()
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            return workflow_id
+
+        async def get_version_by_number(self, wf_id, version_number):
+            raise WorkflowVersionNotFoundError("v99")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_workflow_version_mermaid(
+            str(workflow_id), 1, Repository(), _MOCK_WORKSPACE
         )
 
     assert exc_info.value.status_code == 404

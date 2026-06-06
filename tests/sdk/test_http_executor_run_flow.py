@@ -34,6 +34,8 @@ def test_http_executor_triggers_run_against_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    # Script ingestion is blocked in production mode; use self_host_unsafe for this test.
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
     reset_authentication_state()
     reset_workspace_state()
 

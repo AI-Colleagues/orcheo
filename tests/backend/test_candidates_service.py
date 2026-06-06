@@ -5,7 +5,7 @@ import asyncio
 import io
 import tarfile
 from collections.abc import Iterator
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 import httpx
 import pytest
 import respx
@@ -346,32 +346,30 @@ def test_build_candidate_defers_remote_script_rendering() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_render_candidate_previews_uses_sandboxed_catalog_identity(
+async def test_render_candidate_previews_uses_local_catalog_ingestion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Remote preview derivation routes through the no-credential sandbox path."""
+    """Preview derivation uses local ingestion in non-production mode."""
+    # Use self_host_unsafe so the fallback path is exercised.
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
     candidate = candidates_service._build_candidate(
         "linkedin_post", _WORKFLOW_WITH_FRONTMATTER, None
     )
     assert candidate is not None
-    ingestor = AsyncMock(return_value={"index": {"mermaid": "graph TD; A-->B"}})
-    monkeypatch.setattr(candidates_service, "ingest_sandboxed_script", ingestor)
+    ingestor = Mock(return_value={"index": {"mermaid": "graph TD; A-->B"}})
+    monkeypatch.setattr(candidates_service, "ingest_langgraph_script", ingestor)
 
     result = await candidates_service._render_candidate_previews([candidate])
 
     assert result[0].mermaid == "graph TD; A-->B"
-    ingestor.assert_awaited_once_with(
-        workspace_id="__candidate_catalog_preview__",
-        source=_WORKFLOW_WITH_FRONTMATTER,
-        entrypoint=None,
-    )
+    ingestor.assert_called_once_with(_WORKFLOW_WITH_FRONTMATTER, entrypoint=None)
 
 
 @pytest.mark.asyncio()
 async def test_render_candidate_previews_handles_ingestion_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Sandbox ingestion errors are downgraded to a missing mermaid preview."""
+    """Ingestion errors are downgraded to a missing mermaid preview."""
     first = candidates_service._build_candidate(
         "first", _WORKFLOW_WITH_FRONTMATTER, None
     )
@@ -381,13 +379,13 @@ async def test_render_candidate_previews_handles_ingestion_failures(
     assert first is not None
     assert second is not None
 
-    ingestor = AsyncMock(
+    ingestor = Mock(
         side_effect=[
             ScriptIngestionError("bad graph"),
-            RuntimeError("sandbox crashed"),
+            RuntimeError("preview crashed"),
         ]
     )
-    monkeypatch.setattr(candidates_service, "ingest_sandboxed_script", ingestor)
+    monkeypatch.setattr(candidates_service, "ingest_langgraph_script", ingestor)
 
     result = await candidates_service._render_candidate_previews([first, second])
 
@@ -610,6 +608,151 @@ async def test_get_candidates_reraises_fetch_error(
 
     with pytest.raises(CandidateFetchError, match="tarball too large"):
         await get_candidates()
+
+
+def test_try_ingest_declarative_manifest_returns_none_for_missing_graph() -> None:
+    """_try_ingest_declarative_manifest returns None when no 'graph' key present."""
+    result = candidates_service._try_ingest_declarative_manifest({})
+    assert result is None
+
+
+def test_try_ingest_declarative_manifest_returns_none_for_non_declarative_format() -> (
+    None
+):
+    """_try_ingest_declarative_manifest returns None for non-declarative formats."""
+    config = {"graph": {"format": "langgraph-script"}}
+    result = candidates_service._try_ingest_declarative_manifest(config)
+    assert result is None
+
+
+def test_try_ingest_declarative_manifest_returns_none_for_non_dict_graph() -> None:
+    """_try_ingest_declarative_manifest returns None when graph is not a dict."""
+    config = {"graph": "not-a-dict"}
+    result = candidates_service._try_ingest_declarative_manifest(config)
+    assert result is None
+
+
+def test_try_ingest_declarative_manifest_returns_payload_for_valid_graph() -> None:
+    """_try_ingest_declarative_manifest returns ingested payload for valid manifest."""
+    config = {
+        "graph": {
+            "format": "orcheo-declarative-graph",
+            "version": 1,
+            "nodes": [],
+            "edges": [],
+            "conditional_edges": [],
+            "triggers": [],
+            "listeners": [],
+            "credential_references": [],
+            "metadata": {},
+        }
+    }
+    result = candidates_service._try_ingest_declarative_manifest(config)
+    assert result is not None
+    assert result["format"] == "orcheo-declarative-graph"
+
+
+def test_try_ingest_declarative_manifest_returns_none_on_validation_error() -> None:
+    """_try_ingest_declarative_manifest returns None when graph schema is invalid."""
+    config = {
+        "graph": {
+            "format": "orcheo-declarative-graph",
+            "nodes": "not-a-list",
+        }
+    }
+    result = candidates_service._try_ingest_declarative_manifest(config)
+    assert result is None
+
+
+@pytest.mark.asyncio()
+async def test_render_candidate_previews_uses_declarative_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preview derivation uses declarative manifest in production mode."""
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "production")
+
+    config_text = """{
+        "graph": {
+            "format": "orcheo-declarative-graph",
+            "version": 1,
+            "nodes": [{"id": "fetch", "type": "RSSNode", "config": {}}],
+            "edges": [],
+            "conditional_edges": [],
+            "triggers": [],
+            "listeners": [],
+            "credential_references": [],
+            "metadata": {}
+        }
+    }"""
+    candidate = candidates_service._build_candidate(
+        "linkedin_post", _WORKFLOW_WITH_FRONTMATTER, config_text
+    )
+    assert candidate is not None
+
+    result = await candidates_service._render_candidate_previews([candidate])
+
+    assert result[0].mermaid is not None
+    assert "fetch" in result[0].mermaid
+
+
+@pytest.mark.asyncio()
+async def test_render_candidate_previews_handles_script_ingestion_error_non_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ScriptIngestionError during script fallback is silently logged."""
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
+    candidate = candidates_service._build_candidate(
+        "failing_post", _WORKFLOW_WITH_FRONTMATTER, None
+    )
+    assert candidate is not None
+    monkeypatch.setattr(
+        candidates_service,
+        "ingest_langgraph_script",
+        Mock(side_effect=candidates_service.ScriptIngestionError("bad graph")),
+    )
+
+    result = await candidates_service._render_candidate_previews([candidate])
+
+    assert result[0].mermaid is None
+
+
+@pytest.mark.asyncio()
+async def test_render_candidate_previews_handles_unexpected_error_non_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unexpected errors during script fallback are silently logged."""
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
+    candidate = candidates_service._build_candidate(
+        "crashing_post", _WORKFLOW_WITH_FRONTMATTER, None
+    )
+    assert candidate is not None
+    monkeypatch.setattr(
+        candidates_service,
+        "ingest_langgraph_script",
+        Mock(side_effect=RuntimeError("unexpected crash")),
+    )
+
+    result = await candidates_service._render_candidate_previews([candidate])
+
+    assert result[0].mermaid is None
+
+
+@pytest.mark.asyncio()
+async def test_render_candidate_previews_with_config_but_no_declarative_graph(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Config set but _try_ingest_declarative_manifest returns None → line 249 false branch."""
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "production")
+
+    config_text = '{"graph": {"format": "langgraph-script", "source": "graph = None"}}'
+    candidate = candidates_service._build_candidate(
+        "non_declarative", _WORKFLOW_WITH_FRONTMATTER, config_text
+    )
+    assert candidate is not None
+
+    result = await candidates_service._render_candidate_previews([candidate])
+
+    assert result[0].mermaid is None
 
 
 @pytest.mark.asyncio()
