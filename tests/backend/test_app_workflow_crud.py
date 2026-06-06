@@ -752,3 +752,83 @@ async def test_archive_workflow_allows_managed_vibe_workflow() -> None:
 
     assert result.id == workflow_id
     assert result.is_archived is True
+
+
+@pytest.mark.asyncio()
+async def test_list_workflows_excludes_archived_managed_workflow_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Archived managed vibe workflow is hidden when include_archived=False."""
+    archived_managed = Workflow(
+        id=uuid4(),
+        handle="orcheo-vibe-agent",
+        name="Orcheo Vibe",
+        slug="orcheo-vibe-agent",
+        is_archived=True,
+        created_at=datetime.now(tz=UTC),
+        updated_at=datetime.now(tz=UTC),
+    )
+
+    async def _archived_managed_workflow(repository, workspace_record):  # noqa: ARG001
+        return archived_managed
+
+    monkeypatch.setattr(
+        workflows_router, "ensure_managed_vibe_workflow", _archived_managed_workflow
+    )
+
+    class Repository:
+        async def list_workflows(self, *, include_archived=False, workspace_id=None):
+            del include_archived, workspace_id
+            return []
+
+        async def get_latest_version(self, workflow_id):
+            del workflow_id
+            raise WorkflowVersionNotFoundError("No versions")
+
+        async def get_cron_trigger_config(self, workflow_id):
+            del workflow_id
+            raise CronTriggerNotFoundError("No cron trigger configured")
+
+    result = await list_workflows(Repository(), _MOCK_WORKSPACE, include_archived=False)
+
+    assert all(item.id != archived_managed.id for item in result)
+
+
+@pytest.mark.asyncio()
+async def test_list_workflows_includes_archived_managed_workflow_when_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Archived managed vibe workflow appears when include_archived=True."""
+    archived_managed = Workflow(
+        id=uuid4(),
+        handle="orcheo-vibe-agent",
+        name="Orcheo Vibe",
+        slug="orcheo-vibe-agent",
+        is_archived=True,
+        created_at=datetime.now(tz=UTC),
+        updated_at=datetime.now(tz=UTC),
+    )
+
+    async def _archived_managed_workflow(repository, workspace_record):  # noqa: ARG001
+        return archived_managed
+
+    monkeypatch.setattr(
+        workflows_router, "ensure_managed_vibe_workflow", _archived_managed_workflow
+    )
+
+    class Repository:
+        async def list_workflows(self, *, include_archived=False, workspace_id=None):
+            del include_archived, workspace_id
+            return []
+
+        async def get_latest_version(self, workflow_id):
+            del workflow_id
+            raise WorkflowVersionNotFoundError("No versions")
+
+        async def get_cron_trigger_config(self, workflow_id):
+            del workflow_id
+            raise CronTriggerNotFoundError("No cron trigger configured")
+
+    result = await list_workflows(Repository(), _MOCK_WORKSPACE, include_archived=True)
+
+    assert any(item.id == archived_managed.id for item in result)

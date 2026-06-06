@@ -439,8 +439,10 @@ async def list_workflows(
         include_archived=include_archived,
         workspace_id=str(workspace.workspace_id),
     )
-    if managed_workflow is not None and all(
-        workflow.id != managed_workflow.id for workflow in workflows
+    if (
+        managed_workflow is not None
+        and all(workflow.id != managed_workflow.id for workflow in workflows)
+        and (include_archived or not managed_workflow.is_archived)
     ):
         workflows.append(managed_workflow)
     public_base_url = _resolve_studio_url()
