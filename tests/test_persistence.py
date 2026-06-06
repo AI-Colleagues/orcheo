@@ -11,7 +11,10 @@ from orcheo.persistence import create_checkpointer, create_graph_store
 
 @pytest.mark.asyncio
 async def test_create_checkpointer_postgres(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Postgres backend should open a pooled connection and close it afterwards."""
+    """Pool is opened once and reused; never closed between calls."""
+
+    # Reset the singleton so the monkeypatched class is used.
+    monkeypatch.setattr(persistence._state, "checkpointer_pool", None)
 
     monkeypatch.setenv("ORCHEO_CHECKPOINT_BACKEND", "postgres")
     monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://example")
@@ -45,7 +48,17 @@ async def test_create_checkpointer_postgres(monkeypatch: pytest.MonkeyPatch) -> 
     fake_pool.connection.assert_called_once()
     fake_conn_cm.__aenter__.assert_awaited_once()
     fake_pool.open.assert_awaited_once()
-    fake_pool.close.assert_awaited_once()
+
+    # Pool must NOT be closed between calls — it is a process-lifetime singleton.
+    fake_pool.close.assert_not_awaited()
+
+    # Second call reuses the same pool; open is NOT called again.
+    fake_saver2 = MagicMock()
+    fake_saver2.setup = AsyncMock()
+    saver_class.return_value = fake_saver2
+    async with create_checkpointer(settings) as checkpointer2:
+        assert checkpointer2 is fake_saver2
+    fake_pool.open.assert_awaited_once()  # still only one open across both calls
 
 
 @pytest.mark.asyncio
@@ -65,7 +78,11 @@ async def test_create_checkpointer_invalid_backend() -> None:
 
 @pytest.mark.asyncio
 async def test_create_graph_store_postgres(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Postgres graph-store backend should setup with pool config."""
+    """Store is created once and reused; from_conn_string not called again."""
+
+    # Reset the singleton so the monkeypatched class is used.
+    monkeypatch.setattr(persistence._state, "graph_store", None)
+    monkeypatch.setattr(persistence._state, "graph_store_exit_stack", None)
 
     monkeypatch.setenv("ORCHEO_GRAPH_STORE_BACKEND", "postgres")
     monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://example")
@@ -77,6 +94,7 @@ async def test_create_graph_store_postgres(monkeypatch: pytest.MonkeyPatch) -> N
     fake_store = MagicMock()
     fake_store.setup = AsyncMock()
     calls: dict[str, object] = {}
+    from_conn_string_call_count = 0
 
     class StubPostgresStore:
         @classmethod
@@ -87,6 +105,8 @@ async def test_create_graph_store_postgres(monkeypatch: pytest.MonkeyPatch) -> N
             *,
             pool_config: dict[str, object],
         ):
+            nonlocal from_conn_string_call_count
+            from_conn_string_call_count += 1
             calls["conn_string"] = conn_string
             calls["pool_config"] = pool_config
             yield fake_store
@@ -94,6 +114,7 @@ async def test_create_graph_store_postgres(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr("orcheo.persistence.AsyncPostgresStore", StubPostgresStore)
 
     settings = config.get_settings(refresh=True)
+
     async with create_graph_store(settings) as graph_store:
         assert graph_store is fake_store
 
@@ -105,6 +126,12 @@ async def test_create_graph_store_postgres(monkeypatch: pytest.MonkeyPatch) -> N
         "max_idle": 60.0,
     }
     fake_store.setup.assert_awaited_once()
+    assert from_conn_string_call_count == 1
+
+    # Second call yields the same store without calling from_conn_string again.
+    async with create_graph_store(settings) as graph_store2:
+        assert graph_store2 is fake_store
+    assert from_conn_string_call_count == 1  # still only one initialisation
 
 
 @pytest.mark.asyncio
