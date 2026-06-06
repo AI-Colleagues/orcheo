@@ -26,10 +26,17 @@ def _render_mermaid_from_script(source: str) -> str | None:
     """Execute ``source`` in the RP sandbox and render a Mermaid diagram."""
     from orcheo.graph.ingestion.exceptions import ScriptIngestionError
     from orcheo.graph.ingestion.loader import load_graph_from_script
-    from orcheo.graph.ingestion.summary import _render_compact_mermaid
+    from orcheo.graph.ingestion.summary import (
+        _render_compact_mermaid,
+        summarise_state_graph,
+    )
+    from orcheo.graph.mermaid import has_workflow_tool_subgraphs, render_summary_mermaid
 
     try:
         graph = load_graph_from_script(source)
+        summary = summarise_state_graph(graph)
+        if has_workflow_tool_subgraphs(summary):
+            return render_summary_mermaid(summary)
         return _render_compact_mermaid(graph)
     except (ScriptIngestionError, Exception):
         return None
