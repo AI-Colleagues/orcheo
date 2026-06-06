@@ -555,3 +555,31 @@ def test_node_attributes_uses_workspace_id_from_payload() -> None:
 
     assert attributes["orcheo.workspace.id"] == "workspace-123"
     assert attributes["orcheo.node.kind"] == "task"
+
+
+def test_status_from_history_returns_unset_for_unknown_status() -> None:
+    """_status_from_history should return UNSET for non-terminal statuses."""
+    from orcheo_backend.app.trace_utils import _status_from_history
+
+    record = RunHistoryRecord(
+        workflow_id="wf-1",
+        execution_id="exec-1",
+        status="running",
+    )
+    status = _status_from_history(record)
+
+    assert status.code == "UNSET"
+
+
+def test_status_from_history_returns_error_for_cancelled() -> None:
+    """_status_from_history should return ERROR for cancelled/canceled statuses."""
+    from orcheo_backend.app.trace_utils import _status_from_history
+
+    record = RunHistoryRecord(
+        workflow_id="wf-1",
+        execution_id="exec-1",
+        status="cancelled",
+    )
+    status = _status_from_history(record)
+
+    assert status.code == "ERROR"

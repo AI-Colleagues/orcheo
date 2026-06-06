@@ -1165,3 +1165,50 @@ def test_filename_from_content_disposition_returns_empty_when_no_match() -> None
 
     assert _filename_from_content_disposition("inline") == ""
     assert _filename_from_content_disposition("attachment") == ""
+
+
+def test_resolve_public_attachment_base_urls_skips_all_loopback_variants(
+    monkeypatch,
+) -> None:
+    """Localhost / loopback URLs must be excluded from candidate base URLs."""
+    from orcheo.runtime.attachments import _resolve_public_attachment_base_urls
+
+    monkeypatch.setenv("ORCHEO_API_URL", "http://localhost:9000")
+    monkeypatch.setenv("ORCHEO_API_BASE_URL", "http://127.0.0.1:9001")
+    monkeypatch.delenv("ORCHEO_CHATKIT_ATTACHMENT_BASE_URL", raising=False)
+
+    urls = _resolve_public_attachment_base_urls()
+
+    assert urls == []
+
+
+def test_resolve_public_attachment_base_urls_skips_slash_only_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A slash-only return from _origin_from_url strips to empty and is skipped (line 414)."""
+    from orcheo.runtime import attachments
+    from orcheo.runtime.attachments import _resolve_public_attachment_base_urls
+
+    monkeypatch.setattr(attachments, "_origin_from_url", lambda _: "/")
+    monkeypatch.delenv("ORCHEO_API_URL", raising=False)
+    monkeypatch.delenv("ORCHEO_API_BASE_URL", raising=False)
+    monkeypatch.delenv("ORCHEO_CHATKIT_ATTACHMENT_BASE_URL", raising=False)
+
+    candidates = _resolve_public_attachment_base_urls()
+
+    assert candidates == []
+
+
+def test_resolve_public_attachment_base_urls_deduplicates(
+    monkeypatch,
+) -> None:
+    """The same origin from multiple env vars should appear only once."""
+    from orcheo.runtime.attachments import _resolve_public_attachment_base_urls
+
+    monkeypatch.setenv("ORCHEO_API_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("ORCHEO_API_BASE_URL", "https://api.example.com/v2")
+    monkeypatch.delenv("ORCHEO_CHATKIT_ATTACHMENT_BASE_URL", raising=False)
+
+    urls = _resolve_public_attachment_base_urls()
+
+    assert urls.count("https://api.example.com") == 1

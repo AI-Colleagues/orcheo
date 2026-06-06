@@ -335,3 +335,22 @@ async def test_ensure_workflow_health_raises_for_unhealthy_report() -> None:
         await state._ensure_workflow_health(workflow_id)
 
     assert service.calls == [(workflow_id, None)]
+
+
+def test_ensure_handle_available_locked_allows_same_handle_different_workspace() -> (
+    None
+):
+    """Handle reuse across different workspaces should not raise a conflict."""
+    from orcheo.models import Workflow
+
+    state = InMemoryRepositoryState()
+    existing = Workflow(name="wf-a", handle="my-handle", workspace_id="workspace-1")
+    state._workflows[existing.id] = existing
+
+    new_id = uuid4()
+    state._ensure_handle_available_locked(
+        "my-handle",
+        workflow_id=new_id,
+        is_archived=False,
+        workspace_id="workspace-2",
+    )

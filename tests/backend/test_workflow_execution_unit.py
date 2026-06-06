@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import importlib
-import os
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -491,24 +490,6 @@ def test_sanitize_public_step_payload_strips_trace_metadata() -> None:
             "messages": [{"role": "assistant", "content": "done"}],
         }
     }
-
-
-@pytest.mark.skip(reason="_patched_environment was removed from workflow_execution")
-def test_patched_environment_restores_existing_value(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    key = "ORCHEO_WORKFLOW_EXECUTION_TEST_ENV"
-    monkeypatch.setenv(key, "original")
-    # _patched_environment no longer exists in workflow_execution
-    assert key
-
-
-@pytest.mark.skip(reason="_patched_environment was removed from workflow_execution")
-def test_patched_environment_removes_missing_values() -> None:
-    key = "ORCHEO_WORKFLOW_EXECUTION_TEST_ENV_MISSING"
-    os.environ.pop(key, None)
-    # _patched_environment no longer exists in workflow_execution
-    assert key not in os.environ
 
 
 def test_sensitive_debug_helpers_log_when_enabled(
@@ -1940,3 +1921,108 @@ def test_ensure_production_trusted_graph_rejects_script_payload(
         workflow_execution._ensure_production_trusted_graph(
             {"format": "langgraph-script", "source": "print('hi')"}
         )
+
+
+def test_require_trusted_node_types_raises_for_empty_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty node type list is treated as untrusted — error message should list the types."""
+    monkeypatch.setattr(
+        workflow_execution,
+        "get_workflow_trust_mode",
+        lambda: workflow_execution.WorkflowTrustMode.PRODUCTION,
+    )
+
+    with pytest.raises(workflow_execution.UntrustedNodeNotAllowedError):
+        workflow_execution._require_trusted_node_types([], context="Test")
+
+
+@pytest.mark.asyncio
+async def test_execute_workflow_evaluation_second_trust_check_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Second _ensure_production_trusted_graph call in evaluation should reject untrusted graphs."""
+    safe_send = AsyncMock()
+    monkeypatch.setattr(workflow_execution, "_safe_send_json", safe_send)
+
+    call_count = {"n": 0}
+
+    def _side_effect(graph_config: object) -> None:
+        call_count["n"] += 1
+        if call_count["n"] >= 2:
+            raise workflow_execution.UntrustedNodeNotAllowedError(
+                "rejected on second check"
+            )
+
+    monkeypatch.setattr(
+        workflow_execution, "_ensure_production_trusted_graph", _side_effect
+    )
+    monkeypatch.setattr(workflow_execution, "get_settings", lambda: {})
+    monkeypatch.setattr(workflow_execution, "get_history_store", lambda: AsyncMock())
+    monkeypatch.setattr(workflow_execution, "get_vault", lambda: object())
+    monkeypatch.setattr(workflow_execution, "get_repository", lambda: object())
+    monkeypatch.setattr(
+        workflow_execution, "resolve_workflow_workspace_id", _echo_workspace_id
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "credential_context_from_workflow",
+        lambda workflow_id, workspace_id=None: {},
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "CredentialResolver",
+        lambda vault, context=None: object(),
+    )
+    monkeypatch.setattr(workflow_execution, "get_tracer", lambda name: object())
+    monkeypatch.setattr(
+        workflow_execution,
+        "_resolve_stored_runnable_config",
+        AsyncMock(return_value={}),
+    )
+
+    await execute_workflow_evaluation(
+        workflow_id="wf-1",
+        graph_config={"format": "orcheo-declarative-graph"},
+        inputs={},
+        execution_id="exec-eval-2",
+        websocket=object(),
+        evaluation={"dataset": {"cases": [{"inputs": {}}]}},
+    )
+
+    assert safe_send.await_args is not None
+    sent_payload = safe_send.await_args.args[1]
+    assert sent_payload["status"] == "error"
+    assert "rejected on second check" in sent_payload["error"]
+
+
+@pytest.mark.asyncio
+async def test_execute_workflow_trust_check_returns_early(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """execute_workflow sends error and returns when _ensure_production_trusted_graph raises."""
+    safe_send = AsyncMock()
+    monkeypatch.setattr(workflow_execution, "_safe_send_json", safe_send)
+    monkeypatch.setattr(
+        workflow_execution,
+        "_ensure_production_trusted_graph",
+        lambda _: (_ for _ in ()).throw(
+            workflow_execution.UntrustedNodeNotAllowedError("untrusted nodes")
+        ),
+    )
+
+    class DummyWebSocket:
+        pass
+
+    await execute_workflow(
+        workflow_id="wf-trust",
+        graph_config={"format": "langgraph-script"},
+        inputs={},
+        execution_id="exec-trust",
+        websocket=DummyWebSocket(),  # type: ignore[arg-type]
+    )
+
+    assert safe_send.await_count == 1
+    sent = safe_send.await_args.args[1]
+    assert sent["status"] == "error"
+    assert "untrusted nodes" in sent["error"]

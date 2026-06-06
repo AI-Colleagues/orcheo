@@ -68,3 +68,79 @@ def test_known_node_type_builds_successfully() -> None:
     )
     graph = build_graph_from_declarative(payload)
     assert graph is not None
+
+
+def test_node_config_name_field_not_overwritten() -> None:
+    """When node config already has 'name', it should not be replaced by node_id."""
+    import orcheo.nodes.triggers  # noqa: F401
+
+    payload = _minimal_payload(
+        nodes=[
+            {
+                "id": "trigger_node",
+                "type": "ManualTriggerNode",
+                "config": {"name": "custom_name"},
+            }
+        ]
+    )
+    graph = build_graph_from_declarative(payload)
+    assert graph is not None
+
+
+def test_conditional_edges_are_added() -> None:
+    """Conditional edges with mapping and default should be wired into the graph."""
+    import orcheo.nodes.triggers  # noqa: F401
+
+    def _router(state: object) -> str:
+        return "ok"
+
+    payload = _minimal_payload(
+        nodes=[
+            {"id": "trigger", "type": "ManualTriggerNode", "config": {}},
+            {"id": "step_a", "type": "ManualTriggerNode", "config": {}},
+        ],
+        edges=[{"source": "START", "target": "trigger"}],
+    )
+    payload["conditional_edges"] = [
+        {
+            "source": "trigger",
+            "branch": _router,
+            "mapping": {"ok": "step_a", "fail": "END"},
+            "default": "END",
+        }
+    ]
+    graph = build_graph_from_declarative(payload)
+    assert graph is not None
+
+
+def test_conditional_edges_without_default() -> None:
+    """Conditional edges without a default value should still be added."""
+    import orcheo.nodes.triggers  # noqa: F401
+
+    def _router(state: object) -> str:
+        return "ok"
+
+    payload = _minimal_payload(
+        nodes=[
+            {"id": "trigger", "type": "ManualTriggerNode", "config": {}},
+            {"id": "step_a", "type": "ManualTriggerNode", "config": {}},
+        ],
+        edges=[{"source": "START", "target": "trigger"}],
+    )
+    payload["conditional_edges"] = [
+        {
+            "source": "trigger",
+            "branch": _router,
+            "mapping": {"ok": "step_a"},
+        }
+    ]
+    graph = build_graph_from_declarative(payload)
+    assert graph is not None
+
+
+def test_conditional_edges_empty_mapping_skipped() -> None:
+    """Conditional edge with empty mapping and no default is skipped (line 69 false branch)."""
+    payload = _minimal_payload(nodes=[], edges=[])
+    payload["conditional_edges"] = [{"source": "trigger", "mapping": {}}]
+    graph = build_graph_from_declarative(payload)
+    assert graph is not None

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 import asyncio
-import os
 from unittest.mock import patch
 import pytest
 
@@ -72,20 +71,3 @@ class TestGetEventLoop:
                     mock_set.assert_called_once_with(new_loop)
 
         new_loop.close()
-
-
-@pytest.mark.skip(
-    reason="_patched_environment was removed from tasks (sandbox dispatch removed)"
-)
-def test_patched_environment_restores_existing_value(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from orcheo_backend.worker.tasks import _patched_environment  # type: ignore[attr-defined]
-
-    key = "ORCHEO_TASKS_TEST_ENV"
-    monkeypatch.setenv(key, "original")
-
-    with _patched_environment({key: "override"}):
-        assert os.environ[key] == "override"
-
-    assert os.environ[key] == "original"

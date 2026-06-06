@@ -360,3 +360,89 @@ def test_preview_text_truncates_long_values(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert preview.endswith("…")
     assert len(preview) == settings.tracing_preview_max_length
+
+
+def test_workflow_span_with_empty_runnable_config() -> None:
+    """workflow_span with a minimal RunnableConfigModel should not set optional attrs."""
+    tracer, exporter = _build_tracer()
+    runnable_config = RunnableConfigModel()
+
+    with workflow_span(
+        tracer,
+        workflow_id="wf",
+        execution_id="exec",
+        runnable_config=runnable_config,
+    ):
+        pass
+
+    root = exporter.get_finished_spans()[0]
+    assert "orcheo.execution.tags" not in root.attributes
+    assert "orcheo.execution.run_name" not in root.attributes
+    assert "orcheo.execution.metadata_keys" not in root.attributes
+    assert "orcheo.execution.callbacks.count" not in root.attributes
+    assert "orcheo.execution.recursion_limit" not in root.attributes
+    assert "orcheo.execution.max_concurrency" not in root.attributes
+    assert "orcheo.execution.prompts.count" not in root.attributes
+
+
+def test_record_workflow_step_skips_non_mapping_payload() -> None:
+    """record_workflow_step should skip node entries that are not Mapping values."""
+    tracer, exporter = _build_tracer()
+    step_payload = {"node-1": "not-a-mapping"}
+
+    with tracer.start_as_current_span("workflow.execution"):
+        record_workflow_step(tracer, step_payload)
+
+    spans = exporter.get_finished_spans()
+    assert len(spans) == 1
+
+
+def test_record_workflow_completion() -> None:
+    """record_workflow_completion should mark the span OK with a completed event."""
+    tracer, exporter = _build_tracer()
+
+    with tracer.start_as_current_span("workflow.execution") as span:
+        from orcheo.tracing.workflow import record_workflow_completion
+
+        record_workflow_completion(span)
+
+    root = exporter.get_finished_spans()[0]
+    from opentelemetry.trace import StatusCode
+
+    assert root.status.status_code == StatusCode.OK
+    event_names = {e.name for e in root.events}
+    assert "workflow.completed" in event_names
+
+
+def test_record_workflow_failure() -> None:
+    """record_workflow_failure should mark the span ERROR and record the exception."""
+    tracer, exporter = _build_tracer()
+
+    with tracer.start_as_current_span("workflow.execution") as span:
+        from orcheo.tracing.workflow import record_workflow_failure
+
+        record_workflow_failure(span, ValueError("something went wrong"))
+
+    root = exporter.get_finished_spans()[0]
+    from opentelemetry.trace import StatusCode
+
+    assert root.status.status_code == StatusCode.ERROR
+    event_names = {e.name for e in root.events}
+    assert "workflow.failed" in event_names
+
+
+def test_record_workflow_cancellation() -> None:
+    """record_workflow_cancellation should mark the span ERROR with a cancelled event."""
+    tracer, exporter = _build_tracer()
+
+    with tracer.start_as_current_span("workflow.execution") as span:
+        from orcheo.tracing.workflow import record_workflow_cancellation
+
+        record_workflow_cancellation(span, reason="user requested")
+
+    root = exporter.get_finished_spans()[0]
+    from opentelemetry.trace import StatusCode
+
+    assert root.status.status_code == StatusCode.ERROR
+    event_names = {e.name for e in root.events}
+    assert "workflow.cancelled" in event_names

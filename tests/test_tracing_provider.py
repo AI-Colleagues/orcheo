@@ -176,3 +176,21 @@ def test_build_exporter_requires_otlp_dependency(
         provider._build_exporter("otlp", {})
 
     assert errors
+
+
+def test_get_tracer_skips_configure_when_already_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_tracer should not re-configure when _configured is already True."""
+
+    monkeypatch.setattr(provider, "_configured", True)
+    configure_calls: list[None] = []
+    monkeypatch.setattr(
+        provider, "configure_tracing", lambda: configure_calls.append(None)
+    )
+    monkeypatch.setattr(provider.trace, "get_tracer", lambda name: f"tracer:{name}")
+
+    tracer_instance = provider.get_tracer("my-service")
+
+    assert tracer_instance == "tracer:my-service"
+    assert configure_calls == []

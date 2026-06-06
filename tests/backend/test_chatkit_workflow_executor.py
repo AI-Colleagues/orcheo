@@ -1,5 +1,4 @@
 import asyncio
-import os
 from collections.abc import Mapping
 from contextlib import nullcontext
 from types import SimpleNamespace
@@ -142,26 +141,6 @@ async def test_mark_chatkit_history_failed_handles_error(caplog):
     history = DummyHistoryStore(raise_on_mark=True)
     await _mark_chatkit_history_failed(history, "exec", "boom")
     assert "Failed to mark chatkit history failed" in caplog.text
-
-
-@pytest.mark.skip(
-    reason="_patched_environment was removed from chatkit workflow_executor"
-)
-def test_patched_environment_restores_value(tmp_path):
-    os_env_key = "TEST_CHATKIT"
-    original = os.environ.get(os_env_key)
-    # _patched_environment no longer exists in this module
-    assert os.environ.get(os_env_key) == original
-
-
-@pytest.mark.skip(
-    reason="_patched_environment was removed from chatkit workflow_executor"
-)
-def test_patched_environment_restores_existing_value(monkeypatch):
-    os_env_key = "TEST_CHATKIT_EXISTING"
-    monkeypatch.setenv(os_env_key, "original")
-    # _patched_environment no longer exists in this module
-    assert os.environ[os_env_key] == "original"
 
 
 def test_with_thread_id_injects():
@@ -725,3 +704,60 @@ def test_with_request_inputs_none_configurable() -> None:
     result = _with_request_inputs({}, {"query": "q"})
 
     assert result["configurable"]["inputs"] == {"query": "q"}
+
+
+@pytest.mark.asyncio
+async def test_mark_run_succeeded_calls_repository() -> None:
+    """_mark_run_succeeded should call repository.mark_run_succeeded with the reply."""
+    from orcheo_backend.app.chatkit.workflow_executor import WorkflowExecutor
+
+    calls: list[dict] = []
+
+    class Repository:
+        async def mark_run_succeeded(self, run_id, *, actor, output):
+            calls.append({"run_id": run_id, "actor": actor, "output": output})
+
+    run = SimpleNamespace(id="run-123")
+    executor = WorkflowExecutor(
+        repository=Repository(), vault_provider=lambda: object()
+    )
+    await executor._mark_run_succeeded(run, "admin", "The answer is 42")
+
+    assert len(calls) == 1
+    assert calls[0]["run_id"] == "run-123"
+    assert calls[0]["actor"] == "admin"
+    assert calls[0]["output"] == {"reply": "The answer is 42"}
+
+
+@pytest.mark.asyncio
+async def test_mark_run_succeeded_returns_early_when_run_is_none() -> None:
+    """_mark_run_succeeded should be a no-op when run is None."""
+    from orcheo_backend.app.chatkit.workflow_executor import WorkflowExecutor
+
+    calls: list[dict] = []
+
+    class Repository:
+        async def mark_run_succeeded(self, run_id, *, actor, output):
+            calls.append({})
+
+    executor = WorkflowExecutor(
+        repository=Repository(), vault_provider=lambda: object()
+    )
+    await executor._mark_run_succeeded(None, "admin", "reply text")
+
+    assert calls == []
+
+
+def test_build_reply_state_with_pydantic_base_model() -> None:
+    """_build_reply_state should call model_dump() when state is a BaseModel."""
+    from pydantic import BaseModel
+
+    class FakeState(BaseModel):
+        reply: str
+        extra: str = "value"
+
+    final_state = FakeState(reply="pydantic reply")
+    reply, state_view = _build_reply_state(final_state)
+
+    assert reply == "pydantic reply"
+    assert state_view.get("extra") == "value"

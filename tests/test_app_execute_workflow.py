@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import WebSocket
 from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
+from orcheo.workflow.trust.modes import WorkflowTrustMode
 from orcheo_backend.app import execute_workflow
 from orcheo_backend.app.history import RunHistoryNotFoundError, RunHistoryRecord
 
@@ -139,6 +140,10 @@ async def test_execute_workflow() -> None:
             "orcheo_backend.app.workflow_execution.close_browser_sessions_for_scope",
             new_callable=AsyncMock,
         ) as mock_browser_cleanup,
+        patch(
+            "orcheo_backend.app.workflow_execution.get_workflow_trust_mode",
+            return_value=WorkflowTrustMode.DEVELOPER,
+        ),
     ):
         await execute_workflow(
             workflow_id,
@@ -223,6 +228,10 @@ async def test_execute_workflow_langgraph_script_uses_raw_inputs() -> None:
             "orcheo_backend.app.workflow_execution.close_browser_sessions_for_scope",
             new_callable=AsyncMock,
         ) as mock_browser_cleanup,
+        patch(
+            "orcheo_backend.app.workflow_execution.get_workflow_trust_mode",
+            return_value=WorkflowTrustMode.DEVELOPER,
+        ),
     ):
         await execute_workflow(
             "langgraph-workflow",
@@ -282,6 +291,10 @@ async def test_execute_workflow_failure_records_error() -> None:
             "orcheo_backend.app.workflow_execution.close_browser_sessions_for_scope",
             new_callable=AsyncMock,
         ) as mock_browser_cleanup,
+        patch(
+            "orcheo_backend.app.workflow_execution.get_workflow_trust_mode",
+            return_value=WorkflowTrustMode.DEVELOPER,
+        ),
     ):
         with pytest.raises(RuntimeError, match="boom"):
             await execute_workflow(
@@ -340,6 +353,10 @@ async def test_execute_workflow_cancelled_records_reason() -> None:
             "orcheo_backend.app.workflow_execution.close_browser_sessions_for_scope",
             new_callable=AsyncMock,
         ) as mock_browser_cleanup,
+        patch(
+            "orcheo_backend.app.workflow_execution.get_workflow_trust_mode",
+            return_value=WorkflowTrustMode.DEVELOPER,
+        ),
     ):
         with pytest.raises(asyncio.CancelledError):
             await execute_workflow(

@@ -18,9 +18,9 @@ DECLARATIVE_FORMAT = "orcheo-declarative-graph"
 
 _BLOCKED_NODE_TYPES: frozenset[str] = frozenset(
     {
-        "ExternalAgentNode",
         "ClaudeCodeNode",
         "CodexNode",
+        "ExternalAgentNode",
         "GeminiNode",
         "CodeNode",
     }
@@ -111,7 +111,6 @@ class PolicyRejectionReason(str, Enum):
     UNKNOWN_NODE_TYPE = "unknown_node_type"
     BLOCKED_NODE_TYPE = "blocked_node_type"
     NON_SERIALIZABLE_CONFIG = "non_serializable_config"
-    EXTERNAL_AGENT_NODE = "external_agent_node"
     UNTRUSTED_NODE_TYPE = "untrusted_node_type"
     EXECUTABLE_CONFIG = "executable_config"
     INVALID_EDGE = "invalid_edge"

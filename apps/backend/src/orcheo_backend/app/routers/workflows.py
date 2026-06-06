@@ -790,7 +790,7 @@ async def get_workflow_version_mermaid(
     mermaid = render_mermaid_from_graph_payload(version.graph or {})
     if mermaid is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Mermaid cannot be rendered for this workflow version.",
         )
     return {"mermaid": mermaid}
