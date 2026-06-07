@@ -37,7 +37,10 @@ from orcheo_backend.app.errors import WorkspaceQuotaExceededError, raise_not_fou
 from orcheo_backend.app.managed_workflows import (
     ensure_managed_vibe_workflow,
 )
-from orcheo_backend.app.plugin_inventory import missing_required_plugins
+from orcheo_backend.app.plugin_inventory import (
+    missing_required_plugins,
+    required_plugins_from_metadata,
+)
 from orcheo_backend.app.repository import (
     CronTriggerNotFoundError,
     WorkflowHandleConflictError,
@@ -121,19 +124,7 @@ def _apply_share_urls(
 
 def _required_plugins_from_metadata(metadata: dict[str, Any]) -> list[str]:
     """Extract template plugin prerequisites from workflow-version metadata."""
-    template_metadata = metadata.get("template")
-    if not isinstance(template_metadata, dict):
-        return []
-    raw_required = template_metadata.get("requiredPlugins")
-    if raw_required is None:
-        raw_required = template_metadata.get("required_plugins")
-    if not isinstance(raw_required, list):
-        return []
-    return [
-        str(plugin_name).strip()
-        for plugin_name in raw_required
-        if str(plugin_name).strip()
-    ]
+    return required_plugins_from_metadata(metadata)
 
 
 def _serialize_runnable_config(

@@ -460,6 +460,7 @@ export const onboardCandidateAsWorkflow = async (
   candidateId: string,
 ): Promise<StoredWorkflow> => {
   const apiWorkflow = await onboardCandidate(candidateId);
+  invalidateWorkflowCache(apiWorkflow.id);
   const stored = await ensureWorkflow(apiWorkflow.id);
   if (!stored) {
     throw new Error("Failed to load onboarded workflow");

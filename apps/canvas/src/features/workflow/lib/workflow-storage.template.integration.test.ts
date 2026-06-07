@@ -6,6 +6,7 @@ import {
 } from "./workflow-storage";
 import { setCandidateBadges } from "@features/workflow/data/templates/candidate-badges";
 import { jsonResponse } from "@/testing/mocks/backend/request-utils";
+import { invalidateWorkflowCache } from "./workflow-storage-versioning";
 import { createFetchMockHarness } from "@/testing/mocks/fetch-mock";
 
 const { getFetchMock, queueResponses, setupFetchMock } =
@@ -15,6 +16,7 @@ setupFetchMock();
 
 afterEach(() => {
   setCandidateBadges([]);
+  invalidateWorkflowCache();
 });
 
 const TIMESTAMP = new Date().toISOString();
@@ -31,16 +33,17 @@ const makeWorkflowResponse = (id: string, name: string) => ({
   updated_at: TIMESTAMP,
 });
 
-const makeCanvasResponse = (workflowId: string, name: string) => ({
+const makeCanvasResponse = (workflowId: string, name: string, version = 1) => ({
   workflow: makeWorkflowResponse(workflowId, name),
   versions: [
     {
-      id: `${workflowId}-v1`,
+      id: `${workflowId}-v${version}`,
       workflow_id: workflowId,
-      version: 1,
+      version,
       graph: {
         format: "langgraph-script",
-        source: "from langgraph.graph import StateGraph\ngraph = StateGraph(dict)",
+        source:
+          "from langgraph.graph import StateGraph\ngraph = StateGraph(dict)",
         entrypoint: "graph",
         index: { cron: [] },
       },
@@ -163,5 +166,37 @@ describe("workflow-storage API integration - candidate onboarding", () => {
       String(mockFetch.mock.calls[0]?.[1]?.body ?? "{}"),
     ) as { id?: string };
     expect(onboardBody.id).toBe("category/my-colleague");
+  });
+  it("invalidates cached workflow data before loading an onboarded upgrade", async () => {
+    setCandidateBadges([
+      {
+        id: "template-upgrade-agent",
+        candidateId: "upgrade-agent",
+        handle: "upgrade-agent",
+        name: "Upgrade Agent",
+        notes: null,
+      },
+    ]);
+    const mockFetch = getFetchMock();
+
+    queueResponses([
+      jsonResponse(makeWorkflowResponse("workflow-upgrade", "Upgrade Agent")),
+      jsonResponse(makeCanvasResponse("workflow-upgrade", "Upgrade Agent", 1)),
+    ]);
+    const initial = await onboardCandidateAsWorkflow("upgrade-agent");
+    expect(initial.versions[0].versionNumber).toBe(1);
+
+    queueResponses([
+      jsonResponse(makeWorkflowResponse("workflow-upgrade", "Upgrade Agent")),
+      jsonResponse(makeCanvasResponse("workflow-upgrade", "Upgrade Agent", 2)),
+    ]);
+    const upgraded = await onboardCandidateAsWorkflow("upgrade-agent");
+
+    expect(upgraded.versions[0].id).toBe("workflow-upgrade-v2");
+    expect(upgraded.versions[0].versionNumber).toBe(2);
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+    expect(String(mockFetch.mock.calls[3]?.[0])).toContain(
+      "/api/workflows/workflow-upgrade/canvas",
+    );
   });
 });

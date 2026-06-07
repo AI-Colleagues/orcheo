@@ -231,6 +231,46 @@ async def test_onboard_candidate_passes_runnable_config(
 
 
 @pytest.mark.asyncio()
+async def test_onboard_candidate_rejects_missing_required_plugins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Candidate onboarding fails before version creation when plugins are missing."""
+
+    candidate = _SAMPLE.model_copy(
+        update={
+            "metadata": {
+                "template": {
+                    "requiredPlugins": ["orcheo-plugin-lark-listener"],
+                }
+            }
+        }
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+    monkeypatch.setattr(
+        candidates_router,
+        "missing_required_plugins",
+        lambda required_plugins: list(required_plugins),
+    )
+
+    repo = _Repository()
+    with pytest.raises(HTTPException) as exc_info:
+        await onboard_candidate(
+            CandidateOnboardRequest(id="insight-analyst"),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "orcheo-plugin-lark-listener" in str(exc_info.value.detail)
+    assert repo.created_workflow is None
+    assert repo.versions_created == 0
+
+
+@pytest.mark.asyncio()
 async def test_onboard_candidate_unknown_id_raises_404(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

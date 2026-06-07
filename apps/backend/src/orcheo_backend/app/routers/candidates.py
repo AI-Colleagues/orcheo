@@ -10,6 +10,10 @@ from orcheo.workflow.mermaid import render_mermaid_from_graph_payload_full_env
 from orcheo_backend.app.candidates_service import CandidateFetchError, get_candidates
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import WorkspaceQuotaExceededError
+from orcheo_backend.app.plugin_inventory import (
+    missing_required_plugins,
+    required_plugins_from_metadata,
+)
 from orcheo_backend.app.repository import (
     WorkflowHandleConflictError,
     WorkflowNotFoundError,
@@ -64,6 +68,23 @@ def _build_version_metadata(candidate: CandidateItem) -> dict[str, Any]:
     return metadata
 
 
+def _raise_for_missing_required_plugins(metadata: dict[str, Any]) -> None:
+    """Reject candidate onboarding when declared plugins are unavailable."""
+    required_plugins = required_plugins_from_metadata(metadata)
+    missing_plugins = missing_required_plugins(required_plugins)
+    if not missing_plugins:
+        return
+    plugin_list = ", ".join(missing_plugins)
+    noun = "plugin" if len(missing_plugins) == 1 else "plugins"
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=(
+            f"Missing required {noun} for this candidate: {plugin_list}. "
+            "Install them into the runtime before onboarding the candidate."
+        ),
+    )
+
+
 @router.get("/candidates", response_model=list[CandidatePublicItem])
 async def list_candidates() -> list[CandidateItem]:
     """Return candidate AI colleagues sourced from the candidates repository.
@@ -101,6 +122,9 @@ async def onboard_candidate(
     """
     candidate = await _fetch_candidate_by_id(request.id)
 
+    metadata = _build_version_metadata(candidate)
+    _raise_for_missing_required_plugins(metadata)
+
     try:
         graph_payload = ingest_langgraph_script(
             candidate.script,
@@ -117,7 +141,6 @@ async def onboard_candidate(
         graph_payload["index"]["mermaid"] = mermaid
 
     workspace_id = str(workspace.workspace_id)
-    metadata = _build_version_metadata(candidate)
 
     # Resolve existing workflow by candidate handle, or create a new one.
     workflow: Workflow
