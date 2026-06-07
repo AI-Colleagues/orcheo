@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from typing import Any
 from orcheo.plugins import PluginManager, load_enabled_plugins
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -70,9 +71,9 @@ def missing_required_plugins(required_plugins: Iterable[str]) -> list[str]:
             missing.append(name)
         elif not plugin["loaded"]:
             logger.warning(
-                "Required plugin '%s' is enabled but failed to load: %s", 
-                name, 
-                plugin.get("load_error", "unknown error")
+                "Required plugin '%s' is enabled but failed to load: %s",
+                name,
+                plugin.get("load_error", "unknown error"),
             )
             missing.append(name)
     return missing
