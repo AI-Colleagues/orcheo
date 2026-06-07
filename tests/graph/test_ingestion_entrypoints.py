@@ -39,7 +39,7 @@ def test_ingest_script_returns_format_and_source() -> None:
 
 
 def test_ingest_script_no_execution_during_ingestion() -> None:
-    """ingest_langgraph_script should not execute the script — only RP-compile it."""
+    """ingest_langgraph_script should not execute the script — only compile it."""
     script = textwrap.dedent(
         """
         raise RuntimeError("this should not execute during ingestion")
@@ -76,10 +76,7 @@ def test_load_graph_from_script_with_entrypoint() -> None:
     assert set(graph.nodes.keys()) == {"rss"}
 
 
-def test_load_graph_from_script_allows_graph_state_import_in_sandbox(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("ORCHEO_WORKFLOW_UNSAFE_EXECUTION", "false")
+def test_load_graph_from_script_allows_graph_state_import() -> None:
     script = textwrap.dedent(
         """
         from langgraph.graph import StateGraph
@@ -200,8 +197,8 @@ def test_load_graph_defaults_to_orcheo_workflow_entrypoint() -> None:
     assert "first" in graph.nodes
 
 
-def test_ingest_script_allows_previously_blocked_imports() -> None:
-    """Ingestion does not block imports — only execution does (via RP sandbox)."""
+def test_ingest_script_allows_unrestricted_imports() -> None:
+    """Ingestion does not block imports — only syntax is checked at ingest time."""
     script = textwrap.dedent(
         """
         import os
@@ -219,7 +216,7 @@ def test_ingest_script_allows_previously_blocked_imports() -> None:
 
 
 def test_load_graph_rejects_relative_imports() -> None:
-    """Relative imports are rejected when the script is executed in the sandbox."""
+    """Relative imports are rejected during script execution."""
     script = "from .foo import bar"
 
     with pytest.raises(ScriptIngestionError):
@@ -327,16 +324,7 @@ def test_build_graph_round_trips_through_ingest() -> None:
     assert set(graph.nodes.keys()) == {"rss"}
 
 
-def test_ingest_script_reraises_script_ingestion_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """ingest_langgraph_script re-raises ScriptIngestionError from compile step (line 35)."""
-    import orcheo.graph.ingestion as ingestion_pkg
-
-    def _raise(_src: str):  # noqa: ANN001
-        raise ScriptIngestionError("from compile")
-
-    monkeypatch.setattr(ingestion_pkg, "compile_langgraph_script", _raise)
-
-    with pytest.raises(ScriptIngestionError, match="from compile"):
-        ingest_langgraph_script("x = 1")
+def test_ingest_script_reraises_script_ingestion_error() -> None:
+    """ingest_langgraph_script wraps SyntaxError as ScriptIngestionError."""
+    with pytest.raises(ScriptIngestionError, match="[Cc]ompilation"):
+        ingest_langgraph_script("def broken(:\n    pass")

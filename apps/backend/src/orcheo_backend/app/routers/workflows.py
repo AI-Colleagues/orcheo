@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from orcheo.config import get_settings
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
+from orcheo.graph.ingestion.sandbox import uploads_allowed
 from orcheo.models import (
     Workflow,
     WorkflowDraftAccess,
@@ -36,7 +37,10 @@ from orcheo_backend.app.errors import WorkspaceQuotaExceededError, raise_not_fou
 from orcheo_backend.app.managed_workflows import (
     ensure_managed_vibe_workflow,
 )
-from orcheo_backend.app.plugin_inventory import missing_required_plugins
+from orcheo_backend.app.plugin_inventory import (
+    missing_required_plugins,
+    required_plugins_from_metadata,
+)
 from orcheo_backend.app.repository import (
     CronTriggerNotFoundError,
     WorkflowHandleConflictError,
@@ -61,6 +65,7 @@ from orcheo_backend.app.schemas.workflows import (
 )
 from orcheo_backend.app.workspace import WorkspaceContextDep, get_workspace_repository
 from orcheo_backend.app.workspace_governance import ensure_workspace_workflow_quota
+from orcheo_sdk.cli.workflow.frontmatter import parse_workflow_frontmatter
 
 
 router = APIRouter()
@@ -71,6 +76,26 @@ logger = logging.getLogger(__name__)
 def _normalize_workspace_id(value: str) -> str:
     """Normalize workspace identifiers for case-insensitive comparisons."""
     return value.strip().lower()
+
+
+def _merge_frontmatter_avatar(script: str, metadata: dict[str, Any]) -> dict[str, Any]:
+    """Return metadata with avatar/subtitle filled in from script frontmatter.
+
+    Only adds fields that are absent from the caller-supplied metadata, so an
+    explicit ``avatar`` or ``subtitle`` in the request always wins.
+    """
+    if "avatar" in metadata and "subtitle" in metadata:
+        return metadata
+    try:
+        fm = parse_workflow_frontmatter(script)
+    except Exception:
+        return metadata
+    merged = dict(metadata)
+    if fm.avatar and "avatar" not in merged:
+        merged["avatar"] = fm.avatar
+    if fm.subtitle and "subtitle" not in merged:
+        merged["subtitle"] = fm.subtitle
+    return merged
 
 
 def _resolve_studio_url() -> str | None:
@@ -99,19 +124,7 @@ def _apply_share_urls(
 
 def _required_plugins_from_metadata(metadata: dict[str, Any]) -> list[str]:
     """Extract template plugin prerequisites from workflow-version metadata."""
-    template_metadata = metadata.get("template")
-    if not isinstance(template_metadata, dict):
-        return []
-    raw_required = template_metadata.get("requiredPlugins")
-    if raw_required is None:
-        raw_required = template_metadata.get("required_plugins")
-    if not isinstance(raw_required, list):
-        return []
-    return [
-        str(plugin_name).strip()
-        for plugin_name in raw_required
-        if str(plugin_name).strip()
-    ]
+    return required_plugins_from_metadata(metadata)
 
 
 def _serialize_runnable_config(
@@ -619,6 +632,19 @@ async def ingest_workflow_version(
     workspace: WorkspaceContextDep,
 ) -> WorkflowVersion:
     """Create a workflow version from a LangGraph Python script."""
+    if not uploads_allowed():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "message": (
+                    "Workflow script ingestion is disabled in managed mode. "
+                    "Use the Candidates tab to onboard AI colleagues, or set "
+                    "ORCHEO_WORKFLOW_TRUST_MODE=self_host_unsafe for "
+                    "self-hosted deployments."
+                ),
+                "code": "workflow.ingestion.disabled",
+            },
+        )
     tid = str(workspace.workspace_id)
     workflow = await _load_workflow_for_request(
         repository,
@@ -649,8 +675,7 @@ async def ingest_workflow_version(
         ) from exc
 
     # Pre-compute mermaid using the full Python environment and store it in the
-    # graph index so the canvas can read it without re-executing the script
-    # through the RestrictedPython sandbox (which blocks non-allowlisted imports).
+    # graph index so the canvas can read it without re-executing the script.
     mermaid = render_mermaid_from_graph_payload_full_env(graph_payload)
     if mermaid and isinstance(graph_payload.get("index"), dict):
         graph_payload["index"]["mermaid"] = mermaid
@@ -659,6 +684,7 @@ async def ingest_workflow_version(
         request.runnable_config,
         request.metadata,
     )
+    metadata = _merge_frontmatter_avatar(request.script, metadata)
 
     try:
         version = await repository.create_version(

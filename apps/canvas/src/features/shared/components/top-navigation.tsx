@@ -1,5 +1,3 @@
-import { Link } from "react-router-dom";
-import { Button } from "@/design-system/ui/button";
 import { cn } from "@/lib/utils";
 import ActiveWorkspaceIndicator from "@/features/shared/components/top-navigation/active-workspace-indicator";
 import VersionStatus from "@/features/shared/components/top-navigation/version-status";
@@ -30,9 +28,6 @@ export default function TopNavigation({
 
       <div className="ml-auto flex items-center gap-2">
         <VersionStatus />
-        <Button variant="outline" size="sm" asChild>
-          <Link to="/workflow-remediations">Remediations</Link>
-        </Button>
         <AccountMenu
           credentials={credentials}
           isCredentialsLoading={isCredentialsLoading}

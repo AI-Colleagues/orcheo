@@ -195,7 +195,5 @@ Each row corresponds to one source script (test files excluded).
 | `workflow/pages/workflow-gallery/workflow-card.tsx`                                  | Workflow card component with open, use-template, export, and delete actions.                                 |
 | `workflow/pages/workflow-gallery/workflow-gallery-tabs.tsx`                          | Tab bar switching between user workflows and templates, with a search input.                                 |
 | `workflow/pages/workflow-gallery.tsx`                                                | Main workflow gallery page.                                                                                  |
-| `workflow/pages/workflow-remediations.tsx`                                           | Remediations page listing workflow run issues and their suggested fixes.                                     |
-| `workflow/pages/workflow-remediations.helpers.ts`                                    | Utilities for filtering, sorting, and formatting remediation items.                                          |
 | **workflow / types**                                                                 |                                                                                                              |
 | `workflow/types/credential-vault.ts`                                                 | Types for the credential vault: access-level enum, health-status enum, input/output shapes.                  |

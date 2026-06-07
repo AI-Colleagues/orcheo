@@ -182,3 +182,20 @@ def test_render_mermaid_from_script_full_env_returns_none_on_exception(
     )
 
     assert _render_mermaid_from_script_full_env("raise_error()") is None
+
+
+def test_render_mermaid_from_script_full_env_returns_none_on_script_ingestion_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ScriptIngestionError during full_env rendering is caught and None is returned."""
+    from orcheo.graph.ingestion.exceptions import ScriptIngestionError
+
+    def _failing_loader(source: str, entrypoint: str | None = None) -> None:
+        raise ScriptIngestionError("script failed to ingest")
+
+    monkeypatch.setattr(
+        "orcheo.graph.ingestion.loader.load_graph_from_script_full_env",
+        _failing_loader,
+    )
+
+    assert _render_mermaid_from_script_full_env("bad_script()") is None

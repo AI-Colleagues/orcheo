@@ -1,7 +1,7 @@
 from __future__ import annotations
 from uuid import uuid4
 import pytest
-from orcheo.models import WorkflowDraftAccess
+from orcheo.models import WorkflowDraftAccess, WorkflowRun
 from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
@@ -109,3 +109,39 @@ async def test_handle_webhook_trigger_missing_resources(
             payload={},
             source_ip=None,
         )
+
+
+@pytest.mark.asyncio()
+async def test_handle_webhook_trigger_success(
+    repository: WorkflowRepository,
+) -> None:
+    """A workflow with a version and webhook config dispatches a run."""
+    workflow = await repository.create_workflow(
+        name="Webhook Success",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph={"nodes": []},
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+    await repository.configure_webhook_trigger(workflow.id, WebhookTriggerConfig())
+
+    run = await repository.handle_webhook_trigger(
+        workflow.id,
+        method="POST",
+        headers={"content-type": "application/json"},
+        query_params={},
+        payload={"event": "ping"},
+        source_ip="127.0.0.1",
+    )
+
+    assert isinstance(run, WorkflowRun)
+    assert run.workflow_id == workflow.id
+    assert run.triggered_by == "webhook"

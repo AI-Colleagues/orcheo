@@ -136,3 +136,30 @@ def test_chatkit_workflow_trigger_allows_anonymous_when_enforcement_disabled(
         api_client.app.dependency_overrides.pop(get_authorization_policy, None)
 
     assert response.status_code == status.HTTP_201_CREATED
+
+
+def test_chatkit_workflow_trigger_authenticated_user_skips_auth_error(
+    api_client: TestClient,
+) -> None:
+    """Authenticated requests bypass the auth exception catch block."""
+    from orcheo_backend.app.authentication import (
+        AuthorizationPolicy,
+        RequestContext,
+        get_authorization_policy,
+    )
+
+    workflow_id, _ = create_workflow_with_version(api_client)
+    auth_policy = AuthorizationPolicy(
+        RequestContext(subject="user-1", identity_type="user", scopes=frozenset())
+    )
+    api_client.app.dependency_overrides[get_authorization_policy] = lambda: auth_policy
+
+    try:
+        response = api_client.post(
+            f"/api/chatkit/workflows/{workflow_id}/trigger",
+            json={"message": "Authenticated trigger"},
+        )
+    finally:
+        api_client.app.dependency_overrides.pop(get_authorization_policy, None)
+
+    assert response.status_code == status.HTTP_201_CREATED

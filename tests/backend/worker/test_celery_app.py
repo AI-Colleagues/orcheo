@@ -11,4 +11,4 @@ def test_celery_app_imports_without_sandbox_hook() -> None:
     assert hasattr(module, "celery_app")
     assert not hasattr(module, "_configure_sandbox_for_worker")
     assert "dispatch-cron-triggers" in module.celery_app.conf.beat_schedule
-    assert "scan-workflow-remediations" in module.celery_app.conf.beat_schedule
+    assert "scan-workflow-remediations" not in module.celery_app.conf.beat_schedule

@@ -355,6 +355,7 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
             )
             run = WorkflowRun(
                 workspace_id=workspace_id,
+                workflow_id=workflow_id,
                 workflow_version_id=workflow_version_id,
                 triggered_by=triggered_by,
                 input_payload=dict(input_payload),

@@ -207,7 +207,7 @@ async def _enrich_cached_with_previews() -> None:
 async def _render_candidate_previews(
     candidates: list[CandidateItem],
 ) -> list[CandidateItem]:
-    """Derive remote-candidate previews using the RP-sandboxed script loader."""
+    """Derive mermaid previews for remote candidates by executing each script."""
     rendered: list[CandidateItem] = []
     for candidate in candidates:
         mermaid: str | None = None

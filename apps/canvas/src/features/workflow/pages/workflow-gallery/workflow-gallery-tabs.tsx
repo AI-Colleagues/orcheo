@@ -10,6 +10,7 @@ import {
 import { Loader2, Search, Upload, Zap } from "lucide-react";
 import { type Workflow } from "@features/workflow/data/workflow-data";
 import { UploadWorkflowDialog } from "@features/workflow/components/dialogs/upload-workflow-dialog";
+import { useUploadsAllowed } from "@/hooks/use-uploads-allowed";
 import { WorkflowCard } from "./workflow-card";
 import {
   type WorkflowGalleryTab,
@@ -53,6 +54,7 @@ export const WorkflowGalleryTabs = ({
   onDeleteWorkflow,
 }: WorkflowGalleryTabsProps) => {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const uploadsAllowed = useUploadsAllowed();
 
   const handleSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
     onSearchQueryChange(event.target.value);
@@ -99,18 +101,22 @@ export const WorkflowGalleryTabs = ({
             />
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setIsUploadOpen(true)}
-        >
-          <Upload className="mr-2 h-4 w-4" />
-          Upload
-        </Button>
-        <UploadWorkflowDialog
-          open={isUploadOpen}
-          onOpenChange={setIsUploadOpen}
-        />
+        {uploadsAllowed === true && (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsUploadOpen(true)}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              Upload
+            </Button>
+            <UploadWorkflowDialog
+              open={isUploadOpen}
+              onOpenChange={setIsUploadOpen}
+            />
+          </>
+        )}
       </div>
 
       <TabsContent value={selectedTab} className="mt-0">

@@ -4,7 +4,6 @@ const RESERVED_PATH_SEGMENTS = new Set([
   "login",
   "profile",
   "settings",
-  "workflow-remediations",
   "workspace",
 ]);
 

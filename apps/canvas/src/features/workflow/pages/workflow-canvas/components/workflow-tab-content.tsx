@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useUploadsAllowed } from "@/hooks/use-uploads-allowed";
 import {
   AlertTriangle,
   Copy,
@@ -193,6 +194,7 @@ export function WorkflowTabContent({
   missingCredentials = [],
 }: WorkflowTabContentProps) {
   const navigate = useNavigate();
+  const uploadsAllowed = useUploadsAllowed();
   const latestVersion = versions.at(-1);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isPublished, setIsPublished] = useState(initialIsPublished);
@@ -555,7 +557,7 @@ export function WorkflowTabContent({
                 disabled={isSchedulePending || !canToggleSchedule}
               />
             </div>
-            {workflowId ? (
+            {workflowId && uploadsAllowed === true ? (
               <Button
                 variant="outline"
                 onClick={() => setIsUpdateDialogOpen(true)}

@@ -10,7 +10,6 @@ import { Toaster } from "@/design-system/ui/toaster";
 import { BrowserContextProvider } from "@/hooks/browser-context-provider";
 import WorkflowGallery from "@features/workflow/pages/workflow-gallery";
 import WorkflowCanvas from "@features/workflow/pages/workflow-canvas";
-import WorkflowRemediations from "@features/workflow/pages/workflow-remediations";
 import Login from "@features/auth/pages/login";
 import RequireAuth from "@features/auth/components/require-auth";
 import OAuthCallback from "@features/auth/pages/oauth-callback";
@@ -102,11 +101,6 @@ export default function OrcheoCanvasApp() {
                 <Route
                   path="/:workspaceSlug/:workflowId"
                   element={<WorkspaceCanvasRoute />}
-                />
-
-                <Route
-                  path="/workflow-remediations"
-                  element={<WorkflowRemediations />}
                 />
 
                 <Route path="/profile" element={<Profile />} />

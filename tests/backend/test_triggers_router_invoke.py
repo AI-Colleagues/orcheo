@@ -292,3 +292,36 @@ async def test_invoke_webhook_trigger_reports_rate_limit() -> None:
         monkeypatch.undo()
 
     assert exc_info.value.status_code == 429
+
+
+@pytest.mark.asyncio()
+async def test_invoke_webhook_trigger_handles_slack_url_verification() -> None:
+    """Slack URL verification challenge is returned immediately without queuing."""
+    import json
+
+    workflow_id = uuid4()
+    body = json.dumps(
+        {"type": "url_verification", "challenge": "slack-challenge"}
+    ).encode()
+    request = _make_request(body=body, headers={"content-type": "application/json"})
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del workflow_ref, include_archived
+            return workflow_id
+
+        async def get_workflow_workspace_id(self, workflow_id: UUID) -> None:
+            return None
+
+    response = await triggers_router.invoke_webhook_trigger(
+        str(workflow_id),
+        request,
+        repository=Repository(),
+        vault=object(),
+    )
+
+    assert response.status_code == 200
+    body_data = json.loads(response.body)
+    assert body_data["challenge"] == "slack-challenge"
