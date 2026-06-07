@@ -94,7 +94,6 @@ def api_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """Yield a configured API client backed by a fresh repository."""
 
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
-    # Use self_host_unsafe so tests can exercise the Python script ingest path.
     monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
     monkeypatch.delenv("ORCHEO_AUTH_SERVICE_TOKENS", raising=False)
     monkeypatch.delenv("CHATKIT_TOKEN_SIGNING_KEY", raising=False)

@@ -23,6 +23,7 @@ class SystemInfoResponse(BaseModel):
     cli: PackageVersionStatus
     canvas: PackageVersionStatus
     checked_at: datetime
+    uploads_allowed: bool = True
 
 
 class SystemPluginStatus(BaseModel):

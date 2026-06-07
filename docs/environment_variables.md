@@ -134,7 +134,7 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
-| `ORCHEO_WORKFLOW_UNSAFE_EXECUTION` | `false` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | When `true`, bypasses the RestrictedPython sandbox and executes workflow scripts with full Python builtins and unrestricted imports. Leave `false` (the default) on any multi-tenant or internet-facing deployment. Set to `true` only on self-hosted instances where every workflow author is trusted (`graph/ingestion/sandbox.py`). |
+| `ORCHEO_WORKFLOW_TRUST_MODE` | _none_ | `self_host_unsafe` or unset | Controls whether client-supplied workflow scripts may be ingested. When set to `self_host_unsafe`, the Upload and Update buttons are enabled in Canvas and the CLI `workflow upload` command is accepted by the backend. When unset (the default), the backend operates in managed mode: client uploads are rejected with HTTP 403 and the upload/update UI is hidden; only server-side candidate onboarding via `POST /candidates/onboard` is permitted. Set to `self_host_unsafe` only on self-hosted instances where every workflow author is trusted (`graph/ingestion/sandbox.py`, `app/routers/workflows.py`). |
 
 ## Celery worker configuration
 

@@ -1,21 +1,162 @@
-"""Public endpoint exposing candidate AI colleagues from the candidates repo."""
+"""Endpoints for candidate AI colleagues from the candidates repo."""
 
 from __future__ import annotations
+from typing import Any
 from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel
+from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
+from orcheo.models import Workflow, WorkflowDraftAccess
+from orcheo.workflow.mermaid import render_mermaid_from_graph_payload_full_env
 from orcheo_backend.app.candidates_service import CandidateFetchError, get_candidates
-from orcheo_backend.app.schemas.candidates import CandidateItem
+from orcheo_backend.app.dependencies import RepositoryDep
+from orcheo_backend.app.errors import WorkspaceQuotaExceededError
+from orcheo_backend.app.repository import (
+    WorkflowHandleConflictError,
+    WorkflowNotFoundError,
+)
+from orcheo_backend.app.schemas.candidates import CandidateItem, CandidatePublicItem
+from orcheo_backend.app.workspace import WorkspaceContextDep
+from orcheo_backend.app.workspace_governance import ensure_workspace_workflow_quota
 
 
 router = APIRouter()
 
 
-@router.get("/candidates", response_model=list[CandidateItem])
+class CandidateOnboardRequest(BaseModel):
+    """Request body for server-side candidate onboarding."""
+
+    id: str
+
+
+def _candidates_502(exc: Exception) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail="Unable to load candidate colleagues from the repository.",
+    )
+
+
+async def _fetch_candidate_by_id(candidate_id: str) -> CandidateItem:
+    """Return the candidate with *candidate_id* from the server-side cache."""
+    try:
+        candidates = await get_candidates()
+    except CandidateFetchError as exc:
+        raise _candidates_502(exc) from exc
+
+    candidate = next((c for c in candidates if c.id == candidate_id), None)
+    if candidate is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Candidate '{candidate_id}' not found.",
+        )
+    return candidate
+
+
+def _build_version_metadata(candidate: CandidateItem) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "source": "candidate-onboard",
+        "candidate_id": candidate.id,
+        **(candidate.metadata or {}),
+    }
+    if candidate.avatar:
+        metadata.setdefault("avatar", candidate.avatar)
+    if candidate.subtitle:
+        metadata.setdefault("subtitle", candidate.subtitle)
+    return metadata
+
+
+@router.get("/candidates", response_model=list[CandidatePublicItem])
 async def list_candidates() -> list[CandidateItem]:
-    """Return candidate AI colleagues sourced from the candidates repository."""
+    """Return candidate AI colleagues sourced from the candidates repository.
+
+    Script, entrypoint, and config are stripped from the response; ingestion
+    is performed server-side via ``POST /candidates/onboard``.
+    """
     try:
         return await get_candidates()
     except CandidateFetchError as exc:
+        raise _candidates_502(exc) from exc
+
+
+@router.post(
+    "/candidates/onboard",
+    response_model=Workflow,
+    status_code=status.HTTP_200_OK,
+)
+async def onboard_candidate(
+    request: CandidateOnboardRequest,
+    repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
+) -> Workflow:
+    """Onboard an official candidate AI colleague into the workspace.
+
+    The workflow script is sourced exclusively from the server-side candidates
+    cache — any script in the request body is ignored.
+
+    - If the candidate's handle does not exist in the workspace, a new workflow
+      is created and version 1 is ingested.
+    - If the handle already exists, a new version is appended (re-onboard /
+      upstream-revision upgrade path).
+
+    Returns the workflow record (new or existing).
+    """
+    candidate = await _fetch_candidate_by_id(request.id)
+
+    try:
+        graph_payload = ingest_langgraph_script(
+            candidate.script,
+            entrypoint=candidate.entrypoint,
+        )
+    except ScriptIngestionError as exc:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Unable to load candidate colleagues from the repository.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Candidate script ingestion failed: {exc}",
         ) from exc
+
+    mermaid = render_mermaid_from_graph_payload_full_env(graph_payload)
+    if mermaid and isinstance(graph_payload.get("index"), dict):
+        graph_payload["index"]["mermaid"] = mermaid
+
+    workspace_id = str(workspace.workspace_id)
+    metadata = _build_version_metadata(candidate)
+
+    # Resolve existing workflow by candidate handle, or create a new one.
+    workflow: Workflow
+    try:
+        workflow_id = await repository.resolve_workflow_ref(
+            candidate.handle,
+            include_archived=False,
+            workspace_id=workspace_id,
+        )
+        workflow = await repository.get_workflow(workflow_id, workspace_id=workspace_id)
+    except WorkflowNotFoundError:
+        try:
+            await ensure_workspace_workflow_quota(repository, workspace)
+        except WorkspaceQuotaExceededError as exc:
+            raise exc.as_http_exception() from exc
+        try:
+            workflow = await repository.create_workflow(
+                name=candidate.name,
+                handle=candidate.handle,
+                slug=None,
+                description=candidate.description,
+                tags=["langgraph"],
+                draft_access=WorkflowDraftAccess.WORKSPACE,
+                actor="onboard",
+                workspace_id=workspace_id,
+            )
+        except WorkflowHandleConflictError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"message": str(exc), "code": "workflow.handle.conflict"},
+            ) from exc
+
+    await repository.create_version(
+        workflow.id,
+        graph=graph_payload,
+        metadata=metadata,
+        notes=candidate.notes,
+        created_by="onboard",
+        runnable_config=candidate.config,
+    )
+
+    return workflow

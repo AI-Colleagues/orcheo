@@ -1,17 +1,20 @@
 """Render Mermaid diagrams from workflow graph payloads."""
 
 from __future__ import annotations
+import logging
 from typing import Any
 from orcheo.graph.ingestion.config import LANGGRAPH_SCRIPT_FORMAT
+
+
+logger = logging.getLogger(__name__)
 
 
 def render_mermaid_from_graph_payload(graph_payload: dict[str, Any]) -> str | None:
     """Render a Mermaid diagram from a stored workflow graph payload.
 
-    For ``langgraph-script`` payloads the script is executed inside the
-    RP-sandboxed loader and LangGraph's native ``draw_mermaid()`` is used.
-    Returns ``None`` if the payload does not contain a valid script or
-    rendering fails.
+    For ``langgraph-script`` payloads the script is executed and LangGraph's
+    native ``draw_mermaid()`` is used.  Returns ``None`` if the payload does
+    not contain a valid script or rendering fails.
     """
     fmt = graph_payload.get("format", "")
     if fmt != LANGGRAPH_SCRIPT_FORMAT:
@@ -26,7 +29,7 @@ def render_mermaid_from_graph_payload(graph_payload: dict[str, Any]) -> str | No
 def _render_mermaid_from_script(
     source: str, entrypoint: str | None = None
 ) -> str | None:
-    """Execute ``source`` in the RP sandbox and render a Mermaid diagram."""
+    """Execute ``source`` and render a Mermaid diagram from the graph."""
     from orcheo.graph.ingestion.exceptions import ScriptIngestionError
     from orcheo.graph.ingestion.loader import load_graph_from_script
     from orcheo.graph.ingestion.summary import (
@@ -41,7 +44,11 @@ def _render_mermaid_from_script(
         if has_workflow_tool_subgraphs(summary):
             return render_summary_mermaid(summary)
         return _render_compact_mermaid(graph)
-    except (ScriptIngestionError, Exception):
+    except ScriptIngestionError as exc:
+        logger.warning("Mermaid rendering skipped: script ingestion error: %s", exc)
+        return None
+    except Exception:
+        logger.warning("Mermaid rendering failed", exc_info=True)
         return None
 
 
@@ -52,9 +59,8 @@ def _render_mermaid_from_script_full_env(
 
     Mirrors :func:`_render_mermaid_from_script` but uses
     :func:`~orcheo.graph.ingestion.loader.load_graph_from_script_full_env`
-    so the script is not subject to the RestrictedPython import allowlist.
-    Only call this from trusted server-side contexts where the script has
-    already been compiled-checked and size-validated.
+    which skips the script size limit.  Only call this from trusted
+    server-side contexts where the script has already been size-validated.
     """
     from orcheo.graph.ingestion.exceptions import ScriptIngestionError
     from orcheo.graph.ingestion.loader import load_graph_from_script_full_env
@@ -70,7 +76,11 @@ def _render_mermaid_from_script_full_env(
         if has_workflow_tool_subgraphs(summary):
             return render_summary_mermaid(summary)
         return _render_compact_mermaid(graph)
-    except (ScriptIngestionError, Exception):
+    except ScriptIngestionError as exc:
+        logger.warning("Mermaid rendering skipped: script ingestion error: %s", exc)
+        return None
+    except Exception:
+        logger.warning("Mermaid rendering failed", exc_info=True)
         return None
 
 
@@ -79,10 +89,9 @@ def render_mermaid_from_graph_payload_full_env(
 ) -> str | None:
     """Render Mermaid from a stored graph payload using the full Python environment.
 
-    Mirrors :func:`render_mermaid_from_graph_payload` but skips the
-    RestrictedPython sandbox.  Only call this from trusted server-side contexts
-    (e.g., ingest-time pre-computation) where the script has already passed
-    the compile-only validation step and size check.
+    Mirrors :func:`render_mermaid_from_graph_payload` but skips the script
+    size limit.  Only call this from trusted server-side contexts (e.g.,
+    ingest-time pre-computation) where the script has already been size-validated.
     """
     fmt = graph_payload.get("format", "")
     if fmt != LANGGRAPH_SCRIPT_FORMAT:

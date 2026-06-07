@@ -5,9 +5,10 @@ import {
   getWorkflowTemplateDefinition,
   type Workflow,
 } from "@features/workflow/data/workflow-data";
+import { getCandidateBadgeDefinition } from "@features/workflow/data/templates/candidate-badges";
 import {
-  createWorkflowFromTemplate,
   deleteWorkflow,
+  onboardCandidateAsWorkflow,
 } from "@features/workflow/lib/workflow-storage";
 import { fetchWorkflowVersions } from "@features/workflow/lib/workflow-storage-api";
 import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
@@ -93,8 +94,8 @@ export const useWorkflowGalleryActions = (
   const handleUseTemplate = useCallback(
     async (templateId: string) => {
       try {
-        const workflow = await createWorkflowFromTemplate(templateId);
-        if (!workflow) {
+        const badge = getCandidateBadgeDefinition(templateId);
+        if (!badge?.candidateId) {
           toast({
             title: "Candidate unavailable",
             description: "We couldn't find that candidate. Please try another.",
@@ -102,6 +103,8 @@ export const useWorkflowGalleryActions = (
           });
           return;
         }
+
+        const workflow = await onboardCandidateAsWorkflow(badge.candidateId);
 
         state.setSelectedTab("all");
 
@@ -126,9 +129,11 @@ export const useWorkflowGalleryActions = (
   const handleImportStarterPack = useCallback(async () => {
     try {
       const results = await Promise.allSettled(
-        STARTER_TEMPLATE_IDS.map((templateId) =>
-          createWorkflowFromTemplate(templateId),
-        ),
+        STARTER_TEMPLATE_IDS.flatMap((templateId) => {
+          const badge = getCandidateBadgeDefinition(templateId);
+          if (!badge?.candidateId) return [];
+          return [onboardCandidateAsWorkflow(badge.candidateId)];
+        }),
       );
       const importedCount = results.filter(
         (result) => result.status === "fulfilled" && result.value,

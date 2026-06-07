@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from fastapi import APIRouter
+from orcheo.graph.ingestion.sandbox import uploads_allowed
 from orcheo_backend.app.dependencies import PluginInstallationStoreDep
 from orcheo_backend.app.plugin_inventory import list_runtime_plugins
 from orcheo_backend.app.schemas.system import (
@@ -25,7 +26,9 @@ def get_system_health() -> dict[str, str]:
 @router.get("/system/info", response_model=SystemInfoResponse)
 def get_system_info() -> SystemInfoResponse:
     """Return current and latest version metadata for Orcheo components."""
-    return SystemInfoResponse.model_validate(get_system_info_payload())
+    payload = get_system_info_payload()
+    payload["uploads_allowed"] = uploads_allowed()
+    return SystemInfoResponse.model_validate(payload)
 
 
 @router.get("/system/plugins", response_model=SystemPluginsResponse)

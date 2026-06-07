@@ -14,6 +14,7 @@ import {
   API_BASE,
   fetchSystemPlugins,
   fetchWorkflowVersions,
+  onboardCandidate,
   request,
   upsertWorkflow,
 } from "./workflow-storage-api";
@@ -453,6 +454,20 @@ export const deleteWorkflow = async (
   invalidateWorkflowCache(workflowId);
   invalidateWorkflowListCache();
   emitUpdate();
+};
+
+export const onboardCandidateAsWorkflow = async (
+  candidateId: string,
+): Promise<StoredWorkflow> => {
+  const apiWorkflow = await onboardCandidate(candidateId);
+  const stored = await ensureWorkflow(apiWorkflow.id);
+  if (!stored) {
+    throw new Error("Failed to load onboarded workflow");
+  }
+  invalidateWorkflowListCache();
+  primeWorkflowCache(stored);
+  emitUpdate();
+  return stored;
 };
 
 export type {

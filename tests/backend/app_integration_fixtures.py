@@ -56,7 +56,6 @@ def client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[TestClient, None, None]:
     """Return a TestClient wired up with in-memory dependencies."""
-    # Use self_host_unsafe so integration tests can exercise Python script ingest.
     monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
     ws_repo = InMemoryWorkspaceRepository()
     ws_repo.create_workspace(

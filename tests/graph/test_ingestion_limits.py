@@ -1,19 +1,13 @@
-"""Tests covering ingestion size limits, timeouts, and caching."""
+"""Tests covering ingestion size limits and timeouts."""
 
 from __future__ import annotations
-import sys
-import textwrap
-from pathlib import Path
 import pytest
 from orcheo.graph.ingestion import (
     DEFAULT_SCRIPT_SIZE_LIMIT,
     ScriptIngestionError,
     ingest_langgraph_script,
 )
-from orcheo.graph.ingestion.sandbox import (
-    compile_langgraph_script as _compile_langgraph_script,
-    validate_script_size as _validate_script_size,
-)
+from orcheo.graph.ingestion.sandbox import validate_script_size as _validate_script_size
 from orcheo.graph.ingestion.loader import load_graph_from_script
 
 
@@ -57,52 +51,3 @@ def test_ingest_script_enforces_execution_timeout() -> None:
         ScriptIngestionError, match="execution exceeded the configured timeout"
     ):
         load_graph_from_script(script, execution_timeout_seconds=0.1)
-
-
-def test_compile_langgraph_script_is_cached() -> None:
-    script = textwrap.dedent(
-        """
-        from langgraph.graph import StateGraph
-        from orcheo.graph.state import State
-
-        graph = StateGraph(State)
-        graph.set_entry_point("first")
-        graph.set_finish_point("first")
-        """
-    )
-
-    _compile_langgraph_script.cache_clear()
-    try:
-        result1 = _compile_langgraph_script(script)
-        result2 = _compile_langgraph_script(script)
-        assert result1 is result2
-    finally:
-        _compile_langgraph_script.cache_clear()
-
-
-def test_ingest_loads_plugin_site_packages(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    site_packages = (
-        tmp_path
-        / "plugins"
-        / "venv"
-        / "lib"
-        / f"python{sys.version_info.major}.{sys.version_info.minor}"
-        / "site-packages"
-    )
-    module_dir = site_packages / "orcheo_plugin_fixture_runtime"
-    module_dir.mkdir(parents=True)
-    (module_dir / "__init__.py").write_text("VALUE = 'ok'\n", encoding="utf-8")
-    monkeypatch.setenv("ORCHEO_PLUGIN_DIR", str(tmp_path / "plugins"))
-
-    # Ensure the path insertion in _ensure_plugin_sys_path is triggered
-    from orcheo.graph.ingestion.sandbox import _ensure_plugin_sys_path
-
-    before = list(sys.path)
-    try:
-        _ensure_plugin_sys_path()
-        assert str(site_packages) in sys.path
-    finally:
-        sys.path[:] = before
-        sys.modules.pop("orcheo_plugin_fixture_runtime", None)

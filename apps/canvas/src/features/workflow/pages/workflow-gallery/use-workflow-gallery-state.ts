@@ -37,14 +37,12 @@ interface WorkflowGalleryStateSlice {
 
 const toCandidateSpec = (candidate: ApiCandidate): CandidateBadgeSpec => ({
   id: `template-${candidate.id.replace(/\//g, "-")}`,
+  candidateId: candidate.id,
   name: candidate.name,
   handle: candidate.handle,
   subtitle: candidate.subtitle ?? undefined,
   description: candidate.description ?? undefined,
   avatar: candidate.avatar ?? undefined,
-  script: candidate.script,
-  config: candidate.config,
-  entrypoint: candidate.entrypoint,
   notes: candidate.notes,
   mermaid: candidate.mermaid,
   rawMetadata: candidate.metadata,

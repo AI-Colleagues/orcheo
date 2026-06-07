@@ -5,6 +5,8 @@ import ast
 import asyncio
 import builtins
 import inspect
+import sys
+import types
 from collections.abc import Awaitable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, get_origin
@@ -16,40 +18,41 @@ from orcheo.graph.ingestion.config import (
 )
 from orcheo.graph.ingestion.exceptions import ScriptIngestionError
 from orcheo.graph.ingestion.sandbox import (
-    compile_langgraph_script,
-    create_sandbox_namespace,
     execution_timeout,
-    is_sandbox_enabled,
     validate_script_size,
 )
+
+
+_SCRIPT_MODULE_NAME = "__orcheo_ingest__"
 
 
 def _execute_langgraph_script(
     source: str,
     max_script_bytes: int | None,
     execution_timeout_seconds: float | None,
-    *,
-    _force_full_env: bool = False,
 ) -> dict[str, Any]:
-    """Execute the LangGraph script inside the RP sandbox and return its namespace.
+    """Execute a LangGraph script with full Python builtins and return its namespace.
 
-    When *_force_full_env* is ``True`` the RestrictedPython sandbox is skipped
-    regardless of ``ORCHEO_WORKFLOW_UNSAFE_EXECUTION``.  Only set this from
-    trusted server-side paths (e.g., ingest-time mermaid pre-computation) where
-    the script has already been compile-checked and size-validated.
+    The script is executed inside a temporary module registered in ``sys.modules``
+    so that decorators like ``@dataclass`` can resolve ``sys.modules[cls.__module__]``
+    without raising ``AttributeError``.
     """
     validate_script_size(source, max_script_bytes)
-    if not _force_full_env and is_sandbox_enabled():
-        namespace = create_sandbox_namespace()
-        compiled = compile_langgraph_script(source)
-    else:
-        namespace = {"__builtins__": vars(builtins), "__name__": "__orcheo_ingest__"}
-        try:
-            compiled = compile(  # noqa: S307
-                source, "<langgraph-script>", "exec", ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
-            )
-        except SyntaxError as exc:
-            raise ScriptIngestionError(f"Compilation error: {exc}") from exc
+
+    # Register a real module so that @dataclass and similar decorators that look
+    # up sys.modules[cls.__module__] do not encounter None.
+    module = types.ModuleType(_SCRIPT_MODULE_NAME)
+    module.__dict__["__builtins__"] = vars(builtins)
+    namespace = module.__dict__
+    sys.modules[_SCRIPT_MODULE_NAME] = module
+
+    try:
+        compiled = compile(  # noqa: S307
+            source, "<langgraph-script>", "exec", ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
+        )
+    except SyntaxError as exc:
+        sys.modules.pop(_SCRIPT_MODULE_NAME, None)
+        raise ScriptIngestionError(f"Compilation error: {exc}") from exc
     try:
         with execution_timeout(execution_timeout_seconds):
             result = eval(compiled, namespace)  # noqa: S307
@@ -66,6 +69,8 @@ def _execute_langgraph_script(
     except Exception as exc:  # pragma: no cover - exercised via tests
         message = f"Runtime error during script execution: {type(exc).__name__}: {exc}"
         raise ScriptIngestionError(message) from exc
+    finally:
+        sys.modules.pop(_SCRIPT_MODULE_NAME, None)
 
     return namespace
 
@@ -135,7 +140,7 @@ def load_graph_from_script(
     max_script_bytes: int | None = DEFAULT_SCRIPT_SIZE_LIMIT,
     execution_timeout_seconds: float | None = DEFAULT_EXECUTION_TIMEOUT_SECONDS,
 ) -> StateGraph:
-    """Execute a LangGraph Python script inside the RP sandbox and return the graph."""
+    """Execute a LangGraph Python script and return the graph."""
     namespace = _execute_langgraph_script(
         source, max_script_bytes, execution_timeout_seconds
     )
@@ -148,16 +153,8 @@ def load_graph_from_script_full_env(
     entrypoint: str | None = None,
     execution_timeout_seconds: float | None = DEFAULT_EXECUTION_TIMEOUT_SECONDS,
 ) -> StateGraph:
-    """Execute a LangGraph script with full Python builtins and return the graph.
-
-    Unlike :func:`load_graph_from_script`, this never uses the RestrictedPython
-    sandbox.  Only call this from trusted server-side contexts (e.g.,
-    ingest-time mermaid pre-computation) where the script has already passed
-    the compile-only validation step and size check.
-    """
-    namespace = _execute_langgraph_script(
-        source, None, execution_timeout_seconds, _force_full_env=True
-    )
+    """Execute a LangGraph script without size limits and return the graph."""
+    namespace = _execute_langgraph_script(source, None, execution_timeout_seconds)
     return _load_graph_from_namespace(namespace, entrypoint)
 
 

@@ -8,15 +8,14 @@ import type {
 
 export interface CandidateBadgeSpec {
   id: string;
+  /** Original candidate id from the server (used by the onboard endpoint). */
+  candidateId: string;
   name: string;
   handle: string;
   subtitle?: string;
   description?: string;
   /** Avatar ID ("avatar-01" … "avatar-21"), "random", or absent for a seeded random avatar. */
   avatar?: string;
-  script?: string;
-  config?: Record<string, unknown> | null;
-  entrypoint?: string | null;
   notes?: string | null;
   mermaid?: string | null;
   /** Raw snake_case metadata dict from the colleague-candidates frontmatter. */
@@ -95,9 +94,9 @@ const buildCandidateBadge = (
   const workflow = buildCandidateWorkflow(spec, existingHandles);
   const templateDefinition: WorkflowTemplateDefinition = {
     workflow,
-    script: spec.script ?? "",
-    entrypoint: spec.entrypoint ?? undefined,
-    runnableConfig: spec.config ?? null,
+    script: "",
+    entrypoint: undefined,
+    runnableConfig: null,
     notes: spec.notes ?? "",
     metadata: spec.rawMetadata ? mapRawMetadata(spec.rawMetadata) : undefined,
   };

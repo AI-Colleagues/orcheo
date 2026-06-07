@@ -27,6 +27,7 @@ export interface SystemInfoResponse {
   cli: PackageVersionStatus;
   canvas: PackageVersionStatus;
   checked_at: string;
+  uploads_allowed: boolean;
 }
 
 export interface ActiveWorkspaceResponse {

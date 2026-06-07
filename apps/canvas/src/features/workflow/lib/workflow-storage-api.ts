@@ -167,9 +167,6 @@ export interface ApiCandidate {
   description: string | null;
   avatar: string | null;
   subtitle: string | null;
-  script: string;
-  config: Record<string, unknown> | null;
-  entrypoint: string | null;
   notes: string | null;
   metadata: Record<string, unknown> | null;
   mermaid: string | null;
@@ -177,6 +174,14 @@ export interface ApiCandidate {
 
 export const fetchCandidates = async (): Promise<ApiCandidate[]> =>
   request<ApiCandidate[]>("/api/candidates");
+
+export const onboardCandidate = async (
+  candidateId: string,
+): Promise<ApiWorkflow> =>
+  request<ApiWorkflow>("/api/candidates/onboard", {
+    method: "POST",
+    body: JSON.stringify({ id: candidateId }),
+  });
 
 export const fetchWorkflowListeners = async (
   workflowId: string,

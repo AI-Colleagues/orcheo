@@ -29,7 +29,6 @@ _MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 @pytest.fixture(autouse=True)
 def _stub_load_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
     """Replace `_load_workflow_for_request` so tests can stub Repository.resolve_workflow_ref alone."""
-    # Use self_host_unsafe so tests can exercise the Python script ingest path.
     monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
 
     async def _load(
@@ -560,45 +559,11 @@ async def test_update_workflow_version_runnable_config_missing_workflow() -> Non
 
 
 @pytest.mark.asyncio()
-async def test_ingest_workflow_version_succeeds_in_production(
+async def test_ingest_workflow_version_blocked_in_managed_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Production trust mode does not block workflow version ingestion."""
-    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "production")
-
-    workflow_id = uuid4()
-    version_id = uuid4()
-
-    class Repository:
-        async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, workspace_id=None
-        ):
-            del workflow_ref, include_archived
-            return workflow_id
-
-        async def create_version(
-            self,
-            wf_id,
-            graph,
-            metadata,
-            notes,
-            created_by,
-            runnable_config=None,
-        ):
-            del graph, metadata, notes, runnable_config
-            return WorkflowVersion(
-                id=version_id,
-                workflow_id=wf_id,
-                version=1,
-                graph={
-                    "format": "langgraph-script",
-                    "source": "from langgraph.graph import StateGraph\ngraph = StateGraph(dict)",
-                    "entrypoint": "graph",
-                },
-                created_by=created_by,
-                created_at=datetime.now(tz=UTC),
-                updated_at=datetime.now(tz=UTC),
-            )
+    """Managed mode (default) blocks client-supplied workflow ingestion with 403."""
+    monkeypatch.delenv("ORCHEO_WORKFLOW_TRUST_MODE", raising=False)
 
     request = WorkflowVersionIngestRequest(
         script="from langgraph.graph import StateGraph\ngraph = StateGraph(dict)",
@@ -606,11 +571,16 @@ async def test_ingest_workflow_version_succeeds_in_production(
         created_by="admin",
     )
 
-    result = await ingest_workflow_version(
-        str(workflow_id), request, Repository(), _MOCK_WORKSPACE
-    )
+    with pytest.raises(HTTPException) as exc_info:
+        await ingest_workflow_version(
+            str(uuid4()),
+            request,
+            object(),
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
 
-    assert result.id == version_id
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail["code"] == "workflow.ingestion.disabled"  # type: ignore[index]
 
 
 @pytest.mark.asyncio()
