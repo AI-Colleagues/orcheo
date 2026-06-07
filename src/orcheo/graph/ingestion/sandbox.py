@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import contextlib
+import logging
 import os
 import signal
 import sys
@@ -12,20 +13,42 @@ from types import FrameType
 from typing import Any, cast
 from orcheo.graph.ingestion.exceptions import ScriptIngestionError
 
+logger = logging.getLogger(__name__)
+
 
 TraceFunc = Callable[[FrameType | None, str, object], object]
 
 
 def uploads_allowed() -> bool:
-    """Return True when ``ORCHEO_WORKFLOW_TRUST_MODE=self_host_unsafe``.
+    """Return True when client-supplied workflow uploads are permitted.
 
     In managed deployments (the default) client-supplied workflow scripts are
     blocked at the API layer; only server-side onboarding of official candidates
-    is permitted.  Self-hosted operators who trust every workflow author can opt
-    out by setting this variable.
+    is permitted. Self-hosted operators who trust every workflow author can opt
+    out by setting ORCHEO_WORKFLOW_TRUST_MODE=allow_client_uploads.
+    
+    Environment variables:
+        ORCHEO_WORKFLOW_TRUST_MODE: Controls upload policy
+            - managed (default): Only server-side candidate onboarding
+            - allow_client_uploads: Permit client-supplied workflow uploads
     """
-    val = os.environ.get("ORCHEO_WORKFLOW_TRUST_MODE", "").strip().lower()
-    return val == "self_host_unsafe"
+    trust_mode = os.environ.get("ORCHEO_WORKFLOW_TRUST_MODE", "managed").strip().lower()
+    uploads_enabled = trust_mode == "allow_client_uploads"
+    
+    if not uploads_enabled:
+        logger.info(
+            "Client workflow uploads disabled (trust_mode=%s). "
+            "Set ORCHEO_WORKFLOW_TRUST_MODE=allow_client_uploads to enable.",
+            trust_mode
+        )
+    else:
+        logger.warning(
+            "Client workflow uploads enabled (trust_mode=%s). "
+            "Only use this in self-hosted environments where you trust all workflow authors.",
+            trust_mode
+        )
+    
+    return uploads_enabled
 
 
 def validate_script_size(source: str, max_script_bytes: int | None) -> None:

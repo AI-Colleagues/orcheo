@@ -15,8 +15,9 @@ export function useUploadsAllowed(): boolean | null {
         if (active) setUploadsAllowed(info.uploads_allowed);
       })
       .catch(() => {
-        _cached = true;
-        if (active) setUploadsAllowed(true);
+        // Fail closed for security - default to disabling uploads on API error
+        _cached = false;
+        if (active) setUploadsAllowed(false);
       });
     return () => {
       active = false;

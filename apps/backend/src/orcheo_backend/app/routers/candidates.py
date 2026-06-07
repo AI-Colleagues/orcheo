@@ -1,6 +1,7 @@
 """Endpoints for candidate AI colleagues from the candidates repo."""
 
 from __future__ import annotations
+import logging
 from typing import Any
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -22,7 +23,7 @@ from orcheo_backend.app.schemas.candidates import CandidateItem, CandidatePublic
 from orcheo_backend.app.workspace import WorkspaceContextDep
 from orcheo_backend.app.workspace_governance import ensure_workspace_workflow_quota
 
-
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -74,14 +75,35 @@ def _raise_for_missing_required_plugins(metadata: dict[str, Any]) -> None:
     missing_plugins = missing_required_plugins(required_plugins)
     if not missing_plugins:
         return
+    
     plugin_list = ", ".join(missing_plugins)
     noun = "plugin" if len(missing_plugins) == 1 else "plugins"
+    
+    # Provide more helpful installation guidance
+    install_commands = []
+    for plugin in missing_plugins:
+        # Common convention: orcheo-plugin-{name}
+        install_commands.append(f"pip install orcheo-plugin-{plugin}")
+    
+    install_help = " ".join(install_commands)
+    
+    logger.warning(
+        "Candidate onboarding failed: missing required plugins",
+        extra={
+            "missing_plugins": missing_plugins,
+            "required_plugins": list(required_plugins),
+            "installation_help": install_help
+        }
+    )
+    
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
-        detail=(
-            f"Missing required {noun} for this candidate: {plugin_list}. "
-            "Install them into the runtime before onboarding the candidate."
-        ),
+        detail={
+            "message": f"Missing required {noun} for this candidate: {plugin_list}",
+            "code": "candidate.missing_plugins", 
+            "missing_plugins": missing_plugins,
+            "installation_help": f"Try: {install_help}"
+        },
     )
 
 
@@ -121,6 +143,16 @@ async def onboard_candidate(
     Returns the workflow record (new or existing).
     """
     candidate = await _fetch_candidate_by_id(request.id)
+    
+    logger.info(
+        "Starting candidate onboarding",
+        extra={
+            "candidate_id": request.id,
+            "candidate_handle": candidate.handle,
+            "candidate_name": candidate.name,
+            "workspace_id": str(workspace.workspace_id),
+        }
+    )
 
     metadata = _build_version_metadata(candidate)
     _raise_for_missing_required_plugins(metadata)
@@ -133,7 +165,10 @@ async def onboard_candidate(
     except ScriptIngestionError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Candidate script ingestion failed: {exc}",
+            detail={
+                "message": f"Candidate script ingestion failed: {exc}",
+                "code": "candidate.script_ingestion_failed"
+            },
         ) from exc
 
     mermaid = render_mermaid_from_graph_payload_full_env(graph_payload)
@@ -180,6 +215,16 @@ async def onboard_candidate(
         notes=candidate.notes,
         created_by="onboard",
         runnable_config=candidate.config,
+    )
+    
+    logger.info(
+        "Candidate onboarding completed successfully",
+        extra={
+            "candidate_id": request.id,
+            "candidate_handle": candidate.handle,
+            "workflow_id": workflow.id,
+            "workspace_id": str(workspace.workspace_id),
+        }
     )
 
     return workflow
