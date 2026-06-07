@@ -14,7 +14,6 @@ from orcheo.listeners import ListenerCursor, ListenerDedupeRecord, ListenerSubsc
 from orcheo.models import (
     Workflow,
     WorkflowRun,
-    WorkflowRunRemediation,
     WorkflowRunStatus,
     WorkflowVersion,
 )
@@ -80,30 +79,6 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
 CREATE INDEX IF NOT EXISTS idx_runs_workflow ON workflow_runs(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_runs_version ON workflow_runs(workflow_version_id);
 CREATE INDEX IF NOT EXISTS idx_runs_status ON workflow_runs(status);
-
-CREATE TABLE IF NOT EXISTS workflow_run_remediations (
-    id TEXT PRIMARY KEY,
-    workflow_id TEXT NOT NULL,
-    workflow_version_id TEXT NOT NULL,
-    run_id TEXT NOT NULL,
-    status TEXT NOT NULL,
-    fingerprint TEXT NOT NULL,
-    version_checksum TEXT NOT NULL,
-    payload JSONB NOT NULL,
-    attempt_count INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_remediations_workflow
-    ON workflow_run_remediations(workflow_id);
-CREATE INDEX IF NOT EXISTS idx_remediations_version
-    ON workflow_run_remediations(workflow_version_id);
-CREATE INDEX IF NOT EXISTS idx_remediations_run
-    ON workflow_run_remediations(run_id);
-CREATE INDEX IF NOT EXISTS idx_remediations_status
-    ON workflow_run_remediations(status);
-CREATE INDEX IF NOT EXISTS idx_remediations_fingerprint
-    ON workflow_run_remediations(fingerprint);
 
 CREATE TABLE IF NOT EXISTS webhook_triggers (
     workflow_id TEXT PRIMARY KEY,
@@ -210,7 +185,7 @@ class PostgresRepositoryBase:
 
     @staticmethod
     def _dump_model(
-        model: Workflow | WorkflowVersion | WorkflowRun | WorkflowRunRemediation,
+        model: Workflow | WorkflowVersion | WorkflowRun,
     ) -> str:
         return json.dumps(model.model_dump(mode="json"))
 

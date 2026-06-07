@@ -61,7 +61,6 @@ from orcheo_backend.app.routers import (
     credentials,
     listeners,
     nodes,
-    remediations,
     runs,
     system,
     triggers,
@@ -155,7 +154,6 @@ def _build_api_router() -> APIRouter:
     protected_router.include_router(credential_alerts.router)
     protected_router.include_router(credential_health.router)
     protected_router.include_router(listeners.router)
-    protected_router.include_router(remediations.router)
     protected_router.include_router(runs.router)
     protected_router.include_router(triggers.router)
     protected_router.include_router(nodes.router)

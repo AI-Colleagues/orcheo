@@ -8,9 +8,6 @@ from celery import Celery
 # Configuration from environment
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 ORCHEO_CRON_DISPATCH_INTERVAL = float(os.getenv("ORCHEO_CRON_DISPATCH_INTERVAL", "60"))
-WORKFLOW_AUTOFIX_SCAN_INTERVAL = float(
-    os.getenv("ORCHEO_WORKFLOW_AUTOFIX_SCAN_INTERVAL_SECONDS", "60")
-)
 ORCHEO_CELERY_BEAT_SCHEDULE_FILE = os.getenv(
     "ORCHEO_CELERY_BEAT_SCHEDULE_FILE", "celerybeat-schedule"
 )
@@ -38,10 +35,6 @@ celery_app.conf.beat_schedule = {
     "dispatch-cron-triggers": {
         "task": "orcheo_backend.worker.tasks.dispatch_cron_triggers",
         "schedule": ORCHEO_CRON_DISPATCH_INTERVAL,
-    },
-    "scan-workflow-remediations": {
-        "task": "orcheo_backend.worker.tasks.scan_workflow_remediations",
-        "schedule": WORKFLOW_AUTOFIX_SCAN_INTERVAL,
     },
 }
 celery_app.conf.beat_schedule_filename = ORCHEO_CELERY_BEAT_SCHEDULE_FILE

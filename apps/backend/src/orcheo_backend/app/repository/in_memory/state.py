@@ -9,7 +9,6 @@ from orcheo.listeners import ListenerCursor, ListenerDedupeRecord, ListenerSubsc
 from orcheo.models import (
     Workflow,
     WorkflowRun,
-    WorkflowRunRemediation,
     WorkflowVersion,
 )
 from orcheo.models.workflow_refs import workflow_ref_is_uuid
@@ -41,7 +40,6 @@ class InMemoryRepositoryState:
         self._runs: dict[UUID, WorkflowRun] = {}
         self._run_workspaces: dict[UUID, str] = {}
         self._version_runs: dict[UUID, list[UUID]] = {}
-        self._remediations: dict[UUID, WorkflowRunRemediation] = {}
         self._listener_subscriptions: dict[UUID, ListenerSubscription] = {}
         self._workflow_listener_subscriptions: dict[UUID, list[UUID]] = {}
         self._listener_cursors: dict[UUID, ListenerCursor] = {}
@@ -61,7 +59,6 @@ class InMemoryRepositoryState:
             self._runs.clear()
             self._run_workspaces.clear()
             self._version_runs.clear()
-            self._remediations.clear()
             self._listener_subscriptions.clear()
             self._workflow_listener_subscriptions.clear()
             self._listener_cursors.clear()

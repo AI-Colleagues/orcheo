@@ -4,7 +4,6 @@ from __future__ import annotations
 from orcheo.models import (
     Workflow,
     WorkflowRun,
-    WorkflowRunRemediation,
     WorkflowVersion,
 )
 from orcheo_backend.app.repository.errors import (
@@ -14,7 +13,6 @@ from orcheo_backend.app.repository.errors import (
     WorkflowNotFoundError,
     WorkflowPublishStateError,
     WorkflowRunNotFoundError,
-    WorkflowRunRemediationNotFoundError,
     WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.repository.in_memory import InMemoryWorkflowRepository
@@ -33,8 +31,6 @@ __all__ = [
     "WorkflowPublishStateError",
     "WorkflowRun",
     "WorkflowRunNotFoundError",
-    "WorkflowRunRemediation",
-    "WorkflowRunRemediationNotFoundError",
     "WorkflowVersion",
     "WorkflowVersionNotFoundError",
 ]

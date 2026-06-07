@@ -19,10 +19,6 @@ class WorkflowRunNotFoundError(RepositoryError):
     """Raised when attempting to access an unknown workflow run."""
 
 
-class WorkflowRunRemediationNotFoundError(RepositoryError):
-    """Raised when attempting to access an unknown remediation candidate."""
-
-
 class WorkflowPublishStateError(RepositoryError):
     """Raised when publish state transitions are invalid."""
 
@@ -40,7 +36,6 @@ __all__ = [
     "WorkflowNotFoundError",
     "WorkflowVersionNotFoundError",
     "WorkflowRunNotFoundError",
-    "WorkflowRunRemediationNotFoundError",
     "WorkflowPublishStateError",
     "WorkflowHandleConflictError",
     "CronTriggerNotFoundError",

@@ -2,7 +2,6 @@ import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
 
 import { mapHistoryToExecution } from "./workflow-execution-builders";
-import { fetchWorkflowRemediations } from "./workflow-storage-api";
 import type {
   RunHistoryResponse,
   WorkflowExecution,
@@ -42,16 +41,6 @@ export const loadWorkflowExecutions = async (
   }
 
   const histories = (await response.json()) as RunHistoryResponse[];
-  const remediations = await fetchWorkflowRemediations({
-    workflowId,
-    limit: Math.max(limit * 4, 50),
-  });
-  const remediationsByRunId = new Map<string, typeof remediations>();
-  for (const remediation of remediations) {
-    const items = remediationsByRunId.get(remediation.run_id) ?? [];
-    items.push(remediation);
-    remediationsByRunId.set(remediation.run_id, items);
-  }
   const workflow = options.workflow;
   const lookup: WorkflowLookup = {
     // @legacy TODO: remove after mermaid-only migration — defaultNodes/defaultEdges
@@ -64,10 +53,9 @@ export const loadWorkflowExecutions = async (
     ),
   };
 
-  const executions = histories.map((history) => ({
-    ...mapHistoryToExecution(history, lookup),
-    remediations: remediationsByRunId.get(history.execution_id) ?? [],
-  }));
+  const executions = histories.map((history) =>
+    mapHistoryToExecution(history, lookup),
+  );
 
   return executions.sort(
     (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime(),
