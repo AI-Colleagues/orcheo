@@ -34,7 +34,7 @@ def test_http_executor_triggers_run_against_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
-    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "self_host_unsafe")
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "allow_client_uploads")
     reset_authentication_state()
     reset_workspace_state()
 

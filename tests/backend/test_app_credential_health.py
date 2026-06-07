@@ -102,6 +102,49 @@ async def test_get_workflow_credential_health_returns_unknown_response() -> None
 
 
 @pytest.mark.asyncio()
+async def test_get_workflow_credential_health_returns_cached_report() -> None:
+    """A cached health report is returned as a response payload."""
+    workflow_id = uuid4()
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del include_archived
+            return UUID(str(workflow_ref))
+
+        async def get_workflow(self, wid):
+            return object()
+
+    class Service:
+        def get_report(self, wid):
+            return CredentialHealthReport(
+                workflow_id=wid,
+                results=[
+                    CredentialHealthResult(
+                        credential_id=uuid4(),
+                        name="Feedly",
+                        provider="feedly",
+                        status=CredentialHealthStatus.HEALTHY,
+                        last_checked_at=datetime.now(tz=UTC),
+                        failure_reason=None,
+                    )
+                ],
+                checked_at=datetime.now(tz=UTC),
+            )
+
+    response = await get_workflow_credential_health(
+        workflow_id,
+        repository=Repository(),
+        service=Service(),
+        workspace=_workspace_context(),
+    )
+
+    assert response.status is CredentialHealthStatus.HEALTHY
+    assert len(response.credentials) == 1
+
+
+@pytest.mark.asyncio()
 async def test_get_workflow_credential_health_requires_service() -> None:
     class Repository:
         async def resolve_workflow_ref(
@@ -229,6 +272,51 @@ async def test_validate_workflow_credentials_requires_service() -> None:
         )
 
     assert exc_info.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+
+@pytest.mark.asyncio()
+async def test_validate_workflow_credentials_returns_healthy_report() -> None:
+    """A successful validation returns the health report payload."""
+    workflow_id = uuid4()
+
+    class Repository:
+        async def resolve_workflow_ref(
+            self, workflow_ref, *, include_archived=True, workspace_id=None
+        ):
+            del include_archived
+            return workflow_id
+
+        async def get_workflow(self, wid):
+            return object()
+
+    class Service:
+        async def ensure_workflow_health(self, wid, *, actor=None):
+            return CredentialHealthReport(
+                workflow_id=wid,
+                results=[
+                    CredentialHealthResult(
+                        credential_id=uuid4(),
+                        name="Slack",
+                        provider="slack",
+                        status=CredentialHealthStatus.HEALTHY,
+                        last_checked_at=datetime.now(tz=UTC),
+                        failure_reason=None,
+                    )
+                ],
+                checked_at=datetime.now(tz=UTC),
+            )
+
+    request = CredentialValidationRequest(actor="ops")
+    response = await validate_workflow_credentials(
+        workflow_id,
+        request,
+        repository=Repository(),
+        service=Service(),
+        workspace=_workspace_context(),
+    )
+
+    assert response.status is CredentialHealthStatus.HEALTHY
+    assert len(response.credentials) == 1
 
 
 @pytest.mark.asyncio()

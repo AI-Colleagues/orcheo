@@ -92,3 +92,25 @@ def test_missing_required_plugins_filters_disabled_and_unloaded(
         ]
     )
     assert missing == ["orcheo-plugin-bar", "orcheo-plugin-baz"]
+
+
+def test_missing_required_plugins_flags_not_installed_plugin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A required plugin absent from the inventory is flagged as missing."""
+    monkeypatch.setattr(
+        plugin_inventory,
+        "list_runtime_plugins",
+        lambda: [
+            {
+                "name": "orcheo-plugin-present",
+                "enabled": True,
+                "loaded": True,
+            },
+        ],
+    )
+
+    missing = plugin_inventory.missing_required_plugins(
+        ["orcheo-plugin-present", "orcheo-plugin-missing"]
+    )
+    assert missing == ["orcheo-plugin-missing"]

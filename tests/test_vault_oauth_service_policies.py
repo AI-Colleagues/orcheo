@@ -27,6 +27,39 @@ def test_oauth_service_validates_configuration() -> None:
         service.register_provider("", object())  # type: ignore[arg-type]
 
 
+def test_oauth_service_register_provider_stores_handler() -> None:
+    """register_provider with a valid name stores the handler in _providers."""
+    from orcheo.vault.oauth.models import OAuthProvider
+
+    class _NoopProvider(OAuthProvider):
+        async def refresh_tokens(self, credential):  # pragma: no cover
+            return credential
+
+    vault = InMemoryCredentialVault()
+    service = OAuthCredentialService(vault, token_ttl_seconds=60)
+    handler = _NoopProvider()
+    service.register_provider("slack", handler)
+    assert service._providers["slack"] is handler
+
+
+def test_oauth_service_get_report_returns_stored_report() -> None:
+    """get_report returns the cached CredentialHealthReport for a workflow."""
+    from datetime import UTC, datetime
+    from orcheo.vault.oauth.models import CredentialHealthReport
+
+    vault = InMemoryCredentialVault()
+    service = OAuthCredentialService(vault, token_ttl_seconds=60)
+    workflow_id = uuid4()
+    report = CredentialHealthReport(
+        workflow_id=workflow_id,
+        results=[],
+        checked_at=datetime.now(tz=UTC),
+    )
+    service._reports[workflow_id] = report
+    assert service.get_report(workflow_id) is report
+    assert service.get_report(uuid4()) is None
+
+
 def test_oauth_service_refresh_margin_logic() -> None:
     cipher = AesGcmCredentialCipher(key="refresh-logic")
     vault = InMemoryCredentialVault(cipher=cipher)

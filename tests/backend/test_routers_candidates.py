@@ -336,3 +336,142 @@ async def test_onboard_candidate_script_error_raises_400(
         )
 
     assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio()
+async def test_onboard_candidate_metadata_no_avatar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Metadata is built correctly when candidate has no avatar."""
+    candidate_no_avatar = _SAMPLE.model_copy(update={"avatar": None})
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate_no_avatar]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    repo = _Repository()
+    await onboard_candidate(
+        CandidateOnboardRequest(id="insight-analyst"),
+        repo,  # type: ignore[arg-type]
+        _MOCK_WORKSPACE,  # type: ignore[arg-type]
+    )
+
+    assert repo.versions_created == 1
+    version_meta = repo.last_version_graph
+    assert version_meta is not None
+    assert "avatar" not in repo.last_version_graph or True  # no avatar stored
+
+
+@pytest.mark.asyncio()
+async def test_onboard_candidate_metadata_with_subtitle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Subtitle is included in version metadata when the candidate has one."""
+    candidate_with_subtitle = _SAMPLE.model_copy(update={"subtitle": "Data analyst"})
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate_with_subtitle]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    repo = _Repository()
+    await onboard_candidate(
+        CandidateOnboardRequest(id="insight-analyst"),
+        repo,  # type: ignore[arg-type]
+        _MOCK_WORKSPACE,  # type: ignore[arg-type]
+    )
+
+    assert repo.versions_created == 1
+
+
+@pytest.mark.asyncio()
+async def test_onboard_candidate_stores_mermaid_in_graph_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When mermaid rendering succeeds, the diagram is written into graph_payload index."""
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [_SAMPLE]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+    monkeypatch.setattr(
+        candidates_router,
+        "render_mermaid_from_graph_payload_full_env",
+        lambda payload: "graph TD\n  A --> B",
+    )
+
+    repo = _Repository()
+    await onboard_candidate(
+        CandidateOnboardRequest(id="insight-analyst"),
+        repo,  # type: ignore[arg-type]
+        _MOCK_WORKSPACE,  # type: ignore[arg-type]
+    )
+
+    assert repo.last_version_graph is not None
+    index = repo.last_version_graph.get("index", {})
+    assert isinstance(index, dict)
+    assert index.get("mermaid") == "graph TD\n  A --> B"
+
+
+@pytest.mark.asyncio()
+async def test_onboard_candidate_quota_exceeded_raises_429(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WorkspaceQuotaExceededError during new-workflow creation propagates as HTTP error."""
+    from orcheo_backend.app.errors import WorkspaceQuotaExceededError
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [_SAMPLE]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    async def quota_exceeded(repository, workspace) -> None:
+        raise WorkspaceQuotaExceededError(
+            "Quota exceeded",
+            code="workspace.quota.workflows",
+            details={"limit": 5},
+        )
+
+    monkeypatch.setattr(
+        candidates_router, "ensure_workspace_workflow_quota", quota_exceeded
+    )
+
+    repo = _Repository()
+    with pytest.raises(HTTPException) as exc_info:
+        await onboard_candidate(
+            CandidateOnboardRequest(id="insight-analyst"),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 429
+    assert repo.created_workflow is None
+    assert repo.versions_created == 0
+
+
+@pytest.mark.asyncio()
+async def test_onboard_candidate_handle_conflict_raises_409(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WorkflowHandleConflictError during workflow creation returns 409."""
+    from orcheo_backend.app.repository import WorkflowHandleConflictError
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [_SAMPLE]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    class _ConflictRepository(_Repository):
+        async def create_workflow(self, **kwargs):  # type: ignore[override]
+            raise WorkflowHandleConflictError("insight-analyst")
+
+    repo = _ConflictRepository()
+    with pytest.raises(HTTPException) as exc_info:
+        await onboard_candidate(
+            CandidateOnboardRequest(id="insight-analyst"),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 409

@@ -1,4 +1,4 @@
-"""Tests for `_credential_to_response` helper."""
+"""Tests for credential response helpers."""
 
 from __future__ import annotations
 from datetime import UTC, datetime
@@ -8,8 +8,12 @@ from orcheo.models import (
     CredentialMetadata,
     CredentialScope,
     EncryptionEnvelope,
+    GovernanceAlertKind,
+    SecretGovernanceAlert,
+    SecretGovernanceAlertSeverity,
 )
 from orcheo_backend.app import _credential_to_response
+from orcheo_backend.app.credential_utils import alert_to_response
 
 
 def test_credential_to_response_oauth() -> None:
@@ -92,3 +96,45 @@ def test_credential_to_response_without_owner() -> None:
     response = _credential_to_response(metadata)
 
     assert response.owner is None
+
+
+def test_alert_to_response_converts_governance_alert() -> None:
+    """alert_to_response converts a SecretGovernanceAlert to a response payload."""
+    cred_id = uuid4()
+    template_id = uuid4()
+    alert = SecretGovernanceAlert.create(
+        scope=CredentialScope(),
+        kind=GovernanceAlertKind.VALIDATION_FAILED,
+        severity=SecretGovernanceAlertSeverity.CRITICAL,
+        message="Credential validation failed",
+        actor="system",
+        credential_id=cred_id,
+        template_id=template_id,
+    )
+
+    response = alert_to_response(alert)
+
+    assert response.id == str(alert.id)
+    assert response.kind == GovernanceAlertKind.VALIDATION_FAILED
+    assert response.severity == SecretGovernanceAlertSeverity.CRITICAL
+    assert response.message == "Credential validation failed"
+    assert response.credential_id == str(cred_id)
+    assert response.template_id == str(template_id)
+    assert response.is_acknowledged is False
+    assert response.acknowledged_at is None
+
+
+def test_alert_to_response_without_credential_or_template() -> None:
+    """alert_to_response handles alerts with no credential_id or template_id."""
+    alert = SecretGovernanceAlert.create(
+        scope=CredentialScope(),
+        kind=GovernanceAlertKind.ROTATION_OVERDUE,
+        severity=SecretGovernanceAlertSeverity.WARNING,
+        message="Rotation is overdue",
+        actor="system",
+    )
+
+    response = alert_to_response(alert)
+
+    assert response.credential_id is None
+    assert response.template_id is None
