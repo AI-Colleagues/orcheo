@@ -1509,6 +1509,11 @@ def _ensure_stack_assets(
     )
 
     env_file = stack_dir / ".env"
+    if config.preserve_existing_backend_url and env_file.exists():
+        preserved_backend_url = _read_env_value(env_file, "ORCHEO_API_URL")
+        if preserved_backend_url is not None:
+            config.backend_url = preserved_backend_url
+
     updates, defaults = _build_env_updates(
         config,
         requested_stack_version=requested_stack_version,

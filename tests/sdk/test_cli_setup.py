@@ -1069,6 +1069,57 @@ def test_ensure_stack_assets_existing_env(monkeypatch, tmp_path):
     assert updates
 
 
+def test_ensure_stack_assets_writes_auth_for_preserved_https_backend(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(tmp_path))
+    monkeypatch.setattr(secrets, "token_urlsafe", lambda _: "safe")
+    monkeypatch.setattr(secrets, "token_hex", lambda _: "hex")
+    (tmp_path / ".env").write_text(
+        "ORCHEO_API_URL=https://api.beta.orcheo.cloud\n", encoding="utf-8"
+    )
+
+    def stub_sync(stack_dir: Path, stack_version: str | None, console: Console) -> str:
+        del stack_version, console
+        (stack_dir / ".env.example").write_text("", encoding="utf-8")
+        return "1.0"
+
+    monkeypatch.setattr(setup, "_sync_stack_assets_with_best_source", stub_sync)
+    config = setup.SetupConfig(
+        mode="install",
+        backend_url="http://localhost:2025",
+        studio_url="http://localhost:2026",
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key=None,
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_local_ports=True,
+        backend_upstreams="backend:2025",
+        canvas_upstream="canvas:2026",
+        start_stack=False,
+        install_docker_if_missing=False,
+        preserve_existing_backend_url=True,
+        auth_issuer="https://issuer.example.com/",
+        auth_client_id="current-client",
+        auth_audience="current-audience",
+    )
+
+    setup._ensure_stack_assets(config=config, console=make_console())
+
+    result = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "ORCHEO_API_URL=https://api.beta.orcheo.cloud" in result
+    assert "ORCHEO_AUTH_MODE=required" in result
+    assert "ORCHEO_AUTH_ISSUER=https://issuer.example.com/" in result
+    assert "ORCHEO_AUTH_CLIENT_ID=current-client" in result
+    assert "ORCHEO_AUTH_AUDIENCE=current-audience" in result
+    assert (
+        "ORCHEO_AUTH_JWKS_URL=https://issuer.example.com/.well-known/jwks.json"
+        in result
+    )
+    assert "VITE_ORCHEO_AUTH_ISSUER=https://issuer.example.com/" in result
+
+
 def test_run_setup_generates_api_key(monkeypatch, tmp_path):
     monkeypatch.setattr(secrets, "token_urlsafe", lambda _: "tokenized")
     monkeypatch.setattr(setup, "_resolve_stack_env_file", lambda: tmp_path / ".env")
