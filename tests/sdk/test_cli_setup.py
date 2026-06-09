@@ -356,6 +356,77 @@ def test_resolve_chatkit_and_paths(monkeypatch):
     assert setup._resolve_stack_env_file() == Path("/tmp/test-stack") / ".env"
 
 
+def test_resolve_chatkit_domain_key_uses_current_value_prompt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_6954ef8b091c8190b0734f266b51edd00094f73ed7d04989\n",
+        encoding="utf-8",
+    )
+
+    prompts: list[tuple[str, str, bool]] = []
+    events: list[str] = []
+
+    def _prompt(
+        prompt: str,
+        *,
+        default: str = "",
+        show_default: bool = True,
+        **_: object,
+    ) -> str:
+        prompts.append((prompt, default, show_default))
+        return default
+
+    monkeypatch.setattr(setup.typer, "prompt", _prompt)
+
+    assert (
+        setup._resolve_chatkit_domain_key(
+            None, yes=False, env_file=env_file, env_exists=True
+        )
+        == "domain_pk_6954ef8b091c8190b0734f266b51edd00094f73ed7d04989"
+    )
+    assert prompts == [("ChatKit domain key", "****4989", True)]
+
+
+def test_resolve_https_auth_config_uses_current_values_as_defaults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "ORCHEO_AUTH_ISSUER=https://issuer.example.com/\n"
+        "ORCHEO_AUTH_CLIENT_ID=current-client\n"
+        "ORCHEO_AUTH_AUDIENCE=current-audience\n",
+        encoding="utf-8",
+    )
+
+    prompts: list[tuple[str, str]] = []
+
+    def _prompt(prompt: str, *, default: str = "", **_: object) -> str:
+        prompts.append((prompt, default))
+        return default
+
+    monkeypatch.setattr(setup.typer, "prompt", _prompt)
+
+    issuer, client_id, audience = setup._resolve_https_auth_config(
+        backend_url="https://orcheo.example.com",
+        yes=False,
+        env_file=env_file,
+        env_exists=True,
+    )
+
+    assert issuer == "https://issuer.example.com/"
+    assert client_id == "current-client"
+    assert audience == "current-audience"
+    assert prompts == [
+        ("Auth issuer", "https://issuer.example.com/"),
+        ("Auth client ID", "current-client"),
+        ("Auth audience", "current-audience"),
+    ]
+
+
 def test_stack_asset_urls(monkeypatch):
     monkeypatch.setenv("ORCHEO_STACK_ASSET_BASE_URL", "https://custom")
     assert setup._resolve_stack_asset_base_url() == "https://custom"
@@ -449,6 +520,184 @@ def test_build_env_updates(monkeypatch):
     assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain"
     assert updates["ORCHEO_STACK_IMAGE"] == f"{setup._STACK_IMAGE_REPOSITORY}:2.0"
     assert defaults["ORCHEO_POSTGRES_PASSWORD"] == "safe"
+
+
+def test_build_env_updates_sets_https_auth_contract(monkeypatch):
+    monkeypatch.setattr(secrets, "token_urlsafe", lambda _: "safe")
+    monkeypatch.setattr(secrets, "token_hex", lambda _: "hex")
+    config = setup.SetupConfig(
+        mode="install",
+        backend_url="https://orcheo.example.com",
+        studio_url="https://orcheo.example.com",
+        auth_mode="api-key",
+        api_key="provided",
+        chatkit_domain_key="domain",
+        public_ingress_enabled=True,
+        public_host="orcheo.example.com",
+        publish_local_ports=True,
+        backend_upstreams="backend:2025",
+        canvas_upstream="canvas:2026",
+        start_stack=False,
+        install_docker_if_missing=False,
+        auth_issuer="https://issuer.example.com/",
+        auth_client_id="client-id",
+        auth_audience="audience",
+    )
+
+    updates, _ = setup._build_env_updates(config)
+
+    assert updates["ORCHEO_AUTH_MODE"] == "required"
+    assert updates["ORCHEO_AUTH_ISSUER"] == "https://issuer.example.com/"
+    assert updates["ORCHEO_AUTH_CLIENT_ID"] == "client-id"
+    assert updates["ORCHEO_AUTH_AUDIENCE"] == "audience"
+    assert updates["ORCHEO_AUTH_JWKS_URL"] == (
+        "https://issuer.example.com/.well-known/jwks.json"
+    )
+    assert updates["VITE_ORCHEO_AUTH_ISSUER"] == "https://issuer.example.com/"
+
+
+def test_run_setup_https_backend_prompts_auth_and_chatkit_from_current_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    (stack_dir / ".env").write_text(
+        "ORCHEO_AUTH_ISSUER=https://issuer.example.com/\n"
+        "ORCHEO_AUTH_CLIENT_ID=current-client\n"
+        "ORCHEO_AUTH_AUDIENCE=current-audience\n"
+        "VITE_ORCHEO_CHATKIT_DOMAIN_KEY="
+        "domain_pk_6954ef8b091c8190b0734f266b51edd00094f73ed7d04989\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+
+    prompts: list[tuple[str, str, bool]] = []
+    events: list[str] = []
+
+    def _prompt(
+        prompt: str,
+        *,
+        default: str = "",
+        show_default: bool = True,
+        **_: object,
+    ) -> str:
+        events.append(f"prompt:{prompt}")
+        prompts.append((prompt, default, show_default))
+        return default
+
+    monkeypatch.setattr(setup.typer, "prompt", _prompt)
+
+    def _confirm(prompt: str, *, default: bool) -> bool:
+        events.append(f"confirm:{prompt}")
+        return False
+
+    monkeypatch.setattr(setup.typer, "confirm", _confirm)
+
+    config = setup.run_setup(
+        mode="install",
+        backend_url="https://orcheo.example.com",
+        studio_url="https://orcheo.example.com",
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key=None,
+        public_ingress=True,
+        public_host="orcheo.example.com",
+        publish_local_ports=True,
+        start_stack=False,
+        install_docker=False,
+        yes=False,
+        manual_secrets=False,
+        console=Console(record=True),
+    )
+
+    assert config.auth_issuer == "https://issuer.example.com/"
+    assert config.auth_client_id == "current-client"
+    assert config.auth_audience == "current-audience"
+    assert (
+        config.chatkit_domain_key
+        == "domain_pk_6954ef8b091c8190b0734f266b51edd00094f73ed7d04989"
+    )
+    assert prompts == [
+        ("Auth issuer", "https://issuer.example.com/", True),
+        ("Auth client ID", "current-client", True),
+        ("Auth audience", "current-audience", True),
+        ("ChatKit domain key", "****4989", True),
+    ]
+    assert "confirm:Install Orcheo skill for Claude Code and Codex?" in events
+    assert events.index("prompt:Auth issuer") < events.index(
+        "confirm:Install Orcheo skill for Claude Code and Codex?"
+    )
+    assert events.index("prompt:Auth audience") < events.index(
+        "confirm:Install Orcheo skill for Claude Code and Codex?"
+    )
+    assert events.index("prompt:ChatKit domain key") < events.index(
+        "confirm:Install Orcheo skill for Claude Code and Codex?"
+    )
+
+
+def test_run_setup_prompts_https_auth_when_existing_backend_url_is_preserved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    (stack_dir / ".env").write_text(
+        "ORCHEO_API_URL=https://api.beta.orcheo.cloud\n"
+        "ORCHEO_AUTH_ISSUER=https://issuer.example.com/\n"
+        "ORCHEO_AUTH_CLIENT_ID=current-client\n"
+        "ORCHEO_AUTH_AUDIENCE=current-audience\n"
+        "VITE_ORCHEO_CHATKIT_DOMAIN_KEY="
+        "domain_pk_6954ef8b091c8190b0734f266b51edd00094f73ed7d04989\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+
+    prompts: list[str] = []
+    events: list[str] = []
+
+    def _prompt(prompt: str, *, default: str = "", **_: object) -> str:
+        events.append(f"prompt:{prompt}")
+        prompts.append(prompt)
+        if prompt == "Backend URL":
+            return default
+        if prompt == "Studio URL":
+            return default
+        if prompt == "ChatKit domain key":
+            return default
+        return default
+
+    def _confirm(prompt: str, *, default: bool) -> bool:
+        events.append(f"confirm:{prompt}")
+        return False
+
+    monkeypatch.setattr(setup.typer, "prompt", _prompt)
+    monkeypatch.setattr(setup.typer, "confirm", _confirm)
+
+    setup.run_setup(
+        mode="install",
+        backend_url=None,
+        studio_url=None,
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key=None,
+        public_ingress=None,
+        public_host="orcheo.example.com",
+        publish_local_ports=None,
+        start_stack=False,
+        install_docker=False,
+        yes=False,
+        manual_secrets=False,
+        console=Console(record=True),
+    )
+
+    assert "Auth issuer" in prompts
+    assert "Auth client ID" in prompts
+    assert "Auth audience" in prompts
+    assert events.index("prompt:Studio URL") < events.index("prompt:Auth issuer")
+    assert events.index("prompt:Auth audience") < events.index(
+        "confirm:Install Orcheo skill for Claude Code and Codex?"
+    )
 
 
 def test_build_env_updates_hides_debug_ports_in_local_only_mode(monkeypatch):

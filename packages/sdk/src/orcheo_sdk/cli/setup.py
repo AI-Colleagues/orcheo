@@ -75,6 +75,9 @@ class SetupConfig:
     preserve_existing_backend_url: bool = False
     stack_project_dir: str | None = None
     stack_env_file: str | None = None
+    auth_issuer: str | None = None
+    auth_client_id: str | None = None
+    auth_audience: str | None = None
 
 
 def _run_command(command: list[str], *, console: Console) -> None:
@@ -934,23 +937,120 @@ def _normalize_public_host(value: str) -> str:
     return candidate
 
 
+def _mask_chatkit_domain_key(value: str) -> str:
+    if len(value) <= 4:
+        return value
+    return f"****{value[-4:]}"
+
+
 def _resolve_chatkit_domain_key(
     chatkit_domain_key: str | None,
     *,
     yes: bool,
+    env_file: Path | None = None,
+    env_exists: bool = False,
 ) -> str | None:
     resolved = _normalize_optional_value(chatkit_domain_key)
     if resolved is not None:
         return resolved
+    existing = (
+        _read_env_value(env_file, "VITE_ORCHEO_CHATKIT_DOMAIN_KEY")
+        if env_file is not None and env_exists
+        else None
+    )
     if yes:
-        return None
-    return _normalize_optional_value(
+        return existing
+
+    prompt = (
+        "ChatKit domain key"
+        if existing is not None
+        else "ChatKit domain key - press Enter to skip"
+    )
+    masked_default = _mask_chatkit_domain_key(existing) if existing is not None else ""
+    selected = _normalize_optional_value(
         typer.prompt(
-            "ChatKit domain key (Enter to skip)",
-            default="",
-            show_default=False,
+            prompt,
+            default=masked_default,
+            show_default=existing is not None,
         )
     )
+    if existing is not None and selected == masked_default:
+        return existing
+    if selected is not None:
+        return selected
+    return existing
+
+
+def _backend_url_requires_https_auth(backend_url: str) -> bool:
+    parsed = urlsplit(backend_url)
+    return parsed.scheme == "https" and bool(parsed.netloc)
+
+
+def _resolve_required_env_prompt(
+    *,
+    env_key: str,
+    label: str,
+    current_value: str | None,
+    yes: bool,
+) -> str:
+    if current_value is not None:
+        if yes:
+            return current_value
+        selected = _normalize_optional_value(typer.prompt(label, default=current_value))
+        return selected or current_value
+
+    if yes:
+        raise typer.BadParameter(
+            f"{env_key} is required when the backend URL uses HTTPS."
+        )
+
+    selected = _normalize_optional_value(typer.prompt(label))
+    if selected is None:
+        raise typer.BadParameter(
+            f"{env_key} is required when the backend URL uses HTTPS."
+        )
+    return selected
+
+
+def _resolve_https_auth_config(
+    *,
+    backend_url: str,
+    yes: bool,
+    env_file: Path,
+    env_exists: bool,
+) -> tuple[str | None, str | None, str | None]:
+    if not _backend_url_requires_https_auth(backend_url):
+        return None, None, None
+
+    existing_issuer = (
+        _read_env_value(env_file, "ORCHEO_AUTH_ISSUER") if env_exists else None
+    )
+    existing_client_id = (
+        _read_env_value(env_file, "ORCHEO_AUTH_CLIENT_ID") if env_exists else None
+    )
+    existing_audience = (
+        _read_env_value(env_file, "ORCHEO_AUTH_AUDIENCE") if env_exists else None
+    )
+
+    issuer = _resolve_required_env_prompt(
+        env_key="ORCHEO_AUTH_ISSUER",
+        label="Auth issuer",
+        current_value=existing_issuer,
+        yes=yes,
+    )
+    client_id = _resolve_required_env_prompt(
+        env_key="ORCHEO_AUTH_CLIENT_ID",
+        label="Auth client ID",
+        current_value=existing_client_id,
+        yes=yes,
+    )
+    audience = _resolve_required_env_prompt(
+        env_key="ORCHEO_AUTH_AUDIENCE",
+        label="Auth audience",
+        current_value=existing_audience,
+        yes=yes,
+    )
+    return issuer, client_id, audience
 
 
 def _resolve_stack_project_dir() -> Path:
@@ -1201,6 +1301,31 @@ def _build_env_updates(
         updates["ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN"] = ""
     if config.chatkit_domain_key:
         updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] = config.chatkit_domain_key
+    if _backend_url_requires_https_auth(config.backend_url):
+        issuer = _normalize_optional_value(config.auth_issuer)
+        client_id = _normalize_optional_value(config.auth_client_id)
+        audience = _normalize_optional_value(config.auth_audience)
+        missing = [
+            env_key
+            for env_key, value in (
+                ("ORCHEO_AUTH_ISSUER", issuer),
+                ("ORCHEO_AUTH_CLIENT_ID", client_id),
+                ("ORCHEO_AUTH_AUDIENCE", audience),
+            )
+            if value is None
+        ]
+        if missing:
+            raise typer.BadParameter(
+                "Backend URLs using HTTPS require ORCHEO_AUTH_ISSUER, "
+                "ORCHEO_AUTH_CLIENT_ID, and ORCHEO_AUTH_AUDIENCE to be set."
+            )
+
+        updates["ORCHEO_AUTH_MODE"] = "required"
+        updates["ORCHEO_AUTH_ISSUER"] = issuer
+        updates["ORCHEO_AUTH_CLIENT_ID"] = client_id
+        updates["ORCHEO_AUTH_AUDIENCE"] = audience
+        updates["ORCHEO_AUTH_JWKS_URL"] = f"{issuer.rstrip('/')}/.well-known/jwks.json"
+        updates["VITE_ORCHEO_AUTH_ISSUER"] = issuer
     if requested_stack_version:
         updates["ORCHEO_STACK_IMAGE"] = (
             f"{_STACK_IMAGE_REPOSITORY}:{requested_stack_version}"
@@ -1482,6 +1607,21 @@ def run_setup(
         env_file=stack_env_file,
         env_exists=has_existing_stack_env,
     )
+    auth_backend_url = resolved_backend_url
+    if preserve_existing_backend_url and has_existing_stack_env:
+        preserved_backend_url = _read_env_value(stack_env_file, "ORCHEO_API_URL")
+        if preserved_backend_url is not None:
+            auth_backend_url = preserved_backend_url
+    (
+        resolved_auth_issuer,
+        resolved_auth_client_id,
+        resolved_auth_audience,
+    ) = _resolve_https_auth_config(
+        backend_url=auth_backend_url,
+        yes=yes,
+        env_file=stack_env_file,
+        env_exists=has_existing_stack_env,
+    )
     resolved_auth_mode = _resolve_auth_mode(auth_mode, yes=yes)
     (
         resolved_start_stack,
@@ -1500,7 +1640,10 @@ def run_setup(
         env_exists=has_existing_stack_env,
     )
     resolved_chatkit_domain_key = _resolve_chatkit_domain_key(
-        chatkit_domain_key, yes=yes
+        chatkit_domain_key,
+        yes=yes,
+        env_file=stack_env_file,
+        env_exists=has_existing_stack_env,
     )
     resolved_backend_upstreams, resolved_canvas_upstream = _resolve_stack_upstreams(
         stack_env_file,
@@ -1540,6 +1683,9 @@ def run_setup(
         install_docker_if_missing=resolved_install_docker,
         install_agent_skills=resolved_install_agent_skills,
         preserve_existing_backend_url=preserve_existing_backend_url,
+        auth_issuer=resolved_auth_issuer,
+        auth_client_id=resolved_auth_client_id,
+        auth_audience=resolved_auth_audience,
     )
 
 

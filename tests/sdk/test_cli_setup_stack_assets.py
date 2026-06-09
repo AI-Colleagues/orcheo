@@ -386,7 +386,10 @@ def test_run_setup_install_explicit_public_ingress_updates_backend_url_defaults(
     stack_dir.mkdir(parents=True, exist_ok=True)
     (stack_dir / ".env").write_text(
         "ORCHEO_API_URL=http://existing-api.test\n"
-        "VITE_ORCHEO_BACKEND_URL=http://existing-api.test\n",
+        "VITE_ORCHEO_BACKEND_URL=http://existing-api.test\n"
+        "ORCHEO_AUTH_ISSUER=https://issuer.example.com/\n"
+        "ORCHEO_AUTH_CLIENT_ID=current-client\n"
+        "ORCHEO_AUTH_AUDIENCE=current-audience\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
@@ -1442,6 +1445,12 @@ def test_run_setup_public_ingress_derives_public_env_contract(
 
     stack_dir = tmp_path / "stack"
     stack_dir.mkdir(parents=True, exist_ok=True)
+    (stack_dir / ".env").write_text(
+        "ORCHEO_AUTH_ISSUER=https://issuer.example.com/\n"
+        "ORCHEO_AUTH_CLIENT_ID=current-client\n"
+        "ORCHEO_AUTH_AUDIENCE=current-audience\n",
+        encoding="utf-8",
+    )
     monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
 
     config = setup_mod.run_setup(
@@ -1466,6 +1475,14 @@ def test_run_setup_public_ingress_derives_public_env_contract(
     assert updates["ORCHEO_API_URL"] == "https://orcheo.example.com"
     assert updates["VITE_ORCHEO_BACKEND_URL"] == "https://orcheo.example.com"
     assert updates["ORCHEO_STUDIO_URL"] == "https://orcheo.example.com"
+    assert updates["ORCHEO_AUTH_MODE"] == "required"
+    assert updates["ORCHEO_AUTH_ISSUER"] == "https://issuer.example.com/"
+    assert updates["ORCHEO_AUTH_CLIENT_ID"] == "current-client"
+    assert updates["ORCHEO_AUTH_AUDIENCE"] == "current-audience"
+    assert updates["ORCHEO_AUTH_JWKS_URL"] == (
+        "https://issuer.example.com/.well-known/jwks.json"
+    )
+    assert updates["VITE_ORCHEO_AUTH_ISSUER"] == "https://issuer.example.com/"
     assert updates["ORCHEO_CORS_ALLOW_ORIGINS"] == (
         "https://orcheo.example.com,http://localhost:2026,http://127.0.0.1:2026"
     )
