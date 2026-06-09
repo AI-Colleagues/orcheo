@@ -287,7 +287,10 @@ def test_execute_setup_generates_secrets_on_fresh_install(
 def test_run_setup_upgrade_preserves_existing_api_key_by_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("ORCHEO_STACK_DIR", str(tmp_path / "stack"))
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    (stack_dir / ".env").write_text("UNRELATED_KEY=value\n", encoding="utf-8")
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
 
     config = run_setup(
         mode="upgrade",
@@ -558,7 +561,10 @@ def test_execute_setup_normalizes_quoted_backend_url_on_upgrade_preserve(
     stack_dir.mkdir(parents=True)
     (stack_dir / ".env").write_text(
         'ORCHEO_API_URL="https://api.example.com"\n'
-        'VITE_ORCHEO_BACKEND_URL="https://api.example.com"\n',
+        'VITE_ORCHEO_BACKEND_URL="https://api.example.com"\n'
+        "ORCHEO_AUTH_ISSUER=https://issuer.example.com/\n"
+        "ORCHEO_AUTH_CLIENT_ID=current-client\n"
+        "ORCHEO_AUTH_AUDIENCE=current-audience\n",
         encoding="utf-8",
     )
     _patch_common(monkeypatch, stack_dir=stack_dir, has_docker=False)
@@ -567,9 +573,30 @@ def test_execute_setup_normalizes_quoted_backend_url_on_upgrade_preserve(
     config.mode = "upgrade"
     config.start_stack = False
     config.preserve_existing_backend_url = True
+    config.auth_issuer = "https://issuer.example.com/"
+    config.auth_client_id = "current-client"
+    config.auth_audience = "current-audience"
     execute_setup(config, console=Console(record=True))
 
     assert config.backend_url == "https://api.example.com"
+
+
+def test_execute_setup_preserve_backend_url_without_existing_value(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(parents=True)
+    (stack_dir / ".env").write_text("UNRELATED_KEY=value\n", encoding="utf-8")
+    _patch_common(monkeypatch, stack_dir=stack_dir, has_docker=False)
+
+    config = _setup_config()
+    config.mode = "upgrade"
+    config.start_stack = False
+    config.preserve_existing_backend_url = True
+    execute_setup(config, console=Console(record=True))
+
+    assert config.backend_url == "http://localhost:2025"
 
 
 def test_execute_setup_raises_when_asset_download_fails(

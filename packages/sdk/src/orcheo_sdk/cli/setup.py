@@ -1320,6 +1320,10 @@ def _build_env_updates(
                 "ORCHEO_AUTH_CLIENT_ID, and ORCHEO_AUTH_AUDIENCE to be set."
             )
 
+        assert issuer is not None
+        assert client_id is not None
+        assert audience is not None
+
         updates["ORCHEO_AUTH_MODE"] = "required"
         updates["ORCHEO_AUTH_ISSUER"] = issuer
         updates["ORCHEO_AUTH_CLIENT_ID"] = client_id

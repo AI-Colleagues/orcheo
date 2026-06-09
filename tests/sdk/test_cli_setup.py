@@ -556,6 +556,30 @@ def test_build_env_updates_sets_https_auth_contract(monkeypatch):
     assert updates["VITE_ORCHEO_AUTH_ISSUER"] == "https://issuer.example.com/"
 
 
+def test_build_env_updates_rejects_missing_https_auth_values() -> None:
+    config = setup.SetupConfig(
+        mode="install",
+        backend_url="https://orcheo.example.com",
+        studio_url="https://orcheo.example.com",
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key=None,
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_local_ports=True,
+        backend_upstreams="backend:2025",
+        canvas_upstream="canvas:2026",
+        start_stack=False,
+        install_docker_if_missing=False,
+    )
+
+    with pytest.raises(
+        setup.typer.BadParameter,
+        match="Backend URLs using HTTPS require ORCHEO_AUTH_ISSUER",
+    ):
+        setup._build_env_updates(config)
+
+
 def test_run_setup_https_backend_prompts_auth_and_chatkit_from_current_values(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -895,6 +919,73 @@ def test_read_env_value_and_warn(tmp_path):
     console = make_console()
     setup._warn_chatkit_domain_key_missing(env_file=env_file, console=console)
     assert "ChatKit domain key" in console.file.getvalue()
+
+
+def test_mask_chatkit_domain_key_preserves_short_values() -> None:
+    assert setup._mask_chatkit_domain_key("abc") == "abc"
+    assert setup._mask_chatkit_domain_key("abcd") == "abcd"
+
+
+def test_resolve_https_auth_config_raises_when_values_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+
+    with pytest.raises(
+        setup.typer.BadParameter,
+        match="ORCHEO_AUTH_ISSUER is required when the backend URL uses HTTPS.",
+    ):
+        setup._resolve_https_auth_config(
+            backend_url="https://orcheo.example.com",
+            yes=True,
+            env_file=env_file,
+            env_exists=False,
+        )
+
+    monkeypatch.setattr(setup.typer, "prompt", lambda *_args, **_kwargs: " ")
+
+    with pytest.raises(
+        setup.typer.BadParameter,
+        match="ORCHEO_AUTH_ISSUER is required when the backend URL uses HTTPS.",
+    ):
+        setup._resolve_https_auth_config(
+            backend_url="https://orcheo.example.com",
+            yes=False,
+            env_file=env_file,
+            env_exists=False,
+        )
+
+
+def test_resolve_https_auth_config_prompts_for_entered_values(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    responses = iter(
+        [
+            "https://issuer.example.com/",
+            "current-client",
+            "current-audience",
+        ]
+    )
+
+    monkeypatch.setattr(
+        setup.typer,
+        "prompt",
+        lambda *_args, **_kwargs: next(responses),
+    )
+
+    assert setup._resolve_https_auth_config(
+        backend_url="https://orcheo.example.com",
+        yes=False,
+        env_file=env_file,
+        env_exists=False,
+    ) == (
+        "https://issuer.example.com/",
+        "current-client",
+        "current-audience",
+    )
 
 
 def test_upsert_env_values(tmp_path):
