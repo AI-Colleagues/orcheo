@@ -286,6 +286,81 @@ async def test_onboard_candidate_resolves_inline_configurable_schema(
 
 
 @pytest.mark.asyncio()
+async def test_onboard_candidate_merges_existing_configurable_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Authored configurable schema metadata wins over inline annotations."""
+
+    candidate_with_schema = _SAMPLE.model_copy(
+        update={
+            "metadata": {
+                "configurable_schema": {
+                    "ai_model": {
+                        "type": "string",
+                        "title": "Authored Model",
+                        "default": "openai:gpt-5.4-mini",
+                    },
+                    "region": {
+                        "type": "string",
+                        "title": "Region",
+                        "default": "us-east-1",
+                    },
+                }
+            },
+            "config": {
+                "configurable": {
+                    "ai_model": {
+                        "type": "string",
+                        "title": "Inline Model",
+                        "default": "openai:gpt-4.1-mini",
+                    },
+                    "temperature": {
+                        "type": "number",
+                        "default": 0.2,
+                    },
+                }
+            },
+        }
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate_with_schema]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    repo = _Repository()
+    await onboard_candidate(
+        CandidateOnboardRequest(id="insight-analyst"),
+        repo,  # type: ignore[arg-type]
+        _MOCK_WORKSPACE,  # type: ignore[arg-type]
+    )
+
+    assert repo.last_runnable_config == {
+        "configurable": {
+            "ai_model": "openai:gpt-4.1-mini",
+            "temperature": 0.2,
+        }
+    }
+    assert repo.last_metadata is not None
+    assert repo.last_metadata["configurable_schema"] == {
+        "ai_model": {
+            "type": "string",
+            "title": "Authored Model",
+            "default": "openai:gpt-5.4-mini",
+        },
+        "region": {
+            "type": "string",
+            "title": "Region",
+            "default": "us-east-1",
+        },
+        "temperature": {
+            "type": "number",
+            "default": 0.2,
+        },
+    }
+
+
+@pytest.mark.asyncio()
 async def test_onboard_candidate_rejects_missing_required_plugins(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

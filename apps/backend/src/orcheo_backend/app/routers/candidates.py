@@ -75,6 +75,21 @@ def _build_version_metadata(candidate: CandidateItem) -> dict[str, Any]:
     return metadata
 
 
+def _merge_configurable_schema(
+    existing: Any,
+    inline: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge inline schema declarations with authored schema metadata.
+
+    Candidate metadata can include a ``configurable_schema`` map authored from
+    frontmatter or a sibling schema file. Preserve those explicit definitions
+    and only fill in fields discovered from inline config annotations.
+    """
+    if isinstance(existing, dict):
+        return {**inline, **existing}
+    return inline
+
+
 def _resolve_candidate_runnable_config(
     candidate: CandidateItem,
     metadata: dict[str, Any],
@@ -112,7 +127,9 @@ def _resolve_candidate_runnable_config(
     if inline_schema:
         metadata = {
             **metadata,
-            "configurable_schema": inline_schema,
+            "configurable_schema": _merge_configurable_schema(
+                metadata.get("configurable_schema"), inline_schema
+            ),
         }
         runnable_config = runnable_config.model_copy(
             update={"configurable": resolved_configurable}
