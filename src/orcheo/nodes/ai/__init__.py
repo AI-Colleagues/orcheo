@@ -19,6 +19,7 @@ from orcheo.tracing.model_metadata import (
     infer_chat_result_model_name,
     infer_model_name_from_instance,
 )
+from orcheo.widgets.chatkit import build_chatkit_widget_tools
 from .agent import (
     AgentNode,
     AgentReplyExtractorNode,
@@ -44,6 +45,7 @@ __all__ = [
     "ProviderStrategy",
     "create_agent",
     "init_chat_model",
+    "build_chatkit_widget_tools",
     "tool_registry",
     "tool_execution_context",
     "tool_progress_context",

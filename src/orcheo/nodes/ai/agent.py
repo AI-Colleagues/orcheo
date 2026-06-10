@@ -334,6 +334,10 @@ class AgentNode(AINode):
     """Tool names predefined by Orcheo."""
     workflow_tools: list[WorkflowTool] = Field(default_factory=list)
     """Workflows to be used as tools."""
+    use_chatkit_widget_tools: bool = False
+    """Enable local ChatKit widget definitions as tools."""
+    chatkit_widgets_dir: str | None = "/app/examples/chatkit_widgets/widgets"
+    """Curated directory containing .widget files to project as tools."""
     mcp_servers: dict[str, Any] = Field(default_factory=dict)
     """MCP servers to be used as tools (Connection from langchain_mcp_adapters)."""
     response_format: dict | type[BaseModel] | None = None
@@ -481,6 +485,11 @@ class AgentNode(AINode):
                 return_direct=wf_tool_def.return_direct,
             )
             tools.append(tool)
+
+        if self.use_chatkit_widget_tools:
+            tools.extend(
+                _ai_attr("build_chatkit_widget_tools")(self.chatkit_widgets_dir)
+            )
 
         # Get MCP tools
         mcp_client = _ai_attr("MultiServerMCPClient")(connections=self.mcp_servers)
