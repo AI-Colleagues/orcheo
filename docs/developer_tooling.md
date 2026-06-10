@@ -7,7 +7,7 @@ contributors can bootstrap the repository in minutes.
 
 The repository now includes a [VS Code Dev Container](../.devcontainer) profile
 that ships with Python 3.12, uv, and the Node.js runtime required for the React
-canvas. Open the folder in VS Code and select **Reopen in Container**. The
+studio. Open the folder in VS Code and select **Reopen in Container**. The
 container will automatically run `uv sync --all-groups` to install Python
 packages and configure recommended extensions.
 
@@ -22,7 +22,7 @@ installing dependencies, run them via `uv run <script>`:
 - `uv run orcheo-lint` – execute Ruff (lint + format check) and mypy.
 - `uv run orcheo-test` – run the pytest suite with coverage reporting.
 - `uv run orcheo-format` – apply Ruff formatting and import sorting.
-- `uv run orcheo-canvas-lint` – lint the React canvas application.
+- `uv run orcheo-studio-lint` – lint the React studio application.
 
 These commands mirror the existing `make` targets but remove the need for GNU
 Make on contributor machines.
@@ -45,7 +45,7 @@ repository lives outside the current working directory.
 Two quickstart flows now live under `examples/quickstart` to demonstrate both
 onboarding paths:
 
-- `canvas_welcome.json` – graph configuration suited for the Canvas interface.
+- `canvas_welcome.json` – graph configuration suited for the Studio interface.
 - `sdk_quickstart.py` – Python script that builds the same graph and executes it
   locally using the SDK primitives.
 

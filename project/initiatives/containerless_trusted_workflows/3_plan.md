@@ -23,7 +23,7 @@ Remove gVisor sandboxing and external CLI-agent support by changing production w
 
 ### Milestone 1: Remove External CLI-Agent Support
 
-**Description:** Delete active runtime support for Claude Code, Codex, Gemini, and generic external-agent workflow nodes. Success criterion: no production node registry entries, worker tasks, API routes, Canvas flows, docs, or tests require CLI-agent providers.
+**Description:** Delete active runtime support for Claude Code, Codex, Gemini, and generic external-agent workflow nodes. Success criterion: no production node registry entries, worker tasks, API routes, Studio flows, docs, or tests require CLI-agent providers.
 
 #### Task Checklist
 
@@ -31,7 +31,7 @@ Remove gVisor sandboxing and external CLI-agent support by changing production w
   - Dependencies: None
 - [x] Task 1.2: Remove external-agent runtime manager, provider models, auth path helpers, and process-launch integration
   - Dependencies: Task 1.1
-- [x] Task 1.3: Remove worker login/status/refresh tasks and backend/Canvas API surfaces for external-agent auth
+- [x] Task 1.3: Remove worker login/status/refresh tasks and backend/Studio API surfaces for external-agent auth
   - Dependencies: Task 1.2
 - [x] Task 1.4: Audit workflow remediation/autofix and remove or replace CLI-agent-dependent behavior
   - Dependencies: Task 1.2
@@ -107,7 +107,7 @@ Remove gVisor sandboxing and external CLI-agent support by changing production w
 
 - [x] Task 5.1: Add backend/API path or serializer support to render Mermaid from declarative graph summaries on demand
   - Dependencies: Milestone 2
-- [x] Task 5.2: Update Canvas/SDK consumers to treat Mermaid as optional derived data
+- [x] Task 5.2: Update Studio/SDK consumers to treat Mermaid as optional derived data
   - Dependencies: Task 5.1
 - [x] Task 5.3: Define candidate manifest format for graph metadata in `config.json`, frontmatter, or a dedicated manifest file
   - Dependencies: Milestone 2
@@ -151,7 +151,7 @@ Remove gVisor sandboxing and external CLI-agent support by changing production w
   - Dependencies: Task 2.4, Task 2.5
 - [x] Task 7.4: Update developer, operator, SDK, candidate authoring, and security docs
   - Dependencies: Milestone 6
-- [x] Task 7.5: Run full backend/SDK/Canvas test suites and remove stale fixtures
+- [x] Task 7.5: Run full backend/SDK/Studio test suites and remove stale fixtures
   - Dependencies: Milestone 6, Task 7.4
 
 ---

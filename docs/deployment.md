@@ -39,7 +39,7 @@ Workspace scoping is always on. Before exposing the API:
    - Confirm every user has at least one workspace membership. Service tokens
      and dev logins must carry `workspace_ids` in their claims.
 3. **Verification**
-   - Hit `/api/workspaces/me` and confirm the Canvas workspace badge to ensure
+   - Hit `/api/workspaces/me` and confirm the Studio workspace badge to ensure
      the resolved workspace matches expectations.
 
 ## Docker Compose (PostgreSQL, multi-container)
@@ -93,7 +93,7 @@ _Vault note_: Rotate `ORCHEO_VAULT_ENCRYPTION_KEY` regularly and back up the Pos
 
 ## Reachable Self-Hosted Host (Bundled Caddy)
 
-This is the standard public self-hosted recipe for Orcheo on a reachable Linux host. The bundled stack keeps backend, Canvas, Postgres, Redis, worker, and beat on the Docker network while Caddy is the only service that needs public `80/443`.
+This is the standard public self-hosted recipe for Orcheo on a reachable Linux host. The bundled stack keeps backend, Studio, Postgres, Redis, worker, and beat on the Docker network while Caddy is the only service that needs public `80/443`.
 
 1. **Prepare the host**
    - Point your DNS hostname at the machine that will run Docker.
@@ -104,11 +104,11 @@ This is the standard public self-hosted recipe for Orcheo on a reachable Linux h
    orcheo install --public-ingress --public-host orcheo.example.com --start-stack
    ```
 3. **Understand the routing contract**
-   - `https://orcheo.example.com/` -> Canvas
+   - `https://orcheo.example.com/` -> Studio
    - `https://orcheo.example.com/api/...` -> backend HTTP routes
    - `wss://orcheo.example.com/ws/...` -> backend WebSocket routes
 4. **Inspect the generated stack config when needed**
-   - `COMPOSE_PROFILES=public-ingress` enables Caddy TLS ingress. Backend and Canvas remain accessible on their direct localhost ports (`2025` and `2026` by default).
+   - `COMPOSE_PROFILES=public-ingress` enables Caddy TLS ingress. Backend and Studio remain accessible on their direct localhost ports (`2025` and `2026` by default).
    - `ORCHEO_CADDY_BACKEND_UPSTREAMS` controls the backend upstream pool for `/api/*` and `/ws/*`.
 5. **Verify the public origin**
    ```bash
@@ -166,12 +166,12 @@ Use this recipe when the staging machine deploys from a full git checkout and sh
 The staging targets combine `deploy/stack/docker-compose.yml` with `deploy/stack/docker-compose.staging.yml`. This keeps the same runtime topology as production while swapping published images for local source builds:
 
 - backend, worker, and beat are built from the monorepo checkout
-- Canvas is built from local `apps/canvas` source and served by nginx
+- Studio is built from local `apps/studio` source and served by nginx
 - there are no source bind mounts, Vite dev server processes, or backend `--reload` flags
 
 ## Cloudflare Tunnel Or Similar Split-Origin Tunnel
 
-Use this recipe when the host is not directly reachable or when you intentionally keep Canvas and backend on separate public hostnames behind a tunnel. In this topology, bundled Caddy stays off and the tunnel forwards to the direct localhost ports published by backend and Canvas.
+Use this recipe when the host is not directly reachable or when you intentionally keep Studio and backend on separate public hostnames behind a tunnel. In this topology, bundled Caddy stays off and the tunnel forwards to the direct localhost ports published by backend and Studio.
 
 1. **Install the stack without bundled public ingress**
    ```bash
@@ -179,15 +179,15 @@ Use this recipe when the host is not directly reachable or when you intentionall
    ```
 2. **Point your tunnel routes at the direct localhost ports**
    - `https://orcheo.example.com` -> `http://localhost:2025`
-   - `https://orcheo-canvas.example.com` -> `http://localhost:2026`
+   - `https://orcheo-studio.example.com` -> `http://localhost:2026`
 3. **Set the generated stack env to the split-origin contract**
    ```env
    ORCHEO_PUBLIC_INGRESS_ENABLED=false
    ORCHEO_API_URL=https://orcheo.example.com
    VITE_ORCHEO_BACKEND_URL=https://orcheo.example.com
-   ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com
-   ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://orcheo-canvas.example.com
-   VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com
+   ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-studio.example.com
+   ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://orcheo-studio.example.com
+   VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-studio.example.com
    ```
 4. **Restart the stack after editing `~/.orcheo/stack/.env`**
    ```bash
@@ -196,11 +196,11 @@ Use this recipe when the host is not directly reachable or when you intentionall
    ```
 5. **Verify the public origins**
    ```bash
-   curl -I https://orcheo-canvas.example.com/
+   curl -I https://orcheo-studio.example.com/
    curl https://orcheo.example.com/api/system/info
    ```
 
-The important distinction is that backend-facing values use the backend hostname, while browser-origin values use the Canvas hostname. If these are collapsed back to `localhost` values, browsers will fail preflight requests and the backend will log `OPTIONS ... 400`.
+The important distinction is that backend-facing values use the backend hostname, while browser-origin values use the Studio hostname. If these are collapsed back to `localhost` values, browsers will fail preflight requests and the backend will log `OPTIONS ... 400`.
 
 ## Managed Hosting (PostgreSQL, async pool)
 

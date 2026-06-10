@@ -11,7 +11,7 @@ It supports both low-code (JSON config) and vibe-coding-first (AI agents build w
 The project is a monorepo containing:
 - **Core Engine & Backend** (`src/orcheo/`, `apps/backend/`): Python — FastAPI, LangGraph, Celery + Redis.
 - **SDK** (`packages/sdk/`): Python SDK and CLI (`orcheo` / `horcheo`).
-- **Canvas** (`apps/canvas/`): Web interface for monitoring and managing workflows — React 19, Vite, Radix UI, Tailwind CSS, @xyflow/react. Workflow authoring is done via the SDK or AI coding agents.
+- **Studio** (`apps/studio/`): Web interface for monitoring and managing workflows — React 19, Vite, Radix UI, Tailwind CSS, @xyflow/react. Workflow authoring is done via the SDK or AI coding agents.
 
 ## Project Structure & Module Organization
 
@@ -53,10 +53,10 @@ The project is a monorepo containing:
 
 Tip: Prefix with `uv run` when invoking tools directly, e.g. `uv run pytest -k nodes`.
 
-### TypeScript / JavaScript (Canvas)
-- Canvas lint check: `make canvas-lint`
-- Canvas auto-format: `make canvas-format`
-- Canvas tests: `make canvas-test`
+### TypeScript / JavaScript (Studio)
+- Studio lint check: `make studio-lint`
+- Studio auto-format: `make studio-format`
+- Studio tests: `make studio-test`
 
 ### Execution Worker (Celery + Redis)
 - `make redis` — Start Redis via Docker Compose
@@ -64,14 +64,14 @@ Tip: Prefix with `uv run` when invoking tools directly, e.g. `uv run pytest -k n
 - `make celery-beat` — Start Celery Beat scheduler for cron triggers
 
 ### Docker Compose (Full Stack)
-- `make docker-up` — Start all services (backend, canvas, redis, worker, celery-beat)
+- `make docker-up` — Start all services (backend, studio, redis, worker, celery-beat)
 - `make docker-down` — Stop all Docker Compose services
 - `make docker-build` — Build Docker images
 - `make docker-logs` — Follow logs from all services
 
 ### Package Management
 - Uses `uv` for dependency management (see uv.lock); Python 3.12+ required.
-- Uses `npm` for Canvas frontend.
+- Uses `npm` for Studio frontend.
 
 ### CLI Commands
 Available when environment is active (defined in `pyproject.toml` scripts):
@@ -89,7 +89,7 @@ Available when environment is active (defined in `pyproject.toml` scripts):
 - Uses async/await patterns throughout.
 - State flows through nodes via `decode_variables()` method.
 
-### TypeScript / React (Canvas)
+### TypeScript / React (Studio)
 - Functional components with Hooks.
 - Styling: Tailwind CSS, avoiding raw CSS where possible.
 - State: Local state + React Context for global needs.
@@ -112,5 +112,5 @@ Available when environment is active (defined in `pyproject.toml` scripts):
 - Prefer `uv run` for tooling parity with CI; ensure `uv.lock` stays updated when adding deps.
 - When writing documents, set the author to the person or AI agent writing the document.
 - Default document owner is ShaojieJiang unless explicitly stated otherwise.
-- Multi-workspace is always on. The workspace header is hard-coded to `X-Orcheo-Workspace` across backend, worker, beat, canvas, and stack templates — it is not configurable.
+- Multi-workspace is always on. The workspace header is hard-coded to `X-Orcheo-Workspace` across backend, worker, beat, studio, and stack templates — it is not configurable.
 - WebSocket support for real-time workflow monitoring.

@@ -68,7 +68,7 @@ class SetupConfig:
     public_host: str | None
     publish_local_ports: bool
     backend_upstreams: str
-    canvas_upstream: str
+    studio_upstream: str
     start_stack: bool
     install_docker_if_missing: bool
     install_agent_skills: bool = False
@@ -702,7 +702,7 @@ def _resolve_publish_local_ports(
     if yes:
         return True
     return typer.confirm(
-        "Keep localhost backend and Canvas ports published?",
+        "Keep localhost backend and Studio ports published?",
         default=True,
     )
 
@@ -771,18 +771,18 @@ def _resolve_setup_toggles(
 
 def _resolve_stack_upstreams(env_file: Path, *, env_exists: bool) -> tuple[str, str]:
     backend_upstreams = "backend:2025"
-    canvas_upstream = "canvas:2026"
+    studio_upstream = "studio:2026"
     if not env_exists:
-        return backend_upstreams, canvas_upstream
+        return backend_upstreams, studio_upstream
     existing_backend_upstreams = _read_env_value(
         env_file, "ORCHEO_CADDY_BACKEND_UPSTREAMS"
     )
-    existing_canvas_upstream = _read_env_value(env_file, "ORCHEO_CADDY_CANVAS_UPSTREAM")
+    existing_studio_upstream = _read_env_value(env_file, "ORCHEO_CADDY_STUDIO_UPSTREAM")
     if existing_backend_upstreams:
         backend_upstreams = existing_backend_upstreams
-    if existing_canvas_upstream:
-        canvas_upstream = existing_canvas_upstream
-    return backend_upstreams, canvas_upstream
+    if existing_studio_upstream:
+        studio_upstream = existing_studio_upstream
+    return backend_upstreams, studio_upstream
 
 
 def _print_setup_resolution_notes(
@@ -817,7 +817,7 @@ def _print_setup_resolution_notes(
         )
         if not resolved_publish_local_ports:
             console.print(
-                "[cyan]Local backend/canvas ports will stay disabled; "
+                "[cyan]Local backend/studio ports will stay disabled; "
                 "access should go through the public hostname only.[/cyan]"
             )
     if resolved_auth_mode == "oauth":
@@ -1293,7 +1293,7 @@ def _build_env_updates(
         "COMPOSE_PROFILES": _compose_profiles(config),
         "ORCHEO_CADDY_SITE_ADDRESS": config.public_host or "",
         "ORCHEO_CADDY_BACKEND_UPSTREAMS": config.backend_upstreams,
-        "ORCHEO_CADDY_CANVAS_UPSTREAM": config.canvas_upstream,
+        "ORCHEO_CADDY_STUDIO_UPSTREAM": config.studio_upstream,
     }
     if config.auth_mode == "api-key" and config.api_key:
         updates["ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN"] = config.api_key
@@ -1654,7 +1654,7 @@ def run_setup(
         env_file=stack_env_file,
         env_exists=has_existing_stack_env,
     )
-    resolved_backend_upstreams, resolved_canvas_upstream = _resolve_stack_upstreams(
+    resolved_backend_upstreams, resolved_studio_upstream = _resolve_stack_upstreams(
         stack_env_file,
         env_exists=has_existing_stack_env,
     )
@@ -1687,7 +1687,7 @@ def run_setup(
         public_host=resolved_public_host,
         publish_local_ports=resolved_publish_local_ports,
         backend_upstreams=resolved_backend_upstreams,
-        canvas_upstream=resolved_canvas_upstream,
+        studio_upstream=resolved_studio_upstream,
         start_stack=resolved_start_stack,
         install_docker_if_missing=resolved_install_docker,
         install_agent_skills=resolved_install_agent_skills,
@@ -1896,13 +1896,13 @@ def print_summary(config: SetupConfig, *, console: Console) -> None:
 
     if config.start_stack:
         if not config.public_ingress_enabled:
-            console.print("\n[bold cyan]Canvas:[/bold cyan] http://localhost:2026")
+            console.print("\n[bold cyan]Studio:[/bold cyan] http://localhost:2026")
         console.print(
-            "\n[yellow]Note:[/yellow] Canvas may take 2-3 minutes on first "
+            "\n[yellow]Note:[/yellow] Studio may take 2-3 minutes on first "
             "startup while npm installs dependencies."
         )
     if config.public_ingress_enabled and config.public_host is not None:
-        console.print(f"\n[bold cyan]Canvas:[/bold cyan] https://{config.public_host}")
+        console.print(f"\n[bold cyan]Studio:[/bold cyan] https://{config.public_host}")
         console.print(
             "\n[yellow]Public ingress prerequisites:[/yellow] "
             f"point DNS for {config.public_host} at this host and allow inbound "

@@ -6,9 +6,9 @@
 [![PyPI - Backend](https://img.shields.io/pypi/v/orcheo-backend.svg?logo=python&label=backend)](https://pypi.org/project/orcheo-backend/)
 [![PyPI - SDK](https://img.shields.io/pypi/v/orcheo-sdk.svg?logo=python&label=sdk)](https://pypi.org/project/orcheo-sdk/)
 [![PyPI - Agentensor](https://img.shields.io/pypi/v/agentensor.svg?logo=python&label=agentensor)](https://pypi.org/project/agentensor/)
-[![npm - Canvas](https://img.shields.io/npm/v/orcheo-canvas.svg?logo=npm&label=canvas)](https://www.npmjs.com/package/orcheo-canvas)
+[![npm - Studio](https://img.shields.io/npm/v/orcheo-studio.svg?logo=npm&label=studio)](https://www.npmjs.com/package/orcheo-studio)
 [![GHCR - Stack](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fghcr-badge.egpl.dev%2Fai-colleagues%2Forcheo-stack%2Flatest_tag%3Fignore%3Dlatest&query=%2F%2F*%5Blocal-name()%3D%27g%27%5D%5Blast()%5D%2F*%5Blocal-name()%3D%27text%27%5D%5Blast()%5D&logo=docker&label=stack)](https://github.com/AI-Colleagues/orcheo/pkgs/container/orcheo-stack)
-[![GHCR - Canvas](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fghcr-badge.egpl.dev%2Fai-colleagues%2Forcheo-canvas%2Flatest_tag%3Fignore%3Dlatest&query=%2F%2F*%5Blocal-name()%3D%27g%27%5D%5Blast()%5D%2F*%5Blocal-name()%3D%27text%27%5D%5Blast()%5D&logo=docker&label=canvas)](https://github.com/AI-Colleagues/orcheo/pkgs/container/orcheo-canvas)
+[![GHCR - Studio](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fghcr-badge.egpl.dev%2Fai-colleagues%2Forcheo-studio%2Flatest_tag%3Fignore%3Dlatest&query=%2F%2F*%5Blocal-name()%3D%27g%27%5D%5Blast()%5D%2F*%5Blocal-name()%3D%27text%27%5D%5Blast()%5D&logo=docker&label=studio)](https://github.com/AI-Colleagues/orcheo/pkgs/container/orcheo-studio)
 [![Documentation](https://readthedocs.org/projects/orcheo/badge/?version=latest)](https://orcheo.readthedocs.io/en/latest/)
 
 Orcheo is a workflow orchestration platform designed for vibe coding — AI coding agents like Claude Code can start services, build workflows, and deploy them for you automatically. Read the [full documentation](https://orcheo.readthedocs.io/en/latest/) for guides, API reference, and examples.
@@ -107,7 +107,7 @@ That's it! Your agent handles the complexity while you focus on describing what 
 
 ## Guides
 
-- **[Manual Setup Guide](https://orcheo.readthedocs.io/en/latest/manual_setup/)** — Installation, CLI reference, authentication, and Canvas setup
+- **[Manual Setup Guide](https://orcheo.readthedocs.io/en/latest/manual_setup/)** — Installation, CLI reference, authentication, and Studio setup
 - **[Conversational Search Examples](https://orcheo.readthedocs.io/en/latest/examples/conversational_search/)** — Step-by-step demos from basic RAG to production-ready search
 
 ```bash

@@ -15,13 +15,13 @@ If you already have the SDK installed, run `orcheo install` to set up or upgrade
 
 ## Docker Compose (Full Stack)
 
-For a complete containerized setup with PostgreSQL, Redis, Celery workers, and Canvas, use the bundled Docker Compose configuration.
+For a complete containerized setup with PostgreSQL, Redis, Celery workers, and Studio, use the bundled Docker Compose configuration.
 
 ### Compose Modes
 
 Orcheo ships with two compose entrypoints plus a staging overlay:
 
-- Root `docker-compose.yml` is for live local development. It bind-mounts source code, runs the backend with `--reload`, and serves Canvas via the Vite dev server.
+- Root `docker-compose.yml` is for live local development. It bind-mounts source code, runs the backend with `--reload`, and serves Studio via the Vite dev server.
 - `deploy/stack/docker-compose.yml` is the production-style stack contract. It runs built images with no source bind mounts or hot reload.
 - `deploy/stack/docker-compose.staging.yml` layers on top of the production stack file to build those same services from the current repo checkout on the staging host.
 
@@ -46,7 +46,7 @@ Orcheo ships with two compose entrypoints plus a staging overlay:
 
 3. **Verify services are running**:
     - Backend API: http://localhost:2025
-    - Canvas UI: http://localhost:2026 (may take 2-3 minutes on first startup while npm installs dependencies)
+    - Studio UI: http://localhost:2026 (may take 2-3 minutes on first startup while npm installs dependencies)
 
 ### Public Self-Hosted Ingress (Bundled Caddy)
 
@@ -109,7 +109,7 @@ make staging-up
 These targets use `deploy/stack/docker-compose.yml` together with `deploy/stack/docker-compose.staging.yml`. The resulting stack:
 
 - keeps the production service topology
-- builds backend, worker, beat, and Canvas from local source
+- builds backend, worker, beat, and Studio from local source
 - avoids source bind mounts and hot reload
 
 Useful commands:
@@ -134,14 +134,14 @@ When using Cloudflare Tunnel with separate browser and API hostnames, keep bundl
 ORCHEO_PUBLIC_INGRESS_ENABLED=false
 ORCHEO_API_URL=https://orcheo.example.com
 VITE_ORCHEO_BACKEND_URL=https://orcheo.example.com
-ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com
-ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://orcheo-canvas.example.com
-VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com
+ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-studio.example.com
+ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://orcheo-studio.example.com
+VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-studio.example.com
 ```
 
-Use one hostname for backend requests and websocket traffic, and the Canvas hostname as the browser origin:
+Use one hostname for backend requests and websocket traffic, and the Studio hostname as the browser origin:
 - `https://orcheo.example.com` -> backend API and `/ws/*`
-- `https://orcheo-canvas.example.com` -> Canvas UI
+- `https://orcheo-studio.example.com` -> Studio UI
 
 If you previously ran `orcheo install` after the Caddy ingress rollout and your tunnel deployment started returning `OPTIONS ... 400`, check these values first. The common failure mode is that tunnel-specific origins were reset to localhost defaults in `~/.orcheo/stack/.env`.
 
@@ -200,7 +200,7 @@ For detailed authentication setup including bootstrap tokens, service tokens, an
 ## Next Steps
 
 - **[CLI Reference](cli_reference.md)** — Command reference for the `orcheo` CLI
-- **[Canvas](canvas.md)** — Workflow monitor, config editor, and Credential Vault manager
+- **[Studio](studio.md)** — Workflow monitor, config editor, and Credential Vault manager
 - **[MCP Integration](mcp_integration.md)** — Connect AI assistants to Orcheo
 - **[Authentication Guide](authentication_guide.md)** — Detailed authentication configuration
 - **[Developer Guide](developer_guide.md)** — Contributing to Orcheo

@@ -121,7 +121,7 @@ def _setup_config() -> SetupConfig:
         public_host=None,
         publish_local_ports=True,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=True,
         install_docker_if_missing=True,
     )
@@ -482,9 +482,9 @@ def test_execute_setup_preserves_existing_tunnel_browser_origin_settings(
     stack_dir = tmp_path / "stack"
     stack_dir.mkdir(parents=True)
     (stack_dir / ".env").write_text(
-        "ORCHEO_STUDIO_URL=https://orcheo-canvas.example.com\n"
-        "ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com\n"
-        "VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com\n",
+        "ORCHEO_STUDIO_URL=https://orcheo-studio.example.com\n"
+        "ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-studio.example.com\n"
+        "VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-studio.example.com\n",
         encoding="utf-8",
     )
     _patch_common(monkeypatch, stack_dir=stack_dir, has_docker=False)
@@ -492,14 +492,14 @@ def test_execute_setup_preserves_existing_tunnel_browser_origin_settings(
     config = _setup_config()
     config.mode = "upgrade"
     config.start_stack = False
-    config.studio_url = "https://orcheo-canvas.example.com"
+    config.studio_url = "https://orcheo-studio.example.com"
     execute_setup(config, console=Console(record=True))
 
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
-    assert "ORCHEO_STUDIO_URL=https://orcheo-canvas.example.com" in env_content
-    assert "ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-canvas.example.com" in env_content
+    assert "ORCHEO_STUDIO_URL=https://orcheo-studio.example.com" in env_content
+    assert "ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-studio.example.com" in env_content
     assert (
-        "VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-canvas.example.com"
+        "VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1,orcheo-studio.example.com"
         in env_content
     )
 
@@ -1326,7 +1326,7 @@ def test_setup_build_env_updates_and_warn_missing_branch(
         public_host=None,
         publish_local_ports=True,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=True,
     )
@@ -1600,7 +1600,7 @@ def test_setup_read_health_timeout_invalid_negative_and_print_summary(
     setup_mod.print_summary(config, console=console)
     output = console.export_text()
     assert "Setup complete" in output
-    assert "Canvas may take 2-3 minutes" in output
+    assert "Studio may take 2-3 minutes" in output
     assert "orcheo workflow list" in output
 
 
@@ -1692,7 +1692,7 @@ def test_setup_misc_uncovered_branches(
     config.start_stack = False
     console = Console(record=True)
     setup_mod.print_summary(config, console=console)
-    assert "Canvas may take 2-3 minutes" not in console.export_text()
+    assert "Studio may take 2-3 minutes" not in console.export_text()
 
     monotonic_values = iter([0.0, 0.5, 1.0, 1.1, 1.2])
     sleeps: list[float] = []

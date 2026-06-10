@@ -104,7 +104,7 @@ See [2_design.md](2_design.md).
 
 ### Other Teams Impacted
 - Backend: owns upload route, attachment store, workflow execution input shape, and `DocumentLoaderNode` integration.
-- Canvas/Public Chat: must send `workflow_id` (and `thread_id` or `upload_session_id` when available) in direct-upload requests, and must stop reading `storage_path` from upload responses or attachment metadata.
+- Studio/Public Chat: must send `workflow_id` (and `thread_id` or `upload_session_id` when available) in direct-upload requests, and must stop reading `storage_path` from upload responses or attachment metadata.
 - Infrastructure/SRE: owns optional object storage configuration and capacity planning.
 - Security: reviews scope checks, anonymous session binding, and filesystem removal.
 

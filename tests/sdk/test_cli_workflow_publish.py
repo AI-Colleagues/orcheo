@@ -67,13 +67,13 @@ def test_publish_workflow_with_custom_public_base(
                 "wf-1",
                 "--force",
                 "--studio-url",
-                "https://canvas.test",
+                "https://studio.test",
             ],
             env=env,
         )
 
     assert result.exit_code == 0
-    assert "https://canvas.test/chat/wf-1" in result.stdout
+    assert "https://studio.test/chat/wf-1" in result.stdout
 
 
 def test_publish_workflow_not_found(runner: CliRunner, env: dict[str, str]) -> None:

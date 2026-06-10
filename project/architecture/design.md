@@ -53,7 +53,7 @@ Orcheo delivers a unified automation surface where visual designers can assemble
 ### 1.3 Definitions, Acronyms and Abbreviations
 - **AI Node**: A workflow node that encapsulates model prompting, inference, and downstream decision logic.
 - **Credential Vault**: Managed service for storing, rotating, and injecting scoped secrets into runtime executions.
-- **Flow Canvas**: Visual designer for assembling automation graphs without writing code.
+- **Flow Studio**: Visual designer for assembling automation graphs without writing code.
 - **LangGraph**: Underlying orchestration framework that powers code-first workflow graphs.
 - **Node Library**: Curated catalog of reusable workflow nodes, spanning task automation and AI-powered steps.
 - **Run Artifact**: Persisted execution output (logs, prompts, responses, metrics) available for replay and analysis.
@@ -150,7 +150,7 @@ graph LR
     end
 
     subgraph Orcheo
-        Canvas[Visual Canvas]
+        Studio[Visual Studio]
         SDK[Python SDK]
         TriggerSvc[Trigger Service]
         Runtime[LangGraph Runtime]
@@ -164,13 +164,13 @@ graph LR
         Schedules[Cron/Webhook Sources]
     end
 
-    Analyst --> Canvas
+    Analyst --> Studio
     Developer --> SDK
     DataAI --> SDK
     DataAI --> Observability
     Integrator --> TriggerSvc
     Operator --> Observability
-    Canvas --> Runtime
+    Studio --> Runtime
     SDK --> Runtime
     TriggerSvc --> Runtime
     Runtime --> SaaS
@@ -310,13 +310,13 @@ graph TD
     subgraph "User Interface Layer"
         AuthUI[Authentication UI]
         Dashboard[Dashboard]
-        CanvasUI[Workflow Canvas UI]
+        StudioUI[Workflow Studio UI]
         SettingsUI[Settings UI]
     end
 
     subgraph "Core Modules"
         AuthModule[Authentication Module]
-        CanvasModule[Workflow Canvas]
+        StudioModule[Workflow Studio]
         NodeLibraryModule[Node Library]
         TracesModule[Traces & Monitoring]
         ConfigModule[Configuration Module]
@@ -349,13 +349,13 @@ graph TD
     %% UI to Module connections
     AuthUI --> AuthModule
     Dashboard --> TracesModule
-    CanvasUI --> CanvasModule
-    CanvasUI --> NodeLibraryModule
+    StudioUI --> StudioModule
+    StudioUI --> NodeLibraryModule
     SettingsUI --> ConfigModule
 
     %% Module to Node/Graph Management
-    CanvasModule --> NodeEditor
-    CanvasModule --> GraphConfig
+    StudioModule --> NodeEditor
+    StudioModule --> GraphConfig
     NodeLibraryModule --> NodeRegistry
     NodeEditor --> AgenticTools
     NodeEditor --> SubgraphConfig
@@ -363,7 +363,7 @@ graph TD
 
     %% API Communication connections
     AuthModule --> AuthService
-    CanvasModule --> WorkflowService
+    StudioModule --> WorkflowService
     NodeLibraryModule --> NodeService
     TracesModule --> WebSocketClient
     AuthService --> APIClient
@@ -376,7 +376,7 @@ graph TD
     GraphConfig --> ValidationService
     APIClient --> CacheService
     TracesModule --> NotificationService
-    CanvasModule --> EventBus
+    StudioModule --> EventBus
     AuthModule --> ThemeService
 
     %% Backend connection
@@ -391,8 +391,8 @@ graph TD
     classDef utilityNodes fill:#fce4ec,stroke:#c2185b,stroke-width:2px
     classDef backendNodes fill:#f5f5f5,stroke:#616161,stroke-width:2px,stroke-dasharray: 5 5
 
-    class AuthUI,Dashboard,CanvasUI,SettingsUI uiNodes
-    class AuthModule,CanvasModule,NodeLibraryModule,TracesModule,ConfigModule coreNodes
+    class AuthUI,Dashboard,StudioUI,SettingsUI uiNodes
+    class AuthModule,StudioModule,NodeLibraryModule,TracesModule,ConfigModule coreNodes
     class NodeEditor,AgenticTools,SubgraphConfig,GraphConfig,NodeRegistry nodeNodes
     class APIClient,WebSocketClient,AuthService,WorkflowService,NodeService apiNodes
     class ValidationService,CacheService,EventBus,NotificationService,ThemeService utilityNodes
@@ -400,7 +400,7 @@ graph TD
 ```
 
 Key design notes:
-- Canvas and SDK share schema validation services to maintain a single source of truth for workflow structures.
+- Studio and SDK share schema validation services to maintain a single source of truth for workflow structures.
 - WebSocket streaming backs the execution viewer, enabling AI practitioners to trace prompt/response cycles per node.
 - Node registry and agentic tools support extensibility goals, enabling contribution of new nodes without UI rewrites.
 
@@ -413,7 +413,7 @@ Key design notes:
 
 #### 2.3.4 Risk & Mitigation View
 - **LangGraph complexity**: Progressive rollout with reference workflows and developer documentation; spike time allocated for complex agentic nodes.
-- **Canvas performance**: Early load testing of large graphs, virtualized rendering, and incremental persistence to avoid data loss.
+- **Studio performance**: Early load testing of large graphs, virtualized rendering, and incremental persistence to avoid data loss.
 - **Credential security**: Zero-trust access controls, audit logging for secret access, periodic rotation enforced via platform policies.
 - **Adoption hurdles**: Template library and guided onboarding for business users; SDK examples and CI hooks for developers.
 

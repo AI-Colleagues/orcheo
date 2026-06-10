@@ -11,7 +11,7 @@
 
 ## Overview
 
-Deliver a guided single-command setup/upgrade experience, plus version awareness and update reminders in Canvas and CLI. The rollout prioritizes installation simplification first, then shared version metadata, then reminder UX behavior. Update reminders are stable-release-only, and development/private builds do not emit reminder prompts.
+Deliver a guided single-command setup/upgrade experience, plus version awareness and update reminders in Studio and CLI. The rollout prioritizes installation simplification first, then shared version metadata, then reminder UX behavior. Update reminders are stable-release-only, and development/private builds do not emit reminder prompts.
 
 **Related Documents:**
 - Requirements: `./1_requirements.md`
@@ -58,7 +58,7 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
 
 - [x] Task 2.1: Implement `/api/system/info` response model and router wiring
   - Dependencies: Milestone 1
-- [x] Task 2.2: Add registry clients for PyPI (`orcheo-sdk`, `orcheo-backend`) and npm (`orcheo-canvas`)
+- [x] Task 2.2: Add registry clients for PyPI (`orcheo-sdk`, `orcheo-backend`) and npm (`orcheo-studio`)
   - Dependencies: Task 2.1
 - [x] Task 2.3: Add in-memory caching with configurable TTL and timeout/retry policy
   - Dependencies: Task 2.2
@@ -67,13 +67,13 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
 
 ---
 
-### Milestone 3: Canvas version display and reminders
+### Milestone 3: Studio version display and reminders
 
-**Description:** Surface Canvas and backend versions in UI and remind users when updates are available.
+**Description:** Surface Studio and backend versions in UI and remind users when updates are available.
 
 #### Task Checklist
 
-- [x] Task 3.1: Add Canvas version source to frontend build/runtime metadata
+- [x] Task 3.1: Add Studio version source to frontend build/runtime metadata
   - Dependencies: Milestone 2
 - [x] Task 3.2: Build version status UI component in a persistent location (top nav/settings)
   - Dependencies: Task 3.1
@@ -109,7 +109,7 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
 
 ### Milestone 5: Documentation, release, and validation
 
-**Description:** Update docs and validate end-to-end behavior across setup, Canvas, and CLI.
+**Description:** Update docs and validate end-to-end behavior across setup, Studio, and CLI.
 
 #### Task Checklist
 
@@ -123,7 +123,7 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
   - Dependencies: Milestones 1, 4
 - [x] Task 5.4a: Update `docs/environment_variables.md` with new setup/update and reminder variables (`ORCHEO_DISABLE_UPDATE_CHECK`, `ORCHEO_UPDATE_CHECK_TTL_HOURS`, plus any setup/auth env flags)
   - Dependencies: Milestones 1, 2, 4
-- [x] Task 5.5: Update Canvas and CLI docs/screenshots for version/reminder UX
+- [x] Task 5.5: Update Studio and CLI docs/screenshots for version/reminder UX
   - Dependencies: Milestones 3, 4
 - [x] Task 5.5a: Align setup docs and env-var docs with canonical stack asset source (`deploy/stack`) and override knobs
   - Dependencies: Milestone 1
@@ -157,7 +157,7 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
 
 - [x] Task 7.1: Add compatibility matrix metadata support in backend version API and consumers
   - Dependencies: Milestone 2
-- [x] Task 7.2: Distinguish "update available" from "recommended minimum" in Canvas and CLI messaging
+- [x] Task 7.2: Distinguish "update available" from "recommended minimum" in Studio and CLI messaging
   - Dependencies: Task 7.1
 - [x] Task 7.3: Add optional "what changed" links to reminder output when release notes are available
   - Dependencies: Milestones 3, 4
@@ -169,7 +169,7 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
 ## Validation Gates
 
 - Python changes: `make format`, `make lint`, and targeted `uv run pytest ...` for installer/backend/CLI tests.
-- Canvas changes: `make canvas-format`, `make canvas-lint`, and targeted Canvas tests.
+- Studio changes: `make studio-format`, `make studio-lint`, and targeted Studio tests.
 - Release readiness: verify reminders appear once per 24h and never block command execution.
 
 ---

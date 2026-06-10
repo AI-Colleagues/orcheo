@@ -59,7 +59,7 @@ Full in-process hot-reload across every plugin surface is not part of the v1 des
   - **Lark Listener Plugin**
     - Exercises the same listener contract with a second provider and draws structural inspiration from the OpenClaw Lark plugin model.
 
-- **Canvas Validation Template**
+- **Studio Validation Template**
   - Responsibility: prove that both new listener plugins can be used together in one builder-visible workflow.
   - Key interfaces: plugin-provided listener nodes, shared downstream logic contract, reply-routing metadata.
 
@@ -133,13 +133,13 @@ When `orcheo plugin update --all` encounters plugins with different impact level
 4. Existing workflows using legacy names continue to load.
 5. New docs and scaffolds emit the canonical `*Edge` names.
 
-### Flow 7: Use both new listener plugins in one Canvas template
+### Flow 7: Use both new listener plugins in one Studio template
 
 1. The operator installs the WeCom and Lark plugins through `orcheo plugin install`.
-2. Canvas discovers the plugin-provided listener components from the backend catalog.
+2. Studio discovers the plugin-provided listener components from the backend catalog.
 3. A template workflow declares both listeners and routes them into shared downstream logic such as a common agent or message-processing path.
 4. Runtime listener metadata preserves the source platform and reply target so downstream nodes can branch only where transport-specific behavior is required.
-5. The template serves as a builder-facing release artifact (it ships in the Canvas template library) and as an automated acceptance test (it is imported and executed in CI as part of the release checklist). These roles are maintained separately: the template is versioned as a Canvas asset, and the CI test imports and runs it via the Canvas testing harness.
+5. The template serves as a builder-facing release artifact (it ships in the Studio template library) and as an automated acceptance test (it is imported and executed in CI as part of the release checklist). These roles are maintained separately: the template is versioned as a Studio asset, and the CI test imports and runs it via the Studio testing harness.
 
 ### Flow 8: Apply a hot-reloadable plugin change
 
@@ -484,7 +484,7 @@ Fields sourced from package metadata are never written to `orcheo_plugin.toml`, 
 }
 ```
 
-### Canvas validation template sketch
+### Studio validation template sketch
 
 ```text
 WeComListenerPluginNode --\
@@ -494,7 +494,7 @@ LarkListenerPluginNode ---/
 
 The template should prove that both plugin-provided listeners can:
 
-- appear in the Canvas catalog
+- appear in the Studio catalog
 - compile into valid runtime listener subscriptions
 - dispatch into shared downstream workflow logic
 - preserve enough metadata for correct reply transport
@@ -529,7 +529,7 @@ The template should prove that both plugin-provided listeners can:
   - update a replacing node or edge plugin and confirm the CLI prompts with affected component identifiers
   - disable a broken plugin and confirm healthy startup
   - install WeCom and Lark listener plugins and validate end-to-end dispatch
-  - import and run a Canvas template that uses both WeCom and Lark listeners
+  - import and run a Studio template that uses both WeCom and Lark listeners
 
 ## Rollout Plan
 

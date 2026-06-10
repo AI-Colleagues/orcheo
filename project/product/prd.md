@@ -38,7 +38,7 @@ Deliver a unified workflow automation platform that bridges low-code visual tool
 | LangGraph developer (Priya) | Inspect workflows, nodes, and credentials from the terminal | I can manage, debug, and administer LangGraph-first projects without leaving the CLI | P0 | CLI lists nodes and workflows, prints Mermaid diagrams, and supports credential CRUD with status visibility |
 | Data scientist (Lisa) | Chain AI models and analyses via a code-first approach | I can experiment with ML workflows while keeping full control | P0 | SDK supports orchestrating multiple AI nodes with dataset inputs, reproducible runs, and artifact tracking |
 | Integration specialist (Chris) | Configure webhook and cron triggers with monitoring and alerts | I can keep cross-system automations reliable | P0 | Trigger setup supports retries, failure notifications, and visibility into recent executions |
-| SaaS founder (Tom) | Combine Canvas-managed workflows with custom Python components | I can prototype quickly while retaining technical flexibility | P1 | A workflow can mix Canvas-configured steps with SDK-authored nodes and deploy as a single versioned flow |
+| SaaS founder (Tom) | Combine Studio-managed workflows with custom Python components | I can prototype quickly while retaining technical flexibility | P1 | A workflow can mix Studio-configured steps with SDK-authored nodes and deploy as a single versioned flow |
 | Business analyst (Maya) | Build multi-step data workflows on the visual canvas | I can launch data pipelines without writing code | P1 | A data workflow with transforms and conditionals can be created, validated, and executed entirely from the canvas |
 | Marketing manager (Sam) | Assemble campaign automations through a low-code interface | I can streamline marketing processes without waiting on engineering | P1 | Templates plus drag-and-drop nodes let me schedule and publish an automation without touching the SDK |
 | ML engineer (Amy) | Trace multi-step AI agent workflows with detailed logs | I can debug and optimize AI-powered automations | P1 | Execution viewer provides per-step prompts, responses, token metrics, and the ability to replay a run |
@@ -62,9 +62,9 @@ Current automation platforms force teams to choose between ease of use and advan
 
 ## PRODUCT DEFINITION
 ### Requirements
-#### Frontend (React Flow Canvas)
+#### Frontend (React Flow Studio)
 - Drag-and-drop workflow designer with validation, execution monitoring, and template-driven onboarding.
-- Canvas tooling covers pan/zoom/minimap navigation, grid snapping, undo/redo shortcuts, node search/filtering, collapsible configuration panels, duplication, and custom styling.
+- Studio tooling covers pan/zoom/minimap navigation, grid snapping, undo/redo shortcuts, node search/filtering, collapsible configuration panels, duplication, and custom styling.
 - Workflow ops include save/load, JSON import-export, templates/examples, version history diffs, and shareable exports.
 - Node library surfacing 20+ integrations across AI, data, communication, and control nodes.
 - Credential management UI, workflow versioning, and reusable sub-workflows.
@@ -90,7 +90,7 @@ Current automation platforms force teams to choose between ease of use and advan
 - Utilities: Python/JavaScript code execution, Delay, Debug, Sub-workflow orchestration.
 
 ### Execution Flows
-- **Visual designer path:** Canvas-built workflows convert to LangGraph format, validate server-side, persist, run via triggers, and emit live updates over WebSocket.
+- **Visual designer path:** Studio-built workflows convert to LangGraph format, validate server-side, persist, run via triggers, and emit live updates over WebSocket.
 - **Code-first path:** Developers assemble LangGraph graphs with Orcheo nodes, execute locally, and submit the same Python scripts to the server for persistence, credential reuse, and monitoring without rewriting the graph definition.
 
 ### Designs (if applicable)

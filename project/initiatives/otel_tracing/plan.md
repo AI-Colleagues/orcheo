@@ -12,7 +12,7 @@
 - [x] Enhance WebSocket or polling channels to deliver incremental span updates for active executions.
 - [x] Add integration tests that simulate workflow runs and validate API responses and realtime payloads.
 
-## Phase 3 – Canvas Trace Tab UI
+## Phase 3 – Studio Trace Tab UI
 - [x] Introduce a `Trace` tab in workflow canvas layout, updating tab navigation and default selection logic.
 - [x] Create data-fetch hooks/services that call the new trace endpoint and subscribe to realtime updates.
 - [x] Build trace viewer components (tree view, details panel, metrics summary, artifact download controls).

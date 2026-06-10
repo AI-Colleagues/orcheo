@@ -29,7 +29,7 @@ Bundle Caddy into the standard Orcheo stack as the recommended public ingress ti
 
 - [x] Task 1.1: Finalize initiative scope and confirm that bundled Caddy targets reachable self-hosted hosts, not tunnel replacement
   - Dependencies: None
-- [x] Task 1.2: Define the public-origin env contract for Canvas, backend, and ChatKit
+- [x] Task 1.2: Define the public-origin env contract for Studio, backend, and ChatKit
   - Dependencies: Task 1.1
 - [x] Task 1.3: Decide whether backend/canvas raw ports stay published in public-ingress mode or become debug-only
   - Dependencies: Task 1.1
@@ -46,7 +46,7 @@ Bundle Caddy into the standard Orcheo stack as the recommended public ingress ti
 
 - [x] Task 2.1: Add Caddy service definition to `deploy/stack/docker-compose.yml`
   - Dependencies: Milestone 1
-- [x] Task 2.2: Add a Caddy configuration file for Canvas, `/api/*`, and `/ws/*` routing
+- [x] Task 2.2: Add a Caddy configuration file for Studio, `/api/*`, and `/ws/*` routing
   - Dependencies: Task 2.1
 - [x] Task 2.3: Persist Caddy state required for automatic certificate management
   - Dependencies: Task 2.1
@@ -80,7 +80,7 @@ Bundle Caddy into the standard Orcheo stack as the recommended public ingress ti
 
 - [x] Task 4.1: Add integration coverage for `/`, `/api/*`, and `/ws/*` through Caddy
   - Dependencies: Milestone 2
-- [x] Task 4.2: Validate Canvas API and WebSocket behavior through the public origin
+- [x] Task 4.2: Validate Studio API and WebSocket behavior through the public origin
   - Dependencies: Tasks 3.2, 4.1
 - [x] Task 4.3: Validate multiple backend replicas behind Caddy against shared Postgres and Redis
   - Dependencies: Tasks 2.2, 3.2
@@ -111,7 +111,7 @@ Bundle Caddy into the standard Orcheo stack as the recommended public ingress ti
 ## Validation Gates
 
 - Python changes: `make format`, `make lint`, and targeted `uv run pytest ...` for CLI/backend stack configuration tests.
-- Canvas changes: `make canvas-format`, `make canvas-lint`, and targeted Canvas tests if frontend config behavior changes.
+- Studio changes: `make studio-format`, `make studio-lint`, and targeted Studio tests if frontend config behavior changes.
 - Stack validation: compose-level smoke tests for HTTPS routing, API proxying, and WebSocket proxying.
 - Deployment validation: manual public-domain test on a reachable self-hosted host with DNS and open `80/443`.
 

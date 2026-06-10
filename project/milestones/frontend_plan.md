@@ -52,7 +52,7 @@ This document captures the actionable plan for evolving the Orcheo canvas from i
 - **Velocity**: Feature squads report <10% time spent on styling or layout churn after component library adoption.
 
 ## Status Update (2025-10-07)
-The frontend rebuild scoped in this plan is now live within the `apps/canvas` workspace. Key highlights:
+The frontend rebuild scoped in this plan is now live within the `apps/studio` workspace. Key highlights:
 
 - Feature-first routing backed by React Router powers deep links for the gallery, designer canvas, execution log, and account areas, keeping navigation concerns isolated in `App.tsx`.
 - A composable design system (buttons, inputs, overlays, navigation primitives, charts, etc.) under `src/design-system/ui` now drives every screen and centralizes styling tokens.

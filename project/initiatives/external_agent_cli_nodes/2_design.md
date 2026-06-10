@@ -235,7 +235,7 @@ class ExternalAgentProvider(Protocol):
 
 - **Unit tests**: Runtime-root resolution, manifest read/write, atomic manifest replacement, maintenance-due logic, provider command builders, auth-probe result parsing, working-directory validation, and node result normalization.
 - **Integration tests**: Install-missing flow, setup-needed flow, successful invocation flow, timeout handling, version recording, maintenance rollback on failure, and runtime reuse across repeated/concurrent runs.
-- **Manual QA checklist**: Authenticate Claude Code on a worker, authenticate Codex on a worker, run both nodes successfully, verify rerun guidance when logged out, verify maintenance does not upgrade inline, and verify the Canvas node catalog renders the new nodes once backend registration is enabled.
+- **Manual QA checklist**: Authenticate Claude Code on a worker, authenticate Codex on a worker, run both nodes successfully, verify rerun guidance when logged out, verify maintenance does not upgrade inline, and verify the Studio node catalog renders the new nodes once backend registration is enabled.
 
 ## Rollout Plan
 

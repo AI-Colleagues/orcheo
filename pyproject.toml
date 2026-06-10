@@ -83,12 +83,12 @@ requires-python = ">=3.12"
 version = "0.38.3"
 
 [project.scripts]
-orcheo-canvas-lint = "orcheo.tooling.commands:canvas_lint"
-orcheo-dev-canvas = "orcheo.tooling.commands:canvas_dev"
 orcheo-dev-server = "orcheo.tooling.commands:dev_server"
+orcheo-dev-studio = "orcheo.tooling.commands:studio_dev"
 orcheo-format = "orcheo.tooling.commands:format_code"
 orcheo-lint = "orcheo.tooling.commands:lint"
 orcheo-seed-env = "orcheo.tooling.env:main"
+orcheo-studio-lint = "orcheo.tooling.commands:studio_lint"
 orcheo-test = "orcheo.tooling.commands:test"
 
 [project.urls]

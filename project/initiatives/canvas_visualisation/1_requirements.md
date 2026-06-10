@@ -2,9 +2,9 @@
 
 ## METADATA
 - **Authors:** Codex
-- **Project/Feature Name:** Canvas Workflow Visualisation
+- **Project/Feature Name:** Studio Workflow Visualisation
 - **Type:** Enhancement
-- **Summary:** Simplify LangGraph-first Canvas workflow authoring by removing legacy Editor/Execution tabs, introducing a Workflow Mermaid visualisation tab with reusable workflow config form, making gallery workflow cards directly clickable, and ensuring Workflow-tab config reflects the exact runnable config provided via CLI upload (`--config` / `--config-file`).
+- **Summary:** Simplify LangGraph-first Studio workflow authoring by removing legacy Editor/Execution tabs, introducing a Workflow Mermaid visualisation tab with reusable workflow config form, making gallery workflow cards directly clickable, and ensuring Workflow-tab config reflects the exact runnable config provided via CLI upload (`--config` / `--config-file`).
 - **Owner (if different than authors):** Shaojie Jiang
 - **Date Started:** 2026-02-20
 
@@ -12,20 +12,20 @@
 
 | Documents | Link | Owner | Name |
 |-----------|------|-------|------|
-| Requirements | `./1_requirements.md` | Shaojie Jiang | Canvas workflow visualisation requirements |
-| Design | `./2_design.md` | Shaojie Jiang | Canvas workflow visualisation design |
-| Plan | `./3_plan.md` | Shaojie Jiang | Canvas workflow visualisation implementation plan |
-| Current Tabs UI | `apps/canvas/src/features/workflow/components/panels/workflow-tabs.tsx` | Shaojie Jiang | Existing tab definitions |
-| Current Canvas Layout | `apps/canvas/src/features/workflow/pages/workflow-canvas/components/workflow-canvas-layout.tsx` | Shaojie Jiang | Existing tab content wiring |
-| Current Node Config Form | `apps/canvas/src/features/workflow/components/panels/node-inspector/config-panel.tsx` | Shaojie Jiang | RJSF-based node configuration form |
-| Current Gallery Card | `apps/canvas/src/features/workflow/pages/workflow-gallery/workflow-card.tsx` | Shaojie Jiang | Workflow gallery card interactions |
+| Requirements | `./1_requirements.md` | Shaojie Jiang | Studio workflow visualisation requirements |
+| Design | `./2_design.md` | Shaojie Jiang | Studio workflow visualisation design |
+| Plan | `./3_plan.md` | Shaojie Jiang | Studio workflow visualisation implementation plan |
+| Current Tabs UI | `apps/studio/src/features/workflow/components/panels/workflow-tabs.tsx` | Shaojie Jiang | Existing tab definitions |
+| Current Studio Layout | `apps/studio/src/features/workflow/pages/workflow-canvas/components/workflow-canvas-layout.tsx` | Shaojie Jiang | Existing tab content wiring |
+| Current Node Config Form | `apps/studio/src/features/workflow/components/panels/node-inspector/config-panel.tsx` | Shaojie Jiang | RJSF-based node configuration form |
+| Current Gallery Card | `apps/studio/src/features/workflow/pages/workflow-gallery/workflow-card.tsx` | Shaojie Jiang | Workflow gallery card interactions |
 
 ## PROBLEM DEFINITION
 ### Objectives
 Reduce workflow UI complexity and shift the primary workflow view to diagram-first visualization for LangGraph workflows. Ensure users can access workflow configuration from the new Workflow tab and navigate faster from the gallery by clicking cards directly.
 
 ### Target users
-- Canvas users viewing and configuring workflows
+- Studio users viewing and configuring workflows
 - Workflow authors importing LangGraph workflows and validating graph structure
 - Operators browsing workflows in the gallery
 
@@ -34,9 +34,9 @@ Reduce workflow UI complexity and shift the primary workflow view to diagram-fir
 |---------|--------------|------------|----------|---------------------|
 | Workflow user | See a Workflow tab with Mermaid diagram | I can quickly understand workflow structure | P0 | Workflow page exposes a `Workflow` tab that renders Mermaid for the active workflow version |
 | Workflow user | Configure workflow runtime settings from Workflow tab | I can edit workflow-level config without switching contexts | P0 | Workflow tab has a config button opening a workflow config form reusing node form infrastructure |
-| CLI workflow uploader | See upload runnable config unchanged in Canvas Workflow config sheet | Canvas reflects the same configuration contract used by `orcheo workflow upload --config/--config-file` | P0 | Workflow config sheet supports all runnable config fields accepted by upload (`configurable`, `tags`, `metadata`, `callbacks`, `run_name`, `recursion_limit`, `max_concurrency`, `prompts`) |
+| CLI workflow uploader | See upload runnable config unchanged in Studio Workflow config sheet | Studio reflects the same configuration contract used by `orcheo workflow upload --config/--config-file` | P0 | Workflow config sheet supports all runnable config fields accepted by upload (`configurable`, `tags`, `metadata`, `callbacks`, `run_name`, `recursion_limit`, `max_concurrency`, `prompts`) |
 | Product team | Remove Editor/Execution tabs from primary experience | UI is focused and aligned to visualization-first direction | P0 | `Editor` and `Execution` tabs are removed from the active tabs list |
-| Engineering team | Preserve old Editor/Execution implementation in legacy location | We can rollback/reference old behavior safely | P0 | Legacy tab implementations are moved under `apps/canvas/src/features/workflow/legacy/` and are not wired to active UI |
+| Engineering team | Preserve old Editor/Execution implementation in legacy location | We can rollback/reference old behavior safely | P0 | Legacy tab implementations are moved under `apps/studio/src/features/workflow/legacy/` and are not wired to active UI |
 | Gallery user | Click anywhere on workflow cards to open workflow | Navigation is faster and more intuitive | P0 | Clicking the card body navigates to the workflow canvas; action menu buttons remain functional |
 
 ### Context, Problems, Opportunities
@@ -61,7 +61,7 @@ Non-goals:
   - Add a `Workflow` tab in the same tab bar.
   - Ensure default active tab is updated from `"canvas"` to `"workflow"` for new sessions.
 - **P0: Legacy code migration**
-  - Move code currently used by removed tabs into a legacy directory under `apps/canvas/src/features/workflow/legacy/`.
+  - Move code currently used by removed tabs into a legacy directory under `apps/studio/src/features/workflow/legacy/`.
   - Retain code for reference/rollback, but detach from active imports.
 - **P0: Workflow Mermaid view**
   - Workflow tab renders Mermaid diagram for current workflow version.
@@ -81,35 +81,35 @@ Non-goals:
 See `./2_design.md` for component boundaries, API/data contract updates, and migration details.
 
 ### Other Teams Impacted
-- Backend API team: expose Mermaid in workflow version API payloads for Canvas consumption.
+- Backend API team: expose Mermaid in workflow version API payloads for Studio consumption.
 - QA: regression tests for tab navigation, workflow config modal/sheet, and gallery card click behavior.
 
 ## TECHNICAL CONSIDERATIONS
 ### Architecture Overview
-The Canvas workflow page replaces tab routing for Editor/Execution with a new Workflow tab surface and keeps trace/readiness/settings intact. Existing Editor/Execution components move to a confirmed legacy namespace (`apps/canvas/src/features/workflow/legacy/`) to preserve implementation history. Workflow tab consumes backend-provided Mermaid from workflow version payloads and renders it, while a workflow-level config UI reuses the node inspector form foundation and persists only on explicit save. Gallery cards become clickable wrappers with guarded event propagation for inner actions.
+The Studio workflow page replaces tab routing for Editor/Execution with a new Workflow tab surface and keeps trace/readiness/settings intact. Existing Editor/Execution components move to a confirmed legacy namespace (`apps/studio/src/features/workflow/legacy/`) to preserve implementation history. Workflow tab consumes backend-provided Mermaid from workflow version payloads and renders it, while a workflow-level config UI reuses the node inspector form foundation and persists only on explicit save. Gallery cards become clickable wrappers with guarded event propagation for inner actions.
 
 ### Technical Requirements
 - Update active tab definitions in:
-  - `apps/canvas/src/features/workflow/components/panels/workflow-tabs.tsx`
-  - `apps/canvas/src/features/workflow/pages/workflow-canvas/components/workflow-canvas-layout.tsx`
-  - `apps/canvas/src/features/workflow/pages/workflow-canvas/hooks/use-canvas-ui-state.ts`
-  - `apps/canvas/src/features/workflow/pages/workflow-canvas/hooks/controller/build-layout-props.ts`
+  - `apps/studio/src/features/workflow/components/panels/workflow-tabs.tsx`
+  - `apps/studio/src/features/workflow/pages/workflow-canvas/components/workflow-canvas-layout.tsx`
+  - `apps/studio/src/features/workflow/pages/workflow-canvas/hooks/use-canvas-ui-state.ts`
+  - `apps/studio/src/features/workflow/pages/workflow-canvas/hooks/controller/build-layout-props.ts`
 - Create legacy folder for removed tab code:
-  - `apps/canvas/src/features/workflow/legacy/` (structure defined in design doc)
+  - `apps/studio/src/features/workflow/legacy/` (structure defined in design doc)
 - Reuse RJSF tooling from:
-  - `apps/canvas/src/features/workflow/components/panels/rjsf-theme.tsx`
-  - `apps/canvas/src/features/workflow/components/panels/node-inspector/config-panel.tsx`
+  - `apps/studio/src/features/workflow/components/panels/rjsf-theme.tsx`
+  - `apps/studio/src/features/workflow/components/panels/node-inspector/config-panel.tsx`
 - Extend workflow version typing for config persistence visibility:
-  - `apps/canvas/src/features/workflow/lib/workflow-storage.types.ts`
+  - `apps/studio/src/features/workflow/lib/workflow-storage.types.ts`
 - Ensure Workflow config sheet schema/parsing covers upload-supported runnable config fields:
-  - `apps/canvas/src/features/workflow/pages/workflow-canvas/components/workflow-config-sheet.tsx`
-  - `apps/canvas/src/features/workflow/pages/workflow-canvas/components/workflow-config-sheet.utils.ts`
+  - `apps/studio/src/features/workflow/pages/workflow-canvas/components/workflow-config-sheet.tsx`
+  - `apps/studio/src/features/workflow/pages/workflow-canvas/components/workflow-config-sheet.utils.ts`
 - Add Mermaid in workflow version API payload returned by backend:
   - `apps/backend/src/orcheo_backend/app/routers/workflows.py`
   - `apps/backend/src/orcheo_backend/app/schemas/workflows.py` (if response schema changes are introduced)
   - `src/orcheo/models/workflow_entities.py` (if `WorkflowVersion` response model is expanded)
 - Make card-level navigation changes in:
-  - `apps/canvas/src/features/workflow/pages/workflow-gallery/workflow-card.tsx`
+  - `apps/studio/src/features/workflow/pages/workflow-gallery/workflow-card.tsx`
 
 ### AI/ML Considerations (if applicable)
 Not applicable.
@@ -136,7 +136,7 @@ Not required.
 | Phase | Target | Description |
 |-------|--------|-------------|
 | **Phase 1** | Internal dev/staging | Validate tab migration, Mermaid rendering, config form reuse, and clickable card interactions |
-| **Phase 2** | Production | Enable for all Canvas users with updated tests and docs |
+| **Phase 2** | Production | Enable for all Studio users with updated tests and docs |
 
 ## HYPOTHESIS & RISKS
 Hypothesis: replacing Editor/Execution entry points with Workflow visualization and direct card click navigation will reduce navigation friction and improve workflow comprehension. Primary risks are loss of discoverability for legacy actions and regressions from moving tab code. Mitigations: preserve legacy code under a clear namespace, add focused regression tests around tab behavior and card action propagation, and provide fallback messaging when Mermaid data is unavailable.

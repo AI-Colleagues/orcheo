@@ -1,4 +1,4 @@
-.PHONY: dev-server test lint format canvas-lint canvas-format canvas-test redis worker celery-beat \
+.PHONY: dev-server test lint format studio-lint studio-format studio-test redis worker celery-beat \
        docker-up docker-down docker-build docker-logs \
        staging-env staging-up staging-down staging-restart \
        staging-build staging-logs staging-config
@@ -17,14 +17,14 @@ lint:
 	$(UV_RUN) mypy src/orcheo packages/sdk/src packages/agentensor/src apps/backend/src --install-types --non-interactive
 	$(UV_RUN) ruff format --config pyproject.toml . --check
 
-canvas-lint:
-	npm --prefix apps/canvas run lint
+studio-lint:
+	npm --prefix apps/studio run lint
 
-canvas-format:
-	npx --prefix apps/canvas prettier "apps/canvas/src/**/*.{ts,tsx,js,jsx,css,md}" --write
+studio-format:
+	npx --prefix apps/studio prettier "apps/studio/src/**/*.{ts,tsx,js,jsx,css,md}" --write
 
-canvas-test:
-	npm --prefix apps/canvas run test -- --run
+studio-test:
+	npm --prefix apps/studio run test -- --run
 
 format:
 	ruff format --config pyproject.toml .

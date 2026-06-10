@@ -132,7 +132,7 @@ Implement a conservative backend remediation loop that captures uncaught workflo
 
 ---
 
-### Milestone 6: API, Canvas Visibility, and Operations
+### Milestone 6: API, Studio Visibility, and Operations
 
 **Description:** Expose remediation state to users and operators after the backend path is safe. Success means failed run views can show whether Orcheo tried remediation and what outcome it produced.
 
@@ -142,15 +142,15 @@ Implement a conservative backend remediation loop that captures uncaught workflo
   - Dependencies: Milestone 5
 - [x] Task 6.2: Add dismiss API for human-reviewed candidates
   - Dependencies: Task 6.1
-- [x] Task 6.3: Add Canvas failed-run remediation summary
+- [x] Task 6.3: Add Studio failed-run remediation summary
   - Dependencies: Task 6.1
-- [x] Task 6.4: Add Canvas developer note and created version links
+- [x] Task 6.4: Add Studio developer note and created version links
   - Dependencies: Task 6.3
 - [x] Task 6.5: Document feature flags, idle behavior, safety boundaries, and remediation statuses
   - Dependencies: Milestone 5
 - [x] Task 6.6: Add operational metrics/logging for created candidates, claimed candidates, fixed versions, note-only results, failures, and skipped scans
   - Dependencies: Milestone 5
-- [x] Task 6.7: Run `make format`, `make lint`, focused backend tests, and Canvas tests for new UI surfaces
+- [x] Task 6.7: Run `make format`, `make lint`, focused backend tests, and Studio tests for new UI surfaces
   - Dependencies: Tasks 6.1-6.6
 
 ---

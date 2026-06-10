@@ -8,7 +8,7 @@ Use this guide when you want to build your own chat surface on top of Orcheo ins
 - You want Orcheo to manage workflow execution, thread history, and assistant responses, but you want full control over rendering.
 - You do not want to ship `<openai-chatkit>` or the hosted ChatKit web bundle.
 
-If you want the stock ChatKit UI instead, use [Webpage Embedding](webpage_embedding_guide.md) or [Canvas Chat Bubble](canvas_chat_bubble_guide.md).
+If you want the stock ChatKit UI instead, use [Webpage Embedding](webpage_embedding_guide.md) or [Studio Chat Bubble](studio_chat_bubble_guide.md).
 
 ## Integration model
 
@@ -50,7 +50,7 @@ Notes:
 - `/api/chatkit` always requires a top-level `workflow_id`.
 - For published access, Orcheo checks that the workflow is public and optionally that an OAuth session exists.
 - For JWT access, mint a short-lived token through `POST /api/chatkit/session` on your server side. See the JWT section in [Webpage Embedding](webpage_embedding_guide.md#embedding-on-a-third-party-website-with-jwt-tokens).
-- The workflow-scoped endpoint `POST /api/workflows/{workflow_id}/chatkit/session` is mainly for authenticated first-party Canvas flows.
+- The workflow-scoped endpoint `POST /api/workflows/{workflow_id}/chatkit/session` is mainly for authenticated first-party Studio flows.
 
 ## Request shape
 
@@ -313,8 +313,8 @@ Attach the returned object to `input.attachments` in your next `/api/chatkit` re
 
 ## References
 
-- Hosted ChatKit request wrapper: `apps/canvas/src/features/chatkit/lib/chatkit-client.ts`
+- Hosted ChatKit request wrapper: `apps/studio/src/features/chatkit/lib/chatkit-client.ts`
 - Hosted ChatKit widget example: `examples/chatkit-embedding.html`
 - Publish flow: [Workflow Publishing](workflow_publish_guide.md)
 - Hosted widget flow: [Webpage Embedding](webpage_embedding_guide.md)
-- Canvas-authenticated flow: [Canvas Chat Bubble](canvas_chat_bubble_guide.md)
+- Studio-authenticated flow: [Studio Chat Bubble](studio_chat_bubble_guide.md)

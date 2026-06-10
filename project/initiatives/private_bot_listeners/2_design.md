@@ -15,7 +15,7 @@ This design adds a listener plane to Orcheo so workflows can react to Telegram, 
 
 The existing execution model remains intact. Listener nodes do not execute user logic directly; instead, they compile into subscription records. A supervisor process starts platform adapters for active subscriptions, receives external bot events, normalizes them into Orcheo trigger inputs, and enqueues standard workflow runs. Telegram uses Bot API long polling. Discord uses Gateway WebSocket sessions. QQ uses Tencent's current API v2 AppID/clientSecret AccessToken flow, the documented `GET /gateway` or `GET /gateway/bot` session bootstrap, and the QQ Bot WebSocket session pattern demonstrated by the maintained OpenClaw plugin.
 
-Canvas template workflows are part of the design deliverable, not only documentation. The implementation must prove two graph patterns in real templates: one template per listener platform where that listener feeds an `AgentNode` that generates the reply text, and one template where Telegram, Discord, and QQ listeners in parallel share the same `AgentNode` and downstream reply logic. A template is only considered complete if its reply path uses supported workflow nodes end to end. If a required send node is missing for Discord or QQ, adding that minimal outbound reply node remains part of this initiative.
+Studio template workflows are part of the design deliverable, not only documentation. The implementation must prove two graph patterns in real templates: one template per listener platform where that listener feeds an `AgentNode` that generates the reply text, and one template where Telegram, Discord, and QQ listeners in parallel share the same `AgentNode` and downstream reply logic. A template is only considered complete if its reply path uses supported workflow nodes end to end. If a required send node is missing for Discord or QQ, adding that minimal outbound reply node remains part of this initiative.
 
 External validation snapshot taken on 2026-03-11:
 
@@ -26,7 +26,7 @@ External validation snapshot taken on 2026-03-11:
 
 ## Components
 
-- **Listener Nodes (Orcheo SDK / Canvas)**
+- **Listener Nodes (Orcheo SDK / Studio)**
   - `TelegramBotListenerNode`, `DiscordBotListenerNode`, and `QQBotListenerNode`.
   - Responsibility: declare platform-specific listener configuration inside a workflow graph.
   - Key dependencies: credential references, filter config, workflow activation pipeline.
@@ -66,7 +66,7 @@ External validation snapshot taken on 2026-03-11:
   - Reuses existing platform send nodes where possible, such as `MessageTelegramNode`.
   - If a platform template needs a reply node that does not yet exist, the initiative must add a minimal first-class outbound node for that platform rather than rely on placeholder manual API calls.
 
-- **Canvas Templates**
+- **Studio Templates**
   - One template each for Telegram, Discord, and QQ listener workflows with an `AgentNode` producing reply content.
   - One template with Telegram, Discord, and QQ listeners in parallel feeding a shared `AgentNode`.
   - Responsibility: act as the product-level validation artifact for listener node usability, shared-downstream execution semantics, and reply routing.
@@ -213,7 +213,7 @@ The normalized payload is the contract that allows multiple listener nodes to sh
 
 ### Template Acceptance Contract
 
-- A template passes acceptance only if it imports cleanly into Canvas, validates under the current schema, and runs end to end without manual node rewiring.
+- A template passes acceptance only if it imports cleanly into Studio, validates under the current schema, and runs end to end without manual node rewiring.
 - Single-platform templates must prove `listener -> AgentNode -> provider reply node`.
 - The shared template must prove that Telegram, Discord, and QQ listener events can all enter the same downstream `AgentNode` while preserving correct reply transport and bot identity.
 - Every accepted template must record `template_version`, `min_orcheo_version`, `validated_provider_api`, and a validation date.
@@ -304,7 +304,7 @@ DiscordBotListenerNode ----> AgentNode -> platform-aware reply routing -> Messag
 QQBotListenerNode -------/
 ```
 
-The purpose of these templates is to force implementation clarity around how multiple listener nodes enter a shared downstream path in Canvas and runtime execution. Missing reply nodes are part of that clarity requirement, not an exception to it.
+The purpose of these templates is to force implementation clarity around how multiple listener nodes enter a shared downstream path in Studio and runtime execution. Missing reply nodes are part of that clarity requirement, not an exception to it.
 
 ```json
 {
@@ -376,20 +376,20 @@ The purpose of these templates is to force implementation clarity around how mul
 - **Unit tests**: node config validation, subscription compilation, Telegram offset handling, Discord heartbeat/reconnect state machine, QQ token/session state machine, dedupe logic.
 - **Integration tests**: mocked Telegram `getUpdates` loop, mocked Discord Gateway session, mocked QQ `/gateway` plus WebSocket session, end-to-end dispatch into workflow runs.
 - **Persistence tests**: restart recovery for Telegram offsets, Discord resume data, and QQ session resumption.
-- **Template validation**: validate one Canvas template per platform with `listener -> AgentNode -> supported reply node` wiring and one Canvas template with all three listeners feeding a shared `AgentNode`, then record the resulting `template_version`, `min_orcheo_version`, and `validated_provider_api`.
+- **Template validation**: validate one Studio template per platform with `listener -> AgentNode -> supported reply node` wiring and one Studio template with all three listeners feeding a shared `AgentNode`, then record the resulting `template_version`, `min_orcheo_version`, and `validated_provider_api`.
 - **Manual QA checklist**: private-network deployment, token rotation, workflow pause/resume, two independent Telegram bots, one Discord bot in DM and guild scenarios, two independent QQ bots using different AppIDs, QQ whitelist/permission failures, and blocked-egress recovery drills.
 
 ## Rollout Plan
 
 1. Phase 1: Implement subscription persistence and Telegram listener runtime behind a feature flag.
 2. Phase 2: Add Discord and QQ Gateway runtimes and validate reconnect behavior plus token/session persistence.
-3. Phase 3: Expose listener health in operational surfaces and ship Canvas templates for each single-listener workflow plus the shared three-listener workflow.
+3. Phase 3: Expose listener health in operational surfaces and ship Studio templates for each single-listener workflow plus the shared three-listener workflow.
 4. Phase 4: Optimize shared-session fan-out and broader operational controls.
 
 ## Open Issues
 
 - The exact persistence home for listener ownership and health may belong in the backend app package rather than `src/orcheo/` core; implementation should follow the same backend-versus-worker boundary that already exists in the repository.
-- The shared three-listener template should remove ambiguity about how multiple listener nodes connect to one downstream `AgentNode`; if Canvas or runtime semantics need adjustment, that template is the acceptance vehicle for the decision.
+- The shared three-listener template should remove ambiguity about how multiple listener nodes connect to one downstream `AgentNode`; if Studio or runtime semantics need adjustment, that template is the acceptance vehicle for the decision.
 - The same template set should remove ambiguity about reply transport ownership. If Discord or QQ lacks a send node, that is not deferred work; it is a required dependency to finish the templates.
 
 ---

@@ -38,7 +38,7 @@ Validation notes checked on 2026-03-11:
 ### Objectives
 
 Enable Orcheo workflows to continuously receive bot messages from Telegram, Discord, and QQ without exposing the Orcheo backend through a public inbound webhook URL. Keep these listeners optional and workflow-scoped so multiple independently configured bots can coexist.
-Ship Canvas template workflows that exercise both single-listener and multi-listener reply flows so the feature's workflow semantics are validated by end-to-end usage, not only transport-layer implementation.
+Ship Studio template workflows that exercise both single-listener and multi-listener reply flows so the feature's workflow semantics are validated by end-to-end usage, not only transport-layer implementation.
 
 ### Target users
 
@@ -52,8 +52,8 @@ Operators and workflow authors who want Orcheo-hosted chatbots to run from priva
 | Workflow author | attach a Discord listener node to a workflow | I can react to guild or DM messages without inbound webhooks | P0 | Discord message events create workflow runs from a maintained Gateway session |
 | Workflow author | attach a QQ listener node to a workflow | I can react to QQ private, group, or channel messages without inbound webhooks | P0 | QQ message events create workflow runs from a maintained QQ gateway session using the configured AppID and AppSecret |
 | Workflow author | configure two QQ bots on different workflows | each QQ bot can receive and reply with its own identity | P0 | Two workflows configured with different QQ AppID/AppSecret pairs each receive only their own QQ events and send replies with the matching bot account |
-| Workflow author | start from a Canvas template for a Telegram, Discord, or QQ listener bot | I can quickly deploy a working listener workflow with AI-generated replies | P0 | Canvas provides one template per listener platform with the listener feeding an `AgentNode` that generates the reply message, and the template is runnable end to end without manual API-call patching |
-| Workflow author | start from a Canvas template with Telegram, Discord, and QQ listeners sharing one bot brain | I can validate that different listeners can trigger the same downstream workflow logic | P0 | Canvas provides a template where three listeners run in parallel, the same `AgentNode` decides the reply, and each event still replies through the matching bot identity using actual workflow nodes rather than undocumented placeholders |
+| Workflow author | start from a Studio template for a Telegram, Discord, or QQ listener bot | I can quickly deploy a working listener workflow with AI-generated replies | P0 | Studio provides one template per listener platform with the listener feeding an `AgentNode` that generates the reply message, and the template is runnable end to end without manual API-call patching |
+| Workflow author | start from a Studio template with Telegram, Discord, and QQ listeners sharing one bot brain | I can validate that different listeners can trigger the same downstream workflow logic | P0 | Studio provides a template where three listeners run in parallel, the same `AgentNode` decides the reply, and each event still replies through the matching bot identity using actual workflow nodes rather than undocumented placeholders |
 | Operator | run Orcheo behind NAT or on a private host | I do not need to expose a public callback URL | P0 | Telegram, Discord, and QQ listeners function with outbound-only connectivity |
 | Operator | restart Orcheo services safely | listeners recover without duplicating or losing large batches of events | P0 | Listener cursors and sessions resume with bounded duplication after restart |
 | Workflow author | choose whether a workflow uses listener-based bots or existing webhook-based integrations | the feature remains optional | P1 | Workflows without listener nodes have no extra runtime overhead |
@@ -74,8 +74,8 @@ Goals:
 - Define a listener runtime that can manage multiple independently configured bots.
 - Preserve Orcheo's existing execution model: listeners dispatch normal workflow runs with structured inputs.
 - Support multiple bot identities per platform when each uses separate credentials or account IDs.
-- Ship Canvas templates that demonstrate each listener platform paired with an `AgentNode` that generates reply text.
-- Ship a Canvas template that demonstrates Telegram, Discord, and QQ listeners in parallel feeding one shared `AgentNode` and preserving correct per-platform reply routing.
+- Ship Studio templates that demonstrate each listener platform paired with an `AgentNode` that generates reply text.
+- Ship a Studio template that demonstrates Telegram, Discord, and QQ listeners in parallel feeding one shared `AgentNode` and preserving correct per-platform reply routing.
 - Treat missing outbound reply nodes as in-scope gaps for this initiative: if Discord or QQ lacks a reusable send node, the initiative must add the minimal node or equivalent first-class reply transport needed for the templates to work end to end.
 
 Non-goals:
@@ -103,10 +103,10 @@ Non-goals:
 - Incoming events are normalized into a stable Orcheo payload shape with platform metadata, sender identity, chat/channel identity, raw event payload, and dedupe key.
 - Delivery is at-least-once with provider-aware deduplication to reduce duplicates across reconnects.
 - Observability covers listener health, reconnects, last event time, dispatch failures, and cursor/session lag.
-- Canvas template workflows are provided for Telegram, Discord, and QQ individually, each wiring the listener into an `AgentNode` that generates the reply message and then into an actual outbound reply node supported by Orcheo.
-- A Canvas template workflow is provided with Telegram, Discord, and QQ listeners in parallel, using a shared `AgentNode` for reply generation so implementation must validate shared-downstream workflow behavior before the initiative is complete.
+- Studio template workflows are provided for Telegram, Discord, and QQ individually, each wiring the listener into an `AgentNode` that generates the reply message and then into an actual outbound reply node supported by Orcheo.
+- A Studio template workflow is provided with Telegram, Discord, and QQ listeners in parallel, using a shared `AgentNode` for reply generation so implementation must validate shared-downstream workflow behavior before the initiative is complete.
 - If an outbound reply node does not already exist for a required template platform, delivering that minimal outbound node is part of the feature scope; templates cannot be considered complete if they depend on manual HTTP nodes, undocumented custom code, or TODO placeholders for reply delivery.
-- Canvas templates include explicit acceptance criteria, version metadata, and ownership so provider/API evolution does not silently invalidate them.
+- Studio templates include explicit acceptance criteria, version metadata, and ownership so provider/API evolution does not silently invalidate them.
 
 **P1 (nice to have)**
 
@@ -124,7 +124,7 @@ See [2_design.md](2_design.md) for the listener supervisor, platform adapters, a
 ### [Optional] Other Teams Impacted
 
 - **Backend/runtime:** New long-lived listener supervision and state persistence.
-- **Canvas/SDK:** New node definitions and activation-time validation rules.
+- **Studio/SDK:** New node definitions and activation-time validation rules.
 - **Operations:** New health metrics, credentials, and restart procedures for listener processes.
 
 ## TECHNICAL CONSIDERATIONS
@@ -168,7 +168,7 @@ Not applicable; this is an internal platform capability.
 | [Primary] QQ listener dispatch success | 95%+ over 500 staged messages |
 | [Secondary] Listener recovery time after restart | < 60 seconds to resume healthy state |
 | [Guardrail] Duplicate-dispatch rate | < 1% in reconnect and restart tests |
-| [Delivery] Canvas template readiness | Individual Telegram/Discord/QQ listener templates and one shared three-listener template are shipped, versioned, and validated against the acceptance checklist |
+| [Delivery] Studio template readiness | Individual Telegram/Discord/QQ listener templates and one shared three-listener template are shipped, versioned, and validated against the acceptance checklist |
 
 ### Rollout Strategy
 
@@ -210,13 +210,13 @@ Not applicable. This is an infrastructure/platform feature.
 - For QQ specifically, outbound access to `bots.qq.com`, `api.sgroup.qq.com`, `sandbox.api.sgroup.qq.com`, and Tencent-provided Gateway WSS URLs is a hard prerequisite.
 - Multiple workflows using different bot credentials on the same platform are the primary multi-bot use case.
 - Native support for multiple workflows sharing the exact same bot identity is a later optimization, not a P0 requirement.
-- Delivering the Canvas templates is part of the feature definition because those templates provide the concrete validation path for both single-listener reply behavior and shared downstream logic across Telegram, Discord, and QQ.
+- Delivering the Studio templates is part of the feature definition because those templates provide the concrete validation path for both single-listener reply behavior and shared downstream logic across Telegram, Discord, and QQ.
 - A "complete" template means the reply path is expressed with supported workflow nodes. Missing Discord or QQ send nodes are therefore product gaps to close inside this initiative, not exceptions that allow incomplete templates.
 - Some QQ capabilities remain permission-gated by Tencent configuration, such as whitelist and channel-scoped constraints, so Orcheo should surface those failures as operator action items instead of masking them as generic transport errors.
 
 ### Template acceptance and versioning
 
-- Every delivered template must import into the current Canvas schema without manual JSON edits.
+- Every delivered template must import into the current Studio schema without manual JSON edits.
 - Every delivered template must run end to end with supported nodes only: `listener -> AgentNode -> provider reply node`.
 - Every delivered template must include operator notes listing required credentials, minimum Orcheo version, and the target provider API major version.
 - Template metadata must include a semantic `template_version`, `min_orcheo_version`, and `validated_provider_api` value such as `telegram-bot-api`, `discord-gateway-v10`, or `qq-bot-api-v2`.

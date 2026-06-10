@@ -29,7 +29,7 @@ Orcheo now supports Python LangGraph script ingestion as the only workflow compo
    `orcheo workflow upload path/to/workflow.py --id <workflow_ref>`
 2. For config-only updates on existing versions, use:
    `orcheo workflow save-config <workflow_ref> --config '{"tags":["prod"]}'`
-3. For Canvas config saves, ensure the workflow already has at least one Python-ingested version. Canvas will not create versions from graph JSON.
+3. For Studio config saves, ensure the workflow already has at least one Python-ingested version. Studio will not create versions from graph JSON.
 
 ## Legacy Archive
 

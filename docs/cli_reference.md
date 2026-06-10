@@ -280,7 +280,7 @@ Supported fields (all optional):
 - `id` (or `handle`) – workflow reference; when set, the upload updates this existing workflow instead of creating a new one.
 - `config` – path to a companion JSON runnable config file. Relative paths resolve against the workflow file's directory.
 - `entrypoint` – LangGraph entrypoint function/variable name.
-- `emoji` – emoji shown on the colleague's Candidates badge in Canvas.
+- `emoji` – emoji shown on the colleague's Candidates badge in Studio.
 - `subtitle` – short role line shown on the Candidates badge.
 - `notes` – free-form notes describing the workflow template.
 - `metadata` – a `[metadata]` table of template compatibility info (e.g. `required_plugins`, `validated_provider_api`).

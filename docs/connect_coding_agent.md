@@ -1,8 +1,8 @@
-# Connect a Coding Agent to Orcheo Canvas
+# Connect a Coding Agent to Orcheo Studio
 
 Use Claude Code, Cursor, or any CLI-capable coding agent to read and modify
 your Orcheo workflows directly from the terminal. The agent stays in sync with
-the workflow you have open in Canvas — no copy-pasting required.
+the workflow you have open in Studio — no copy-pasting required.
 
 ## Prerequisites
 
@@ -27,7 +27,7 @@ orcheo browser-aware
 ```
 
 This starts a lightweight HTTP server on `localhost:3333` that receives context
-from your Canvas browser tabs. Keep it running while you work.
+from your Studio browser tabs. Keep it running while you work.
 
 Use `--port` to change the port:
 
@@ -35,9 +35,9 @@ Use `--port` to change the port:
 orcheo browser-aware --port 4444
 ```
 
-### 3. Open Canvas
+### 3. Open Studio
 
-Navigate to any workflow in Orcheo Canvas. The browser tab automatically relays
+Navigate to any workflow in Orcheo Studio. The browser tab automatically relays
 which page and workflow you're viewing to the local server.
 
 ### 4. Use your agent
@@ -45,7 +45,7 @@ which page and workflow you're viewing to the local server.
 Your coding agent can now run CLI commands to interact with the active workflow:
 
 ```bash
-# See what you have open in Canvas
+# See what you have open in Studio
 orcheo context
 
 # View workflow details
@@ -64,29 +64,29 @@ orcheo workflow upload --id <workflow-id> updated_script.py
 orcheo workflow list
 ```
 
-## Connect Claude Code to Orcheo Canvas
+## Connect Claude Code to Orcheo Studio
 
 1. Start the browser context bridge: `orcheo browser-aware`
-2. Open a workflow in Canvas.
+2. Open a workflow in Studio.
 3. In your terminal, ask Claude Code: *"What workflow am I looking at?"*
 4. Claude Code runs `orcheo context` to read the active workflow, then
    `orcheo workflow show <id>` or `orcheo workflow download <id>` to fetch the
    script.
 5. Ask Claude Code to make changes — it will edit the script and run
    `orcheo workflow upload --id <id> <file>` to push the update.
-6. Refresh Canvas to see the updated workflow graph.
+6. Refresh Studio to see the updated workflow graph.
 
-## Connect Cursor to Orcheo Canvas
+## Connect Cursor to Orcheo Studio
 
 1. Start the browser context bridge: `orcheo browser-aware`
-2. Open a workflow in Canvas.
+2. Open a workflow in Studio.
 3. In Cursor's terminal, run `orcheo context` to see the active workflow.
 4. Use `orcheo workflow download <id>` to get the script, edit it in Cursor,
    then `orcheo workflow upload --id <id> <file>` to push changes.
 
 ## Multi-tab Support
 
-If you have multiple Canvas tabs open, `orcheo context` returns the most
+If you have multiple Studio tabs open, `orcheo context` returns the most
 recently focused tab's context. Use `orcheo context sessions` to see all
 active tabs:
 
@@ -99,6 +99,6 @@ orcheo context sessions
 | Issue | Solution |
 |-------|----------|
 | `orcheo context` says "Could not connect" | Make sure `orcheo browser-aware` is running in another terminal. |
-| `orcheo context` says "No active Canvas session" | Open Orcheo Canvas in your browser. The context relay only works when a Canvas tab is open. |
-| Context is stale | Check that the Canvas tab is not minimized or suspended. The heartbeat pauses when the tab is hidden. |
+| `orcheo context` says "No active Studio session" | Open Orcheo Studio in your browser. The context relay only works when a Studio tab is open. |
+| Context is stale | Check that the Studio tab is not minimized or suspended. The heartbeat pauses when the tab is hidden. |
 | Authentication errors on workflow commands | Run `orcheo auth login` to refresh your credentials. |

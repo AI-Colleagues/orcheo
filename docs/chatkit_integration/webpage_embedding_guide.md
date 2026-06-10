@@ -9,7 +9,7 @@ copy/paste or customize.
 - You have a workflow that is already published via `orcheo workflow publish`
   (with or without the `--require-login` flag).
 - You want to embed a floating chat bubble in a marketing site, docs page, or
-  prototype without pulling in the full Canvas frontend.
+  prototype without pulling in the full Studio frontend.
 - You can point the page at an Orcheo backend that exposes `/api/chatkit` to the
   public internet. The backend may live on localhost for testing; the browser
   must be able to reach it directly.
@@ -38,7 +38,7 @@ widget, create one in the OpenAI Platform:
 2. Click the **cog button** (⚙️) in the top-right corner.
 3. In the left sidebar, open **Security**.
 4. Click **+ Add domain**, then enter the domain names that will host ChatKit
-   (for example, `orcheo-canvas.example.com`). Separate multiple domains with
+   (for example, `orcheo-studio.example.com`). Separate multiple domains with
    commas.
 5. Click **Generate key**.
 6. Copy the generated public key and set it as
@@ -64,7 +64,7 @@ domains where practical.
    `ORCHEO_CHATKIT_CDN_BASE_URL` if needed.
 2. **Add a launcher + container** – place a floating button and a hidden panel
    that contains `<openai-chatkit>`. See `examples/chatkit-orcheo.html` for a
-   fully styled version that mirrors the Canvas chat bubble UX.
+   fully styled version that mirrors the Studio chat bubble UX.
 3. **Capture configuration** – collect:
    - Backend base URL (`http://localhost:2025` for local dev)
    - Workflow share URL or ID (we parse either)
@@ -158,7 +158,7 @@ domains where practical.
 - **403 or 404 responses** – confirm the workflow is still published and that the
   workflow ID matches the final segment of the share URL.
 - **401 responses** – required when `--require-login` is set. Make sure the page
-  is served from the same origin as Canvas so OAuth cookies are available.
+  is served from the same origin as Studio so OAuth cookies are available.
 - **CORS failures** – `/api/chatkit` must allow the host running your HTML page.
   Set `ORCHEO_CORS_ALLOW_ORIGINS` (see `docs/environment_variables.md`) to a JSON
   list of allowed origins such as
@@ -173,7 +173,7 @@ domains where practical.
 
 The steps above work for **public** (published) workflows where no login is required.
 If you want to embed ChatKit on an external website while keeping the workflow private
-— or when the 3rd-party site cannot share cookies with your Canvas origin — use
+— or when the 3rd-party site cannot share cookies with your Studio origin — use
 **short-lived session JWTs** instead.  The pattern is:
 
 ```mermaid
@@ -409,5 +409,5 @@ is transparently refreshed before each near-expiry request.
 ## References
 - Working demo: `examples/chatkit-orcheo.html`
 - Backend contract: `apps/backend/src/orcheo_backend/app/routers/chatkit.py`
-- Canvas embedding code: `apps/canvas/src/features/chatkit/components/public-chat-widget.tsx`
+- Studio embedding code: `apps/studio/src/features/chatkit/components/public-chat-widget.tsx`
 - Authentication guide: `docs/authentication_guide.md`

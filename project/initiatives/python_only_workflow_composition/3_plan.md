@@ -38,13 +38,13 @@ Execute a coordinated refactor to make Python LangGraph ingestion the only suppo
 
 ---
 
-### Milestone 2: Canvas + CLI/SDK Behavior Alignment
+### Milestone 2: Studio + CLI/SDK Behavior Alignment
 
-**Description:** Align client tooling with Python-only composition and config-only Canvas persistence.
+**Description:** Align client tooling with Python-only composition and config-only Studio persistence.
 
 #### Task Checklist
 
-- [x] Task 2.1: Update Canvas save flow to stop creating versions and write config-only updates to backend version `runnable_config`
+- [x] Task 2.1: Update Studio save flow to stop creating versions and write config-only updates to backend version `runnable_config`
   - Dependencies: Milestone 1
 - [x] Task 2.2: Remove CLI/SDK JSON upload path (`.json` workflow files)
   - Dependencies: Milestone 1

@@ -58,7 +58,7 @@ Implement scoped, database-backed ChatKit attachment storage. The project remove
   - Dependencies: Task 2.1, Task 2.2
 - [x] Task 2.5: Remove `storage_path` from upload responses for new attachments and return `upload_session_id` only when the client must echo it later.
   - Dependencies: Task 2.4
-- [x] Task 2.6: Update the Canvas/public-chat composer client to send `workflow_id` (and `thread_id` or `upload_session_id` when available) on direct uploads, persist any backend-minted `upload_session_id`, and stop consuming `storage_path` from upload responses or attachment metadata.
+- [x] Task 2.6: Update the Studio/public-chat composer client to send `workflow_id` (and `thread_id` or `upload_session_id` when available) on direct uploads, persist any backend-minted `upload_session_id`, and stop consuming `storage_path` from upload responses or attachment metadata.
   - Dependencies: Task 2.5
 - [x] Task 2.7: Add API tests for public workflow uploads, JWT-scoped uploads, unpublished workflow rejection, oversized uploads, missing scope rejection, and response shape.
   - Dependencies: Task 2.5
@@ -155,4 +155,4 @@ Implement scoped, database-backed ChatKit attachment storage. The project remove
 |------|--------|---------|
 | 2026-05-27 | Codex | Initial draft |
 | 2026-05-27 | Codex | Added resolver-boundary, upload-session binding, scoped legacy fallback, and expanded security test tasks |
-| 2026-05-27 | Claude (review) | Made schema task explicit about `ALTER TABLE`, added Canvas composer client task, added orphan upload-session pruning test, and tightened upload route task to add new form fields |
+| 2026-05-27 | Claude (review) | Made schema task explicit about `ALTER TABLE`, added Studio composer client task, added orphan upload-session pruning test, and tightened upload route task to add new form fields |

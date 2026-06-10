@@ -153,16 +153,16 @@ services:
     command: >
       sh -c 'uv run celery -A orcheo_backend.worker.celery_app beat --loglevel=info -s "$$ORCHEO_CELERY_BEAT_SCHEDULE_FILE"'
 
-  canvas:
+  studio:
     build:
       context: .
-      dockerfile: Dockerfile.canvas
+      dockerfile: Dockerfile.studio
     env_file: .env
     ports:
       - "2026:2026"
     volumes:
-      - ./apps/canvas:/app
-      - canvas_node_modules:/app/node_modules
+      - ./apps/studio:/app
+      - studio_node_modules:/app/node_modules
     environment:
       VITE_ORCHEO_BACKEND_URL: ${VITE_ORCHEO_BACKEND_URL:-http://localhost:2025}
       VITE_ORCHEO_AUTH_ISSUER: ${ORCHEO_AUTH_ISSUER:-}
@@ -186,7 +186,7 @@ volumes:
   redis_data:
   orcheo_data:
   uv_cache:
-  canvas_node_modules:
+  studio_node_modules:
   backend_venv:
   worker_venv:
   celery_venv:

@@ -111,7 +111,7 @@ The design favors logical isolation in shared databases over physical separation
 ### Flow 5: SaaS registration / invite acceptance
 1. New users register or accept an invite.
 2. The identity layer binds the account to the invited workspace or provisions the first workspace only if the deployment policy allows self-serve creation.
-3. Canvas opens in that workspace with the active workspace switcher set to one of the user's existing memberships.
+3. Studio opens in that workspace with the active workspace switcher set to one of the user's existing memberships.
 4. Users can switch workspaces only within that membership set; they cannot browse the entire tenant graph to join or create arbitrary workspaces.
 
 ### Flow 6: Single-workspace upgrade
@@ -288,7 +288,7 @@ Composite indexes:
   - Backfill assigns existing rows to the `default` workspace.
   - Feature-flag rollback preserves default-workspace behavior when no non-default workspace exists.
 - **Manual QA checklist**:
-  - Provision two workspaces; confirm Canvas shows only the active workspace's workflows.
+  - Provision two workspaces; confirm Studio shows only the active workspace's workflows.
   - Run a workflow in each workspace concurrently; confirm logs/metrics tagged correctly.
   - Exceed a per-workspace quota; confirm graceful rejection.
 

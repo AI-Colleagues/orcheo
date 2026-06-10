@@ -20,7 +20,7 @@ def _make_config(**overrides: object) -> setup_mod.SetupConfig:
         "public_host": None,
         "publish_local_ports": True,
         "backend_upstreams": "backend:2025",
-        "canvas_upstream": "canvas:2026",
+        "studio_upstream": "studio:2026",
         "start_stack": False,
         "install_docker_if_missing": False,
     }

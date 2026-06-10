@@ -66,8 +66,8 @@ def _read_current_version(package_name: str) -> str | None:
         return None
 
 
-def _read_canvas_current_version() -> str | None:
-    version_from_env = os.getenv("ORCHEO_CANVAS_VERSION")
+def _read_studio_current_version() -> str | None:
+    version_from_env = os.getenv("ORCHEO_STUDIO_VERSION")
     if not version_from_env:
         return None
     normalized = version_from_env.strip()
@@ -153,13 +153,13 @@ def _build_payload() -> dict[str, Any]:
 
     backend_current = _read_current_version("orcheo-backend")
     cli_current = _read_current_version("orcheo-sdk")
-    canvas_current = _read_canvas_current_version()
+    studio_current = _read_studio_current_version()
 
     backend_latest = _fetch_pypi_latest(
         "orcheo-backend", timeout=timeout, retries=retries
     )
     cli_latest = _fetch_pypi_latest("orcheo-sdk", timeout=timeout, retries=retries)
-    canvas_latest = _fetch_npm_latest("orcheo-canvas", timeout=timeout, retries=retries)
+    studio_latest = _fetch_npm_latest("orcheo-studio", timeout=timeout, retries=retries)
 
     checked_at = datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
 
@@ -180,13 +180,13 @@ def _build_payload() -> dict[str, Any]:
             "release_notes_url": None,
             "update_available": _update_available(cli_current, cli_latest),
         },
-        "canvas": {
-            "package": "orcheo-canvas",
-            "current_version": canvas_current,
-            "latest_version": canvas_latest,
+        "studio": {
+            "package": "orcheo-studio",
+            "current_version": studio_current,
+            "latest_version": studio_latest,
             "minimum_recommended_version": None,
             "release_notes_url": None,
-            "update_available": _update_available(canvas_current, canvas_latest),
+            "update_available": _update_available(studio_current, studio_latest),
         },
         "checked_at": checked_at,
     }

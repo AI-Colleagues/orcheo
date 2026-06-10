@@ -2,7 +2,7 @@
 
 Follow this walkthrough to turn any Orcheo workflow into a ChatKit experience.
 It covers the CLI/MCP publish flow, highlights the environment variables you
-must set, and explains how to hand the resulting share link to the Canvas public
+must set, and explains how to hand the resulting share link to the Studio public
 page or custom ChatKit embeds.
 
 ## When to use this guide
@@ -17,10 +17,10 @@ page or custom ChatKit embeds.
 2. **Backend availability** – start the FastAPI stack (`make dev-server`) and
    confirm it is reachable at the base URL pointed to by `ORCHEO_API_URL`.
 3. **CORS allow list** – ensure `ORCHEO_CORS_ALLOW_ORIGINS` includes every
-   origin that will load the ChatKit UI (Canvas, docs site, local dev server).
+   origin that will load the ChatKit UI (Studio, docs site, local dev server).
    See `docs/environment_variables.md` for syntax.
 4. **Domain key** – set `ORCHEO_CHATKIT_DOMAIN_KEY` anywhere the ChatKit JS
-   bundle executes (Canvas, embeds, or stand-alone demo pages). Local builds may
+   bundle executes (Studio, embeds, or stand-alone demo pages). Local builds may
    default to `domain_pk_localhost_dev`. If you need to generate one, follow
    [Create a ChatKit domain key](webpage_embedding_guide.md#create-a-chatkit-domain-key).
 5. **Optional OAuth requirements** – if the workflow should only be available to
@@ -74,7 +74,7 @@ override) when provided; otherwise it strips any trailing `/api` segment from
 either export `ORCHEO_CHATKIT_PUBLIC_BASE_URL=http://localhost:2026` or tack on
 `--chatkit-public-base-url http://localhost:2026` to the publish command.
 
-- Paste it directly into a browser to load the Canvas-hosted public chat page,
+- Paste it directly into a browser to load the Studio-hosted public chat page,
   which renders the ChatKit widget bound to the published workflow.
 - Record it in product docs or onboarding material so testers can open the chat.
 - Feed it into automation scripts that need to validate publish state via
@@ -93,9 +93,9 @@ your configured OAuth provider before ChatKit initializes.
   instead of embedding the stock widget, follow
   `docs/chatkit_integration/custom_chat_ui_guide.md` to call `/api/chatkit`
   directly from your frontend or mobile client.
-- **Canvas editor bubble** – internal builders testing unpublished iterations
-  can still rely on the Canvas bubble described in
-  `docs/chatkit_integration/canvas_chat_bubble_guide.md`. Publishing is only
+- **Studio editor bubble** – internal builders testing unpublished iterations
+  can still rely on the Studio bubble described in
+  `docs/chatkit_integration/studio_chat_bubble_guide.md`. Publishing is only
   required when you need shareable public access.
 - **Automation** – CI or MCP automations may call
   `orcheo workflow publish/unpublish --force` to rotate visibility as part of a
@@ -114,7 +114,7 @@ your configured OAuth provider before ChatKit initializes.
   Re-run `orcheo workflow show wf_123` to confirm `is_public=True`.
 - **401 from embeds** – the workflow requires login but the page is served from
   a domain without the OAuth cookies. Host the page under the same origin or use
-  the login-required Canvas route.
+  the login-required Studio route.
 - **CORS or preflight failures** – update `ORCHEO_CORS_ALLOW_ORIGINS` with every
   `http(s)://host:port` that will load ChatKit, restart the backend, and refresh.
 - **Domain key errors** – supply `ORCHEO_CHATKIT_DOMAIN_KEY` (or

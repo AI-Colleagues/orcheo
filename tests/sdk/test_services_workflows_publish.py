@@ -34,9 +34,9 @@ def test_build_share_url_prefers_public_base_url() -> None:
     url = publish_module._build_share_url(
         "http://host/api",
         "wf-789",
-        public_base_url="https://canvas.test",
+        public_base_url="https://studio.test",
     )
-    assert url == "https://canvas.test/chat/wf-789"
+    assert url == "https://studio.test/chat/wf-789"
 
 
 def test_enrich_workflow_preserves_share_url_when_public() -> None:

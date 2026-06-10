@@ -28,7 +28,7 @@ SaaS clarification: workspace creation/joining is treated as onboarding or invit
 ## SaaS Boundary Notes
 
 - The SaaS UX should not expose a broad "join any workspace" or "create workspace" action to already signed-in users.
-- The active workspace switcher is membership-scoped and should be visually obvious in Canvas and the CLI.
+- The active workspace switcher is membership-scoped and should be visually obvious in Studio and the CLI.
 - Orcheo Vibe must keep external-agent credentials, runtime state, and connected file-system roots workspace-specific; a shared provider identity or shared `/workspace/agents` path is a release blocker.
 
 ---
@@ -136,7 +136,7 @@ SaaS clarification: workspace creation/joining is treated as onboarding or invit
 
 - [x] Task 4.1: Update `AGENTS.md`, deployment docs, Docker Compose, and systemd units for `ORCHEO_MULTI_WORKSPACE_ENABLED` and `ORCHEO_DEFAULT_WORKSPACE`.
   - Dependencies: Milestone 3
-- [x] Task 4.2: Add Canvas read-only active-workspace indicator in the header; defer workspace switching and member management UI to P2.
+- [x] Task 4.2: Add Studio read-only active-workspace indicator in the header; defer workspace switching and member management UI to P2.
   - Dependencies: Milestone 3
 - [x] Task 4.3: SDK ergonomics — `--workspace` flag and `ORCHEO_WORKSPACE` env var on every resource command.
   - Dependencies: Milestone 3
@@ -154,7 +154,7 @@ SaaS clarification: workspace creation/joining is treated as onboarding or invit
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-05-03 | Claude (Opus 4.7) | Initial draft |
-| 2026-05-03 | Codex | Moved baseline RBAC into foundation, aligned persistence tasks with current stores, and deferred Canvas workspace-management UI to P2 |
+| 2026-05-03 | Codex | Moved baseline RBAC into foundation, aligned persistence tasks with current stores, and deferred Studio workspace-management UI to P2 |
 | 2026-05-04 | Codex | Completed Milestone 2 persistence sweep, including workspace-aware Celery headers, WebSocket routing, runnable state propagation, repository lint coverage, and cross-workspace integration tests |
-| 2026-05-04 | Codex | Added explicit workspace admin role gates, active-workspace Canvas indicator, SDK `--workspace` ergonomics, and deployment/runbook updates for flag-based rollout |
+| 2026-05-04 | Codex | Added explicit workspace admin role gates, active-workspace Studio indicator, SDK `--workspace` ergonomics, and deployment/runbook updates for flag-based rollout |
 | 2026-05-05 | Codex | Finished the governance, retention, demo, and final audit pass; added workspace audit-log and delete/purge tooling, recorded the walkthrough docs, and confirmed 98% total / 100% diff coverage |

@@ -1,6 +1,6 @@
 # Project Plan
 
-## For Canvas Workflow Visualisation
+## For Studio Workflow Visualisation
 
 - **Version:** 0.1
 - **Author:** Codex
@@ -11,7 +11,7 @@
 
 ## Overview
 
-Deliver a LangGraph-first workflow-visualization Canvas experience by removing Editor/Execution tabs from active UI, introducing a Workflow Mermaid tab with reusable workflow config form, making gallery cards directly clickable, and ensuring Workflow-tab config matches CLI upload runnable config (`--config` / `--config-file`). Preserve removed tab code in the confirmed legacy folder for rollback/reference.
+Deliver a LangGraph-first workflow-visualization Studio experience by removing Editor/Execution tabs from active UI, introducing a Workflow Mermaid tab with reusable workflow config form, making gallery cards directly clickable, and ensuring Workflow-tab config matches CLI upload runnable config (`--config` / `--config-file`). Preserve removed tab code in the confirmed legacy folder for rollback/reference.
 
 **Related Documents:**
 - Requirements: `./1_requirements.md`
@@ -33,7 +33,7 @@ Deliver a LangGraph-first workflow-visualization Canvas experience by removing E
   - Dependencies: Task 1.1
 - [x] Task 1.3: Change default active tab from `"canvas"` to `"workflow"` in `use-canvas-ui-state.ts`
   - Dependencies: Task 1.1
-- [x] Task 1.4: Move old `canvas-tab-content` and `execution-tab-content` implementations into `apps/canvas/src/features/workflow/legacy/`
+- [x] Task 1.4: Move old `canvas-tab-content` and `execution-tab-content` implementations into `apps/studio/src/features/workflow/legacy/`
   - Dependencies: Task 1.2
 - [x] Task 1.5: Remove active imports of moved legacy modules and ensure build passes
   - Dependencies: Task 1.4
@@ -48,7 +48,7 @@ Deliver a LangGraph-first workflow-visualization Canvas experience by removing E
 
 - [x] Task 2.1: Add backend Mermaid generation for workflow version responses using CLI-aligned logic
   - Dependencies: Milestone 1
-- [x] Task 2.2: Add `mermaid` to Canvas workflow version typings and storage adapters
+- [x] Task 2.2: Add `mermaid` to Studio workflow version typings and storage adapters
   - Dependencies: Task 2.1
 - [x] Task 2.3: Implement `workflow-tab-content` component with loading/empty/error states and Mermaid rendering from API payload
   - Dependencies: Task 2.2
@@ -60,7 +60,7 @@ Deliver a LangGraph-first workflow-visualization Canvas experience by removing E
   - Dependencies: Task 2.5
 - [x] Task 2.7: Align Workflow config sheet schema and serialization with CLI upload runnable config fields (`configurable`, `tags`, `metadata`, `callbacks`, `run_name`, `recursion_limit`, `max_concurrency`, `prompts`)
   - Dependencies: Task 2.6
-- [x] Task 2.8: Add tests for workflow config round-trip parity in Canvas form utilities
+- [x] Task 2.8: Add tests for workflow config round-trip parity in Studio form utilities
   - Dependencies: Task 2.7
 
 ---
@@ -77,9 +77,9 @@ Deliver a LangGraph-first workflow-visualization Canvas experience by removing E
   - Dependencies: Task 3.1
 - [x] Task 3.3: Add/update component tests for card click behavior and action controls
   - Dependencies: Task 3.2
-- [x] Task 3.4: Update workflow canvas tests for tab changes (`Workflow` present, `Editor`/`Execution` absent)
+- [x] Task 3.4: Update workflow studio tests for tab changes (`Workflow` present, `Editor`/`Execution` absent)
   - Dependencies: Milestone 2
-- [x] Task 3.5: Run formatting, linting, and targeted tests for Canvas changes
+- [x] Task 3.5: Run formatting, linting, and targeted tests for Studio changes
   - Dependencies: Tasks 3.3, 3.4
 
 ---
@@ -123,7 +123,7 @@ Deliver a LangGraph-first workflow-visualization Canvas experience by removing E
 - Added workflow-level runnable config editing from the Workflow tab via a shared RJSF schema form wrapper.
 - Persisted workflow runnable config to workflow version `runnable_config` only on explicit config save.
 - Made non-template gallery cards clickable while preserving button/menu behaviors through propagation guards.
-- Moved former canvas/execution tab implementations into `apps/canvas/src/features/workflow/legacy/workflow-canvas/components/`.
+- Moved former canvas/execution tab implementations into `apps/studio/src/features/workflow/legacy/workflow-canvas/components/`.
 - Added/updated tests for workflow tab regression and gallery card interaction behavior.
 
 ## Known Limitations

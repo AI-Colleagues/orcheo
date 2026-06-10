@@ -44,7 +44,7 @@ that will power both the code-first SDK and the future canvas experience.
   workflow execution state is stored in the configured checkpoint backend. This
   separation makes it easy to scale API pods while delegating durability to the
   persistence layer.
-- **SDK & Canvas parity** – Both modes invoke the same HTTP/WebSocket APIs which
+- **SDK & Studio parity** – Both modes invoke the same HTTP/WebSocket APIs which
   rely on the unified persistence helper. This ensures future canvas iterations
   inherit the exact runtime semantics used by SDK authors.
 

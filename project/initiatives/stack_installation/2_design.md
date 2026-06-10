@@ -13,11 +13,11 @@
 
 This design introduces three connected improvements:
 1. A guided, single-command setup/upgrade experience for Orcheo stack installation.
-2. Canvas UI visibility for both Canvas version and connected backend version, plus upgrade reminders.
+2. Studio UI visibility for both Studio version and connected backend version, plus upgrade reminders.
 3. CLI first-run-per-24h update checks for CLI and backend versions with non-blocking reminders.
 4. Stable-release-only reminder policy; development/private builds do not emit reminder prompts.
 
-The implementation uses a shared backend metadata contract for installed/latest versions and lightweight client-side caches (24h) in both CLI and Canvas. The setup flow is implemented in CLI tooling so users can run one command with prompts or pass flags for non-interactive execution.
+The implementation uses a shared backend metadata contract for installed/latest versions and lightweight client-side caches (24h) in both CLI and Studio. The setup flow is implemented in CLI tooling so users can run one command with prompts or pass flags for non-interactive execution.
 
 ## Components
 
@@ -46,12 +46,12 @@ The implementation uses a shared backend metadata contract for installed/latest 
   - Key dependencies: cache manager, backend system info endpoint, version parser.
 
 - **Backend System Info Router (`apps/backend/src/orcheo_backend/app/routers/system.py`, wired from `apps/backend/src/orcheo_backend/app/main.py`)**
-  - Exposes version/update metadata used by Canvas and CLI.
+  - Exposes version/update metadata used by Studio and CLI.
   - Caches upstream registry checks to avoid repeated outbound requests.
   - Key dependencies: `importlib.metadata`, HTTP client for PyPI/npm registry calls.
 
-- **Canvas Version Status UI (`apps/canvas/src/features/shared/components/top-navigation/version-status.tsx`, API client integration in `apps/canvas/src/lib/api.ts`)**
-  - Displays running Canvas version and connected backend version in a persistent UI location.
+- **Studio Version Status UI (`apps/studio/src/features/shared/components/top-navigation/version-status.tsx`, API client integration in `apps/studio/src/lib/api.ts`)**
+  - Displays running Studio version and connected backend version in a persistent UI location.
   - Shows reminder when newer versions are available.
   - Key dependencies: top navigation/settings UI, API client, local storage.
 
@@ -95,16 +95,16 @@ Rules:
   or equivalent env var inputs).
 - Setup summary confirms auth mode selection without printing secret values.
 
-### Flow 2: Canvas version visibility and reminder
+### Flow 2: Studio version visibility and reminder
 
-1. Canvas initializes and reads local app version from build metadata.
-2. Canvas calls backend system info endpoint.
-3. Canvas renders:
-   - Canvas current version
+1. Studio initializes and reads local app version from build metadata.
+2. Studio calls backend system info endpoint.
+3. Studio renders:
+   - Studio current version
    - Backend current version
    - Update badges/reminder state
-4. If updates exist, Canvas shows non-blocking reminder with upgrade guidance.
-5. Canvas stores last-check timestamp and suppresses repeated checks until 24h passes.
+4. If updates exist, Studio shows non-blocking reminder with upgrade guidance.
+5. Studio stores last-check timestamp and suppresses repeated checks until 24h passes.
 
 ### Flow 3: CLI first-run update reminder (24h window)
 
@@ -140,7 +140,7 @@ Response 200:
     "latest_version": "0.5.0"
   },
   "canvas": {
-    "package": "orcheo-canvas",
+    "package": "orcheo-studio",
     "latest_version": "0.4.2"
   },
   "checked_at": "2026-02-21T13:00:00Z"
@@ -169,7 +169,7 @@ Behavior:
 }
 ```
 
-### Canvas local storage payload
+### Studio local storage payload
 
 ```json
 {
@@ -198,7 +198,7 @@ Behavior:
 ## Performance Considerations
 
 - Backend registry queries are cached in-memory (default TTL: 12 hours).
-- Canvas and CLI check frequency is capped at once every 24 hours per user/profile.
+- Studio and CLI check frequency is capped at once every 24 hours per user/profile.
 - Endpoint payload is small and static-like; no database access required.
 - Update checks are non-blocking and should not delay main command execution materially.
 
@@ -206,23 +206,23 @@ Behavior:
 
 - **Unit tests**
   - Version parsing/comparison (stable, prerelease, local build tags).
-  - 24h gating logic in CLI and Canvas cache readers.
+  - 24h gating logic in CLI and Studio cache readers.
   - Setup prompt defaults and non-interactive overrides.
 - **Integration tests**
   - Backend `/api/system/info` happy path and registry failure fallback.
   - Backend `/api/system/info` rejects unauthenticated callers.
   - CLI startup reminder behavior with mocked backend metadata.
-  - Canvas fetch + render of version badge/reminder states.
+  - Studio fetch + render of version badge/reminder states.
 - **Manual QA checklist**
   - Fresh install flow from clean machine profile.
   - Upgrade flow from older installed versions.
-  - Canvas connected to outdated backend shows reminder.
+  - Studio connected to outdated backend shows reminder.
   - CLI reminder appears once, then suppresses for 24h.
 
 ## Rollout Plan
 
 1. Phase 1: Ship installer/upgrade command with docs and internal dogfooding.
-2. Phase 2: Ship backend system info endpoint and Canvas version/reminder UI.
+2. Phase 2: Ship backend system info endpoint and Studio version/reminder UI.
 3. Phase 3: Enable CLI 24h reminder checks by default.
 4. Phase 4 (P1): Add PowerShell bootstrap parity for full Windows setup support.
 
@@ -237,7 +237,7 @@ Feature flags/config:
 - Add compatibility matrix metadata so clients can distinguish:
   - update available (optional)
   - recommended minimum (actionable/priority)
-- Attach optional release-notes links ("what changed") in Canvas/CLI reminders.
+- Attach optional release-notes links ("what changed") in Studio/CLI reminders.
 - Extend setup/upgrade summary and docs with rollback/recovery guidance for partial upgrades.
 - Add Windows PowerShell bootstrap parity after Unix bootstrap is stable.
 

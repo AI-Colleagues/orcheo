@@ -17,11 +17,11 @@ class PackageVersionStatus(BaseModel):
 
 
 class SystemInfoResponse(BaseModel):
-    """Combined backend/CLI/canvas version metadata."""
+    """Combined backend/CLI/studio version metadata."""
 
     backend: PackageVersionStatus
     cli: PackageVersionStatus
-    canvas: PackageVersionStatus
+    studio: PackageVersionStatus
     checked_at: datetime
     uploads_allowed: bool = True
 

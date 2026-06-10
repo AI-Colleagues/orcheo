@@ -42,12 +42,12 @@ def test_test_invokes_pytest(successful_run: None) -> None:
     commands.test()
 
 
-def test_canvas_lint_invokes_npm(successful_run: None) -> None:
-    commands.canvas_lint()
+def test_studio_lint_invokes_npm(successful_run: None) -> None:
+    commands.studio_lint()
 
 
-def test_canvas_dev_invokes_npm(successful_run: None) -> None:
-    commands.canvas_dev()
+def test_studio_dev_invokes_npm(successful_run: None) -> None:
+    commands.studio_dev()
 
 
 def test_run_raises_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:

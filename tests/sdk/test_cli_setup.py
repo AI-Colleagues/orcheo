@@ -506,7 +506,7 @@ def test_build_env_updates(monkeypatch):
         public_host=None,
         publish_local_ports=True,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=False,
     )
@@ -536,7 +536,7 @@ def test_build_env_updates_sets_https_auth_contract(monkeypatch):
         public_host="orcheo.example.com",
         publish_local_ports=True,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=False,
         auth_issuer="https://issuer.example.com/",
@@ -568,7 +568,7 @@ def test_build_env_updates_rejects_missing_https_auth_values() -> None:
         public_host=None,
         publish_local_ports=True,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=False,
     )
@@ -738,7 +738,7 @@ def test_build_env_updates_hides_debug_ports_in_local_only_mode(monkeypatch):
         public_host=None,
         publish_local_ports=False,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=False,
     )
@@ -758,7 +758,7 @@ def test_setup_resolution_helpers_cover_env_branches(
                 "ORCHEO_PUBLIC_HOST=Orcheo.Example.com",
                 "ORCHEO_PUBLISH_LOCAL_PORTS=off",
                 "ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:9000",
-                "ORCHEO_CADDY_CANVAS_UPSTREAM=canvas:6000",
+                "ORCHEO_CADDY_STUDIO_UPSTREAM=studio:6000",
             ]
         ),
         encoding="utf-8",
@@ -800,7 +800,7 @@ def test_setup_resolution_helpers_cover_env_branches(
     )
     assert setup._resolve_stack_upstreams(env_file, env_exists=True) == (
         "backend:9000",
-        "canvas:6000",
+        "studio:6000",
     )
     assert setup._parse_bool_value(" yes ") is True
     assert setup._parse_bool_value("off") is False
@@ -1096,7 +1096,7 @@ def test_ensure_stack_assets_fresh(monkeypatch, tmp_path):
         public_host=None,
         publish_local_ports=True,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=False,
     )
@@ -1150,7 +1150,7 @@ def test_ensure_stack_assets_existing_env(monkeypatch, tmp_path):
         public_host=None,
         publish_local_ports=True,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=False,
         preserve_existing_backend_url=True,
@@ -1187,7 +1187,7 @@ def test_ensure_stack_assets_writes_auth_for_preserved_https_backend(
         public_host=None,
         publish_local_ports=True,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=False,
         preserve_existing_backend_url=True,
@@ -1282,7 +1282,7 @@ def test_execute_setup_without_start(monkeypatch, tmp_path):
         public_host=None,
         publish_local_ports=True,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=False,
     )
@@ -1318,7 +1318,7 @@ def test_execute_setup_with_start(monkeypatch, tmp_path):
         public_host=None,
         publish_local_ports=True,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=True,
         install_docker_if_missing=False,
     )
@@ -1354,7 +1354,7 @@ def test_execute_setup_missing_docker_command(monkeypatch, tmp_path):
         public_host=None,
         publish_local_ports=True,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=True,
         install_docker_if_missing=False,
     )
@@ -1385,7 +1385,7 @@ def test_print_setup_resolution_notes_public_ingress_debug_disabled() -> None:
 
     output = console.file.getvalue()
     assert "Bundled public ingress enabled for orcheo.example.com" in output
-    assert "Local backend/canvas ports will stay disabled" in output
+    assert "Local backend/studio ports will stay disabled" in output
 
 
 def test_print_summary():
@@ -1401,7 +1401,7 @@ def test_print_summary():
         public_host=None,
         publish_local_ports=True,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=True,
         install_docker_if_missing=False,
     )
@@ -1410,7 +1410,7 @@ def test_print_summary():
     setup.print_summary(config, console=console)
     output = console.file.getvalue()
     assert "Setup complete" in output
-    assert "Canvas may take" in output
+    assert "Studio may take" in output
     assert "localhost:2026" in output
 
 
@@ -1426,7 +1426,7 @@ def test_print_summary_public_ingress():
         public_host="orcheo.example.com",
         publish_local_ports=False,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=True,
         install_docker_if_missing=False,
         studio_url="https://orcheo.example.com",

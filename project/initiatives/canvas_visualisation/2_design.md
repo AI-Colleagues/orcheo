@@ -1,6 +1,6 @@
 # Design Document
 
-## For Canvas Workflow Visualisation
+## For Studio Workflow Visualisation
 
 - **Version:** 0.1
 - **Author:** Codex
@@ -11,7 +11,7 @@
 
 ## Overview
 
-This design replaces the current `Editor` and `Execution` tabs in Canvas with a single `Workflow` tab centered on Mermaid diagram visualization for LangGraph workflows. Existing Editor/Execution implementations will be moved into the confirmed legacy namespace so the code is preserved for rollback/reference but detached from the active UI path.
+This design replaces the current `Editor` and `Execution` tabs in Studio with a single `Workflow` tab centered on Mermaid diagram visualization for LangGraph workflows. Existing Editor/Execution implementations will be moved into the confirmed legacy namespace so the code is preserved for rollback/reference but detached from the active UI path.
 
 The Workflow tab adds a config entry point that opens workflow-level configuration using the same form stack currently used by node configuration (`@rjsf/core` + existing custom templates/widgets/validator). Workflow config persistence happens only on explicit config save. This avoids introducing a parallel form system and keeps consistency in validation and rendering behavior.
 
@@ -21,17 +21,17 @@ The gallery interaction model is updated so workflow cards are directly clickabl
 
 ## Components
 
-- **Workflow Tabs Surface (Canvas Frontend)**
+- **Workflow Tabs Surface (Studio Frontend)**
   - Update tab triggers and tab content wiring to remove `canvas`/`execution` from active navigation and add `workflow`.
   - Files:
-    - `apps/canvas/src/features/workflow/components/panels/workflow-tabs.tsx`
-    - `apps/canvas/src/features/workflow/pages/workflow-canvas/components/workflow-canvas-layout.tsx`
-    - `apps/canvas/src/features/workflow/pages/workflow-canvas/hooks/use-canvas-ui-state.ts`
+    - `apps/studio/src/features/workflow/components/panels/workflow-tabs.tsx`
+    - `apps/studio/src/features/workflow/pages/workflow-canvas/components/workflow-canvas-layout.tsx`
+    - `apps/studio/src/features/workflow/pages/workflow-canvas/hooks/use-canvas-ui-state.ts`
 
-- **Workflow Mermaid Panel (Canvas Frontend)**
+- **Workflow Mermaid Panel (Studio Frontend)**
   - New panel component for Mermaid rendering and status states.
   - Proposed files:
-    - `apps/canvas/src/features/workflow/pages/workflow-canvas/components/workflow-tab-content.tsx`
+    - `apps/studio/src/features/workflow/pages/workflow-canvas/components/workflow-tab-content.tsx`
   - Mermaid definition is read from `ApiWorkflowVersion.mermaid`.
 
 - **Workflow Version Mermaid Serialization (Backend)**
@@ -41,27 +41,27 @@ The gallery interaction model is updated so workflow cards are directly clickabl
     - `apps/backend/src/orcheo_backend/app/schemas/workflows.py` (if dedicated response schema is introduced)
     - `packages/sdk/src/orcheo_sdk/cli/workflow/mermaid.py` (reuse/extract logic to shared utility as needed)
 
-- **Workflow Config Form (Canvas Frontend)**
+- **Workflow Config Form (Studio Frontend)**
   - Extract/reuse shared schema form wrapper from node inspector config stack.
   - Proposed files:
-    - `apps/canvas/src/features/workflow/components/forms/schema-config-form.tsx`
-    - `apps/canvas/src/features/workflow/pages/workflow-canvas/components/workflow-config-sheet.tsx`
+    - `apps/studio/src/features/workflow/components/forms/schema-config-form.tsx`
+    - `apps/studio/src/features/workflow/pages/workflow-canvas/components/workflow-config-sheet.tsx`
   - Existing dependencies reused:
-    - `apps/canvas/src/features/workflow/components/panels/rjsf-theme.tsx`
-    - `apps/canvas/src/features/workflow/components/panels/node-inspector/config-panel.tsx`
+    - `apps/studio/src/features/workflow/components/panels/rjsf-theme.tsx`
+    - `apps/studio/src/features/workflow/components/panels/node-inspector/config-panel.tsx`
 
 - **Legacy Editor/Execution Namespace**
   - Move removed-tab code paths under `legacy` folder.
   - Proposed structure:
-    - `apps/canvas/src/features/workflow/legacy/workflow-canvas/components/canvas-tab-content.tsx`
-    - `apps/canvas/src/features/workflow/legacy/workflow-canvas/components/execution-tab-content.tsx`
-    - `apps/canvas/src/features/workflow/legacy/workflow-canvas/components/workflow-canvas-layout.legacy.tsx` (optional snapshot)
+    - `apps/studio/src/features/workflow/legacy/workflow-canvas/components/canvas-tab-content.tsx`
+    - `apps/studio/src/features/workflow/legacy/workflow-canvas/components/execution-tab-content.tsx`
+    - `apps/studio/src/features/workflow/legacy/workflow-canvas/components/workflow-canvas-layout.legacy.tsx` (optional snapshot)
   - No active imports from new tab flow.
 
 - **Gallery Click Target Update**
   - Make card container open workflow on click, preserving control-level interactions.
   - File:
-    - `apps/canvas/src/features/workflow/pages/workflow-gallery/workflow-card.tsx`
+    - `apps/studio/src/features/workflow/pages/workflow-gallery/workflow-card.tsx`
 
 ## Request Flows
 
@@ -90,14 +90,14 @@ The gallery interaction model is updated so workflow cards are directly clickabl
 
 ## API Contracts
 
-Canvas consumes Mermaid from the existing workflow versions endpoint:
+Studio consumes Mermaid from the existing workflow versions endpoint:
 
 ```http
 GET /api/workflows/{workflow_id}/versions
 Response: WorkflowVersion[]
 ```
 
-Canvas type updates required:
+Studio type updates required:
 
 ```ts
 interface ApiWorkflowVersion {
@@ -115,7 +115,7 @@ interface ApiWorkflowVersion {
 }
 ```
 
-`mermaid` is generated server-side using the same logic family already used by CLI workflow show output so Canvas and CLI stay consistent.
+`mermaid` is generated server-side using the same logic family already used by CLI workflow show output so Studio and CLI stay consistent.
 
 ## Data Models / Schemas
 
@@ -139,7 +139,7 @@ Workflow version API additions:
 | mermaid | string \| null | Server-generated Mermaid diagram for the version graph |
 | runnable_config | object \| null | Persisted workflow-level runnable config, saved via explicit config save |
 
-Draft shape in Canvas state:
+Draft shape in Studio state:
 
 ```json
 {
@@ -199,7 +199,7 @@ Draft shape in Canvas state:
 2. Land backend Mermaid payload support for workflow versions.
 3. Land Workflow Mermaid tab and config form reuse with tests.
 4. Land gallery card click enhancements.
-5. Validate end-to-end manually in Canvas before release.
+5. Validate end-to-end manually in Studio before release.
 
 ---
 

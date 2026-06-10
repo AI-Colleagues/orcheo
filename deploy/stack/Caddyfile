@@ -8,5 +8,5 @@
 		health_interval 10s
 	}
 
-	reverse_proxy {$ORCHEO_CADDY_CANVAS_UPSTREAM:canvas:2026}
+	reverse_proxy {$ORCHEO_CADDY_STUDIO_UPSTREAM:studio:2026}
 }

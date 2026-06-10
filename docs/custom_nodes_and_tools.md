@@ -5,7 +5,7 @@ plugins installed and operated through `orcheo plugin ...`.
 
 The old `sitecustomize` and `PYTHONPATH` import-hook workflow is no longer the
 supported path. Plugins must be installed into the Orcheo-managed plugin
-environment so the CLI, backend, workers, and Canvas discovery flows all see
+environment so the CLI, backend, workers, and Studio discovery flows all see
 the same component set.
 
 ## Install and Operate Plugins
@@ -230,14 +230,14 @@ They:
 
 - install through `orcheo plugin install`
 - register plugin-provided listener nodes plus listener runtimes
-- compile from the shared Canvas template
+- compile from the shared Studio template
 - dispatch normalized payloads through the runtime adapter contract
 
-The shared builder artifact is the Canvas template
+The shared builder artifact is the Studio template
 `template-wecom-lark-shared-listener`, backed by:
 
-- `apps/canvas/src/features/workflow/data/templates/wecom-lark-shared-listener.ts`
-- `apps/canvas/src/features/workflow/data/templates/assets/wecom-lark-shared-listener/workflow.py`
+- `apps/studio/src/features/workflow/data/templates/wecom-lark-shared-listener.ts`
+- `apps/studio/src/features/workflow/data/templates/assets/wecom-lark-shared-listener/workflow.py`
 
 Install both plugins before importing that template into a runtime environment.
 
