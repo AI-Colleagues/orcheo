@@ -513,6 +513,39 @@ async def test_create_workflow_chatkit_session_requires_workspace_access_for_tag
 
 
 @pytest.mark.asyncio()
+async def test_create_workflow_chatkit_session_rejects_bound_workspace_when_tags_differ() -> (
+    None
+):
+    active_workspace_id = str(_MOCK_WORKSPACE.workspace_id)
+    workflow = Workflow(
+        name="Studio Workflow",
+        tags=["workspace:tagged-workspace"],
+        workspace_id=active_workspace_id,
+        draft_access=WorkflowDraftAccess.WORKSPACE,
+    )
+    repo = _WorkflowRepo(workflow)
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="studio-user",
+            identity_type="user",
+            scopes=frozenset({"workflows:read", "workflows:execute"}),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    with pytest.raises(AuthorizationError) as excinfo:
+        await workflows.create_workflow_chatkit_session(
+            str(workflow.id),
+            repo,
+            _MOCK_WORKSPACE,
+            policy=policy,
+            issuer=_issuer(),
+        )
+
+    assert excinfo.value.code == "auth.workspace_forbidden"
+
+
+@pytest.mark.asyncio()
 async def test_create_workflow_chatkit_session_allows_workspace_draft_with_bound_workspace() -> (
     None
 ):

@@ -1019,7 +1019,7 @@ def _authorize_draft_workflow_access(
 ) -> None:
     """Authorize access to an unpublished workflow draft."""
     workflow_workspaces = set(_extract_workflow_workspace_ids(workflow))
-    if workflow.workspace_id:
+    if workflow.workspace_id and not workflow_workspaces:
         workflow_workspaces.add(_normalize_workspace_id(str(workflow.workspace_id)))
     request_workspaces = frozenset(
         _normalize_workspace_id(workspace_id)
