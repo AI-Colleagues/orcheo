@@ -1014,14 +1014,22 @@ def _resolve_draft_access(
 def _authorize_draft_workflow_access(
     workflow: Workflow,
     context: RequestContext,
+    *,
+    workspace_id: str | None = None,
 ) -> None:
     """Authorize access to an unpublished workflow draft."""
-    workflow_workspaces = _extract_workflow_workspace_ids(workflow)
+    workflow_workspaces = set(_extract_workflow_workspace_ids(workflow))
+    if workflow.workspace_id:
+        workflow_workspaces.add(_normalize_workspace_id(str(workflow.workspace_id)))
     request_workspaces = frozenset(
         _normalize_workspace_id(workspace_id)
         for workspace_id in context.workspace_ids
         if workspace_id
     )
+    if workspace_id:
+        request_workspaces = request_workspaces | {
+            _normalize_workspace_id(workspace_id)
+        }
     if workflow.draft_access is WorkflowDraftAccess.AUTHENTICATED:
         return
     if workflow.draft_access is WorkflowDraftAccess.WORKSPACE:
@@ -1141,7 +1149,11 @@ async def create_workflow_chatkit_session(
         raise_not_found("Workflow not found", WorkflowNotFoundError(str(workflow.id)))
 
     if auth_enforced:
-        _authorize_draft_workflow_access(workflow, context)
+        _authorize_draft_workflow_access(
+            workflow,
+            context,
+            workspace_id=str(workspace.workspace_id),
+        )
 
     metadata = {
         "workflow_id": str(workflow.id),
