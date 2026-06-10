@@ -29,73 +29,17 @@ const baseWorkflowConfigSchema: RJSFSchema = {
       additionalProperties: true,
       default: {},
     },
-    run_name: {
-      type: "string",
-      title: "Run name",
-    },
-    tags: {
-      type: "array",
-      title: "Tags",
-      items: {
-        type: "string",
-      },
-    },
-    metadata: {
-      type: "object",
-      title: "Metadata",
-      additionalProperties: true,
-      default: {},
-    },
-    callbacks: {
-      type: "array",
-      title: "Callbacks",
-      items: {
-        type: ["object", "array", "string", "number", "integer", "boolean"],
-      },
-    },
     recursion_limit: {
       type: "integer",
       title: "Recursion limit",
       minimum: 1,
+      description: "Maximum graph recursion depth allowed for this run.",
     },
     max_concurrency: {
       type: "integer",
       title: "Max concurrency",
       minimum: 1,
-    },
-    prompts: {
-      type: "object",
-      title: "Prompts",
-      additionalProperties: {
-        type: "object",
-        properties: {
-          template: {
-            type: "string",
-            title: "Template",
-          },
-          input_variables: {
-            type: "array",
-            title: "Input variables",
-            items: {
-              type: "string",
-            },
-          },
-          optional_variables: {
-            type: "array",
-            title: "Optional variables",
-            items: {
-              type: "string",
-            },
-          },
-          partial_variables: {
-            type: "object",
-            title: "Partial variables",
-            additionalProperties: true,
-          },
-        },
-        required: ["template", "input_variables"],
-      },
-      default: {},
+      description: "Maximum number of concurrent tasks allowed for this run.",
     },
   },
 };
@@ -104,14 +48,6 @@ const workflowConfigUiSchema: UiSchema = {
   configurable: {
     fields: {
       "ui:field": "jsonObject",
-    },
-  },
-  run_name: {
-    "ui:placeholder": "Optional run label",
-  },
-  tags: {
-    "ui:options": {
-      orderable: false,
     },
   },
 };
