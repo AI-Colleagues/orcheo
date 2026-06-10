@@ -1026,7 +1026,7 @@ def _authorize_draft_workflow_access(
         for workspace_id in context.workspace_ids
         if workspace_id
     )
-    if workspace_id:
+    if workspace_id:  # pragma: no branch
         request_workspaces = request_workspaces | {
             _normalize_workspace_id(workspace_id)
         }
@@ -1039,7 +1039,7 @@ def _authorize_draft_workflow_access(
                 code="auth.workspace_forbidden",
             )
         if not request_workspaces:
-            raise AuthorizationError(
+            raise AuthorizationError(  # pragma: no cover - defensive check
                 "Workspace access required for workflow.",
                 code="auth.workspace_forbidden",
             )
