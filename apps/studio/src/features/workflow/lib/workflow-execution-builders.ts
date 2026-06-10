@@ -50,7 +50,7 @@ const extractVersionRecord = (
   lookup: WorkflowLookup,
 ) => {
   const inputs = history.inputs ?? {};
-  const metadata = (inputs.metadata ?? inputs.canvas ?? {}) as Record<
+  const metadata = (inputs.metadata ?? inputs.workflow ?? inputs.canvas ?? {}) as Record<
     string,
     unknown
   >;
@@ -69,7 +69,7 @@ export const mapHistoryToExecution = (
   const version = extractVersionRecord(history, lookup);
   const snapshotNodes = version?.snapshot.nodes ?? lookup.defaultNodes;
   const snapshotEdges = version?.snapshot.edges ?? lookup.defaultEdges;
-  const graphMapping = version?.graphToCanvas ?? lookup.defaultMapping;
+  const graphMapping = version?.graphToWorkflow ?? lookup.defaultMapping;
 
   const nodes = buildNodesFromSnapshot(snapshotNodes, status);
   const nodeMap = new Map(nodes.map((node) => [node.id, node]));
@@ -98,6 +98,6 @@ export const mapHistoryToExecution = (
     nodes,
     edges,
     logs,
-    metadata: { graphToCanvas: graphMapping },
+    metadata: { graphToWorkflow: graphMapping },
   };
 };

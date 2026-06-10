@@ -22,7 +22,7 @@ class SwitchCase(BaseModel):
         default=None, description="Value that activates this branch"
     )
     label: str | None = Field(
-        default=None, description="Optional label used in the canvas"
+        default=None, description="Optional label used in the workflow page"
     )
     branch_key: str | None = Field(
         default=None,

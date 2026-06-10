@@ -33,7 +33,11 @@ const makeWorkflowResponse = (id: string, name: string) => ({
   updated_at: TIMESTAMP,
 });
 
-const makeCanvasResponse = (workflowId: string, name: string, version = 1) => ({
+const makeWorkflowPageResponse = (
+  workflowId: string,
+  name: string,
+  version = 1,
+) => ({
   workflow: makeWorkflowResponse(workflowId, name),
   versions: [
     {
@@ -71,7 +75,7 @@ describe("workflow-storage API integration - candidate onboarding", () => {
 
     queueResponses([
       jsonResponse(makeWorkflowResponse("workflow-1", "Simple Agent")),
-      jsonResponse(makeCanvasResponse("workflow-1", "Simple Agent")),
+      jsonResponse(makeWorkflowPageResponse("workflow-1", "Simple Agent")),
     ]);
 
     const result = await onboardCandidateAsWorkflow("python-agent");
@@ -89,9 +93,9 @@ describe("workflow-storage API integration - candidate onboarding", () => {
     ) as { id?: string };
     expect(onboardBody.id).toBe("python-agent");
 
-    // Second call: GET /api/workflows/{id}/canvas
+    // Second call: GET /api/workflows/{id}/workflow
     expect(String(mockFetch.mock.calls[1]?.[0])).toContain(
-      "/api/workflows/workflow-1/canvas",
+      "/api/workflows/workflow-1/workflow",
     );
   });
 
@@ -108,7 +112,7 @@ describe("workflow-storage API integration - candidate onboarding", () => {
 
     queueResponses([
       jsonResponse(makeWorkflowResponse("workflow-2", "Telegram Agent")),
-      jsonResponse(makeCanvasResponse("workflow-2", "Telegram Agent")),
+      jsonResponse(makeWorkflowPageResponse("workflow-2", "Telegram Agent")),
     ]);
 
     const listener = vi.fn();
@@ -133,7 +137,7 @@ describe("workflow-storage API integration - candidate onboarding", () => {
 
     queueResponses([
       jsonResponse(makeWorkflowResponse("workflow-3", "Insight Analyst")),
-      jsonResponse(makeCanvasResponse("workflow-3", "Insight Analyst")),
+      jsonResponse(makeWorkflowPageResponse("workflow-3", "Insight Analyst")),
     ]);
 
     const result = await onboardCandidateAsWorkflow("insight-analyst");
@@ -157,7 +161,7 @@ describe("workflow-storage API integration - candidate onboarding", () => {
 
     queueResponses([
       jsonResponse(makeWorkflowResponse("workflow-4", "My Colleague")),
-      jsonResponse(makeCanvasResponse("workflow-4", "My Colleague")),
+      jsonResponse(makeWorkflowPageResponse("workflow-4", "My Colleague")),
     ]);
 
     await onboardCandidateAsWorkflow("category/my-colleague");
@@ -181,14 +185,18 @@ describe("workflow-storage API integration - candidate onboarding", () => {
 
     queueResponses([
       jsonResponse(makeWorkflowResponse("workflow-upgrade", "Upgrade Agent")),
-      jsonResponse(makeCanvasResponse("workflow-upgrade", "Upgrade Agent", 1)),
+      jsonResponse(
+        makeWorkflowPageResponse("workflow-upgrade", "Upgrade Agent", 1),
+      ),
     ]);
     const initial = await onboardCandidateAsWorkflow("upgrade-agent");
     expect(initial.versions[0].versionNumber).toBe(1);
 
     queueResponses([
       jsonResponse(makeWorkflowResponse("workflow-upgrade", "Upgrade Agent")),
-      jsonResponse(makeCanvasResponse("workflow-upgrade", "Upgrade Agent", 2)),
+      jsonResponse(
+        makeWorkflowPageResponse("workflow-upgrade", "Upgrade Agent", 2),
+      ),
     ]);
     const upgraded = await onboardCandidateAsWorkflow("upgrade-agent");
 
@@ -196,7 +204,7 @@ describe("workflow-storage API integration - candidate onboarding", () => {
     expect(upgraded.versions[0].versionNumber).toBe(2);
     expect(mockFetch).toHaveBeenCalledTimes(4);
     expect(String(mockFetch.mock.calls[3]?.[0])).toContain(
-      "/api/workflows/workflow-upgrade/canvas",
+      "/api/workflows/workflow-upgrade/workflow",
     );
   });
 });

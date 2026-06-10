@@ -31,7 +31,7 @@ Bundle Caddy into the standard Orcheo stack as the recommended public ingress ti
   - Dependencies: None
 - [x] Task 1.2: Define the public-origin env contract for Studio, backend, and ChatKit
   - Dependencies: Task 1.1
-- [x] Task 1.3: Decide whether backend/canvas raw ports stay published in public-ingress mode or become debug-only
+- [x] Task 1.3: Decide whether backend/Studio raw ports stay published in public-ingress mode or become debug-only
   - Dependencies: Task 1.1
 - [x] Task 1.4: Define the supported initial topology for replica load balancing
   - Dependencies: Task 1.1

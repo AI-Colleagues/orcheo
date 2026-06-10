@@ -166,25 +166,25 @@ def test_workflow_versions_and_diff(api_client: TestClient) -> None:
     assert any("end" in line for line in diff_lines)
 
 
-def test_workflow_canvas_payload_uses_compact_versions(
+def test_workflow_payload_uses_compact_versions(
     api_client: TestClient,
 ) -> None:
-    """Canvas-open payload should return version summaries without full graphs."""
+    """Workflow-page-open payload should return version summaries without full graphs."""
     workflow_response = api_client.post(
         "/api/workflows",
-        json={"name": "Canvas Flow", "actor": "author"},
+        json={"name": "Studio Flow", "actor": "author"},
     )
     workflow_id = workflow_response.json()["id"]
 
     version_response = api_client.post(
         f"/api/workflows/{workflow_id}/versions/ingest",
         json={
-            "script": _langgraph_script(node_name="canvas", response="v1"),
+            "script": _langgraph_script(node_name="workflow", response="v1"),
             "entrypoint": "build_graph",
             "metadata": {
-                "canvas": {
+                "workflow": {
                     "snapshot": {
-                        "name": "Canvas Flow",
+                        "name": "Studio Flow",
                         "nodes": [],
                         "edges": [],
                     }
@@ -195,18 +195,18 @@ def test_workflow_canvas_payload_uses_compact_versions(
     )
     assert version_response.status_code == 201
 
-    canvas_response = api_client.get(f"/api/workflows/{workflow_id}/canvas")
-    assert canvas_response.status_code == 200
-    payload = canvas_response.json()
+    workflow_response = api_client.get(f"/api/workflows/{workflow_id}/workflow")
+    assert workflow_response.status_code == 200
+    payload = workflow_response.json()
     assert payload["workflow"]["id"] == workflow_id
     assert len(payload["versions"]) == 1
     assert payload["versions"][0]["version"] == 1
     assert "graph" not in payload["versions"][0]
 
 
-def test_workflow_canvas_handles_missing_workflows(api_client: TestClient) -> None:
-    """Requesting a canvas payload for an unknown workflow returns 404."""
-    missing_response = api_client.get("/api/workflows/phantom-workflow/canvas")
+def test_workflow_handles_missing_workflows(api_client: TestClient) -> None:
+    """Requesting a workflow page payload for an unknown workflow returns 404."""
+    missing_response = api_client.get("/api/workflows/phantom-workflow/workflow")
 
     assert missing_response.status_code == 404
     assert missing_response.json()["detail"] == "Workflow not found"
@@ -284,7 +284,7 @@ def test_openapi_uses_workflow_ref_for_handle_aware_paths(
 
     paths = response.json()["paths"]
     expected_paths = [
-        "/api/workflows/{workflow_ref}/canvas",
+        "/api/workflows/{workflow_ref}/workflow",
         "/api/workflows/{workflow_ref}/runs",
         "/api/workflows/{workflow_ref}/executions",
         "/api/workflows/{workflow_ref}/triggers/webhook/config",

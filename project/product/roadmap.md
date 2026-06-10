@@ -6,17 +6,17 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 1. **Milestone 1 – Platform Foundation**: Lock in LangGraph architecture, scaffold repos, and ship baseline developer tooling.
 2. **Milestone 2 – Backend Orchestration & Triggers**: Deliver the dual-mode execution backend, workflow APIs, and reliable trigger layer.
 3. **Milestone 3 – Credential Vault & Security**: Launch the encrypted credential vault, validation flows, and security hardening.
-4. **Milestone 4 – Visual Designer Experience**: Build the React Flow canvas, workflow operations, and live execution monitoring.
+4. **Milestone 4 – Visual Designer Experience**: Build the React Flow workflow view, workflow operations, and live execution monitoring.
 5. **Milestone 5 – Node Ecosystem & Integrations**: Provide launch-ready trigger, AI, data, storage, and utility nodes with docs/tests.
 6. **Milestone 6 – Observability, Testing & Launch Prep**: Instrument runtime visibility, finalize metrics, and prep the beta rollout.
 
 ## Milestone Details
 ### Milestone 1 – Platform Foundation
-- [x] Finalize LangGraph-centric architecture decisions, persistence layer, and hosting model supporting both canvas and SDK. See [Milestone 1 Task 1](../milestones/milestone1_task1.md) for the detailed outcomes.
+- [x] Finalize LangGraph-centric architecture decisions, persistence layer, and hosting model supporting both Studio and SDK. See [Milestone 1 Task 1](../milestones/milestone1_task1.md) for the detailed outcomes.
   - [x] Capture deployment recipes for local and hosted environments ([deployment guide](../../docs/deployment.md)).
   - [x] Extend configuration to cover vault-managed credential settings.
   - [x] Wire Postgres persistence checks into CI once infrastructure is ready.
-- [x] Scaffold repositories for FastAPI backend, Python SDK package, and React canvas app, including CI, linting, and coverage automation.
+- [x] Scaffold repositories for FastAPI backend, Python SDK package, and React Studio app, including CI, linting, and coverage automation.
 - [x] Define workflow data models (graphs, versions, runs, credential metadata) with encryption hooks and audit logging.
 - [x] Establish developer tooling: local dev containers, `uv` scripts, seed environment variables, and sample flows covering both user paths.
 - [x] Publish the `orcheo` core package to PyPI and automate release versioning so downstream packages (backend, SDK) can depend on public artifacts. See [releasing guide](../../docs/releasing.md) for the package-by-package workflow.
@@ -42,13 +42,13 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Run security reviews, penetration tests, and threat modeling across vault, triggers, and execution surfaces. See [Milestone 3 Security Review](../milestones/milestone3_security_review.md) for the full report.
 
 ### Milestone 4 – Visual Designer Experience
-- [x] Migrate the legacy canvas app to connect to the new backend via React Flow foundation, restoring minimap, snapping, and chat affordances while preserving node compatibility.
-- [x] Finish React Flow canvas tooling: add undo/redo history, node duplication/export handlers, node search/filtering, styling updates, and collapsible configuration panels.
+- [x] Migrate the legacy Studio app to connect to the new backend via React Flow foundation, restoring minimap, snapping, and chat affordances while preserving node compatibility.
+- [x] Finish React Flow workflow view tooling: add undo/redo history, node duplication/export handlers, node search/filtering, styling updates, and collapsible configuration panels.
 - [x] Implement workflow operations: replace mocked save/load with persistence, wire JSON import/export, enable template onboarding, and surface a version diff viewer.
-- [x] Integrate credential management UI, reusable sub-workflows, and publish-time validation flows throughout the canvas.
-- [x] Connect canvas executions to backend WebSocket streams for live status, token metrics, and run replay hooks.
+- [x] Integrate credential management UI, reusable sub-workflows, and publish-time validation flows throughout the workflow page.
+- [x] Connect workflow executions to backend WebSocket streams for live status, token metrics, and run replay hooks.
 - [x] Ship a ChatKit-inspired chat frontend (via OpenAI ChatKit or a custom equivalent) for testing workflows and production handoff.
-- [x] Execute the [frontend experience plan](../milestones/frontend_plan.md) covering design system creation, architecture refactor, and QA expansion to de-risk the canvas rebuild.
+- [x] Execute the [frontend experience plan](../milestones/frontend_plan.md) covering design system creation, architecture refactor, and QA expansion to de-risk the workflow page rebuild.
 
 ### Milestone 5 – Node Ecosystem & Integrations
 - [x] Deliver trigger nodes (Webhook, Cron, Manual, HTTP Polling) with both UI and SDK parity.
@@ -67,7 +67,7 @@ This roadmap consolidates Orcheo's milestone sequencing and task backlog in a si
 - [x] Launch a dedicated workflow tracing tab with per-step prompts/responses, token metrics, artifact downloads, and monitoring dashboards.
 - [ ] Establish success metrics tracking (uv installs, GitHub stars, quickstart completion rate, failure backlog) and analytics pipelines.
 - [ ] Produce onboarding docs, templates, SDK examples, closed-beta playbook, and feedback/A-B testing loops for AI node recommendations.
-- [ ] Run end-to-end reliability tests, load tests on React Flow canvas, finalize beta rollout plan, and prepare Phase 1/Phase 2 regional launch gates.
+- [ ] Run end-to-end reliability tests, load tests on the React Flow workflow view, finalize beta rollout plan, and prepare Phase 1/Phase 2 regional launch gates.
 
 ## Post v1.0 Outlook
 - [ ] **v1.1 Advanced Features:** Team workspaces, advanced debugging, workflow marketplace.

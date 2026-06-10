@@ -58,16 +58,16 @@ For RBAC:
 3. In app settings, set at least:
    - `Allowed Callback URLs`:
      - `http://localhost:2026/auth/callback`
-     - `https://<your-canvas-domain>/auth/callback`
+     - `https://<your-studio-domain>/auth/callback`
    - `Allowed Logout URLs`:
      - `http://localhost:2026`
-     - `https://<your-canvas-domain>`
+     - `https://<your-studio-domain>`
    - `Allowed Web Origins`:
      - `http://localhost:2026`
-     - `https://<your-canvas-domain>`
+     - `https://<your-studio-domain>`
    - `Allowed Origins (CORS)`:
      - `http://localhost:2026`
-     - `https://<your-canvas-domain>`
+     - `https://<your-studio-domain>`
 4. Save, then note:
    - `Domain` (issuer base, example: `your-auth0-domain.us.auth0.com`)
    - `Client ID`
@@ -111,7 +111,7 @@ Update your stack `.env` (derived from `deploy/stack/.env.example`):
 
 ### Related runtime settings frequently needed
 
-- `ORCHEO_CORS_ALLOW_ORIGINS=<canvas-origin(s)>`
+- `ORCHEO_CORS_ALLOW_ORIGINS=<studio-origin(s)>`
 - `ORCHEO_CHATKIT_TOKEN_SIGNING_KEY=<long-random-secret>`
 - `VITE_ORCHEO_CHATKIT_DOMAIN_KEY=<chatkit-domain-public-key>`
 

@@ -16,7 +16,7 @@ copy/paste or customize.
 
 ## Prerequisites
 1. **Published workflow** – run `orcheo workflow publish <workflow_id>` and grab
-   the share URL (e.g. `https://canvas.example/chat/wf_123`).
+   the share URL (e.g. `https://studio.example/chat/wf_123`).
 2. **Backend URL** – the base `http(s)` origin where your Orcheo FastAPI server
   is running. The ChatKit JS client hits `${backend}/api/chatkit` for every
   message. Serve the HTML page itself via `http://` or `https://`; ChatKit iframes

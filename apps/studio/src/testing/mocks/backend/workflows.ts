@@ -87,7 +87,7 @@ export const seedWorkflows = () => {
           version: 1,
           graph: {},
           metadata: {
-            canvas: {
+            workflow: {
               snapshot: {
                 name: sample.name,
                 description: sample.description ?? null,
@@ -96,12 +96,12 @@ export const seedWorkflows = () => {
               },
               summary: { added: 0, removed: 0, modified: 0 },
               message: "Initial version",
-              canvasToGraph: {},
-              graphToCanvas: {},
+              workflowToGraph: {},
+              graphToWorkflow: {},
             },
           },
           notes: "Initial version",
-          created_by: "canvas-app",
+          created_by: "studio-app",
           created_at: updatedAt,
           updated_at: updatedAt,
         },
@@ -228,7 +228,7 @@ export const handleWorkflowRequest = async (
           version: nextVersionNumber,
           graph: payload?.graph ?? {},
           metadata: payload?.metadata ?? {
-            canvas: {
+            workflow: {
               snapshot: {
                 name: record.workflow.name,
                 description: record.workflow.description,
@@ -237,12 +237,12 @@ export const handleWorkflowRequest = async (
               },
               summary: { added: 0, removed: 0, modified: 0 },
               message: payload?.notes ?? null,
-              canvasToGraph: {},
-              graphToCanvas: {},
+              workflowToGraph: {},
+              graphToWorkflow: {},
             },
           },
           notes: payload?.notes ?? null,
-          created_by: payload?.created_by ?? "canvas-app",
+          created_by: payload?.created_by ?? "studio-app",
           created_at: now,
           updated_at: now,
         };
@@ -290,7 +290,7 @@ export const handleWorkflowRequest = async (
         },
         metadata: payload.metadata ?? {},
         notes: payload.notes ?? null,
-        created_by: payload.created_by ?? "canvas-app",
+        created_by: payload.created_by ?? "studio-app",
         created_at: now,
         updated_at: now,
       };

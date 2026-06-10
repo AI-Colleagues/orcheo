@@ -37,7 +37,7 @@ describe("workflow-storage API integration - list workflows", () => {
           version: 1,
           graph: {},
           metadata: {
-            canvas: {
+            workflow: {
               snapshot: {
                 name: "Support triage",
                 description: "Routes support tickets to the right queue.",
@@ -56,7 +56,7 @@ describe("workflow-storage API integration - list workflows", () => {
             },
           },
           notes: null,
-          created_by: "canvas-app",
+          created_by: "studio-app",
           created_at: timestamp,
           updated_at: timestamp,
         },
@@ -92,7 +92,7 @@ describe("workflow-storage API integration - list workflows", () => {
             graph: {},
             mermaid: "graph TD; A-->B;",
             metadata: {
-              canvas: {
+              workflow: {
                 snapshot: {
                   name: "Catalog flow",
                   description: "Summarized by backend list API.",
@@ -104,7 +104,7 @@ describe("workflow-storage API integration - list workflows", () => {
               },
             },
             notes: null,
-            created_by: "canvas-app",
+            created_by: "studio-app",
             created_at: timestamp,
             updated_at: timestamp,
           },
@@ -144,7 +144,7 @@ describe("workflow-storage API integration - list workflows", () => {
           version: 1,
           graph: {},
           metadata: {
-            canvas: {
+            workflow: {
               snapshot: {
                 name: "Cached workflow",
                 description: "Cache test",
@@ -156,7 +156,7 @@ describe("workflow-storage API integration - list workflows", () => {
             },
           },
           notes: null,
-          created_by: "canvas-app",
+          created_by: "studio-app",
           created_at: timestamp,
           updated_at: timestamp,
         },
@@ -195,7 +195,7 @@ describe("workflow-storage API integration - list workflows", () => {
           version: 1,
           graph: {},
           metadata: {
-            canvas: {
+            workflow: {
               snapshot: {
                 name: "Before refresh",
                 description: "Old payload",
@@ -207,7 +207,7 @@ describe("workflow-storage API integration - list workflows", () => {
             },
           },
           notes: null,
-          created_by: "canvas-app",
+          created_by: "studio-app",
           created_at: timestamp,
           updated_at: timestamp,
         },
@@ -231,7 +231,7 @@ describe("workflow-storage API integration - list workflows", () => {
           version: 2,
           graph: {},
           metadata: {
-            canvas: {
+            workflow: {
               snapshot: {
                 name: "After refresh",
                 description: "New payload",
@@ -243,7 +243,7 @@ describe("workflow-storage API integration - list workflows", () => {
             },
           },
           notes: null,
-          created_by: "canvas-app",
+          created_by: "studio-app",
           created_at: timestamp,
           updated_at: timestamp,
         },
@@ -312,7 +312,7 @@ describe("workflow-storage API integration - list workflows", () => {
               version: 1,
               graph: {},
               metadata: {
-                canvas: {
+                workflow: {
                   snapshot: {
                     name: "Fresh workflow",
                     description: "Fresh payload",
@@ -324,7 +324,7 @@ describe("workflow-storage API integration - list workflows", () => {
                 },
               },
               notes: null,
-              created_by: "canvas-app",
+              created_by: "studio-app",
               created_at: timestamp,
               updated_at: timestamp,
             },
@@ -340,7 +340,7 @@ describe("workflow-storage API integration - list workflows", () => {
             version: 1,
             graph: {},
             metadata: {
-              canvas: {
+              workflow: {
                 snapshot: {
                   name: "Stale workflow",
                   description: "Stale payload",
@@ -352,7 +352,7 @@ describe("workflow-storage API integration - list workflows", () => {
               },
             },
             notes: null,
-            created_by: "canvas-app",
+            created_by: "studio-app",
             created_at: timestamp,
             updated_at: timestamp,
           },

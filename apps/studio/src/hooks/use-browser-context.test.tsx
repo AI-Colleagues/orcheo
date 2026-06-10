@@ -37,10 +37,10 @@ function HookHarness() {
         onClick={() => setPageContext({ page: "gallery" })}
       />
       <button
-        data-testid="set-canvas"
+        data-testid="set-workflow"
         onClick={() =>
           setPageContext({
-            page: "canvas",
+            page: "workflow",
             workflowId: "wf-1",
             workflowName: "Test",
           })
@@ -85,16 +85,16 @@ describe("useBrowserContext", () => {
     expect(sessionStorage.getItem("orcheo_browser_session_id")).toBe(sessionId);
   });
 
-  it("posts workflow_id and workflow_name for canvas context", async () => {
+  it("posts workflow_id and workflow_name for workflow context", async () => {
     render(<HookHarness />);
 
     await act(async () => {
-      screen.getByTestId("set-canvas").click();
+      screen.getByTestId("set-workflow").click();
     });
 
     const call = fetchSpy.mock.calls.find((c) => {
       const body = JSON.parse((c as [string, RequestInit])[1].body as string);
-      return body.page === "canvas";
+      return body.page === "workflow";
     }) as [string, RequestInit] | undefined;
 
     expect(call).toBeDefined();
@@ -134,7 +134,7 @@ describe("useBrowserContext", () => {
     expect(warnSpy).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      screen.getByTestId("set-canvas").click();
+      screen.getByTestId("set-workflow").click();
       window.dispatchEvent(new Event("focus"));
       vi.advanceTimersByTime(5_000);
     });

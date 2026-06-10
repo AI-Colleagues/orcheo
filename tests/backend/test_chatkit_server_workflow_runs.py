@@ -194,7 +194,7 @@ async def test_chatkit_server_uses_latest_request_metadata_for_workflow_inputs()
         created_at=datetime.now(UTC),
         metadata={
             "workflow_id": workflow_id,
-            "context": "The user is on Canvas Gallery.",
+            "context": "The user is on Studio Gallery.",
         },
     )
     context: ChatKitRequestContext = {

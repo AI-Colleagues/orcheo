@@ -104,12 +104,12 @@ async def test_get_public_workflow_includes_share_url(
     monkeypatch.setattr(
         workflows,
         "_resolve_studio_url",
-        lambda: "https://canvas.example",
+        lambda: "https://studio.example",
     )
 
     response = await workflows.get_public_workflow(str(workflow.id), repo)
 
-    assert response.share_url == f"https://canvas.example/chat/{workflow.id}"
+    assert response.share_url == f"https://studio.example/chat/{workflow.id}"
 
 
 def test_resolve_studio_url_returns_none_when_empty(

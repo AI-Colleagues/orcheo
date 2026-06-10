@@ -1,11 +1,12 @@
 """Resolve inline JSON Schema annotations embedded in runnable config values.
 
 A workflow's ``configurable`` mapping may declare a field as an inline JSON
-Schema object (``{"type": ..., "enum": ..., "default": ...}``) so the Canvas
-config form can render a typed widget. The workflow runtime, however, only
-expects the resolved value. :func:`split_configurable` separates the two: it
-returns the runtime values alongside the schema declarations so the latter can
-be stored as version metadata instead of leaking into the runnable config.
+Schema object (``{"type": ..., "enum": ..., "default": ...}``) so the
+workflow page config form can render a typed widget. The workflow runtime,
+however, only expects the resolved value. :func:`split_configurable` separates
+the two: it returns the runtime values alongside the schema declarations so the
+latter can be stored as version metadata instead of leaking into the runnable
+config.
 """
 
 from __future__ import annotations

@@ -130,7 +130,7 @@ class _RepositoryMissingWorkflow(_Repository):
 
 
 @pytest.mark.asyncio()
-async def test_get_workflow_canvas_allows_managed_workflow_across_workspaces() -> None:
+async def test_get_workflow_page_allows_managed_workflow_across_workspaces() -> None:
     original_workspace = uuid4()
     current_workspace = uuid4()
     workflow = Workflow(
@@ -143,7 +143,7 @@ async def test_get_workflow_canvas_allows_managed_workflow_across_workspaces() -
     )
     repository = _RepositoryWithExistingWorkflow(workflow)
 
-    payload = await workflows.get_workflow_canvas(
+    payload = await workflows.get_workflow_page(
         workflow_ref=MANAGED_VIBE_WORKFLOW_HANDLE,
         repository=repository,
         workspace=SimpleNamespace(workspace_id=current_workspace),
@@ -167,7 +167,7 @@ async def test_update_workflow_allows_managed_workflow_across_workspaces() -> No
         draft_access=WorkflowDraftAccess.AUTHENTICATED,
     )
     repository = _RepositoryWithExistingWorkflow(workflow)
-    request = WorkflowUpdateRequest(name="Orcheo Vibe", actor="canvas-app")
+    request = WorkflowUpdateRequest(name="Orcheo Vibe", actor="studio-app")
 
     updated = await workflows.update_workflow(
         workflow_ref=MANAGED_VIBE_WORKFLOW_HANDLE,
@@ -176,7 +176,7 @@ async def test_update_workflow_allows_managed_workflow_across_workspaces() -> No
         workspace=SimpleNamespace(workspace_id=current_workspace),
         policy=AuthorizationPolicy(
             RequestContext(
-                subject="canvas-app",
+                subject="studio-app",
                 identity_type="developer",
                 scopes=frozenset(),
                 workspace_ids=frozenset(),

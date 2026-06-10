@@ -26,7 +26,7 @@ Ship a single guided setup/upgrade command so users can install or upgrade Orche
 
 ### Target users
 - First-time Orcheo users installing locally.
-- Existing users upgrading CLI/backend/canvas.
+- Existing users upgrading CLI/backend/Studio.
 - Operators who connect Studio and CLI to self-hosted backends.
 
 ### User Stories

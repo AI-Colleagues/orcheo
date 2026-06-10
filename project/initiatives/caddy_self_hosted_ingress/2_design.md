@@ -114,7 +114,7 @@ Field names above are illustrative for the contract. The final implementation ma
 |-------|------|-------------|
 | enabled | boolean | Whether Caddy is included as the public ingress tier |
 | public_host | string | Public DNS hostname served by Caddy |
-| publish_debug_ports | boolean | Whether backend/canvas localhost ports remain published alongside Caddy |
+| publish_debug_ports | boolean | Whether backend/Studio localhost ports remain published alongside Caddy |
 | backend_upstreams | list[string] | Internal backend upstreams used by Caddy |
 | studio_upstream | string | Internal Studio upstream used by Caddy |
 
@@ -123,7 +123,7 @@ Field names above are illustrative for the contract. The final implementation ma
 ```json
 {
   "routes": [
-    { "match": "/", "upstream": "canvas" },
+    { "match": "/", "upstream": "Studio" },
     { "match": "/api/*", "upstream": "backend" },
     { "match": "/ws/*", "upstream": "backend" }
   ]

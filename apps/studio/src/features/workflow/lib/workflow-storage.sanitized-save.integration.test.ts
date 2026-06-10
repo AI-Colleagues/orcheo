@@ -45,7 +45,7 @@ describe("workflow-storage API integration - config-only save", () => {
       jsonResponse(versionsPayload),
       jsonResponse({
         ...versionsPayload[0],
-        runnable_config: { tags: ["canvas"] },
+        runnable_config: { tags: ["studio"] },
       }),
       jsonResponse({
         id: "workflow-456",
@@ -60,7 +60,7 @@ describe("workflow-storage API integration - config-only save", () => {
       jsonResponse([
         {
           ...versionsPayload[0],
-          runnable_config: { tags: ["canvas"] },
+          runnable_config: { tags: ["studio"] },
         },
       ]),
     ]);
@@ -73,7 +73,7 @@ describe("workflow-storage API integration - config-only save", () => {
         nodes: [],
         edges: [],
       },
-      { runnableConfig: { tags: ["canvas"] } },
+      { runnableConfig: { tags: ["studio"] } },
     );
 
     expect(mockFetch).toHaveBeenCalledTimes(5);
@@ -112,7 +112,7 @@ describe("workflow-storage API integration - config-only save", () => {
           nodes: [],
           edges: [],
         },
-        { runnableConfig: { tags: ["canvas"] } },
+        { runnableConfig: { tags: ["studio"] } },
       ),
     ).rejects.toThrow("existing Python version");
   });

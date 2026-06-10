@@ -74,7 +74,7 @@ Non-goals:
 - Setup must collect or accept non-interactively:
   - public hostname
   - whether public ingress is enabled
-  - whether local backend/canvas ports remain published for debugging
+  - whether local backend/Studio ports remain published for debugging
 - Setup and docs must state that successful public ingress requires:
   - a DNS record pointing the chosen hostname to the host running Caddy
   - inbound `80` and `443` access to the Caddy host

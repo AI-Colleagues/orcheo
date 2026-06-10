@@ -55,7 +55,7 @@ const oidcDiscoveryResponse = {
 describe("startOidcLogin organization precedence", () => {
   beforeEach(() => {
     setEnv("VITE_ORCHEO_AUTH_ISSUER", "https://issuer.example.com");
-    setEnv("VITE_ORCHEO_AUTH_CLIENT_ID", "canvas-client");
+    setEnv("VITE_ORCHEO_AUTH_CLIENT_ID", "studio-client");
     setEnv(
       "VITE_ORCHEO_AUTH_REDIRECT_URI",
       "https://studio.example.com/auth/callback",
@@ -189,7 +189,7 @@ describe("completeOidcLogin expiry parsing", () => {
 
   beforeEach(() => {
     setEnv("VITE_ORCHEO_AUTH_ISSUER", "https://issuer.example.com");
-    setEnv("VITE_ORCHEO_AUTH_CLIENT_ID", "canvas-client");
+    setEnv("VITE_ORCHEO_AUTH_CLIENT_ID", "studio-client");
     setEnv(
       "VITE_ORCHEO_AUTH_REDIRECT_URI",
       "https://studio.example.com/auth/callback",
@@ -277,7 +277,7 @@ describe("completeOidcLogin expiry parsing", () => {
 describe("tryRefreshTokens", () => {
   beforeEach(() => {
     setEnv("VITE_ORCHEO_AUTH_ISSUER", "https://issuer.example.com");
-    setEnv("VITE_ORCHEO_AUTH_CLIENT_ID", "canvas-client");
+    setEnv("VITE_ORCHEO_AUTH_CLIENT_ID", "studio-client");
     setEnv(
       "VITE_ORCHEO_AUTH_REDIRECT_URI",
       "https://studio.example.com/auth/callback",

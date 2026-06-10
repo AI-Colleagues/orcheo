@@ -8,7 +8,7 @@ This document describes the system design for integrating ChatKit into Orcheo ac
   - Adds floating chat bubble, modal container, and shared ChatKit widget.
   - Responsible for requesting JWTs from Studio backend and passing them to ChatKit client.
 - **Public Chat Frontend (Studio app shell)**
-  - Static route served under `${canvas_base_url}/chat/:workflowId`; the page keeps all state in-memory so refreshes clear any cached data.
+  - Static route served under `${studio_base_url}/chat/:workflowId`; the page keeps all state in-memory so refreshes clear any cached data.
   - Loads the same ChatKit widget bundle used by Studio, initializing with read-only workflow metadata (name only) plus the workflow identifier.
   - Public access is controlled exclusively via publish/unpublish plus the `require_login` flag—no shared secrets are distributed.
   - If the workflow was published with `require_login=true`, prompts the visitor to complete OAuth (e.g., Google) before instantiating the widget.
@@ -114,9 +114,9 @@ POST   /api/workflows/{id}/publish/revoke  -> unpublish
 ## Rollout Plan
 1. Implement backend publish metadata + APIs behind flag.
 2. Deploy public page but keep publish flag disabled until backend load testing complete.
-3. Ship Studio chat bubble + JWT flow gated by `chatkit_canvas_enabled` flag for internal users.
+3. Ship Studio chat bubble + JWT flow gated by `chatkit_studio_enabled` flag for internal users.
 4. Gradually enable publish feature per workspace and monitor metrics.
 
 ## Open Issues
-- Determine hosting path for public assets when canvas app is deployed separately.
+- Determine hosting path for public assets when Studio app is deployed separately.
 - Studio publishing UX should mirror the CLI/MCP flows (same prompts/options) as follow-up work once these implementations land, to keep user expectations aligned across all surfaces.

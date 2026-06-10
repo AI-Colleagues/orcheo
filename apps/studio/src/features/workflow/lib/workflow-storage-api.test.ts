@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   extractCronConfigFromVersionGraph,
-  fetchWorkflowCanvasData,
+  fetchWorkflowPageData,
   fetchWorkflowCredentialReadiness,
   fetchWorkflowListenerMetrics,
   fetchWorkflowListeners,
@@ -27,10 +27,10 @@ describe("workflow-storage-api helpers", () => {
       id: "wf-1",
       handle: "my-flow",
       is_public: true,
-      share_url: "https://canvas.example/chat/my-flow",
+      share_url: "https://studio.example/chat/my-flow",
     });
 
-    expect(shareUrl).toBe("https://canvas.example/chat/my-flow");
+    expect(shareUrl).toBe("https://studio.example/chat/my-flow");
   });
 
   it("extracts cron config from graph index", () => {
@@ -135,7 +135,7 @@ describe("workflow-storage-api helpers", () => {
           },
           runnable_config: null,
           notes: null,
-          created_by: "canvas",
+          created_by: "studio",
           created_at: "2026-03-10T10:00:00Z",
           updated_at: "2026-03-10T10:00:00Z",
         },
@@ -171,7 +171,7 @@ describe("workflow-storage-api helpers", () => {
           metadata: {},
           runnable_config: null,
           notes: null,
-          created_by: "canvas",
+          created_by: "studio",
           created_at: "2026-03-10T09:00:00Z",
           updated_at: "2026-03-10T09:00:00Z",
         },
@@ -183,7 +183,7 @@ describe("workflow-storage-api helpers", () => {
           metadata: {},
           runnable_config: null,
           notes: null,
-          created_by: "canvas",
+          created_by: "studio",
           created_at: "2026-03-10T10:00:00Z",
           updated_at: "2026-03-10T10:00:00Z",
         },
@@ -194,7 +194,7 @@ describe("workflow-storage-api helpers", () => {
           workflow_id: "wf-1",
           workflow_version_id: "v2",
           status: "pending",
-          triggered_by: "canvas",
+          triggered_by: "studio",
           input_payload: {},
         },
         201,
@@ -213,7 +213,7 @@ describe("workflow-storage-api helpers", () => {
       String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
     ) as { workflow_version_id?: string; triggered_by?: string };
     expect(requestBody.workflow_version_id).toBe("v2");
-    expect(requestBody.triggered_by).toBe("canvas");
+    expect(requestBody.triggered_by).toBe("studio");
   });
 
   it("selects the highest workflow version even when the API response is unsorted", () => {
@@ -226,7 +226,7 @@ describe("workflow-storage-api helpers", () => {
         metadata: {},
         runnable_config: null,
         notes: null,
-        created_by: "canvas",
+        created_by: "studio",
         created_at: "2026-03-10T10:00:00Z",
         updated_at: "2026-03-10T10:00:00Z",
       },
@@ -238,7 +238,7 @@ describe("workflow-storage-api helpers", () => {
         metadata: {},
         runnable_config: null,
         notes: null,
-        created_by: "canvas",
+        created_by: "studio",
         created_at: "2026-03-10T09:00:00Z",
         updated_at: "2026-03-10T09:00:00Z",
       },
@@ -250,7 +250,7 @@ describe("workflow-storage-api helpers", () => {
         metadata: {},
         runnable_config: null,
         notes: null,
-        created_by: "canvas",
+        created_by: "studio",
         created_at: "2026-03-10T11:00:00Z",
         updated_at: "2026-03-10T11:00:00Z",
       },
@@ -259,15 +259,15 @@ describe("workflow-storage-api helpers", () => {
     expect(latest?.id).toBe("v3");
   });
 
-  it("fetches compact workflow canvas data", async () => {
+  it("fetches compact workflow page data", async () => {
     const mockFetch = getFetchMock();
     queueResponses([
       jsonResponse({
         workflow: {
           id: "wf-1",
           handle: "wf-1",
-          name: "Canvas Flow",
-          slug: "canvas-flow",
+          name: "Studio Flow",
+          slug: "studio-flow",
           description: "Test",
           tags: ["draft"],
           is_archived: false,
@@ -289,7 +289,7 @@ describe("workflow-storage-api helpers", () => {
             metadata: {},
             runnable_config: null,
             notes: "First version",
-            created_by: "canvas",
+            created_by: "studio",
             created_at: "2026-03-10T09:00:00Z",
             updated_at: "2026-03-10T09:00:00Z",
           },
@@ -297,7 +297,7 @@ describe("workflow-storage-api helpers", () => {
       }),
     ]);
 
-    const payload = await fetchWorkflowCanvasData("wf-1");
+    const payload = await fetchWorkflowPageData("wf-1");
 
     expect(payload?.workflow.id).toBe("wf-1");
     expect(payload?.versions).toHaveLength(1);
@@ -305,7 +305,7 @@ describe("workflow-storage-api helpers", () => {
     expect(payload?.versions[0]?.has_cron_trigger).toBe(true);
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(String(mockFetch.mock.calls[0]?.[0])).toContain(
-      "/api/workflows/wf-1/canvas",
+      "/api/workflows/wf-1/workflow",
     );
   });
 

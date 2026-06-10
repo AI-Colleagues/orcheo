@@ -119,7 +119,7 @@ const resolveTemplateWorkflowName = async (
   return `${normalizedBaseName} ${suffix}`;
 };
 
-const buildTemplateCanvasMetadata = ({
+const buildTemplateWorkflowMetadata = ({
   name,
   description,
   nodes,
@@ -332,10 +332,10 @@ export const createWorkflowFromTemplate = async (
       entrypoint: templateDefinition.entrypoint ?? null,
       runnable_config: templateDefinition.runnableConfig ?? null,
       metadata: {
-        source: "canvas-template",
+        source: "studio-template",
         template_id: templateWorkflow.id,
         template: templateDefinition.metadata ?? null,
-        canvas: buildTemplateCanvasMetadata({
+        workflow: buildTemplateWorkflowMetadata({
           name: workflowName,
           description: workflowDescription,
           nodes: templateWorkflow.nodes,
@@ -390,7 +390,7 @@ export const uploadWorkflowFromFiles = async (
         script,
         entrypoint: null,
         runnable_config: config ?? null,
-        metadata: { source: "canvas-upload" },
+        metadata: { source: "studio-upload" },
         notes: null,
         created_by: actor,
       }),
@@ -425,7 +425,7 @@ export const updateWorkflowFromFiles = async (
       script,
       entrypoint: null,
       runnable_config: config ?? null,
-      metadata: { source: "canvas-update" },
+      metadata: { source: "studio-update" },
       notes: null,
       created_by: actor,
     }),

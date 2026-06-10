@@ -16,7 +16,7 @@ import { Loader2, MessageSquare } from "lucide-react";
 import type { UseChatKitOptions } from "@openai/chatkit-react";
 import { useChatInterfaceOptions } from "@features/shared/components/chat-interface-options";
 import type { ChatParticipant } from "@features/shared/components/chat-interface.types";
-import type { ChatSessionStatus } from "@features/workflow/pages/workflow-canvas/hooks/use-workflow-chat";
+import type { ChatSessionStatus } from "@features/workflow/pages/workflow/hooks/use-workflow-chat";
 import { recordChatTelemetry } from "@features/chatkit/lib/telemetry";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { buildChatTheme } from "@features/chatkit/lib/chatkit-theme";
@@ -260,7 +260,7 @@ export function StudioChatBubble({
   const handleFabClick = () => {
     setIsPanelOpen(true);
     setShouldLoadChat(true);
-    recordChatTelemetry("canvas.chat.open", {
+    recordChatTelemetry("studio.chat.open", {
       workflowId,
       source: "bubble",
     });
@@ -269,7 +269,7 @@ export function StudioChatBubble({
 
   const handleCollapse = () => {
     setIsPanelOpen(false);
-    recordChatTelemetry("canvas.chat.close", {
+    recordChatTelemetry("studio.chat.close", {
       workflowId,
       source: "bubble",
     });
@@ -326,7 +326,7 @@ export function StudioChatBubble({
     ai,
     initialMessages: [
       {
-        id: "canvas-chat-greeting",
+        id: "studio-chat-greeting",
         content: `You're chatting with ${title}.`,
         sender: {
           ...ai,

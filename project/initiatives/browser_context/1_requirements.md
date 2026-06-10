@@ -32,17 +32,17 @@ Enable developers to use their preferred AI coding agents (Claude Code, Codex, C
 | As a... | I want to... | So that... | Priority | Acceptance Criteria |
 |---------|--------------|------------|----------|---------------------|
 | Developer with Claude Code | Run `orcheo browser-aware` and have Claude Code know which workflow I have open in Studio | Claude Code can read and update my workflow without me copying and pasting scripts | P0 | Claude Code calling `orcheo context` returns the active Studio page and workflow |
-| Developer | Have the context update automatically when I switch tabs or navigate to a different workflow | I don't have to restart or re-configure my HTTP server | P0 | Navigating in Studio from gallery to a workflow canvas updates the context returned by `orcheo context` within 2 seconds |
+| Developer | Have the context update automatically when I switch tabs or navigate to a different workflow | I don't have to restart or re-configure my HTTP server | P0 | Navigating in Studio from gallery to a workflow page updates the context returned by `orcheo context` within 2 seconds |
 | Developer | Have the active (or last-visited) Studio tab automatically used as the context source | I can work with multiple Studio tabs open without manually selecting which one feeds my coding agent | P1 | Studio tracks the active tab (or last-visited tab when all are inactive) and `orcheo context` returns that tab's context without explicit pinning |
 | Developer | Have context relay work without any backend changes or extra deployment | I can start using ambient coding immediately after installing the CLI update | P1 | Context store runs inside `orcheo browser-aware` process; no new backend endpoints required |
 
 ### Context, Problems, Opportunities
 
-Orcheo workflows are authored as Python LangGraph scripts. The natural place to write and modify these is a code editor or terminal, not a drag-and-drop canvas. Developers can already use CLI commands to download workflow scripts, but AI coding agents (Claude Code, Codex, Cursor) lack awareness of which workflow the developer is currently viewing in Studio — they cannot automatically stay in sync with the developer's Studio context.
+Orcheo workflows are authored as Python LangGraph scripts. The natural place to write and modify these is a code editor or terminal, not a drag-and-drop workflow editor. Developers can already use CLI commands to download workflow scripts, but AI coding agents (Claude Code, Codex, Cursor) lack awareness of which workflow the developer is currently viewing in Studio — they cannot automatically stay in sync with the developer's Studio context.
 
 The opportunity is to make Studio context available to any coding agent via a local HTTP server and CLI commands. The agent runs wherever the developer already works; Orcheo provides context and workflow tools. This delivers the ambient coding agent experience the developer ecosystem expects.
 
-The adjacent space (VS Code Copilot, Claude Code, Cursor) has established that developers want AI assistance that is aware of their current working context. Orcheo's workflow canvas is the equivalent of the "current file" — it should be equally accessible to these agents.
+The adjacent space (VS Code Copilot, Claude Code, Cursor) has established that developers want AI assistance that is aware of their current working context. Orcheo's workflow page is the equivalent of the "current file" — it should be equally accessible to these agents.
 
 ### Product Goals and Non-goals
 
@@ -60,7 +60,7 @@ The adjacent space (VS Code Copilot, Claude Code, Cursor) has established that d
 
 **P0: Context relay (Studio → local HTTP server)**
 - Studio posts context on every page navigation and focus/visibility change to `POST http://localhost:3333/context`.
-- Payload includes: `session_id` (stable per tab, `sessionStorage`-backed), `page` (`gallery` | `canvas` | `other`), `workflow_id`, `workflow_name`, `focused` (bool), `timestamp`.
+- Payload includes: `session_id` (stable per tab, `sessionStorage`-backed), `page` (`gallery` | `Studio` | `other`), `workflow_id`, `workflow_name`, `focused` (bool), `timestamp`.
 - The relay communicates *what* the user is viewing, not the content. Script source, version, and other workflow metadata are fetched via existing CLI commands (`orcheo workflow show/download`).
 - Context relay only works when `orcheo browser-aware` is running — which is exactly when it is needed.
 - Heartbeat every 5 seconds while the tab is visible; stops when hidden or closed.

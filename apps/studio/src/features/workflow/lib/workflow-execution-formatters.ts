@@ -84,7 +84,7 @@ export const resolveNodeLabel = (
 
 export const describePayload = (
   payload: Record<string, unknown>,
-  graphToCanvas: Record<string, string>,
+  graphToWorkflow: Record<string, string>,
   nodes: Map<string, WorkflowExecutionNode>,
 ): string => {
   if (typeof payload.error === "string" && payload.error.trim()) {
@@ -106,8 +106,8 @@ export const describePayload = (
 
   if (nodeKey) {
     const graphNode = String(payload[nodeKey]);
-    const canvasNodeId = graphToCanvas[graphNode] ?? graphNode;
-    const label = resolveNodeLabel(canvasNodeId, nodes);
+    const workflowNodeId = graphToWorkflow[graphNode] ?? graphNode;
+    const label = resolveNodeLabel(workflowNodeId, nodes);
     if (status) {
       return `Node ${label} ${status}`;
     }

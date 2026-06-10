@@ -25,7 +25,7 @@ Each row corresponds to one source script (test files excluded).
 | `auth/pages/login.tsx`                                                               | Login page that parses invite-context params and mounts `AutoLogin`.                                         |
 | `auth/pages/oauth-callback.tsx`                                                      | OAuth callback handler that completes OIDC login, stores tokens, and redirects to the intended URL.          |
 | **chatkit**                                                                          |                                                                                                              |
-| `chatkit/components/studio-chat-bubble.tsx`                                          | Floating chat-bubble component for the workflow canvas, positioned above the React Flow minimap.             |
+| `chatkit/components/studio-chat-bubble.tsx`                                          | Floating chat-bubble component for the workflow page, positioned above the React Flow minimap.             |
 | `chatkit/components/chatkit-surface.tsx`                                             | Wrapper around the ChatKit library that handles custom action dispatching and error reporting.               |
 | `chatkit/components/public-chat-config.ts`                                           | Builds ChatKit start-screen prompt and model-option configuration from workflow settings.                    |
 | `chatkit/components/public-chat-error-boundary.tsx`                                  | Error boundary that catches and gracefully displays errors inside the public chat widget.                    |
@@ -43,7 +43,7 @@ Each row corresponds to one source script (test files excluded).
 | `shared/components/top-navigation/studio-brand.tsx`                                   | Brand logo linking to the gallery, with a beta status badge.                                                 |
 | `shared/components/top-navigation/top-navigation-types.ts`                           | `TopNavigation` props interface (credentials, credential handlers).                                          |
 | `shared/components/top-navigation.tsx`                                               | Top navigation bar: brand, workspace selector, version status, and account menu.                             |
-| `shared/components/top-navigation/version-status.tsx`                                | Checks for and displays available canvas version updates, with result caching.                               |
+| `shared/components/top-navigation/version-status.tsx`                                | Checks for and displays available Studio version updates, with result caching.                               |
 | `shared/components/workspace-bootstrap-gate.tsx`                                     | Ensures the user has at least one workspace, creating a default one if necessary, before rendering children. |
 | **vibe**                                                                             |                                                                                                              |
 | `vibe/components/vibe-authenticated-layout.tsx`                                      | Main authenticated layout for Vibe: resizable sidebar with workspace bootstrap gate.                         |
@@ -150,42 +150,42 @@ Each row corresponds to one source script (test files excluded).
 | `workflow/lib/workflow-storage.ts`                                                   | Main workflow storage façade: load, save, delete, and list workflows.                                        |
 | `workflow/lib/workflow-storage.constants.ts`                                         | Constants shared across workflow storage modules.                                                            |
 | `workflow/lib/workflow-storage.types.ts`                                             | Types for stored workflow records and API request/response shapes.                                           |
-| **workflow / canvas page**                                                           |                                                                                                              |
-| `workflow/pages/workflow-canvas/components/settings-tab-content.tsx`                 | Settings tab: workflow metadata display, version history, and listener controls.                             |
-| `workflow/pages/workflow-canvas/components/trace-tab-content.tsx`                    | Trace tab: renders execution traces using the agent-prism trace viewer.                                      |
-| `workflow/pages/workflow-canvas/components/workflow-canvas-layout.tsx`               | Top-level canvas layout composing the tab bar, navigation, and chat bubble.                                  |
-| `workflow/pages/workflow-canvas/components/workflow-config-sheet.tsx`                | Slide-over sheet for editing workflow runtime parameters and tags.                                           |
-| `workflow/pages/workflow-canvas/components/workflow-config-sheet.utils.ts`           | Schema inference and form-data conversion utilities for the config sheet.                                    |
-| `workflow/pages/workflow-canvas/components/workflow-tab-content.tsx`                 | Workflow editor tab: React Flow canvas, publish/schedule controls, and Mermaid preview.                      |
-| `workflow/pages/workflow-canvas/handlers/credentials.ts`                             | Event handlers for credential add, update, delete, and secret-reveal operations.                             |
-| `workflow/pages/workflow-canvas/helpers/execution.ts`                                | Utility functions for normalising execution status values.                                                   |
-| `workflow/pages/workflow-canvas/helpers/trace.ts`                                    | Transforms raw trace data and computes span display metadata.                                                |
-| `workflow/pages/workflow-canvas/helpers/types.ts`                                    | Shared types for execution and trace data used across canvas helpers/hooks.                                  |
-| `workflow/pages/workflow-canvas/hooks/controller/build-layout-props.ts`              | Assembles the full layout-props object from core, resource, and execution sub-hooks.                         |
-| `workflow/pages/workflow-canvas/hooks/controller/use-workflow-canvas-controller.ts`  | Main controller hook that composes all canvas sub-hooks into a single interface.                             |
-| `workflow/pages/workflow-canvas/hooks/controller/use-workflow-canvas-core.ts`        | Core hook managing metadata, execution, UI, WebSocket, and chat state.                                       |
-| `workflow/pages/workflow-canvas/hooks/controller/use-workflow-canvas-execution.ts`   | Handles workflow run triggering, status polling, and trace updates.                                          |
-| `workflow/pages/workflow-canvas/hooks/controller/use-workflow-canvas-lifecycle.ts`   | Wires loader and storage-listener hooks into the canvas lifecycle.                                           |
-| `workflow/pages/workflow-canvas/hooks/controller/use-workflow-canvas-resources.ts`   | Composes credential management, listener, and auto-save hooks.                                               |
-| `workflow/pages/workflow-canvas/hooks/execution-log-helpers.ts`                      | Formats raw execution log lines for display.                                                                 |
-| `workflow/pages/workflow-canvas/hooks/execution-node-status.ts`                      | Derives per-node status indicators from the current execution record.                                        |
-| `workflow/pages/workflow-canvas/hooks/execution-record-updater.ts`                   | Logic for merging incremental execution updates into the execution record.                                   |
-| `workflow/pages/workflow-canvas/hooks/execution-record.ts`                           | Creates the initial execution record structure when a run starts.                                            |
-| `workflow/pages/workflow-canvas/hooks/execution-runtime-updates.ts`                  | Applies real-time runtime updates to the canvas execution state.                                             |
-| `workflow/pages/workflow-canvas/hooks/use-studio-ui-state.ts`                         | Manages active-tab and sidebar-visibility UI state for the canvas.                                           |
-| `workflow/pages/workflow-canvas/hooks/use-execution-trace.ts`                        | Hook that fetches and stores the execution trace for the current run.                                        |
-| `workflow/pages/workflow-canvas/hooks/use-execution-updates.ts`                      | Subscribes to WebSocket execution events and forwards them to state.                                         |
-| `workflow/pages/workflow-canvas/hooks/use-pause-workflow.ts`                         | Hook exposing a pause action for an in-progress workflow execution.                                          |
-| `workflow/pages/workflow-canvas/hooks/use-workflow-chat.ts`                          | Manages the workflow-specific ChatKit session lifecycle.                                                     |
-| `workflow/pages/workflow-canvas/hooks/use-workflow-credentials.ts`                   | Hook for loading and mutating workflow-scoped credentials.                                                   |
-| `workflow/pages/workflow-canvas/hooks/use-workflow-execution-state.ts`               | Central state container for the current workflow execution.                                                  |
-| `workflow/pages/workflow-canvas/hooks/use-workflow-listeners.ts`                     | Manages workflow event listeners (webhooks / triggers).                                                      |
-| `workflow/pages/workflow-canvas/hooks/use-workflow-loader.ts`                        | Loads workflow metadata, definition, and execution history on mount.                                         |
-| `workflow/pages/workflow-canvas/hooks/use-workflow-metadata-state.ts`                | State and mutators for workflow name, description, tags, and version info.                                   |
-| `workflow/pages/workflow-canvas/hooks/use-workflow-saver.ts`                         | Auto-saves workflow changes on a debounced schedule.                                                         |
-| `workflow/pages/workflow-canvas/hooks/use-workflow-storage-listener.ts`              | Listens for external (cross-tab / server-push) workflow storage updates.                                     |
-| `workflow/pages/workflow-canvas/hooks/workflow-runner-websocket.ts`                  | Creates and configures the WebSocket connection for live execution updates.                                  |
-| `workflow/pages/workflow-canvas.tsx`                                                 | Top-level workflow canvas page that integrates the layout with the controller hook.                          |
+| **workflow / workflow page**                                                           |                                                                                                              |
+| `workflow/pages/workflow/components/settings-tab-content.tsx`                 | Settings tab: workflow metadata display, version history, and listener controls.                             |
+| `workflow/pages/workflow/components/trace-tab-content.tsx`                    | Trace tab: renders execution traces using the agent-prism trace viewer.                                      |
+| `workflow/pages/workflow/components/workflow-layout.tsx`               | Top-level workflow layout composing the tab bar, navigation, and chat bubble.                                  |
+| `workflow/pages/workflow/components/workflow-config-sheet.tsx`                | Slide-over sheet for editing workflow runtime parameters and tags.                                           |
+| `workflow/pages/workflow/components/workflow-config-sheet.utils.ts`           | Schema inference and form-data conversion utilities for the config sheet.                                    |
+| `workflow/pages/workflow/components/workflow-tab-content.tsx`                 | Workflow editor tab: React Flow workflow view, publish/schedule controls, and Mermaid preview.                      |
+| `workflow/pages/workflow/handlers/credentials.ts`                             | Event handlers for credential add, update, delete, and secret-reveal operations.                             |
+| `workflow/pages/workflow/helpers/execution.ts`                                | Utility functions for normalising execution status values.                                                   |
+| `workflow/pages/workflow/helpers/trace.ts`                                    | Transforms raw trace data and computes span display metadata.                                                |
+| `workflow/pages/workflow/helpers/types.ts`                                    | Shared types for execution and trace data used across workflow helpers/hooks.                                  |
+| `workflow/pages/workflow/hooks/controller/build-layout-props.ts`              | Assembles the full layout-props object from core, resource, and execution sub-hooks.                         |
+| `workflow/pages/workflow/hooks/controller/use-workflow-controller.ts`  | Main controller hook that composes all workflow sub-hooks into a single interface.                             |
+| `workflow/pages/workflow/hooks/controller/use-workflow-core.ts`        | Core hook managing metadata, execution, UI, WebSocket, and chat state.                                       |
+| `workflow/pages/workflow/hooks/controller/use-workflow-execution-controller.ts`   | Handles workflow run triggering, status polling, and trace updates.                                          |
+| `workflow/pages/workflow/hooks/controller/use-workflow-lifecycle.ts`   | Wires loader and storage-listener hooks into the workflow lifecycle.                                           |
+| `workflow/pages/workflow/hooks/controller/use-workflow-resources.ts`   | Composes credential management, listener, and auto-save hooks.                                               |
+| `workflow/pages/workflow/hooks/execution-log-helpers.ts`                      | Formats raw execution log lines for display.                                                                 |
+| `workflow/pages/workflow/hooks/execution-node-status.ts`                      | Derives per-node status indicators from the current execution record.                                        |
+| `workflow/pages/workflow/hooks/execution-record-updater.ts`                   | Logic for merging incremental execution updates into the execution record.                                   |
+| `workflow/pages/workflow/hooks/execution-record.ts`                           | Creates the initial execution record structure when a run starts.                                            |
+| `workflow/pages/workflow/hooks/execution-runtime-updates.ts`                  | Applies real-time runtime updates to the workflow execution state.                                             |
+| `workflow/pages/workflow/hooks/use-studio-ui-state.ts`                         | Manages active-tab and sidebar-visibility UI state for the workflow page.                                           |
+| `workflow/pages/workflow/hooks/use-execution-trace.ts`                        | Hook that fetches and stores the execution trace for the current run.                                        |
+| `workflow/pages/workflow/hooks/use-execution-updates.ts`                      | Subscribes to WebSocket execution events and forwards them to state.                                         |
+| `workflow/pages/workflow/hooks/use-pause-workflow.ts`                         | Hook exposing a pause action for an in-progress workflow execution.                                          |
+| `workflow/pages/workflow/hooks/use-workflow-chat.ts`                          | Manages the workflow-specific ChatKit session lifecycle.                                                     |
+| `workflow/pages/workflow/hooks/use-workflow-credentials.ts`                   | Hook for loading and mutating workflow-scoped credentials.                                                   |
+| `workflow/pages/workflow/hooks/use-workflow-execution-state.ts`               | Central state container for the current workflow execution.                                                  |
+| `workflow/pages/workflow/hooks/use-workflow-listeners.ts`                     | Manages workflow event listeners (webhooks / triggers).                                                      |
+| `workflow/pages/workflow/hooks/use-workflow-loader.ts`                        | Loads workflow metadata, definition, and execution history on mount.                                         |
+| `workflow/pages/workflow/hooks/use-workflow-metadata-state.ts`                | State and mutators for workflow name, description, tags, and version info.                                   |
+| `workflow/pages/workflow/hooks/use-workflow-saver.ts`                         | Auto-saves workflow changes on a debounced schedule.                                                         |
+| `workflow/pages/workflow/hooks/use-workflow-storage-listener.ts`              | Listens for external (cross-tab / server-push) workflow storage updates.                                     |
+| `workflow/pages/workflow/hooks/workflow-runner-websocket.ts`                  | Creates and configures the WebSocket connection for live execution updates.                                  |
+| `workflow/pages/workflow.tsx`                                                 | Top-level workflow page page that integrates the layout with the controller hook.                          |
 | **workflow / gallery page**                                                          |                                                                                                              |
 | `workflow/pages/workflow-gallery/types.ts`                                           | Types for gallery tab identifiers and gallery component state.                                               |
 | `workflow/pages/workflow-gallery/use-workflow-gallery-actions.ts`                    | Gallery action handlers: import workflow, delete workflow, export workflow.                                  |

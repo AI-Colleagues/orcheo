@@ -124,7 +124,7 @@
 
 .dark {
   /* General purpose colors */
-  --agentprism-background: 4% 0 0; /* align with canvas dark background */
+  --agentprism-background: 4% 0 0; /* align with workflow dark background */
   --agentprism-foreground: 96.7% 0.003 264.542; /* gray.100 */
   --agentprism-primary: 96.7% 0.003 264.542; /* gray.100 */
   --agentprism-primary-foreground: 13% 0.028 261.692; /* gray.950 */

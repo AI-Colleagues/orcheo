@@ -1,13 +1,13 @@
 import { toStoredWorkflow } from "./workflow-storage-helpers";
 import {
   API_BASE,
-  fetchWorkflowCanvasData,
+  fetchWorkflowPageData,
   fetchWorkflowVersions,
   request,
 } from "./workflow-storage-api";
 import type {
-  ApiWorkflowCanvasData,
-  ApiWorkflowCanvasPayload,
+  ApiWorkflowPageData,
+  ApiWorkflowPagePayload,
   ApiWorkflowVersion,
   StoredWorkflow,
   WorkflowRunnableConfig,
@@ -22,13 +22,13 @@ const WORKFLOW_CACHE_TTL_MS = 10_000;
 const workflowCache = new Map<string, WorkflowCacheEntry>();
 const workflowInflight = new Map<string, Promise<StoredWorkflow | undefined>>();
 
-const isApiWorkflowCanvasData = (
-  payload: ApiWorkflowCanvasPayload,
-): payload is ApiWorkflowCanvasData =>
+const isApiWorkflowPageData = (
+  payload: ApiWorkflowPagePayload,
+): payload is ApiWorkflowPageData =>
   typeof payload === "object" &&
   payload !== null &&
   "workflow" in payload &&
-  typeof (payload as ApiWorkflowCanvasData).workflow?.id === "string";
+  typeof (payload as ApiWorkflowPageData).workflow?.id === "string";
 
 export const primeWorkflowCache = (workflow: StoredWorkflow): void => {
   workflowCache.set(workflow.id, {
@@ -61,14 +61,14 @@ export const ensureWorkflow = async (
   }
 
   const request = (async () => {
-    const payload = await fetchWorkflowCanvasData(workflowId);
+    const payload = await fetchWorkflowPageData(workflowId);
     if (!payload) {
       workflowCache.delete(workflowId);
       return undefined;
     }
-    const canvasHasWorkflow = isApiWorkflowCanvasData(payload);
-    const workflowPayload = canvasHasWorkflow ? payload.workflow : payload;
-    let versions = canvasHasWorkflow ? payload.versions : undefined;
+    const pageHasWorkflow = isApiWorkflowPageData(payload);
+    const workflowPayload = pageHasWorkflow ? payload.workflow : payload;
+    let versions = pageHasWorkflow ? payload.versions : undefined;
     if (versions === undefined) {
       versions = await fetchWorkflowVersions(workflowId);
     }
@@ -93,7 +93,7 @@ const resolveTargetVersion = (
 ): number => {
   if (versions.length === 0) {
     throw new Error(
-      "Canvas can only save config for workflows with an existing Python version. Ingest a Python script first.",
+      "Studio can only save config for workflows with an existing Python version. Ingest a Python script first.",
     );
   }
   if (versionNumber !== undefined) {

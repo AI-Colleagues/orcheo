@@ -191,7 +191,7 @@ describe("ServiceTokens", () => {
     await waitFor(() => {
       expect(revokeServiceTokenMock).toHaveBeenCalledWith(
         "tok-1",
-        "Revoked via Canvas",
+        "Revoked via Studio",
       );
     });
     await waitFor(() => {

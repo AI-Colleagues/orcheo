@@ -39,9 +39,9 @@ describe("uploadWorkflowFromFiles", () => {
           id: "version-1",
           workflow_id: "uploaded-1",
           version: 1,
-          metadata: { source: "canvas-upload" },
+          metadata: { source: "studio-upload" },
           notes: null,
-          created_by: "canvas-app",
+          created_by: "studio-app",
           created_at: "2026-05-17T12:00:00Z",
           updated_at: "2026-05-17T12:00:00Z",
           graph: { format: "langgraph-script", source: "print('hi')" },
@@ -63,7 +63,7 @@ describe("uploadWorkflowFromFiles", () => {
       (mockFetch.mock.calls[0]?.[1]?.body ?? "{}") as string,
     ) as { name: string; actor: string };
     expect(createPayload.name).toBe("Pipeline");
-    expect(createPayload.actor).toBe("canvas-app");
+    expect(createPayload.actor).toBe("studio-app");
 
     const ingestPayload = JSON.parse(
       (mockFetch.mock.calls[1]?.[1]?.body ?? "{}") as string,
@@ -75,8 +75,8 @@ describe("uploadWorkflowFromFiles", () => {
     };
     expect(ingestPayload.script).toBe("print('hi')");
     expect(ingestPayload.runnable_config).toEqual({ runtime: "python" });
-    expect(ingestPayload.created_by).toBe("canvas-app");
-    expect(ingestPayload.metadata.source).toBe("canvas-upload");
+    expect(ingestPayload.created_by).toBe("studio-app");
+    expect(ingestPayload.metadata.source).toBe("studio-upload");
 
     window.removeEventListener(WORKFLOW_STORAGE_EVENT, listener);
   });
@@ -92,9 +92,9 @@ describe("uploadWorkflowFromFiles", () => {
           id: "version-1",
           workflow_id: "uploaded-2",
           version: 1,
-          metadata: { source: "canvas-upload" },
+          metadata: { source: "studio-upload" },
           notes: null,
-          created_by: "canvas-app",
+          created_by: "studio-app",
           created_at: "2026-05-17T12:00:00Z",
           updated_at: "2026-05-17T12:00:00Z",
           graph: { format: "langgraph-script", source: "print('hi')" },
@@ -121,7 +121,7 @@ describe("uploadWorkflowFromFiles", () => {
           id: "version-1",
           workflow_id: "uploaded-3",
           version: 1,
-          metadata: { source: "canvas-upload" },
+          metadata: { source: "studio-upload" },
           notes: null,
           created_by: "actor-x",
           created_at: "2026-05-17T12:00:00Z",

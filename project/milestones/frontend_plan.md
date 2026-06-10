@@ -1,10 +1,10 @@
 # Frontend Experience Design & Implementation Plan
 
 ## Purpose
-This document captures the actionable plan for evolving the Orcheo canvas from its current developer-centric prototype into a production-ready, user-centered experience. It consolidates design and engineering activities so product, design, and frontend contributors can execute in lockstep while staying aligned with backend capabilities.
+This document captures the actionable plan for evolving the Orcheo Studio from its current developer-centric prototype into a production-ready, user-centered experience. It consolidates design and engineering activities so product, design, and frontend contributors can execute in lockstep while staying aligned with backend capabilities.
 
 ## Current Baseline Assessment
-- **Migrated canvas foundation**: The legacy canvas now connects to the new backend via the React Flow surface with minimap, snapping, and chat affordances, but undo/redo history, duplication/export actions, and search remain unimplemented.
+- **Migrated Studio foundation**: The legacy workflow designer now connects to the new backend via the React Flow surface with minimap, snapping, and chat affordances, but undo/redo history, duplication/export actions, and search remain unimplemented.
 - **Monolithic application shell**: A single React component orchestrates data fetching, state management, and UI for credential templates, issuance, and governance alerts, making the codebase brittle and hard to extend.
 - **Ad-hoc styling**: One global stylesheet applies hard-coded gradients, colors, and breakpoints, offering no reusable tokens or component-level theming for future surfaces.
 - **Minimal UX coverage**: Empty, loading, and error states are limited to simple banners, and there is no formalized navigation or information architecture to guide feature growth.
@@ -54,9 +54,9 @@ This document captures the actionable plan for evolving the Orcheo canvas from i
 ## Status Update (2025-10-07)
 The frontend rebuild scoped in this plan is now live within the `apps/studio` workspace. Key highlights:
 
-- Feature-first routing backed by React Router powers deep links for the gallery, designer canvas, execution log, and account areas, keeping navigation concerns isolated in `App.tsx`.
+- Feature-first routing backed by React Router powers deep links for the gallery, workflow designer, execution log, and account areas, keeping navigation concerns isolated in `App.tsx`.
 - A composable design system (buttons, inputs, overlays, navigation primitives, charts, etc.) under `src/design-system/ui` now drives every screen and centralizes styling tokens.
-- Workflow gallery and canvas experiences were rebuilt to consume shared services, present rich empty/loading states, and surface toast-driven feedback for CRUD operations.
+- Workflow gallery and workflow page experiences were rebuilt to consume shared services, present rich empty/loading states, and surface toast-driven feedback for CRUD operations.
 - QA coverage expanded with Vitest suites that exercise navigation scaffolding and workflow management behaviours, and lint/test automation now runs via shared workspace commands.
 
 ## Execution Checklist

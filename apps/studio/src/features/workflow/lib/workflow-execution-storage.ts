@@ -47,7 +47,7 @@ export const loadWorkflowExecutions = async (
     // were populated from template nodes; new workflows use nodes: [] with mermaid.
     defaultNodes: workflow?.nodes ?? [],
     defaultEdges: workflow?.edges ?? [],
-    defaultMapping: workflow?.versions?.at(-1)?.graphToCanvas ?? {},
+    defaultMapping: workflow?.versions?.at(-1)?.graphToWorkflow ?? {},
     versions: new Map(
       (workflow?.versions ?? []).map((version) => [version.id, version]),
     ),

@@ -18,7 +18,7 @@ def test_chatkit_workflow_trigger_dispatches_run(api_client: TestClient) -> None
         f"/api/chatkit/workflows/{workflow_id}/trigger",
         json={
             "message": "Launch QA pipeline",
-            "actor": "canvas-user",
+            "actor": "studio-user",
             "client_thread_id": "thread-123",
             "metadata": {"priority": "high"},
         },
@@ -27,7 +27,7 @@ def test_chatkit_workflow_trigger_dispatches_run(api_client: TestClient) -> None
     assert response.status_code == status.HTTP_201_CREATED
     payload = response.json()
     assert payload["workflow_version_id"] == workflow_version_id
-    assert payload["triggered_by"] == "canvas-user"
+    assert payload["triggered_by"] == "studio-user"
     assert payload["input_payload"]["source"] == "chatkit"
     assert payload["input_payload"]["message"] == "Launch QA pipeline"
     assert payload["input_payload"]["client_thread_id"] == "thread-123"
@@ -102,7 +102,7 @@ def test_chatkit_workflow_trigger_surfaces_credential_health_error(
         f"/api/chatkit/workflows/{workflow_id}/trigger",
         json={
             "message": "Launch QA pipeline",
-            "actor": "canvas-user",
+            "actor": "studio-user",
             "client_thread_id": "thread-123",
             "metadata": {"priority": "high"},
         },

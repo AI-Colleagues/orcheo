@@ -1,5 +1,5 @@
 /**
- * BrowserContextProvider — wraps the app to relay Canvas page context
+ * BrowserContextProvider — wraps the app to relay workflow page context
  * to the local `orcheo browser-aware` HTTP server.
  */
 

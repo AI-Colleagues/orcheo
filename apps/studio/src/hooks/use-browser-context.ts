@@ -1,10 +1,10 @@
 /**
- * BrowserContextProvider — relays Canvas page context to the local
+ * BrowserContextProvider — relays workflow page context to the local
  * `orcheo browser-aware` HTTP server so coding agents stay in sync.
  *
  * Usage:
  *   const { setPageContext } = useBrowserContext();
- *   setPageContext({ page: "canvas", workflowId: "abc", workflowName: "My Flow" });
+ *   setPageContext({ page: "workflow", workflowId: "abc", workflowName: "My Flow" });
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";

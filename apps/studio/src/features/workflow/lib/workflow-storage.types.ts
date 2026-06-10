@@ -60,12 +60,12 @@ export interface ApiWorkflowVersionSummary {
   updated_at: string;
 }
 
-export interface ApiWorkflowCanvasData {
+export interface ApiWorkflowPageData {
   workflow: ApiWorkflow;
   versions?: ApiWorkflowVersionSummary[];
 }
 
-export type ApiWorkflowCanvasPayload = ApiWorkflow | ApiWorkflowCanvasData;
+export type ApiWorkflowPagePayload = ApiWorkflow | ApiWorkflowPageData;
 
 export interface PublicWorkflowMetadata {
   id: string;
@@ -202,12 +202,12 @@ export interface CronTriggerConfig {
   end_at?: string | null;
 }
 
-export interface CanvasVersionMetadata {
+export interface WorkflowVersionMetadata {
   snapshot?: WorkflowSnapshot;
   summary?: WorkflowDiffResult["summary"];
   message?: string;
-  canvasToGraph?: Record<string, string>;
-  graphToCanvas?: Record<string, string>;
+  workflowToGraph?: Record<string, string>;
+  graphToWorkflow?: Record<string, string>;
   templateId?: string;
   configurableSchemas?: Record<string, RJSFSchema>;
   avatarEmoji?: string;
@@ -231,7 +231,7 @@ export interface WorkflowVersionRecord {
   hasCronTrigger?: boolean;
   runnableConfig?: WorkflowRunnableConfig | null;
   configurableSchemas?: Record<string, RJSFSchema>;
-  graphToCanvas?: Record<string, string>;
+  graphToWorkflow?: Record<string, string>;
   templateId?: string;
 }
 

@@ -28,7 +28,7 @@ page or custom ChatKit embeds.
    (`ORCHEO_AUTH_DEV_LOGIN_ENABLED=true`) is enabled.
 6. **Frontend origin override** – when the public ChatKit UI runs on a different
    host/port than your API (`ORCHEO_API_URL`), set
-   `ORCHEO_CHATKIT_PUBLIC_BASE_URL` (e.g., `https://canvas.example`) or pass
+   `ORCHEO_CHATKIT_PUBLIC_BASE_URL` (e.g., `https://studio.example`) or pass
    `--chatkit-public-base-url` directly to `orcheo workflow publish` so the CLI
    and MCP responses emit the correct `https://.../chat/{workflowId}` links.
 
@@ -52,7 +52,7 @@ you pass `--force`. Add `--require-login` to gate ChatKit behind OAuth:
 ```bash
 orcheo workflow publish wf_123 --require-login
 # Override the share URL origin just for this run:
-orcheo workflow publish wf_123 --force --chatkit-public-base-url https://canvas.example
+orcheo workflow publish wf_123 --force --chatkit-public-base-url https://studio.example
 ```
 
 Behind the scenes the CLI hits `POST /api/workflows/{id}/publish` and prints a
@@ -63,7 +63,7 @@ Workflow visibility updated successfully.
 Status: Public
 Require login: Yes
 Published at: 2024-03-22T12:31:00Z
-Share URL: https://canvas.example/chat/wf_123
+Share URL: https://studio.example/chat/wf_123
 ```
 
 ## Step 3 – Capture and share the URL

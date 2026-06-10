@@ -10,7 +10,7 @@ from orcheo_backend.app.chatkit_tokens import reset_chatkit_token_state
 def _create_workflow(client: TestClient) -> str:
     response = client.post(
         "/api/workflows",
-        json={"name": "Canvas Workflow", "actor": "tester"},
+        json={"name": "Studio Workflow", "actor": "tester"},
     )
     assert response.status_code == 201
     return response.json()["id"]

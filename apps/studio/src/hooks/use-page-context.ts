@@ -7,7 +7,7 @@ import { createContext, useContext } from "react";
 export interface PageContext {
   page:
     | "gallery"
-    | "canvas"
+    | "workflow"
     | "execution"
     | "settings"
     | "profile"

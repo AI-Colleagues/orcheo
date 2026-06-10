@@ -1,10 +1,10 @@
-"""Browser context bridge for exposing Canvas context to coding agents.
+"""Browser context bridge for exposing Studio context to coding agents.
 
 Agents interact with workflows via existing CLI commands — no additional tool
 definitions are needed:
 
-- ``orcheo context`` — active Canvas page and workflow.
-- ``orcheo context sessions`` — all active Canvas sessions.
+- ``orcheo context`` — active Studio page and workflow.
+- ``orcheo context sessions`` — all active Studio sessions.
 - ``orcheo workflow show <id>`` — fetch workflow details and script.
 - ``orcheo workflow download <id>`` — download workflow script to a file.
 - ``orcheo workflow upload --id <id> <file>`` — upload an updated script.

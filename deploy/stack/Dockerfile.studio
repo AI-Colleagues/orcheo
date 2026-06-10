@@ -1,4 +1,4 @@
-# Stage 1: Build the canvas app with placeholder values
+# Stage 1: Build the Studio app with placeholder values
 FROM node:20-alpine AS build
 
 WORKDIR /app

@@ -9,7 +9,7 @@ import {
 import { Toaster } from "@/design-system/ui/toaster";
 import { BrowserContextProvider } from "@/hooks/browser-context-provider";
 import WorkflowGallery from "@features/workflow/pages/workflow-gallery";
-import WorkflowCanvas from "@features/workflow/pages/workflow-canvas";
+import WorkflowPage from "@features/workflow/pages/workflow";
 import Login from "@features/auth/pages/login";
 import RequireAuth from "@features/auth/components/require-auth";
 import OAuthCallback from "@features/auth/pages/oauth-callback";
@@ -56,7 +56,7 @@ function WorkspaceManagementRoute() {
   return <WorkspaceManagement />;
 }
 
-function WorkspaceCanvasRoute() {
+function WorkspaceWorkflowRoute() {
   const { workspaceSlug, workflowId } = useParams<{
     workspaceSlug?: string;
     workflowId?: string;
@@ -66,13 +66,13 @@ function WorkspaceCanvasRoute() {
   }, [workspaceSlug]);
 
   return (
-    <WorkflowCanvas
+    <WorkflowPage
       workflowId={workflowId === "new" ? undefined : workflowId}
     />
   );
 }
 
-export default function OrcheoCanvasApp() {
+export default function OrcheoStudioApp() {
   return (
     <Router>
       <BrowserContextProvider>
@@ -96,11 +96,11 @@ export default function OrcheoCanvasApp() {
 
                 <Route
                   path="/:workspaceSlug/new"
-                  element={<WorkspaceCanvasRoute />}
+                  element={<WorkspaceWorkflowRoute />}
                 />
                 <Route
                   path="/:workspaceSlug/:workflowId"
-                  element={<WorkspaceCanvasRoute />}
+                  element={<WorkspaceWorkflowRoute />}
                 />
 
                 <Route path="/profile" element={<Profile />} />

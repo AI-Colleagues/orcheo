@@ -460,8 +460,8 @@ async def test_update_workflow_version_runnable_config_success() -> None:
             )
 
     request = WorkflowVersionRunnableConfigUpdateRequest(
-        runnable_config={"tags": ["canvas"], "run_name": "canvas-save"},
-        actor="canvas-user",
+        runnable_config={"tags": ["studio"], "run_name": "studio-save"},
+        actor="studio-user",
     )
 
     result = await update_workflow_version_runnable_config(
@@ -473,9 +473,9 @@ async def test_update_workflow_version_runnable_config_success() -> None:
     )
 
     assert result.id == version_id
-    assert captured_actor == "canvas-user"
+    assert captured_actor == "studio-user"
     assert captured_version == 3
-    assert captured_config == {"tags": ["canvas"], "run_name": "canvas-save"}
+    assert captured_config == {"tags": ["studio"], "run_name": "studio-save"}
 
 
 @pytest.mark.asyncio()

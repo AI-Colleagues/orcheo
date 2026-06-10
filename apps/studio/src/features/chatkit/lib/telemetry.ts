@@ -1,8 +1,8 @@
 type ChatTelemetryEvent =
-  | "canvas.chat.open"
-  | "canvas.chat.close"
-  | "canvas.chat.session.success"
-  | "canvas.chat.session.failure";
+  | "studio.chat.open"
+  | "studio.chat.close"
+  | "studio.chat.session.success"
+  | "studio.chat.session.failure";
 
 const buildDetail = (detail?: Record<string, unknown>) => ({
   timestamp: new Date().toISOString(),

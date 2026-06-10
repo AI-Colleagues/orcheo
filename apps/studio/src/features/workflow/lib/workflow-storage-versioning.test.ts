@@ -17,15 +17,15 @@ describe("workflow-storage-versioning", () => {
     invalidateWorkflowCache();
   });
 
-  it("deduplicates concurrent workflow canvas loads", async () => {
+  it("deduplicates concurrent workflow page loads", async () => {
     const mockFetch = getFetchMock();
     queueResponses([
       jsonResponse({
         workflow: {
           id: "wf-1",
           handle: "wf-1",
-          name: "Canvas Flow",
-          slug: "canvas-flow",
+          name: "Studio Flow",
+          slug: "studio-flow",
           description: "Test",
           tags: ["draft"],
           is_archived: false,
@@ -45,9 +45,9 @@ describe("workflow-storage-versioning", () => {
             mermaid: "graph TD; A-->B",
             metadata: {
               avatar: "avatar-05",
-              canvas: {
+              workflow: {
                 snapshot: {
-                  name: "Canvas Flow",
+                  name: "Studio Flow",
                   description: "Test",
                   nodes: [],
                   edges: [],
@@ -57,7 +57,7 @@ describe("workflow-storage-versioning", () => {
             },
             runnable_config: null,
             notes: null,
-            created_by: "canvas",
+            created_by: "studio",
             created_at: "2026-03-10T10:00:00Z",
             updated_at: "2026-03-10T10:00:00Z",
           },
@@ -75,18 +75,18 @@ describe("workflow-storage-versioning", () => {
     expect(first?.avatarEmoji).toBe("avatar-05");
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(String(mockFetch.mock.calls[0]?.[0])).toContain(
-      "/api/workflows/wf-1/canvas",
+      "/api/workflows/wf-1/workflow",
     );
   });
 
-  it("preserves cron-trigger capability from compact canvas version summaries", async () => {
+  it("preserves cron-trigger capability from compact workflow page version summaries", async () => {
     queueResponses([
       jsonResponse({
         workflow: {
           id: "wf-1",
           handle: "wf-1",
-          name: "Canvas Flow",
-          slug: "canvas-flow",
+          name: "Studio Flow",
+          slug: "studio-flow",
           description: "Test",
           tags: ["draft"],
           is_archived: false,
@@ -155,7 +155,7 @@ describe("workflow-storage-versioning", () => {
                   default: "openai:gpt-4.1-mini",
                 },
               },
-              canvas: {
+              workflow: {
                 snapshot: {
                   name: "Simple Agent",
                   description: "Test",

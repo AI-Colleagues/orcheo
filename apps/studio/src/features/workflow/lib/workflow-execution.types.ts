@@ -75,6 +75,6 @@ export interface WorkflowExecution {
     message: string;
   }[];
   metadata?: {
-    graphToCanvas?: Record<string, string>;
+    graphToWorkflow?: Record<string, string>;
   };
 }

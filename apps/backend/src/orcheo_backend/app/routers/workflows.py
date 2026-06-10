@@ -51,10 +51,10 @@ from orcheo_backend.app.repository import (
 from orcheo_backend.app.schemas.chatkit import ChatKitSessionResponse
 from orcheo_backend.app.schemas.workflows import (
     PublicWorkflow,
-    WorkflowCanvasPayload,
-    WorkflowCanvasVersionSummary,
     WorkflowCreateRequest,
     WorkflowListItem,
+    WorkflowPagePayload,
+    WorkflowPageVersionSummary,
     WorkflowPublishRequest,
     WorkflowPublishResponse,
     WorkflowPublishRevokeRequest,
@@ -288,11 +288,11 @@ def _graph_has_cron_trigger(graph: Any) -> bool:
     return _has_cron_trigger_node(summary.get("nodes"))
 
 
-def _to_canvas_version_summary(
+def _to_workflow_page_version_summary(
     version: WorkflowVersion,
-) -> WorkflowCanvasVersionSummary:
-    """Serialize a compact version record for Canvas open."""
-    return WorkflowCanvasVersionSummary(
+) -> WorkflowPageVersionSummary:
+    """Serialize a compact version record for opening the workflow page."""
+    return WorkflowPageVersionSummary(
         id=version.id,
         workflow_id=version.workflow_id,
         version=version.version,
@@ -526,13 +526,13 @@ async def get_workflow(
     return _apply_share_url(workflow, _resolve_studio_url())
 
 
-@router.get("/workflows/{workflow_ref}/canvas", response_model=WorkflowCanvasPayload)
-async def get_workflow_canvas(
+@router.get("/workflows/{workflow_ref}/workflow", response_model=WorkflowPagePayload)
+async def get_workflow_page(
     workflow_ref: str,
     repository: RepositoryDep,
     workspace: WorkspaceContextDep,
-) -> WorkflowCanvasPayload:
-    """Fetch workflow metadata and compact version summaries for Canvas open."""
+) -> WorkflowPagePayload:
+    """Fetch workflow metadata and compact version summaries for the workflow page."""
     tid = str(workspace.workspace_id)
     workflow = await _load_workflow_for_request(
         repository,
@@ -540,9 +540,9 @@ async def get_workflow_canvas(
         workspace_id=tid,
     )
     versions = await repository.list_versions(workflow.id)
-    return WorkflowCanvasPayload(
+    return WorkflowPagePayload(
         workflow=_apply_share_url(workflow, _resolve_studio_url()),
-        versions=[_to_canvas_version_summary(version) for version in versions],
+        versions=[_to_workflow_page_version_summary(version) for version in versions],
     )
 
 
@@ -675,7 +675,7 @@ async def ingest_workflow_version(
         ) from exc
 
     # Pre-compute mermaid using the full Python environment and store it in the
-    # graph index so the canvas can read it without re-executing the script.
+    # graph index so the workflow page can read it without re-executing the script.
     mermaid = render_mermaid_from_graph_payload_full_env(graph_payload)
     if mermaid and isinstance(graph_payload.get("index"), dict):
         graph_payload["index"]["mermaid"] = mermaid
@@ -1124,7 +1124,7 @@ async def create_workflow_chatkit_session(
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
     issuer: ChatKitSessionTokenIssuer = Depends(resolve_chatkit_token_issuer),  # noqa: B008
 ) -> ChatKitSessionResponse:
-    """Issue a ChatKit JWT scoped to the workflow for authenticated Canvas users."""
+    """Issue a ChatKit JWT scoped to the workflow for authenticated Studio users."""
     tid = str(workspace.workspace_id)
     auth_enforced = load_auth_settings().enforce
     context = policy.context
@@ -1146,7 +1146,7 @@ async def create_workflow_chatkit_session(
     metadata = {
         "workflow_id": str(workflow.id),
         "workflow_name": workflow.name,
-        "source": "canvas",
+        "source": "studio",
     }
     normalized_workspace_ids = frozenset(
         _normalize_workspace_id(workspace_id)
@@ -1165,7 +1165,7 @@ async def create_workflow_chatkit_session(
         metadata=metadata,
         user=None,
         assistant=None,
-        extra={"interface": "canvas_modal"},
+        extra={"interface": "studio_chat_bubble"},
     )
 
     logger.info(

@@ -412,7 +412,7 @@ def install_command(
     ] = None,
     studio_url: Annotated[
         str | None,
-        typer.Option("--studio-url", help="Public Studio (Canvas) URL."),
+        typer.Option("--studio-url", help="Public Studio URL."),
     ] = None,
     auth_mode: Annotated[
         str | None,
@@ -427,7 +427,7 @@ def install_command(
         typer.Option(
             "--chatkit-domain-key",
             help=(
-                "Set VITE_ORCHEO_CHATKIT_DOMAIN_KEY for Canvas ChatKit. "
+                "Set VITE_ORCHEO_CHATKIT_DOMAIN_KEY for Studio ChatKit. "
                 "Leave unset to skip for now."
             ),
         ),
@@ -454,7 +454,7 @@ def install_command(
         typer.Option(
             "--publish-local-ports/--hide-local-ports",
             help=(
-                "Keep localhost backend/canvas access ports published alongside the "
+                "Keep localhost backend/studio access ports published alongside the "
                 "selected install mode."
             ),
         ),
@@ -528,7 +528,7 @@ def install_upgrade_command(
     ] = None,
     studio_url: Annotated[
         str | None,
-        typer.Option("--studio-url", help="Public Studio (Canvas) URL."),
+        typer.Option("--studio-url", help="Public Studio URL."),
     ] = None,
     auth_mode: Annotated[
         str | None,
@@ -543,7 +543,7 @@ def install_upgrade_command(
         typer.Option(
             "--chatkit-domain-key",
             help=(
-                "Set VITE_ORCHEO_CHATKIT_DOMAIN_KEY for Canvas ChatKit. "
+                "Set VITE_ORCHEO_CHATKIT_DOMAIN_KEY for Studio ChatKit. "
                 "Leave unset to skip for now."
             ),
         ),
@@ -570,7 +570,7 @@ def install_upgrade_command(
         typer.Option(
             "--publish-local-ports/--hide-local-ports",
             help=(
-                "Keep localhost backend/canvas access ports published alongside the "
+                "Keep localhost backend/studio access ports published alongside the "
                 "selected install mode."
             ),
         ),

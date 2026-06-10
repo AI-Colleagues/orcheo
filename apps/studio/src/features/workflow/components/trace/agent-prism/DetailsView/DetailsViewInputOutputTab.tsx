@@ -1,6 +1,6 @@
 import type { TraceSpan } from "@evilmartians/agent-prism-types";
 import type { ReactElement } from "react";
-import type { TraceSpanMetadata } from "@features/workflow/pages/workflow-canvas/helpers/trace";
+import type { TraceSpanMetadata } from "@features/workflow/pages/workflow/helpers/trace";
 
 import { useEffect, useMemo, useState } from "react";
 

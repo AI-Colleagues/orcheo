@@ -269,7 +269,7 @@ def test_attachment_service_blob_backend_properties() -> None:
 async def test_scoped_uploader_uses_documented_api_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Download URLs should point at the backend API origin, not the Canvas host."""
+    """Download URLs should point at the backend API origin, not the Studio host."""
     monkeypatch.setenv("ORCHEO_API_URL", "https://api.example.com")
     monkeypatch.delenv("ORCHEO_API_BASE_URL", raising=False)
 

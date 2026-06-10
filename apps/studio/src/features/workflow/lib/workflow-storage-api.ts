@@ -2,7 +2,7 @@ import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl, getBackendBaseUrl } from "@/lib/config";
 import type {
   ApiWorkflow,
-  ApiWorkflowCanvasPayload,
+  ApiWorkflowPagePayload,
   ApiWorkflowRun,
   ApiWorkflowVersion,
   CronTriggerConfig,
@@ -85,12 +85,12 @@ export const fetchWorkflow = async (
   }
 };
 
-export const fetchWorkflowCanvasData = async (
+export const fetchWorkflowPageData = async (
   workflowId: string,
-): Promise<ApiWorkflowCanvasPayload | undefined> => {
+): Promise<ApiWorkflowPagePayload | undefined> => {
   try {
-    return await request<ApiWorkflowCanvasPayload>(
-      `${API_BASE}/${workflowId}/canvas`,
+    return await request<ApiWorkflowPagePayload>(
+      `${API_BASE}/${workflowId}/workflow`,
     );
   } catch (error) {
     if (
@@ -223,7 +223,7 @@ const updateWorkflowListenerStatus = async (
   workflowId: string,
   subscriptionId: string,
   action: "pause" | "resume",
-  actor = "canvas-app",
+  actor = "studio-app",
 ): Promise<WorkflowListenerHealth> => {
   return request<WorkflowListenerHealth>(
     `${API_BASE}/${workflowId}/listeners/${subscriptionId}/${action}`,
@@ -260,7 +260,7 @@ export const triggerWorkflowRun = async (
   const latestVersion = selectLatestWorkflowVersion(versions);
   if (!latestVersion) {
     throw new Error(
-      "Canvas can only run workflows with an existing Python version. Ingest a Python script first.",
+      "Studio can only run workflows with an existing Python version. Ingest a Python script first.",
     );
   }
 
@@ -268,7 +268,7 @@ export const triggerWorkflowRun = async (
     method: "POST",
     body: JSON.stringify({
       workflow_version_id: latestVersion.id,
-      triggered_by: options.triggeredBy ?? "canvas",
+      triggered_by: options.triggeredBy ?? "studio",
       input_payload: options.inputs ?? {},
       ...(options.runnableConfig
         ? { runnable_config: options.runnableConfig }
@@ -448,7 +448,7 @@ export const publishWorkflow = async (
       method: "POST",
       body: JSON.stringify({
         require_login: options.requireLogin ?? false,
-        actor: options.actor ?? "canvas",
+        actor: options.actor ?? "studio",
       }),
     },
   );
@@ -465,7 +465,7 @@ export const publishWorkflow = async (
 
 export const unpublishWorkflow = async (
   workflowId: string,
-  actor = "canvas",
+  actor = "studio",
 ): Promise<{ workflow: ApiWorkflow; shareUrl: string | null }> => {
   const workflow = await request<ApiWorkflow>(
     `${API_BASE}/${workflowId}/publish/revoke`,

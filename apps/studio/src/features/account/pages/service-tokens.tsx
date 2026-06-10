@@ -219,7 +219,7 @@ export default function ServiceTokens() {
     setRevokeTarget(null);
     setRevokingId(tokenId);
     try {
-      await revokeServiceToken(tokenId, "Revoked via Canvas");
+      await revokeServiceToken(tokenId, "Revoked via Studio");
       setTokens((prev) => prev.filter((token) => token.identifier !== tokenId));
       toast({ title: "API key revoked" });
     } catch (err) {

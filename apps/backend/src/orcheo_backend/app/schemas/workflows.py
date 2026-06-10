@@ -167,8 +167,8 @@ class WorkflowListItem(Workflow):
     is_scheduled: bool = False
 
 
-class WorkflowCanvasVersionSummary(BaseModel):
-    """Compact workflow-version payload used when opening Canvas."""
+class WorkflowPageVersionSummary(BaseModel):
+    """Compact workflow-version payload used when opening the workflow page."""
 
     id: UUID
     workflow_id: UUID
@@ -183,8 +183,8 @@ class WorkflowCanvasVersionSummary(BaseModel):
     updated_at: datetime
 
 
-class WorkflowCanvasPayload(BaseModel):
-    """Workflow payload optimized for opening Canvas."""
+class WorkflowPagePayload(BaseModel):
+    """Workflow payload optimized for opening the workflow page."""
 
     workflow: Workflow
-    versions: list[WorkflowCanvasVersionSummary] = Field(default_factory=list)
+    versions: list[WorkflowPageVersionSummary] = Field(default_factory=list)

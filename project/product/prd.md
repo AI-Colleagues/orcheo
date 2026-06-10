@@ -27,7 +27,7 @@ Deliver a unified workflow automation platform that bridges low-code visual tool
 - **Developer-platform engineers** who rely on the Python SDK (full-stack, backend, SaaS founders) to extend workflows with custom nodes, secure integrations, and version-controlled deployments.
 - **Operations and integration specialists** responsible for cross-system automations that demand reliable triggers, credential governance, and actionable monitoring.
 - **Data and AI practitioners** such as data scientists and ML engineers who need to orchestrate multi-model pipelines with reproducibility and deep observability.
-- **Business and go-to-market owners** including business analysts and marketing managers who need a canvas-driven, low-code experience to launch automations without writing code.
+- **Business and go-to-market owners** including business analysts and marketing managers who need a Studio-driven, low-code experience to launch automations without writing code.
 
 ### User Stories
 | As a... | I want to... | So that... | Priority | Acceptance Criteria |
@@ -39,7 +39,7 @@ Deliver a unified workflow automation platform that bridges low-code visual tool
 | Data scientist (Lisa) | Chain AI models and analyses via a code-first approach | I can experiment with ML workflows while keeping full control | P0 | SDK supports orchestrating multiple AI nodes with dataset inputs, reproducible runs, and artifact tracking |
 | Integration specialist (Chris) | Configure webhook and cron triggers with monitoring and alerts | I can keep cross-system automations reliable | P0 | Trigger setup supports retries, failure notifications, and visibility into recent executions |
 | SaaS founder (Tom) | Combine Studio-managed workflows with custom Python components | I can prototype quickly while retaining technical flexibility | P1 | A workflow can mix Studio-configured steps with SDK-authored nodes and deploy as a single versioned flow |
-| Business analyst (Maya) | Build multi-step data workflows on the visual canvas | I can launch data pipelines without writing code | P1 | A data workflow with transforms and conditionals can be created, validated, and executed entirely from the canvas |
+| Business analyst (Maya) | Build multi-step data workflows on the workflow view | I can launch data pipelines without writing code | P1 | A data workflow with transforms and conditionals can be created, validated, and executed entirely from the workflow page |
 | Marketing manager (Sam) | Assemble campaign automations through a low-code interface | I can streamline marketing processes without waiting on engineering | P1 | Templates plus drag-and-drop nodes let me schedule and publish an automation without touching the SDK |
 | ML engineer (Amy) | Trace multi-step AI agent workflows with detailed logs | I can debug and optimize AI-powered automations | P1 | Execution viewer provides per-step prompts, responses, token metrics, and the ability to replay a run |
 
@@ -94,7 +94,7 @@ Current automation platforms force teams to choose between ease of use and advan
 - **Code-first path:** Developers assemble LangGraph graphs with Orcheo nodes, execute locally, and submit the same Python scripts to the server for persistence, credential reuse, and monitoring without rewriting the graph definition.
 
 ### Designs (if applicable)
-Figma mocks and copy docs are in progress; link will be attached after initial canvas prototype.
+Figma mocks and copy docs are in progress; link will be attached after initial Studio prototype.
 
 ### [Optional] Other Teams Impacted
 Not applicable.
@@ -123,7 +123,7 @@ Targets SMB to mid-market teams and internal developer platforms seeking hybrid 
 
 ## LAUNCH PLAN
 ### Experiment Plan
-Pilot with a closed beta of existing community members to validate usability of both canvas and SDK flows, followed by staged A/B testing of AI-assisted node recommendations versus manual configuration.
+Pilot with a closed beta of existing community members to validate usability of both Studio and SDK flows, followed by staged A/B testing of AI-assisted node recommendations versus manual configuration.
 
 ### Success metrics
 | KPIs | Target & Rationale |
@@ -146,7 +146,7 @@ Primary hypothesis: Providing a dual-mode automation experience (visual + SDK) b
 Secondary hypothesis: Secure credential management and real-time observability will reduce operational friction enough to drive >20% uplift in retained workflows quarter over quarter. Confidence is medium pending beta validation.
 
 **Operational risks & mitigations**
-- React Flow performance under large graphs → mitigate with early load testing and canvas optimization.
+- React Flow performance under large graphs → mitigate with early load testing and workflow view optimization.
 - LangGraph integration complexity → mitigate through proof-of-concept spikes and incremental rollout.
 - Node development bottlenecks → mitigate via contribution framework and prioritized integration roadmap.
 - Security vulnerabilities → mitigate with vault penetration tests and secure coding reviews.

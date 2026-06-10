@@ -41,9 +41,9 @@ Users bring their own coding agents and subscriptions. Orcheo provides context a
 
 ### Flow 1: Context relay — tab navigation
 
-1. User navigates to `/workflow-canvas/abc` in Studio.
+1. User navigates to `/workflow/abc` in Studio.
 2. `BrowserContextProvider` detects route change via React Router `useLocation`.
-3. Provider calls `POST http://localhost:3333/context` with `{ session_id, page: 'canvas', workflow_id: 'abc', workflow_name: 'My Flow', focused: true }`.
+3. Provider calls `POST http://localhost:3333/context` with `{ session_id, page: 'workflow', workflow_id: 'abc', workflow_name: 'My Flow', focused: true }`.
 4. HTTP server upserts the session entry in its local in-memory store; TTL reset to 300 seconds. If `focused` is true, `last_focused_at` is updated.
 5. Tab starts heartbeat (every 5 seconds) while `document.visibilityState === 'visible'`. Heartbeats carry the same fields — a simple TTL refresh.
 6. If `orcheo browser-aware` is not running, the POST silently fails — context relay is only active when the HTTP server is running.
@@ -53,7 +53,7 @@ Users bring their own coding agents and subscriptions. Orcheo provides context a
 1. Developer runs `orcheo browser-aware` locally.
 2. Claude Code runs `orcheo context` CLI command.
 3. CLI command hits `GET http://localhost:3333/context` on the local HTTP server.
-4. Returns the active session's context: `{ page: 'canvas', workflow_id: 'abc', workflow_name: 'My Flow', staleness_seconds: 3 }`.
+4. Returns the active session's context: `{ page: 'workflow', workflow_id: 'abc', workflow_name: 'My Flow', staleness_seconds: 3 }`.
 5. Claude Code sees the current workflow context and runs `orcheo workflow show abc` to fetch the script and version when needed.
 
 ### Flow 3: Agent updates a workflow script
@@ -92,7 +92,7 @@ These endpoints are served by the `orcheo browser-aware` HTTP server (default `l
 POST /context
 Body:
   session_id:       string   -- stable per-tab identifier (sessionStorage)
-  page:             string   -- "gallery" | "canvas" | "other"
+  page:             string   -- "gallery" | "workflow" | "other"
   workflow_id:      string | null
   workflow_name:    string | null
   focused:          bool          -- document.hasFocus() at time of post
@@ -161,8 +161,8 @@ All workflow commands call the existing Orcheo REST API. Context commands hit th
 | Field | Type | Description |
 |-------|------|-------------|
 | `session_id` | string | Stable per-tab ID from `sessionStorage` |
-| `page` | string | `"gallery"` \| `"canvas"` \| `"other"` |
-| `workflow_id` | string \| null | Current workflow ID (canvas page only) |
+| `page` | string | `"gallery"` \| `"workflow"` \| `"other"` |
+| `workflow_id` | string \| null | Current workflow ID (workflow page only) |
 | `workflow_name` | string \| null | Human-readable workflow name |
 | `focused` | bool | Whether tab had focus at last update |
 | `last_seen` | datetime | UTC timestamp of last POST |
@@ -175,7 +175,7 @@ TTL: entries are evicted 300 seconds after `last_seen`. The store is local to th
 ```typescript
 interface BrowserContextPayload {
   session_id: string;
-  page: 'gallery' | 'canvas' | 'other';
+  page: 'gallery' | 'workflow' | 'other';
   workflow_id: string | null;
   workflow_name: string | null;
   focused: boolean;

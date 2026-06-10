@@ -138,7 +138,7 @@ describe("workflow-storage API integration - save workflow", () => {
     const createPayload = JSON.parse(
       (mockFetch.mock.calls[0]?.[1]?.body ?? "{}") as string,
     ) as { actor?: string };
-    expect(createPayload.actor).toBe("canvas-app");
+    expect(createPayload.actor).toBe("studio-app");
     window.localStorage.removeItem("orcheo_studio_auth_tokens");
   });
 });

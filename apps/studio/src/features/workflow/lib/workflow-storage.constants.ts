@@ -5,13 +5,13 @@ import {
 import type { WorkflowDiffResult } from "./workflow-diff";
 
 export const DEFAULT_OWNER: Workflow["owner"] = SAMPLE_WORKFLOWS[0]?.owner ?? {
-  id: "canvas-owner",
-  name: "Canvas Author",
+  id: "studio-owner",
+  name: "Studio Author",
   avatar: "https://avatar.vercel.sh/orcheo",
 };
 
 export const HISTORY_LIMIT = 20;
-export const DEFAULT_ACTOR = "canvas-app";
+export const DEFAULT_ACTOR = "studio-app";
 export const DEFAULT_SUMMARY: WorkflowDiffResult["summary"] = {
   added: 0,
   removed: 0,

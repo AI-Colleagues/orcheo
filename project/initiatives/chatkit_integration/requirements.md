@@ -43,7 +43,7 @@ Publishing, unpublishing, and rotating workflows are initiated through the Orche
   - CLI commands (`orcheo workflow publish|unpublish`) and MCP tools (`workflows.publish|unpublish`) must share the same command registry, prompts, flag defaults, and exit codes/error payloads.
   - `orcheo workflow list/show` output and MCP `list_workflows`/`show_workflow` responses must include identical publish metadata (`is_public`, `require_login`, share URL preview) so scripts and AI assistants stay in sync.
 - **Public Chat Page**
-  - Route: `${canvas_base_url}/chat/${workflow_id}` with open access for any published workflow; OAuth login remains optional based on the publisher’s preference.
+  - Route: `${studio_base_url}/chat/${workflow_id}` with open access for any published workflow; OAuth login remains optional based on the publisher’s preference.
   - Frontend loads the shared ChatKit UI bundle (same as Studio) and exchanges messages with `${backend_url}/api/chatkit` sending `{workflow_id}` with every request.
   - If `require_login=true`, visitors must complete OAuth (e.g., Google) before widget initialization; presence of a valid session cookie becomes mandatory.
   - Backend validates workflow exists, is marked public, and enforces rate limiting (CAPTCHA or other interactive challenges are deferred follow-ups).

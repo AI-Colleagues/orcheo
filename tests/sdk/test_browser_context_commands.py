@@ -60,7 +60,7 @@ def test_context_with_session(
         f"http://localhost:{port}/context",
         json={
             "session_id": "tab-1",
-            "page": "canvas",
+            "page": "workflow",
             "workflow_id": "wf-abc",
             "workflow_name": "My Flow",
             "focused": True,
@@ -82,7 +82,7 @@ def test_context_sessions_command(
             f"http://localhost:{port}/context",
             json={
                 "session_id": f"tab-{i}",
-                "page": "canvas",
+                "page": "workflow",
                 "workflow_id": f"wf-{i}",
                 "workflow_name": f"Flow {i}",
                 "focused": i == 0,
@@ -106,7 +106,7 @@ def test_context_machine_output(
         f"http://localhost:{port}/context",
         json={
             "session_id": "tab-1",
-            "page": "canvas",
+            "page": "workflow",
             "workflow_id": "wf-abc",
             "workflow_name": "My Flow",
             "focused": True,
@@ -206,7 +206,7 @@ def test_context_sessions_machine_output(
         f"http://localhost:{port}/context",
         json={
             "session_id": "tab-machine",
-            "page": "canvas",
+            "page": "workflow",
             "workflow_id": "wf-1",
             "workflow_name": "Machine Flow",
             "focused": True,

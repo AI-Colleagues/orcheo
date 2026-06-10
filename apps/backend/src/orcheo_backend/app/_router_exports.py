@@ -84,7 +84,7 @@ resume_workflow_listener = _listeners_routes.resume_workflow_listener
 list_workflows = _workflows_routes.list_workflows
 create_workflow = _workflows_routes.create_workflow
 get_workflow = _workflows_routes.get_workflow
-get_workflow_canvas = _workflows_routes.get_workflow_canvas
+get_workflow_page = _workflows_routes.get_workflow_page
 update_workflow = _workflows_routes.update_workflow
 archive_workflow = _workflows_routes.archive_workflow
 publish_workflow = _workflows_routes.publish_workflow
@@ -149,7 +149,7 @@ __all__ = [
     "get_execution_history",
     "get_webhook_trigger_config",
     "get_workflow",
-    "get_workflow_canvas",
+    "get_workflow_page",
     "get_workflow_credential_readiness",
     "get_workflow_credential_health",
     "get_workflow_listener_metrics",

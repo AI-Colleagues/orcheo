@@ -45,7 +45,7 @@ _Studio-side publish surfaces remain future work; this milestone delivers the CL
 
 ## Milestone 2 – Public chat page ([reference template](https://github.com/openai/openai-chatkit-advanced-samples/tree/main/frontend))
 - [x] **Route + bootstrapping**
-  - [x] Add `${canvas_base_url}/chat/:workflowId` page; sessions should open automatically once metadata loads (no publish tokens required).
+  - [x] Add `${studio_base_url}/chat/:workflowId` page; sessions should open automatically once metadata loads (no publish tokens required).
   - [x] Fetch workflow metadata to display the workflow name only (no description).
   - [x] Initialize shared ChatKit widget with public auth mode and optionally prompt for OAuth login before mounting when `require_login=true`.
 - [x] **Hardening & UX**
@@ -73,5 +73,5 @@ _Studio-side publish surfaces remain future work; this milestone delivers the CL
   - [x] Update product docs/tutorials explaining how to publish, share links, and use Studio bubble.
     - [x] Add Studio chat bubble integration guide (`../../../docs/chatkit_integration/studio_chat_bubble_guide.md`).
     - [x] Add workflow publishing guide for ChatKit UI (`../../../docs/chatkit_integration/workflow_publish_guide.md`).
-  - [x] Ship feature flags (`chatkit_canvas_enabled`, `chatkit_publish_enabled`) and rollout plan.
+  - [x] Ship feature flags (`chatkit_studio_enabled`, `chatkit_publish_enabled`) and rollout plan.
   - [x] Monitor logs/metrics post-deploy and prepare rollback steps.

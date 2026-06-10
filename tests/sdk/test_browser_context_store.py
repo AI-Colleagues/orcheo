@@ -24,7 +24,7 @@ def test_upsert_and_get_active() -> None:
     now = _now()
     store.upsert(
         session_id="s1",
-        page="canvas",
+        page="workflow",
         workflow_id="wf-1",
         workflow_name="My Flow",
         focused=True,
@@ -32,7 +32,7 @@ def test_upsert_and_get_active() -> None:
     )
     result = store.get_active()
     assert result["session_id"] == "s1"
-    assert result["page"] == "canvas"
+    assert result["page"] == "workflow"
     assert result["workflow_id"] == "wf-1"
     assert result["workflow_name"] == "My Flow"
     assert result["focused"] is True
@@ -56,7 +56,7 @@ def test_focus_priority_resolution() -> None:
     )
     store.upsert(
         session_id="s2",
-        page="canvas",
+        page="workflow",
         workflow_id="wf-2",
         workflow_name="Flow 2",
         focused=True,
@@ -96,7 +96,7 @@ def test_fallback_to_most_recently_seen() -> None:
     )
     store.upsert(
         session_id="s2",
-        page="canvas",
+        page="workflow",
         workflow_id="wf-2",
         workflow_name="Flow 2",
         focused=False,
@@ -138,7 +138,7 @@ def test_ttl_eviction_preserves_fresh() -> None:
     )
     store.upsert(
         session_id="fresh",
-        page="canvas",
+        page="workflow",
         workflow_id="wf-1",
         workflow_name="Fresh",
         focused=True,
@@ -165,7 +165,7 @@ def test_get_all_sessions() -> None:
     )
     store.upsert(
         session_id="s2",
-        page="canvas",
+        page="workflow",
         workflow_id="wf-2",
         workflow_name="Flow 2",
         focused=True,
@@ -196,7 +196,7 @@ def test_upsert_updates_existing() -> None:
     )
     store.upsert(
         session_id="s1",
-        page="canvas",
+        page="workflow",
         workflow_id="wf-1",
         workflow_name="My Flow",
         focused=True,
@@ -205,7 +205,7 @@ def test_upsert_updates_existing() -> None:
 
     result = store.get_active()
     assert result["session_id"] == "s1"
-    assert result["page"] == "canvas"
+    assert result["page"] == "workflow"
     assert result["workflow_id"] == "wf-1"
     assert result["total_sessions"] == 1
 
@@ -219,7 +219,7 @@ def test_focus_preserved_across_unfocused_update() -> None:
 
     store.upsert(
         session_id="s1",
-        page="canvas",
+        page="workflow",
         workflow_id="wf-1",
         workflow_name="Flow",
         focused=True,
@@ -227,7 +227,7 @@ def test_focus_preserved_across_unfocused_update() -> None:
     )
     store.upsert(
         session_id="s1",
-        page="canvas",
+        page="workflow",
         workflow_id="wf-1",
         workflow_name="Flow",
         focused=False,
@@ -248,7 +248,7 @@ def test_periodic_cleanup_evicts_expired_entries() -> None:
     old_time = _now() - timedelta(seconds=10)
     store.upsert(
         session_id="old",
-        page="canvas",
+        page="workflow",
         workflow_id=None,
         workflow_name=None,
         focused=False,

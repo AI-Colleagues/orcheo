@@ -139,7 +139,7 @@ Response 200:
     "package": "orcheo-sdk",
     "latest_version": "0.5.0"
   },
-  "canvas": {
+  "Studio": {
     "package": "orcheo-studio",
     "latest_version": "0.4.2"
   },
@@ -177,7 +177,7 @@ Behavior:
   "latest": {
     "cli": "0.5.0",
     "backend": "0.5.0",
-    "canvas": "0.4.2"
+    "Studio": "0.4.2"
   }
 }
 ```

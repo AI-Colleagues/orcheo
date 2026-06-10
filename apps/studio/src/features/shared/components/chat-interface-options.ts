@@ -244,7 +244,7 @@ export const useChatInterfaceOptions = ({
     }
     return undefined;
   }, [providedApi]);
-  // When a workflow is present (Canvas bubble), force Custom API mode so
+  // When a workflow is present (Studio bubble), force Custom API mode so
   // requests go to our backend instead of the hosted ChatKit service.
   const hostedSecret = resolvedWorkflowId
     ? null

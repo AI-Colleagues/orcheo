@@ -190,7 +190,7 @@ export function WorkspaceBootstrapGate({
             Create your first workspace
           </CardTitle>
           <CardDescription>
-            Canvas needs a workspace before it can open. Create one to continue
+            Studio needs a workspace before it can open. Create one to continue
             with your account.
           </CardDescription>
         </CardHeader>

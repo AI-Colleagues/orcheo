@@ -52,7 +52,7 @@ Deliver a guided single-command setup/upgrade experience, plus version awareness
 
 ### Milestone 2: Shared backend version metadata API
 
-**Description:** Add backend endpoint that reports installed and latest versions for backend/CLI/canvas with cached registry lookups.
+**Description:** Add backend endpoint that reports installed and latest versions for backend/CLI/Studio with cached registry lookups.
 
 #### Task Checklist
 

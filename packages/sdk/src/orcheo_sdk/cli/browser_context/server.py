@@ -1,6 +1,6 @@
 """HTTP server for the browser context bridge.
 
-Serves context relay endpoints on localhost for Canvas → CLI communication.
+Serves context relay endpoints on localhost for Studio → CLI communication.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-import type { Edge as CanvasEdge, Node as CanvasNode } from "@xyflow/react";
+import type { Edge as FlowEdge, Node as FlowNode } from "@xyflow/react";
 import type { RJSFSchema } from "@rjsf/utils";
 import {
   getWorkflowTemplateDefinition,
@@ -20,7 +20,7 @@ import type {
   ApiWorkflow,
   ApiWorkflowVersion,
   ApiWorkflowVersionSummary,
-  CanvasVersionMetadata,
+  WorkflowVersionMetadata,
   StoredWorkflow,
   WorkflowVersionRecord,
 } from "./workflow-storage.types";
@@ -108,7 +108,7 @@ const toAuthor = (id: string | undefined): Workflow["owner"] => {
   };
 };
 
-export const toCanvasNodes = (nodes: WorkflowNode[]): CanvasNode[] =>
+export const toFlowNodes = (nodes: WorkflowNode[]): FlowNode[] =>
   nodes.map(
     (node) =>
       ({
@@ -116,10 +116,10 @@ export const toCanvasNodes = (nodes: WorkflowNode[]): CanvasNode[] =>
         type: node.type,
         position: node.position,
         data: node.data,
-      }) satisfies CanvasNode,
+      }) satisfies FlowNode,
   );
 
-export const toCanvasEdges = (edges: WorkflowEdge[]): CanvasEdge[] =>
+export const toFlowEdges = (edges: WorkflowEdge[]): FlowEdge[] =>
   edges.map(
     (edge) =>
       ({
@@ -130,7 +130,7 @@ export const toCanvasEdges = (edges: WorkflowEdge[]): CanvasEdge[] =>
         targetHandle: edge.targetHandle,
         label: edge.label,
         type: edge.type,
-      }) satisfies CanvasEdge,
+      }) satisfies FlowEdge,
   );
 
 export const getWorkflowRouteRef = (
@@ -163,16 +163,16 @@ export const resolveWorkflowVersionMermaidSource = (
     : null;
 };
 
-const parseCanvasMetadata = (
+const parseWorkflowMetadata = (
   metadata: unknown,
   fallbackName: string,
   fallbackDescription?: string,
-): CanvasVersionMetadata => {
+): WorkflowVersionMetadata => {
   const configurableSchemas = parseConfigurableSchemas(
     isRecord(metadata) ? metadata.configurable_schema : undefined,
   );
   const avatarEmoji = extractAvatarEmoji(metadata);
-  const resolveTemplateFallback = (): CanvasVersionMetadata | undefined => {
+  const resolveTemplateFallback = (): WorkflowVersionMetadata | undefined => {
     if (!metadata || typeof metadata !== "object") {
       return undefined;
     }
@@ -211,8 +211,10 @@ const parseCanvasMetadata = (
     };
   }
 
-  const canvas = (metadata as Record<string, unknown>).canvas;
-  if (!canvas || typeof canvas !== "object") {
+  const metadataRecord = metadata as Record<string, unknown>;
+  const workflowMetadata =
+    metadataRecord.workflow ?? metadataRecord.canvas;
+  if (!workflowMetadata || typeof workflowMetadata !== "object") {
     return (
       resolveTemplateFallback() ?? {
         snapshot: emptySnapshot(fallbackName, fallbackDescription),
@@ -223,18 +225,16 @@ const parseCanvasMetadata = (
     );
   }
 
-  const canvasRecord = canvas as Record<string, unknown>;
-  const snapshotPayload = canvasRecord.snapshot as WorkflowSnapshot | undefined;
-  const summaryPayload = canvasRecord.summary as
+  const workflowRecord = workflowMetadata as Record<string, unknown>;
+  const snapshotPayload = workflowRecord.snapshot as WorkflowSnapshot | undefined;
+  const summaryPayload = workflowRecord.summary as
     | WorkflowDiffResult["summary"]
     | undefined;
-  const messagePayload = canvasRecord.message as string | undefined;
-  const canvasToGraph = canvasRecord.canvasToGraph as
-    | Record<string, string>
-    | undefined;
-  const graphToCanvas = canvasRecord.graphToCanvas as
-    | Record<string, string>
-    | undefined;
+  const messagePayload = workflowRecord.message as string | undefined;
+  const workflowToGraph = (workflowRecord.workflowToGraph ??
+    workflowRecord.canvasToGraph) as Record<string, string> | undefined;
+  const graphToWorkflow = (workflowRecord.graphToWorkflow ??
+    workflowRecord.graphToCanvas) as Record<string, string> | undefined;
   const templateId =
     typeof (metadata as Record<string, unknown>).template_id === "string"
       ? ((metadata as Record<string, unknown>).template_id as string)
@@ -268,8 +268,8 @@ const parseCanvasMetadata = (
     snapshot,
     summary,
     message: messagePayload,
-    canvasToGraph,
-    graphToCanvas,
+    workflowToGraph,
+    graphToWorkflow,
     templateId,
     configurableSchemas,
     avatarEmoji,
@@ -300,7 +300,7 @@ const toVersionRecord = (
   workflowName: string,
   workflowDescription?: string,
 ): WorkflowVersionRecord => {
-  const metadata = parseCanvasMetadata(
+  const metadata = parseWorkflowMetadata(
     version.metadata,
     workflowName,
     workflowDescription ?? undefined,
@@ -309,7 +309,7 @@ const toVersionRecord = (
   const message =
     metadata.message ??
     version.notes ??
-    `Updated from canvas on ${new Date(version.created_at).toLocaleString()}`;
+    `Updated from Studio on ${new Date(version.created_at).toLocaleString()}`;
 
   return {
     id: version.id,
@@ -327,7 +327,7 @@ const toVersionRecord = (
       graphHasCronTrigger((version as ApiWorkflowVersion).graph),
     runnableConfig: version.runnable_config ?? null,
     configurableSchemas: metadata.configurableSchemas,
-    graphToCanvas: metadata.graphToCanvas,
+    graphToWorkflow: metadata.graphToWorkflow,
     templateId: metadata.templateId,
     avatarEmoji: metadata.avatarEmoji,
   };

@@ -166,7 +166,7 @@ describe("executeNode", () => {
         release_notes_url: null,
         update_available: true,
       },
-      canvas: {
+      workflow: {
         package: "orcheo-studio",
         current_version: "0.1.0",
         latest_version: "0.2.0",

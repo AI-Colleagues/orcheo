@@ -91,7 +91,7 @@ export const buildPublicChatFetch = ({
   onHttpError,
   metadata,
 }: PublicChatFetchOptions): typeof fetch => {
-  // Use plain fetch to avoid attaching Canvas access tokens to public requests.
+  // Use plain fetch to avoid attaching Studio access tokens to public requests.
   const baseFetch = fetch;
 
   const emitError = async (response: Response) => {

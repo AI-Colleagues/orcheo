@@ -83,7 +83,7 @@ STACK_DIR="${ORCHEO_STACK_DIR:-$HOME/.orcheo/stack}"
 docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" logs -f backend
 docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" logs -f worker
 docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" logs -f celery-beat
-docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" logs -f canvas
+docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" logs -f studio
 docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" logs -f caddy
 
 # Stop all services

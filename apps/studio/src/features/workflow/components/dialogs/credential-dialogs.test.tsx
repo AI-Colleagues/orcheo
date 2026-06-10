@@ -17,7 +17,7 @@ import type { Credential } from "@features/workflow/types/credential-vault";
 
 const credential: Credential = {
   id: "cred-1",
-  name: "Canvas API",
+  name: "Studio API",
   provider: "openai",
   createdAt: "2026-03-10T00:00:00Z",
   updatedAt: "2026-03-10T00:00:00Z",
@@ -97,13 +97,13 @@ describe("Credential dialogs", () => {
     render(<AddCredentialDialog onAddCredential={onAddCredential} />);
 
     await user.click(screen.getByRole("button", { name: "Add Credential" }));
-    await user.type(screen.getByLabelText("Name"), "Canvas Test Credential");
+    await user.type(screen.getByLabelText("Name"), "Studio Test Credential");
     await user.type(screen.getByLabelText("Secret"), "test-secret-123");
     await user.click(screen.getByRole("button", { name: "Save Credential" }));
 
     expect(onAddCredential).toHaveBeenCalledWith(
       expect.objectContaining({
-        name: "Canvas Test Credential",
+        name: "Studio Test Credential",
         access: "shared",
         secrets: { secret: "test-secret-123" },
       }),
