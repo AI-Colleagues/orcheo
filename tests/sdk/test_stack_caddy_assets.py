@@ -1,6 +1,7 @@
 """Validation coverage for bundled Caddy ingress stack assets."""
 
 from __future__ import annotations
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -14,6 +15,9 @@ COMPOSE_FILE = STACK_DIR / "docker-compose.yml"
 STAGING_COMPOSE_FILE = STACK_DIR / "docker-compose.staging.yml"
 CADDYFILE = STACK_DIR / "Caddyfile"
 ENV_EXAMPLE = STACK_DIR / ".env.example"
+COMPOSE_CONFIG_ENV = {
+    "VITE_ORCHEO_CHATKIT_DOMAIN_KEY": "domain_pk_test",
+}
 
 
 def test_stack_compose_defines_public_ingress_and_direct_ports() -> None:
@@ -134,6 +138,7 @@ def test_stack_compose_config_renders_with_profiles(tmp_path: Path) -> None:
         check=False,
         capture_output=True,
         text=True,
+        env={**os.environ, **COMPOSE_CONFIG_ENV},
         cwd=temp_stack_dir,
     )
 
@@ -167,6 +172,7 @@ def test_staging_stack_compose_config_renders(tmp_path: Path) -> None:
         check=False,
         capture_output=True,
         text=True,
+        env={**os.environ, **COMPOSE_CONFIG_ENV},
         cwd=temp_repo_root,
     )
 
