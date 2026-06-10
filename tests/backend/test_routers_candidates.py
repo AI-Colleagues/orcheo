@@ -232,6 +232,56 @@ async def test_onboard_candidate_passes_runnable_config(
     assert repo.last_runnable_config == {"configurable": {"model": "gpt-4o"}}
 
 
+def test_resolve_candidate_runnable_config_rejects_invalid_config() -> None:
+    """Invalid runnable config payloads are rejected with HTTP 400."""
+    candidate = _SAMPLE.model_copy(update={"config": {"configurable": "not-a-mapping"}})
+    metadata = {"source": "candidate-onboard", "candidate_id": candidate.id}
+
+    with pytest.raises(HTTPException) as exc_info:
+        candidates_router._resolve_candidate_runnable_config(candidate, metadata)
+
+    assert exc_info.value.status_code == 400
+    assert "valid runnable config" in str(exc_info.value.detail)
+
+
+def test_resolve_candidate_runnable_config_returns_serialized_config_when_plain() -> (
+    None
+):
+    """Runnable configs without inline schema annotations are returned unchanged."""
+    candidate = _SAMPLE.model_copy(update={"config": {}})
+    metadata = {"source": "candidate-onboard", "candidate_id": candidate.id}
+
+    runnable_config, returned_metadata = (
+        candidates_router._resolve_candidate_runnable_config(
+            candidate,
+            metadata,
+        )
+    )
+
+    assert runnable_config == {}
+    assert returned_metadata == metadata
+
+
+def test_resolve_candidate_runnable_config_rejects_invalid_inline_schema() -> None:
+    """Inline schema declarations without a runtime default are rejected."""
+    candidate = _SAMPLE.model_copy(
+        update={
+            "config": {
+                "configurable": {
+                    "mode": {"type": "string", "enum": []},
+                }
+            }
+        }
+    )
+    metadata = {"source": "candidate-onboard", "candidate_id": candidate.id}
+
+    with pytest.raises(HTTPException) as exc_info:
+        candidates_router._resolve_candidate_runnable_config(candidate, metadata)
+
+    assert exc_info.value.status_code == 400
+    assert "no runtime default" in str(exc_info.value.detail)
+
+
 @pytest.mark.asyncio()
 async def test_onboard_candidate_resolves_inline_configurable_schema(
     monkeypatch: pytest.MonkeyPatch,
