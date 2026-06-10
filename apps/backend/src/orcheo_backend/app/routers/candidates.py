@@ -4,9 +4,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
 from orcheo.models import Workflow, WorkflowDraftAccess
+from orcheo.runtime.configurable_schema import (
+    ConfigurableSchemaError,
+    split_configurable,
+)
+from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo.workflow.mermaid import render_mermaid_from_graph_payload_full_env
 from orcheo_backend.app.candidates_service import CandidateFetchError, get_candidates
 from orcheo_backend.app.dependencies import RepositoryDep
@@ -68,6 +73,76 @@ def _build_version_metadata(candidate: CandidateItem) -> dict[str, Any]:
     if candidate.subtitle:
         metadata.setdefault("subtitle", candidate.subtitle)
     return metadata
+
+
+def _merge_configurable_schema(
+    existing: Any,
+    inline: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge inline schema declarations with authored schema metadata.
+
+    Candidate metadata can include a ``configurable_schema`` map authored from
+    frontmatter or a sibling schema file. Preserve those explicit definitions
+    and only fill in fields discovered from inline config annotations.
+    """
+    if isinstance(existing, dict):
+        return {**inline, **existing}
+    return inline
+
+
+def _resolve_candidate_runnable_config(
+    candidate: CandidateItem,
+    metadata: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Normalize candidate config.json before version creation."""
+    if candidate.config is None:
+        return None, metadata
+
+    try:
+        runnable_config = RunnableConfigModel.model_validate(candidate.config)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Candidate config.json is not a valid runnable config.",
+        ) from exc
+
+    serialized_config = runnable_config.model_dump(
+        mode="json",
+        exclude_defaults=True,
+        exclude_none=True,
+    )
+    if not runnable_config.configurable:
+        return serialized_config, metadata
+
+    try:
+        resolved_configurable, inline_schema = split_configurable(
+            runnable_config.configurable
+        )
+    except ConfigurableSchemaError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    if inline_schema:
+        metadata = {
+            **metadata,
+            "configurable_schema": _merge_configurable_schema(
+                metadata.get("configurable_schema"), inline_schema
+            ),
+        }
+        runnable_config = runnable_config.model_copy(
+            update={"configurable": resolved_configurable}
+        )
+
+    return (
+        runnable_config.model_dump(
+            mode="json",
+            exclude_defaults=True,
+            exclude_none=True,
+        ),
+        metadata,
+    )
 
 
 def _raise_for_missing_required_plugins(metadata: dict[str, Any]) -> None:
@@ -157,6 +232,7 @@ async def onboard_candidate(
 
     metadata = _build_version_metadata(candidate)
     _raise_for_missing_required_plugins(metadata)
+    runnable_config, metadata = _resolve_candidate_runnable_config(candidate, metadata)
 
     try:
         graph_payload = ingest_langgraph_script(
@@ -215,7 +291,7 @@ async def onboard_candidate(
         metadata=metadata,
         notes=candidate.notes,
         created_by="onboard",
-        runnable_config=candidate.config,
+        runnable_config=runnable_config,
     )
 
     logger.info(

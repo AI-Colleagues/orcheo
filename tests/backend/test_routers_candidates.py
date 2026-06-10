@@ -103,6 +103,7 @@ class _Repository:
         self._existing = existing_workflow
         self.created_workflow: Workflow | None = None
         self.versions_created: int = 0
+        self.last_metadata: dict | None = None
         self.last_version_graph: dict | None = None
         self.last_runnable_config: dict | None = None
 
@@ -141,6 +142,7 @@ class _Repository:
         from orcheo.models import WorkflowVersion
 
         self.versions_created += 1
+        self.last_metadata = metadata
         self.last_version_graph = graph
         self.last_runnable_config = runnable_config
         return WorkflowVersion(
@@ -228,6 +230,184 @@ async def test_onboard_candidate_passes_runnable_config(
     )
 
     assert repo.last_runnable_config == {"configurable": {"model": "gpt-4o"}}
+
+
+def test_resolve_candidate_runnable_config_rejects_invalid_config() -> None:
+    """Invalid runnable config payloads are rejected with HTTP 400."""
+    candidate = _SAMPLE.model_copy(update={"config": {"configurable": "not-a-mapping"}})
+    metadata = {"source": "candidate-onboard", "candidate_id": candidate.id}
+
+    with pytest.raises(HTTPException) as exc_info:
+        candidates_router._resolve_candidate_runnable_config(candidate, metadata)
+
+    assert exc_info.value.status_code == 400
+    assert "valid runnable config" in str(exc_info.value.detail)
+
+
+def test_resolve_candidate_runnable_config_returns_serialized_config_when_plain() -> (
+    None
+):
+    """Runnable configs without inline schema annotations are returned unchanged."""
+    candidate = _SAMPLE.model_copy(update={"config": {}})
+    metadata = {"source": "candidate-onboard", "candidate_id": candidate.id}
+
+    runnable_config, returned_metadata = (
+        candidates_router._resolve_candidate_runnable_config(
+            candidate,
+            metadata,
+        )
+    )
+
+    assert runnable_config == {}
+    assert returned_metadata == metadata
+
+
+def test_resolve_candidate_runnable_config_rejects_invalid_inline_schema() -> None:
+    """Inline schema declarations without a runtime default are rejected."""
+    candidate = _SAMPLE.model_copy(
+        update={
+            "config": {
+                "configurable": {
+                    "mode": {"type": "string", "enum": []},
+                }
+            }
+        }
+    )
+    metadata = {"source": "candidate-onboard", "candidate_id": candidate.id}
+
+    with pytest.raises(HTTPException) as exc_info:
+        candidates_router._resolve_candidate_runnable_config(candidate, metadata)
+
+    assert exc_info.value.status_code == 400
+    assert "no runtime default" in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio()
+async def test_onboard_candidate_resolves_inline_configurable_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Inline schema declarations are resolved before version creation."""
+
+    candidate_with_schema = _SAMPLE.model_copy(
+        update={
+            "config": {
+                "configurable": {
+                    "ai_model": {
+                        "type": "string",
+                        "enum": [
+                            "openai:gpt-4.1-mini",
+                            "openai:gpt-5.4-mini",
+                        ],
+                        "title": "Model",
+                        "default": "openai:gpt-4.1-mini",
+                    }
+                }
+            }
+        }
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate_with_schema]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    repo = _Repository()
+    await onboard_candidate(
+        CandidateOnboardRequest(id="insight-analyst"),
+        repo,  # type: ignore[arg-type]
+        _MOCK_WORKSPACE,  # type: ignore[arg-type]
+    )
+
+    assert repo.last_runnable_config == {
+        "configurable": {"ai_model": "openai:gpt-4.1-mini"}
+    }
+    assert repo.last_metadata is not None
+    assert repo.last_metadata["configurable_schema"] == {
+        "ai_model": {
+            "type": "string",
+            "enum": [
+                "openai:gpt-4.1-mini",
+                "openai:gpt-5.4-mini",
+            ],
+            "title": "Model",
+            "default": "openai:gpt-4.1-mini",
+        }
+    }
+
+
+@pytest.mark.asyncio()
+async def test_onboard_candidate_merges_existing_configurable_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Authored configurable schema metadata wins over inline annotations."""
+
+    candidate_with_schema = _SAMPLE.model_copy(
+        update={
+            "metadata": {
+                "configurable_schema": {
+                    "ai_model": {
+                        "type": "string",
+                        "title": "Authored Model",
+                        "default": "openai:gpt-5.4-mini",
+                    },
+                    "region": {
+                        "type": "string",
+                        "title": "Region",
+                        "default": "us-east-1",
+                    },
+                }
+            },
+            "config": {
+                "configurable": {
+                    "ai_model": {
+                        "type": "string",
+                        "title": "Inline Model",
+                        "default": "openai:gpt-4.1-mini",
+                    },
+                    "temperature": {
+                        "type": "number",
+                        "default": 0.2,
+                    },
+                }
+            },
+        }
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate_with_schema]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    repo = _Repository()
+    await onboard_candidate(
+        CandidateOnboardRequest(id="insight-analyst"),
+        repo,  # type: ignore[arg-type]
+        _MOCK_WORKSPACE,  # type: ignore[arg-type]
+    )
+
+    assert repo.last_runnable_config == {
+        "configurable": {
+            "ai_model": "openai:gpt-4.1-mini",
+            "temperature": 0.2,
+        }
+    }
+    assert repo.last_metadata is not None
+    assert repo.last_metadata["configurable_schema"] == {
+        "ai_model": {
+            "type": "string",
+            "title": "Authored Model",
+            "default": "openai:gpt-5.4-mini",
+        },
+        "region": {
+            "type": "string",
+            "title": "Region",
+            "default": "us-east-1",
+        },
+        "temperature": {
+            "type": "number",
+            "default": 0.2,
+        },
+    }
 
 
 @pytest.mark.asyncio()
