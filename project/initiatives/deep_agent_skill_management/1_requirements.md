@@ -76,7 +76,7 @@ LangChain's `deepagents` package provides `create_deep_agent`, which builds on `
 **Non-goals:**
 - A skill marketplace or registry service.
 - Skill authoring wizard or scaffolding (future enhancement).
-- Real-time streaming of intermediate research steps to Canvas (future enhancement).
+- Real-time streaming of intermediate research steps to Studio (future enhancement).
 - Building a custom agent framework outside of LangChain/deepagents.
 
 ## PRODUCT DEFINITION
@@ -119,7 +119,7 @@ LangChain's `deepagents` package provides `create_deep_agent`, which builds on `
 - 100% test coverage for all new modules.
 
 ### Other Teams Impacted
-- **Canvas Frontend:** Node catalog will show the new DeepAgentNode (automatic via registry).
+- **Studio Frontend:** Node catalog will show the new DeepAgentNode (automatic via registry).
 - **Documentation:** CLI reference docs and node catalog docs need updating.
 
 ## TECHNICAL CONSIDERATIONS

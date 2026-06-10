@@ -5,13 +5,13 @@ The current FastAPI backend exposes every HTTP and WebSocket route without authe
 
 ## Goals
 - Require authenticated identities for all backend operations (HTTP, WebSocket, CLI, SDK).
-- Support both interactive users (canvas, dashboard) and non-interactive automation (CLI, CI, service integrations).
+- Support both interactive users (Studio, dashboard) and non-interactive automation (CLI, CI, service integrations).
 - Scope access to workspaces and workflows using claims embedded in tokens.
 - Keep chat session exchange and trigger endpoints secure without leaking long-lived secrets.
 - Provide operational controls for rotation, revocation, and observability.
 
 ## Architecture Overview
-1. **Identity Provider (IdP) integration** – Adopt an OAuth 2.0/OIDC Authorization Code + PKCE flow for first-party clients (canvas, dashboard). The IdP issues short-lived bearer tokens containing subject, workspace, and role claims.
+1. **Identity Provider (IdP) integration** – Adopt an OAuth 2.0/OIDC Authorization Code + PKCE flow for first-party clients (Studio, dashboard). The IdP issues short-lived bearer tokens containing subject, workspace, and role claims.
 2. **FastAPI authentication dependency** – Introduce a reusable dependency that validates bearer tokens on every HTTP route and WebSocket connection. The dependency should:
    - Verify token signatures (JWKS or introspection).
    - Enforce expiration and audience checks.
@@ -35,7 +35,7 @@ The current FastAPI backend exposes every HTTP and WebSocket route without authe
 | Telemetry & audit | Emit structured logs and metrics for authentication attempts, failures, and token lifecycle events. |
 
 ## Request Flows
-### Interactive client (canvas/dashboard)
+### Interactive client (Studio/dashboard)
 1. User signs in via IdP using Authorization Code + PKCE.
 2. Client obtains access token (and refresh token if needed).
 3. Client includes `Authorization: Bearer <token>` on REST and WebSocket requests.
@@ -126,7 +126,7 @@ async def read_workspace(
 - Document operational runbooks for responding to suspected credential stuffing or brute-force attempts, including temporary network-level blocks.
 
 ## Next Steps
-- Select IdP and register Orcheo clients (canvas, dashboard, CLI).
+- Select IdP and register Orcheo clients (Studio, dashboard, CLI).
 - Prototype FastAPI dependency with JWKS caching and attach to routers.
 - Design token storage schema (hashed secrets, scopes, expiration) and admin workflows.
 - Draft migration plan for existing unauthenticated endpoints and communicate rollout to stakeholders.

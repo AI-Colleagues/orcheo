@@ -55,7 +55,7 @@ Non-goals:
 - Hard physical isolation (separate databases, separate worker pools per workspace). Out of scope for v1.
 - Cross-workspace sharing of workflows or credentials.
 - Billing, invoicing, or payment integration.
-- Free-form workspace creation/joining in Canvas; membership changes should flow through onboarding, invites, or admin APIs instead.
+- Free-form workspace creation/joining in Studio; membership changes should flow through onboarding, invites, or admin APIs instead.
 - Replacing the existing auth model with a full IdP/SSO product.
 
 ## PRODUCT DEFINITION
@@ -80,18 +80,18 @@ P1:
 - Orcheo Vibe isolation: every workspace gets its own external-agent boundary, its own file-system/path boundary, and its own CLI-agent authorization boundary.
 
 P2:
-- Canvas UI for workspace switching and member management.
+- Studio UI for workspace switching and member management.
 - Per-workspace feature flags.
 - Workspace-scoped plugin allowlists.
 - BYO-secret-store per workspace (e.g., per-workspace KMS key for vault).
 
 ### Designs (if applicable)
-Design doc: `./2_design.md`. No Canvas UI for v1; CLI/API only.
+Design doc: `./2_design.md`. No Studio UI for v1; CLI/API only.
 
 ### [Optional] Other Teams Impacted
 - Backend: every persistence subsystem requires a schema and query change.
 - SDK: `orcheo` and `horcheo` CLIs gain workspace-aware commands and a `--workspace` flag.
-- Canvas: WebSocket and REST clients must send workspace context; minimal UI changes required for v1 (active-workspace indicator and switcher limited to memberships).
+- Studio: WebSocket and REST clients must send workspace context; minimal UI changes required for v1 (active-workspace indicator and switcher limited to memberships).
 - DevOps: deployment docs, Docker Compose, and systemd units gain `ORCHEO_MULTI_WORKSPACE_ENABLED` and `ORCHEO_DEFAULT_WORKSPACE` knobs.
 
 ## TECHNICAL CONSIDERATIONS
@@ -136,7 +136,7 @@ Not applicable.
 | **Phase 1** | Foundation | Workspace model, identity, context propagation, default-workspace migration |
 | **Phase 2** | Persistence | All stateful subsystems gain `workspace_id` enforcement and tests |
 | **Phase 3** | Governance | Roles, quotas, audit log, telemetry tagging |
-| **Phase 4** | Polish | CLI ergonomics, docs, Canvas read-only workspace indicator |
+| **Phase 4** | Polish | CLI ergonomics, docs, Studio read-only workspace indicator |
 
 ## HYPOTHESIS & RISKS
 Hypothesis: Adding a workspace boundary at identity, persistence, execution, and telemetry lets one Orcheo deployment serve multiple independent teams safely, with negligible latency overhead and a smooth upgrade path for existing single-workspace users.

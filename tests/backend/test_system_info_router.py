@@ -36,7 +36,7 @@ def test_system_info_success(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda package: {
             "orcheo-backend": "0.1.0",
             "orcheo-sdk": "0.2.0",
-            "orcheo-canvas": "0.3.0",
+            "orcheo-studio": "0.3.0",
         }.get(package),
     )
     monkeypatch.setattr(
@@ -55,7 +55,7 @@ def test_system_info_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert payload["backend"]["latest_version"] == "0.5.0"
     assert payload["backend"]["update_available"] is True
     assert payload["cli"]["latest_version"] == "0.5.0"
-    assert payload["canvas"]["latest_version"] == "0.4.0"
+    assert payload["studio"]["latest_version"] == "0.4.0"
     assert "checked_at" in payload
 
 
@@ -70,7 +70,7 @@ def test_system_info_registry_failure_fallback(monkeypatch: pytest.MonkeyPatch) 
         lambda package: {
             "orcheo-backend": "0.1.0",
             "orcheo-sdk": "0.2.0",
-            "orcheo-canvas": "0.3.0",
+            "orcheo-studio": "0.3.0",
         }.get(package),
     )
     monkeypatch.setattr(versioning, "_fetch_pypi_latest", lambda *args, **kwargs: None)
@@ -84,14 +84,14 @@ def test_system_info_registry_failure_fallback(monkeypatch: pytest.MonkeyPatch) 
     assert payload["backend"]["latest_version"] is None
     assert payload["backend"]["update_available"] is False
     assert payload["cli"]["latest_version"] is None
-    assert payload["canvas"]["latest_version"] is None
+    assert payload["studio"]["latest_version"] is None
 
 
-def test_system_info_reads_canvas_current_version_from_env(
+def test_system_info_reads_studio_current_version_from_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
-    monkeypatch.setenv("ORCHEO_CANVAS_VERSION", "1.2.3")
+    monkeypatch.setenv("ORCHEO_STUDIO_VERSION", "1.2.3")
 
     monkeypatch.setattr(
         versioning,
@@ -111,9 +111,9 @@ def test_system_info_reads_canvas_current_version_from_env(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["canvas"]["current_version"] == "1.2.3"
-    assert payload["canvas"]["latest_version"] == "1.2.4"
-    assert payload["canvas"]["update_available"] is True
+    assert payload["studio"]["current_version"] == "1.2.3"
+    assert payload["studio"]["latest_version"] == "1.2.4"
+    assert payload["studio"]["update_available"] is True
 
 
 def test_system_health_is_public_when_auth_required(
@@ -308,18 +308,18 @@ def test_versioning_registry_fetch_helpers_cover_branches(
         lambda _url, *, timeout, retries: {"version": "9.9.9"},
     )
     assert (
-        versioning._fetch_npm_latest("orcheo-canvas", timeout=1.0, retries=0) == "9.9.9"
+        versioning._fetch_npm_latest("orcheo-studio", timeout=1.0, retries=0) == "9.9.9"
     )
     monkeypatch.setattr(
         versioning, "_fetch_json", lambda _url, *, timeout, retries: {"version": 1}
     )
-    assert versioning._fetch_npm_latest("orcheo-canvas", timeout=1.0, retries=0) is None
+    assert versioning._fetch_npm_latest("orcheo-studio", timeout=1.0, retries=0) is None
     monkeypatch.setattr(
         versioning,
         "_fetch_json",
         lambda _url, *, timeout, retries: (_ for _ in ()).throw(httpx.HTTPError("bad")),
     )
-    assert versioning._fetch_npm_latest("orcheo-canvas", timeout=1.0, retries=0) is None
+    assert versioning._fetch_npm_latest("orcheo-studio", timeout=1.0, retries=0) is None
 
 
 def test_fetch_json_accepts_dict_and_rejects_non_dict_payload(

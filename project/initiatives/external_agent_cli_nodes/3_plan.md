@@ -110,7 +110,7 @@ Implement a CLI-first external-agent runtime for Orcheo so workflows can invoke 
   - Dependencies: Milestone 3
 - [x] Task 4.6: Define retention/cleanup behavior for superseded runtimes and verify it does not remove the current or previous known-good version
   - Dependencies: Milestone 3
-- [x] Task 4.7: Add Canvas node-catalog / inspector support requirements to the delivery checklist
+- [x] Task 4.7: Add Studio node-catalog / inspector support requirements to the delivery checklist
   - Dependencies: Milestone 3
 - [x] Task 4.8: Run `make format`, `make lint`, and the smallest relevant backend/node test targets
   - Dependencies: Milestones 1-4

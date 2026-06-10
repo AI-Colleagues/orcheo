@@ -139,7 +139,7 @@ def test_create_app_rejects_public_deployment_without_auth(
 ) -> None:
     """App startup should fail fast for public deployments without auth."""
 
-    monkeypatch.setenv("ORCHEO_STUDIO_URL", "https://canvas.example.com")
+    monkeypatch.setenv("ORCHEO_STUDIO_URL", "https://studio.example.com")
     monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", "")
     monkeypatch.setenv("ORCHEO_AUTH_JWKS_URL", "")
     monkeypatch.setenv("ORCHEO_AUTH_JWKS_STATIC", "")

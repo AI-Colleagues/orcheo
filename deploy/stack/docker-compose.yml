@@ -148,11 +148,11 @@ services:
     command: >
       sh -c 'python -m celery -A orcheo_backend.worker.celery_app beat --loglevel=info -s "$$ORCHEO_CELERY_BEAT_SCHEDULE_FILE"'
 
-  canvas:
-    image: ${ORCHEO_CANVAS_IMAGE:-ghcr.io/ai-colleagues/orcheo-canvas:latest}
+  studio:
+    image: ${ORCHEO_STUDIO_IMAGE:-ghcr.io/ai-colleagues/orcheo-studio:latest}
     env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
     ports:
-      - "127.0.0.1:${ORCHEO_CANVAS_LOCAL_PORT:-2026}:2026"
+      - "127.0.0.1:${ORCHEO_STUDIO_LOCAL_PORT:-2026}:2026"
     environment:
       VITE_ORCHEO_BACKEND_URL: ${VITE_ORCHEO_BACKEND_URL:-http://localhost:2025}
       VITE_ORCHEO_AUTH_ISSUER: ${VITE_ORCHEO_AUTH_ISSUER:-${ORCHEO_AUTH_ISSUER:-}}
@@ -184,7 +184,7 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-      canvas:
+      studio:
         condition: service_healthy
     ports:
       - "${ORCHEO_CADDY_HTTP_BIND:-0.0.0.0}:80:80"

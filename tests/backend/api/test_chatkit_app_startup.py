@@ -47,6 +47,6 @@ def test_create_app_does_not_seed_managed_vibe_workflow(
 ) -> None:
     """In production mode the managed Vibe workflow is not seeded on startup."""
 
-    # The vibe workflow is no longer auto-seeded; the canvas endpoint returns 404.
-    response = api_client.get("/api/workflows/orcheo-vibe-agent/canvas")
+    # The vibe workflow is no longer auto-seeded; the workflow page endpoint returns 404.
+    response = api_client.get("/api/workflows/orcheo-vibe-agent/workflow")
     assert response.status_code == 404

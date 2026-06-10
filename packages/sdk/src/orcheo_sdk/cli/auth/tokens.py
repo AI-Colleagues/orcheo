@@ -9,7 +9,7 @@ from pathlib import Path
 from orcheo_sdk.cli.config import get_config_dir
 
 
-TOKEN_EXPIRY_SKEW_MS = 60_000  # 60 seconds, matching Canvas
+TOKEN_EXPIRY_SKEW_MS = 60_000  # 60 seconds, matching Studio
 
 
 @dataclass(slots=True)

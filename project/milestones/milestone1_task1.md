@@ -3,14 +3,14 @@
 ## Objective
 
 Finalize the LangGraph-centric architecture, persistence layer, and hosting model
-that will power both the code-first SDK and the future canvas experience.
+that will power both the code-first SDK and the future Studio experience.
 
 ## Summary of Decisions
 
 ### LangGraph-Centric Runtime
 
 - **Single orchestration core** – All workflow execution flows through LangGraph to
-  guarantee parity between SDK-authored and canvas-authored graphs.
+  guarantee parity between SDK-authored and Studio-authored graphs.
 - **State envelope** – We standardize on the existing `State` dataclass that extends
   `MessagesState`, ensuring AI and deterministic nodes share the same shape and can
   broadcast updates over WebSockets without bespoke adapters.
@@ -44,8 +44,8 @@ that will power both the code-first SDK and the future canvas experience.
   workflow execution state is stored in the configured checkpoint backend. This
   separation makes it easy to scale API pods while delegating durability to the
   persistence layer.
-- **SDK & Canvas parity** – Both modes invoke the same HTTP/WebSocket APIs which
-  rely on the unified persistence helper. This ensures future canvas iterations
+- **SDK & Studio parity** – Both modes invoke the same HTTP/WebSocket APIs which
+  rely on the unified persistence helper. This ensures future Studio iterations
   inherit the exact runtime semantics used by SDK authors.
 
 ## Follow-Ups

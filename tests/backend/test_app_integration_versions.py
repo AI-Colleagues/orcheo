@@ -130,11 +130,11 @@ def test_update_workflow_version_runnable_config(client: TestClient) -> None:
     update_response = client.put(
         f"/api/workflows/{workflow_id}/versions/1/runnable-config",
         json={
-            "runnable_config": {"tags": ["canvas"], "run_name": "cfg"},
+            "runnable_config": {"tags": ["studio"], "run_name": "cfg"},
             "actor": "ui",
         },
     )
     assert update_response.status_code == 200
     payload = update_response.json()
     assert payload["version"] == 1
-    assert payload["runnable_config"] == {"tags": ["canvas"], "run_name": "cfg"}
+    assert payload["runnable_config"] == {"tags": ["studio"], "run_name": "cfg"}

@@ -11,15 +11,15 @@
 
 ## Overview
 
-This feature exposes Orcheo Canvas context to external AI coding agents (Claude Code, Codex, Cursor, etc.) via a local HTTP server and CLI commands. The HTTP server is shipped as part of the Orcheo CLI (`orcheo browser-aware`) and calls the Orcheo REST API directly for workflow operations.
+This feature exposes Orcheo Studio context to external AI coding agents (Claude Code, Codex, Cursor, etc.) via a local HTTP server and CLI commands. The HTTP server is shipped as part of the Orcheo CLI (`orcheo browser-aware`) and calls the Orcheo REST API directly for workflow operations.
 
-The Canvas browser tab relays its current context (page, active workflow) to a lightweight localhost endpoint. The CLI commands read from this endpoint so any coding agent always knows what the user is looking at. Agents can then read and update workflows through CLI commands (`orcheo context`, `orcheo workflow show`, `orcheo workflow download`, etc.) without the user leaving their terminal.
+The Studio browser tab relays its current context (page, active workflow) to a lightweight localhost endpoint. The CLI commands read from this endpoint so any coding agent always knows what the user is looking at. Agents can then read and update workflows through CLI commands (`orcheo context`, `orcheo workflow show`, `orcheo workflow download`, etc.) without the user leaving their terminal.
 
 Users bring their own coding agents and subscriptions. Orcheo provides context and workflow CLI commands.
 
 ## Components
 
-- **Canvas Context Relay (TypeScript, Canvas team)**
+- **Studio Context Relay (TypeScript, Studio team)**
   - Sends page identity (page type, workflow ID, name, focus state) to the local HTTP server on navigation, focus/visibility changes, and a 5-second heartbeat.
   - Does NOT send script content or version — the CLI commands fetch these from the workflow API.
   - Generates a stable `sessionId` per tab (stored in `sessionStorage`).
@@ -30,9 +30,9 @@ Users bring their own coding agents and subscriptions. Orcheo provides context a
   - In-memory context store keyed by `session_id` with 300-second TTL. Focus-priority resolution using `last_focused_at` timestamp.
   - Agents interact via CLI commands: `orcheo context`, `orcheo context sessions`, `orcheo workflow list`, `orcheo workflow show <id>`, `orcheo workflow download <id>`, `orcheo workflow upload --id <id> <file>`, `orcheo workflow upload <file>`. Workflow commands call the Orcheo REST API; context commands hit the local HTTP server.
   - Auth: uses the same `ORCHEO_SERVICE_TOKEN` / `~/.config/orcheo/cli.toml` profile for workflow API calls. Context relay endpoints on localhost do not require auth.
-  - CORS enabled on context relay endpoints to allow Canvas (HTTPS) to POST to localhost.
+  - CORS enabled on context relay endpoints to allow Studio (HTTPS) to POST to localhost.
 
-- **Canvas Settings — "Connect your agent" UI (TypeScript, Canvas team) — P1, Phase 3**
+- **Studio Settings — "Connect your agent" UI (TypeScript, Studio team) — P1, Phase 3**
   - New section in Settings showing CLI setup instructions (links to `orcheo auth login` for token setup).
   - Displays active session count and staleness as a health indicator.
   - Not required for core functionality — developers onboard via `orcheo browser-aware` and CLI commands.
@@ -41,9 +41,9 @@ Users bring their own coding agents and subscriptions. Orcheo provides context a
 
 ### Flow 1: Context relay — tab navigation
 
-1. User navigates to `/workflow-canvas/abc` in Canvas.
+1. User navigates to `/workflow/abc` in Studio.
 2. `BrowserContextProvider` detects route change via React Router `useLocation`.
-3. Provider calls `POST http://localhost:3333/context` with `{ session_id, page: 'canvas', workflow_id: 'abc', workflow_name: 'My Flow', focused: true }`.
+3. Provider calls `POST http://localhost:3333/context` with `{ session_id, page: 'workflow', workflow_id: 'abc', workflow_name: 'My Flow', focused: true }`.
 4. HTTP server upserts the session entry in its local in-memory store; TTL reset to 300 seconds. If `focused` is true, `last_focused_at` is updated.
 5. Tab starts heartbeat (every 5 seconds) while `document.visibilityState === 'visible'`. Heartbeats carry the same fields — a simple TTL refresh.
 6. If `orcheo browser-aware` is not running, the POST silently fails — context relay is only active when the HTTP server is running.
@@ -53,7 +53,7 @@ Users bring their own coding agents and subscriptions. Orcheo provides context a
 1. Developer runs `orcheo browser-aware` locally.
 2. Claude Code runs `orcheo context` CLI command.
 3. CLI command hits `GET http://localhost:3333/context` on the local HTTP server.
-4. Returns the active session's context: `{ page: 'canvas', workflow_id: 'abc', workflow_name: 'My Flow', staleness_seconds: 3 }`.
+4. Returns the active session's context: `{ page: 'workflow', workflow_id: 'abc', workflow_name: 'My Flow', staleness_seconds: 3 }`.
 5. Claude Code sees the current workflow context and runs `orcheo workflow show abc` to fetch the script and version when needed.
 
 ### Flow 3: Agent updates a workflow script
@@ -64,11 +64,11 @@ Users bring their own coding agents and subscriptions. Orcheo provides context a
 4. Claude Code runs `orcheo workflow upload --id abc updated_script.py`.
 5. CLI command calls `POST /api/workflows/abc/versions/ingest` on the Orcheo backend with the updated script.
 6. Backend ingests the new version.
-7. Developer refreshes Canvas (or it picks up the change on next focus) and sees the updated graph.
+7. Developer refreshes Studio (or it picks up the change on next focus) and sees the updated graph.
 
 ### Flow 4: Multi-tab disambiguation
 
-1. Developer has two Canvas tabs open: Tab A (gallery, focused 2 minutes ago) and Tab B (workflow X, focused 10 seconds ago).
+1. Developer has two Studio tabs open: Tab A (gallery, focused 2 minutes ago) and Tab B (workflow X, focused 10 seconds ago).
 2. Both tabs are backgrounded; developer switches to terminal.
 3. Claude Code runs `orcheo context`.
 4. HTTP server returns Tab B's context from its local store (most recently focused, within TTL). Response includes `total_sessions: 2`.
@@ -76,10 +76,10 @@ Users bring their own coding agents and subscriptions. Orcheo provides context a
 
 ### Flow 5: Stale / no active session
 
-1. Developer has no Canvas tab open.
+1. Developer has no Studio tab open.
 2. Claude Code runs `orcheo context`.
 3. HTTP server reads from local store → `{ page: null, staleness_seconds: 120, total_sessions: 0 }`.
-4. CLI command returns: `"No active Canvas session found. Open Orcheo Canvas in your browser to provide context."`.
+4. CLI command returns: `"No active Studio session found. Open Orcheo Studio in your browser to provide context."`.
 5. Claude Code can still run other commands (`orcheo workflow list`, etc.) that don't depend on browser context.
 
 ## API Contracts
@@ -92,7 +92,7 @@ These endpoints are served by the `orcheo browser-aware` HTTP server (default `l
 POST /context
 Body:
   session_id:       string   -- stable per-tab identifier (sessionStorage)
-  page:             string   -- "gallery" | "canvas" | "other"
+  page:             string   -- "gallery" | "workflow" | "other"
   workflow_id:      string | null
   workflow_name:    string | null
   focused:          bool          -- document.hasFocus() at time of post
@@ -101,7 +101,7 @@ Body:
 Response:
   204 No Content
 
-CORS: Allows requests from Canvas origin.
+CORS: Allows requests from Studio origin.
 ```
 
 ```
@@ -147,7 +147,7 @@ All workflow commands call the existing Orcheo REST API. Context commands hit th
 | Command | Underlying call |
 |---------|----------------|
 | `orcheo context` | `GET http://localhost:3333/context` — returns page, workflow ID/name, staleness, session count. |
-| `orcheo context sessions` | `GET http://localhost:3333/context/sessions` — list all active Canvas sessions. |
+| `orcheo context sessions` | `GET http://localhost:3333/context/sessions` — list all active Studio sessions. |
 | `orcheo workflow list` | `GET /api/workflows` (Orcheo backend) |
 | `orcheo workflow show <id>` | `GET /api/workflows/{ref}/versions` → latest version `graph.source` (Orcheo backend) |
 | `orcheo workflow download <id>` | `GET /api/workflows/{ref}/versions` → downloads script to local file (Orcheo backend) |
@@ -161,8 +161,8 @@ All workflow commands call the existing Orcheo REST API. Context commands hit th
 | Field | Type | Description |
 |-------|------|-------------|
 | `session_id` | string | Stable per-tab ID from `sessionStorage` |
-| `page` | string | `"gallery"` \| `"canvas"` \| `"other"` |
-| `workflow_id` | string \| null | Current workflow ID (canvas page only) |
+| `page` | string | `"gallery"` \| `"workflow"` \| `"other"` |
+| `workflow_id` | string \| null | Current workflow ID (workflow page only) |
 | `workflow_name` | string \| null | Human-readable workflow name |
 | `focused` | bool | Whether tab had focus at last update |
 | `last_seen` | datetime | UTC timestamp of last POST |
@@ -175,7 +175,7 @@ TTL: entries are evicted 300 seconds after `last_seen`. The store is local to th
 ```typescript
 interface BrowserContextPayload {
   session_id: string;
-  page: 'gallery' | 'canvas' | 'other';
+  page: 'gallery' | 'workflow' | 'other';
   workflow_id: string | null;
   workflow_name: string | null;
   focused: boolean;
@@ -190,7 +190,7 @@ interface BrowserContextPayload {
 - The context store holds only page identity (page type, workflow ID, name, focus state) — no script content or secrets. Entries are evicted with the TTL.
 - The context store is inherently single-user: it runs inside the developer's own `orcheo browser-aware` process.
 - `orcheo browser-aware` binds to `localhost` by default (not `0.0.0.0`).
-- CORS: context relay endpoints allow requests from the Canvas origin so the browser can POST. The allowed origin should be configurable or match the Orcheo server URL from the CLI profile.
+- CORS: context relay endpoints allow requests from the Studio origin so the browser can POST. The allowed origin should be configurable or match the Orcheo server URL from the CLI profile.
 
 ## Performance Considerations
 
@@ -214,17 +214,17 @@ interface BrowserContextPayload {
   - `orcheo workflow upload --id <id>` calls ingest endpoint and returns new version ID.
 
 - **Manual QA checklist**
-  - Open Canvas on gallery → `orcheo context` returns `page: gallery`.
+  - Open Studio on gallery → `orcheo context` returns `page: gallery`.
   - Navigate to a workflow → `orcheo context` updates within 2 seconds.
-  - Open second Canvas tab → `orcheo context sessions` returns two sessions.
+  - Open second Studio tab → `orcheo context sessions` returns two sessions.
   - Close one tab → session disappears from `orcheo context sessions` within 300 seconds.
   - Run `orcheo browser-aware` → ask Claude Code "what workflow am I looking at?" → agent runs `orcheo context` → correct answer.
-  - Ask Claude Code to update the current workflow → refresh Canvas to confirm the update.
+  - Ask Claude Code to update the current workflow → refresh Studio to confirm the update.
 
 ## Rollout Plan
 
-1. **Phase 1** — HTTP server with local context store: ship `orcheo browser-aware` command with context relay HTTP endpoints and all CLI commands (`orcheo context`, `orcheo workflow list/show/download/upload`). No backend or Canvas changes. Developers can test the full loop by manually POSTing to `localhost:3333/context`.
-2. **Phase 2** — Canvas integration: enable context relay in Canvas (`BrowserContextProvider` posts to localhost). End-to-end flow is fully functional.
+1. **Phase 1** — HTTP server with local context store: ship `orcheo browser-aware` command with context relay HTTP endpoints and all CLI commands (`orcheo context`, `orcheo workflow list/show/download/upload`). No backend or Studio changes. Developers can test the full loop by manually POSTing to `localhost:3333/context`.
+2. **Phase 2** — Studio integration: enable context relay in Studio (`BrowserContextProvider` posts to localhost). End-to-end flow is fully functional.
 3. **Phase 3** — Onboarding polish: Add "Connect your agent" Settings section. Publish onboarding guide.
 
 ---

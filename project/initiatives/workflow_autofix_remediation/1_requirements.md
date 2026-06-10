@@ -39,7 +39,7 @@ Reduce unattended workflow failure time by allowing Orcheo to opportunistically 
 | Operator | Run remediation only when the machine is not busy | Normal workflow execution remains the priority | P0 | The scanner skips work when normal worker queues, active workflow runs, or host load exceed configured thresholds |
 | Platform team | Prevent repeated or unsafe autofix attempts | Failed remediations do not create loops or uncontrolled version churn | P0 | Attempts are deduplicated by fingerprint and capped per workflow version |
 | Reviewer | Audit every automated change | I can inspect what the agent saw and changed | P0 | Each remediation stores prompt metadata, classification, artifacts, validation result, and created version id |
-| Canvas user | See remediation status on failed runs | I can tell whether Orcheo tried to help and what happened | P1 | Run detail surfaces candidate status, fix summary, created version, and developer note |
+| Studio user | See remediation status on failed runs | I can tell whether Orcheo tried to help and what happened | P1 | Run detail surfaces candidate status, fix summary, created version, and developer note |
 
 ### Context, Problems, Opportunities
 
@@ -134,7 +134,7 @@ The new CLI agent integrations and Orcheo Vibe make it possible to inspect faile
 - Optionally trigger a retry run against the newly created workflow version after validation succeeds.
 - Retry must be opt-in or feature-flagged until enough confidence is established.
 
-**P1: Canvas visibility**
+**P1: Studio visibility**
 - Add remediation status to failed run detail views.
 - Link created workflow versions and display developer notes.
 - Support manual dismiss and manual rerun actions.
@@ -145,7 +145,7 @@ The new CLI agent integrations and Orcheo Vibe make it possible to inspect faile
 ### Other Teams Impacted
 - **Execution Worker:** Gains idle remediation scanning and agent invocation responsibilities.
 - **Workflow Repository:** Stores remediation candidates, notes, and audit artifacts.
-- **Canvas Frontend:** Surfaces remediation status, notes, and created versions.
+- **Studio Frontend:** Surfaces remediation status, notes, and created versions.
 - **Plugin Maintainers:** Receive structured notes for suspected predefined node/edge defects.
 
 ## TECHNICAL CONSIDERATIONS
@@ -196,7 +196,7 @@ Ship with `ORCHEO_WORKFLOW_AUTOFIX_ENABLED=true` by default. Start with candidat
 |-------|--------|-------------|
 | **Phase 1** | Internal development | Persist candidates, redaction, classification prompt, and note-only output |
 | **Phase 2** | Controlled self-hosted pilot | Enable workflow-version creation for selected workflows with manual review |
-| **Phase 3** | Broader self-hosted availability | Add Canvas visibility, manual controls, and optional retry-after-fix |
+| **Phase 3** | Broader self-hosted availability | Add Studio visibility, manual controls, and optional retry-after-fix |
 
 ## HYPOTHESIS & RISKS
 

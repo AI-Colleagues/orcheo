@@ -10,7 +10,7 @@ from orcheo_sdk.cli.state import CLIState
 
 
 browser_aware_app = typer.Typer(help="Start the browser context bridge server.")
-context_app = typer.Typer(help="Inspect browser context from Canvas tabs.")
+context_app = typer.Typer(help="Inspect browser context from Studio tabs.")
 
 DEFAULT_PORT = 3333
 
@@ -32,7 +32,7 @@ def browser_aware(
         typer.Option("--port", help="Port for the context bridge HTTP server."),
     ] = DEFAULT_PORT,
 ) -> None:
-    """Start a local HTTP server that receives context from Canvas browser tabs."""
+    """Start a local HTTP server that receives context from Studio browser tabs."""
     if ctx.invoked_subcommand is not None:
         return  # pragma: no cover
 
@@ -55,7 +55,7 @@ def context(
         typer.Option("--port", help="Port of the browser-aware HTTP server."),
     ] = DEFAULT_PORT,
 ) -> None:
-    """Show the active browser context (current Canvas page and workflow)."""
+    """Show the active browser context (current Studio page and workflow)."""
     if ctx.invoked_subcommand is not None:
         return
 
@@ -77,8 +77,8 @@ def context(
 
     if data.get("total_sessions", 0) == 0:
         msg = (
-            "No active Canvas session found. "
-            "Open Orcheo Canvas in your browser to provide context."
+            "No active Studio session found. "
+            "Open Orcheo Studio in your browser to provide context."
         )
         if state.human:
             state.console.print(f"[yellow]{msg}[/yellow]")
@@ -100,7 +100,7 @@ def context_sessions(
         typer.Option("--port", help="Port of the browser-aware HTTP server."),
     ] = DEFAULT_PORT,
 ) -> None:
-    """List all active Canvas sessions."""
+    """List all active Studio sessions."""
     state = _state(ctx)
     url = f"{_context_base_url(port)}/context/sessions"
     try:

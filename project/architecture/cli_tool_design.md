@@ -4,7 +4,7 @@
 
 Extend Orcheo's developer tooling with a command-line interface tailored for
 LangGraph-first workflows. The CLI gives code-centric teams insight into the
-same workflow, node, and credential data that the canvas exposes while staying
+same workflow, node, and credential data that the Studio exposes while staying
 aligned with the shared REST APIs and authentication flows.
 
 ## Goals
@@ -13,7 +13,7 @@ aligned with the shared REST APIs and authentication flows.
   outputs, categories), and filter by tags so developers can quickly find the
   building blocks they need from the terminal.
 - **Workflow management** – list, inspect, and trigger workflows that were
-  authored via code or canvas. Retrieval includes version history, execution
+  authored via code or Studio. Retrieval includes version history, execution
   status, and the ability to output a Mermaid representation for quick
   visualization in docs or terminals.
 - **Credential management** – show credential status, expiry details, and vault
@@ -28,7 +28,7 @@ aligned with the shared REST APIs and authentication flows.
 
 ## Non-goals
 
-- Replacing the canvas UX or providing full workflow editing capabilities in
+- Replacing the Studio UX or providing full workflow editing capabilities in
   the terminal. The CLI focuses on inspection, execution, and reference
   generation that augment existing code-first workflows.
 - Shipping a custom authentication mechanism. The CLI consumes the service
@@ -46,7 +46,7 @@ handle:
 - Authentication via service tokens shared with the SDK.
 - Pagination and table rendering via rich text output.
 - Mermaid generation for workflows using the canonical graph definition from
-  the backend so the CLI stays consistent with the canvas exports.
+  the backend so the CLI stays consistent with the Studio exports.
 
 ## Architecture Overview
 

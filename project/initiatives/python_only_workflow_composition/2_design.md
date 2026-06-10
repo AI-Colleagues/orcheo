@@ -13,7 +13,7 @@
 
 This initiative makes Python LangGraph script ingestion the sole supported workflow composition path. It removes JSON workflow composition from active backend APIs/runtime and from CLI/SDK workflow upload/download format handling, and removes the Orcheo MCP SDK server (`packages/sdk/src/orcheo_sdk/mcp_server/`) now replaced by Agent Skills.
 
-Canvas behavior is narrowed to config-only persistence in this phase: Canvas does not create workflow versions and instead updates version-level `runnable_config` on existing Python workflow versions.
+Studio behavior is narrowed to config-only persistence in this phase: Studio does not create workflow versions and instead updates version-level `runnable_config` on existing Python workflow versions.
 
 The compatibility stance is explicit hard break for pre-existing JSON graph versions. These versions remain in storage but are not executable after this refactor; runtime emits deterministic unsupported-format errors.
 
@@ -27,7 +27,7 @@ The compatibility stance is explicit hard break for pre-existing JSON graph vers
   - Support only `langgraph-script` graph payloads for build/execute.
   - Return explicit errors for legacy non-script graph payloads.
 
-- **Canvas Workflow Storage Layer (Canvas Team)**
+- **Studio Workflow Storage Layer (Studio Team)**
   - Stop posting graph versions.
   - Persist only runnable config updates against existing versions.
 
@@ -53,12 +53,12 @@ The compatibility stance is explicit hard break for pre-existing JSON graph vers
 3. Backend ingests script, summarizes graph, stores version payload (`format=langgraph-script`) and optional `runnable_config`.
 4. Workflow execution uses stored script-backed version.
 
-### Flow 2: Canvas Config-Only Save
+### Flow 2: Studio Config-Only Save
 
-1. User edits runnable config in Canvas.
-2. Canvas calls runnable-config update endpoint for selected/latest version.
+1. User edits runnable config in Studio.
+2. Studio calls runnable-config update endpoint for selected/latest version.
 3. Backend validates and persists config into `WorkflowVersion.runnable_config`.
-4. No workflow graph version is created from Canvas.
+4. No workflow graph version is created from Studio.
 
 ### Flow 2b: CLI Config-Only Save
 
@@ -93,7 +93,7 @@ Response:
   404 -> Workflow not found
 ```
 
-New contract (to be added in this initiative; consumed by Canvas and CLI config-save flows):
+New contract (to be added in this initiative; consumed by Studio and CLI config-save flows):
 ```text
 PUT /api/workflows/{workflow_ref}/versions/{version_number}/runnable-config
 Body:
@@ -132,7 +132,7 @@ POST /api/workflows/{workflow_ref}/versions
 ## Performance Considerations
 
 - Simplifying to one composition path reduces conditional branches at runtime.
-- Config-only Canvas saves avoid graph compilation/serialization work.
+- Config-only Studio saves avoid graph compilation/serialization work.
 - No additional storage model introduced; reuse existing version payloads.
 
 ## Testing Strategy
@@ -145,21 +145,21 @@ POST /api/workflows/{workflow_ref}/versions
 
 - **Integration tests**
   - `/versions/ingest` path remains functional end-to-end.
-  - Canvas config-only save updates version runnable config without creating new version.
+  - Studio config-only save updates version runnable config without creating new version.
   - CLI config-only save updates version runnable config without creating new version.
   - Runtime fails cleanly for legacy JSON versions and runs normally for script versions.
 
 - **Manual QA checklist**
   - Upload `.py` workflow and execute successfully.
   - Attempt `.json` upload/download and verify clear errors.
-  - Save runnable config from Canvas and confirm persistence in version details.
+  - Save runnable config from Studio and confirm persistence in version details.
   - Save runnable config from CLI and confirm version count is unchanged while `runnable_config` is updated.
   - Verify Orcheo MCP SDK server tools are no longer exposed.
 
 ## Rollout Plan
 
 1. Phase 1: Backend/runtime + CLI/SDK refactor with explicit unsupported-format errors.
-2. Phase 2: Canvas + CLI config-only save behavior release.
+2. Phase 2: Studio + CLI config-only save behavior release.
 3. Phase 3: Remove Orcheo MCP SDK server module and finalize docs.
 
 Include release notes calling out hard break for existing JSON graph versions and migration path (re-ingest from Python script).

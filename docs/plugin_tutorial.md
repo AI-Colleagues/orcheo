@@ -373,7 +373,7 @@ implementations:
 - [orcheo-plugin-lark-listener](https://github.com/AI-Colleagues/orcheo-plugin-lark-listener) —
   Lark listener
 
-Read their source before building a listener plugin of your own. The Canvas
+Read their source before building a listener plugin of your own. The Studio
 template `template-wecom-lark-shared-listener` shows how both listeners feed
 into one shared downstream workflow — the recommended pattern when normalising
 events from multiple platforms.

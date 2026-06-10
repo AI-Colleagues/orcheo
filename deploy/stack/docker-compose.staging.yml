@@ -19,8 +19,8 @@ services:
     image: orcheo-stack:staging-local
     build: *orcheo_staging_build
 
-  canvas:
-    image: orcheo-canvas:staging-local
+  studio:
+    image: orcheo-studio:staging-local
     build:
       context: ../..
-      dockerfile: deploy/stack/Dockerfile.canvas.staging
+      dockerfile: deploy/stack/Dockerfile.studio.staging

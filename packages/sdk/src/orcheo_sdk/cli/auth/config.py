@@ -15,7 +15,7 @@ from orcheo_sdk.cli.config import (
 from orcheo_sdk.cli.errors import CLIConfigurationError
 
 
-# Environment variable names matching Canvas conventions (without VITE_ prefix)
+# Environment variable names matching Studio conventions (without VITE_ prefix)
 AUTH_ISSUER_ENV = "ORCHEO_AUTH_ISSUER"
 AUTH_CLIENT_ID_ENV = "ORCHEO_AUTH_CLIENT_ID"
 AUTH_SCOPES_ENV = "ORCHEO_AUTH_SCOPES"

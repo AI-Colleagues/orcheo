@@ -45,7 +45,7 @@ cut a release.
    When the plugin ecosystem changes, also verify:
    - `orcheo plugin install "git+https://github.com/AI-Colleagues/orcheo-plugin-wecom-listener.git"`
    - `orcheo plugin install "git+https://github.com/AI-Colleagues/orcheo-plugin-lark-listener.git"`
-   - successful validation of the shared Canvas template
+   - successful validation of the shared Studio template
      `template-wecom-lark-shared-listener`
    - plugin edge compatibility checks remain green
 5. **Commit** the changes and open a pull request. Merge once CI is green.

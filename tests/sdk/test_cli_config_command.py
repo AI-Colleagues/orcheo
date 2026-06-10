@@ -28,7 +28,7 @@ def test_config_command_writes_selected_profile_from_env_file(
             [
                 "ORCHEO_API_URL=http://env-file.test",
                 "ORCHEO_SERVICE_TOKEN=env-token",
-                "ORCHEO_STUDIO_URL=http://canvas.test",
+                "ORCHEO_STUDIO_URL=http://studio.test",
                 "ORCHEO_AUTH_ISSUER=https://auth.env-file.test",
                 "ORCHEO_AUTH_CLIENT_ID=env-client-id",
                 "ORCHEO_AUTH_SCOPES=openid email",
@@ -52,7 +52,7 @@ def test_config_command_writes_selected_profile_from_env_file(
     profile = data["profiles"]["local"]
     assert profile["api_url"] == "http://env-file.test"
     assert profile["service_token"] == "env-token"
-    assert profile["studio_url"] == "http://canvas.test"
+    assert profile["studio_url"] == "http://studio.test"
     assert profile["auth_issuer"] == "https://auth.env-file.test"
     assert profile["auth_client_id"] == "env-client-id"
     assert profile["auth_scopes"] == "openid email"

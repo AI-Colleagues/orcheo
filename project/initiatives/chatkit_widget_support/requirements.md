@@ -25,7 +25,7 @@ Ensure widget actions round-trip to workflows with persistence, auth, and error 
 
 ### Target users
 Workflow authors who publish Orcheo workflows to ChatKit and need interactive UI beyond plain text.
-End users consuming published workflows through the ChatKit UI (public page or Canvas bubble).
+End users consuming published workflows through the ChatKit UI (public page or Studio bubble).
 
 ### User Stories
 | As a... | I want to... | So that... | Priority | Acceptance Criteria |
@@ -41,7 +41,7 @@ Current ChatKit integration streams assistant messages only; widget roots emitte
 Goals:
 - Render widget roots produced by workflows as ChatKit widget items with persistence.
 - Forward widget actions to the backend and back to workflows, preserving thread metadata and history.
-- Maintain compatibility with public and JWT-auth ChatKit surfaces (embedding and Canvas bubble).
+- Maintain compatibility with public and JWT-auth ChatKit surfaces (embedding and Studio bubble).
 - Keep attachment handling and assistant messages functioning alongside widgets.
 
 Non-goals:
@@ -56,7 +56,7 @@ Non-goals:
 - Handle `ThreadsCustomActionReq` by mapping widget `Action` payloads to workflow invocations or updates; return assistant and/or widget responses.
 - UI passes `widgets.onAction` to ChatKit React control so client interactions are routed to the backend.
 - Maintain existing message flow: assistant replies still stream; widget outputs do not block text responses.
-- Auth compatibility: works with public workflows and JWT-gated Canvas flows; respects workflow_id metadata and vault credential resolution.
+- Auth compatibility: works with public workflows and JWT-gated Studio flows; respects workflow_id metadata and vault credential resolution.
 
 P1 (Optimizations):
 - Stream widget updates (`WidgetRootUpdated`/`WidgetComponentUpdated`/`WidgetStreamingTextValueDelta`) for long-running interactions.
@@ -118,7 +118,7 @@ No formal experiment; rely on staged rollout with log review.
 |-------|--------|-------------|
 | **Phase 1** | Dev only | Validate serialization/action handling with sample widgets |
 | **Phase 2** | Staging users | Enable for QA and internal authors; monitor logs |
-| **Phase 3** | Prod public/Canvas | Default-on for published workflows after sign-off |
+| **Phase 3** | Prod public/Studio | Default-on for published workflows after sign-off |
 
 ## HYPOTHESIS & RISKS
 Hypothesis: Allowing workflows to render widgets in ChatKit will increase task completion and reduce prompt complexity for structured inputs.

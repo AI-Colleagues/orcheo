@@ -12,7 +12,7 @@ from orcheo_backend.app import (
     archive_workflow,
     create_workflow,
     get_workflow,
-    get_workflow_canvas,
+    get_workflow_page,
     list_workflows,
     update_workflow,
 )
@@ -25,7 +25,7 @@ from orcheo_backend.app.repository import (
 )
 from orcheo_backend.app.routers import workflows as workflows_router
 from orcheo_backend.app.schemas.workflows import (
-    WorkflowCanvasPayload,
+    WorkflowPagePayload,
     WorkflowCreateRequest,
     WorkflowUpdateRequest,
 )
@@ -444,8 +444,8 @@ async def test_get_workflow_not_found() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_get_workflow_canvas_returns_compact_versions() -> None:
-    """Canvas-open endpoint should avoid returning full version graphs."""
+async def test_get_workflow_returns_compact_versions() -> None:
+    """Workflow-page-open endpoint should avoid returning full version graphs."""
     workflow_id = uuid4()
 
     class Version:
@@ -455,7 +455,7 @@ async def test_get_workflow_canvas_returns_compact_versions() -> None:
             self.workflow_id = workflow_id
             self.version = version_number
             self.graph = {"index": {"mermaid": f"graph TD; A-->B{version_number}"}}
-            self.metadata = {"canvas": {"snapshot": {"nodes": [], "edges": []}}}
+            self.metadata = {"workflow": {"snapshot": {"nodes": [], "edges": []}}}
             self.runnable_config = {"run_name": f"v{version_number}"}
             self.notes = f"Version {version_number}"
             self.created_by = "tester"
@@ -482,9 +482,9 @@ async def test_get_workflow_canvas_returns_compact_versions() -> None:
             assert wf_id == workflow_id
             return [Version(1), Version(2)]
 
-    result = await get_workflow_canvas(str(workflow_id), Repository(), _MOCK_WORKSPACE)
+    result = await get_workflow_page(str(workflow_id), Repository(), _MOCK_WORKSPACE)
 
-    assert isinstance(result, WorkflowCanvasPayload)
+    assert isinstance(result, WorkflowPagePayload)
     assert result.workflow.id == workflow_id
     assert [version.version for version in result.versions] == [1, 2]
     assert result.versions[0].mermaid == "graph TD; A-->B1"

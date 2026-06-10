@@ -188,11 +188,11 @@ def test_resolve_settings_uses_studio_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv(STUDIO_URL_ENV, raising=False)
-    monkeypatch.setenv(STUDIO_URL_ENV, "https://canvas.example")
+    monkeypatch.setenv(STUDIO_URL_ENV, "https://studio.example")
     settings = resolve_settings(
         profile=None,
         api_url="http://localhost:2025/api",
         service_token=None,
         offline=False,
     )
-    assert settings.studio_url == "https://canvas.example"
+    assert settings.studio_url == "https://studio.example"

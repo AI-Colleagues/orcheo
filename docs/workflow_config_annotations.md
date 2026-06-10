@@ -1,11 +1,11 @@
 # Workflow Config Annotations
 
-Orcheo workflow configs are regular JSON payloads, but the Canvas config sheet can
+Orcheo workflow configs are regular JSON payloads, but the Studio config sheet can
 render richer widgets when you annotate fields with JSON Schema metadata. The
 upload path resolves those annotations into two separate pieces of data:
 
 - the raw runnable config stored on the workflow version
-- the schema metadata stored for Canvas to render the right widget
+- the schema metadata stored for Studio to render the right widget
 
 ## File Layout
 
@@ -58,18 +58,18 @@ Use a string field with an `enum` and `default` to render a single-select widget
 }
 ```
 
-In Canvas, that `enum` becomes a single-select field. The same config file is
+In Studio, that `enum` becomes a single-select field. The same config file is
 resolved into:
 
 - `runnable_config.configurable.ai_model = "openai:gpt-4.1-mini"`
 - `metadata.configurable_schema.ai_model = { ...schema... }`
 
-When you save from Canvas, only the raw runtime config is stored back to the
+When you save from Studio, only the raw runtime config is stored back to the
 workflow version.
 
 ## Supported Type Annotations
 
-Canvas already maps the common schema shapes to RJSF widgets:
+Studio already maps the common schema shapes to RJSF widgets:
 
 | Declared schema | Widget |
 | --- | --- |
@@ -89,4 +89,4 @@ When you build a workflow for shared use:
 4. Use `{{config.configurable.<name>}}` in the workflow code.
 
 That pattern lets the same workflow remain runnable from the CLI while giving the
-Canvas editor enough information to render the right controls for each field.
+Studio editor enough information to render the right controls for each field.

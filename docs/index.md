@@ -6,7 +6,7 @@
 [![PyPI - Backend](https://img.shields.io/pypi/v/orcheo-backend.svg?logo=python&label=backend)](https://pypi.org/project/orcheo-backend/)
 [![PyPI - SDK](https://img.shields.io/pypi/v/orcheo-sdk.svg?logo=python&label=sdk)](https://pypi.org/project/orcheo-sdk/)
 [![PyPI - Agentensor](https://img.shields.io/pypi/v/agentensor.svg?logo=python&label=agentensor)](https://pypi.org/project/agentensor/)
-[![npm - Canvas](https://img.shields.io/npm/v/orcheo-canvas.svg?logo=npm&label=canvas)](https://www.npmjs.com/package/orcheo-canvas)
+[![npm - Studio](https://img.shields.io/npm/v/orcheo-studio.svg?logo=npm&label=studio)](https://www.npmjs.com/package/orcheo-studio)
 
 Orcheo is a workflow orchestration platform designed for vibe coding — AI coding agents like Claude Code can start services, build workflows, and deploy them for you automatically.
 
@@ -91,7 +91,7 @@ That's it! Your agent handles the complexity while you focus on describing what 
 ## Guides
 
 - **[Manual Setup Guide](manual_setup.md)** — Installation and configuration
-- **[Canvas](canvas.md)** — Workflow monitor, default-config editor, and Credential Vault manager
+- **[Studio](studio.md)** — Workflow monitor, default-config editor, and Credential Vault manager
 - **[Auth0 IdP Setup](auth0_idp_setup.md)** — Configure Auth0 OAuth/OIDC for the Docker stack
 - **[MCP Integration](mcp_integration.md)** — Connect AI assistants to Orcheo
 - **[Workflow Config Annotations](workflow_config_annotations.md)** — Declare typed configurable fields with a companion schema file

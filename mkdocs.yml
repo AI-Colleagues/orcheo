@@ -30,7 +30,7 @@ nav:
   - Home: index.md
   - Getting Started:
       - Manual Setup: manual_setup.md
-      - Canvas: canvas.md
+      - Studio: studio.md
       - Auth0 IdP Setup: auth0_idp_setup.md
       - Environment Variables: environment_variables.md
       - Authentication: authentication_guide.md
@@ -44,7 +44,7 @@ nav:
       - PostgreSQL Migration: production/postgresql_migration_plan.md
   - Chatkit Integration:
       - Workflow Publishing: chatkit_integration/workflow_publish_guide.md
-      - Chat Bubble: chatkit_integration/canvas_chat_bubble_guide.md
+      - Chat Bubble: chatkit_integration/studio_chat_bubble_guide.md
       - Webpage Embedding: chatkit_integration/webpage_embedding_guide.md
       - Custom Chat UI: chatkit_integration/custom_chat_ui_guide.md
   - Development:

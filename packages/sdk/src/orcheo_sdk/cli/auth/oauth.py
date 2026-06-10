@@ -19,7 +19,7 @@ from orcheo_sdk.cli.auth.tokens import AuthTokens, clear_oauth_tokens, set_oauth
 from orcheo_sdk.cli.errors import CLIError
 
 
-# Constants matching Canvas implementation
+# Constants matching Studio implementation
 STATE_BYTES = 32
 VERIFIER_BYTES = 64
 AUTH_STATE_TTL_SECONDS = 600  # 10 minutes

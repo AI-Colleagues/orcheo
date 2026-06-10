@@ -49,7 +49,7 @@ def test_post_then_get_context(context_server: tuple[str, HTTPServer]) -> None:
     base_url, _ = context_server
     payload = {
         "session_id": "tab-1",
-        "page": "canvas",
+        "page": "workflow",
         "workflow_id": "wf-abc",
         "workflow_name": "Test Flow",
         "focused": True,
@@ -62,7 +62,7 @@ def test_post_then_get_context(context_server: tuple[str, HTTPServer]) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["session_id"] == "tab-1"
-    assert data["page"] == "canvas"
+    assert data["page"] == "workflow"
     assert data["workflow_id"] == "wf-abc"
     assert data["total_sessions"] == 1
 

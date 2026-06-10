@@ -24,7 +24,7 @@ Unify workflow authoring and execution around Python LangGraph scripts so there 
 ### Target users
 - Platform/backend engineers maintaining workflow execution paths
 - CLI users uploading and operating workflows
-- Canvas users configuring workflows (config-only in this phase)
+- Studio users configuring workflows (config-only in this phase)
 
 ### User Stories
 | As a... | I want to... | So that... | Priority | Acceptance Criteria |
@@ -32,7 +32,7 @@ Unify workflow authoring and execution around Python LangGraph scripts so there 
 | Platform engineer | Keep only Python ingestion (`/versions/ingest`) as version-creation path | Runtime and ingestion behavior are consistent | P0 | Direct JSON version creation path is removed; Python ingest remains functional |
 | CLI user | Upload and download workflows in Python format only | Tooling behavior matches platform support | P0 | `.json` upload/download paths are removed with clear error guidance |
 | CLI user | Update runnable config on an existing workflow version without creating a new version | Runtime defaults can be tuned safely after Python ingestion | P0 | CLI config-save flow calls version runnable-config update API and does not call version-create endpoints |
-| Canvas user | Save runnable configuration without composing graph JSON versions | Canvas remains usable for config management while composition standardizes on Python | P0 | Canvas no longer creates workflow versions from graph JSON; config writes persist to backend version runnable config |
+| Studio user | Save runnable configuration without composing graph JSON versions | Studio remains usable for config management while composition standardizes on Python | P0 | Studio no longer creates workflow versions from graph JSON; config writes persist to backend version runnable config |
 | Platform operator | Remove the Orcheo MCP SDK server (`packages/sdk/` MCP module) | Eliminate the SDK-hosted MCP composition surface | P0 | `orcheo_sdk.mcp_server` module is removed from active runtime |
 | Engineering team | Keep removed code for reference only | We preserve historical context without runtime complexity | P0 | Removed implementation moved under `legacy/` and excluded from runtime/lint/tests |
 
@@ -65,10 +65,10 @@ Non-goals:
   - Remove JSON-specific branches from workflow upload/download services and format handlers.
   - Add CLI/SDK support for config-only saves by updating existing version `runnable_config` via backend update endpoint (no version creation).
 
-- **P0: Canvas behavior change (config-only)**
-  - Canvas Save no longer creates backend workflow versions from graph (nodes/edges) edits.
-  - Canvas writes runnable configuration to backend using version-level `runnable_config`.
-  - If no Python version exists, Canvas returns a clear blocking error.
+- **P0: Studio behavior change (config-only)**
+  - Studio Save no longer creates backend workflow versions from graph (nodes/edges) edits.
+  - Studio writes runnable configuration to backend using version-level `runnable_config`.
+  - If no Python version exists, Studio returns a clear blocking error.
 
 - **P0: Orcheo MCP SDK server removal**
   - Remove the `orcheo_sdk.mcp_server` module (`packages/sdk/src/orcheo_sdk/mcp_server/`) and its workflow, node, edge, codegen, credential, service-token, and agent-tool MCP bindings from active runtime.
@@ -84,17 +84,17 @@ Non-goals:
 See `project/initiatives/python_only_workflow_composition/2_design.md` for end-to-end API, runtime, and tooling design.
 
 ### Other Teams Impacted
-- **Canvas Frontend:** Save semantics shift from versioning to config-only writes.
+- **Studio Frontend:** Save semantics shift from versioning to config-only writes.
 - **SDK/CLI Maintainers:** JSON format options are removed from commands/services, and config-save flow is updated to version `runnable_config` updates.
 - **Developer Experience:** Orcheo MCP SDK server is removed; users composing workflows via MCP are directed to Agent Skills.
 
 ## TECHNICAL CONSIDERATIONS
 ### Architecture Overview
-This initiative collapses composition around script ingestion and script-backed execution. Backend, CLI/SDK, and Canvas all align to Python LangGraph as the only workflow representation for version creation.
+This initiative collapses composition around script ingestion and script-backed execution. Backend, CLI/SDK, and Studio all align to Python LangGraph as the only workflow representation for version creation.
 
 ### Technical Requirements
 - Remove JSON graph creation and build paths from backend workflow APIs and runtime graph builder.
-- Add/keep a backend path for Canvas config-only writes targeting `WorkflowVersion.runnable_config`.
+- Add/keep a backend path for Studio config-only writes targeting `WorkflowVersion.runnable_config`.
 - Update CLI/SDK config-save path to use backend version `runnable_config` update endpoint (config-only, no new version).
 - Preserve existing runnable config precedence where per-run config overrides stored version config.
 - Remove the Orcheo MCP SDK server module (`orcheo_sdk.mcp_server`) from active runtime exports.
@@ -113,14 +113,14 @@ Internal platform enhancement; no external market analysis required.
 | [Guardrail] Runtime reliability | No regression in Python workflow execution success rates after rollout |
 
 ### Rollout Strategy
-Ship in three sequential phases: backend/runtime consolidation first, then Canvas and CLI/SDK alignment, then MCP SDK server removal and legacy archival. Merge behind short-lived flags only if needed for deployment sequencing within a phase; feature intent is progressive consolidation.
+Ship in three sequential phases: backend/runtime consolidation first, then Studio and CLI/SDK alignment, then MCP SDK server removal and legacy archival. Merge behind short-lived flags only if needed for deployment sequencing within a phase; feature intent is progressive consolidation.
 
 ### Estimated Launch Phases (if applicable)
 
 | Phase | Target | Description |
 |-------|--------|-------------|
 | **Phase 1** | Internal engineering environments | Remove JSON version-creation and runtime paths from backend; add explicit unsupported-format errors for legacy graph payloads |
-| **Phase 2** | Internal engineering environments | Align Canvas (config-only save) and CLI/SDK (remove JSON upload/download, add config-only save) with Python-only composition |
+| **Phase 2** | Internal engineering environments | Align Studio (config-only save) and CLI/SDK (remove JSON upload/download, add config-only save) with Python-only composition |
 | **Phase 3** | All environments | Remove Orcheo MCP SDK server module, archive removed code under `legacy/`, publish updated docs and migration guidance |
 
 ## HYPOTHESIS & RISKS
@@ -128,12 +128,12 @@ Hypothesis: enforcing one composition format (Python LangGraph) will reduce main
 
 Risks:
 - Hard break on existing JSON versions may block affected workflows.
-- Canvas users may perceive reduced functionality when graph version save is removed.
+- Studio users may perceive reduced functionality when graph version save is removed.
 - Removing the Orcheo MCP SDK server may impact untracked internal automation that relies on the SDK MCP composition tools.
 
 Risk mitigation:
 - Emit explicit unsupported-format errors with actionable remediation (re-upload via Python ingestion).
-- Update Canvas UX messaging to clearly indicate config-only behavior.
+- Update Studio UX messaging to clearly indicate config-only behavior.
 - Document Agent Skills replacement path and update internal runbooks.
 
 ## APPENDIX

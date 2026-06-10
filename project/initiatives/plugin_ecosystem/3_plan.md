@@ -138,13 +138,13 @@ Deliver a managed plugin mechanism for nodes, edges, agent tools, triggers, and 
 
 ---
 
-### Milestone 6: Canvas Validation Template
+### Milestone 6: Studio Validation Template
 
 **Description:** Deliver a builder-facing template that uses both new listener plugins in one workflow and validates the shared downstream contract.
 
 #### Task Checklist
 
-- [x] Task 6.1: Add a Canvas template that uses both WeCom and Lark listener plugins in one workflow.
+- [x] Task 6.1: Add a Studio template that uses both WeCom and Lark listener plugins in one workflow.
   - Dependencies: Milestone 4, Milestone 5
 - [x] Task 6.2: Ensure the template compiles into valid listener subscriptions for both plugin-provided platforms.
   - Dependencies: Task 6.1
@@ -165,13 +165,13 @@ Deliver a managed plugin mechanism for nodes, edges, agent tools, triggers, and 
   - Dependencies: Milestone 2, Milestone 3
 - [x] Task 7.2: Remove `sitecustomize` guidance from the current custom extension documentation once the plugin workflow lands.
   - Dependencies: Milestone 1, Milestone 2
-- [x] Task 7.3: Add release checklist items requiring successful WeCom and Lark plugin validation plus the shared Canvas template validation.
+- [x] Task 7.3: Add release checklist items requiring successful WeCom and Lark plugin validation plus the shared Studio template validation.
   - Dependencies: Milestone 4, Milestone 5, Milestone 6
 - [x] Task 7.4: Add operator troubleshooting guidance for `orcheo plugin doctor`, broken-plugin disable flow, and compatibility errors.
   - Dependencies: Milestone 1, Milestone 2
 - [x] Task 7.5: Add operator guidance describing when plugin changes apply silently, when confirmation is required, and when restart or reconcile is recommended.
   - Dependencies: Milestone 1, Milestone 2
-- [x] Task 7.6: Run final acceptance validation for install/update/uninstall flows, impact-based prompts, edge compatibility migration, and the Canvas validation template.
+- [x] Task 7.6: Run final acceptance validation for install/update/uninstall flows, impact-based prompts, edge compatibility migration, and the Studio validation template.
   - Dependencies: Milestone 3, Milestone 4, Milestone 5, Milestone 6
 
 ---
@@ -184,4 +184,4 @@ Deliver a managed plugin mechanism for nodes, edges, agent tools, triggers, and 
 | 2026-03-16 | Codex | Completed Milestone 1 plugin foundations, CLI lifecycle, diagnostics, fixture-plugin coverage, and transactional rebuild semantics |
 | 2026-03-16 | Codex | Completed Milestone 3 edge naming migration tasks (canonical `*Edge` names, legacy aliases, discovery/docs updates, and compatibility tests) |
 | 2026-03-16 | Codex | Completed Milestone 2 runtime loading, external registry expansion, string listener-platform migration, and generation-aware plugin reload coverage |
-| 2026-03-16 | Codex | Completed Milestones 4-7 with WeCom and Lark validation plugins, shared Canvas template coverage, plugin author/operator docs, and release-checklist updates |
+| 2026-03-16 | Codex | Completed Milestones 4-7 with WeCom and Lark validation plugins, shared Studio template coverage, plugin author/operator docs, and release-checklist updates |

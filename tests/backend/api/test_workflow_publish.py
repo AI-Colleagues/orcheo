@@ -51,7 +51,7 @@ def test_publish_workflow_includes_share_url(
 ) -> None:
     monkeypatch.setenv(
         "ORCHEO_STUDIO_URL",
-        "https://orcheo-canvas.ai-colleagues.com",
+        "https://orcheo-studio.ai-colleagues.com",
     )
     bootstrap_token = "publish-share-token"
     monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", bootstrap_token)
@@ -72,7 +72,7 @@ def test_publish_workflow_includes_share_url(
 
     assert response.status_code == 201
     payload = response.json()
-    expected_url = f"https://orcheo-canvas.ai-colleagues.com/chat/{workflow_id}"
+    expected_url = f"https://orcheo-studio.ai-colleagues.com/chat/{workflow_id}"
     assert payload["share_url"] == expected_url
     assert payload["workflow"]["share_url"] == expected_url
 

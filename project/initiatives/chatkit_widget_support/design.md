@@ -24,7 +24,7 @@ This design enables Orcheo workflows to surface ChatKit widgets (Card/ListView r
   - Depends on WorkflowRepository, Vault, and ChatKit store.
 - **ChatKit Store (SQLite/in-memory)**
   - Persists threads, messages, widget items, and attachments; surfaces history pagination.
-- **ChatKit React Client (Canvas/public surfaces)**
+- **ChatKit React Client (Studio/public surfaces)**
   - Renders widget items and forwards widget actions via `widgets.onAction`/`sendAction`.
   - Depends on ChatKit JS SDK and existing header/composer plumbing.
 - **Action Router (new in server)**
@@ -117,12 +117,12 @@ Server hydrates widget payloads from ToolMessages (prefer `artifact["structured_
 
 - **Unit tests:** serialization of WidgetRoot → WidgetItem; action handler input mapping; error handling for invalid widgets.
 - **Integration tests:** end-to-end ChatKit server flow that surfaces widget items (already persisted via ToolMessages) in history; action round-trip producing new items.
-- **Manual QA:** sample `examples/chatkit_widgets` workflow in dev/staging; public and JWT flows; Canvas bubble integration.
+- **Manual QA:** sample `examples/chatkit_widgets` workflow in dev/staging; public and JWT flows; Studio bubble integration.
 
 ## Rollout Plan
 
 1. Phase 1: Dev enablement with sample workflow; validate UI rendering and action handling.
-2. Phase 2: Staging enablement for public page and Canvas bubble; monitor widget error logs.
+2. Phase 2: Staging enablement for public page and Studio bubble; monitor widget error logs.
 3. Phase 3: Production rollout after tests pass; rely on logging and deploy rollback for quick disable.
 
 Logging and size limits guard against regressions; no schema migrations beyond store reuse.

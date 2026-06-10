@@ -9,7 +9,7 @@ from orcheo_sdk.cli.main import app
 
 
 def test_credential_create_and_delete(runner: CliRunner, env: dict[str, str]) -> None:
-    created = {"id": "cred-1", "name": "Canvas", "provider": "api"}
+    created = {"id": "cred-1", "name": "Studio", "provider": "api"}
     with respx.mock(assert_all_called=True) as router:
         router.post("http://api.test/api/credentials").mock(
             return_value=httpx.Response(201, json=created)
@@ -22,7 +22,7 @@ def test_credential_create_and_delete(runner: CliRunner, env: dict[str, str]) ->
             [
                 "credential",
                 "create",
-                "Canvas",
+                "Studio",
                 "--provider",
                 "api",
                 "--secret",
@@ -48,7 +48,7 @@ def test_credential_create_and_delete(runner: CliRunner, env: dict[str, str]) ->
 def test_credential_list_with_workflow_id(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
-    credentials = [{"id": "cred-1", "name": "Canvas", "provider": "api"}]
+    credentials = [{"id": "cred-1", "name": "Studio", "provider": "api"}]
     with respx.mock(assert_all_called=True) as router:
         route = router.get("http://api.test/api/credentials").mock(
             return_value=httpx.Response(200, json=credentials)
@@ -65,7 +65,7 @@ def test_credential_list_with_workflow_id(
 def test_credential_create_with_workflow_id(
     runner: CliRunner, env: dict[str, str]
 ) -> None:
-    created = {"id": "cred-1", "name": "Canvas", "provider": "api"}
+    created = {"id": "cred-1", "name": "Studio", "provider": "api"}
     with respx.mock(assert_all_called=True) as router:
         recorded = router.post("http://api.test/api/credentials").mock(
             return_value=httpx.Response(201, json=created)
@@ -75,7 +75,7 @@ def test_credential_create_with_workflow_id(
             [
                 "credential",
                 "create",
-                "Canvas",
+                "Studio",
                 "--provider",
                 "api",
                 "--secret",
@@ -145,7 +145,7 @@ def test_credential_list_machine_mode(
     runner: CliRunner, machine_env: dict[str, str]
 ) -> None:
     """Machine mode outputs markdown table for credential list."""
-    credentials = [{"id": "cred-1", "name": "Canvas", "provider": "api"}]
+    credentials = [{"id": "cred-1", "name": "Studio", "provider": "api"}]
     with respx.mock(assert_all_called=True) as router:
         router.get("http://api.test/api/credentials").mock(
             return_value=httpx.Response(200, json=credentials)
@@ -159,7 +159,7 @@ def test_credential_create_machine_mode(
     runner: CliRunner, machine_env: dict[str, str]
 ) -> None:
     """Machine mode outputs JSON for credential create."""
-    created = {"id": "cred-1", "name": "Canvas", "provider": "api"}
+    created = {"id": "cred-1", "name": "Studio", "provider": "api"}
     with respx.mock(assert_all_called=True) as router:
         router.post("http://api.test/api/credentials").mock(
             return_value=httpx.Response(201, json=created)
@@ -169,7 +169,7 @@ def test_credential_create_machine_mode(
             [
                 "credential",
                 "create",
-                "Canvas",
+                "Studio",
                 "--provider",
                 "api",
                 "--secret",

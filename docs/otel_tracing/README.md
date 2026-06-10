@@ -1,7 +1,7 @@
 # OpenTelemetry Configuration & Trace Tab Operations
 
 This guide explains how to configure OpenTelemetry (OTel) for Orcheo, deploy a collector,
-and operate the Workflow Trace tab in Canvas. It complements the architectural notes in
+and operate the Workflow Trace tab in Studio. It complements the architectural notes in
 [design.md](../../project/initiatives/otel_tracing/design.md) and the implementation milestones recorded in [plan.md](../../project/initiatives/otel_tracing/plan.md).
 
 ## Runtime configuration
@@ -43,14 +43,14 @@ reconfigured.
 - **PII controls** – Prompts and responses are truncated and redacted automatically, but
   disable tracing (`ORCHEO_TRACING_EXPORTER=none`) in environments where even partial
   prompts are disallowed.
-- **Version skew** – Ensure Canvas and backend deployments are upgraded together. The
+- **Version skew** – Ensure Studio and backend deployments are upgraded together. The
   Trace tab expects the Phase 3 API shape and the realtime payload extensions introduced
   in Phase 2.
 
 ## Trace tab usage
 
-1. Execute a workflow run from Canvas or the CLI.
-2. Select the run in the Execution sidebar; Canvas automatically opens the `Trace` tab
+1. Execute a workflow run from Studio or the CLI.
+2. Select the run in the Execution sidebar; Studio automatically opens the `Trace` tab
    once trace data is available.
 3. Expand nodes in the span tree to inspect prompts, responses, token counts, and
    artifact links. High token usage emits highlighted events using the configured
@@ -170,5 +170,5 @@ otelcol --config otel-collector.yaml
   `ORCHEO_TRACING_PREVIEW_MAX_LENGTH` to retain more characters at the expense of larger
   span payloads.
 
-With the configuration above, Orcheo emits spans to your observability stack and Canvas
+With the configuration above, Orcheo emits spans to your observability stack and Studio
 renders them live in the Trace tab.

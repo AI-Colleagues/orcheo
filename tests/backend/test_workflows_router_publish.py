@@ -116,11 +116,11 @@ _MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 
 def test_publish_response_uses_message_helper() -> None:
     workflow = Workflow(name="Responder")
-    workflow.share_url = "https://canvas.example/chat/wf-1"
+    workflow.share_url = "https://studio.example/chat/wf-1"
     response = workflows._publish_response(workflow, message="ok")
     assert response.workflow is workflow
     assert response.message == "ok"
-    assert response.share_url == "https://canvas.example/chat/wf-1"
+    assert response.share_url == "https://studio.example/chat/wf-1"
 
 
 @pytest.mark.asyncio()

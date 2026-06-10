@@ -53,7 +53,7 @@ Orcheo delivers a unified automation surface where visual designers can assemble
 ### 1.3 Definitions, Acronyms and Abbreviations
 - **AI Node**: A workflow node that encapsulates model prompting, inference, and downstream decision logic.
 - **Credential Vault**: Managed service for storing, rotating, and injecting scoped secrets into runtime executions.
-- **Flow Canvas**: Visual designer for assembling automation graphs without writing code.
+- **Flow Studio**: Visual designer for assembling automation graphs without writing code.
 - **LangGraph**: Underlying orchestration framework that powers code-first workflow graphs.
 - **Node Library**: Curated catalog of reusable workflow nodes, spanning task automation and AI-powered steps.
 - **Run Artifact**: Persisted execution output (logs, prompts, responses, metrics) available for replay and analysis.
@@ -83,13 +83,13 @@ Section 2 details design considerations across stakeholder concerns, viewpoints,
 This SDD adopts viewpoints that map to PRD priorities for dual authoring modes, secure runtime execution, and AI-centric observability. Less critical viewpoints for the initial milestone are documented with current assumptions and deferred work.
 
 #### 2.2.1 Context
-The platform exposes a CLI-first service accessible by SDK users and canvas users. External actors include service providers invoked by workflow nodes, credential issuers, and observability consumers. The primary system boundary wraps API gateway, application services, workflow runtime, data stores, and monitoring plane.
+The platform exposes a CLI-first service accessible by SDK users and Studio users. External actors include service providers invoked by workflow nodes, credential issuers, and observability consumers. The primary system boundary wraps API gateway, application services, workflow runtime, data stores, and monitoring plane.
 
 #### 2.2.2 Composition
-The solution is decomposed into gateway/security edge, application tier (REST & WebSocket APIs), workflow runtime (LangGraph execution, task orchestration), data stores (configuration, runtime history, credentials), and observability services. A frontend canvas consumes backend APIs but is optional for SDK-centric deployments.
+The solution is decomposed into gateway/security edge, application tier (REST & WebSocket APIs), workflow runtime (LangGraph execution, task orchestration), data stores (configuration, runtime history, credentials), and observability services. A Studio frontend consumes backend APIs but is optional for SDK-centric deployments.
 
 #### 2.2.3 Logical
-Logical structure centers on bounded contexts: Workflow Authoring, Workflow Execution, Credential Management, and Observability. SDK and canvas both translate workflows into a normalized graph specification persisted in the Config store. Execution components load graphs, resolve credentials at runtime, and emit artifacts to observability sinks.
+Logical structure centers on bounded contexts: Workflow Authoring, Workflow Execution, Credential Management, and Observability. SDK and Studio both translate workflows into a normalized graph specification persisted in the Config store. Execution components load graphs, resolve credentials at runtime, and emit artifacts to observability sinks.
 
 #### 2.2.4 Dependency
 Core dependencies include LangGraph runtime, message broker for asynchronous work distribution, Celery workers for task execution, and backing databases (PostgreSQL for configuration/runtime, Redis for caching). External integrations rely on service provider APIs reached through hardened connectors governed by the credential vault.
@@ -104,10 +104,10 @@ Key patterns include event-driven orchestration (message broker + workers), circ
 External interfaces comprise REST APIs for workflow management, credential administration, and execution control; WebSockets for live trace streaming; and SDK abstractions that wrap these endpoints in typed Python clients. Key backend entry points include `POST/GET/PUT/DELETE /workflows` for CRUD operations, a `POST /workflows/import-python` endpoint that accepts LangGraph-compatible Python scripts and registers their graph definitions, `POST /workflows/{id}/execute` plus `GET/DELETE /executions/{id}` for run coordination, and WebSocket streaming on `/ws/executions/{id}` for live telemetry. The SDK now layers an `HttpWorkflowExecutor` helper on top of the REST API, using `httpx` with exponential backoff, retryable status detection, and automatic bearer token headers to simplify triggering runs from code-first clients. Integrations expose connector interfaces that standardize authentication handshakes and payload schemas.
 
 #### 2.2.8 Structure
-The system enforces clear separation between presentation (canvas, SDK CLI), application services (FastAPI endpoints), and execution runtime. Shared libraries define graph schemas and node contracts, ensuring parity between visual and code-based authoring. Feature flags gate beta functionality per rollout phase.
+The system enforces clear separation between presentation (Studio, SDK CLI), application services (FastAPI endpoints), and execution runtime. Shared libraries define graph schemas and node contracts, ensuring parity between visual and code-based authoring. Feature flags gate beta functionality per rollout phase.
 
 #### 2.2.9 Interaction
-Typical interactions include: (1) authoring a workflow via canvas or SDK, where SDK authors can push LangGraph Python scripts directly to the backend importer before persistence; (2) triggering a run through webhook or schedule; (3) runtime execution dispatching tasks through brokers/workers; (4) observability plane streaming updates to clients. Failure scenarios invoke retry handlers, circuit breakers, and dead-letter queues.
+Typical interactions include: (1) authoring a workflow via workflow page or SDK, where SDK authors can push LangGraph Python scripts directly to the backend importer before persistence; (2) triggering a run through webhook or schedule; (3) runtime execution dispatching tasks through brokers/workers; (4) observability plane streaming updates to clients. Failure scenarios invoke retry handlers, circuit breakers, and dead-letter queues.
 
 #### 2.2.10 State dynamics
 Workflow runs transition through states Draft → Validated → Scheduled → Running → Succeeded/Failed → Archived. Credential secrets track Issued → Active → Rotating → Revoked lifecycle. Node executions surface intermediate states (Pending, Executing, Retrying) to support replay and audit requirements.
@@ -150,7 +150,7 @@ graph LR
     end
 
     subgraph Orcheo
-        Canvas[Visual Canvas]
+        Studio[Visual Studio]
         SDK[Python SDK]
         TriggerSvc[Trigger Service]
         Runtime[LangGraph Runtime]
@@ -164,13 +164,13 @@ graph LR
         Schedules[Cron/Webhook Sources]
     end
 
-    Analyst --> Canvas
+    Analyst --> Studio
     Developer --> SDK
     DataAI --> SDK
     DataAI --> Observability
     Integrator --> TriggerSvc
     Operator --> Observability
-    Canvas --> Runtime
+    Studio --> Runtime
     SDK --> Runtime
     TriggerSvc --> Runtime
     Runtime --> SaaS
@@ -180,7 +180,7 @@ graph LR
     Runtime --> Vault
 ```
 
-- Business-facing analysts depend on the visual canvas for low-code authoring, while developers and data & AI practitioners extend workflows through the SDK against the same runtime contracts and lean on observability for reproducibility.
+- Business-facing analysts depend on the workflow view for low-code authoring, while developers and data & AI practitioners extend workflows through the SDK against the same runtime contracts and lean on observability for reproducibility.
 - Integration specialists configure trigger policies that bridge scheduling systems with the LangGraph runtime, and operations teams rely on observability APIs for live telemetry.
 - External systems comprise third-party SaaS APIs, LLM providers, and event sources that drive triggers; the credential vault mediates secure access for runtime executions.
 
@@ -303,20 +303,20 @@ Key design notes:
 - Observability plane subscribes to runtime events, enabling the execution viewer and alerting commitments in the PRD.
 
 #### 2.3.2 Authoring & Runtime View
-The front-end ecosystem extends the backend through a modular canvas, ensuring parity with SDK-authored workflows while preserving runtime governance.
+The front-end ecosystem extends the backend through a modular Studio, ensuring parity with SDK-authored workflows while preserving runtime governance.
 
 ```mermaid
 graph TD
     subgraph "User Interface Layer"
         AuthUI[Authentication UI]
         Dashboard[Dashboard]
-        CanvasUI[Workflow Canvas UI]
+        StudioUI[Workflow Studio UI]
         SettingsUI[Settings UI]
     end
 
     subgraph "Core Modules"
         AuthModule[Authentication Module]
-        CanvasModule[Workflow Canvas]
+        StudioModule[Workflow Studio]
         NodeLibraryModule[Node Library]
         TracesModule[Traces & Monitoring]
         ConfigModule[Configuration Module]
@@ -349,13 +349,13 @@ graph TD
     %% UI to Module connections
     AuthUI --> AuthModule
     Dashboard --> TracesModule
-    CanvasUI --> CanvasModule
-    CanvasUI --> NodeLibraryModule
+    StudioUI --> StudioModule
+    StudioUI --> NodeLibraryModule
     SettingsUI --> ConfigModule
 
     %% Module to Node/Graph Management
-    CanvasModule --> NodeEditor
-    CanvasModule --> GraphConfig
+    StudioModule --> NodeEditor
+    StudioModule --> GraphConfig
     NodeLibraryModule --> NodeRegistry
     NodeEditor --> AgenticTools
     NodeEditor --> SubgraphConfig
@@ -363,7 +363,7 @@ graph TD
 
     %% API Communication connections
     AuthModule --> AuthService
-    CanvasModule --> WorkflowService
+    StudioModule --> WorkflowService
     NodeLibraryModule --> NodeService
     TracesModule --> WebSocketClient
     AuthService --> APIClient
@@ -376,7 +376,7 @@ graph TD
     GraphConfig --> ValidationService
     APIClient --> CacheService
     TracesModule --> NotificationService
-    CanvasModule --> EventBus
+    StudioModule --> EventBus
     AuthModule --> ThemeService
 
     %% Backend connection
@@ -391,8 +391,8 @@ graph TD
     classDef utilityNodes fill:#fce4ec,stroke:#c2185b,stroke-width:2px
     classDef backendNodes fill:#f5f5f5,stroke:#616161,stroke-width:2px,stroke-dasharray: 5 5
 
-    class AuthUI,Dashboard,CanvasUI,SettingsUI uiNodes
-    class AuthModule,CanvasModule,NodeLibraryModule,TracesModule,ConfigModule coreNodes
+    class AuthUI,Dashboard,StudioUI,SettingsUI uiNodes
+    class AuthModule,StudioModule,NodeLibraryModule,TracesModule,ConfigModule coreNodes
     class NodeEditor,AgenticTools,SubgraphConfig,GraphConfig,NodeRegistry nodeNodes
     class APIClient,WebSocketClient,AuthService,WorkflowService,NodeService apiNodes
     class ValidationService,CacheService,EventBus,NotificationService,ThemeService utilityNodes
@@ -400,7 +400,7 @@ graph TD
 ```
 
 Key design notes:
-- Canvas and SDK share schema validation services to maintain a single source of truth for workflow structures.
+- Studio and SDK share schema validation services to maintain a single source of truth for workflow structures.
 - WebSocket streaming backs the execution viewer, enabling AI practitioners to trace prompt/response cycles per node.
 - Node registry and agentic tools support extensibility goals, enabling contribution of new nodes without UI rewrites.
 
@@ -413,7 +413,7 @@ Key design notes:
 
 #### 2.3.4 Risk & Mitigation View
 - **LangGraph complexity**: Progressive rollout with reference workflows and developer documentation; spike time allocated for complex agentic nodes.
-- **Canvas performance**: Early load testing of large graphs, virtualized rendering, and incremental persistence to avoid data loss.
+- **Studio performance**: Early load testing of large graphs, virtualized rendering, and incremental persistence to avoid data loss.
 - **Credential security**: Zero-trust access controls, audit logging for secret access, periodic rotation enforced via platform policies.
 - **Adoption hurdles**: Template library and guided onboarding for business users; SDK examples and CI hooks for developers.
 

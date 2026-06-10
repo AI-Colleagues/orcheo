@@ -35,4 +35,4 @@ This note covers production-oriented deployment guidance for the private listene
 
 - Single-platform templates validate the direct path `listener -> AgentNode -> provider send node`.
 - The shared template validates that Telegram, Discord, and QQ listeners can feed one `AgentNode` while the reply is routed back through `MessageTelegramNode`, `MessageDiscordNode`, or `MessageQQNode` according to `inputs.platform`.
-- Revalidate and bump template metadata when provider APIs or reply-node contracts change; Canvas now blocks stale private-listener templates from being instantiated until that metadata is updated.
+- Revalidate and bump template metadata when provider APIs or reply-node contracts change; Studio now blocks stale private-listener templates from being instantiated until that metadata is updated.

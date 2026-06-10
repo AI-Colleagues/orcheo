@@ -22,7 +22,7 @@ These commands ensure Ruff, MyPy, and pytest with coverage run in CI as well.
 
 ## ChatKit integration
 
-The backend now exposes helper endpoints for the Canvas ChatKit experience:
+The backend now exposes helper endpoints for the Studio ChatKit experience:
 
 - `POST /api/chatkit/session` — returns a ChatKit client secret.
 - `POST /api/chatkit/workflows/{workflow_id}/trigger` — dispatches a workflow run.

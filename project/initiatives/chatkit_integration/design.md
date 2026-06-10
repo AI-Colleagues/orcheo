@@ -1,15 +1,15 @@
 # ChatKit Integration Design
 
 ## Overview
-This document describes the system design for integrating ChatKit into Orcheo across two client surfaces (public page, Canvas chat bubble) and a unified backend endpoint. The design targets incremental delivery while minimizing duplicated UI logic.
+This document describes the system design for integrating ChatKit into Orcheo across two client surfaces (public page, Studio chat bubble) and a unified backend endpoint. The design targets incremental delivery while minimizing duplicated UI logic.
 
 ## Components
-- **Canvas Frontend (TypeScript/React)**
+- **Studio Frontend (TypeScript/React)**
   - Adds floating chat bubble, modal container, and shared ChatKit widget.
-  - Responsible for requesting JWTs from Canvas backend and passing them to ChatKit client.
-- **Public Chat Frontend (Canvas app shell)**
-  - Static route served under `${canvas_base_url}/chat/:workflowId`; the page keeps all state in-memory so refreshes clear any cached data.
-  - Loads the same ChatKit widget bundle used by Canvas, initializing with read-only workflow metadata (name only) plus the workflow identifier.
+  - Responsible for requesting JWTs from Studio backend and passing them to ChatKit client.
+- **Public Chat Frontend (Studio app shell)**
+  - Static route served under `${studio_base_url}/chat/:workflowId`; the page keeps all state in-memory so refreshes clear any cached data.
+  - Loads the same ChatKit widget bundle used by Studio, initializing with read-only workflow metadata (name only) plus the workflow identifier.
   - Public access is controlled exclusively via publish/unpublish plus the `require_login` flag—no shared secrets are distributed.
   - If the workflow was published with `require_login=true`, prompts the visitor to complete OAuth (e.g., Google) before instantiating the widget.
 - **CLI & MCP Publishing UX (orcheo CLI + orcheo-mcp)**
@@ -17,23 +17,23 @@ This document describes the system design for integrating ChatKit into Orcheo ac
   - Shares the same command registry with the MCP server so `orcheo-mcp` exposes `workflows.publish`, `workflows.unpublish`, and enriched `list_workflows` / `show_workflow` data for assistants like Claude/Codex.
   - Persists the last-published workflow state locally to show status in `orcheo workflow list`, and returns identical metadata through MCP responses (including `is_public`, `require_login`, and share link).
   - Surfaces errors (e.g., missing permissions, invalid workflow) inline with actionable remediation hints while MCP propagates the same errors as structured tool failures.
-  - Canvas-side publish UX parity is explicitly deferred until after the CLI/MCP flows ship; these two surfaces act as the authoritative entry points for initial rollout.
-- **Canvas Backend (FastAPI)**
+  - Studio-side publish UX parity is explicitly deferred until after the CLI/MCP flows ship; these two surfaces act as the authoritative entry points for initial rollout.
+- **Studio Backend (FastAPI)**
   - Provides publish/unpublish APIs.
   - Issues workflow-scoped JWTs for authenticated editors.
 - **OAuth/Auth Provider**
-  - Reuses existing Canvas OAuth clients; issues short-lived session cookies for public visitors when login is required.
+  - Reuses existing Studio OAuth clients; issues short-lived session cookies for public visitors when login is required.
 - **ChatKit Backend (FastAPI existing)**
   - Single `/api/chatkit` endpoint supporting both auth modes.
   - Orchestrates workflow invocation, handles streaming responses, and enforces rate limits by reusing the shared middleware in `apps/backend/src/orcheo_backend/app/authentication/rate_limit.py`.
 - **Persistence**
   - Workflow table gains `is_public`, `published_at`, `published_by`, and `require_login`.
   - JWT signing keys stored in secure config (through environment variable `ORCHEO_AUTH_JWT_SECRET`).
-  - ChatKit transcripts (public or Canvas) persist via existing session store with default infinite retention unless a future policy sets TTLs.
+  - ChatKit transcripts (public or Studio) persist via existing session store with default infinite retention unless a future policy sets TTLs.
 
 ## Request Flows
-### 1. Canvas Chat Bubble (authenticated)
-1. User opens workflow in Canvas editor.
+### 1. Studio Chat Bubble (authenticated)
+1. User opens workflow in Studio editor.
 2. Clicking chat bubble triggers `/api/workflows/{id}/chatkit/session` call.
 3. Backend validates user permissions and issues JWT: `{sub, workflow_id, permissions, exp}`.
 4. Modal instantiates ChatKit widget with `authMode = "jwt"` and uses `Authorization: Bearer <token>` on websocket/HTTP.
@@ -42,7 +42,7 @@ This document describes the system design for integrating ChatKit into Orcheo ac
 
 ### 2. Public Chat Page (open access + optional OAuth)
 1. Owner publishes workflow and shares the URL `.../chat/{workflowId}`; no secrets are embedded in the link.
-2. Visitor loads page; Canvas app fetches workflow metadata (name only) with workflowId and determines whether login is required.
+2. Visitor loads page; Studio app fetches workflow metadata (name only) with workflowId and determines whether login is required.
 3. If `require_login=true` and no session cookie exists, visitor is sent through OAuth (state param ties back to the workflowId and return URL). After OAuth success, session cookie is set.
 4. Widget initializes with `authMode = "publish"` and issues requests containing `{workflow_id}` while relying on the browser's cookies for OAuth, when required.
 5. ChatKit backend confirms the workflow is still public and, if `require_login=true`, validates the OAuth subject before executing the workflow.
@@ -88,14 +88,14 @@ POST   /api/workflows/{id}/publish/revoke  -> unpublish
 ```
 
 ## Frontend Architecture
-- Introduce shared ChatKit client module under `apps/canvas/src/features/chatkit/`.
+- Introduce shared ChatKit client module under `apps/studio/src/features/chatkit/`.
 - Modal component reads workflow context, lazy-loads widget bundle to keep editor light.
 - Public page imports the same widget but passes `readOnly: true`, public auth mode (no tokens), and hides editor-specific controls.
 - Use React context or Zustand store for chat state; sessions persist via ChatKit backend so the widget only needs in-memory cache for current display.
 
 ## Security Considerations
 - No publish tokens are persisted or distributed; revocation relies on unpublish or OAuth requirements.
-- Strict CORS rules on backend to only allow Canvas/public domains.
+- Strict CORS rules on backend to only allow Studio/public domains.
 - JWT secret rotation via env var; default signing key comes from `ORCHEO_AUTH_JWT_SECRET` and should be rotated regularly (kid header for seamless rollover).
 - OAuth login flow uses PKCE + state tokens to prevent CSRF; tokens stored in HttpOnly cookies.
 - Instrument abuse monitoring: log auth failures (without tokens), emit metrics by workflow/OAuth user/IP, and feed dashboards owned by Platform Admin + SRE on-call; active CAPTCHA or challenge flows remain future work beyond this phase.
@@ -108,15 +108,15 @@ POST   /api/workflows/{id}/publish/revoke  -> unpublish
   - Publish workflow -> share link -> chat works unauthenticated.
   - Publish workflow with login required -> OAuth prompt -> chat works after auth.
   - Unpublish -> public link fails with 403.
-  - Canvas modal respects workflow switch and token expiry.
+  - Studio modal respects workflow switch and token expiry.
   - Transcript persistence verified by reloading page and pulling session history via backend tools.
 
 ## Rollout Plan
 1. Implement backend publish metadata + APIs behind flag.
 2. Deploy public page but keep publish flag disabled until backend load testing complete.
-3. Ship Canvas chat bubble + JWT flow gated by `chatkit_canvas_enabled` flag for internal users.
+3. Ship Studio chat bubble + JWT flow gated by `chatkit_studio_enabled` flag for internal users.
 4. Gradually enable publish feature per workspace and monitor metrics.
 
 ## Open Issues
-- Determine hosting path for public assets when canvas app is deployed separately.
-- Canvas publishing UX should mirror the CLI/MCP flows (same prompts/options) as follow-up work once these implementations land, to keep user expectations aligned across all surfaces.
+- Determine hosting path for public assets when Studio app is deployed separately.
+- Studio publishing UX should mirror the CLI/MCP flows (same prompts/options) as follow-up work once these implementations land, to keep user expectations aligned across all surfaces.

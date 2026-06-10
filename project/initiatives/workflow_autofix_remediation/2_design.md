@@ -44,7 +44,7 @@ The central safety boundary is ownership. Automatic remediation can create new w
   - Uses the existing script ingestion/build path to validate edited workflow source.
   - Creates a new workflow version only after validation succeeds.
 
-- **Canvas Remediation Views (P1)**
+- **Studio Remediation Views (P1)**
   - Surfaces remediation status, classification, created version links, and developer notes on failed run and workflow pages.
 
 ## Request Flows
@@ -291,7 +291,7 @@ Human review:
 
 1. Phase 1: Add persistence, redaction, candidate capture, and dry-run note-only agent invocation behind a disabled default flag.
 2. Phase 2: Enable workflow-version creation for selected self-hosted workflows with manual review.
-3. Phase 3: Add Canvas surfaces, dismissal controls, and optional retry-after-fix.
+3. Phase 3: Add Studio surfaces, dismissal controls, and optional retry-after-fix.
 
 Backwards compatibility notes:
 - Existing workflow run status semantics remain unchanged.

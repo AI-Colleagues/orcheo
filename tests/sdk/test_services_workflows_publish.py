@@ -34,9 +34,9 @@ def test_build_share_url_prefers_public_base_url() -> None:
     url = publish_module._build_share_url(
         "http://host/api",
         "wf-789",
-        public_base_url="https://canvas.test",
+        public_base_url="https://studio.test",
     )
-    assert url == "https://canvas.test/chat/wf-789"
+    assert url == "https://studio.test/chat/wf-789"
 
 
 def test_enrich_workflow_preserves_share_url_when_public() -> None:
@@ -87,10 +87,10 @@ def test_publish_workflow_data_prefers_explicit_public_base() -> None:
         "wf-2",
         require_login=False,
         actor="cli",
-        public_base_url="https://canvas.example",
+        public_base_url="https://studio.example",
     )
 
-    assert result["share_url"] == "https://canvas.example/chat/wf-2"
+    assert result["share_url"] == "https://studio.example/chat/wf-2"
 
 
 def test_publish_workflow_data_uses_server_share_url_when_available() -> None:
@@ -99,9 +99,9 @@ def test_publish_workflow_data_uses_server_share_url_when_available() -> None:
             "id": "wf-10",
             "is_public": True,
             "require_login": False,
-            "share_url": "https://canvas.example/chat/wf-10",
+            "share_url": "https://studio.example/chat/wf-10",
         },
-        "share_url": "https://canvas.example/chat/wf-10",
+        "share_url": "https://studio.example/chat/wf-10",
         "message": "Published",
     }
     client = DummyClient(base_url="http://api.example.com/api", response=payload)
@@ -113,8 +113,8 @@ def test_publish_workflow_data_uses_server_share_url_when_available() -> None:
         actor="cli",
     )
 
-    assert result["share_url"] == "https://canvas.example/chat/wf-10"
-    assert result["workflow"]["share_url"] == "https://canvas.example/chat/wf-10"
+    assert result["share_url"] == "https://studio.example/chat/wf-10"
+    assert result["workflow"]["share_url"] == "https://studio.example/chat/wf-10"
 
 
 def test_unpublish_workflow_returns_enriched_workflow() -> None:
@@ -149,9 +149,9 @@ def test_enrich_workflow_publish_metadata_uses_public_override() -> None:
         DummyClient(
             base_url="http://api.test/api",
             response={},
-            public_base_url="https://canvas.example",
+            public_base_url="https://studio.example",
         ),
         workflow,
     )
 
-    assert enriched["share_url"] == "https://canvas.example/chat/wf-override"
+    assert enriched["share_url"] == "https://studio.example/chat/wf-override"

@@ -9,7 +9,7 @@ from orcheo.models import WorkflowDraftAccess
 from orcheo_backend.app.authentication import RequestContext
 from orcheo_backend.app.repository.errors import WorkflowNotFoundError
 from orcheo_backend.app.routers import workflows as workflow_router
-from orcheo_backend.app.routers.workflows import get_workflow_canvas
+from orcheo_backend.app.routers.workflows import get_workflow_page
 
 
 @pytest.mark.parametrize(
@@ -91,11 +91,11 @@ _MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
 
 
 @pytest.mark.asyncio()
-async def test_get_workflow_canvas_returns_not_found_when_missing() -> None:
+async def test_get_workflow_page_returns_not_found_when_missing() -> None:
     repository = _MissingWorkflowRepository()
 
     with pytest.raises(HTTPException) as exc_info:
-        await get_workflow_canvas("canvas-flow", repository, _MOCK_WORKSPACE)
+        await get_workflow_page("studio-flow", repository, _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "Workflow not found"

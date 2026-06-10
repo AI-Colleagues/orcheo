@@ -431,7 +431,7 @@ def test_run_install_flow_forced_mode(monkeypatch: pytest.MonkeyPatch) -> None:
         public_host=None,
         publish_local_ports=True,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=False,
     )
@@ -501,7 +501,7 @@ def test_run_install_flow_parses_modes(monkeypatch: pytest.MonkeyPatch) -> None:
         public_host=None,
         publish_local_ports=True,
         backend_upstreams="backend:2025",
-        canvas_upstream="canvas:2026",
+        studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=False,
     )

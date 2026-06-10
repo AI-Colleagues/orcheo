@@ -1,6 +1,6 @@
 """Developer tooling utilities for Orcheo."""
 
-from orcheo.tooling.commands import canvas_lint, dev_server, format_code, lint, test
+from orcheo.tooling.commands import dev_server, format_code, lint, studio_lint, test
 from orcheo.tooling.env import seed_env_file
 
 
@@ -10,5 +10,5 @@ __all__ = [
     "lint",
     "format_code",
     "test",
-    "canvas_lint",
+    "studio_lint",
 ]

@@ -31,7 +31,7 @@ with consistent rate-limiting and error handling.
      flows.
 
 ## Milestone 1 – CLI and MCP publish UX
-_Canvas-side publish surfaces remain future work; this milestone delivers the CLI flows plus matching MCP tools so we can unblock external testing and AI-assistant workflows before Canvas parity ships._
+_Studio-side publish surfaces remain future work; this milestone delivers the CLI flows plus matching MCP tools so we can unblock external testing and AI-assistant workflows before Studio parity ships._
 - [x] **Publish command**
   - [x] Implement `orcheo workflow publish <workflow_id>` with a `--require-login` option (default off), confirmation prompts, and summary output showing the share URL once.
   - [x] Handle errors (missing workflow, permission denied) with actionable hints and non-zero exit codes.
@@ -45,7 +45,7 @@ _Canvas-side publish surfaces remain future work; this milestone delivers the CL
 
 ## Milestone 2 – Public chat page ([reference template](https://github.com/openai/openai-chatkit-advanced-samples/tree/main/frontend))
 - [x] **Route + bootstrapping**
-  - [x] Add `${canvas_base_url}/chat/:workflowId` page; sessions should open automatically once metadata loads (no publish tokens required).
+  - [x] Add `${studio_base_url}/chat/:workflowId` page; sessions should open automatically once metadata loads (no publish tokens required).
   - [x] Fetch workflow metadata to display the workflow name only (no description).
   - [x] Initialize shared ChatKit widget with public auth mode and optionally prompt for OAuth login before mounting when `require_login=true`.
 - [x] **Hardening & UX**
@@ -53,25 +53,25 @@ _Canvas-side publish surfaces remain future work; this milestone delivers the CL
   - [x] Add basic rate-limit feedback and loading skeletons; CAPTCHA defenses will be tracked as follow-up work.
   - [x] Ensure OAuth sessions use secure HttpOnly cookies and display clear login prompts when required.
 
-## Milestone 3 – Canvas chat bubble
+## Milestone 3 – Studio chat bubble
 - [x] **JWT session issuance**
   - [x] Add `POST /api/workflows/{id}/chatkit/session` to return 5-min JWTs tied to workflow + user.
   - [x] Cover with unit tests ensuring permission checks.
 - [x] **UI components**
-  - [x] Create floating FAB + modal in `apps/canvas/src` that lazy-loads the ChatKit widget.
+  - [x] Create floating FAB + modal in `apps/studio/src` that lazy-loads the ChatKit widget.
   - [x] Integrate token refresh logic, workflow switch handling, loading/error states.
   - [x] Add telemetry for open/close events and request failures.
 - [x] **Shared widget refactor**
   - [x] Move existing ChatKit client logic into a reusable module (`features/chatkit`).
-  - [x] Deduplicate code paths so Canvas modal and public page import the same component.
+  - [x] Deduplicate code paths so Studio modal and public page import the same component.
 
 ## Milestone 4 – QA, docs, rollout
 - [x] **Testing matrix**
   - [x] Expand backend + frontend test suites (unit + integration) covering both auth modes.
   - [x] Document manual QA checklist referenced in requirements success metrics, including OAuth-required flows and transcript persistence checks.
 - [x] **Docs & enablement**
-  - [x] Update product docs/tutorials explaining how to publish, share links, and use Canvas bubble.
-    - [x] Add Canvas chat bubble integration guide (`../../../docs/chatkit_integration/canvas_chat_bubble_guide.md`).
+  - [x] Update product docs/tutorials explaining how to publish, share links, and use Studio bubble.
+    - [x] Add Studio chat bubble integration guide (`../../../docs/chatkit_integration/studio_chat_bubble_guide.md`).
     - [x] Add workflow publishing guide for ChatKit UI (`../../../docs/chatkit_integration/workflow_publish_guide.md`).
-  - [x] Ship feature flags (`chatkit_canvas_enabled`, `chatkit_publish_enabled`) and rollout plan.
+  - [x] Ship feature flags (`chatkit_studio_enabled`, `chatkit_publish_enabled`) and rollout plan.
   - [x] Monitor logs/metrics post-deploy and prepare rollback steps.

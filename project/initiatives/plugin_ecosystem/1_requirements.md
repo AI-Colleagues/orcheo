@@ -76,14 +76,14 @@ Goals:
 - Rename core edges with an `Edge` suffix while preserving backward compatibility.
 - Validate the listener plugin contract with a WeCom long-connection listener plugin and a Lark listener plugin.
 - Make successful WeCom and Lark listener-plugin operation part of feature acceptance.
-- Deliver a Canvas template that uses both the WeCom and Lark listener plugins in one workflow so the shared listener contract is validated in a builder-facing artifact.
+- Deliver a Studio template that uses both the WeCom and Lark listener plugins in one workflow so the shared listener contract is validated in a builder-facing artifact.
 
 Non-goals:
 
 - Building a public plugin marketplace in v1.
 - Sandboxing untrusted plugin code beyond process-level and dependency-level controls already used by Orcheo deployments.
 - Supporting remote SaaS-style plugin installation into a backend the operator does not control.
-- Defining a TypeScript or Canvas runtime plugin API in the first release.
+- Defining a TypeScript or Studio runtime plugin API in the first release.
 - Full hot-reload across every plugin surface in v1. Only targeted, generation-aware activation for hot-reloadable node, edge, and agent-tool changes is in scope; trigger and listener changes still require restart or reconcile semantics.
 
 ## PRODUCT DEFINITION
@@ -135,7 +135,7 @@ Non-goals:
 - Replace the current listener platform hard-coding with a listener-plugin registration path so external packages can introduce new platforms.
 - Deliver a WeCom listener plugin that uses the plugin contract and exercises long-connection lifecycle, credential handling, event normalization, and health reporting.
 - Deliver a Lark listener plugin that uses the plugin contract and validates the same interface from a second external integration.
-- Deliver a Canvas template that wires WeCom and Lark listeners into one workflow and proves they can share downstream logic.
+- Deliver a Studio template that wires WeCom and Lark listeners into one workflow and proves they can share downstream logic.
 - Make WeCom and Lark listener plugins part of the acceptance test suite and release checklist.
 
 **P1 (nice to have)**
@@ -154,7 +154,7 @@ See [2_design.md](2_design.md) for the plugin package contract, runtime loading 
 
 - **Backend/runtime:** Plugin discovery, compatibility checks, trigger/listener loading, and startup behavior.
 - **SDK/CLI:** Plugin lifecycle commands, lock state, and diagnostics.
-- **Canvas/catalog:** Component discovery must reflect plugin-provided nodes, edges, tools, triggers, and listeners.
+- **Studio/catalog:** Component discovery must reflect plugin-provided nodes, edges, tools, triggers, and listeners.
 - **Operations:** New installation, upgrade, rollback, and troubleshooting flows.
 
 ## TECHNICAL CONSIDERATIONS
@@ -202,7 +202,7 @@ Not applicable; this is an internal platform and ecosystem capability.
 |---|---|
 | [Primary] Plugin lifecycle success rate | 95%+ successful install/update/uninstall flows in automated test environments and internal staging |
 | [Primary] External listener validation | WeCom and Lark listener plugins install and dispatch successfully through the plugin contract |
-| [Primary] Canvas validation artifact | A Canvas template using both WeCom and Lark listeners imports and runs against the shared listener contract |
+| [Primary] Studio validation artifact | A Studio template using both WeCom and Lark listeners imports and runs against the shared listener contract |
 | [Guardrail] Impact classification accuracy | CLI impact summaries correctly distinguish silent hot-reloadable changes from changes that require maintainer confirmation or restart/reconcile |
 | [Guardrail] Startup resilience | A single broken plugin must not crash unrelated core startup paths |
 | [Guardrail] Edge compatibility | Existing workflows using legacy edge names continue to load after edge renaming |
@@ -249,6 +249,6 @@ Not applicable. This is a platform capability with acceptance driven by integrat
 - Installed plugin components appear in catalog/discovery flows such as `orcheo node list` and `orcheo edge list`.
 - WeCom and Lark listener plugins are installed and managed only through the plugin CLI flow.
 - WeCom and Lark listener plugins both dispatch listener events end to end through the shared plugin interface.
-- A Canvas template using both WeCom and Lark listeners imports cleanly and validates the shared downstream workflow contract.
+- A Studio template using both WeCom and Lark listeners imports cleanly and validates the shared downstream workflow contract.
 - Legacy edge names continue to work after the `Edge` suffix migration.
 - The plugin workflow is documented as the supported extension path once the feature ships.

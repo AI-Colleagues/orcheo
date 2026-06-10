@@ -37,7 +37,7 @@ Reduce workflow runtime latency, resource overhead, and operational complexity b
 | Self-hosted operator | Opt into unsafe workflow flexibility | Local/private deployments can keep custom/plugin/Python workflows when tenant isolation is not required | P0 | A documented explicit setting enables unsafe arbitrary-code workflows outside production, with clear warnings |
 | Workflow author | Submit workflow definitions without running code on the server | Ingestion is safe and deterministic | P0 | Ingestion accepts declarative graph payloads and does not execute Python scripts, import modules, or call entrypoints |
 | Candidate catalog user | Browse candidates without server-side execution of remote Python | The catalog remains safe after sandbox removal | P0 | Candidate previews are generated from declarative manifests/frontmatter or omitted; remote candidate Python is never executed for preview enrichment |
-| Canvas/SDK user | Request Mermaid previews when needed | Ingestion does not do extra rendering work | P1 | Mermaid is generated from stored declarative graph summaries on read/request, not required in ingestion output |
+| Studio/SDK user | Request Mermaid previews when needed | Ingestion does not do extra rendering work | P1 | Mermaid is generated from stored declarative graph summaries on read/request, not required in ingestion output |
 
 ### Context, Problems, Opportunities
 Orcheo currently uses gVisor workspace containers to isolate three risky surfaces: external CLI agents, workflow ingestion that executes Python scripts, and workflow execution that rebuilds graphs from stored Python source. This design provides a real security boundary, but adds operational burden, image build complexity, Docker socket handling, network policy infrastructure, warm-pool management, memory overhead, and latency.
@@ -46,7 +46,7 @@ The opportunity is to remove the need for sandbox containers by changing the tru
 
 ### Product goals and Non-goals
 Goals:
-- Remove all external/CLI-agent support from active runtime, worker, API, SDK, Canvas, tests, docs, and container images.
+- Remove all external/CLI-agent support from active runtime, worker, API, SDK, Studio, tests, docs, and container images.
 - Remove all gVisor/container sandbox machinery from active production runtime.
 - Stop executing workflow Python during ingestion.
 - Enforce a trusted declarative workflow policy at both ingestion and execution.
@@ -65,7 +65,7 @@ Non-goals:
 ### Requirements
 - **P0: Remove external/CLI-agent support**
   - Remove `ClaudeCodeNode`, `CodexNode`, `GeminiNode`, `ExternalAgentNode`, and legacy duplicate external-agent node surfaces from active imports and registry registration.
-  - Remove external-agent runtime managers, auth file handling, login/status worker flows, provider models, and Canvas/API surfaces.
+  - Remove external-agent runtime managers, auth file handling, login/status worker flows, provider models, and Studio/API surfaces.
   - Remove CLI-agent installs from the workspace sandbox image path as the image/runtime is retired.
   - Remove or replace workflow remediation/autofix behavior that depends on CLI agents.
 
@@ -103,7 +103,7 @@ Non-goals:
 
 - **P1: Mermaid on demand**
   - Mermaid is not required in ingestion output.
-  - Backend/SDK/Canvas may request or compute Mermaid from stored declarative graph summaries when rendering a version or candidate preview.
+  - Backend/SDK/Studio may request or compute Mermaid from stored declarative graph summaries when rendering a version or candidate preview.
   - Cached Mermaid is optional and must be treated as derived data.
 
 - **P1: Import scanning as advisory defense-in-depth**
@@ -116,7 +116,7 @@ See `project/initiatives/containerless_trusted_workflows/2_design.md`.
 ### Other Teams Impacted
 - **Backend/Worker:** Execution path changes from script rebuild plus optional sandbox dispatch to declarative graph validation/build/run.
 - **SDK/CLI:** Upload format changes from Python script-first to manifest/declarative graph-first; optional local conversion helpers may remain.
-- **Canvas:** Template and candidate flows must submit/read declarative graph manifests and request Mermaid lazily.
+- **Studio:** Template and candidate flows must submit/read declarative graph manifests and request Mermaid lazily.
 - **Deployment:** Production stack removes sandbox services and enforces trusted-workflow mode.
 - **Docs/Examples:** All examples using CLI agents, sandbox setup, or production Python-source ingestion must be rewritten or removed.
 

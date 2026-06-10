@@ -20,7 +20,7 @@ on:
       - 'backend-v*'
       - 'sdk-v*'
       - 'agentensor-v*'
-      - 'canvas-v*'
+      - 'studio-v*'
       - 'stack-v*'
   pull_request:
     branches:
@@ -203,7 +203,7 @@ jobs:
     outputs:
       version: ${{ steps.meta.outputs.version }}
       stack_repo: ${{ steps.meta.outputs.stack_repo }}
-      canvas_repo: ${{ steps.meta.outputs.canvas_repo }}
+      studio_repo: ${{ steps.meta.outputs.studio_repo }}
     steps:
       - name: Determine image metadata
         id: meta
@@ -217,7 +217,7 @@ jobs:
           owner_lc=$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "stack_repo=ghcr.io/${owner_lc}/orcheo-stack" >> "$GITHUB_OUTPUT"
-          echo "canvas_repo=ghcr.io/${owner_lc}/orcheo-canvas" >> "$GITHUB_OUTPUT"
+          echo "studio_repo=ghcr.io/${owner_lc}/orcheo-studio" >> "$GITHUB_OUTPUT"
 
   image-build:
     needs: [stack-image-metadata]
@@ -232,10 +232,10 @@ jobs:
             context: deploy/stack
             file: deploy/stack/Dockerfile.orcheo
             repo: ${{ needs.stack-image-metadata.outputs.stack_repo }}
-          - name: canvas
+          - name: studio
             context: deploy/stack
-            file: deploy/stack/Dockerfile.canvas
-            repo: ${{ needs.stack-image-metadata.outputs.canvas_repo }}
+            file: deploy/stack/Dockerfile.studio
+            repo: ${{ needs.stack-image-metadata.outputs.studio_repo }}
         platform:
           - runner: ubuntu-latest
             arch: amd64
@@ -290,8 +290,8 @@ jobs:
         image:
           - name: stack
             repo: ${{ needs.stack-image-metadata.outputs.stack_repo }}
-          - name: canvas
-            repo: ${{ needs.stack-image-metadata.outputs.canvas_repo }}
+          - name: studio
+            repo: ${{ needs.stack-image-metadata.outputs.studio_repo }}
     steps:
       - name: Download digests
         uses: actions/download-artifact@v4
@@ -324,12 +324,12 @@ jobs:
         run: |
           docker buildx imagetools inspect "${{ matrix.image.repo }}:${{ needs.stack-image-metadata.outputs.version }}"
 
-  canvas:
+  studio:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/canvas
+        working-directory: apps/studio
     steps:
       - uses: actions/checkout@v4
         with:
@@ -348,13 +348,13 @@ jobs:
       - name: Test
         run: npm run test -- --run
 
-  canvas-build-and-release:
-    needs: [canvas]
-    if: "startsWith(github.ref, 'refs/tags/canvas-v')"
+  studio-build-and-release:
+    needs: [studio]
+    if: "startsWith(github.ref, 'refs/tags/studio-v')"
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/canvas
+        working-directory: apps/studio
     permissions:
       contents: read
       id-token: write  # Required for npm trusted publishing and provenance
@@ -372,7 +372,7 @@ jobs:
       - name: Verify version matches tag
         run: |
           tag="${GITHUB_REF_NAME}"
-          version="${tag#canvas-v}"
+          version="${tag#studio-v}"
           pkg_version=$(node -p "require('./package.json').version")
           if [[ "$version" != "$pkg_version" ]]; then
             echo "Error: Tag version ($version) does not match package.json version ($pkg_version)" >&2

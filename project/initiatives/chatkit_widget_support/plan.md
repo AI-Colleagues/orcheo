@@ -12,7 +12,7 @@
 
 ## Overview
 
-Deliver end-to-end ChatKit widget support so Orcheo workflows can render widgets and handle widget actions in ChatKit UI surfaces (public page and Canvas bubble). This plan tracks backend serialization/action handling, frontend wiring, and rollout. See related documents for requirements and design details.
+Deliver end-to-end ChatKit widget support so Orcheo workflows can render widgets and handle widget actions in ChatKit UI surfaces (public page and Studio bubble). This plan tracks backend serialization/action handling, frontend wiring, and rollout. See related documents for requirements and design details.
 
 Streaming widget updates are deferred until after this MVP completes.
 
@@ -49,7 +49,7 @@ Streaming widget updates are deferred until after this MVP completes.
 
 - [x] Add `widgets.onAction` handler and call `control.sendAction` in ChatKit React integration
   - Dependencies: Backend action endpoint available
-- [x] Verify widget rendering in public page and Canvas bubble (dev/staging)
+- [x] Verify widget rendering in public page and Studio bubble (dev/staging)
   - Dependencies: Sample workflow with widgets
 - [x] Handle error/notice display for widget failures without breaking chat
   - Dependencies: Backend error payloads

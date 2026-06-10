@@ -29,7 +29,7 @@ Self-hosted and developer deployments can explicitly enable unsafe arbitrary-cod
   - Accepts only declarative graphs made of reviewed trusted node types.
   - Rejects raw callables, lambdas, unknown nodes, plugin nodes unless explicitly trusted, code/script nodes, JS sandbox nodes unless explicitly trusted, external-agent nodes, and non-serializable runnables.
 
-- **Declarative Graph Schema (Core / SDK / Canvas)**
+- **Declarative Graph Schema (Core / SDK / Studio)**
   - Canonical workflow representation for production.
   - Contains nodes, edges, conditional edges, triggers, listeners, credential references, metadata, and runnable config.
   - Provides enough structure to build a LangGraph graph without executing workflow source code.
@@ -39,7 +39,7 @@ Self-hosted and developer deployments can explicitly enable unsafe arbitrary-cod
   - Resolves node constructors through the trusted registry allowlist.
   - Never imports tenant modules or calls tenant entrypoints in production mode.
 
-- **Mermaid Renderer (Backend / SDK / Canvas)**
+- **Mermaid Renderer (Backend / SDK / Studio)**
   - Generates Mermaid from declarative graph summaries on demand.
   - Treats Mermaid as derived/cached output, not required ingestion data.
 
@@ -78,7 +78,7 @@ Self-hosted and developer deployments can explicitly enable unsafe arbitrary-cod
 
 ### Flow 3: Mermaid Read/Preview
 
-1. Canvas, SDK, or backend version serializer needs a diagram.
+1. Studio, SDK, or backend version serializer needs a diagram.
 2. Renderer checks for cached/generated Mermaid if available.
 3. If absent, renderer builds Mermaid from declarative graph summary.
 4. Response includes Mermaid; stored workflow graph does not require an `index.mermaid` field.
@@ -287,7 +287,7 @@ Response:
 
 - **Manual QA checklist**
   - Production stack boots without sandbox-runtime and without gVisor/runsc.
-  - Canvas can create/open/run trusted declarative workflows.
+  - Studio can create/open/run trusted declarative workflows.
   - Candidate tab loads when candidates omit Mermaid.
   - Self-host unsafe mode clearly warns before accepting Python-source workflows.
 

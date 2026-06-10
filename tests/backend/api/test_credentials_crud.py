@@ -118,9 +118,9 @@ def test_create_credential(api_client: TestClient) -> None:
     response = api_client.post(
         "/api/credentials",
         json={
-            "name": "Canvas API",
+            "name": "Studio API",
             "provider": "api",
-            "secret": "sk_test_canvas",
+            "secret": "sk_test_studio",
             "actor": "tester",
             "access": "scoped",
             "workflow_id": workflow_id,
@@ -129,7 +129,7 @@ def test_create_credential(api_client: TestClient) -> None:
 
     assert response.status_code == 201
     payload = response.json()
-    assert payload["name"] == "Canvas API"
+    assert payload["name"] == "Studio API"
     assert payload["provider"] == "api"
     assert payload["owner"] == "tester"
     assert payload["access"] == "scoped"
@@ -176,9 +176,9 @@ def test_reveal_credential_secret(api_client: TestClient) -> None:
     create_response = api_client.post(
         "/api/credentials",
         json={
-            "name": "Canvas API",
+            "name": "Studio API",
             "provider": "api",
-            "secret": "sk_test_canvas",
+            "secret": "sk_test_studio",
             "actor": "tester",
             "access": "scoped",
             "workflow_id": workflow_id,
@@ -194,7 +194,7 @@ def test_reveal_credential_secret(api_client: TestClient) -> None:
     assert reveal_response.status_code == 200
     payload = reveal_response.json()
     assert payload["id"] == credential_id
-    assert payload["secret"] == "sk_test_canvas"
+    assert payload["secret"] == "sk_test_studio"
 
 
 def test_update_credential(api_client: TestClient) -> None:
@@ -202,9 +202,9 @@ def test_update_credential(api_client: TestClient) -> None:
     create_response = api_client.post(
         "/api/credentials",
         json={
-            "name": "Canvas API",
+            "name": "Studio API",
             "provider": "api",
-            "secret": "sk_test_canvas",
+            "secret": "sk_test_studio",
             "actor": "tester",
             "access": "scoped",
             "workflow_id": workflow_id,
@@ -216,7 +216,7 @@ def test_update_credential(api_client: TestClient) -> None:
     update_response = api_client.patch(
         f"/api/credentials/{credential_id}",
         json={
-            "name": "Canvas API Prod",
+            "name": "Studio API Prod",
             "provider": "openai",
             "secret": "sk_test_updated",
             "actor": "tester",
@@ -227,7 +227,7 @@ def test_update_credential(api_client: TestClient) -> None:
     assert update_response.status_code == 200
     updated = update_response.json()
     assert updated["id"] == credential_id
-    assert updated["name"] == "Canvas API Prod"
+    assert updated["name"] == "Studio API Prod"
     assert updated["provider"] == "openai"
 
     reveal_response = api_client.get(
@@ -244,9 +244,9 @@ def test_update_credential_rejects_scoped_access_without_workflow(
     create_response = api_client.post(
         "/api/credentials",
         json={
-            "name": "Canvas API",
+            "name": "Studio API",
             "provider": "api",
-            "secret": "sk_test_canvas",
+            "secret": "sk_test_studio",
             "actor": "tester",
             "access": "shared",
         },
@@ -304,9 +304,9 @@ def test_create_credential_duplicate_name_returns_409(
 ) -> None:
     workflow_id = _create_workflow(api_client)
     payload = {
-        "name": "Canvas API",
+        "name": "Studio API",
         "provider": "api",
-        "secret": "sk_test_canvas",
+        "secret": "sk_test_studio",
         "actor": "tester",
         "access": "scoped",
         "workflow_id": workflow_id,
@@ -324,9 +324,9 @@ def test_delete_credential(api_client: TestClient) -> None:
     create_response = api_client.post(
         "/api/credentials",
         json={
-            "name": "Canvas API",
+            "name": "Studio API",
             "provider": "api",
-            "secret": "sk_test_canvas",
+            "secret": "sk_test_studio",
             "actor": "tester",
             "access": "scoped",
             "workflow_id": workflow_id,

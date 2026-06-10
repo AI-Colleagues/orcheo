@@ -68,7 +68,7 @@ def test_public_chatkit_url_forces_required_mode(
 
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
     monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", "secret")
-    monkeypatch.setenv("ORCHEO_STUDIO_URL", "https://canvas.example.com")
+    monkeypatch.setenv("ORCHEO_STUDIO_URL", "https://studio.example.com")
     caplog.set_level(logging.WARNING)
 
     settings = load_auth_settings(refresh=True)
@@ -109,7 +109,7 @@ def test_public_cors_origin_without_credentials_raises(
     """Public exposure without auth credentials should fail immediately."""
 
     monkeypatch.setenv("ORCHEO_AUTH_MODE", "optional")
-    monkeypatch.setenv("ORCHEO_CORS_ALLOW_ORIGINS", "https://canvas.example.com")
+    monkeypatch.setenv("ORCHEO_CORS_ALLOW_ORIGINS", "https://studio.example.com")
 
     with pytest.raises(
         RuntimeError,
@@ -125,7 +125,7 @@ def test_public_deployment_rejects_dev_login(
 
     monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", "secret")
     monkeypatch.setenv("ORCHEO_AUTH_DEV_LOGIN_ENABLED", "true")
-    monkeypatch.setenv("ORCHEO_STUDIO_URL", "https://canvas.example.com")
+    monkeypatch.setenv("ORCHEO_STUDIO_URL", "https://studio.example.com")
 
     with pytest.raises(
         RuntimeError,

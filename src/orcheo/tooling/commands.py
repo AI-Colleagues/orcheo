@@ -53,11 +53,11 @@ def test() -> None:
     _run(["pytest", "--cov", "--cov-report", "term-missing", "tests/"])
 
 
-def canvas_lint() -> None:
-    """Lint the React canvas application."""
-    _run(["npm", "--prefix", "apps/canvas", "run", "lint"])
+def studio_lint() -> None:
+    """Lint the React studio application."""
+    _run(["npm", "--prefix", "apps/studio", "run", "lint"])
 
 
-def canvas_dev() -> None:
-    """Start the React canvas development server."""
-    _run(["npm", "--prefix", "apps/canvas", "run", "dev"])
+def studio_dev() -> None:
+    """Start the React studio development server."""
+    _run(["npm", "--prefix", "apps/studio", "run", "dev"])

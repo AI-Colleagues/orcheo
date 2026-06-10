@@ -22,8 +22,8 @@ The tracing feature spans backend instrumentation, persistence, API exposure, an
    - The API returns JSON that matches the schema in [Trace API Response](#trace-api-response).
    - For live runs, integrate with WebSocket channels to push incremental span updates using existing execution channels (augment message schema with trace payloads described in [WebSocket Message Schema](#websocket-message-schema)).
 
-4. **Canvas Trace Tab**
-   - Expand Canvas layout to include a `Trace` tab, registered alongside `Editor`, `Execution`, `Readiness`, and `Settings`.
+4. **Studio Trace Tab**
+   - Expand Studio layout to include a `Trace` tab, registered alongside `Editor`, `Execution`, `Readiness`, and `Settings`.
    - Ensure the tab bar remains readable on narrow widths by reusing the responsive overflow behavior in `workflow-tabs.tsx`; if space becomes constrained, fall back to grouping Trace under Execution as a sub-tab.
    - Implement a trace viewer component that renders a collapsible tree with duration bars, status badges, token metrics, and artifact actions.
    - Provide a detail panel showing span attributes, prompts/responses, and resource usage.
@@ -42,7 +42,7 @@ Spans adopt a consistent attribute set so downstream visualizations can make str
 | --- | --- | --- |
 | `orcheo.execution.id` | string | UUID of the workflow execution (root span only). |
 | `orcheo.node.id` | string | Node identifier within the workflow graph. |
-| `orcheo.node.display_name` | string | Human-friendly name displayed in Canvas. |
+| `orcheo.node.display_name` | string | Human-friendly name displayed in Studio. |
 | `orcheo.node.kind` | string | Node type (e.g., `llm`, `tool`, `branch`). |
 | `orcheo.node.status` | string | `success`, `error`, or `skipped`. |
 | `orcheo.node.latency_ms` | int | Duration of the node execution in milliseconds. |
@@ -134,8 +134,8 @@ Partial span payloads only include fields that changed since the previous messag
 2. Backend execution engine starts root span and records trace ID in run metadata.
 3. Node executions create child spans, emitting prompts, responses, token usage, and artifact metadata via OpenTelemetry attributes/events.
 4. Spans are exported to the configured collector; metadata is persisted in the Orcheo database.
-5. Canvas requests `/executions/{id}/trace`; backend aggregates span tree (via collector query or cached span store) and returns JSON payload.
-6. Canvas renders trace tree; listens for WebSocket messages to append or update spans for live runs.
+5. Studio requests `/executions/{id}/trace`; backend aggregates span tree (via collector query or cached span store) and returns JSON payload.
+6. Studio renders trace tree; listens for WebSocket messages to append or update spans for live runs.
 7. Users can download artifacts directly from the Trace tab (reusing existing artifact endpoints) and follow links to external dashboards if available.
 
 ## Security & Privacy
