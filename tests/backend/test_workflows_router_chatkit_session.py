@@ -513,6 +513,79 @@ async def test_create_workflow_chatkit_session_requires_workspace_access_for_tag
 
 
 @pytest.mark.asyncio()
+async def test_create_workflow_chatkit_session_rejects_bound_workspace_when_tags_differ() -> (
+    None
+):
+    active_workspace_id = str(_MOCK_WORKSPACE.workspace_id)
+    workflow = Workflow(
+        name="Studio Workflow",
+        tags=["workspace:tagged-workspace"],
+        workspace_id=active_workspace_id,
+        draft_access=WorkflowDraftAccess.WORKSPACE,
+    )
+    repo = _WorkflowRepo(workflow)
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="studio-user",
+            identity_type="user",
+            scopes=frozenset({"workflows:read", "workflows:execute"}),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    with pytest.raises(AuthorizationError) as excinfo:
+        await workflows.create_workflow_chatkit_session(
+            str(workflow.id),
+            repo,
+            _MOCK_WORKSPACE,
+            policy=policy,
+            issuer=_issuer(),
+        )
+
+    assert excinfo.value.code == "auth.workspace_forbidden"
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_chatkit_session_allows_workspace_draft_with_bound_workspace() -> (
+    None
+):
+    active_workspace_id = str(_MOCK_WORKSPACE.workspace_id)
+    workflow = Workflow(
+        name="Studio Workflow",
+        workspace_id=active_workspace_id,
+        draft_access=WorkflowDraftAccess.WORKSPACE,
+    )
+    repo = _WorkflowRepo(workflow)
+    policy = AuthorizationPolicy(
+        RequestContext(
+            subject="studio-user",
+            identity_type="user",
+            scopes=frozenset({"workflows:read", "workflows:execute"}),
+            workspace_ids=frozenset(),
+        )
+    )
+
+    response = await workflows.create_workflow_chatkit_session(
+        str(workflow.id),
+        repo,
+        _MOCK_WORKSPACE,
+        policy=policy,
+        issuer=_issuer(),
+    )
+
+    decoded = jwt.decode(
+        response.client_secret,
+        "studio-chatkit-key",
+        algorithms=["HS256"],
+        audience="chatkit-client",
+        issuer="studio-backend",
+    )
+
+    assert decoded["chatkit"]["workflow_id"] == str(workflow.id)
+    assert decoded["chatkit"]["workspace_id"] == active_workspace_id
+
+
+@pytest.mark.asyncio()
 async def test_create_workflow_chatkit_session_allows_authenticated_scope_without_tags() -> (  # noqa: E501
     None
 ):
