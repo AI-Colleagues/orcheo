@@ -22,7 +22,7 @@
   },
   "license": "MIT",
   "bin": {
-    "orcheo-studio": "./bin/orcheo-studio.js"
+    "orcheo-studio": "bin/orcheo-studio.js"
   },
   "scripts": {
     "dev": "vite",
