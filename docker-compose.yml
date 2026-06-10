@@ -43,6 +43,7 @@ services:
       - orcheo_data:/data
       - backend_venv:/app/.venv
       - uv_cache:/data/cache/uv
+      - ./deploy/stack/chatkit_widgets:/app/examples/chatkit_widgets/widgets:ro
     environment:
       HOME: /data/home
       CODEX_HOME: /data/home/.codex
@@ -84,6 +85,7 @@ services:
       - orcheo_data:/data
       - worker_venv:/app/.venv
       - uv_cache:/data/cache/uv
+      - ./deploy/stack/chatkit_widgets:/app/examples/chatkit_widgets/widgets:ro
     environment:
       HOME: /data/home
       CODEX_HOME: /data/home/.codex
@@ -124,6 +126,7 @@ services:
       - orcheo_data:/data
       - celery_venv:/app/.venv
       - uv_cache:/data/cache/uv
+      - ./deploy/stack/chatkit_widgets:/app/examples/chatkit_widgets/widgets:ro
     environment:
       HOME: /data/home
       CODEX_HOME: /data/home/.codex

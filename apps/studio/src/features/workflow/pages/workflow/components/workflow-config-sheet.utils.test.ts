@@ -8,76 +8,60 @@ import {
 } from "@features/workflow/pages/workflow/components/workflow-config-sheet.utils";
 
 describe("workflow-config-sheet utils", () => {
-  it("preserves upload-time runnable config fields", () => {
+  it("preserves only runtime limit fields", () => {
     const formData = {
       configurable: { workspace: "acme", region: "us-east-1" },
-      run_name: "  nightly-run  ",
-      tags: ["prod", " prod ", "nightly"],
-      metadata: { owner: "search-team" },
-      callbacks: [{ type: "log" }],
       recursion_limit: 7,
       max_concurrency: 3,
-      prompts: {
-        summary_prompt: {
-          template: "Summarize {topic}",
-          input_variables: ["topic"],
-          partial_variables: { tone: "brief" },
-        },
-      },
     } satisfies Record<string, unknown>;
 
     expect(toWorkflowConfig(formData)).toEqual({
       configurable: { workspace: "acme", region: "us-east-1" },
-      run_name: "nightly-run",
-      tags: ["prod", "nightly"],
-      metadata: { owner: "search-team" },
-      callbacks: [{ type: "log" }],
       recursion_limit: 7,
       max_concurrency: 3,
-      prompts: {
-        summary_prompt: {
-          template: "Summarize {topic}",
-          input_variables: ["topic"],
-          partial_variables: { tone: "brief" },
-        },
-      },
     });
   });
 
-  it("keeps all runnable config fields when hydrating form data", () => {
+  it("keeps only runtime limit fields when hydrating form data", () => {
     const config = {
       configurable: { organization: "acme" },
-      run_name: "upload-run",
-      tags: ["upload"],
-      metadata: { source: "cli" },
-      callbacks: ["callback-a"],
       recursion_limit: 5,
       max_concurrency: 2,
-      prompts: {
-        review_prompt: {
-          template: "Review {text}",
-          input_variables: ["text"],
-          optional_variables: ["style"],
-        },
-      },
     };
 
     expect(toFormData(config)).toEqual({
       configurable: { organization: "acme" },
-      run_name: "upload-run",
-      tags: ["upload"],
-      metadata: { source: "cli" },
-      callbacks: ["callback-a"],
       recursion_limit: 5,
       max_concurrency: 2,
-      prompts: {
-        review_prompt: {
-          template: "Review {text}",
-          input_variables: ["text"],
-          optional_variables: ["style"],
+    });
+  });
+
+  it("adds descriptions to the runtime limit fields for tooltips", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        recursion_limit: {
+          type: "integer",
+          title: "Recursion limit",
+          minimum: 1,
+          description: "Maximum graph recursion depth allowed for this run.",
+        },
+        max_concurrency: {
+          type: "integer",
+          title: "Max concurrency",
+          minimum: 1,
+          description:
+            "Maximum number of concurrent tasks allowed for this run.",
         },
       },
-    });
+    } satisfies RJSFSchema;
+
+    expect(schema.properties?.recursion_limit?.description).toBe(
+      "Maximum graph recursion depth allowed for this run.",
+    );
+    expect(schema.properties?.max_concurrency?.description).toBe(
+      "Maximum number of concurrent tasks allowed for this run.",
+    );
   });
 
   it("infers array item schemas for configurable fields", () => {
