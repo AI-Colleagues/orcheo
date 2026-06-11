@@ -102,6 +102,10 @@ async def test_list_workflows_returns_all() -> None:
             del include_archived
             return [workflow1, workflow2]
 
+        async def list_teams(self, *, workspace_id=None):
+            del workspace_id
+            return []
+
         async def get_latest_version(self, workflow_id):
             del workflow_id
             raise WorkflowVersionNotFoundError("No versions")
@@ -147,6 +151,10 @@ async def test_list_workflows_fetches_metadata_concurrently() -> None:
         ):
             del include_archived
             return [workflow1, workflow2]
+
+        async def list_teams(self, *, workspace_id=None):
+            del workspace_id
+            return []
 
         async def get_latest_version(self, workflow_id):
             del workflow_id
@@ -781,6 +789,10 @@ async def test_list_workflows_excludes_archived_managed_workflow_by_default(
             del include_archived, workspace_id
             return []
 
+        async def list_teams(self, *, workspace_id=None):
+            del workspace_id
+            return []
+
         async def get_latest_version(self, workflow_id):
             del workflow_id
             raise WorkflowVersionNotFoundError("No versions")
@@ -819,6 +831,10 @@ async def test_list_workflows_includes_archived_managed_workflow_when_requested(
     class Repository:
         async def list_workflows(self, *, include_archived=False, workspace_id=None):
             del include_archived, workspace_id
+            return []
+
+        async def list_teams(self, *, workspace_id=None):
+            del workspace_id
             return []
 
         async def get_latest_version(self, workflow_id):

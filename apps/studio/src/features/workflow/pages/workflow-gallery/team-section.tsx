@@ -25,12 +25,12 @@ export const TeamSection = ({
 
   return (
     <section className="border-b border-border/60 pb-4 last:border-b-0">
-      <div className="group flex items-center">
+      <div className="group flex items-center py-3">
         <button
           type="button"
           aria-expanded={isOpen}
           onClick={() => setIsOpen((open) => !open)}
-          className="flex flex-1 items-center gap-2 py-3 text-left"
+          className="flex items-center gap-2 text-left"
         >
           {isOpen ? (
             <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -44,7 +44,7 @@ export const TeamSection = ({
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7 opacity-0 group-hover:opacity-100"
+            className="ml-1 h-7 w-7 opacity-0 group-hover:opacity-100"
             onClick={onRemove}
             aria-label={`Remove team ${name}`}
           >

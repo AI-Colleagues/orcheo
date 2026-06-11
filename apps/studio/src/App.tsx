@@ -82,6 +82,7 @@ export default function OrcheoStudioApp() {
 
             <Route path="/auth/callback" element={<OAuthCallback />} />
             <Route path="/chat/:workflowId" element={<PublicChatPage />} />
+            <Route path="/chat/team/:teamSlug/:workflowId" element={<PublicChatPage />} />
 
             <Route element={<RequireAuth />}>
                 <Route path="/" element={<WorkspaceHomeRedirect />} />
