@@ -340,6 +340,10 @@ jobs:
           token: ""
       - name: Upgrade npm
         run: npm install -g npm@^11.5.1
+      - name: Verify lock file is up to date
+        run: |
+          npm install
+          git diff --exit-code package-lock.json
       - name: Install dependencies
         run: |
           npm ci
