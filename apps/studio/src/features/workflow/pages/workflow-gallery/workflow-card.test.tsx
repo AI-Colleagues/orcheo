@@ -30,6 +30,12 @@ const colleagueWorkflow = {
   edges: [],
 } satisfies Parameters<typeof WorkflowCard>[0]["workflow"];
 
+const teamScopedWorkflow = {
+  ...colleagueWorkflow,
+  id: "workflow-2",
+  teamId: "team-sales",
+} satisfies Parameters<typeof WorkflowCard>[0]["workflow"];
+
 const candidateWorkflow = {
   id: "template-insight-analyst",
   handle: "insight-analyst",
@@ -120,6 +126,24 @@ describe("WorkflowCard", () => {
     expect(handlers.onOpenWorkflow).toHaveBeenCalledWith(
       colleagueWorkflow.handle,
     );
+  });
+
+  it("opens team-scoped colleagues by immutable workflow id", async () => {
+    const user = userEvent.setup();
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard
+        workflow={teamScopedWorkflow}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
+    );
+
+    await user.click(screen.getByTestId("workflow-card"));
+
+    expect(handlers.onOpenWorkflow).toHaveBeenCalledWith(teamScopedWorkflow.id);
   });
 
   it("renders colleague badge copy without creator metadata or edit actions", async () => {

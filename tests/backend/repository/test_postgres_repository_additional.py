@@ -1667,6 +1667,26 @@ async def test_persistence_resolve_workflow_ref_locked_workspace_not_found_in_bo
 
 
 @pytest.mark.asyncio
+async def test_persistence_delete_team_ignores_archived_workflows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Team deletion should only count active workflows in the workspace."""
+    team_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"name": "Temp Team"}},
+        {"row": {"cnt": 0}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    await repo.delete_team(team_id, workspace_id="ws-a")
+
+    query, params = repo._pool._connection.queries[1]  # noqa: SLF001
+    assert "workspace_id = %s" in query
+    assert "is_archived = FALSE" in query
+    assert params == (str(team_id), "ws-a")
+
+
+@pytest.mark.asyncio
 async def test_versions_list_versions_dict_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

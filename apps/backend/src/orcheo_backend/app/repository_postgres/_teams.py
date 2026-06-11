@@ -203,8 +203,14 @@ class TeamRepositoryMixin(PostgresPersistenceMixin):
                 team_name = row["name"]
 
                 cursor = await conn.execute(
-                    "SELECT COUNT(*) AS cnt FROM workflows WHERE team_id = %s",
-                    (str(team_id),),
+                    """
+                    SELECT COUNT(*) AS cnt
+                      FROM workflows
+                     WHERE team_id = %s
+                       AND workspace_id = %s
+                       AND is_archived = FALSE
+                    """,
+                    (str(team_id), workspace_id),
                 )
                 count_row = await cursor.fetchone()
                 if count_row and int(count_row["cnt"]) > 0:

@@ -117,7 +117,11 @@ class TeamCrudMixin(InMemoryRepositoryState):
                 raise TeamNotFoundError(str(team_id))
             team_id_str = str(team_id)
             for workflow in self._workflows.values():
-                if workflow.team_id == team_id_str:
+                if (
+                    workflow.workspace_id == workspace_id
+                    and workflow.team_id == team_id_str
+                    and not workflow.is_archived
+                ):
                     msg = f"Team '{team.name}' still has colleagues."
                     raise TeamNotEmptyError(msg)
             del self._teams[team_id]

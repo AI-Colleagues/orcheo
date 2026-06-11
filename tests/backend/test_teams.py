@@ -263,6 +263,19 @@ async def test_delete_team_with_colleagues_raises() -> None:
 
 
 @pytest.mark.asyncio
+async def test_delete_team_ignores_archived_colleagues() -> None:
+    repo = InMemoryWorkflowRepository()
+    team = await repo.create_team(workspace_id=WS, name="Temp", slug="temp")
+    colleague = await _new_colleague(repo, "bot", str(team.id))
+    await repo.archive_workflow(colleague.id, actor="tester")
+
+    await repo.delete_team(team.id, workspace_id=WS)
+
+    teams = await repo.list_teams(workspace_id=WS)
+    assert not any(t.id == team.id for t in teams)
+
+
+@pytest.mark.asyncio
 async def test_delete_unknown_team_raises() -> None:
     repo = InMemoryWorkflowRepository()
     with pytest.raises(TeamNotFoundError):
