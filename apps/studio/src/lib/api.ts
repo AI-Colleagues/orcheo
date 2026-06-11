@@ -244,7 +244,19 @@ async function requestSystemJson<T>(
     const errorData = await response.json().catch(() => ({
       detail: "Failed to complete request",
     }));
-    throw new Error(errorData.detail || `HTTP ${response.status}`);
+    const detail = errorData.detail;
+    let message: string;
+    if (typeof detail === "string") {
+      message = detail;
+    } else if (detail && typeof detail === "object" && "error" in detail) {
+      const err = detail.error as Record<string, unknown>;
+      message = typeof err.message === "string" ? err.message : `HTTP ${response.status}`;
+    } else if (Array.isArray(detail)) {
+      message = detail.map((e: Record<string, unknown>) => e.msg ?? JSON.stringify(e)).join("; ");
+    } else {
+      message = `HTTP ${response.status}`;
+    }
+    throw new Error(message);
   }
 
   return response.json();
