@@ -2082,3 +2082,45 @@ def test_discover_latest_stack_version_returns_none_when_no_stable_tag(
     )
 
     assert setup_mod._discover_latest_stack_version(Console(record=True)) is None
+
+
+# ---------------------------------------------------------------------------
+# _list_chatkit_widget_paths
+# ---------------------------------------------------------------------------
+
+
+def test_list_chatkit_widget_paths_non_array_response_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the GitHub Contents API returns a JSON object instead of an array,
+    a ValueError is raised internally and the function falls back to the
+    hard-coded widget list."""
+    from orcheo_sdk.cli import setup as setup_mod
+
+    monkeypatch.setattr(
+        setup_mod,
+        "urlopen",
+        lambda url, timeout: _Response(b'{"message": "not an array"}'),
+    )
+    console = Console(record=True)
+    result = setup_mod._list_chatkit_widget_paths(None, console)
+    assert result == setup_mod._CHATKIT_WIDGETS_FALLBACK
+    assert "using known widget list" in console.export_text()
+
+
+def test_list_chatkit_widget_paths_network_error_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When urlopen raises OSError (e.g. network down), the function falls back
+    to the hard-coded widget list."""
+    from orcheo_sdk.cli import setup as setup_mod
+
+    def _raise(url: str, timeout: int) -> _Response:
+        del url, timeout
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(setup_mod, "urlopen", _raise)
+    console = Console(record=True)
+    result = setup_mod._list_chatkit_widget_paths("0.23.0", console)
+    assert result == setup_mod._CHATKIT_WIDGETS_FALLBACK
+    assert "using known widget list" in console.export_text()
