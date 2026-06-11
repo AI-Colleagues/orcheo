@@ -10,6 +10,7 @@ from orcheo.models import (
 from orcheo_backend.app.repository.errors import (
     CronTriggerNotFoundError,
     RepositoryError,
+    TeamNotEmptyError,
     TeamNotFoundError,
     TeamSlugConflictError,
     WorkflowHandleConflictError,
@@ -28,6 +29,7 @@ __all__ = [
     "CronTriggerNotFoundError",
     "RepositoryError",
     "Team",
+    "TeamNotEmptyError",
     "TeamNotFoundError",
     "TeamSlugConflictError",
     "VersionDiff",

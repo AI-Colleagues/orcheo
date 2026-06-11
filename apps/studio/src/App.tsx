@@ -59,6 +59,7 @@ function WorkspaceManagementRoute() {
 function WorkspaceWorkflowRoute() {
   const { workspaceSlug, workflowId } = useParams<{
     workspaceSlug?: string;
+    teamSlug?: string;
     workflowId?: string;
   }>();
   useLayoutEffect(() => {
@@ -96,6 +97,10 @@ export default function OrcheoStudioApp() {
 
                 <Route
                   path="/:workspaceSlug/new"
+                  element={<WorkspaceWorkflowRoute />}
+                />
+                <Route
+                  path="/:workspaceSlug/team/:teamSlug/:workflowId"
                   element={<WorkspaceWorkflowRoute />}
                 />
                 <Route

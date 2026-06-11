@@ -39,6 +39,10 @@ class TeamSlugConflictError(RepositoryError):
     """Raised when a team slug conflicts with an existing team."""
 
 
+class TeamNotEmptyError(RepositoryError):
+    """Raised when attempting to delete a team that still has colleagues."""
+
+
 __all__ = [
     "RepositoryError",
     "WorkflowNotFoundError",
@@ -49,4 +53,5 @@ __all__ = [
     "CronTriggerNotFoundError",
     "TeamNotFoundError",
     "TeamSlugConflictError",
+    "TeamNotEmptyError",
 ]

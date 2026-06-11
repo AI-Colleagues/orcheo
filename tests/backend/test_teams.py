@@ -8,6 +8,8 @@ from fastapi import HTTPException
 from orcheo.models import WorkflowDraftAccess
 from orcheo_backend.app.repository import (
     InMemoryWorkflowRepository,
+    TeamNotEmptyError,
+    TeamNotFoundError,
     TeamSlugConflictError,
     WorkflowHandleConflictError,
     WorkflowNotFoundError,
@@ -235,3 +237,52 @@ async def test_onboard_into_unknown_team_returns_404(
     with pytest.raises(HTTPException) as exc:
         await candidates_router.onboard_candidate(request, repo, WORKSPACE)  # type: ignore[arg-type]
     assert exc.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# delete_team
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_empty_team_succeeds() -> None:
+    repo = InMemoryWorkflowRepository()
+    team = await repo.create_team(workspace_id=WS, name="Temp", slug="temp")
+    await repo.delete_team(team.id, workspace_id=WS)
+    teams = await repo.list_teams(workspace_id=WS)
+    assert not any(t.id == team.id for t in teams)
+
+
+@pytest.mark.asyncio
+async def test_delete_team_with_colleagues_raises() -> None:
+    repo = InMemoryWorkflowRepository()
+    team = await repo.create_team(workspace_id=WS, name="Temp", slug="temp")
+    await _new_colleague(repo, "bot", str(team.id))
+    with pytest.raises(TeamNotEmptyError):
+        await repo.delete_team(team.id, workspace_id=WS)
+
+
+@pytest.mark.asyncio
+async def test_delete_unknown_team_raises() -> None:
+    repo = InMemoryWorkflowRepository()
+    with pytest.raises(TeamNotFoundError):
+        await repo.delete_team(uuid4(), workspace_id=WS)
+
+
+@pytest.mark.asyncio
+async def test_delete_team_endpoint_returns_409_when_not_empty(
+    _patch_onboarding: None,
+) -> None:
+    repo = InMemoryWorkflowRepository()
+    wf = await candidates_router.onboard_candidate(
+        CandidateOnboardRequest(id="insight-analyst"),
+        repo,
+        WORKSPACE,  # type: ignore[arg-type]
+    )
+    stored = await repo.get_workflow(wf.id, workspace_id=WS)
+    from uuid import UUID
+
+    team_id = UUID(stored.team_id)  # type: ignore[arg-type]
+    with pytest.raises(HTTPException) as exc:
+        await teams_router.delete_team(team_id, repo, WORKSPACE)  # type: ignore[arg-type]
+    assert exc.value.status_code == 409

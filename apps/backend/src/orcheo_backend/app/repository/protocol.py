@@ -101,6 +101,9 @@ class WorkflowRepository(Protocol):
     ) -> Team:
         """Return the workspace's default team, creating it if absent."""
 
+    async def delete_team(self, team_id: UUID, *, workspace_id: str) -> None:
+        """Delete a team; raises TeamNotEmptyError if the team has colleagues."""
+
     async def get_workflow(
         self,
         workflow_id: UUID,

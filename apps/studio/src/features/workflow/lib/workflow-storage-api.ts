@@ -188,6 +188,12 @@ export const createTeam = async (input: {
     body: JSON.stringify(input),
   });
 
+export const deleteTeam = async (teamId: string): Promise<void> =>
+  request<void>(`/api/teams/${teamId}`, {
+    method: "DELETE",
+    expectJson: false,
+  });
+
 export const onboardCandidate = async (
   candidateId: string,
   teamId?: string,

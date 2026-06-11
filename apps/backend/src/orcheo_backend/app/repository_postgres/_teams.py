@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 from orcheo.models import Team, normalize_team_slug
 from orcheo_backend.app.repository.errors import (
+    TeamNotEmptyError,
     TeamNotFoundError,
     TeamSlugConflictError,
 )
@@ -186,6 +187,34 @@ class TeamRepositoryMixin(PostgresPersistenceMixin):
                     (str(team.id), workspace_id),
                 )
             return team
+
+    async def delete_team(self, team_id: UUID, *, workspace_id: str) -> None:
+        """Delete a team; raises TeamNotEmptyError if the team has colleagues."""
+        await self._ensure_initialized()
+        async with self._lock:
+            async with self._connection() as conn:
+                cursor = await conn.execute(
+                    "SELECT name FROM teams WHERE id = %s AND workspace_id = %s",
+                    (str(team_id), workspace_id),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    raise TeamNotFoundError(str(team_id))
+                team_name = row["name"]
+
+                cursor = await conn.execute(
+                    "SELECT COUNT(*) AS cnt FROM workflows WHERE team_id = %s",
+                    (str(team_id),),
+                )
+                count_row = await cursor.fetchone()
+                if count_row and int(count_row["cnt"]) > 0:
+                    msg = f"Team '{team_name}' still has colleagues."
+                    raise TeamNotEmptyError(msg)
+
+                await conn.execute(
+                    "DELETE FROM teams WHERE id = %s AND workspace_id = %s",
+                    (str(team_id), workspace_id),
+                )
 
 
 __all__ = ["TeamRepositoryMixin"]

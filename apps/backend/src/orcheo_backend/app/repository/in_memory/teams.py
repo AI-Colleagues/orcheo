@@ -4,6 +4,7 @@ from __future__ import annotations
 from uuid import UUID
 from orcheo.models import Team, normalize_team_slug
 from orcheo_backend.app.repository.errors import (
+    TeamNotEmptyError,
     TeamNotFoundError,
     TeamSlugConflictError,
 )
@@ -107,6 +108,21 @@ class TeamCrudMixin(InMemoryRepositoryState):
             # The default team became the head of every active handle bucket.
             self._rebuild_handle_indexes_locked()
             return team.model_copy(deep=True)
+
+    async def delete_team(self, team_id: UUID, *, workspace_id: str) -> None:
+        """Delete a team; raises TeamNotEmptyError if the team has colleagues."""
+        async with self._lock:
+            team = self._teams.get(team_id)
+            if team is None or team.workspace_id != workspace_id:
+                raise TeamNotFoundError(str(team_id))
+            team_id_str = str(team_id)
+            for workflow in self._workflows.values():
+                if workflow.team_id == team_id_str:
+                    msg = f"Team '{team.name}' still has colleagues."
+                    raise TeamNotEmptyError(msg)
+            del self._teams[team_id]
+            if self._default_team_by_workspace.get(workspace_id) == team_id_str:
+                del self._default_team_by_workspace[workspace_id]
 
 
 __all__ = ["TeamCrudMixin"]

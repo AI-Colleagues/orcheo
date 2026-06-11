@@ -13,11 +13,15 @@ import {
 import {
   type ApiTeam,
   createTeam,
+  deleteTeam,
   fetchWorkflowVersions,
 } from "@features/workflow/lib/workflow-storage-api";
 import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
 import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
-import { getWorkspaceWorkflowPath } from "@/lib/workspace-routing";
+import {
+  getWorkspaceTeamWorkflowPath,
+  getWorkspaceWorkflowPath,
+} from "@/lib/workspace-routing";
 import { type WorkflowGalleryTab } from "./types";
 
 interface WorkflowGalleryActionsArgs {
@@ -98,10 +102,13 @@ export const useWorkflowGalleryActions = (
   const [isCreateTeamOpen, setIsCreateTeamOpen] = useState(false);
 
   const handleOpenWorkflow = useCallback(
-    (workflowId: string) => {
-      navigate(
-        getWorkspaceWorkflowPath(getSelectedWorkspaceSlug(), workflowId),
-      );
+    (workflowId: string, teamSlug?: string) => {
+      const slug = getSelectedWorkspaceSlug();
+      const path =
+        teamSlug
+          ? getWorkspaceTeamWorkflowPath(slug, teamSlug, workflowId)
+          : getWorkspaceWorkflowPath(slug, workflowId);
+      navigate(path);
     },
     [navigate],
   );
@@ -118,7 +125,8 @@ export const useWorkflowGalleryActions = (
           description: `"${workflow.name}" has been onboarded to your workspace.`,
         });
 
-        handleOpenWorkflow(getWorkflowRouteRef(workflow));
+        const team = teamId ? state.teams.find((t) => t.id === teamId) : null;
+        handleOpenWorkflow(getWorkflowRouteRef(workflow), team?.slug);
       } catch (error) {
         toast({
           title: "Failed to onboard candidate",
@@ -252,6 +260,28 @@ export const useWorkflowGalleryActions = (
     [state],
   );
 
+  const handleDeleteTeam = useCallback(
+    async (teamId: string) => {
+      const team = state.teams.find((t) => t.id === teamId);
+      try {
+        await deleteTeam(teamId);
+        await state.refreshTeams();
+        toast({
+          title: "Team removed",
+          description: team ? `"${team.name}" has been removed.` : undefined,
+        });
+      } catch (error) {
+        toast({
+          title: "Cannot remove team",
+          description:
+            error instanceof Error ? error.message : "Unknown error occurred",
+          variant: "destructive",
+        });
+      }
+    },
+    [state],
+  );
+
   const handleDeleteWorkflow = useCallback(
     async (workflowId: string, workflowName: string) => {
       try {
@@ -291,5 +321,6 @@ export const useWorkflowGalleryActions = (
     openCreateTeamDialog,
     closeCreateTeamDialog,
     handleCreateTeam,
+    handleDeleteTeam,
   };
 };

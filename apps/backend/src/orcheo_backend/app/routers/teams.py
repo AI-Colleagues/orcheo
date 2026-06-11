@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 import logging
+from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 from orcheo_backend.app.dependencies import RepositoryDep
-from orcheo_backend.app.repository.errors import TeamSlugConflictError
+from orcheo_backend.app.repository.errors import (
+    TeamNotEmptyError,
+    TeamNotFoundError,
+    TeamSlugConflictError,
+)
 from orcheo_backend.app.schemas.teams import TeamCreateRequest, TeamItem
 from orcheo_backend.app.teams_service import ensure_default_team
 from orcheo_backend.app.workspace import WorkspaceContextDep
@@ -59,3 +64,28 @@ async def create_team(
             detail={"message": str(exc), "code": "team.invalid"},
         ) from exc
     return TeamItem.from_team(team)
+
+
+@router.delete("/teams/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_team(
+    team_id: UUID,
+    repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
+) -> None:
+    """Delete a team.
+
+    Returns 409 when the team still contains colleagues so that no data is
+    silently orphaned.
+    """
+    try:
+        await repository.delete_team(team_id, workspace_id=str(workspace.workspace_id))
+    except TeamNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"message": str(exc), "code": "team.not_found"},
+        ) from exc
+    except TeamNotEmptyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": str(exc), "code": "team.not_empty"},
+        ) from exc
