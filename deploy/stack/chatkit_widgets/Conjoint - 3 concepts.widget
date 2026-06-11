@@ -1,0 +1,477 @@
+{
+  "version": "1.0",
+  "name": "Conjoint – 3 concepts",
+  "template": "{\"type\":\"Card\",\"size\":\"md\",\"asForm\":true,\"confirm\":{\"label\":\"Submit\",\"action\":{\"type\":\"conjoint.submit\"}},\"cancel\":{\"label\":\"Clear\",\"action\":{\"type\":\"conjoint.clear\"}},\"children\":[{\"type\":\"Col\",\"gap\":3,\"children\":[{\"type\":\"Title\",\"value\":{{ (title) | tojson }},\"size\":\"sm\"},{\"type\":\"Row\",\"align\":\"stretch\",\"gap\":3,\"children\":[{%- set _c -%}{%-for c in concepts -%},{\"type\":\"Col\",\"key\":{{ (c.id) | tojson }},\"gap\":2,\"padding\":3,\"border\":{\"size\":1},\"radius\":\"lg\",\"background\":\"surface-secondary\",\"flex\":1,\"children\":[{%- set _c -%},{\"type\":\"Row\",\"gap\":2,\"align\":\"center\",\"children\":[{\"type\":\"Box\",\"width\":4,\"height\":4,\"radius\":\"full\",\"background\":{{ (c.accent) | tojson }}},{\"type\":\"Title\",\"value\":{{ (c.name) | tojson }},\"size\":\"sm\"},{\"type\":\"Spacer\"}]},{\"type\":\"Row\",\"gap\":2,\"align\":\"center\",\"children\":[{\"type\":\"Badge\",\"label\":{{ (c.price) | tojson }}}]}{%-for attr in c.attributes -%}{%-set idx = loop.index0 -%},{\"type\":\"Row\",\"key\":{{ (idx) | tojson }},\"gap\":2,\"align\":\"center\",\"children\":[{\"type\":\"Icon\",\"name\":\"check-circle\",\"color\":{{ (c.accent) | tojson }},\"size\":\"sm\"},{\"type\":\"Text\",\"value\":{{ (attr) | tojson }},\"size\":\"sm\"}]}{%-endfor-%}{%- endset -%}{{- (_c[1:] if _c and _c[0] == ',' else _c) -}}]}{%-endfor-%}{%- endset -%}{{- (_c[1:] if _c and _c[0] == ',' else _c) -}}]},{\"type\":\"Divider\"},{\"type\":\"Row\",\"align\":\"center\",\"gap\":3,\"children\":[{\"type\":\"Label\",\"value\":\"Your pick\",\"fieldName\":\"choice\"},{\"type\":\"Spacer\"},{\"type\":\"RadioGroup\",\"name\":\"choice\",\"options\":{{ (options) | tojson }},\"direction\":\"row\",\"required\":true}]}]}]}",
+  "jsonSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string"
+      },
+      "concepts": {
+        "minItems": 3,
+        "maxItems": 3,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "price": {
+              "type": "string"
+            },
+            "accent": {
+              "type": "string",
+              "enum": [
+                "blue",
+                "green",
+                "purple",
+                "orange",
+                "red"
+              ]
+            },
+            "attributes": {
+              "minItems": 1,
+              "maxItems": 5,
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "price",
+            "accent",
+            "attributes"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "options": {
+        "minItems": 3,
+        "maxItems": 3,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            },
+            "disabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "label",
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "title",
+      "concepts",
+      "options"
+    ],
+    "additionalProperties": false
+  },
+  "outputJsonPreview": {
+    "type": "Card",
+    "size": "md",
+    "asForm": true,
+    "confirm": {
+      "label": "Submit",
+      "action": {
+        "type": "conjoint.submit"
+      }
+    },
+    "cancel": {
+      "label": "Clear",
+      "action": {
+        "type": "conjoint.clear"
+      }
+    },
+    "children": [
+      {
+        "type": "Col",
+        "gap": 3,
+        "children": [
+          {
+            "type": "Title",
+            "value": "Conjoint: pick a concept",
+            "size": "sm"
+          },
+          {
+            "type": "Row",
+            "align": "stretch",
+            "gap": 3,
+            "children": [
+              {
+                "type": "Col",
+                "key": "A",
+                "gap": 2,
+                "padding": 3,
+                "border": {
+                  "size": 1
+                },
+                "radius": "lg",
+                "background": "surface-secondary",
+                "flex": 1,
+                "children": [
+                  {
+                    "type": "Row",
+                    "gap": 2,
+                    "align": "center",
+                    "children": [
+                      {
+                        "type": "Box",
+                        "width": 4,
+                        "height": 4,
+                        "radius": "full",
+                        "background": "blue"
+                      },
+                      {
+                        "type": "Title",
+                        "value": "Concept A",
+                        "size": "sm"
+                      },
+                      {
+                        "type": "Spacer"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Row",
+                    "gap": 2,
+                    "align": "center",
+                    "children": [
+                      {
+                        "type": "Badge",
+                        "label": "$19"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Row",
+                    "key": 0,
+                    "gap": 2,
+                    "align": "center",
+                    "children": [
+                      {
+                        "type": "Icon",
+                        "name": "check-circle",
+                        "color": "blue",
+                        "size": "sm"
+                      },
+                      {
+                        "type": "Text",
+                        "value": "Fast shipping",
+                        "size": "sm"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Row",
+                    "key": 1,
+                    "gap": 2,
+                    "align": "center",
+                    "children": [
+                      {
+                        "type": "Icon",
+                        "name": "check-circle",
+                        "color": "blue",
+                        "size": "sm"
+                      },
+                      {
+                        "type": "Text",
+                        "value": "Matte finish",
+                        "size": "sm"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Row",
+                    "key": 2,
+                    "gap": 2,
+                    "align": "center",
+                    "children": [
+                      {
+                        "type": "Icon",
+                        "name": "check-circle",
+                        "color": "blue",
+                        "size": "sm"
+                      },
+                      {
+                        "type": "Text",
+                        "value": "1-year warranty",
+                        "size": "sm"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Col",
+                "key": "B",
+                "gap": 2,
+                "padding": 3,
+                "border": {
+                  "size": 1
+                },
+                "radius": "lg",
+                "background": "surface-secondary",
+                "flex": 1,
+                "children": [
+                  {
+                    "type": "Row",
+                    "gap": 2,
+                    "align": "center",
+                    "children": [
+                      {
+                        "type": "Box",
+                        "width": 4,
+                        "height": 4,
+                        "radius": "full",
+                        "background": "green"
+                      },
+                      {
+                        "type": "Title",
+                        "value": "Concept B",
+                        "size": "sm"
+                      },
+                      {
+                        "type": "Spacer"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Row",
+                    "gap": 2,
+                    "align": "center",
+                    "children": [
+                      {
+                        "type": "Badge",
+                        "label": "$24"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Row",
+                    "key": 0,
+                    "gap": 2,
+                    "align": "center",
+                    "children": [
+                      {
+                        "type": "Icon",
+                        "name": "check-circle",
+                        "color": "green",
+                        "size": "sm"
+                      },
+                      {
+                        "type": "Text",
+                        "value": "Eco materials",
+                        "size": "sm"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Row",
+                    "key": 1,
+                    "gap": 2,
+                    "align": "center",
+                    "children": [
+                      {
+                        "type": "Icon",
+                        "name": "check-circle",
+                        "color": "green",
+                        "size": "sm"
+                      },
+                      {
+                        "type": "Text",
+                        "value": "Gloss finish",
+                        "size": "sm"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Row",
+                    "key": 2,
+                    "gap": 2,
+                    "align": "center",
+                    "children": [
+                      {
+                        "type": "Icon",
+                        "name": "check-circle",
+                        "color": "green",
+                        "size": "sm"
+                      },
+                      {
+                        "type": "Text",
+                        "value": "2-year warranty",
+                        "size": "sm"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Col",
+                "key": "C",
+                "gap": 2,
+                "padding": 3,
+                "border": {
+                  "size": 1
+                },
+                "radius": "lg",
+                "background": "surface-secondary",
+                "flex": 1,
+                "children": [
+                  {
+                    "type": "Row",
+                    "gap": 2,
+                    "align": "center",
+                    "children": [
+                      {
+                        "type": "Box",
+                        "width": 4,
+                        "height": 4,
+                        "radius": "full",
+                        "background": "purple"
+                      },
+                      {
+                        "type": "Title",
+                        "value": "Concept C",
+                        "size": "sm"
+                      },
+                      {
+                        "type": "Spacer"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Row",
+                    "gap": 2,
+                    "align": "center",
+                    "children": [
+                      {
+                        "type": "Badge",
+                        "label": "$17"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Row",
+                    "key": 0,
+                    "gap": 2,
+                    "align": "center",
+                    "children": [
+                      {
+                        "type": "Icon",
+                        "name": "check-circle",
+                        "color": "purple",
+                        "size": "sm"
+                      },
+                      {
+                        "type": "Text",
+                        "value": "Budget friendly",
+                        "size": "sm"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Row",
+                    "key": 1,
+                    "gap": 2,
+                    "align": "center",
+                    "children": [
+                      {
+                        "type": "Icon",
+                        "name": "check-circle",
+                        "color": "purple",
+                        "size": "sm"
+                      },
+                      {
+                        "type": "Text",
+                        "value": "Matte finish",
+                        "size": "sm"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Row",
+                    "key": 2,
+                    "gap": 2,
+                    "align": "center",
+                    "children": [
+                      {
+                        "type": "Icon",
+                        "name": "check-circle",
+                        "color": "purple",
+                        "size": "sm"
+                      },
+                      {
+                        "type": "Text",
+                        "value": "30-day returns",
+                        "size": "sm"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "Divider"
+          },
+          {
+            "type": "Row",
+            "align": "center",
+            "gap": 3,
+            "children": [
+              {
+                "type": "Label",
+                "value": "Your pick",
+                "fieldName": "choice"
+              },
+              {
+                "type": "Spacer"
+              },
+              {
+                "type": "RadioGroup",
+                "name": "choice",
+                "options": [
+                  {
+                    "label": "Concept A",
+                    "value": "A"
+                  },
+                  {
+                    "label": "Concept B",
+                    "value": "B"
+                  },
+                  {
+                    "label": "Concept C",
+                    "value": "C"
+                  }
+                ],
+                "direction": "row",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "encodedWidget": "eyJpZCI6Ijk1YjU1OWJiLTBjZjItNGE3MS04N2FhLTU5OGM1NjU4ZDAwMCIsIm5hbWUiOiJDb25qb2ludCDigJMgMyBjb25jZXB0cyIsInZpZXciOiI8Q2FyZFxuICBzaXplPVwibWRcIlxuICBhc0Zvcm1cbiAgY29uZmlybT17eyBsYWJlbDogXCJTdWJtaXRcIiwgYWN0aW9uOiB7IHR5cGU6IFwiY29uam9pbnQuc3VibWl0XCIgfSB9fVxuICBjYW5jZWw9e3sgbGFiZWw6IFwiQ2xlYXJcIiwgYWN0aW9uOiB7IHR5cGU6IFwiY29uam9pbnQuY2xlYXJcIiB9IH19XG4-XG4gIDxDb2wgZ2FwPXszfT5cbiAgICA8VGl0bGUgdmFsdWU9e3RpdGxlfSBzaXplPVwic21cIiAvPlxuXG4gICAgPFJvdyBhbGlnbj1cInN0cmV0Y2hcIiBnYXA9ezN9PlxuICAgICAge2NvbmNlcHRzLm1hcCgoYykgPT4gKFxuICAgICAgICA8Q29sXG4gICAgICAgICAga2V5PXtjLmlkfVxuICAgICAgICAgIGdhcD17Mn1cbiAgICAgICAgICBwYWRkaW5nPXszfVxuICAgICAgICAgIGJvcmRlcj17eyBzaXplOiAxIH19XG4gICAgICAgICAgcmFkaXVzPVwibGdcIlxuICAgICAgICAgIGJhY2tncm91bmQ9XCJzdXJmYWNlLXNlY29uZGFyeVwiXG4gICAgICAgICAgZmxleD17MX1cbiAgICAgICAgPlxuICAgICAgICAgIDxSb3cgZ2FwPXsyfSBhbGlnbj1cImNlbnRlclwiPlxuICAgICAgICAgICAgPEJveCB3aWR0aD17NH0gaGVpZ2h0PXs0fSByYWRpdXM9XCJmdWxsXCIgYmFja2dyb3VuZD17Yy5hY2NlbnR9IC8-XG4gICAgICAgICAgICA8VGl0bGUgdmFsdWU9e2MubmFtZX0gc2l6ZT1cInNtXCIgLz5cbiAgICAgICAgICAgIDxTcGFjZXIgLz5cbiAgICAgICAgICA8L1Jvdz5cbiAgICAgICAgICA8Um93IGdhcD17Mn0gYWxpZ249XCJjZW50ZXJcIj5cbiAgICAgICAgICAgIDxCYWRnZSBsYWJlbD17Yy5wcmljZX0gLz5cbiAgICAgICAgICA8L1Jvdz5cbiAgICAgICAgICB7Yy5hdHRyaWJ1dGVzLm1hcCgoYXR0ciwgaWR4KSA9PiAoXG4gICAgICAgICAgICA8Um93IGtleT17aWR4fSBnYXA9ezJ9IGFsaWduPVwiY2VudGVyXCI-XG4gICAgICAgICAgICAgIDxJY29uIG5hbWU9XCJjaGVjay1jaXJjbGVcIiBjb2xvcj17Yy5hY2NlbnR9IHNpemU9XCJzbVwiIC8-XG4gICAgICAgICAgICAgIDxUZXh0IHZhbHVlPXthdHRyfSBzaXplPVwic21cIiAvPlxuICAgICAgICAgICAgPC9Sb3c-XG4gICAgICAgICAgKSl9XG4gICAgICAgIDwvQ29sPlxuICAgICAgKSl9XG4gICAgPC9Sb3c-XG5cbiAgICA8RGl2aWRlciAvPlxuICAgIDxSb3cgYWxpZ249XCJjZW50ZXJcIiBnYXA9ezN9PlxuICAgICAgPExhYmVsIHZhbHVlPVwiWW91ciBwaWNrXCIgZmllbGROYW1lPVwiY2hvaWNlXCIgLz5cbiAgICAgIDxTcGFjZXIgLz5cbiAgICAgIDxSYWRpb0dyb3VwIG5hbWU9XCJjaG9pY2VcIiBvcHRpb25zPXtvcHRpb25zfSBkaXJlY3Rpb249XCJyb3dcIiByZXF1aXJlZCAvPlxuICAgIDwvUm93PlxuICA8L0NvbD5cbjwvQ2FyZD4iLCJkZWZhdWx0U3RhdGUiOnsidGl0bGUiOiJDb25qb2ludDogcGljayBhIGNvbmNlcHQiLCJjb25jZXB0cyI6W3siaWQiOiJBIiwibmFtZSI6IkNvbmNlcHQgQSIsInByaWNlIjoiJDE5IiwiYWNjZW50IjoiYmx1ZSIsImF0dHJpYnV0ZXMiOlsiRmFzdCBzaGlwcGluZyIsIk1hdHRlIGZpbmlzaCIsIjEteWVhciB3YXJyYW50eSJdfSx7ImlkIjoiQiIsIm5hbWUiOiJDb25jZXB0IEIiLCJwcmljZSI6IiQyNCIsImFjY2VudCI6ImdyZWVuIiwiYXR0cmlidXRlcyI6WyJFY28gbWF0ZXJpYWxzIiwiR2xvc3MgZmluaXNoIiwiMi15ZWFyIHdhcnJhbnR5Il19LHsiaWQiOiJDIiwibmFtZSI6IkNvbmNlcHQgQyIsInByaWNlIjoiJDE3IiwiYWNjZW50IjoicHVycGxlIiwiYXR0cmlidXRlcyI6WyJCdWRnZXQgZnJpZW5kbHkiLCJNYXR0ZSBmaW5pc2giLCIzMC1kYXkgcmV0dXJucyJdfV0sIm9wdGlvbnMiOlt7ImxhYmVsIjoiQ29uY2VwdCBBIiwidmFsdWUiOiJBIn0seyJsYWJlbCI6IkNvbmNlcHQgQiIsInZhbHVlIjoiQiJ9LHsibGFiZWwiOiJDb25jZXB0IEMiLCJ2YWx1ZSI6IkMifV19LCJzdGF0ZXMiOltdLCJzY2hlbWEiOiJpbXBvcnQgeyB6IH0gZnJvbSBcInpvZFwiXG5cbmNvbnN0IE9wdGlvbiA9IHouc3RyaWN0T2JqZWN0KHtcbiAgbGFiZWw6IHouc3RyaW5nKCksXG4gIHZhbHVlOiB6LnN0cmluZygpLFxuICBkaXNhYmxlZDogei5ib29sZWFuKCkub3B0aW9uYWwoKSxcbn0pXG5cbmNvbnN0IENvbmNlcHQgPSB6LnN0cmljdE9iamVjdCh7XG4gIGlkOiB6LnN0cmluZygpLFxuICBuYW1lOiB6LnN0cmluZygpLFxuICBwcmljZTogei5zdHJpbmcoKSxcbiAgYWNjZW50OiB6LmVudW0oW1wiYmx1ZVwiLCBcImdyZWVuXCIsIFwicHVycGxlXCIsIFwib3JhbmdlXCIsIFwicmVkXCJdKSxcbiAgYXR0cmlidXRlczogei5hcnJheSh6LnN0cmluZygpKS5taW4oMSkubWF4KDUpLFxufSlcblxuY29uc3QgV2lkZ2V0U3RhdGUgPSB6LnN0cmljdE9iamVjdCh7XG4gIHRpdGxlOiB6LnN0cmluZygpLFxuICBjb25jZXB0czogei5hcnJheShDb25jZXB0KS5sZW5ndGgoMyksXG4gIG9wdGlvbnM6IHouYXJyYXkoT3B0aW9uKS5sZW5ndGgoMyksXG59KVxuXG5leHBvcnQgZGVmYXVsdCBXaWRnZXRTdGF0ZSIsImpzb25TY2hlbWEiOnt9LCJzY2hlbWFNb2RlIjoiem9kIiwic2NoZW1hVmFsaWRpdHkiOiJ2YWxpZCIsInZpZXdWYWxpZGl0eSI6InZhbGlkIiwiZGVmYXVsdFN0YXRlVmFsaWRpdHkiOiJ2YWxpZCJ9"
+}

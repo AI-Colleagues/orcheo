@@ -1,0 +1,198 @@
+{
+  "version": "1.0",
+  "name": "Todo list",
+  "template": "{\"type\":\"Card\",\"size\":\"sm\",\"children\":[{\"type\":\"Col\",\"gap\":2,\"children\":[{\"type\":\"Row\",\"children\":[{\"type\":\"Title\",\"value\":\"To-do\",\"size\":\"md\"},{\"type\":\"Spacer\"},{\"type\":\"Badge\",\"label\":{{ ((length ~ \" left\")) | tojson }},\"color\":\"info\"}]},{\"type\":\"Divider\"},{\"type\":\"Col\",\"gap\":2,\"children\":[{%- set _c -%}{%-for item in items -%},{\"type\":\"Row\",\"key\":{{ (item.id) | tojson }},\"gap\":2,\"align\":\"center\",\"children\":[{\"type\":\"Checkbox\",\"name\":{{ ((\"todo.done.\" ~ item.id)) | tojson }},\"defaultChecked\":{{ (item.done) | tojson }},\"onChangeAction\":{\"type\":\"todo.toggle\",\"payload\":{\"id\":{{ (item.id) | tojson }}}}},{\"type\":\"Text\",\"value\":{{ (item.title) | tojson }},\"size\":\"sm\",\"lineThrough\":{{ (item.done) | tojson }}}]}{%-endfor-%}{%-if (items | length) === 0 -%},{\"type\":\"Text\",\"value\":\"No tasks yet\",\"size\":\"sm\",\"color\":\"secondary\",\"textAlign\":\"center\"}{%-else-%}{%-endif-%}{%- endset -%}{{- (_c[1:] if _c and _c[0] == ',' else _c) -}}]},{\"type\":\"Divider\"},{\"type\":\"Form\",\"onSubmitAction\":{\"type\":\"todo.add\"},\"children\":[{\"type\":\"Row\",\"gap\":2,\"children\":[{\"type\":\"Input\",\"name\":\"todo.title\",\"placeholder\":{{ (newItemPlaceholder) | tojson }},\"required\":true},{\"type\":\"Button\",\"submit\":true,\"label\":\"Add\",\"style\":\"primary\"},{\"type\":\"Spacer\"},{\"type\":\"Button\",\"label\":\"Clear completed\",\"variant\":\"outline\",\"onClickAction\":{\"type\":\"todo.clearCompleted\"},\"disabled\":{{ ((none.length == 0)) | tojson }}}]}]}]}]}",
+  "jsonSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "done": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "done"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "newItemPlaceholder": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "items",
+      "newItemPlaceholder"
+    ],
+    "additionalProperties": false
+  },
+  "outputJsonPreview": {
+    "type": "Card",
+    "size": "sm",
+    "children": [
+      {
+        "type": "Col",
+        "gap": 2,
+        "children": [
+          {
+            "type": "Row",
+            "children": [
+              {
+                "type": "Title",
+                "value": "To-do",
+                "size": "md"
+              },
+              {
+                "type": "Spacer"
+              },
+              {
+                "type": "Badge",
+                "label": "2 left",
+                "color": "info"
+              }
+            ]
+          },
+          {
+            "type": "Divider"
+          },
+          {
+            "type": "Col",
+            "gap": 2,
+            "children": [
+              {
+                "type": "Row",
+                "key": "1",
+                "gap": 2,
+                "align": "center",
+                "children": [
+                  {
+                    "type": "Checkbox",
+                    "name": "todo.done.1",
+                    "defaultChecked": false,
+                    "onChangeAction": {
+                      "type": "todo.toggle",
+                      "payload": {
+                        "id": "1"
+                      }
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "value": "Buy milk",
+                    "size": "sm",
+                    "lineThrough": false
+                  }
+                ]
+              },
+              {
+                "type": "Row",
+                "key": "2",
+                "gap": 2,
+                "align": "center",
+                "children": [
+                  {
+                    "type": "Checkbox",
+                    "name": "todo.done.2",
+                    "defaultChecked": true,
+                    "onChangeAction": {
+                      "type": "todo.toggle",
+                      "payload": {
+                        "id": "2"
+                      }
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "value": "Email Alex re: meeting",
+                    "size": "sm",
+                    "lineThrough": true
+                  }
+                ]
+              },
+              {
+                "type": "Row",
+                "key": "3",
+                "gap": 2,
+                "align": "center",
+                "children": [
+                  {
+                    "type": "Checkbox",
+                    "name": "todo.done.3",
+                    "defaultChecked": false,
+                    "onChangeAction": {
+                      "type": "todo.toggle",
+                      "payload": {
+                        "id": "3"
+                      }
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "value": "Plan weekend hike",
+                    "size": "sm",
+                    "lineThrough": false
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "Divider"
+          },
+          {
+            "type": "Form",
+            "onSubmitAction": {
+              "type": "todo.add"
+            },
+            "children": [
+              {
+                "type": "Row",
+                "gap": 2,
+                "children": [
+                  {
+                    "type": "Input",
+                    "name": "todo.title",
+                    "placeholder": "Add a task...",
+                    "required": true
+                  },
+                  {
+                    "type": "Button",
+                    "submit": true,
+                    "label": "Add",
+                    "style": "primary"
+                  },
+                  {
+                    "type": "Spacer"
+                  },
+                  {
+                    "type": "Button",
+                    "label": "Clear completed",
+                    "variant": "outline",
+                    "onClickAction": {
+                      "type": "todo.clearCompleted"
+                    },
+                    "disabled": false
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "encodedWidget": "eyJpZCI6ImNmN2NiN2NiLTYyZGItNDMyYy1hMGQzLWY0MDllMThmMTliYiIsIm5hbWUiOiJUb2RvIGxpc3QiLCJ2aWV3IjoiPENhcmQgc2l6ZT1cInNtXCI-XG4gIDxDb2wgZ2FwPXsyfT5cbiAgICA8Um93PlxuICAgICAgPFRpdGxlIHZhbHVlPVwiVG8tZG9cIiBzaXplPVwibWRcIiAvPlxuICAgICAgPFNwYWNlciAvPlxuICAgICAgPEJhZGdlXG4gICAgICAgIGxhYmVsPXtgJHtpdGVtcy5maWx0ZXIoKGkpID0-ICFpLmRvbmUpLmxlbmd0aH0gbGVmdGB9XG4gICAgICAgIGNvbG9yPVwiaW5mb1wiXG4gICAgICAvPlxuICAgIDwvUm93PlxuICAgIDxEaXZpZGVyIC8-XG4gICAgPENvbCBnYXA9ezJ9PlxuICAgICAge2l0ZW1zLm1hcCgoaXRlbSkgPT4gKFxuICAgICAgICA8Um93IGtleT17aXRlbS5pZH0gZ2FwPXsyfSBhbGlnbj1cImNlbnRlclwiPlxuICAgICAgICAgIDxDaGVja2JveFxuICAgICAgICAgICAgbmFtZT17YHRvZG8uZG9uZS4ke2l0ZW0uaWR9YH1cbiAgICAgICAgICAgIGRlZmF1bHRDaGVja2VkPXtpdGVtLmRvbmV9XG4gICAgICAgICAgICBvbkNoYW5nZUFjdGlvbj17eyB0eXBlOiBcInRvZG8udG9nZ2xlXCIsIHBheWxvYWQ6IHsgaWQ6IGl0ZW0uaWQgfSB9fVxuICAgICAgICAgIC8-XG4gICAgICAgICAgPFRleHQgdmFsdWU9e2l0ZW0udGl0bGV9IHNpemU9XCJzbVwiIGxpbmVUaHJvdWdoPXtpdGVtLmRvbmV9IC8-XG4gICAgICAgIDwvUm93PlxuICAgICAgKSl9XG4gICAgICB7aXRlbXMubGVuZ3RoID09PSAwICYmIChcbiAgICAgICAgPFRleHRcbiAgICAgICAgICB2YWx1ZT1cIk5vIHRhc2tzIHlldFwiXG4gICAgICAgICAgc2l6ZT1cInNtXCJcbiAgICAgICAgICBjb2xvcj1cInNlY29uZGFyeVwiXG4gICAgICAgICAgdGV4dEFsaWduPVwiY2VudGVyXCJcbiAgICAgICAgLz5cbiAgICAgICl9XG4gICAgPC9Db2w-XG4gICAgPERpdmlkZXIgLz5cbiAgICA8Rm9ybSBvblN1Ym1pdEFjdGlvbj17eyB0eXBlOiBcInRvZG8uYWRkXCIgfX0-XG4gICAgICA8Um93IGdhcD17Mn0-XG4gICAgICAgIDxJbnB1dCBuYW1lPVwidG9kby50aXRsZVwiIHBsYWNlaG9sZGVyPXtuZXdJdGVtUGxhY2Vob2xkZXJ9IHJlcXVpcmVkIC8-XG4gICAgICAgIDxCdXR0b24gc3VibWl0IGxhYmVsPVwiQWRkXCIgc3R5bGU9XCJwcmltYXJ5XCIgLz5cbiAgICAgICAgPFNwYWNlciAvPlxuICAgICAgICA8QnV0dG9uXG4gICAgICAgICAgbGFiZWw9XCJDbGVhciBjb21wbGV0ZWRcIlxuICAgICAgICAgIHZhcmlhbnQ9XCJvdXRsaW5lXCJcbiAgICAgICAgICBvbkNsaWNrQWN0aW9uPXt7IHR5cGU6IFwidG9kby5jbGVhckNvbXBsZXRlZFwiIH19XG4gICAgICAgICAgZGlzYWJsZWQ9e2l0ZW1zLmZpbHRlcigoaSkgPT4gaS5kb25lKS5sZW5ndGggPT09IDB9XG4gICAgICAgIC8-XG4gICAgICA8L1Jvdz5cbiAgICA8L0Zvcm0-XG4gIDwvQ29sPlxuPC9DYXJkPiIsImRlZmF1bHRTdGF0ZSI6eyJpdGVtcyI6W3siaWQiOiIxIiwidGl0bGUiOiJCdXkgbWlsayIsImRvbmUiOmZhbHNlfSx7ImlkIjoiMiIsInRpdGxlIjoiRW1haWwgQWxleCByZTogbWVldGluZyIsImRvbmUiOnRydWV9LHsiaWQiOiIzIiwidGl0bGUiOiJQbGFuIHdlZWtlbmQgaGlrZSIsImRvbmUiOmZhbHNlfV0sIm5ld0l0ZW1QbGFjZWhvbGRlciI6IkFkZCBhIHRhc2suLi4ifSwic3RhdGVzIjpbXSwic2NoZW1hIjoiaW1wb3J0IHsgeiB9IGZyb20gXCJ6b2RcIlxuXG5jb25zdCBUb2RvID0gei5zdHJpY3RPYmplY3Qoe1xuICBpZDogei5zdHJpbmcoKSxcbiAgdGl0bGU6IHouc3RyaW5nKCksXG4gIGRvbmU6IHouYm9vbGVhbigpLFxufSlcblxuY29uc3QgV2lkZ2V0U3RhdGUgPSB6LnN0cmljdE9iamVjdCh7XG4gIGl0ZW1zOiB6LmFycmF5KFRvZG8pLFxuICBuZXdJdGVtUGxhY2Vob2xkZXI6IHouc3RyaW5nKCksXG59KVxuXG5leHBvcnQgZGVmYXVsdCBXaWRnZXRTdGF0ZSIsImpzb25TY2hlbWEiOnt9LCJzY2hlbWFNb2RlIjoiem9kIiwic2NoZW1hVmFsaWRpdHkiOiJ2YWxpZCIsInZpZXdWYWxpZGl0eSI6InZhbGlkIiwiZGVmYXVsdFN0YXRlVmFsaWRpdHkiOiJ2YWxpZCJ9"
+}

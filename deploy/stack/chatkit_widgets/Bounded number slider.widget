@@ -1,0 +1,161 @@
+{
+  "version": "1.0",
+  "name": "Bounded number slider",
+  "template": "{\"type\":\"Card\",\"size\":\"sm\",\"asForm\":true,\"confirm\":{\"label\":\"Set\",\"action\":{\"type\":\"slider.set\"}},\"children\":[{\"type\":\"Col\",\"gap\":3,\"children\":[{\"type\":\"Row\",\"children\":[{\"type\":\"Text\",\"value\":{{ (label) | tojson }},\"size\":\"sm\",\"color\":\"secondary\"},{\"type\":\"Spacer\"},{\"type\":\"Text\",\"value\":{{ (valueText) | tojson }},\"weight\":\"semibold\"}]},{\"type\":\"Row\",\"align\":\"center\",\"gap\":2,\"children\":[{\"type\":\"Caption\",\"value\":{{ (minLabel) | tojson }},\"color\":\"tertiary\"},{\"type\":\"Box\",\"flex\":\"auto\",\"height\":8,\"radius\":\"xl\",\"background\":\"surface-secondary\",\"children\":[{\"type\":\"Box\",\"width\":{{ (percent) | tojson }},\"height\":\"100%\",\"radius\":\"xl\",\"background\":\"blue-500\"}]},{\"type\":\"Caption\",\"value\":{{ (maxLabel) | tojson }},\"color\":\"tertiary\"}]},{\"type\":\"Row\",\"gap\":2,\"children\":[{\"type\":\"Button\",\"iconStart\":\"chevron-left\",\"uniform\":true,\"onClickAction\":{\"type\":\"slider.adjust\",\"payload\":{\"delta\":{{ (stepNeg) | tojson }},\"min\":{{ (min) | tojson }},\"max\":{{ (max) | tojson }}}}},{\"type\":\"Input\",\"name\":\"slider.value\",\"inputType\":\"number\",\"defaultValue\":{{ (valueText) | tojson }},\"variant\":\"outline\"},{\"type\":\"Button\",\"iconStart\":\"chevron-right\",\"uniform\":true,\"onClickAction\":{\"type\":\"slider.adjust\",\"payload\":{\"delta\":{{ (step) | tojson }},\"min\":{{ (min) | tojson }},\"max\":{{ (max) | tojson }}}}}]}]}]}",
+  "jsonSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "label": {
+        "type": "string"
+      },
+      "min": {
+        "type": "number"
+      },
+      "max": {
+        "type": "number"
+      },
+      "step": {
+        "type": "number"
+      },
+      "stepNeg": {
+        "type": "number"
+      },
+      "valueText": {
+        "type": "string"
+      },
+      "minLabel": {
+        "type": "string"
+      },
+      "maxLabel": {
+        "type": "string"
+      },
+      "percent": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "label",
+      "min",
+      "max",
+      "step",
+      "stepNeg",
+      "valueText",
+      "minLabel",
+      "maxLabel",
+      "percent"
+    ],
+    "additionalProperties": false
+  },
+  "outputJsonPreview": {
+    "type": "Card",
+    "size": "sm",
+    "asForm": true,
+    "confirm": {
+      "label": "Set",
+      "action": {
+        "type": "slider.set"
+      }
+    },
+    "children": [
+      {
+        "type": "Col",
+        "gap": 3,
+        "children": [
+          {
+            "type": "Row",
+            "children": [
+              {
+                "type": "Text",
+                "value": "Select a number",
+                "size": "sm",
+                "color": "secondary"
+              },
+              {
+                "type": "Spacer"
+              },
+              {
+                "type": "Text",
+                "value": "50",
+                "weight": "semibold"
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "align": "center",
+            "gap": 2,
+            "children": [
+              {
+                "type": "Caption",
+                "value": "0",
+                "color": "tertiary"
+              },
+              {
+                "type": "Box",
+                "flex": "auto",
+                "height": 8,
+                "radius": "xl",
+                "background": "surface-secondary",
+                "children": [
+                  {
+                    "type": "Box",
+                    "width": "50%",
+                    "height": "100%",
+                    "radius": "xl",
+                    "background": "blue-500"
+                  }
+                ]
+              },
+              {
+                "type": "Caption",
+                "value": "100",
+                "color": "tertiary"
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "gap": 2,
+            "children": [
+              {
+                "type": "Button",
+                "iconStart": "chevron-left",
+                "uniform": true,
+                "onClickAction": {
+                  "type": "slider.adjust",
+                  "payload": {
+                    "delta": -5,
+                    "min": 0,
+                    "max": 100
+                  }
+                }
+              },
+              {
+                "type": "Input",
+                "name": "slider.value",
+                "inputType": "number",
+                "defaultValue": "50",
+                "variant": "outline"
+              },
+              {
+                "type": "Button",
+                "iconStart": "chevron-right",
+                "uniform": true,
+                "onClickAction": {
+                  "type": "slider.adjust",
+                  "payload": {
+                    "delta": 5,
+                    "min": 0,
+                    "max": 100
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "encodedWidget": "eyJpZCI6IjliMGViYTUzLTA5NDAtNDc4NC05OTcyLTE0NTQ5NmYwZmQ1YiIsIm5hbWUiOiJCb3VuZGVkIG51bWJlciBzbGlkZXIiLCJ2aWV3IjoiPENhcmRcbiAgc2l6ZT1cInNtXCJcbiAgYXNGb3JtXG4gIGNvbmZpcm09e3sgbGFiZWw6IFwiU2V0XCIsIGFjdGlvbjogeyB0eXBlOiBcInNsaWRlci5zZXRcIiB9IH19XG4-XG4gIDxDb2wgZ2FwPXszfT5cbiAgICA8Um93PlxuICAgICAgPFRleHQgdmFsdWU9e2xhYmVsfSBzaXplPVwic21cIiBjb2xvcj1cInNlY29uZGFyeVwiIC8-XG4gICAgICA8U3BhY2VyIC8-XG4gICAgICA8VGV4dCB2YWx1ZT17dmFsdWVUZXh0fSB3ZWlnaHQ9XCJzZW1pYm9sZFwiIC8-XG4gICAgPC9Sb3c-XG5cbiAgICA8Um93IGFsaWduPVwiY2VudGVyXCIgZ2FwPXsyfT5cbiAgICAgIDxDYXB0aW9uIHZhbHVlPXttaW5MYWJlbH0gY29sb3I9XCJ0ZXJ0aWFyeVwiIC8-XG4gICAgICA8Qm94IGZsZXg9XCJhdXRvXCIgaGVpZ2h0PXs4fSByYWRpdXM9XCJ4bFwiIGJhY2tncm91bmQ9XCJzdXJmYWNlLXNlY29uZGFyeVwiPlxuICAgICAgICA8Qm94IHdpZHRoPXtwZXJjZW50fSBoZWlnaHQ9XCIxMDAlXCIgcmFkaXVzPVwieGxcIiBiYWNrZ3JvdW5kPVwiYmx1ZS01MDBcIiAvPlxuICAgICAgPC9Cb3g-XG4gICAgICA8Q2FwdGlvbiB2YWx1ZT17bWF4TGFiZWx9IGNvbG9yPVwidGVydGlhcnlcIiAvPlxuICAgIDwvUm93PlxuXG4gICAgPFJvdyBnYXA9ezJ9PlxuICAgICAgPEJ1dHRvblxuICAgICAgICBpY29uU3RhcnQ9XCJjaGV2cm9uLWxlZnRcIlxuICAgICAgICB1bmlmb3JtXG4gICAgICAgIG9uQ2xpY2tBY3Rpb249e3tcbiAgICAgICAgICB0eXBlOiBcInNsaWRlci5hZGp1c3RcIixcbiAgICAgICAgICBwYXlsb2FkOiB7IGRlbHRhOiBzdGVwTmVnLCBtaW4sIG1heCB9LFxuICAgICAgICB9fVxuICAgICAgLz5cbiAgICAgIDxJbnB1dFxuICAgICAgICBuYW1lPVwic2xpZGVyLnZhbHVlXCJcbiAgICAgICAgaW5wdXRUeXBlPVwibnVtYmVyXCJcbiAgICAgICAgZGVmYXVsdFZhbHVlPXt2YWx1ZVRleHR9XG4gICAgICAgIHZhcmlhbnQ9XCJvdXRsaW5lXCJcbiAgICAgIC8-XG4gICAgICA8QnV0dG9uXG4gICAgICAgIGljb25TdGFydD1cImNoZXZyb24tcmlnaHRcIlxuICAgICAgICB1bmlmb3JtXG4gICAgICAgIG9uQ2xpY2tBY3Rpb249e3tcbiAgICAgICAgICB0eXBlOiBcInNsaWRlci5hZGp1c3RcIixcbiAgICAgICAgICBwYXlsb2FkOiB7IGRlbHRhOiBzdGVwLCBtaW4sIG1heCB9LFxuICAgICAgICB9fVxuICAgICAgLz5cbiAgICA8L1Jvdz5cbiAgPC9Db2w-XG48L0NhcmQ-IiwiZGVmYXVsdFN0YXRlIjp7ImxhYmVsIjoiU2VsZWN0IGEgbnVtYmVyIiwibWluIjowLCJtYXgiOjEwMCwic3RlcCI6NSwic3RlcE5lZyI6LTUsInZhbHVlVGV4dCI6IjUwIiwibWluTGFiZWwiOiIwIiwibWF4TGFiZWwiOiIxMDAiLCJwZXJjZW50IjoiNTAlIn0sInN0YXRlcyI6W10sInNjaGVtYSI6ImltcG9ydCB7IHogfSBmcm9tIFwiem9kXCJcblxuY29uc3QgV2lkZ2V0U3RhdGUgPSB6LnN0cmljdE9iamVjdCh7XG4gIGxhYmVsOiB6LnN0cmluZygpLFxuICBtaW46IHoubnVtYmVyKCksXG4gIG1heDogei5udW1iZXIoKSxcbiAgc3RlcDogei5udW1iZXIoKSxcbiAgc3RlcE5lZzogei5udW1iZXIoKSxcbiAgdmFsdWVUZXh0OiB6LnN0cmluZygpLFxuICBtaW5MYWJlbDogei5zdHJpbmcoKSxcbiAgbWF4TGFiZWw6IHouc3RyaW5nKCksXG4gIHBlcmNlbnQ6IHouc3RyaW5nKCksXG59KVxuXG5leHBvcnQgZGVmYXVsdCBXaWRnZXRTdGF0ZSIsImpzb25TY2hlbWEiOnt9LCJzY2hlbWFNb2RlIjoiem9kIiwic2NoZW1hVmFsaWRpdHkiOiJ2YWxpZCIsInZpZXdWYWxpZGl0eSI6InZhbGlkIiwiZGVmYXVsdFN0YXRlVmFsaWRpdHkiOiJ2YWxpZCJ9"
+}
