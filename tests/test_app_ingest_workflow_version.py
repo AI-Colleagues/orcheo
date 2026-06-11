@@ -217,6 +217,7 @@ async def test_ingest_workflow_version_raises_not_found_error(
             *,
             include_archived: bool = True,
             workspace_id: str | None = None,
+            team_id: str | None = None,
         ) -> UUID:
             del include_archived
             return UUID(str(workflow_ref))

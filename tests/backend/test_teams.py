@@ -157,6 +157,32 @@ async def test_create_team_endpoint_then_conflict() -> None:
     assert exc.value.status_code == 409
 
 
+@pytest.mark.asyncio
+async def test_create_team_endpoint_rejects_invalid_payload() -> None:
+    repo = InMemoryWorkflowRepository()
+    from orcheo_backend.app.schemas.teams import TeamCreateRequest
+
+    with pytest.raises(HTTPException) as exc:
+        await teams_router.create_team(
+            TeamCreateRequest(name="   ", slug="sales"),
+            repo,
+            WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail["code"] == "team.invalid"
+
+
+@pytest.mark.asyncio
+async def test_delete_team_endpoint_maps_missing_team_to_404() -> None:
+    repo = InMemoryWorkflowRepository()
+    with pytest.raises(HTTPException) as exc:
+        await teams_router.delete_team(uuid4(), repo, WORKSPACE)  # type: ignore[arg-type]
+
+    assert exc.value.status_code == 404
+    assert exc.value.detail["code"] == "team.not_found"
+
+
 # ---------------------------------------------------------------------------
 # Team-aware onboarding
 # ---------------------------------------------------------------------------
@@ -299,3 +325,60 @@ async def test_delete_team_endpoint_returns_409_when_not_empty(
     with pytest.raises(HTTPException) as exc:
         await teams_router.delete_team(team_id, repo, WORKSPACE)  # type: ignore[arg-type]
     assert exc.value.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Additional in-memory coverage: get_team_by_slug, ensure_default_team orphan,
+# and delete_team default-tracking cleanup
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_team_by_slug_returns_matching_team() -> None:
+    repo = InMemoryWorkflowRepository()
+    await repo.create_team(workspace_id=WS, name="Sales", slug="sales")
+    team = await repo.get_team_by_slug("sales", workspace_id=WS)
+    assert team.slug == "sales"
+    assert team.name == "Sales"
+
+
+@pytest.mark.asyncio
+async def test_get_team_by_slug_skips_non_matching_teams() -> None:
+    """get_team_by_slug iterates past non-matching teams to find the right one."""
+    repo = InMemoryWorkflowRepository()
+    await repo.create_team(workspace_id=WS, name="Acme", slug="acme")
+    await repo.create_team(workspace_id=WS, name="Sales", slug="sales")
+    team = await repo.get_team_by_slug("sales", workspace_id=WS)
+    assert team.slug == "sales"
+
+
+@pytest.mark.asyncio
+async def test_get_team_by_slug_raises_when_not_found() -> None:
+    """get_team_by_slug raises TeamNotFoundError when the slug does not exist."""
+    repo = InMemoryWorkflowRepository()
+    with pytest.raises(TeamNotFoundError):
+        await repo.get_team_by_slug("nonexistent", workspace_id=WS)
+
+
+@pytest.mark.asyncio
+async def test_ensure_default_team_recreates_when_reference_is_orphaned() -> None:
+    """ensure_default_team creates a fresh team when the tracked ID is stale."""
+    from uuid import uuid4
+
+    repo = InMemoryWorkflowRepository()
+    orphan_id = str(uuid4())
+    # Inject an orphaned pointer — the UUID doesn't exist in _teams
+    repo._default_team_by_workspace[WS] = orphan_id
+    team = await repo.ensure_default_team(workspace_id=WS, name="Acme", slug="acme")
+    assert str(team.id) != orphan_id
+    assert team.is_default is True
+
+
+@pytest.mark.asyncio
+async def test_delete_default_team_clears_workspace_default_tracking() -> None:
+    """Deleting the default team removes the workspace entry from default tracking."""
+    repo = InMemoryWorkflowRepository()
+    team = await repo.ensure_default_team(workspace_id=WS, name="Acme", slug="acme")
+    assert repo._default_team_by_workspace.get(WS) == str(team.id)
+    await repo.delete_team(team.id, workspace_id=WS)
+    assert WS not in repo._default_team_by_workspace

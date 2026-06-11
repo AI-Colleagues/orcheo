@@ -73,6 +73,7 @@ class _MissingWorkflowRepository:
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:  # pragma: no cover - stub
         return self._workflow_id
 

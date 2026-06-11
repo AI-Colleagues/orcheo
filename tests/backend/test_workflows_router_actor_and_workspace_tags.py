@@ -98,7 +98,7 @@ class _Repository:
         )
 
     async def resolve_workflow_ref(
-        self, workflow_ref, *, include_archived=True, workspace_id=None
+        self, workflow_ref, *, include_archived=True, workspace_id=None, team_id=None
     ):
         del include_archived
         return UUID(str(workflow_ref))
@@ -116,9 +116,9 @@ class _RepositoryWithExistingWorkflow(_Repository):
         return self._existing_workflow
 
     async def resolve_workflow_ref(
-        self, workflow_ref, *, include_archived=True, workspace_id=None
+        self, workflow_ref, *, include_archived=True, workspace_id=None, team_id=None
     ):
-        del include_archived, workspace_id
+        del include_archived, workspace_id, team_id
         if str(workflow_ref) == MANAGED_VIBE_WORKFLOW_HANDLE:
             return self._existing_workflow.id
         return UUID(str(workflow_ref))

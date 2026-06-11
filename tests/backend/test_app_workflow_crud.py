@@ -230,7 +230,12 @@ async def test_resolve_workflow_id_rejects_workspace_mismatch() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, workspace_id=None
+            self,
+            workflow_ref,
+            *,
+            include_archived=True,
+            workspace_id=None,
+            team_id=None,
         ):
             del include_archived
             if workspace_id is not None and workspace_id != str(other_workspace):
@@ -267,9 +272,14 @@ async def test_load_workflow_for_request_rejects_workspace_mismatch() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, workspace_id=None
+            self,
+            workflow_ref,
+            *,
+            include_archived=True,
+            workspace_id=None,
+            team_id=None,
         ):
-            del workflow_ref, include_archived, workspace_id
+            del workflow_ref, include_archived, workspace_id, team_id
             return workflow_id
 
         async def get_workflow(self, wf_id, *, workspace_id=None):
@@ -411,7 +421,12 @@ async def test_get_workflow_returns_workflow() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, workspace_id=None
+            self,
+            workflow_ref,
+            *,
+            include_archived=True,
+            workspace_id=None,
+            team_id=None,
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -438,7 +453,12 @@ async def test_get_workflow_not_found() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, workspace_id=None
+            self,
+            workflow_ref,
+            *,
+            include_archived=True,
+            workspace_id=None,
+            team_id=None,
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -473,7 +493,12 @@ async def test_get_workflow_returns_compact_versions() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, workspace_id=None
+            self,
+            workflow_ref,
+            *,
+            include_archived=True,
+            workspace_id=None,
+            team_id=None,
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -506,7 +531,12 @@ async def test_update_workflow_returns_updated() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, workspace_id=None
+            self,
+            workflow_ref,
+            *,
+            include_archived=True,
+            workspace_id=None,
+            team_id=None,
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -568,7 +598,12 @@ async def test_update_workflow_not_found() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, workspace_id=None
+            self,
+            workflow_ref,
+            *,
+            include_archived=True,
+            workspace_id=None,
+            team_id=None,
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -611,7 +646,12 @@ async def test_update_workflow_translates_handle_conflicts() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, workspace_id=None
+            self,
+            workflow_ref,
+            *,
+            include_archived=True,
+            workspace_id=None,
+            team_id=None,
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -663,7 +703,12 @@ async def test_archive_workflow_returns_archived() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, workspace_id=None
+            self,
+            workflow_ref,
+            *,
+            include_archived=True,
+            workspace_id=None,
+            team_id=None,
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -703,7 +748,12 @@ async def test_archive_workflow_not_found() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, workspace_id=None
+            self,
+            workflow_ref,
+            *,
+            include_archived=True,
+            workspace_id=None,
+            team_id=None,
         ):
             del workflow_ref, include_archived
             return workflow_id
@@ -727,7 +777,12 @@ async def test_archive_workflow_allows_managed_vibe_workflow() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, workflow_ref, *, include_archived=True, workspace_id=None
+            self,
+            workflow_ref,
+            *,
+            include_archived=True,
+            workspace_id=None,
+            team_id=None,
         ):
             del workflow_ref, include_archived
             return workflow_id

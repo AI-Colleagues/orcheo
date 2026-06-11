@@ -24,6 +24,7 @@ class _MissingPublishRepo:
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         del include_archived
         raise WorkflowNotFoundError(str(workflow_ref))
@@ -39,6 +40,7 @@ class _InvalidPublishRepo:
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
@@ -59,6 +61,7 @@ class _InvalidRevokeRepo:
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
@@ -79,6 +82,7 @@ class _MissingRevokeRepo:
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         del include_archived
         raise WorkflowNotFoundError(str(workflow_ref))
@@ -97,6 +101,7 @@ class _RevokeRepo:
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         del workflow_ref, include_archived
         return self.workflow.id
