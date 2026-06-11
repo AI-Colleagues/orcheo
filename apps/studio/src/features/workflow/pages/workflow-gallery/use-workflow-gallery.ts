@@ -5,6 +5,8 @@ export const useWorkflowGallery = () => {
   const state = useWorkflowGalleryState();
   const actions = useWorkflowGalleryActions({
     setSelectedTab: state.setSelectedTab,
+    teams: state.teams,
+    refreshTeams: state.refreshTeams,
   });
 
   return {

@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -10,7 +10,11 @@ import {
   deleteWorkflow,
   onboardCandidateAsWorkflow,
 } from "@features/workflow/lib/workflow-storage";
-import { fetchWorkflowVersions } from "@features/workflow/lib/workflow-storage-api";
+import {
+  type ApiTeam,
+  createTeam,
+  fetchWorkflowVersions,
+} from "@features/workflow/lib/workflow-storage-api";
 import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
 import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
 import { getWorkspaceWorkflowPath } from "@/lib/workspace-routing";
@@ -18,6 +22,13 @@ import { type WorkflowGalleryTab } from "./types";
 
 interface WorkflowGalleryActionsArgs {
   setSelectedTab: (value: WorkflowGalleryTab) => void;
+  teams: ApiTeam[];
+  refreshTeams: () => Promise<void>;
+}
+
+interface OnboardTarget {
+  candidateId: string;
+  candidateName: string;
 }
 
 const STARTER_TEMPLATE_IDS = ["template-python-agent"];
@@ -81,6 +92,10 @@ export const useWorkflowGalleryActions = (
   state: WorkflowGalleryActionsArgs,
 ) => {
   const navigate = useNavigate();
+  const [onboardTarget, setOnboardTarget] = useState<OnboardTarget | null>(
+    null,
+  );
+  const [isCreateTeamOpen, setIsCreateTeamOpen] = useState(false);
 
   const handleOpenWorkflow = useCallback(
     (workflowId: string) => {
@@ -91,20 +106,10 @@ export const useWorkflowGalleryActions = (
     [navigate],
   );
 
-  const handleUseTemplate = useCallback(
-    async (templateId: string) => {
+  const performOnboard = useCallback(
+    async (candidateId: string, teamId?: string) => {
       try {
-        const badge = getCandidateBadgeDefinition(templateId);
-        if (!badge?.candidateId) {
-          toast({
-            title: "Candidate unavailable",
-            description: "We couldn't find that candidate. Please try another.",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        const workflow = await onboardCandidateAsWorkflow(badge.candidateId);
+        const workflow = await onboardCandidateAsWorkflow(candidateId, teamId);
 
         state.setSelectedTab("all");
 
@@ -125,6 +130,48 @@ export const useWorkflowGalleryActions = (
     },
     [handleOpenWorkflow, state],
   );
+
+  const handleUseTemplate = useCallback(
+    async (templateId: string) => {
+      const badge = getCandidateBadgeDefinition(templateId);
+      if (!badge?.candidateId) {
+        toast({
+          title: "Candidate unavailable",
+          description: "We couldn't find that candidate. Please try another.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // With more than one team, ask which team to onboard into. Otherwise the
+      // server places the colleague in the workspace's default team.
+      if (state.teams.length > 1) {
+        setOnboardTarget({
+          candidateId: badge.candidateId,
+          candidateName: badge.name ?? badge.candidateId,
+        });
+        return;
+      }
+
+      await performOnboard(badge.candidateId);
+    },
+    [performOnboard, state.teams],
+  );
+
+  const confirmOnboardTeam = useCallback(
+    async (teamId: string) => {
+      const target = onboardTarget;
+      setOnboardTarget(null);
+      if (target) {
+        await performOnboard(target.candidateId, teamId);
+      }
+    },
+    [onboardTarget, performOnboard],
+  );
+
+  const cancelOnboardTeam = useCallback(() => {
+    setOnboardTarget(null);
+  }, []);
 
   const handleImportStarterPack = useCallback(async () => {
     try {
@@ -193,6 +240,18 @@ export const useWorkflowGalleryActions = (
     }
   }, []);
 
+  const handleCreateTeam = useCallback(
+    async (name: string, slug: string) => {
+      await createTeam({ name, slug });
+      await state.refreshTeams();
+      toast({
+        title: "Team created",
+        description: `"${name}" is ready to group colleagues.`,
+      });
+    },
+    [state],
+  );
+
   const handleDeleteWorkflow = useCallback(
     async (workflowId: string, workflowName: string) => {
       try {
@@ -213,11 +272,24 @@ export const useWorkflowGalleryActions = (
     [],
   );
 
+  const openCreateTeamDialog = useCallback(() => setIsCreateTeamOpen(true), []);
+  const closeCreateTeamDialog = useCallback(
+    () => setIsCreateTeamOpen(false),
+    [],
+  );
+
   return {
     handleOpenWorkflow,
     handleUseTemplate,
     handleImportStarterPack,
     handleExportWorkflow,
     handleDeleteWorkflow,
+    onboardTarget,
+    confirmOnboardTeam,
+    cancelOnboardTeam,
+    isCreateTeamOpen,
+    openCreateTeamDialog,
+    closeCreateTeamDialog,
+    handleCreateTeam,
   };
 };

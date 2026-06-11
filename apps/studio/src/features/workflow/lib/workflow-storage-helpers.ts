@@ -351,6 +351,7 @@ export const toStoredWorkflow = (
   return {
     id: workflow.id,
     handle: workflow.handle ?? undefined,
+    teamId: workflow.team_id ?? undefined,
     name: workflow.name,
     description: workflow.description ?? undefined,
     avatarEmoji,

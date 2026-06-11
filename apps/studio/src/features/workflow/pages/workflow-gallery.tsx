@@ -4,6 +4,8 @@ import { getActiveWorkspace } from "@/lib/api";
 import useCredentialVault from "@/hooks/use-credential-vault";
 import { usePageContext } from "@/hooks/use-page-context";
 import { WorkflowGalleryTabs } from "@/features/workflow/pages/workflow-gallery/workflow-gallery-tabs";
+import { OnboardTeamDialog } from "@/features/workflow/pages/workflow-gallery/onboard-team-dialog";
+import { CreateTeamDialog } from "@/features/workflow/pages/workflow-gallery/create-team-dialog";
 import { useWorkflowGallery } from "@/features/workflow/pages/workflow-gallery/use-workflow-gallery";
 
 export default function WorkflowGallery() {
@@ -53,11 +55,19 @@ export default function WorkflowGallery() {
     sortedWorkflows,
     tabCounts,
     isTemplateView,
+    teams,
     handleUseTemplate,
     handleImportStarterPack,
     handleExportWorkflow,
     handleDeleteWorkflow,
     handleOpenWorkflow,
+    onboardTarget,
+    confirmOnboardTeam,
+    cancelOnboardTeam,
+    isCreateTeamOpen,
+    openCreateTeamDialog,
+    closeCreateTeamDialog,
+    handleCreateTeam,
   } = useWorkflowGallery();
 
   return (
@@ -80,6 +90,8 @@ export default function WorkflowGallery() {
             sortedWorkflows={sortedWorkflows}
             tabCounts={tabCounts}
             isTemplateView={isTemplateView}
+            teams={teams}
+            onCreateTeam={openCreateTeamDialog}
             workspaceLabel={workspaceLabel}
             searchQuery={searchQuery}
             onSearchQueryChange={setSearchQuery}
@@ -91,6 +103,26 @@ export default function WorkflowGallery() {
           />
         </div>
       </main>
+
+      <CreateTeamDialog
+        open={isCreateTeamOpen}
+        onOpenChange={(open) => {
+          if (!open) closeCreateTeamDialog();
+        }}
+        onCreate={handleCreateTeam}
+      />
+
+      <OnboardTeamDialog
+        open={onboardTarget !== null}
+        candidateName={onboardTarget?.candidateName ?? ""}
+        teams={teams}
+        onSelect={confirmOnboardTeam}
+        onOpenChange={(open) => {
+          if (!open) {
+            cancelOnboardTeam();
+          }
+        }}
+      />
     </div>
   );
 }

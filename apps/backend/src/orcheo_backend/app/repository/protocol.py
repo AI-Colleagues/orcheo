@@ -15,6 +15,7 @@ from orcheo.listeners import (
 from orcheo.models import (
     ChatKitStartScreenPrompt,
     ChatKitSupportedModel,
+    Team,
     Workflow,
     WorkflowDraftAccess,
     WorkflowRun,
@@ -62,8 +63,43 @@ class WorkflowRepository(Protocol):
         draft_access: WorkflowDraftAccess,
         actor: str,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> Workflow:
-        """Persist and return a new workflow definition."""
+        """Persist and return a new workflow definition.
+
+        When *team_id* is provided the workflow is grouped under that team and
+        handle-uniqueness is scoped to ``(workspace_id, team_id, handle)``.
+        """
+
+    # -- Teams --------------------------------------------------------------
+
+    async def list_teams(self, *, workspace_id: str) -> list[Team]:
+        """Return teams in the workspace ordered with the default team first."""
+
+    async def get_team(self, team_id: UUID, *, workspace_id: str) -> Team:
+        """Return a single team scoped to the workspace."""
+
+    async def get_team_by_slug(self, slug: str, *, workspace_id: str) -> Team:
+        """Return a team by slug scoped to the workspace."""
+
+    async def create_team(
+        self,
+        *,
+        workspace_id: str,
+        name: str,
+        slug: str,
+        is_default: bool = False,
+    ) -> Team:
+        """Persist and return a new team; raises on slug conflict."""
+
+    async def ensure_default_team(
+        self,
+        *,
+        workspace_id: str,
+        name: str,
+        slug: str,
+    ) -> Team:
+        """Return the workspace's default team, creating it if absent."""
 
     async def get_workflow(
         self,
@@ -86,11 +122,15 @@ class WorkflowRepository(Protocol):
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         """Resolve a user-facing workflow ref to the canonical UUID.
 
         When *workspace_id* is provided resolution is limited to that workspace's
-        workflows.
+        workflows. When *team_id* is provided resolution is further limited to
+        that team (used by onboarding to decide create-vs-version). When
+        *team_id* is omitted and a bare handle exists in multiple teams, the
+        default team's workflow wins.
         """
 
     async def update_workflow(

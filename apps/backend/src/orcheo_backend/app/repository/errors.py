@@ -31,6 +31,14 @@ class CronTriggerNotFoundError(RepositoryError):
     """Raised when a cron trigger config cannot be located."""
 
 
+class TeamNotFoundError(RepositoryError):
+    """Raised when a team cannot be located within a workspace."""
+
+
+class TeamSlugConflictError(RepositoryError):
+    """Raised when a team slug conflicts with an existing team."""
+
+
 __all__ = [
     "RepositoryError",
     "WorkflowNotFoundError",
@@ -39,4 +47,6 @@ __all__ = [
     "WorkflowPublishStateError",
     "WorkflowHandleConflictError",
     "CronTriggerNotFoundError",
+    "TeamNotFoundError",
+    "TeamSlugConflictError",
 ]

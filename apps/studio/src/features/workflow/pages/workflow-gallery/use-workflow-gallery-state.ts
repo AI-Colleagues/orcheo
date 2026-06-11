@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "@/hooks/use-toast";
 import {
   GALLERY_TEMPLATE_WORKFLOWS,
@@ -16,7 +16,9 @@ import {
 } from "@features/workflow/lib/workflow-storage";
 import {
   type ApiCandidate,
+  type ApiTeam,
   fetchCandidates,
+  fetchTeams,
 } from "@features/workflow/lib/workflow-storage-api";
 import {
   type WorkflowGalleryTab,
@@ -33,6 +35,8 @@ interface WorkflowGalleryStateSlice {
   tabCounts: WorkflowGalleryTabCounts;
   isTemplateView: boolean;
   templates: Workflow[];
+  teams: ApiTeam[];
+  refreshTeams: () => Promise<void>;
 }
 
 const toCandidateSpec = (candidate: ApiCandidate): CandidateBadgeSpec => ({
@@ -63,6 +67,7 @@ const matchesWorkflowSearch = (
 export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
   const [workflows, setWorkflows] = useState<StoredWorkflow[]>([]);
   const [candidateWorkflows, setCandidateWorkflows] = useState<Workflow[]>([]);
+  const [teams, setTeams] = useState<ApiTeam[]>([]);
   const [isLoadingWorkflows, setIsLoadingWorkflows] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTab, setSelectedTab] = useState<WorkflowGalleryTab>("all");
@@ -96,6 +101,15 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
     };
   }, []);
 
+  const refreshTeams = useCallback(async () => {
+    try {
+      const teamList = await fetchTeams();
+      setTeams(teamList);
+    } catch {
+      // non-fatal — teams list will stay stale
+    }
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -104,9 +118,13 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
         setIsLoadingWorkflows(true);
       }
       try {
-        const items = await listWorkflows({ forceRefresh });
+        const [items, teamList] = await Promise.all([
+          listWorkflows({ forceRefresh }),
+          fetchTeams().catch(() => [] as ApiTeam[]),
+        ]);
         if (isMounted) {
           setWorkflows(items);
+          setTeams(teamList);
         }
       } catch (error) {
         if (!isMounted) {
@@ -202,5 +220,7 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
     tabCounts,
     isTemplateView,
     templates,
+    teams,
+    refreshTeams,
   };
 };

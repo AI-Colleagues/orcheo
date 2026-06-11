@@ -77,6 +77,7 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
         draft_access: WorkflowDraftAccess,
         actor: str,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> Workflow:
         """Persist a new workflow and return the created instance."""
         normalized_handle = normalize_workflow_handle(handle)
@@ -86,11 +87,13 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
                 workflow_id=None,
                 is_archived=False,
                 workspace_id=workspace_id,
+                team_id=team_id,
             )
             workflow = Workflow(
                 name=name,
                 handle=normalized_handle,
                 workspace_id=workspace_id,
+                team_id=team_id,
                 slug=slug or "",
                 description=description,
                 tags=list(tags or []),
@@ -135,12 +138,14 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         """Resolve a workflow ref using handle-first semantics."""
         return await super().resolve_workflow_ref(
             workflow_ref,
             include_archived=include_archived,
             workspace_id=workspace_id,
+            team_id=team_id,
         )
 
     async def update_workflow(
@@ -178,6 +183,7 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
                     workflow_id=workflow_id,
                     is_archived=next_is_archived,
                     workspace_id=workflow.workspace_id,
+                    team_id=workflow.team_id,
                 )
                 metadata["handle"] = {
                     "from": workflow.handle,

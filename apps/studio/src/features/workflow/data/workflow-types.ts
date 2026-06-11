@@ -33,6 +33,7 @@ export interface WorkflowMermaidPreviewVersion {
 export interface Workflow {
   id: string;
   handle?: string;
+  teamId?: string | null;
   name: string;
   description?: string;
   avatarEmoji?: string | null;

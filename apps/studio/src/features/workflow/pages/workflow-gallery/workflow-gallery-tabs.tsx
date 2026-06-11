@@ -7,11 +7,13 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/design-system/ui/tabs";
-import { Loader2, Search, Upload, Zap } from "lucide-react";
+import { Loader2, Plus, Search, Upload, Zap } from "lucide-react";
 import { type Workflow } from "@features/workflow/data/workflow-data";
+import { type ApiTeam } from "@features/workflow/lib/workflow-storage-api";
 import { UploadWorkflowDialog } from "@features/workflow/components/dialogs/upload-workflow-dialog";
 import { useUploadsAllowed } from "@/hooks/use-uploads-allowed";
 import { WorkflowCard } from "./workflow-card";
+import { TeamSection } from "./team-section";
 import {
   type WorkflowGalleryTab,
   type WorkflowGalleryTabCounts,
@@ -24,6 +26,8 @@ interface WorkflowGalleryTabsProps {
   sortedWorkflows: Workflow[];
   tabCounts: WorkflowGalleryTabCounts;
   isTemplateView: boolean;
+  teams?: ApiTeam[];
+  onCreateTeam?: () => void;
   workspaceLabel: string;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
@@ -44,6 +48,8 @@ export const WorkflowGalleryTabs = ({
   sortedWorkflows,
   tabCounts,
   isTemplateView,
+  teams = [],
+  onCreateTeam,
   workspaceLabel,
   searchQuery,
   onSearchQueryChange,
@@ -58,6 +64,75 @@ export const WorkflowGalleryTabs = ({
 
   const handleSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
     onSearchQueryChange(event.target.value);
+  };
+
+  const renderGrid = (items: Workflow[]) => (
+    <div className="grid grid-cols-1 gap-3 pb-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+      {items.map((workflow) => (
+        <WorkflowCard
+          key={workflow.id}
+          workflow={workflow}
+          isTemplate={isTemplateView}
+          workspaceLabel={workspaceLabel}
+          onOpenWorkflow={onOpenWorkflow}
+          onUseTemplate={onUseTemplate}
+          onExportWorkflow={onExportWorkflow}
+          onDeleteWorkflow={onDeleteWorkflow}
+        />
+      ))}
+    </div>
+  );
+
+  // Group colleagues into vertical, collapsible team sections. Candidate
+  // (template) view stays flat since candidates are not yet assigned a team.
+  const renderColleagues = () => {
+    if (isTemplateView) {
+      return renderGrid(sortedWorkflows);
+    }
+
+    // No teams yet — fall back to flat grid (e.g. during first load).
+    if (teams.length === 0) {
+      return renderGrid(sortedWorkflows);
+    }
+
+    const byTeam = new Map<string, Workflow[]>();
+    for (const workflow of sortedWorkflows) {
+      const key = workflow.teamId ?? "__none__";
+      const bucket = byTeam.get(key);
+      if (bucket) {
+        bucket.push(workflow);
+      } else {
+        byTeam.set(key, [workflow]);
+      }
+    }
+
+    // All known teams, in default-first order from the server, then any
+    // orphaned workflows whose team no longer appears in the list.
+    const leftovers = [...byTeam.keys()].filter(
+      (key) => key !== "__none__" && !teams.some((t) => t.id === key),
+    );
+    const sections = [
+      ...teams.map((team) => ({ key: team.id, name: team.name })),
+      ...leftovers.map((key) => ({ key, name: "Other" })),
+      ...(byTeam.has("__none__") ? [{ key: "__none__", name: "Ungrouped" }] : []),
+    ];
+
+    return (
+      <div className="flex flex-col gap-1 pb-6">
+        {sections.map((section) => {
+          const items = byTeam.get(section.key) ?? [];
+          return (
+            <TeamSection
+              key={section.key}
+              name={section.name}
+              count={items.length}
+            >
+              {items.length > 0 ? renderGrid(items) : null}
+            </TeamSection>
+          );
+        })}
+      </div>
+    );
   };
 
   return (
@@ -101,22 +176,30 @@ export const WorkflowGalleryTabs = ({
             />
           </div>
         </div>
-        {uploadsAllowed === true && (
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsUploadOpen(true)}
-            >
-              <Upload className="mr-2 h-4 w-4" />
-              Upload
+        <div className="flex items-center gap-2">
+          {!isTemplateView && onCreateTeam ? (
+            <Button variant="outline" size="sm" onClick={onCreateTeam}>
+              <Plus className="mr-2 h-4 w-4" />
+              New team
             </Button>
-            <UploadWorkflowDialog
-              open={isUploadOpen}
-              onOpenChange={setIsUploadOpen}
-            />
-          </>
-        )}
+          ) : null}
+          {uploadsAllowed === true && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsUploadOpen(true)}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                Upload
+              </Button>
+              <UploadWorkflowDialog
+                open={isUploadOpen}
+                onOpenChange={setIsUploadOpen}
+              />
+            </>
+          )}
+        </div>
       </div>
 
       <TabsContent value={selectedTab} className="mt-0">
@@ -132,7 +215,7 @@ export const WorkflowGalleryTabs = ({
               </p>
             </div>
           </div>
-        ) : sortedWorkflows.length === 0 ? (
+        ) : sortedWorkflows.length === 0 && (isTemplateView || teams.length === 0) ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="mb-4 rounded-full bg-muted p-4">
               <Zap className="h-8 w-8 text-muted-foreground" />
@@ -152,20 +235,7 @@ export const WorkflowGalleryTabs = ({
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 pb-6 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-            {sortedWorkflows.map((workflow) => (
-              <WorkflowCard
-                key={workflow.id}
-                workflow={workflow}
-                isTemplate={isTemplateView}
-                workspaceLabel={workspaceLabel}
-                onOpenWorkflow={onOpenWorkflow}
-                onUseTemplate={onUseTemplate}
-                onExportWorkflow={onExportWorkflow}
-                onDeleteWorkflow={onDeleteWorkflow}
-              />
-            ))}
-          </div>
+          renderColleagues()
         )}
       </TabsContent>
     </Tabs>

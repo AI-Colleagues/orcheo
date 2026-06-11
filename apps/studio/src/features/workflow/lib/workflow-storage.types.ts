@@ -6,9 +6,17 @@ import type {
 import type { WorkflowDiffResult, WorkflowSnapshot } from "./workflow-diff";
 import type { RJSFSchema } from "@rjsf/utils";
 
+export interface ApiTeam {
+  id: string;
+  slug: string;
+  name: string;
+  is_default: boolean;
+}
+
 export interface ApiWorkflow {
   id: string;
   handle?: string | null;
+  team_id?: string | null;
   name: string;
   slug: string;
   description: string | null;
@@ -237,6 +245,7 @@ export interface WorkflowVersionRecord {
 
 export interface StoredWorkflow extends Workflow {
   versions: WorkflowVersionRecord[];
+  teamId?: string | null;
   draftAccess?: "personal" | "authenticated" | "workspace";
   isArchived?: boolean;
   isPublic?: boolean;

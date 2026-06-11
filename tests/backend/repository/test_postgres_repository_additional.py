@@ -605,8 +605,7 @@ async def test_postgres_ensure_initialized_creates_workspace_indexes(
         for query in queries
     )
     assert any(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle_workspace"
-        in query
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle_team" in query
         for query in queries
     )
     assert any(
@@ -1600,8 +1599,9 @@ async def test_persistence_ensure_handle_available_locked_workspace_create_path(
 
     query, params = repo._pool._connection.queries[0]  # noqa: SLF001
     assert "workspace_id = %s" in query
+    assert "COALESCE(team_id, '') = COALESCE(%s, '')" in query
     assert "id !=" not in query
-    assert params == ("scoped-handle", "ws-a")
+    assert params == ("scoped-handle", "ws-a", None)
 
 
 @pytest.mark.asyncio
@@ -1622,8 +1622,9 @@ async def test_persistence_ensure_handle_available_locked_workspace_update_path(
 
     query, params = repo._pool._connection.queries[0]  # noqa: SLF001
     assert "workspace_id = %s" in query
+    assert "COALESCE(team_id, '') = COALESCE(%s, '')" in query
     assert "id !=" in query
-    assert params == ("scoped-handle", "ws-a", str(workflow_id))
+    assert params == ("scoped-handle", "ws-a", None, str(workflow_id))
 
 
 @pytest.mark.asyncio

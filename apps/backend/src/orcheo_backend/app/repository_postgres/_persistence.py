@@ -24,9 +24,16 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
 
     @staticmethod
     def _deserialize_workflow(
-        payload: dict[str, Any] | str, *, workspace_id: str | None = None
+        payload: dict[str, Any] | str,
+        *,
+        workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> Workflow:
-        """Return a Workflow instance from serialized JSON."""
+        """Return a Workflow instance from serialized JSON.
+
+        The ``team_id`` column is authoritative (it is what the backfill writes),
+        so it overrides whatever is embedded in the payload when provided.
+        """
         data: dict[str, Any]
         if isinstance(payload, str):
             data = json.loads(payload)
@@ -34,6 +41,8 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
             data = payload
         if workspace_id is not None:
             data["workspace_id"] = workspace_id
+        if team_id is not None:
+            data["team_id"] = team_id
         return Workflow.model_validate(data)
 
     @staticmethod
@@ -53,7 +62,7 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
     async def _get_workflow_locked(self, workflow_id: UUID) -> Workflow:
         async with self._connection() as conn:
             cursor = await conn.execute(
-                "SELECT payload, workspace_id FROM workflows WHERE id = %s",
+                "SELECT payload, workspace_id, team_id FROM workflows WHERE id = %s",
                 (str(workflow_id),),
             )
             row = await cursor.fetchone()
@@ -63,7 +72,13 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
             workspace_id = row["workspace_id"]
         except (KeyError, IndexError, TypeError):
             workspace_id = None
-        return self._deserialize_workflow(row["payload"], workspace_id=workspace_id)
+        try:
+            team_id = row["team_id"]
+        except (KeyError, IndexError, TypeError):
+            team_id = None
+        return self._deserialize_workflow(
+            row["payload"], workspace_id=workspace_id, team_id=team_id
+        )
 
     async def _ensure_handle_available_locked(
         self,
@@ -72,8 +87,9 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
         workflow_id: UUID | None,
         is_archived: bool,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> None:
-        """Ensure the provided handle can be assigned."""
+        """Ensure the provided handle can be assigned within the team scope."""
         if handle is None:
             return
 
@@ -107,8 +123,9 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
                           FROM workflows
                          WHERE handle = %s
                            AND workspace_id = %s
+                           AND COALESCE(team_id, '') = COALESCE(%s, '')
                         """,
-                    (handle, workspace_id),
+                    (handle, workspace_id, team_id),
                 )
             else:
                 cursor = await conn.execute(
@@ -117,9 +134,10 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
                           FROM workflows
                          WHERE handle = %s
                            AND workspace_id = %s
+                           AND COALESCE(team_id, '') = COALESCE(%s, '')
                            AND id != %s::uuid
                         """,
-                    (handle, workspace_id, str(workflow_id)),
+                    (handle, workspace_id, team_id, str(workflow_id)),
                 )
             rows = await cursor.fetchall()
 
@@ -128,17 +146,55 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
                 msg = f"Workflow handle '{handle}' is already in use."
                 raise WorkflowHandleConflictError(msg)
 
+    async def _resolve_workflow_ref_in_team_locked(
+        self,
+        normalized_ref: str,
+        *,
+        include_archived: bool,
+        workspace_id: str,
+        team_id: str,
+    ) -> UUID:
+        """Resolve a handle strictly within a single team (onboarding path)."""
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT id
+                  FROM workflows
+                 WHERE handle = %s
+                   AND workspace_id = %s
+                   AND COALESCE(team_id, '') = COALESCE(%s, '')
+                   AND (%s OR is_archived = FALSE)
+              ORDER BY is_archived ASC, updated_at DESC
+                 LIMIT 1
+                """,
+                (normalized_ref, workspace_id, team_id, include_archived),
+            )
+            row = await cursor.fetchone()
+        if row is not None:
+            return UUID(row["id"])
+        raise WorkflowNotFoundError(normalized_ref)
+
     async def _resolve_workflow_ref_locked(
         self,
         workflow_ref: str,
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         """Resolve a workflow ref using handle-first semantics."""
         normalized_ref = workflow_ref.strip().lower()
         if not normalized_ref:
             raise WorkflowNotFoundError("workflow ref is empty")
+
+        # Onboarding scopes resolution to one team; no global / UUID fallback.
+        if team_id is not None and workspace_id is not None:
+            return await self._resolve_workflow_ref_in_team_locked(
+                normalized_ref,
+                include_archived=include_archived,
+                workspace_id=workspace_id,
+                team_id=team_id,
+            )
 
         should_match_uuid = workflow_ref_is_uuid(normalized_ref)
         async with self._connection() as conn:
@@ -179,24 +235,28 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
                     else:
                         cursor = await conn.execute(
                             """
-                            SELECT id
-                              FROM workflows
+                            SELECT w.id
+                              FROM workflows w
+                         LEFT JOIN teams t ON t.id = w.team_id
                              WHERE (
-                                       handle = %s
-                                   AND workspace_id = %s
-                                   AND (%s OR is_archived = FALSE)
+                                       w.handle = %s
+                                   AND w.workspace_id = %s
+                                   AND (%s OR w.is_archived = FALSE)
                                    )
                                 OR (
-                                       %s AND id = %s
-                                   AND workspace_id = %s
+                                       %s AND w.id = %s
+                                   AND w.workspace_id = %s
                                    )
                           ORDER BY
                                 CASE
-                                    WHEN handle = %s AND is_archived = FALSE THEN 0
-                                    WHEN handle = %s AND is_archived = TRUE THEN 1
+                                    WHEN w.handle = %s
+                                     AND w.is_archived = FALSE THEN 0
+                                    WHEN w.handle = %s
+                                     AND w.is_archived = TRUE THEN 1
                                     ELSE 2
                                 END,
-                                updated_at DESC
+                                COALESCE(t.is_default, FALSE) DESC,
+                                w.updated_at DESC
                              LIMIT 1
                             """,
                             (

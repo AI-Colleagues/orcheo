@@ -1,6 +1,7 @@
 import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl, getBackendBaseUrl } from "@/lib/config";
 import type {
+  ApiTeam,
   ApiWorkflow,
   ApiWorkflowPagePayload,
   ApiWorkflowRun,
@@ -175,12 +176,28 @@ export interface ApiCandidate {
 export const fetchCandidates = async (): Promise<ApiCandidate[]> =>
   request<ApiCandidate[]>("/api/candidates");
 
+export const fetchTeams = async (): Promise<ApiTeam[]> =>
+  request<ApiTeam[]>("/api/teams");
+
+export const createTeam = async (input: {
+  name: string;
+  slug: string;
+}): Promise<ApiTeam> =>
+  request<ApiTeam>("/api/teams", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
 export const onboardCandidate = async (
   candidateId: string,
+  teamId?: string,
 ): Promise<ApiWorkflow> =>
   request<ApiWorkflow>("/api/candidates/onboard", {
     method: "POST",
-    body: JSON.stringify({ id: candidateId }),
+    body: JSON.stringify({
+      id: candidateId,
+      ...(teamId ? { team_id: teamId } : {}),
+    }),
   });
 
 export const fetchWorkflowListeners = async (

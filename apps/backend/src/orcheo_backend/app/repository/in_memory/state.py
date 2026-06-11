@@ -7,6 +7,7 @@ from typing import Any
 from uuid import UUID
 from orcheo.listeners import ListenerCursor, ListenerDedupeRecord, ListenerSubscription
 from orcheo.models import (
+    Team,
     Workflow,
     WorkflowRun,
     WorkflowVersion,
@@ -33,8 +34,12 @@ class InMemoryRepositoryState:
         self._lock = asyncio.Lock()
         self._workflows: dict[UUID, Workflow] = {}
         self._workflow_workspaces: dict[UUID, str] = {}
-        self._active_workflow_handles: dict[str | None, dict[str, UUID]] = {}
+        # A handle can be active in multiple teams within one workspace, so the
+        # index maps handle -> ordered list of workflow ids (default team first).
+        self._active_workflow_handles: dict[str | None, dict[str, list[UUID]]] = {}
         self._archived_workflow_handles: dict[str | None, dict[str, list[UUID]]] = {}
+        self._teams: dict[UUID, Team] = {}
+        self._default_team_by_workspace: dict[str, str] = {}
         self._workflow_versions: dict[UUID, list[UUID]] = {}
         self._versions: dict[UUID, WorkflowVersion] = {}
         self._runs: dict[UUID, WorkflowRun] = {}
@@ -54,6 +59,8 @@ class InMemoryRepositoryState:
             self._workflow_workspaces.clear()
             self._active_workflow_handles.clear()
             self._archived_workflow_handles.clear()
+            self._teams.clear()
+            self._default_team_by_workspace.clear()
             self._workflow_versions.clear()
             self._versions.clear()
             self._runs.clear()
@@ -208,6 +215,21 @@ class InMemoryRepositoryState:
         if not report.is_healthy:
             raise CredentialHealthError(report)
 
+    def _is_default_team_workflow(self, workflow: Workflow) -> bool:
+        """Return True when the workflow belongs to its workspace's default team."""
+        if workflow.workspace_id is None or workflow.team_id is None:
+            return False
+        default_team = self._default_team_by_workspace.get(workflow.workspace_id)
+        return default_team is not None and workflow.team_id == default_team
+
+    def _active_handle_sort_key(self, workflow_id: UUID) -> tuple[int, float]:
+        """Order active handle matches default-team-first, then most recent."""
+        workflow = self._workflows.get(workflow_id)
+        if workflow is None:  # pragma: no cover - defensive
+            return (1, 0.0)
+        is_default = self._is_default_team_workflow(workflow)
+        return (0 if is_default else 1, -workflow.updated_at.timestamp())
+
     def _rebuild_handle_indexes_locked(self) -> None:
         """Rebuild handle indexes from workflow state. Caller must hold the lock."""
         self._active_workflow_handles.clear()
@@ -223,9 +245,16 @@ class InMemoryRepositoryState:
                     [],
                 ).append(workflow.id)
                 continue
-            self._active_workflow_handles.setdefault(workspace_id, {})[
-                workflow.handle
-            ] = workflow.id
+            self._active_workflow_handles.setdefault(workspace_id, {}).setdefault(
+                workflow.handle,
+                [],
+            ).append(workflow.id)
+
+        # Within a (workspace, handle) bucket, surface the default team first so
+        # bare-handle resolution honours the default-team-wins rule.
+        for handles in self._active_workflow_handles.values():
+            for matches in handles.values():
+                matches.sort(key=self._active_handle_sort_key)
 
     def _ensure_handle_available_locked(
         self,
@@ -234,8 +263,9 @@ class InMemoryRepositoryState:
         workflow_id: UUID | None,
         is_archived: bool,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> None:
-        """Ensure the provided handle is valid for assignment."""
+        """Ensure the provided handle is valid for assignment within the team."""
         if handle is None:
             return
 
@@ -245,16 +275,59 @@ class InMemoryRepositoryState:
                 continue
             if existing.workspace_id != workspace_id:
                 continue
+            # Handle uniqueness is scoped per team: the same handle may live in
+            # different teams of one workspace.
+            if existing.team_id != team_id:
+                continue
             if not existing.is_archived:
                 msg = f"Workflow handle '{handle}' is already in use."
                 raise WorkflowHandleConflictError(msg)
 
-    async def resolve_workflow_ref(  # noqa: C901
+    def _matches_team(self, workflow_id: UUID, team_id: str | None) -> bool:
+        """Return True when *team_id* is unset or the workflow is in that team."""
+        if team_id is None:
+            return True
+        workflow = self._workflows.get(workflow_id)
+        return workflow is not None and workflow.team_id == team_id
+
+    def _find_in_handle_index(
+        self,
+        index: dict[str | None, dict[str, list[UUID]]],
+        scope_keys: list[str | None],
+        normalized_ref: str,
+        team_id: str | None,
+    ) -> UUID | None:
+        for scope_key in scope_keys:
+            for match in index.get(scope_key, {}).get(normalized_ref, []):
+                if self._matches_team(match, team_id):
+                    return match
+        return None
+
+    def _resolve_by_uuid(
+        self,
+        normalized_ref: str,
+        workspace_id: str | None,
+        team_id: str | None,
+    ) -> UUID | None:
+        if team_id is not None or not workflow_ref_is_uuid(normalized_ref):
+            return None
+        workflow_uuid = UUID(normalized_ref)
+        if workflow_uuid not in self._workflows:
+            return None
+        if workspace_id is None:
+            return workflow_uuid
+        stored = self._workflow_workspaces.get(workflow_uuid)
+        if stored is None or stored == workspace_id:
+            return workflow_uuid
+        return None
+
+    async def resolve_workflow_ref(
         self,
         workflow_ref: str,
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         """Resolve a user-facing workflow ref to a canonical UUID."""
         normalized_ref = workflow_ref.strip().lower()
@@ -268,29 +341,25 @@ class InMemoryRepositoryState:
             else:
                 scope_keys = [None, *self._active_workflow_handles.keys()]
 
-            for scope_key in scope_keys:
-                active_handles = self._active_workflow_handles.get(scope_key, {})
-                active_match = active_handles.get(normalized_ref)
-                if active_match is not None:
-                    return active_match
+            found = self._find_in_handle_index(
+                self._active_workflow_handles, scope_keys, normalized_ref, team_id
+            )
+            if found is not None:
+                return found
 
             if include_archived:
-                for scope_key in scope_keys:
-                    archived_handles = self._archived_workflow_handles.get(
-                        scope_key, {}
-                    )
-                    archived_matches = archived_handles.get(normalized_ref)
-                    if archived_matches:
-                        return archived_matches[0]
+                found = self._find_in_handle_index(
+                    self._archived_workflow_handles,
+                    scope_keys,
+                    normalized_ref,
+                    team_id,
+                )
+                if found is not None:
+                    return found
 
-            if workflow_ref_is_uuid(normalized_ref):
-                workflow_uuid = UUID(normalized_ref)
-                if workflow_uuid in self._workflows:
-                    if workspace_id is None:
-                        return workflow_uuid
-                    stored_workspace = self._workflow_workspaces.get(workflow_uuid)
-                    if stored_workspace is None or stored_workspace == workspace_id:
-                        return workflow_uuid
+            found = self._resolve_by_uuid(normalized_ref, workspace_id, team_id)
+            if found is not None:
+                return found
 
         raise WorkflowNotFoundError(normalized_ref)
 

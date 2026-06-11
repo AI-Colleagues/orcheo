@@ -63,6 +63,7 @@ from orcheo_backend.app.routers import (
     nodes,
     runs,
     system,
+    teams,
     triggers,
     websocket,
     workflows,
@@ -149,6 +150,7 @@ def _build_api_router() -> APIRouter:
     )
     protected_router.include_router(service_token_router)
     protected_router.include_router(workflows.router)
+    protected_router.include_router(teams.router)
     protected_router.include_router(credentials.router)
     protected_router.include_router(credential_templates.router)
     protected_router.include_router(credential_alerts.router)

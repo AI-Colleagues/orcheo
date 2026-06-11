@@ -63,18 +63,23 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
             async with self._connection() as conn:
                 if workspace_id is not None:
                     cursor = await conn.execute(
-                        "SELECT payload FROM workflows"
+                        "SELECT payload, workspace_id, team_id FROM workflows"
                         " WHERE workspace_id = %s"
                         " ORDER BY created_at ASC",
                         (workspace_id,),
                     )
                 else:
                     cursor = await conn.execute(
-                        "SELECT payload FROM workflows ORDER BY created_at ASC"
+                        "SELECT payload, workspace_id, team_id FROM workflows"
+                        " ORDER BY created_at ASC"
                     )
                 rows = await cursor.fetchall()
             workflows = [
-                self._deserialize_workflow(row["payload"]).model_copy(deep=True)
+                self._deserialize_workflow(
+                    row["payload"],
+                    workspace_id=row.get("workspace_id"),
+                    team_id=row.get("team_id"),
+                ).model_copy(deep=True)
                 for row in rows
             ]
             if include_archived:
@@ -92,6 +97,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
         draft_access: WorkflowDraftAccess,
         actor: str,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> Workflow:
         await self._ensure_initialized()
         normalized_handle = normalize_workflow_handle(handle)
@@ -101,11 +107,13 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                 workflow_id=None,
                 is_archived=False,
                 workspace_id=workspace_id,
+                team_id=team_id,
             )
             workflow = Workflow(
                 name=name,
                 handle=normalized_handle,
                 workspace_id=workspace_id,
+                team_id=team_id,
                 slug=slug or "",
                 description=description,
                 tags=list(tags or []),
@@ -122,9 +130,10 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                         payload,
                         created_at,
                         updated_at,
-                        workspace_id
+                        workspace_id,
+                        team_id
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         str(workflow.id),
@@ -134,6 +143,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                         workflow.created_at,
                         workflow.updated_at,
                         workspace_id,
+                        team_id,
                     ),
                 )
             return workflow.model_copy(deep=True)
@@ -182,6 +192,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         await self._ensure_initialized()
         async with self._lock:
@@ -189,6 +200,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                 workflow_ref,
                 include_archived=include_archived,
                 workspace_id=workspace_id,
+                team_id=team_id,
             )
             if workspace_id is not None:
                 row_tid = await self._get_workflow_workspace_id_locked(workflow_id)
@@ -233,6 +245,7 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                     workflow_id=workflow_id,
                     is_archived=next_is_archived,
                     workspace_id=workflow.workspace_id,
+                    team_id=workflow.team_id,
                 )
                 metadata["handle"] = {
                     "from": workflow.handle,

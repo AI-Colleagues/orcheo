@@ -132,6 +132,7 @@ class Workflow(TimestampedAuditModel):
     name: str = Field(min_length=1, max_length=128)
     handle: str | None = Field(default=None, max_length=64)
     workspace_id: str | None = None
+    team_id: str | None = None
     slug: str = ""
     description: str | None = Field(default=None, max_length=1024)
     tags: list[str] = Field(default_factory=list)

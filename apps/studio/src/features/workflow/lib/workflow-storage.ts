@@ -458,8 +458,9 @@ export const deleteWorkflow = async (
 
 export const onboardCandidateAsWorkflow = async (
   candidateId: string,
+  teamId?: string,
 ): Promise<StoredWorkflow> => {
-  const apiWorkflow = await onboardCandidate(candidateId);
+  const apiWorkflow = await onboardCandidate(candidateId, teamId);
   invalidateWorkflowCache(apiWorkflow.id);
   const stored = await ensureWorkflow(apiWorkflow.id);
   if (!stored) {

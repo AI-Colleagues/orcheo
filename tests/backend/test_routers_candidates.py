@@ -28,7 +28,7 @@ _SAMPLE = CandidateItem(
     entrypoint="graph",
 )
 
-_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4(), workspace_slug="acme")
 
 
 @pytest.fixture(autouse=True)
@@ -108,7 +108,7 @@ class _Repository:
         self.last_runnable_config: dict | None = None
 
     async def resolve_workflow_ref(
-        self, workflow_ref, *, include_archived=True, workspace_id=None
+        self, workflow_ref, *, include_archived=True, workspace_id=None, team_id=None
     ) -> UUID:
         from orcheo_backend.app.repository import WorkflowNotFoundError
 
@@ -119,6 +119,16 @@ class _Repository:
     async def get_workflow(self, workflow_id, *, workspace_id=None) -> Workflow:
         assert self._existing is not None
         return self._existing
+
+    async def ensure_default_team(self, *, workspace_id, name, slug):
+        from orcheo.models import Team
+
+        return Team(workspace_id=workspace_id, name=name, slug=slug, is_default=True)
+
+    async def get_team(self, team_id, *, workspace_id):
+        from orcheo.models import Team
+
+        return Team(id=team_id, workspace_id=workspace_id, name="Team", slug="team")
 
     async def create_workflow(
         self,
@@ -131,6 +141,7 @@ class _Repository:
         draft_access,
         actor,
         workspace_id=None,
+        team_id=None,
     ) -> Workflow:  # noqa: PLR0913
         wf = _make_workflow(uuid4(), name=name)
         self.created_workflow = wf
