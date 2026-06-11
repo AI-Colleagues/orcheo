@@ -34,7 +34,11 @@ const sanitizeWorkflowNameForEmail = (value: string): string =>
     .trim();
 
 export default function PublicChatPage() {
-  const { workflowId } = useParams<{ workflowId: string }>();
+  const { workflowId, workspaceSlug, teamSlug } = useParams<{ 
+    workflowId: string;
+    workspaceSlug?: string;
+    teamSlug?: string;
+  }>();
   const location = useLocation();
   const [workflowState, setWorkflowState] = useState<WorkflowState>({
     status: workflowId ? "loading" : "error",
@@ -67,7 +71,7 @@ export default function PublicChatPage() {
     let cancelled = false;
     setWorkflowState({ status: "loading" });
 
-    fetchPublicWorkflow(workflowId)
+    fetchPublicWorkflow(workflowId, { workspaceSlug, teamSlug })
       .then((workflow) => {
         if (cancelled) {
           return;

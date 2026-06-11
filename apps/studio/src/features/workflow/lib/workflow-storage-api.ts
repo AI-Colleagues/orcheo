@@ -106,11 +106,19 @@ export const fetchWorkflowPageData = async (
 
 export const fetchPublicWorkflow = async (
   workflowId: string,
+  context?: { workspaceSlug?: string; teamSlug?: string },
 ): Promise<PublicWorkflowMetadata | undefined> => {
   try {
-    return await request<PublicWorkflowMetadata>(
-      `${PUBLIC_WORKFLOW_PATH}/${workflowId}/public`,
-    );
+    const params = new URLSearchParams();
+    if (context?.workspaceSlug) {
+      params.set("workspace_slug", context.workspaceSlug);
+    }
+    if (context?.teamSlug) {
+      params.set("team_slug", context.teamSlug);
+    }
+    const queryString = params.toString();
+    const url = `${PUBLIC_WORKFLOW_PATH}/${workflowId}/public${queryString ? `?${queryString}` : ""}`;
+    return await request<PublicWorkflowMetadata>(url);
   } catch (error) {
     if (
       error instanceof ApiRequestError &&

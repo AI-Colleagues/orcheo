@@ -19,6 +19,7 @@ from orcheo.runtime.configurable_schema import (
     split_configurable,
 )
 from orcheo.runtime.runnable_config import RunnableConfigModel
+from orcheo.workspace import WorkspaceNotFoundError
 from orcheo.workflow.mermaid import (
     render_mermaid_from_graph_payload,
     render_mermaid_from_graph_payload_full_env,
@@ -43,6 +44,7 @@ from orcheo_backend.app.plugin_inventory import (
 )
 from orcheo_backend.app.repository import (
     CronTriggerNotFoundError,
+    TeamNotFoundError,
     WorkflowHandleConflictError,
     WorkflowNotFoundError,
     WorkflowPublishStateError,
@@ -63,7 +65,7 @@ from orcheo_backend.app.schemas.workflows import (
     WorkflowVersionIngestRequest,
     WorkflowVersionRunnableConfigUpdateRequest,
 )
-from orcheo_backend.app.workspace import WorkspaceContextDep, get_workspace_repository
+from orcheo_backend.app.workspace import WorkspaceContextDep, WorkspaceServiceDep, get_workspace_repository
 from orcheo_backend.app.workspace_governance import ensure_workspace_workflow_quota
 from orcheo_sdk.cli.workflow.frontmatter import parse_workflow_frontmatter
 
@@ -379,12 +381,14 @@ async def _resolve_workflow_id(
     *,
     include_archived: bool = True,
     workspace_id: str | None = None,
+    team_id: str | None = None,
 ) -> str:
     try:
         workflow_id = await repository.resolve_workflow_ref(
             workflow_ref,
             include_archived=include_archived,
             workspace_id=workspace_id,
+            team_id=team_id,
         )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
@@ -397,12 +401,14 @@ async def _resolve_workflow_uuid(
     *,
     include_archived: bool = True,
     workspace_id: str | None = None,
+    team_id: str | None = None,
 ) -> UUID:
     workflow_id = await _resolve_workflow_id(
         repository,
         workflow_ref,
         include_archived=include_archived,
         workspace_id=workspace_id,
+        team_id=team_id,
     )
     return UUID(workflow_id)
 
@@ -471,13 +477,66 @@ async def _build_workflow_list_item(
     )
 
 
+def _resolve_workspace_id_from_slug(
+    workspace_service: Any, workspace_slug: str
+) -> str | None:
+    """Resolve workspace ID from slug, returning None if not found."""
+    try:
+        workspace = workspace_service.repository.get_workspace_by_slug(workspace_slug)
+        return str(workspace.id)
+    except (WorkspaceNotFoundError, Exception):
+        return None
+
+
+async def _resolve_team_id_from_slug(
+    repository: Any, team_slug: str, workspace_id: str
+) -> str | None:
+    """Resolve team ID from slug within workspace, returning None if not found."""
+    try:
+        team = await repository.get_team_by_slug(team_slug, workspace_id=workspace_id)
+        return str(team.id)
+    except (TeamNotFoundError, Exception):
+        return None
+
+
 @public_router.get("/workflows/{workflow_ref}/public", response_model=PublicWorkflow)
 async def get_public_workflow(
     workflow_ref: str,
     repository: RepositoryDep,
+    workspace_service: WorkspaceServiceDep,
+    workspace_slug: str | None = Query(None),
+    team_slug: str | None = Query(None),
 ) -> PublicWorkflow:
-    """Fetch public workflow metadata without authentication."""
-    workflow_id = await _resolve_workflow_uuid(repository, workflow_ref)
+    """Fetch public workflow metadata without authentication.
+    
+    When workspace_slug and/or team_slug are provided, workflow resolution
+    will be scoped to the specified workspace and team context.
+    """
+    # Resolve workspace and team IDs from slugs if provided
+    resolved_workspace_id: str | None = None
+    resolved_team_id: str | None = None
+    
+    if workspace_slug:
+        resolved_workspace_id = _resolve_workspace_id_from_slug(
+            workspace_service, workspace_slug
+        )
+        if not resolved_workspace_id:
+            raise_not_found("Workspace not found", WorkspaceNotFoundError(workspace_slug))
+            
+        if team_slug:
+            resolved_team_id = await _resolve_team_id_from_slug(
+                repository, team_slug, resolved_workspace_id
+            )
+            if not resolved_team_id:
+                raise_not_found("Team not found", TeamNotFoundError(team_slug))
+    
+    # Resolve workflow with team and workspace context
+    workflow_id = await _resolve_workflow_uuid(
+        repository, 
+        workflow_ref, 
+        workspace_id=resolved_workspace_id,
+        team_id=resolved_team_id,
+    )
     try:
         workflow = await repository.get_workflow(workflow_id)
     except WorkflowNotFoundError as exc:
@@ -492,19 +551,19 @@ async def get_public_workflow(
                 "code": "workflow.not_public",
             },
         )
-    team_slug = await _resolve_team_slug(repository, workflow)
-    workspace_slug: str | None = None
+    team_slug_resolved = await _resolve_team_slug(repository, workflow)
+    workspace_slug_resolved: str | None = None
     if workflow.workspace_id:
         try:
             ws = get_workspace_repository().get_workspace(UUID(workflow.workspace_id))
-            workspace_slug = ws.slug
+            workspace_slug_resolved = ws.slug
         except Exception:  # noqa: BLE001
             pass
     return _serialize_public_workflow(
         workflow,
         _resolve_studio_url(),
-        team_slug=team_slug,
-        workspace_slug=workspace_slug,
+        team_slug=team_slug_resolved,
+        workspace_slug=workspace_slug_resolved,
     )
 
 
