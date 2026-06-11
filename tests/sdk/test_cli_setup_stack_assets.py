@@ -90,6 +90,17 @@ class _Response:
         return self._buffer.read(size)
 
 
+def _contents_api_response(assets: dict[str, bytes]) -> bytes:
+    """Build a GitHub Contents API JSON payload from the widget entries in *assets*."""
+    prefix = "chatkit_widgets/"
+    entries = [
+        {"name": path.removeprefix(prefix), "type": "file"}
+        for path in assets
+        if path.startswith(prefix)
+    ]
+    return json.dumps(entries).encode()
+
+
 _ENV_EXAMPLE = (
     b"ORCHEO_POSTGRES_PASSWORD=change-me\n"
     b"ORCHEO_VAULT_ENCRYPTION_KEY=replace-with-64-hex-chars\n"
@@ -104,8 +115,14 @@ def _default_assets() -> dict[str, bytes]:
         "Caddyfile": b'localhost { respond "ok" }\n',
         "Dockerfile.orcheo": b"FROM python:3.12-slim\n",
         ".env.example": _ENV_EXAMPLE,
-        "chatkit_widgets/Single-choice list.widget": b"single",
+        "chatkit_widgets/Bounded number input.widget": b"bounded-input",
+        "chatkit_widgets/Bounded number slider.widget": b"bounded-slider",
+        "chatkit_widgets/Conjoint - 3 concepts.widget": b"conjoint-3",
+        "chatkit_widgets/Conjoint Choice.widget": b"conjoint-choice",
+        "chatkit_widgets/Conjoint carousel.widget": b"conjoint-carousel",
         "chatkit_widgets/Multi-choice Selector.widget": b"multi",
+        "chatkit_widgets/Single-choice list.widget": b"single",
+        "chatkit_widgets/Todo list.widget": b"todo",
     }
 
 
@@ -174,6 +191,8 @@ def _patch_common(
 
     def _urlopen(url: str, timeout: int) -> _Response:
         del timeout
+        if "api.github.com" in url and "/contents/" in url:
+            return _Response(_contents_api_response(resolved_assets))
         relative_path = unquote(url.removeprefix(f"{base_url}/"))
         return _Response(resolved_assets[relative_path])
 
@@ -217,8 +236,14 @@ def test_execute_setup_bootstraps_stack_assets(
     assert (stack_dir / "Caddyfile").exists()
     assert (stack_dir / "Dockerfile.orcheo").exists()
     assert (stack_dir / ".env.example").exists()
-    assert (stack_dir / "chatkit_widgets/Single-choice list.widget").exists()
+    assert (stack_dir / "chatkit_widgets/Bounded number input.widget").exists()
+    assert (stack_dir / "chatkit_widgets/Bounded number slider.widget").exists()
+    assert (stack_dir / "chatkit_widgets/Conjoint - 3 concepts.widget").exists()
+    assert (stack_dir / "chatkit_widgets/Conjoint Choice.widget").exists()
+    assert (stack_dir / "chatkit_widgets/Conjoint carousel.widget").exists()
     assert (stack_dir / "chatkit_widgets/Multi-choice Selector.widget").exists()
+    assert (stack_dir / "chatkit_widgets/Single-choice list.widget").exists()
+    assert (stack_dir / "chatkit_widgets/Todo list.widget").exists()
 
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
     assert "ORCHEO_API_URL=http://localhost:2025" in env_content
@@ -1672,6 +1697,7 @@ def test_setup_misc_uncovered_branches(
         destination.write_text("downloaded", encoding="utf-8")
 
     monkeypatch.setattr(setup_mod, "_sync_stack_asset", _sync)
+    monkeypatch.setattr(setup_mod, "_list_chatkit_widget_paths", lambda sv, c: ())
     monkeypatch.setattr(
         setup_mod.shutil,
         "copyfile",
@@ -1728,8 +1754,6 @@ def test_ensure_stack_assets_syncs_env_example_when_not_in_asset_list(
         (
             "docker-compose.yml",
             "Dockerfile.orcheo",
-            "chatkit_widgets/Single-choice list.widget",
-            "chatkit_widgets/Multi-choice Selector.widget",
         ),
     )
 
@@ -1791,6 +1815,8 @@ def test_ensure_stack_assets_uses_latest_stack_tag_assets(
         del timeout
         if url == f"{setup_mod._GITHUB_TAGS_API_URL}?per_page=100":
             return _Response(tags_payload)
+        if "api.github.com" in url and "/contents/" in url:
+            return _Response(_contents_api_response(assets))
         if url.startswith(f"{tag_base}/"):
             relative_path = unquote(url.removeprefix(f"{tag_base}/"))
             return _Response(assets[relative_path])
@@ -1825,6 +1851,8 @@ def test_ensure_stack_assets_falls_back_to_main_assets_when_tag_lookup_fails(
         del timeout
         if url == f"{setup_mod._GITHUB_TAGS_API_URL}?per_page=100":
             raise OSError("tags unavailable")
+        if "api.github.com" in url and "/contents/" in url:
+            return _Response(_contents_api_response(assets))
         if url.startswith(f"{main_base}/"):
             relative_path = unquote(url.removeprefix(f"{main_base}/"))
             return _Response(assets[relative_path])
@@ -1859,6 +1887,8 @@ def test_ensure_stack_assets_uses_explicit_stack_version(
     def _urlopen(url: str, timeout: int) -> _Response:
         del timeout
         calls.append(url)
+        if "api.github.com" in url and "/contents/" in url:
+            return _Response(_contents_api_response(assets))
         if url.startswith(f"{expected_base}/"):
             relative_path = unquote(url.removeprefix(f"{expected_base}/"))
             return _Response(assets[relative_path])
@@ -1893,6 +1923,8 @@ def test_ensure_stack_assets_uses_env_stack_version(
 
     def _urlopen(url: str, timeout: int) -> _Response:
         del timeout
+        if "api.github.com" in url and "/contents/" in url:
+            return _Response(_contents_api_response(assets))
         if url.startswith(f"{expected_base}/"):
             relative_path = unquote(url.removeprefix(f"{expected_base}/"))
             return _Response(assets[relative_path])
@@ -1930,6 +1962,8 @@ def test_ensure_stack_assets_custom_base_url_forces_per_file_mode(
             raise AssertionError(
                 "Tag lookup should not run when base URL is configured."
             )
+        if "api.github.com" in url and "/contents/" in url:
+            return _Response(_contents_api_response(assets))
         relative_path = unquote(url.removeprefix(f"{base_url}/"))
         return _Response(assets[relative_path])
 

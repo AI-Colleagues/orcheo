@@ -31,14 +31,26 @@ _STACK_ASSET_BASE_URL_TEMPLATE = (
 )
 _STACK_RELEASE_TAG_PREFIX = "stack-v"
 _GITHUB_TAGS_API_URL = "https://api.github.com/repos/AI-Colleagues/orcheo/tags"
+_GITHUB_CONTENTS_API_URL = (
+    "https://api.github.com/repos/AI-Colleagues/orcheo/contents/deploy/stack"
+)
 _STACK_IMAGE_REPOSITORY = "ghcr.io/ai-colleagues/orcheo-stack"
+_CHATKIT_WIDGETS_DIR = "chatkit_widgets"
+_CHATKIT_WIDGETS_FALLBACK = (
+    "chatkit_widgets/Bounded number input.widget",
+    "chatkit_widgets/Bounded number slider.widget",
+    "chatkit_widgets/Conjoint - 3 concepts.widget",
+    "chatkit_widgets/Conjoint Choice.widget",
+    "chatkit_widgets/Conjoint carousel.widget",
+    "chatkit_widgets/Multi-choice Selector.widget",
+    "chatkit_widgets/Single-choice list.widget",
+    "chatkit_widgets/Todo list.widget",
+)
 _STACK_ASSET_FILES = (
     "docker-compose.yml",
     "Caddyfile",
     "Dockerfile.orcheo",
     ".env.example",
-    "chatkit_widgets/Single-choice list.widget",
-    "chatkit_widgets/Multi-choice Selector.widget",
 )
 _CHATKIT_DOMAIN_KEY_PLACEHOLDER = "domain_pk_replace_me"
 _OS_RELEASE_KEY_PATTERN = re.compile(r"^[A-Z0-9_]+$")
@@ -1130,6 +1142,41 @@ def _discover_latest_stack_version(console: Console) -> str | None:
     return None
 
 
+def _list_chatkit_widget_paths(
+    stack_version: str | None,
+    console: Console,
+) -> tuple[str, ...]:
+    """List files in chatkit_widgets/ via the GitHub Contents API.
+
+    Falls back to _CHATKIT_WIDGETS_FALLBACK when the API is unreachable so that
+    installs still work in air-gapped or offline environments.
+    """
+    ref = f"{_STACK_RELEASE_TAG_PREFIX}{stack_version}" if stack_version else "main"
+    url = f"{_GITHUB_CONTENTS_API_URL}/{_CHATKIT_WIDGETS_DIR}?ref={ref}"
+    try:
+        with urlopen(url, timeout=10) as response:  # noqa: S310
+            entries = json.loads(response.read().decode("utf-8"))
+        if not isinstance(entries, list):
+            raise ValueError("expected a JSON array")
+        return tuple(
+            f"{_CHATKIT_WIDGETS_DIR}/{entry['name']}"
+            for entry in entries
+            if isinstance(entry, dict) and entry.get("type") == "file"
+        )
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+        KeyError,
+    ) as exc:
+        console.print(
+            f"[yellow]Could not list {_CHATKIT_WIDGETS_DIR}/ from GitHub; "
+            f"using known widget list: {exc}[/yellow]"
+        )
+        return _CHATKIT_WIDGETS_FALLBACK
+
+
 def _download_stack_asset(
     relative_path: str,
     *,
@@ -1184,6 +1231,13 @@ def _sync_stack_assets_per_file(
     console: Console,
 ) -> None:
     for relative_path in _STACK_ASSET_FILES:
+        _sync_stack_asset(
+            relative_path,
+            stack_dir,
+            stack_version=stack_version,
+            console=console,
+        )
+    for relative_path in _list_chatkit_widget_paths(stack_version, console):
         _sync_stack_asset(
             relative_path,
             stack_dir,
