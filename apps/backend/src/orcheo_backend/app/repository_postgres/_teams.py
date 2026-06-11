@@ -176,16 +176,6 @@ class TeamRepositoryMixin(PostgresPersistenceMixin):
                     slug=normalized,
                     is_default=True,
                 )
-                # Backfill pre-existing colleagues into the default team so they
-                # surface under it in the gallery.
-                await conn.execute(
-                    """
-                    UPDATE workflows
-                       SET team_id = %s
-                     WHERE workspace_id = %s AND team_id IS NULL
-                    """,
-                    (str(team.id), workspace_id),
-                )
             return team
 
     async def delete_team(self, team_id: UUID, *, workspace_id: str) -> None:

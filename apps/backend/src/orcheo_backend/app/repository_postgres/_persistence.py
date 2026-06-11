@@ -29,11 +29,7 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
         workspace_id: str | None = None,
         team_id: str | None = None,
     ) -> Workflow:
-        """Return a Workflow instance from serialized JSON.
-
-        The ``team_id`` column is authoritative (it is what the backfill writes),
-        so it overrides whatever is embedded in the payload when provided.
-        """
+        """Return a Workflow instance from serialized JSON."""
         data: dict[str, Any]
         if isinstance(payload, str):
             data = json.loads(payload)
