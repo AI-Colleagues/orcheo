@@ -34,7 +34,7 @@ const sanitizeWorkflowNameForEmail = (value: string): string =>
     .trim();
 
 export default function PublicChatPage() {
-  const { workflowId, workspaceSlug, teamSlug } = useParams<{ 
+  const { workflowId, workspaceSlug, teamSlug } = useParams<{
     workflowId: string;
     workspaceSlug?: string;
     teamSlug?: string;
@@ -122,7 +122,7 @@ export default function PublicChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [workflowId]);
+  }, [workflowId, workspaceSlug, teamSlug]);
 
   const contactHref = useMemo(() => {
     if (workflowState.status !== "ready") {

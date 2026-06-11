@@ -13,10 +13,11 @@ from orcheo_backend.app.routers.workflows import _resolve_studio_url
 class _MockWorkspaceService:
     def __init__(self) -> None:
         self.repository = self
-        
+
     def get_workspace_by_slug(self, slug: str) -> object:
         """Mock workspace lookup that always succeeds."""
         from types import SimpleNamespace
+
         return SimpleNamespace(id=uuid4())
 
 
@@ -41,15 +42,19 @@ class _WorkflowRepo:
         if workflow_id != self.workflow.id:
             raise WorkflowNotFoundError(str(workflow_id))
         return self.workflow
-    
+
     async def get_team_by_slug(self, slug: str, *, workspace_id: str) -> object:
         """Mock team lookup."""
         from types import SimpleNamespace
+
         return SimpleNamespace(id=uuid4())
-        
-    async def get_team(self, team_id: UUID, *, workspace_id: str | None = None) -> object:
+
+    async def get_team(
+        self, team_id: UUID, *, workspace_id: str | None = None
+    ) -> object:
         """Mock team lookup by ID."""
         from types import SimpleNamespace
+
         return SimpleNamespace(id=team_id, slug="mock-team")
 
 
@@ -67,15 +72,19 @@ class _MissingWorkflowRepo:
 
     async def get_workflow(self, workflow_id: UUID) -> Workflow:
         raise WorkflowNotFoundError(str(workflow_id))
-        
+
     async def get_team_by_slug(self, slug: str, *, workspace_id: str) -> object:
         """Mock team lookup."""
         from types import SimpleNamespace
+
         return SimpleNamespace(id=uuid4())
-        
-    async def get_team(self, team_id: UUID, *, workspace_id: str | None = None) -> object:
+
+    async def get_team(
+        self, team_id: UUID, *, workspace_id: str | None = None
+    ) -> object:
         """Mock team lookup by ID."""
         from types import SimpleNamespace
+
         return SimpleNamespace(id=team_id, slug="mock-team")
 
 
@@ -95,13 +104,17 @@ async def test_get_public_workflow_not_found_after_resolution() -> None:
 
         async def get_workflow(self, workflow_id: UUID) -> Workflow:
             raise WorkflowNotFoundError(str(workflow_id))
-            
+
         async def get_team_by_slug(self, slug: str, *, workspace_id: str) -> object:
             from types import SimpleNamespace
+
             return SimpleNamespace(id=uuid4())
-            
-        async def get_team(self, team_id: UUID, *, workspace_id: str | None = None) -> object:
+
+        async def get_team(
+            self, team_id: UUID, *, workspace_id: str | None = None
+        ) -> object:
             from types import SimpleNamespace
+
             return SimpleNamespace(id=team_id, slug="mock-team")
 
     with pytest.raises(HTTPException) as excinfo:
@@ -132,7 +145,9 @@ async def test_get_public_workflow_denies_private_workflows() -> None:
     repo = _WorkflowRepo(workflow)
 
     with pytest.raises(HTTPException) as excinfo:
-        await workflows.get_public_workflow(str(workflow.id), repo, _MockWorkspaceService())
+        await workflows.get_public_workflow(
+            str(workflow.id), repo, _MockWorkspaceService()
+        )
 
     assert excinfo.value.status_code == 403
     assert excinfo.value.detail["code"] == "workflow.not_public"
@@ -150,7 +165,9 @@ async def test_get_public_workflow_includes_share_url(
         lambda: "https://studio.example",
     )
 
-    response = await workflows.get_public_workflow(str(workflow.id), repo, _MockWorkspaceService())
+    response = await workflows.get_public_workflow(
+        str(workflow.id), repo, _MockWorkspaceService()
+    )
 
     assert response.share_url == f"https://studio.example/chat/{workflow.id}"
 

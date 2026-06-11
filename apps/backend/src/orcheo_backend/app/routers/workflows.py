@@ -19,11 +19,11 @@ from orcheo.runtime.configurable_schema import (
     split_configurable,
 )
 from orcheo.runtime.runnable_config import RunnableConfigModel
-from orcheo.workspace import WorkspaceNotFoundError
 from orcheo.workflow.mermaid import (
     render_mermaid_from_graph_payload,
     render_mermaid_from_graph_payload_full_env,
 )
+from orcheo.workspace import WorkspaceNotFoundError
 from orcheo_backend.app.authentication import (
     AuthorizationError,
     AuthorizationPolicy,
@@ -65,7 +65,11 @@ from orcheo_backend.app.schemas.workflows import (
     WorkflowVersionIngestRequest,
     WorkflowVersionRunnableConfigUpdateRequest,
 )
-from orcheo_backend.app.workspace import WorkspaceContextDep, WorkspaceServiceDep, get_workspace_repository
+from orcheo_backend.app.workspace import (
+    WorkspaceContextDep,
+    WorkspaceServiceDep,
+    get_workspace_repository,
+)
 from orcheo_backend.app.workspace_governance import ensure_workspace_workflow_quota
 from orcheo_sdk.cli.workflow.frontmatter import parse_workflow_frontmatter
 
@@ -508,32 +512,34 @@ async def get_public_workflow(
     team_slug: str | None = Query(None),
 ) -> PublicWorkflow:
     """Fetch public workflow metadata without authentication.
-    
+
     When workspace_slug and/or team_slug are provided, workflow resolution
     will be scoped to the specified workspace and team context.
     """
     # Resolve workspace and team IDs from slugs if provided
     resolved_workspace_id: str | None = None
     resolved_team_id: str | None = None
-    
+
     if workspace_slug:
         resolved_workspace_id = _resolve_workspace_id_from_slug(
             workspace_service, workspace_slug
         )
         if not resolved_workspace_id:
-            raise_not_found("Workspace not found", WorkspaceNotFoundError(workspace_slug))
-            
+            raise_not_found(
+                "Workspace not found", WorkspaceNotFoundError(workspace_slug)
+            )
+
         if team_slug:
             resolved_team_id = await _resolve_team_id_from_slug(
                 repository, team_slug, resolved_workspace_id
             )
             if not resolved_team_id:
                 raise_not_found("Team not found", TeamNotFoundError(team_slug))
-    
+
     # Resolve workflow with team and workspace context
     workflow_id = await _resolve_workflow_uuid(
-        repository, 
-        workflow_ref, 
+        repository,
+        workflow_ref,
         workspace_id=resolved_workspace_id,
         team_id=resolved_team_id,
     )
