@@ -19,7 +19,10 @@ import {
 import { cn } from "@/lib/utils";
 import { resolveAvatarUrl } from "@/assets/avatars";
 import { ConfirmDeleteWorkflowDialog } from "@features/workflow/components/dialogs/confirm-delete-workflow-dialog";
-import { getCandidateBadgeDefinition } from "@features/workflow/data/templates/candidate-badges";
+import {
+  getCandidateBadgeByHandle,
+  getCandidateBadgeDefinition,
+} from "@features/workflow/data/templates/candidate-badges";
 import { type Workflow } from "@features/workflow/data/workflow-data";
 import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
 import { WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME } from "./workflow-card-size";
@@ -37,6 +40,7 @@ const getWorkflowTemplateAvatar = (workflow: Workflow): string | undefined => {
 interface WorkflowCardProps {
   workflow: Workflow;
   isTemplate: boolean;
+  teamSlug?: string;
   workspaceLabel: string;
   onOpenWorkflow: (workflowId: string) => void;
   onUseTemplate: (workflowId: string) => void;
@@ -50,6 +54,7 @@ interface WorkflowCardProps {
 export const WorkflowCard = ({
   workflow,
   isTemplate,
+  teamSlug,
   workspaceLabel,
   onOpenWorkflow,
   onUseTemplate,
@@ -62,8 +67,24 @@ export const WorkflowCard = ({
   const candidateBadge = isTemplate
     ? getCandidateBadgeDefinition(workflow.id)
     : undefined;
+  const templateId = !isTemplate
+    ? workflow.versions?.at(-1)?.templateId
+    : undefined;
+  const templateBadge = !isTemplate
+    ? (templateId
+        ? getCandidateBadgeDefinition(templateId)
+        : workflow.handle
+          ? getCandidateBadgeByHandle(workflow.handle)
+          : undefined)
+    : undefined;
+  const displayBadge = candidateBadge ?? templateBadge;
   const headerLabel = isTemplate ? "Candidate" : workspaceLabel;
-  const workflowSlug = workflow.handle ?? workflow.id;
+  const rawHandle = workflow.handle ?? workflow.id;
+  const workflowSlug = isTemplate
+    ? rawHandle.replace(/^template-/, "").replace(/_/g, "-")
+    : rawHandle;
+  const displayHandle =
+    !isTemplate && teamSlug ? `${teamSlug}/${workflowSlug}` : workflowSlug;
   const avatarUrl = resolveAvatarUrl(
     workflow.avatarEmoji ?? getWorkflowTemplateAvatar(workflow),
     workflow.id,
@@ -271,15 +292,15 @@ export const WorkflowCard = ({
           </div>
 
           <div className="mt-1 shrink-0 font-mono text-[10px] tracking-[0.04em] text-muted-foreground">
-            @{workflowSlug}
+            @{displayHandle}
           </div>
 
           <div className="mt-3 flex min-h-0 w-full flex-1 flex-col items-center justify-start">
             <div className="h-px w-8 rounded-full bg-border/80" />
 
-            {candidateBadge?.subtitle ? (
+            {displayBadge?.subtitle ? (
               <div className="mt-1 shrink-0 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                {candidateBadge.subtitle}
+                {displayBadge.subtitle}
               </div>
             ) : null}
 

@@ -73,6 +73,7 @@ export const WorkflowGalleryTabs = ({
           key={workflow.id}
           workflow={workflow}
           isTemplate={isTemplateView}
+          teamSlug={teamSlug}
           workspaceLabel={workspaceLabel}
           onOpenWorkflow={(id) => onOpenWorkflow(id, teamSlug)}
           onUseTemplate={onUseTemplate}
