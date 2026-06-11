@@ -1,7 +1,7 @@
 {
   "name": "orcheo-studio",
   "private": false,
-  "version": "0.21.3",
+  "version": "0.22.0",
   "type": "module",
   "description": "Orcheo UI for Orcheo workflow orchestration platform",
   "keywords": [
