@@ -50,8 +50,21 @@ CREATE TABLE IF NOT EXISTS workflows (
     payload JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    workspace_id TEXT
+    workspace_id TEXT,
+    team_id TEXT
 );
+
+CREATE TABLE IF NOT EXISTS teams (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    name TEXT NOT NULL,
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    UNIQUE (workspace_id, slug)
+);
+CREATE INDEX IF NOT EXISTS idx_teams_workspace ON teams(workspace_id);
 
 CREATE TABLE IF NOT EXISTS workflow_versions (
     id TEXT PRIMARY KEY,
@@ -290,8 +303,8 @@ class PostgresRepositoryBase:
                 )
                 await conn.execute(
                     "CREATE UNIQUE INDEX IF NOT EXISTS "
-                    "idx_workflows_active_handle_workspace"
-                    " ON workflows(workspace_id, handle)"
+                    "idx_workflows_active_handle_team"
+                    " ON workflows(workspace_id, COALESCE(team_id, ''), handle)"
                     " WHERE workspace_id IS NOT NULL"
                     "   AND is_archived = FALSE"
                     "   AND handle IS NOT NULL"
@@ -299,6 +312,10 @@ class PostgresRepositoryBase:
                 await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_workflows_workspace_id "
                     "ON workflows(workspace_id)"
+                )
+                await conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_workflows_team_id "
+                    "ON workflows(team_id)"
                 )
                 await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_runs_workspace_id "

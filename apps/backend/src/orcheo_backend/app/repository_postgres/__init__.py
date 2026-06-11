@@ -5,6 +5,7 @@ from orcheo.vault.oauth import OAuthCredentialService
 from orcheo_backend.app.repository_postgres._listeners import ListenerRepositoryMixin
 from orcheo_backend.app.repository_postgres._retry import RetryPolicyMixin
 from orcheo_backend.app.repository_postgres._runs import WorkflowRunMixin
+from orcheo_backend.app.repository_postgres._teams import TeamRepositoryMixin
 from orcheo_backend.app.repository_postgres._triggers import TriggerRepositoryMixin
 from orcheo_backend.app.repository_postgres._versions import WorkflowVersionMixin
 from orcheo_backend.app.repository_postgres._workflows import WorkflowRepositoryMixin
@@ -16,6 +17,7 @@ class PostgresWorkflowRepository(
     RetryPolicyMixin,
     WorkflowRunMixin,
     WorkflowVersionMixin,
+    TeamRepositoryMixin,
     WorkflowRepositoryMixin,
 ):
     """PostgreSQL-backed workflow repository for production deployments."""

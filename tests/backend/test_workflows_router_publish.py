@@ -24,6 +24,7 @@ class _MissingPublishRepo:
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         del include_archived
         raise WorkflowNotFoundError(str(workflow_ref))
@@ -39,6 +40,7 @@ class _InvalidPublishRepo:
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
@@ -59,6 +61,7 @@ class _InvalidRevokeRepo:
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
@@ -79,6 +82,7 @@ class _MissingRevokeRepo:
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         del include_archived
         raise WorkflowNotFoundError(str(workflow_ref))
@@ -97,6 +101,7 @@ class _RevokeRepo:
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         del workflow_ref, include_archived
         return self.workflow.id
@@ -111,7 +116,7 @@ class _RevokeRepo:
         return self.workflow
 
 
-_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4(), workspace_slug="test")
 
 
 def test_publish_response_uses_message_helper() -> None:

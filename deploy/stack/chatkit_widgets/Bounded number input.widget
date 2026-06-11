@@ -1,0 +1,95 @@
+{
+  "version": "1.0",
+  "name": "Bounded number input",
+  "template": "{\"type\":\"Card\",\"size\":\"sm\",\"asForm\":true,\"confirm\":{\"label\":\"Save\",\"action\":{\"type\":{{ (submitActionType) | tojson }}}},\"cancel\":{\"label\":\"Clear\",\"action\":{\"type\":{{ (clearActionType) | tojson }}}},\"children\":[{\"type\":\"Col\",\"gap\":2,\"children\":[{\"type\":\"Label\",\"value\":{{ (label) | tojson }},\"fieldName\":{{ (fieldName) | tojson }}},{\"type\":\"Input\",\"name\":{{ (fieldName) | tojson }},\"inputType\":\"number\",\"defaultValue\":{{ (defaultValue) | tojson }},\"placeholder\":{{ (hint) | tojson }},\"required\":true,\"pattern\":{{ (pattern) | tojson }}},{\"type\":\"Caption\",\"value\":{{ (hint) | tojson }},\"color\":\"secondary\"}]}]}",
+  "jsonSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "label": {
+        "type": "string"
+      },
+      "fieldName": {
+        "type": "string"
+      },
+      "min": {
+        "type": "number"
+      },
+      "max": {
+        "type": "number"
+      },
+      "defaultValue": {
+        "type": "string"
+      },
+      "pattern": {
+        "type": "string"
+      },
+      "hint": {
+        "type": "string"
+      },
+      "submitActionType": {
+        "type": "string"
+      },
+      "clearActionType": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "label",
+      "fieldName",
+      "min",
+      "max",
+      "defaultValue",
+      "pattern",
+      "hint",
+      "submitActionType",
+      "clearActionType"
+    ],
+    "additionalProperties": false
+  },
+  "outputJsonPreview": {
+    "type": "Card",
+    "size": "sm",
+    "asForm": true,
+    "confirm": {
+      "label": "Save",
+      "action": {
+        "type": "number.submit"
+      }
+    },
+    "cancel": {
+      "label": "Clear",
+      "action": {
+        "type": "number.clear"
+      }
+    },
+    "children": [
+      {
+        "type": "Col",
+        "gap": 2,
+        "children": [
+          {
+            "type": "Label",
+            "value": "Number (1–10)",
+            "fieldName": "number.value"
+          },
+          {
+            "type": "Input",
+            "name": "number.value",
+            "inputType": "number",
+            "defaultValue": "5",
+            "placeholder": "Enter an integer 1–10",
+            "required": true,
+            "pattern": "^(?:10|[1-9])$"
+          },
+          {
+            "type": "Caption",
+            "value": "Enter an integer 1–10",
+            "color": "secondary"
+          }
+        ]
+      }
+    ]
+  },
+  "encodedWidget": "eyJpZCI6Ijg4NjM4YTE4LWEwOGQtNDg4Zi1iYzlhLTkyOWMwNjdhMWQxMiIsIm5hbWUiOiJCb3VuZGVkIG51bWJlciBpbnB1dCIsInZpZXciOiI8Q2FyZFxuICBzaXplPVwic21cIlxuICBhc0Zvcm1cbiAgY29uZmlybT17eyBsYWJlbDogXCJTYXZlXCIsIGFjdGlvbjogeyB0eXBlOiBzdWJtaXRBY3Rpb25UeXBlIH0gfX1cbiAgY2FuY2VsPXt7IGxhYmVsOiBcIkNsZWFyXCIsIGFjdGlvbjogeyB0eXBlOiBjbGVhckFjdGlvblR5cGUgfSB9fVxuPlxuICA8Q29sIGdhcD17Mn0-XG4gICAgPExhYmVsIHZhbHVlPXtsYWJlbH0gZmllbGROYW1lPXtmaWVsZE5hbWV9IC8-XG4gICAgPElucHV0XG4gICAgICBuYW1lPXtmaWVsZE5hbWV9XG4gICAgICBpbnB1dFR5cGU9XCJudW1iZXJcIlxuICAgICAgZGVmYXVsdFZhbHVlPXtkZWZhdWx0VmFsdWV9XG4gICAgICBwbGFjZWhvbGRlcj17aGludH1cbiAgICAgIHJlcXVpcmVkXG4gICAgICBwYXR0ZXJuPXtwYXR0ZXJufVxuICAgIC8-XG4gICAgPENhcHRpb24gdmFsdWU9e2hpbnR9IGNvbG9yPVwic2Vjb25kYXJ5XCIgLz5cbiAgPC9Db2w-XG48L0NhcmQ-IiwiZGVmYXVsdFN0YXRlIjp7ImxhYmVsIjoiTnVtYmVyICgx4oCTMTApIiwiZmllbGROYW1lIjoibnVtYmVyLnZhbHVlIiwibWluIjoxLCJtYXgiOjEwLCJkZWZhdWx0VmFsdWUiOiI1IiwicGF0dGVybiI6Il4oPzoxMHxbMS05XSkkIiwiaGludCI6IkVudGVyIGFuIGludGVnZXIgMeKAkzEwIiwic3VibWl0QWN0aW9uVHlwZSI6Im51bWJlci5zdWJtaXQiLCJjbGVhckFjdGlvblR5cGUiOiJudW1iZXIuY2xlYXIifSwic3RhdGVzIjpbXSwic2NoZW1hIjoiaW1wb3J0IHsgeiB9IGZyb20gXCJ6b2RcIlxuXG5jb25zdCBXaWRnZXRTdGF0ZSA9IHouc3RyaWN0T2JqZWN0KHtcbiAgbGFiZWw6IHouc3RyaW5nKCksXG4gIGZpZWxkTmFtZTogei5zdHJpbmcoKSxcbiAgbWluOiB6Lm51bWJlcigpLFxuICBtYXg6IHoubnVtYmVyKCksXG4gIGRlZmF1bHRWYWx1ZTogei5zdHJpbmcoKSxcbiAgcGF0dGVybjogei5zdHJpbmcoKSxcbiAgaGludDogei5zdHJpbmcoKSxcbiAgc3VibWl0QWN0aW9uVHlwZTogei5zdHJpbmcoKSxcbiAgY2xlYXJBY3Rpb25UeXBlOiB6LnN0cmluZygpLFxufSlcblxuZXhwb3J0IGRlZmF1bHQgV2lkZ2V0U3RhdGUiLCJqc29uU2NoZW1hIjp7fSwic2NoZW1hTW9kZSI6InpvZCIsInNjaGVtYVZhbGlkaXR5IjoidmFsaWQiLCJ2aWV3VmFsaWRpdHkiOiJ2YWxpZCIsImRlZmF1bHRTdGF0ZVZhbGlkaXR5IjoidmFsaWQifQ"
+}

@@ -21,6 +21,7 @@ from orcheo.models.secret_governance import (
     SecretGovernanceAlert,
     SecretGovernanceAlertSeverity,
 )
+from orcheo.models.team import Team, normalize_team_slug
 from orcheo.models.workflow_entities import (
     ChatKitStartScreenPrompt,
     ChatKitSupportedModel,
@@ -55,8 +56,10 @@ __all__ = [
     "OrcheoBaseModel",
     "SecretGovernanceAlert",
     "SecretGovernanceAlertSeverity",
+    "Team",
     "TimestampedAuditModel",
     "Workflow",
+    "normalize_team_slug",
     "WorkflowChatKitConfig",
     "WorkflowDraftAccess",
     "WorkflowRun",

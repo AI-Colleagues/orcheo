@@ -33,6 +33,7 @@ class _WorkflowRepo:
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         del include_archived
         if UUID(str(workflow_ref)) != self._workflow.id:
@@ -58,6 +59,7 @@ class _MissingWorkflowRepo:
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         del include_archived
         raise WorkflowNotFoundError(str(workflow_ref))
@@ -73,6 +75,7 @@ class _ResolveThenMissingWorkflowRepo:
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
@@ -156,6 +159,7 @@ class _ArchivedWorkflowRepo:
         *,
         include_archived: bool = True,
         workspace_id: str | None = None,
+        team_id: str | None = None,
     ) -> UUID:
         del include_archived
         if UUID(str(workflow_ref)) != self._workflow.id:

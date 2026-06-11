@@ -20,6 +20,9 @@ from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo.vault.oauth import CredentialHealthError, CredentialHealthReport
 from orcheo_backend.app.errors import WorkspaceQuotaExceededError
 from orcheo_backend.app.repository.errors import (
+    TeamNotEmptyError,
+    TeamNotFoundError,
+    TeamSlugConflictError,
     WorkflowHandleConflictError,
     WorkflowNotFoundError,
     WorkflowRunNotFoundError,
@@ -605,8 +608,7 @@ async def test_postgres_ensure_initialized_creates_workspace_indexes(
         for query in queries
     )
     assert any(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle_workspace"
-        in query
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_active_handle_team" in query
         for query in queries
     )
     assert any(
@@ -1600,8 +1602,9 @@ async def test_persistence_ensure_handle_available_locked_workspace_create_path(
 
     query, params = repo._pool._connection.queries[0]  # noqa: SLF001
     assert "workspace_id = %s" in query
+    assert "COALESCE(team_id, '') = COALESCE(%s, '')" in query
     assert "id !=" not in query
-    assert params == ("scoped-handle", "ws-a")
+    assert params == ("scoped-handle", "ws-a", None)
 
 
 @pytest.mark.asyncio
@@ -1622,8 +1625,9 @@ async def test_persistence_ensure_handle_available_locked_workspace_update_path(
 
     query, params = repo._pool._connection.queries[0]  # noqa: SLF001
     assert "workspace_id = %s" in query
+    assert "COALESCE(team_id, '') = COALESCE(%s, '')" in query
     assert "id !=" in query
-    assert params == ("scoped-handle", "ws-a", str(workflow_id))
+    assert params == ("scoped-handle", "ws-a", None, str(workflow_id))
 
 
 @pytest.mark.asyncio
@@ -1663,6 +1667,26 @@ async def test_persistence_resolve_workflow_ref_locked_workspace_not_found_in_bo
         await repo._resolve_workflow_ref_locked(  # noqa: SLF001
             "missing-handle", workspace_id="ws-a"
         )
+
+
+@pytest.mark.asyncio
+async def test_persistence_delete_team_ignores_archived_workflows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Team deletion should only count active workflows in the workspace."""
+    team_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"name": "Temp Team"}},
+        {"row": {"cnt": 0}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    await repo.delete_team(team_id, workspace_id="ws-a")
+
+    query, params = repo._pool._connection.queries[1]  # noqa: SLF001
+    assert "workspace_id = %s" in query
+    assert "is_archived = FALSE" in query
+    assert params == (str(team_id), "ws-a")
 
 
 @pytest.mark.asyncio
@@ -2704,3 +2728,378 @@ async def test_workflows_maybe_disable_listeners_sync_method(
         uuid4(), should_disable=True, actor="admin", conn=None
     )
     assert calls == ["called"]
+
+
+# ---------------------------------------------------------------------------
+# _persistence.py: team_id injection and team-scoped ref resolution
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_persistence_ensure_handle_available_locked_skips_when_handle_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_ensure_handle_available_locked returns immediately when handle is None."""
+    repo = make_repository(monkeypatch, [])
+
+    await repo._ensure_handle_available_locked(
+        None,
+        workflow_id=None,
+        is_archived=False,
+    )
+
+    assert len(repo._pool._connection.queries) == 0  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_persistence_ensure_handle_available_locked_global_update_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Handle validation uses the global update path when workspace_id is None and
+    workflow_id is provided (updating an existing unscoped workflow)."""
+    workflow_id = uuid4()
+    responses: list[Any] = [{"rows": []}]
+    repo = make_repository(monkeypatch, responses)
+
+    await repo._ensure_handle_available_locked(
+        "my-handle",
+        workflow_id=workflow_id,
+        is_archived=False,
+        workspace_id=None,
+    )
+
+    query, params = repo._pool._connection.queries[0]  # noqa: SLF001
+    assert "workspace_id IS NULL" in query
+    assert "id !=" in query
+    assert params == ("my-handle", str(workflow_id))
+
+
+@pytest.mark.asyncio
+async def test_persistence_deserialize_workflow_explicit_team_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit team_id argument is injected into the workflow payload."""
+    workflow_id = uuid4()
+    payload = _workflow_payload(workflow_id)
+
+    repo = make_repository(monkeypatch, [])
+    workflow = repo._deserialize_workflow(payload, team_id="team-abc")
+
+    assert workflow.team_id == "team-abc"
+
+
+@pytest.mark.asyncio
+async def test_persistence_resolve_workflow_ref_in_team_locked_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_resolve_workflow_ref_in_team_locked returns the UUID when the handle is found."""
+    workflow_id = uuid4()
+    responses: list[Any] = [{"row": {"id": str(workflow_id)}}]
+    repo = make_repository(monkeypatch, responses)
+
+    result = await repo._resolve_workflow_ref_in_team_locked(
+        "some-handle",
+        include_archived=False,
+        workspace_id="ws-a",
+        team_id="team-1",
+    )
+
+    assert result == workflow_id
+    query, params = repo._pool._connection.queries[0]  # noqa: SLF001
+    assert "COALESCE(team_id" in query
+    assert params == ("some-handle", "ws-a", "team-1", False)
+
+
+@pytest.mark.asyncio
+async def test_persistence_resolve_workflow_ref_in_team_locked_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_resolve_workflow_ref_in_team_locked raises WorkflowNotFoundError when no match."""
+    responses: list[Any] = [{"row": None}]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(WorkflowNotFoundError, match="missing-handle"):
+        await repo._resolve_workflow_ref_in_team_locked(
+            "missing-handle",
+            include_archived=True,
+            workspace_id="ws-a",
+            team_id="team-1",
+        )
+
+
+@pytest.mark.asyncio
+async def test_persistence_resolve_workflow_ref_locked_team_scope_delegates_to_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When both team_id and workspace_id are provided, resolution is scoped to the team
+    and delegates directly to _resolve_workflow_ref_in_team_locked."""
+    workflow_id = uuid4()
+    responses: list[Any] = [{"row": {"id": str(workflow_id)}}]
+    repo = make_repository(monkeypatch, responses)
+
+    result = await repo._resolve_workflow_ref_locked(
+        "some-handle",
+        workspace_id="ws-a",
+        team_id="team-1",
+    )
+
+    assert result == workflow_id
+    # Exactly one query: the team-scoped lookup; no global fallback
+    assert len(repo._pool._connection.queries) == 1  # noqa: SLF001
+
+
+# ---------------------------------------------------------------------------
+# _teams.py: full coverage of all TeamRepositoryMixin methods
+# ---------------------------------------------------------------------------
+
+
+def _team_row(team_id: UUID, workspace_id: str, **overrides: Any) -> dict[str, Any]:
+    """Return a fake team database row."""
+    now = datetime.now(tz=UTC)
+    base: dict[str, Any] = {
+        "id": str(team_id),
+        "workspace_id": workspace_id,
+        "slug": "default",
+        "name": "Default",
+        "is_default": False,
+        "created_at": now,
+        "updated_at": now,
+    }
+    base.update(overrides)
+    return base
+
+
+@pytest.mark.asyncio
+async def test_teams_row_to_team_builds_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_row_to_team converts a raw row dict into a Team model."""
+    team_id = uuid4()
+    repo = make_repository(monkeypatch, [])
+    row = _team_row(team_id, "ws-a", slug="sales", name="Sales", is_default=True)
+    team = repo._row_to_team(row)
+
+    assert team.id == team_id
+    assert team.workspace_id == "ws-a"
+    assert team.slug == "sales"
+    assert team.name == "Sales"
+    assert team.is_default is True
+
+
+@pytest.mark.asyncio
+async def test_teams_list_teams_returns_ordered_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """list_teams issues a workspace-scoped query and maps rows to Team models."""
+    team_a = uuid4()
+    team_b = uuid4()
+    responses: list[Any] = [
+        {
+            "rows": [
+                _team_row(team_a, "ws-a", slug="acme", name="Acme", is_default=True),
+                _team_row(team_b, "ws-a", slug="sales", name="Sales"),
+            ]
+        }
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    teams = await repo.list_teams(workspace_id="ws-a")
+
+    assert len(teams) == 2
+    assert teams[0].id == team_a
+    assert teams[0].is_default is True
+    assert teams[1].id == team_b
+    query, params = repo._pool._connection.queries[0]  # noqa: SLF001
+    assert "workspace_id = %s" in query
+    assert params == ("ws-a",)
+
+
+@pytest.mark.asyncio
+async def test_teams_get_team_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_team returns the team when a matching row exists."""
+    team_id = uuid4()
+    responses: list[Any] = [
+        {"row": _team_row(team_id, "ws-a", slug="acme", name="Acme")}
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    team = await repo.get_team(team_id, workspace_id="ws-a")
+
+    assert team.id == team_id
+    assert team.workspace_id == "ws-a"
+
+
+@pytest.mark.asyncio
+async def test_teams_get_team_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_team raises TeamNotFoundError when no matching row exists."""
+    team_id = uuid4()
+    responses: list[Any] = [{"row": None}]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(TeamNotFoundError):
+        await repo.get_team(team_id, workspace_id="ws-a")
+
+
+@pytest.mark.asyncio
+async def test_teams_get_team_by_slug_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_team_by_slug returns the team by normalized slug."""
+    team_id = uuid4()
+    responses: list[Any] = [
+        {"row": _team_row(team_id, "ws-a", slug="sales", name="Sales")}
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    # Slug is normalized to lowercase before querying
+    team = await repo.get_team_by_slug("Sales", workspace_id="ws-a")
+
+    assert team.id == team_id
+    assert team.slug == "sales"
+    query, params = repo._pool._connection.queries[0]  # noqa: SLF001
+    assert params == ("sales", "ws-a")
+
+
+@pytest.mark.asyncio
+async def test_teams_get_team_by_slug_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_team_by_slug raises TeamNotFoundError when no matching row exists."""
+    responses: list[Any] = [{"row": None}]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(TeamNotFoundError):
+        await repo.get_team_by_slug("missing", workspace_id="ws-a")
+
+
+@pytest.mark.asyncio
+async def test_teams_create_team_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create_team inserts a row and returns the new Team model."""
+    responses: list[Any] = [{}]  # INSERT succeeds
+    repo = make_repository(monkeypatch, responses)
+
+    team = await repo.create_team(workspace_id="ws-a", name="Sales", slug="Sales")
+
+    assert team.name == "Sales"
+    assert team.slug == "sales"  # normalized to lowercase
+    assert team.workspace_id == "ws-a"
+    assert team.is_default is False
+    query, _ = repo._pool._connection.queries[0]  # noqa: SLF001
+    assert "INSERT INTO teams" in query
+
+
+@pytest.mark.asyncio
+async def test_teams_create_team_slug_conflict_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create_team raises TeamSlugConflictError on a unique constraint violation."""
+
+    class _SlugConflictConnection(FakeConnection):
+        async def execute(self, query: str, params: Any = None) -> FakeCursor:
+            self.queries.append((query.strip(), params))
+            if "INSERT INTO teams" in query:
+                raise Exception(
+                    "duplicate key value violates unique constraint "
+                    '"teams_workspace_id_slug_key"'
+                )
+            return FakeCursor()
+
+    repo = make_repository(monkeypatch, [])
+    repo._pool = FakePool(_SlugConflictConnection([]))  # type: ignore[arg-type]
+
+    with pytest.raises(TeamSlugConflictError, match="sales"):
+        await repo.create_team(workspace_id="ws-a", name="Sales", slug="sales")
+
+
+@pytest.mark.asyncio
+async def test_teams_create_team_propagates_non_unique_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create_team re-raises DB exceptions that are not slug conflicts."""
+
+    class _BoomConnection(FakeConnection):
+        async def execute(self, query: str, params: Any = None) -> FakeCursor:
+            self.queries.append((query.strip(), params))
+            if "INSERT INTO teams" in query:
+                raise RuntimeError("disk full")
+            return FakeCursor()
+
+    repo = make_repository(monkeypatch, [])
+    repo._pool = FakePool(_BoomConnection([]))  # type: ignore[arg-type]
+
+    with pytest.raises(RuntimeError, match="disk full"):
+        await repo.create_team(workspace_id="ws-a", name="Sales", slug="sales")
+
+
+@pytest.mark.asyncio
+async def test_teams_ensure_default_team_returns_existing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ensure_default_team returns the existing default team when one is found."""
+    team_id = uuid4()
+    responses: list[Any] = [
+        {"row": _team_row(team_id, "ws-a", slug="acme", name="Acme", is_default=True)}
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    team = await repo.ensure_default_team(workspace_id="ws-a", name="Acme", slug="acme")
+
+    assert team.id == team_id
+    assert team.is_default is True
+    # Only the SELECT was issued; no INSERT
+    assert len(repo._pool._connection.queries) == 1  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_teams_ensure_default_team_creates_when_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ensure_default_team creates and returns a new default team when none exists."""
+    responses: list[Any] = [
+        {"row": None},  # SELECT: no default team found
+        {},  # INSERT: succeeds
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    team = await repo.ensure_default_team(workspace_id="ws-a", name="Acme", slug="acme")
+
+    assert team.name == "Acme"
+    assert team.slug == "acme"
+    assert team.is_default is True
+    queries = [q for q, _ in repo._pool._connection.queries]  # noqa: SLF001
+    assert any("INSERT INTO teams" in q for q in queries)
+
+
+@pytest.mark.asyncio
+async def test_teams_delete_team_not_found_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """delete_team raises TeamNotFoundError when the team does not exist."""
+    team_id = uuid4()
+    responses: list[Any] = [{"row": None}]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(TeamNotFoundError):
+        await repo.delete_team(team_id, workspace_id="ws-a")
+
+
+@pytest.mark.asyncio
+async def test_teams_delete_team_not_empty_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """delete_team raises TeamNotEmptyError when the team still has active colleagues."""
+    team_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"name": "Sales"}},  # SELECT team name — found
+        {"row": {"cnt": 2}},  # SELECT count of active workflows — non-zero
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(TeamNotEmptyError, match="Sales"):
+        await repo.delete_team(team_id, workspace_id="ws-a")

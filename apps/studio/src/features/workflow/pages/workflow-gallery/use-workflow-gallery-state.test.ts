@@ -5,6 +5,7 @@ import type { StoredWorkflow } from "@features/workflow/lib/workflow-storage.typ
 import {
   type ApiCandidate,
   fetchCandidates,
+  fetchTeams,
 } from "@features/workflow/lib/workflow-storage-api";
 import { useWorkflowGalleryState } from "./use-workflow-gallery-state";
 
@@ -15,10 +16,12 @@ vi.mock("@features/workflow/lib/workflow-storage", () => ({
 
 vi.mock("@features/workflow/lib/workflow-storage-api", () => ({
   fetchCandidates: vi.fn(),
+  fetchTeams: vi.fn(),
 }));
 
 const mockedListWorkflows = vi.mocked(listWorkflows);
 const mockedFetchCandidates = vi.mocked(fetchCandidates);
+const mockedFetchTeams = vi.mocked(fetchTeams);
 
 const STORED_WORKFLOWS: StoredWorkflow[] = [
   {
@@ -115,6 +118,8 @@ describe("useWorkflowGalleryState", () => {
     mockedListWorkflows.mockResolvedValue(STORED_WORKFLOWS);
     mockedFetchCandidates.mockReset();
     mockedFetchCandidates.mockResolvedValue(CANDIDATES);
+    mockedFetchTeams.mockReset();
+    mockedFetchTeams.mockResolvedValue([]);
   });
 
   it("computes tab counts for workspace workflows and candidates", async () => {

@@ -2,6 +2,7 @@ import { useLayoutEffect } from "react";
 import {
   BrowserRouter as Router,
   Navigate,
+  Outlet,
   Route,
   Routes,
   useParams,
@@ -22,6 +23,7 @@ import {
   setSelectedWorkspaceSlug,
 } from "@/lib/workspace-session";
 import { getWorkspaceGalleryPath } from "@/lib/workspace-routing";
+import { WorkspaceBootstrapGate } from "@features/shared/components/workspace-bootstrap-gate";
 
 const syncWorkspaceSlug = (workspaceSlug?: string) => {
   if (!workspaceSlug) {
@@ -56,9 +58,18 @@ function WorkspaceManagementRoute() {
   return <WorkspaceManagement />;
 }
 
+function RequireWorkspace() {
+  return (
+    <WorkspaceBootstrapGate>
+      <Outlet />
+    </WorkspaceBootstrapGate>
+  );
+}
+
 function WorkspaceWorkflowRoute() {
   const { workspaceSlug, workflowId } = useParams<{
     workspaceSlug?: string;
+    teamSlug?: string;
     workflowId?: string;
   }>();
   useLayoutEffect(() => {
@@ -81,8 +92,12 @@ export default function OrcheoStudioApp() {
 
             <Route path="/auth/callback" element={<OAuthCallback />} />
             <Route path="/chat/:workflowId" element={<PublicChatPage />} />
+            <Route path="/chat/team/:teamSlug/:workflowId" element={<PublicChatPage />} />
+            <Route path="/chat/:workspaceSlug/:workflowId" element={<PublicChatPage />} />
+            <Route path="/chat/:workspaceSlug/team/:teamSlug/:workflowId" element={<PublicChatPage />} />
 
             <Route element={<RequireAuth />}>
+              <Route element={<RequireWorkspace />}>
                 <Route path="/" element={<WorkspaceHomeRedirect />} />
                 <Route
                   path="/:workspaceSlug"
@@ -99,6 +114,10 @@ export default function OrcheoStudioApp() {
                   element={<WorkspaceWorkflowRoute />}
                 />
                 <Route
+                  path="/:workspaceSlug/team/:teamSlug/:workflowId"
+                  element={<WorkspaceWorkflowRoute />}
+                />
+                <Route
                   path="/:workspaceSlug/:workflowId"
                   element={<WorkspaceWorkflowRoute />}
                 />
@@ -106,6 +125,7 @@ export default function OrcheoStudioApp() {
                 <Route path="/profile" element={<Profile />} />
 
                 <Route path="/settings" element={<Settings />} />
+              </Route>
             </Route>
           </Routes>
           <Toaster />

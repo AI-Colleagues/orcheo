@@ -3,6 +3,7 @@
 from __future__ import annotations
 import logging
 from typing import Any
+from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ValidationError
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
@@ -24,7 +25,9 @@ from orcheo_backend.app.repository import (
     WorkflowHandleConflictError,
     WorkflowNotFoundError,
 )
+from orcheo_backend.app.repository.errors import TeamNotFoundError
 from orcheo_backend.app.schemas.candidates import CandidateItem, CandidatePublicItem
+from orcheo_backend.app.teams_service import ensure_default_team
 from orcheo_backend.app.workspace import WorkspaceContextDep
 from orcheo_backend.app.workspace_governance import ensure_workspace_workflow_quota
 
@@ -37,6 +40,7 @@ class CandidateOnboardRequest(BaseModel):
     """Request body for server-side candidate onboarding."""
 
     id: str
+    team_id: str | None = None
 
 
 def _candidates_502(exc: Exception) -> HTTPException:
@@ -254,13 +258,30 @@ async def onboard_candidate(
 
     workspace_id = str(workspace.workspace_id)
 
-    # Resolve existing workflow by candidate handle, or create a new one.
+    # Resolve the target team. When unspecified, onboard into the default team.
+    default_team = await ensure_default_team(repository, workspace)
+    target_team_id = request.team_id or str(default_team.id)
+    if request.team_id is not None:
+        try:
+            await repository.get_team(UUID(request.team_id), workspace_id=workspace_id)
+        except (TeamNotFoundError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "message": f"Team '{request.team_id}' not found.",
+                    "code": "team.not_found",
+                },
+            ) from exc
+
+    # If the candidate already lives in the target team, append a version;
+    # otherwise onboard it as a new colleague within that team.
     workflow: Workflow
     try:
         workflow_id = await repository.resolve_workflow_ref(
             candidate.handle,
             include_archived=False,
             workspace_id=workspace_id,
+            team_id=target_team_id,
         )
         workflow = await repository.get_workflow(workflow_id, workspace_id=workspace_id)
     except WorkflowNotFoundError:
@@ -278,6 +299,7 @@ async def onboard_candidate(
                 draft_access=WorkflowDraftAccess.WORKSPACE,
                 actor="onboard",
                 workspace_id=workspace_id,
+                team_id=target_team_id,
             )
         except WorkflowHandleConflictError as exc:
             raise HTTPException(

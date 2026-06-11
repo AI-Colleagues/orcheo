@@ -1,6 +1,7 @@
 import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl, getBackendBaseUrl } from "@/lib/config";
 import type {
+  ApiTeam,
   ApiWorkflow,
   ApiWorkflowPagePayload,
   ApiWorkflowRun,
@@ -105,11 +106,19 @@ export const fetchWorkflowPageData = async (
 
 export const fetchPublicWorkflow = async (
   workflowId: string,
+  context?: { workspaceSlug?: string; teamSlug?: string },
 ): Promise<PublicWorkflowMetadata | undefined> => {
   try {
-    return await request<PublicWorkflowMetadata>(
-      `${PUBLIC_WORKFLOW_PATH}/${workflowId}/public`,
-    );
+    const params = new URLSearchParams();
+    if (context?.workspaceSlug) {
+      params.set("workspace_slug", context.workspaceSlug);
+    }
+    if (context?.teamSlug) {
+      params.set("team_slug", context.teamSlug);
+    }
+    const queryString = params.toString();
+    const url = `${PUBLIC_WORKFLOW_PATH}/${workflowId}/public${queryString ? `?${queryString}` : ""}`;
+    return await request<PublicWorkflowMetadata>(url);
   } catch (error) {
     if (
       error instanceof ApiRequestError &&
@@ -175,12 +184,34 @@ export interface ApiCandidate {
 export const fetchCandidates = async (): Promise<ApiCandidate[]> =>
   request<ApiCandidate[]>("/api/candidates");
 
+export const fetchTeams = async (): Promise<ApiTeam[]> =>
+  request<ApiTeam[]>("/api/teams");
+
+export const createTeam = async (input: {
+  name: string;
+  slug: string;
+}): Promise<ApiTeam> =>
+  request<ApiTeam>("/api/teams", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+export const deleteTeam = async (teamId: string): Promise<void> =>
+  request<void>(`/api/teams/${teamId}`, {
+    method: "DELETE",
+    expectJson: false,
+  });
+
 export const onboardCandidate = async (
   candidateId: string,
+  teamId?: string,
 ): Promise<ApiWorkflow> =>
   request<ApiWorkflow>("/api/candidates/onboard", {
     method: "POST",
-    body: JSON.stringify({ id: candidateId }),
+    body: JSON.stringify({
+      id: candidateId,
+      ...(teamId ? { team_id: teamId } : {}),
+    }),
   });
 
 export const fetchWorkflowListeners = async (

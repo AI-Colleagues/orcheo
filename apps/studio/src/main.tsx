@@ -3,7 +3,14 @@ import * as ReactDOM from "react-dom";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { buildBackendHttpUrl } from "./lib/config";
 import { initializeTheme, watchSystemTheme } from "./lib/theme";
+
+const chatkitScript = document.createElement("script");
+chatkitScript.src = buildBackendHttpUrl("/api/chatkit/assets/chatkit.js");
+chatkitScript.async = true;
+chatkitScript.crossOrigin = "anonymous";
+document.head.appendChild(chatkitScript);
 
 // Initialize theme before React renders to prevent flash of wrong theme
 initializeTheme();

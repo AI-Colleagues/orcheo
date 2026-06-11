@@ -6,6 +6,7 @@ from orcheo_backend.app.repository.in_memory.listeners import ListenerRepository
 from orcheo_backend.app.repository.in_memory.retry import RetryPolicyMixin
 from orcheo_backend.app.repository.in_memory.runs import WorkflowRunMixin
 from orcheo_backend.app.repository.in_memory.state import InMemoryRepositoryState
+from orcheo_backend.app.repository.in_memory.teams import TeamCrudMixin
 from orcheo_backend.app.repository.in_memory.triggers import TriggerDispatchMixin
 from orcheo_backend.app.repository.in_memory.versions import WorkflowVersionMixin
 from orcheo_backend.app.repository.in_memory.workflows import WorkflowCrudMixin
@@ -17,6 +18,7 @@ class InMemoryWorkflowRepository(
     TriggerDispatchMixin,
     WorkflowRunMixin,
     WorkflowVersionMixin,
+    TeamCrudMixin,
     WorkflowCrudMixin,
     InMemoryRepositoryState,
 ):

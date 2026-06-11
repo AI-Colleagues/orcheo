@@ -135,9 +135,15 @@ export const toFlowEdges = (edges: WorkflowEdge[]): FlowEdge[] =>
 
 export const getWorkflowRouteRef = (
   workflow:
-    | Pick<ApiWorkflow, "id" | "handle">
-    | Pick<Workflow, "id" | "handle">,
-): string => workflow.handle ?? workflow.id;
+    | Pick<ApiWorkflow, "id" | "handle" | "team_id">
+    | Pick<Workflow, "id" | "handle" | "teamId">,
+): string => {
+  const teamId = "team_id" in workflow ? workflow.team_id : workflow.teamId;
+  if (teamId) {
+    return workflow.id;
+  }
+  return workflow.handle ?? workflow.id;
+};
 
 export const resolveWorkflowVersionMermaidSource = (
   version:
@@ -351,6 +357,7 @@ export const toStoredWorkflow = (
   return {
     id: workflow.id,
     handle: workflow.handle ?? undefined,
+    teamId: workflow.team_id ?? undefined,
     name: workflow.name,
     description: workflow.description ?? undefined,
     avatarEmoji,

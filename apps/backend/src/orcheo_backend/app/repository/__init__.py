@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from orcheo.models import (
+    Team,
     Workflow,
     WorkflowRun,
     WorkflowVersion,
@@ -9,6 +10,9 @@ from orcheo.models import (
 from orcheo_backend.app.repository.errors import (
     CronTriggerNotFoundError,
     RepositoryError,
+    TeamNotEmptyError,
+    TeamNotFoundError,
+    TeamSlugConflictError,
     WorkflowHandleConflictError,
     WorkflowNotFoundError,
     WorkflowPublishStateError,
@@ -24,6 +28,10 @@ __all__ = [
     "InMemoryWorkflowRepository",
     "CronTriggerNotFoundError",
     "RepositoryError",
+    "Team",
+    "TeamNotEmptyError",
+    "TeamNotFoundError",
+    "TeamSlugConflictError",
     "VersionDiff",
     "WorkflowHandleConflictError",
     "Workflow",

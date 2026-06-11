@@ -32,7 +32,7 @@ async def test_resolve_workflow_id_get_workflow_not_found_raises_404() -> None:
 
     class Repository:
         async def resolve_workflow_ref(
-            self, ref, *, include_archived=True, workspace_id=None
+            self, ref, *, include_archived=True, workspace_id=None, team_id=None
         ):
             return workflow_id
 

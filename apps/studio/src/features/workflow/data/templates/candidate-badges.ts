@@ -132,6 +132,11 @@ export const getCandidateBadgeDefinition = (
 ): CandidateBadgeDefinition | undefined =>
   candidateBadges.find((badge) => badge.workflow.id === workflowId);
 
+export const getCandidateBadgeByHandle = (
+  handle: string,
+): CandidateBadgeDefinition | undefined =>
+  candidateBadges.find((badge) => badge.handle === handle);
+
 export const getCandidateTemplateDefinition = (
   templateId: string,
 ): WorkflowTemplateDefinition | undefined =>
