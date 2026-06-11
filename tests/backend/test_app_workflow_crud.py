@@ -35,6 +35,7 @@ _MOCK_WORKSPACE = SimpleNamespace(
     workspace_id=uuid4(),
     user_id="test-user",
     slug="test-workspace",
+    workspace_slug="test-workspace",
     quotas=SimpleNamespace(
         max_credentials=1000,
         max_workflows=1000,

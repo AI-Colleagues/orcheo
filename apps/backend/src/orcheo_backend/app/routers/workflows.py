@@ -111,10 +111,17 @@ def _apply_share_url(
     public_base_url: str | None,
     *,
     team_slug: str | None = None,
+    workspace_slug: str | None = None,
 ) -> Workflow:
     if public_base_url and workflow.is_public:
         ref = workflow.handle or str(workflow.id)
-        if team_slug:
+        if workspace_slug and team_slug:
+            workflow.share_url = (
+                f"{public_base_url}/chat/{workspace_slug}/team/{team_slug}/{ref}"
+            )
+        elif workspace_slug:
+            workflow.share_url = f"{public_base_url}/chat/{workspace_slug}/{ref}"
+        elif team_slug:
             workflow.share_url = f"{public_base_url}/chat/team/{team_slug}/{ref}"
         else:
             workflow.share_url = f"{public_base_url}/chat/{ref}"
@@ -140,10 +147,14 @@ async def _apply_share_url_async(
     workflow: Workflow,
     repository: Any,
     public_base_url: str | None,
+    *,
+    workspace_slug: str | None = None,
 ) -> Workflow:
     """Resolve team slug then apply share URL — use for single-workflow responses."""
     team_slug = await _resolve_team_slug(repository, workflow)
-    return _apply_share_url(workflow, public_base_url, team_slug=team_slug)
+    return _apply_share_url(
+        workflow, public_base_url, team_slug=team_slug, workspace_slug=workspace_slug
+    )
 
 
 def _apply_share_urls(
@@ -151,6 +162,7 @@ def _apply_share_urls(
     public_base_url: str | None,
     *,
     teams_by_id: dict[str, str] | None = None,
+    workspace_slug: str | None = None,
 ) -> list[Workflow]:
     for workflow in workflows:
         team_slug = (
@@ -158,7 +170,12 @@ def _apply_share_urls(
             if teams_by_id and workflow.team_id
             else None
         )
-        _apply_share_url(workflow, public_base_url, team_slug=team_slug)
+        _apply_share_url(
+            workflow,
+            public_base_url,
+            team_slug=team_slug,
+            workspace_slug=workspace_slug,
+        )
     return workflows
 
 
@@ -225,8 +242,11 @@ def _serialize_public_workflow(
     public_base_url: str | None,
     *,
     team_slug: str | None = None,
+    workspace_slug: str | None = None,
 ) -> PublicWorkflow:
-    workflow = _apply_share_url(workflow, public_base_url, team_slug=team_slug)
+    workflow = _apply_share_url(
+        workflow, public_base_url, team_slug=team_slug, workspace_slug=workspace_slug
+    )
     return PublicWorkflow(
         id=workflow.id,
         handle=workflow.handle,
@@ -473,8 +493,18 @@ async def get_public_workflow(
             },
         )
     team_slug = await _resolve_team_slug(repository, workflow)
+    workspace_slug: str | None = None
+    if workflow.workspace_id:
+        try:
+            ws = get_workspace_repository().get_workspace(UUID(workflow.workspace_id))
+            workspace_slug = ws.slug
+        except Exception:  # noqa: BLE001
+            pass
     return _serialize_public_workflow(
-        workflow, _resolve_studio_url(), team_slug=team_slug
+        workflow,
+        _resolve_studio_url(),
+        team_slug=team_slug,
+        workspace_slug=workspace_slug,
     )
 
 
@@ -511,7 +541,10 @@ async def list_workflows(
         *[
             _build_workflow_list_item(repository, workflow)
             for workflow in _apply_share_urls(
-                workflows, public_base_url, teams_by_id=teams_by_id
+                workflows,
+                public_base_url,
+                teams_by_id=teams_by_id,
+                workspace_slug=workspace.workspace_slug,
             )
         ]
     )
@@ -550,7 +583,12 @@ async def create_workflow(
         workflow = await repository.create_workflow(
             **create_kwargs,
         )
-        return await _apply_share_url_async(workflow, repository, _resolve_studio_url())
+        return await _apply_share_url_async(
+            workflow,
+            repository,
+            _resolve_studio_url(),
+            workspace_slug=workspace.workspace_slug,
+        )
     except WorkflowHandleConflictError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -573,7 +611,12 @@ async def get_workflow(
         workflow_ref,
         workspace_id=tid,
     )
-    return await _apply_share_url_async(workflow, repository, _resolve_studio_url())
+    return await _apply_share_url_async(
+        workflow,
+        repository,
+        _resolve_studio_url(),
+        workspace_slug=workspace.workspace_slug,
+    )
 
 
 @router.get("/workflows/{workflow_ref}/workflow", response_model=WorkflowPagePayload)
@@ -592,7 +635,10 @@ async def get_workflow_page(
     versions = await repository.list_versions(workflow.id)
     return WorkflowPagePayload(
         workflow=await _apply_share_url_async(
-            workflow, repository, _resolve_studio_url()
+            workflow,
+            repository,
+            _resolve_studio_url(),
+            workspace_slug=workspace.workspace_slug,
         ),
         versions=[_to_workflow_page_version_summary(version) for version in versions],
     )
@@ -641,7 +687,12 @@ async def update_workflow(
             workflow.id,
             **update_kwargs,
         )
-        return await _apply_share_url_async(workflow, repository, _resolve_studio_url())
+        return await _apply_share_url_async(
+            workflow,
+            repository,
+            _resolve_studio_url(),
+            workspace_slug=workspace.workspace_slug,
+        )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
     except WorkflowHandleConflictError as exc:
@@ -669,7 +720,12 @@ async def archive_workflow(
         workspace_id=tid,
     )
     workflow = await repository.archive_workflow(workflow.id, actor=resolved_actor)
-    return await _apply_share_url_async(workflow, repository, _resolve_studio_url())
+    return await _apply_share_url_async(
+        workflow,
+        repository,
+        _resolve_studio_url(),
+        workspace_slug=workspace.workspace_slug,
+    )
 
 
 @router.post(
@@ -934,7 +990,10 @@ async def publish_workflow(
             actor=actor,
         )
         workflow = await _apply_share_url_async(
-            workflow, repository, _resolve_studio_url()
+            workflow,
+            repository,
+            _resolve_studio_url(),
+            workspace_slug=workspace.workspace_slug,
         )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
@@ -982,7 +1041,10 @@ async def revoke_workflow_publish(
     try:
         workflow = await repository.revoke_publish(workflow.id, actor=actor)
         workflow = await _apply_share_url_async(
-            workflow, repository, _resolve_studio_url()
+            workflow,
+            repository,
+            _resolve_studio_url(),
+            workspace_slug=workspace.workspace_slug,
         )
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)

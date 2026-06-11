@@ -19,6 +19,7 @@ from orcheo_backend.app.schemas.workflows import (
 
 _MOCK_WORKSPACE = SimpleNamespace(
     workspace_id=uuid4(),
+    workspace_slug="test",
     quotas=WorkspaceQuotas(),
 )
 
@@ -146,7 +147,9 @@ async def test_get_workflow_page_allows_managed_workflow_across_workspaces() -> 
     payload = await workflows.get_workflow_page(
         workflow_ref=MANAGED_VIBE_WORKFLOW_HANDLE,
         repository=repository,
-        workspace=SimpleNamespace(workspace_id=current_workspace),
+        workspace=SimpleNamespace(
+            workspace_id=current_workspace, workspace_slug="test"
+        ),
     )
 
     assert payload.workflow.id == workflow.id
@@ -173,7 +176,9 @@ async def test_update_workflow_allows_managed_workflow_across_workspaces() -> No
         workflow_ref=MANAGED_VIBE_WORKFLOW_HANDLE,
         request=request,
         repository=repository,
-        workspace=SimpleNamespace(workspace_id=current_workspace),
+        workspace=SimpleNamespace(
+            workspace_id=current_workspace, workspace_slug="test"
+        ),
         policy=AuthorizationPolicy(
             RequestContext(
                 subject="studio-app",

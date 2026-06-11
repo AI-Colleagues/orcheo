@@ -111,7 +111,7 @@ class _RevokeRepo:
         return self.workflow
 
 
-_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
+_MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4(), workspace_slug="test")
 
 
 def test_publish_response_uses_message_helper() -> None:
