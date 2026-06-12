@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "name": "3-concept conjoint",
-  "template": "{\"type\":\"Card\",\"size\":\"md\",\"asForm\":true,\"confirm\":{\"label\":\"Submit\",\"action\":{\"type\":\"conjoint.submit\"}},\"cancel\":{\"label\":\"Clear\",\"action\":{\"type\":\"conjoint.clear\"}},\"children\":[{\"type\":\"Col\",\"gap\":3,\"children\":[{\"type\":\"Title\",\"value\":{{ (title) | tojson }},\"size\":\"sm\"},{\"type\":\"Row\",\"align\":\"stretch\",\"gap\":3,\"children\":[{%- set _c -%}{%-for c in concepts -%},{\"type\":\"Col\",\"key\":{{ (c.id) | tojson }},\"gap\":2,\"padding\":3,\"border\":{\"size\":1},\"radius\":\"lg\",\"background\":\"surface-secondary\",\"flex\":1,\"children\":[{%- set _c -%},{\"type\":\"Row\",\"gap\":2,\"align\":\"center\",\"children\":[{\"type\":\"Box\",\"width\":4,\"height\":4,\"radius\":\"full\",\"background\":{{ (c.accent) | tojson }}},{\"type\":\"Title\",\"value\":{{ (c.name) | tojson }},\"size\":\"sm\"},{\"type\":\"Spacer\"}]},{\"type\":\"Row\",\"gap\":2,\"align\":\"center\",\"children\":[{\"type\":\"Badge\",\"label\":{{ (c.price) | tojson }}}]}{%-for attr in c.attributes -%}{%-set idx = loop.index0 -%},{\"type\":\"Row\",\"key\":{{ (idx) | tojson }},\"gap\":2,\"align\":\"center\",\"children\":[{\"type\":\"Icon\",\"name\":\"check-circle\",\"color\":{{ (c.accent) | tojson }},\"size\":\"sm\"},{\"type\":\"Text\",\"value\":{{ (attr) | tojson }},\"size\":\"sm\"}]}{%-endfor-%}{%- endset -%}{{- (_c[1:] if _c and _c[0] == ',' else _c) -}}]}{%-endfor-%}{%- endset -%}{{- (_c[1:] if _c and _c[0] == ',' else _c) -}}]},{\"type\":\"Divider\"},{\"type\":\"Row\",\"align\":\"center\",\"gap\":3,\"children\":[{\"type\":\"Label\",\"value\":\"Your pick\",\"fieldName\":\"choice\"},{\"type\":\"Spacer\"},{\"type\":\"RadioGroup\",\"name\":\"choice\",\"options\":{{ (options) | tojson }},\"direction\":\"row\",\"required\":true}]}]}]}",
+  "template": "{\"type\":\"Card\",\"size\":\"md\",\"asForm\":true,\"confirm\":{\"label\":\"Submit\",\"action\":{\"type\":\"conjoint.submit\"}},\"cancel\":{\"label\":\"Clear\",\"action\":{\"type\":\"conjoint.clear\"}},\"children\":[{\"type\":\"Col\",\"gap\":3,\"children\":[{\"type\":\"Title\",\"value\":{{ (title) | tojson }},\"size\":\"sm\"},{\"type\":\"Row\",\"align\":\"stretch\",\"gap\":3,\"children\":[{%- set _c -%}{%-for c in concepts -%},{\"type\":\"Col\",\"key\":{{ (c.id) | tojson }},\"gap\":2,\"padding\":3,\"border\":{\"size\":1},\"radius\":\"lg\",\"background\":\"surface-secondary\",\"flex\":1,\"children\":[{%- set _c -%},{\"type\":\"Row\",\"gap\":2,\"align\":\"center\",\"children\":[{\"type\":\"Box\",\"width\":4,\"height\":4,\"radius\":\"full\",\"background\":{{ (c.accent) | tojson }}},{\"type\":\"Title\",\"value\":{{ (c.name) | tojson }},\"size\":\"sm\"},{\"type\":\"Spacer\"}]},{\"type\":\"Row\",\"gap\":2,\"align\":\"center\",\"children\":[{\"type\":\"Badge\",\"label\":{{ (c.price) | tojson }}}]}{%-for attr in c.attributes -%}{%-set idx = loop.index0 -%},{\"type\":\"Row\",\"key\":{{ (idx | string) | tojson }},\"gap\":2,\"align\":\"center\",\"children\":[{\"type\":\"Icon\",\"name\":\"check-circle\",\"color\":{{ (c.accent) | tojson }},\"size\":\"sm\"},{\"type\":\"Text\",\"value\":{{ (attr) | tojson }},\"size\":\"sm\"}]}{%-endfor-%}{%- endset -%}{{- (_c[1:] if _c and _c[0] == ',' else _c) -}}]}{%-endfor-%}{%- endset -%}{{- (_c[1:] if _c and _c[0] == ',' else _c) -}}]},{\"type\":\"Divider\"},{\"type\":\"Row\",\"align\":\"center\",\"gap\":3,\"children\":[{\"type\":\"Label\",\"value\":\"Your pick\",\"fieldName\":\"choice\"},{\"type\":\"Spacer\"},{\"type\":\"RadioGroup\",\"name\":\"choice\",\"options\":{{ (options) | tojson }},\"direction\":\"row\",\"required\":true}]}]}]}",
   "jsonSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -164,7 +164,7 @@
                   },
                   {
                     "type": "Row",
-                    "key": 0,
+                    "key": "0",
                     "gap": 2,
                     "align": "center",
                     "children": [
@@ -183,7 +183,7 @@
                   },
                   {
                     "type": "Row",
-                    "key": 1,
+                    "key": "1",
                     "gap": 2,
                     "align": "center",
                     "children": [
@@ -202,7 +202,7 @@
                   },
                   {
                     "type": "Row",
-                    "key": 2,
+                    "key": "2",
                     "gap": 2,
                     "align": "center",
                     "children": [
@@ -268,7 +268,7 @@
                   },
                   {
                     "type": "Row",
-                    "key": 0,
+                    "key": "0",
                     "gap": 2,
                     "align": "center",
                     "children": [
@@ -287,7 +287,7 @@
                   },
                   {
                     "type": "Row",
-                    "key": 1,
+                    "key": "1",
                     "gap": 2,
                     "align": "center",
                     "children": [
@@ -306,7 +306,7 @@
                   },
                   {
                     "type": "Row",
-                    "key": 2,
+                    "key": "2",
                     "gap": 2,
                     "align": "center",
                     "children": [
@@ -372,7 +372,7 @@
                   },
                   {
                     "type": "Row",
-                    "key": 0,
+                    "key": "0",
                     "gap": 2,
                     "align": "center",
                     "children": [
@@ -391,7 +391,7 @@
                   },
                   {
                     "type": "Row",
-                    "key": 1,
+                    "key": "1",
                     "gap": 2,
                     "align": "center",
                     "children": [
@@ -410,7 +410,7 @@
                   },
                   {
                     "type": "Row",
-                    "key": 2,
+                    "key": "2",
                     "gap": 2,
                     "align": "center",
                     "children": [
