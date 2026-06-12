@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "name": "Single-choice list",
-  "template": "{\"type\":\"Card\",\"size\":\"sm\",\"children\":[{\"type\":\"Col\",\"gap\":2,\"children\":[{\"type\":\"Title\",\"value\":{{ (title) | tojson }},\"size\":\"sm\"},{\"type\":\"RadioGroup\",\"name\":\"choice\",\"options\":{{ (options) | tojson }},\"direction\":\"col\",\"onChangeAction\":{\"type\":{{ (actionType) | tojson }}},\"defaultValue\":{{ (defaultValue) | tojson }},\"required\":true}]}]}",
+  "template": "{\"type\":\"Card\",\"size\":\"sm\",\"asForm\":true,\"confirm\":{\"label\":\"Submit\",\"action\":{\"type\":\"submit\",\"requestAssistantResponse\":true}},\"children\":[{\"type\":\"Col\",\"gap\":2,\"children\":[{\"type\":\"Title\",\"value\":{{ (title) | tojson }},\"size\":\"sm\"},{\"type\":\"RadioGroup\",\"name\":\"choice\",\"options\":{{ (options) | tojson }},\"direction\":\"col\",\"defaultValue\":{{ (defaultValue) | tojson }},\"required\":true}]}]}",
   "jsonSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -49,6 +49,14 @@
   "outputJsonPreview": {
     "type": "Card",
     "size": "sm",
+    "asForm": true,
+    "confirm": {
+      "label": "Submit",
+      "action": {
+        "type": "submit",
+        "requestAssistantResponse": true
+      }
+    },
     "children": [
       {
         "type": "Col",
@@ -82,9 +90,6 @@
               }
             ],
             "direction": "col",
-            "onChangeAction": {
-              "type": "choice.select"
-            },
             "defaultValue": "A",
             "required": true
           }
