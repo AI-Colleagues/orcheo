@@ -396,6 +396,89 @@ async def test_action_updates_existing_widget_root() -> None:
 
 
 @pytest.mark.asyncio
+async def test_action_freezes_submitted_selection_without_reemit() -> None:
+    """A submit must persist the user's selection into the stored widget root.
+
+    ChatKit form controls are uncontrolled, so unless the submitted selection is
+    written back into the widget root it snaps back to the original defaults on
+    the next render. When the workflow returns no replacement widget, the server
+    freezes the submitted form values into the sender so follow-up messages keep
+    the selection.
+    """
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(
+        id="thr_widget_freeze",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    multi_select_root = {
+        "type": "Card",
+        "asForm": True,
+        "children": [
+            {
+                "type": "Checkbox",
+                "name": "choices.opt1",
+                "label": "Option 1",
+                "defaultChecked": False,
+            },
+            {
+                "type": "Checkbox",
+                "name": "choices.opt2",
+                "label": "Option 2",
+                "defaultChecked": True,
+            },
+            {
+                "type": "Checkbox",
+                "name": "choices.opt3",
+                "label": "Option 3",
+                "defaultChecked": False,
+            },
+        ],
+    }
+    sender = WidgetItem(
+        id="widget_multiselect",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        widget=TypeAdapter(DynamicWidgetRoot).validate_python(multi_select_root),
+    )
+    await server.store.add_thread_item(thread.id, sender, context)
+
+    # The workflow only acknowledges the submission with text; it does not
+    # re-emit the widget.
+    server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
+        return_value=("Got your picks", {"messages": []}, None)
+    )
+
+    # User checked opt1 and opt3, unchecked opt2.
+    action: dict[str, object] = {
+        "type": "submit",
+        "payload": {"choices": {"opt1": True, "opt3": True}},
+    }
+
+    events = [event async for event in server.action(thread, action, sender, context)]
+
+    update_events = [event for event in events if event.type == "thread.item.updated"]
+    assert update_events, "Submitted selection should update the widget in place"
+
+    stored_item = await server.store.load_item(thread.id, sender.id, context=context)
+    assert isinstance(stored_item, WidgetItem)
+    checkbox_state = {
+        child.name: child.defaultChecked for child in stored_item.widget.children
+    }
+    assert checkbox_state == {
+        "choices.opt1": True,
+        "choices.opt2": False,
+        "choices.opt3": True,
+    }
+
+
+@pytest.mark.asyncio
 async def test_action_logs_failures_with_ids(caplog) -> None:
     repository = InMemoryWorkflowRepository()
     workflow = await create_workflow_with_graph(repository)

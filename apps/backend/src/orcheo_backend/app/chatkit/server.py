@@ -447,6 +447,127 @@ def _validate_widget_root(payload: Any) -> WidgetRoot:
     return widget_root
 
 
+# Maps form-input widget node types to the attribute that carries their
+# rendered (default) value. ChatKit form controls are uncontrolled, so their
+# checked/selected state is re-derived from these attributes on every render.
+_FORM_INPUT_DEFAULT_FIELDS: dict[str, str] = {
+    "Checkbox": "defaultChecked",
+    "RadioGroup": "defaultValue",
+    "Select": "defaultValue",
+    "Input": "defaultValue",
+    "Textarea": "defaultValue",
+}
+
+
+def _action_payload_mapping(
+    action: Action[str, Any] | Mapping[str, Any] | object,
+) -> Mapping[str, Any] | None:
+    """Return the action payload when it is a mapping of form values."""
+    if isinstance(action, Mapping):
+        payload = action.get("payload")
+    else:
+        payload = getattr(action, "payload", None)
+    return payload if isinstance(payload, Mapping) else None
+
+
+def _resolve_form_value(payload: Mapping[str, Any], name: str) -> tuple[bool, Any]:
+    """Resolve a form-control value from a submit payload by field ``name``.
+
+    ChatKit submits nested field names (e.g. ``choices.opt1``) either as a flat
+    dotted key or as a nested object, so both shapes are supported. Returns a
+    ``(found, value)`` pair where ``found`` is False when the field is absent.
+    """
+    if name in payload:
+        return True, payload[name]
+    current: Any = payload
+    for part in name.split("."):
+        if isinstance(current, Mapping) and part in current:
+            current = current[part]
+        else:
+            return False, None
+    return True, current
+
+
+def _coerce_checked(value: Any) -> bool:
+    """Interpret a submitted checkbox value as a boolean checked state."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "on", "1", "yes", "checked"}
+    if isinstance(value, int | float):
+        return bool(value)
+    return value is not None
+
+
+def _collect_form_input_nodes(node: Any, names: list[tuple[str, str]]) -> None:
+    """Collect ``(type, name)`` pairs for form-control nodes in a widget tree."""
+    if isinstance(node, list):
+        for child in node:
+            _collect_form_input_nodes(child, names)
+        return
+    if not isinstance(node, Mapping):
+        return
+    node_type = node.get("type")
+    name = node.get("name")
+    if (
+        isinstance(node_type, str)
+        and isinstance(name, str)
+        and node_type in _FORM_INPUT_DEFAULT_FIELDS
+    ):
+        names.append((node_type, name))
+    for value in node.values():
+        if isinstance(value, list | dict):
+            _collect_form_input_nodes(value, names)
+
+
+def _apply_submitted_form_values(
+    node: Any, payload: Mapping[str, Any]
+) -> tuple[Any, bool]:
+    """Return a copy of ``node`` with input defaults set from ``payload``.
+
+    Walks the widget tree and writes each form control's submitted value into
+    its ``defaultChecked``/``defaultValue`` attribute. Absent checkbox fields are
+    treated as unchecked (HTML form semantics omit unchecked boxes). Returns the
+    updated tree and whether any attribute changed.
+    """
+    changed = False
+    if isinstance(node, list):
+        updated_list: list[Any] = []
+        for child in node:
+            updated_child, child_changed = _apply_submitted_form_values(child, payload)
+            updated_list.append(updated_child)
+            changed = changed or child_changed
+        return updated_list, changed
+    if not isinstance(node, Mapping):
+        return node, False
+
+    updated: dict[str, Any] = dict(node)
+    node_type = updated.get("type")
+    name = updated.get("name")
+    if (
+        isinstance(node_type, str)
+        and isinstance(name, str)
+        and node_type in _FORM_INPUT_DEFAULT_FIELDS
+    ):
+        field = _FORM_INPUT_DEFAULT_FIELDS[node_type]
+        found, value = _resolve_form_value(payload, name)
+        if node_type == "Checkbox":
+            new_value: Any = _coerce_checked(value) if found else False
+        elif found:
+            new_value = value if isinstance(value, str) else str(value)
+        else:
+            new_value = updated.get(field)
+        if updated.get(field) != new_value:
+            updated[field] = new_value
+            changed = True
+
+    for key, value in list(updated.items()):
+        if isinstance(value, list | dict):
+            updated[key], child_changed = _apply_submitted_form_values(value, payload)
+            changed = changed or child_changed
+    return updated, changed
+
+
 def _notice_for_widget_error(error: _WidgetHydrationError) -> NoticeEvent:
     """Build a user-facing notice describing widget hydration issues."""
     if error.reason == "too_large":
@@ -640,6 +761,103 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
             chatkit_telemetry.increment("widget.hydrated")
 
         return widget_items, notices
+
+    async def _emit_action_widgets(
+        self,
+        thread: ThreadMetadata,
+        state_view: Mapping[str, Any],
+        sender: WidgetItem | None,
+        action: Action[str, Any] | Mapping[str, Any],
+        context: ChatKitRequestContext,
+    ) -> AsyncIterator[ThreadStreamEvent]:
+        """Emit notices and widgets produced by a widget action.
+
+        Updates the sender widget in place when the workflow re-emits it,
+        otherwise freezes the submitted selection into the sender so it survives
+        follow-up turns. Any genuinely new widgets are appended to the thread.
+        """
+        widget_items, widget_notices = await self._hydrate_widget_items(
+            thread, state_view, context
+        )
+        for notice in widget_notices:
+            yield notice
+
+        updated_in_place = False
+        if sender and widget_items:
+            updated_widget = widget_items.pop(0)
+            updated_item = WidgetItem(
+                id=sender.id,
+                thread_id=sender.thread_id,
+                created_at=sender.created_at,
+                widget=updated_widget.widget,
+                copy_text=updated_widget.copy_text,
+            )
+            await self.store.save_item(thread.id, updated_item, context)
+            yield ThreadItemUpdatedEvent(
+                item_id=sender.id,
+                update=WidgetRootUpdated(widget=updated_widget.widget),
+            )
+            updated_in_place = True
+
+        if sender is not None and not updated_in_place:
+            frozen = await self._freeze_widget_selection(
+                thread, sender, action, context
+            )
+            if frozen is not None:
+                yield frozen
+
+        for widget_item in widget_items:
+            await self.store.add_thread_item(thread.id, widget_item, context)
+            yield ThreadItemDoneEvent(item=widget_item)
+
+    async def _freeze_widget_selection(
+        self,
+        thread: ThreadMetadata,
+        sender: WidgetItem,
+        action: Action[str, Any] | Mapping[str, Any],
+        context: ChatKitRequestContext,
+    ) -> ThreadItemUpdatedEvent | None:
+        """Persist a submit action's form values into the sender widget root.
+
+        ChatKit form controls are uncontrolled, so the user's selections live
+        only in transient browser state and are re-derived from the widget root
+        on every render. When the workflow does not re-emit the widget, write the
+        submitted selection back into the stored root so it survives follow-up
+        turns instead of snapping back to the original defaults.
+        """
+        payload = _action_payload_mapping(action)
+        if payload is None:
+            return None
+
+        widget_dict = sender.widget.model_dump(exclude_none=True)
+        input_names: list[tuple[str, str]] = []
+        _collect_form_input_nodes(widget_dict, input_names)
+        # Only treat this as a form submission when the payload carries at least
+        # one of the widget's own field values; this avoids clobbering selections
+        # for non-submit actions (e.g. toggles) that share the action pipeline.
+        if not any(_resolve_form_value(payload, name)[0] for _, name in input_names):
+            return None
+
+        updated_dict, changed = _apply_submitted_form_values(widget_dict, payload)
+        if not changed:
+            return None
+        try:
+            widget_root = _WIDGET_ROOT_ADAPTER.validate_python(updated_dict)
+        except ValidationError:
+            return None
+
+        updated_item = WidgetItem(
+            id=sender.id,
+            thread_id=sender.thread_id,
+            created_at=sender.created_at,
+            widget=widget_root,
+            copy_text=sender.copy_text,
+        )
+        await self.store.save_item(thread.id, updated_item, context)
+        return ThreadItemUpdatedEvent(
+            item_id=sender.id,
+            update=WidgetRootUpdated(widget=widget_root),
+        )
 
     async def _run_workflow(
         self,
@@ -1070,29 +1288,11 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
             self._log_action_failure(thread, action, exc)
             raise
 
-        widget_items, widget_notices = await self._hydrate_widget_items(
-            thread, state_view, context
-        )
         self._record_run_metadata(thread, run)
-        for notice in widget_notices:
-            yield notice
-        if sender and widget_items:
-            updated_widget = widget_items.pop(0)
-            updated_item = WidgetItem(
-                id=sender.id,
-                thread_id=sender.thread_id,
-                created_at=sender.created_at,
-                widget=updated_widget.widget,
-                copy_text=updated_widget.copy_text,
-            )
-            await self.store.save_item(thread.id, updated_item, context)
-            yield ThreadItemUpdatedEvent(
-                item_id=sender.id,
-                update=WidgetRootUpdated(widget=updated_widget.widget),
-            )
-        for widget_item in widget_items:
-            await self.store.add_thread_item(thread.id, widget_item, context)
-            yield ThreadItemDoneEvent(item=widget_item)
+        async for event in self._emit_action_widgets(
+            thread, state_view, sender, action, context
+        ):
+            yield event
 
         assistant_item = self._build_assistant_item(thread, reply, context)
         await self.store.add_thread_item(thread.id, assistant_item, context)
