@@ -9,7 +9,9 @@ from langchain_core.messages import AIMessage, HumanMessage
 from unittest.mock import AsyncMock
 from orcheo_backend.app.chatkit import workflow_executor as workflow_executor_module
 from orcheo_backend.app.chatkit.workflow_executor import (
+    _NEW_MESSAGES_KEY,
     WorkflowExecutor,
+    _annotate_new_messages,
     _append_chatkit_history_step,
     _build_reply_state,
     _mark_chatkit_history_completed,
@@ -261,6 +263,51 @@ def test_build_reply_state_and_extract_messages():
     assert state.get("_messages")
 
 
+def test_annotate_new_messages_slices_off_prior_turns():
+    prior = [HumanMessage(content="old"), AIMessage(content="old reply")]
+    new = [HumanMessage(content="new"), AIMessage(content="new reply")]
+    state = {"messages": prior + new}
+
+    annotated = _annotate_new_messages(state, prior_count=len(prior))
+
+    assert annotated[_NEW_MESSAGES_KEY] == new
+    # The full history is preserved under the original key.
+    assert annotated["messages"] == prior + new
+
+
+def test_annotate_new_messages_falls_back_when_history_shrank():
+    messages = [HumanMessage(content="only")]
+    state = {"messages": messages}
+
+    annotated = _annotate_new_messages(state, prior_count=5)
+
+    assert annotated[_NEW_MESSAGES_KEY] == messages
+
+
+def test_annotate_new_messages_ignores_states_without_messages():
+    state = {"reply": "done"}
+
+    assert _annotate_new_messages(state, prior_count=0) == {"reply": "done"}
+
+
+def test_build_reply_state_scopes_messages_to_current_turn():
+    """Widget hydration must only see the current turn's messages."""
+    prior = [HumanMessage(content="old"), AIMessage(content="old reply")]
+    new = [HumanMessage(content="new"), AIMessage(content="new reply")]
+    final_state = {
+        "reply": "new reply",
+        "messages": prior + new,
+        _NEW_MESSAGES_KEY: new,
+    }
+
+    reply, state = _build_reply_state(final_state)
+
+    assert reply == "new reply"
+    assert state["_messages"] == new
+    # The internal annotation key is not leaked downstream.
+    assert _NEW_MESSAGES_KEY not in state
+
+
 def test_build_reply_state_missing_reply():
     with pytest.raises(CustomStreamError):
         _build_reply_state({})
@@ -413,6 +460,95 @@ async def test_execute_graph_streams_updates_with_step_callback(
     assert result == {"reply": "done"}
     assert captured_steps == [{"node": {"status": "running"}}]
     assert progress_context_events == ["enter", "exit"]
+
+
+@pytest.mark.asyncio
+async def test_execute_graph_annotates_current_turn_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The streaming path slices accumulated history down to this turn."""
+    prior = [HumanMessage(content="old"), AIMessage(content="old reply")]
+    new = [HumanMessage(content="new"), AIMessage(content="new reply")]
+
+    class DummyCompiled:
+        def __init__(self) -> None:
+            self._streamed = False
+
+        async def astream(self, payload, *, config, stream_mode):
+            self._streamed = True
+            yield {"node": {"status": "running"}}
+
+        async def aget_state(self, config):
+            # Before streaming: only the prior turns are persisted. After
+            # streaming: the full accumulated history.
+            values = (
+                {"messages": prior + new}
+                if self._streamed
+                else {"messages": list(prior)}
+            )
+            return SimpleNamespace(values=values)
+
+    class DummyGraph:
+        def compile(self, *, checkpointer, store):
+            return DummyCompiled()
+
+    class DummyAsyncContext:
+        def __init__(self, value: object) -> None:
+            self._value = value
+
+        async def __aenter__(self) -> object:
+            return self._value
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: {})
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_checkpointer",
+        lambda settings: DummyAsyncContext("checkpointer"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_graph_store",
+        lambda settings: DummyAsyncContext("graph-store"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "build_graph", lambda graph: DummyGraph()
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "build_initial_state",
+        lambda graph_config, inputs, runtime_config=None, workspace_id=None: {},
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "CredentialResolver",
+        lambda vault, context=None: object(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "credential_resolution",
+        lambda resolver: nullcontext(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "tool_progress_context",
+        lambda callback: nullcontext(),
+    )
+
+    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
+    result = await executor._execute_graph(
+        workflow_id=UUID(int=0),
+        graph_config={"nodes": []},
+        inputs={"message": "new"},
+        config={"configurable": {"thread_id": "thread"}},
+        state_config={"configurable": {"thread_id": "thread"}},
+        step_callback=lambda step: asyncio.sleep(0),
+    )
+
+    assert result["messages"] == prior + new
+    assert result[_NEW_MESSAGES_KEY] == new
 
 
 @pytest.mark.asyncio
