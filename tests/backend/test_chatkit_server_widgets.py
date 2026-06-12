@@ -3,7 +3,7 @@
 from __future__ import annotations
 import warnings
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 import pytest
 from chatkit.types import (
     AssistantMessageItem,
@@ -17,7 +17,8 @@ from chatkit.types import (
 )
 from chatkit.widgets import DynamicWidgetRoot
 from langchain_core.messages import ToolMessage
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError
+from orcheo_backend.app.chatkit import server as server_mod
 from orcheo_backend.app.chatkit import ChatKitRequestContext
 from orcheo_backend.app.chatkit.server import _MAX_WIDGET_PAYLOAD_BYTES
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
@@ -655,3 +656,110 @@ async def test_action_emits_progress_updates() -> None:
     ]
     assert progress_events
     assert any("node_a" in e.text for e in progress_events)
+
+
+# ---------------------------------------------------------------------------
+# _freeze_widget_selection (server.py lines 830, 843, 846-847)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_freeze_widget_selection_returns_none_for_none_payload() -> None:
+    """Covers line 830: _action_payload_mapping returns None → early return."""
+    repository = InMemoryWorkflowRepository()
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(id="thr-freeze-none-payload", created_at=datetime.now(UTC))
+    context: ChatKitRequestContext = {}
+
+    widget_root = TypeAdapter(DynamicWidgetRoot).validate_python(_sample_widget_root())
+    sender = WidgetItem(
+        id="widget-freeze-none-payload",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        widget=widget_root,
+    )
+
+    # Action with no "payload" key → _action_payload_mapping returns None → line 830
+    action: dict[str, object] = {"type": "submit"}
+    result = await server._freeze_widget_selection(thread, sender, action, context)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_freeze_widget_selection_returns_none_when_values_unchanged() -> None:
+    """Covers line 843: _apply_submitted_form_values returns changed=False."""
+    repository = InMemoryWorkflowRepository()
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(id="thr-freeze-unchanged", created_at=datetime.now(UTC))
+    context: ChatKitRequestContext = {}
+
+    # Checkbox widget with defaultChecked=True already.
+    checkbox_root = {
+        "type": "Card",
+        "asForm": True,
+        "children": [
+            {"type": "Checkbox", "name": "opt", "defaultChecked": True},
+        ],
+    }
+    widget_root = TypeAdapter(DynamicWidgetRoot).validate_python(checkbox_root)
+    sender = WidgetItem(
+        id="widget-freeze-unchanged",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        widget=widget_root,
+    )
+
+    # Submit the same value (True) that's already stored → no change → line 843
+    action: dict[str, object] = {"type": "submit", "payload": {"opt": True}}
+    result = await server._freeze_widget_selection(thread, sender, action, context)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_freeze_widget_selection_returns_none_on_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Covers lines 846-847: ValidationError from _WIDGET_ROOT_ADAPTER is caught."""
+    repository = InMemoryWorkflowRepository()
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(id="thr-freeze-valerr", created_at=datetime.now(UTC))
+    context: ChatKitRequestContext = {}
+
+    # Widget with a checkbox so the payload triggers a real change
+    checkbox_root = {
+        "type": "Card",
+        "asForm": True,
+        "children": [
+            {"type": "Checkbox", "name": "opt", "defaultChecked": False},
+        ],
+    }
+    widget_root = TypeAdapter(DynamicWidgetRoot).validate_python(checkbox_root)
+    sender = WidgetItem(
+        id="widget-freeze-valerr",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        widget=widget_root,
+    )
+
+    # Produce a real ValidationError instance to use as side_effect.
+    class _M(BaseModel):
+        x: int
+
+    try:
+        _M.model_validate({"x": "not-an-int"})
+    except ValidationError as _e:
+        fake_ve = _e
+
+    monkeypatch.setattr(
+        server_mod._WIDGET_ROOT_ADAPTER,
+        "validate_python",
+        Mock(side_effect=fake_ve),
+    )
+
+    # Submit True → defaultChecked was False → changed=True → validate_python raises
+    action: dict[str, object] = {"type": "submit", "payload": {"opt": True}}
+    result = await server._freeze_widget_selection(thread, sender, action, context)
+    assert result is None

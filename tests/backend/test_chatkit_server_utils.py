@@ -603,6 +603,169 @@ async def test_action_logs_and_reraises_generic_exceptions(
     assert log_mock.called
 
 
+# ---------------------------------------------------------------------------
+# _record_hydrated_widget_tool_calls (server.py lines 207, 212->211)
+# ---------------------------------------------------------------------------
+
+
+def test_record_hydrated_widget_tool_calls_appends_to_existing_list() -> None:
+    """Covers line 207: existing metadata already has the key set to a list."""
+    thread = ThreadMetadata(
+        id="t207",
+        created_at=datetime.now(UTC),
+        metadata={server_module._HYDRATED_WIDGET_TOOL_CALLS_KEY: ["old-id"]},
+    )
+    server_module._record_hydrated_widget_tool_calls(thread, {"new-id"})
+    result = thread.metadata[server_module._HYDRATED_WIDGET_TOOL_CALLS_KEY]
+    assert "old-id" in result
+    assert "new-id" in result
+
+
+def test_record_hydrated_widget_tool_calls_skips_known_ids() -> None:
+    """Covers line 212->211: duplicate IDs are not appended again."""
+    thread = ThreadMetadata(
+        id="t212",
+        created_at=datetime.now(UTC),
+        metadata={server_module._HYDRATED_WIDGET_TOOL_CALLS_KEY: ["dup-id"]},
+    )
+    server_module._record_hydrated_widget_tool_calls(thread, {"dup-id"})
+    result = thread.metadata[server_module._HYDRATED_WIDGET_TOOL_CALLS_KEY]
+    assert result.count("dup-id") == 1
+
+
+# ---------------------------------------------------------------------------
+# _extract_widget_candidate (server.py line 402)
+# ---------------------------------------------------------------------------
+
+
+def test_extract_widget_candidate_returns_none_when_both_candidates_fail() -> None:
+    """Covers line 402: no artifact and content type not in _WIDGET_TYPES."""
+    message = {
+        "type": "tool",
+        "content": '{"type": "UnknownType"}',
+        "tool_call_id": "tc-402",
+    }
+    result = server_module._extract_widget_candidate(message)
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _action_payload_mapping (server.py line 469)
+# ---------------------------------------------------------------------------
+
+
+def test_action_payload_mapping_uses_getattr_for_non_mapping_action() -> None:
+    """Covers line 469: non-Mapping action → getattr(action, 'payload', None)."""
+
+    class AttrAction:
+        payload = {"submitted": True}
+
+    result = server_module._action_payload_mapping(AttrAction())
+    assert result == {"submitted": True}
+
+
+# ---------------------------------------------------------------------------
+# _resolve_form_value (server.py line 481)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_form_value_returns_direct_key_match() -> None:
+    """Covers line 481: name is a top-level key in the payload."""
+    found, value = server_module._resolve_form_value({"opt1": "yes"}, "opt1")
+    assert found is True
+    assert value == "yes"
+
+
+# ---------------------------------------------------------------------------
+# _coerce_checked (server.py lines 495-499)
+# ---------------------------------------------------------------------------
+
+
+def test_coerce_checked_handles_string_values() -> None:
+    """Covers lines 495-496: string branch."""
+    assert server_module._coerce_checked("true") is True
+    assert server_module._coerce_checked("on") is True
+    assert server_module._coerce_checked("1") is True
+    assert server_module._coerce_checked("false") is False
+    assert server_module._coerce_checked("no") is False
+
+
+def test_coerce_checked_handles_int_and_float() -> None:
+    """Covers lines 497-498: int/float branch."""
+    assert server_module._coerce_checked(1) is True
+    assert server_module._coerce_checked(0) is False
+    assert server_module._coerce_checked(2.5) is True
+    assert server_module._coerce_checked(0.0) is False
+
+
+def test_coerce_checked_handles_other_types() -> None:
+    """Covers line 499: fallback ``return value is not None``."""
+    assert server_module._coerce_checked(None) is False
+    assert server_module._coerce_checked(object()) is True
+
+
+# ---------------------------------------------------------------------------
+# _collect_form_input_nodes (server.py line 509)
+# ---------------------------------------------------------------------------
+
+
+def test_collect_form_input_nodes_returns_early_for_non_mapping_non_list() -> None:
+    """Covers line 509: non-Mapping, non-list input returns immediately."""
+    names: list[tuple[str, str]] = []
+    server_module._collect_form_input_nodes("plain-string", names)
+    assert names == []
+    server_module._collect_form_input_nodes(42, names)
+    assert names == []
+
+
+# ---------------------------------------------------------------------------
+# _apply_submitted_form_values (server.py lines 542, 556-559, 560->564)
+# ---------------------------------------------------------------------------
+
+
+def test_apply_submitted_form_values_non_mapping_non_list_passthrough() -> None:
+    """Covers line 542: non-Mapping, non-list node is returned unchanged."""
+    result, changed = server_module._apply_submitted_form_values("raw_node", {})
+    assert result == "raw_node"
+    assert changed is False
+
+
+def test_apply_submitted_form_values_non_checkbox_found_string() -> None:
+    """Covers lines 556-557: ``elif found`` with a str value."""
+    node = {"type": "Select", "name": "color", "defaultValue": "red"}
+    result, changed = server_module._apply_submitted_form_values(
+        node, {"color": "blue"}
+    )
+    assert result["defaultValue"] == "blue"
+    assert changed is True
+
+
+def test_apply_submitted_form_values_non_checkbox_found_non_string() -> None:
+    """Covers line 557 coercion: ``elif found`` with non-str value coerced to str."""
+    node = {"type": "Input", "name": "count", "defaultValue": "0"}
+    result, changed = server_module._apply_submitted_form_values(node, {"count": 99})
+    assert result["defaultValue"] == "99"
+    assert changed is True
+
+
+def test_apply_submitted_form_values_non_checkbox_field_absent_in_payload() -> None:
+    """Covers lines 558-559 and 560->564: ``else`` branch keeps existing default."""
+    node = {"type": "Select", "name": "color", "defaultValue": "red"}
+    result, changed = server_module._apply_submitted_form_values(node, {"other": "val"})
+    assert result["defaultValue"] == "red"
+    assert changed is False
+
+
+def test_apply_submitted_form_values_no_change_when_value_already_matches() -> None:
+    """Covers line 560->564: submitted value equals existing default → no change."""
+    node = {"type": "Select", "name": "size", "defaultValue": "large"}
+    result, changed = server_module._apply_submitted_form_values(
+        node, {"size": "large"}
+    )
+    assert result["defaultValue"] == "large"
+    assert changed is False
+
+
 @pytest.mark.asyncio
 async def test_action_streams_widgets_and_assistant(
     monkeypatch: pytest.MonkeyPatch,

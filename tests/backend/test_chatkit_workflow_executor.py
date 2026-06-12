@@ -887,3 +887,36 @@ def test_build_reply_state_with_pydantic_base_model() -> None:
 
     assert reply == "pydantic reply"
     assert state_view.get("extra") == "value"
+
+
+# ---------------------------------------------------------------------------
+# _checkpoint_message_count (workflow_executor.py line 291->295)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_message_count_returns_zero_for_non_mapping_values() -> None:
+    """Covers line 291->295: snapshot.values is not a Mapping → returns 0."""
+
+    class NonMappingSnapshot:
+        values = "not-a-mapping"
+
+    class CompiledWithState:
+        async def aget_state(self, config: object) -> NonMappingSnapshot:
+            return NonMappingSnapshot()
+
+    result = await WorkflowExecutor._checkpoint_message_count(CompiledWithState(), {})
+    assert result == 0
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_message_count_returns_zero_when_no_aget_state() -> None:
+    """_checkpoint_message_count returns 0 when compiled has no aget_state."""
+
+    class CompiledWithoutState:
+        pass
+
+    result = await WorkflowExecutor._checkpoint_message_count(
+        CompiledWithoutState(), {}
+    )
+    assert result == 0
