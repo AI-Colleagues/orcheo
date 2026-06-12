@@ -143,6 +143,7 @@ class _WidgetCandidate(NamedTuple):
 
     payload: Any
     copy_text: str | None = None
+    tool_call_id: str | None = None
 
 
 class _WidgetHydrationError(Exception):
@@ -181,6 +182,40 @@ def _is_tool_message(message: Any) -> bool:
     if isinstance(message, ToolMessage):
         return True
     return isinstance(message, Mapping) and message.get("type") == "tool"
+
+
+_HYDRATED_WIDGET_TOOL_CALLS_KEY = "hydrated_widget_tool_calls"
+_MAX_TRACKED_WIDGET_TOOL_CALLS = 500
+
+
+def _hydrated_widget_tool_calls(thread: ThreadMetadata) -> set[str]:
+    """Return the set of widget tool-call ids already hydrated on the thread."""
+    metadata = thread.metadata or {}
+    raw = metadata.get(_HYDRATED_WIDGET_TOOL_CALLS_KEY)
+    if not isinstance(raw, list):
+        return set()
+    return {entry for entry in raw if isinstance(entry, str)}
+
+
+def _record_hydrated_widget_tool_calls(
+    thread: ThreadMetadata, tool_call_ids: set[str]
+) -> None:
+    """Persist newly hydrated widget tool-call ids onto the thread metadata."""
+    metadata = dict(thread.metadata or {})
+    existing = metadata.get(_HYDRATED_WIDGET_TOOL_CALLS_KEY)
+    if isinstance(existing, list):
+        ordered = [entry for entry in existing if isinstance(entry, str)]
+    else:
+        ordered = []
+    known = set(ordered)
+    for tool_call_id in tool_call_ids:
+        if tool_call_id not in known:
+            ordered.append(tool_call_id)
+            known.add(tool_call_id)
+    metadata[_HYDRATED_WIDGET_TOOL_CALLS_KEY] = ordered[
+        -_MAX_TRACKED_WIDGET_TOOL_CALLS:
+    ]
+    thread.metadata = metadata
 
 
 def _workflow_id_from_thread(thread: ThreadMetadata) -> str | None:
@@ -328,6 +363,17 @@ def _candidate_from_content(
     return _WidgetCandidate(payload=payload, copy_text=copy_text)
 
 
+def _tool_call_id_from_message(message: Any) -> str | None:
+    """Return the ToolMessage ``tool_call_id`` when present."""
+    if isinstance(message, Mapping):
+        raw = message.get("tool_call_id")
+    else:
+        raw = getattr(message, "tool_call_id", None)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return None
+
+
 def _extract_widget_candidate(message: Any) -> _WidgetCandidate | None:
     """Return a widget candidate when the ToolMessage contains widget payloads."""
     artifact = getattr(message, "artifact", None)
@@ -335,6 +381,8 @@ def _extract_widget_candidate(message: Any) -> _WidgetCandidate | None:
     if isinstance(message, Mapping):
         artifact = message.get("artifact")
         content = message.get("content")
+
+    tool_call_id = _tool_call_id_from_message(message)
 
     artifact_candidate = _candidate_from_artifact(artifact)
     if artifact_candidate:
@@ -344,11 +392,40 @@ def _extract_widget_candidate(message: Any) -> _WidgetCandidate | None:
         if (
             candidate_type in _WIDGET_TYPES or candidate_type is None
         ):  # pragma: no branch
-            return artifact_candidate
+            return artifact_candidate._replace(tool_call_id=tool_call_id)
 
-    return _candidate_from_content(
+    content_candidate = _candidate_from_content(
         content, getattr(artifact_candidate, "copy_text", None)
     )
+    if content_candidate is not None:
+        return content_candidate._replace(tool_call_id=tool_call_id)
+    return None
+
+
+def _collect_new_widget_candidates(
+    state_view: Mapping[str, Any],
+    already_hydrated: set[str],
+) -> tuple[list[_WidgetCandidate], set[str]]:
+    """Return widget candidates not yet hydrated, plus their tool-call ids.
+
+    Skips candidates whose ``tool_call_id`` was hydrated on a previous turn or
+    already appears earlier in the current state, so each widget is emitted once.
+    """
+    candidates: list[_WidgetCandidate] = []
+    seen_this_turn: set[str] = set()
+    for message in _messages_from_state(state_view):
+        if not _is_tool_message(message):
+            continue
+        candidate = _extract_widget_candidate(message)
+        if candidate is None:  # pragma: no cover - defensive programming
+            continue
+        tool_call_id = candidate.tool_call_id
+        if tool_call_id is not None:
+            if tool_call_id in already_hydrated or tool_call_id in seen_this_turn:
+                continue
+            seen_this_turn.add(tool_call_id)
+        candidates.append(candidate)
+    return candidates, seen_this_turn
 
 
 def _validate_widget_root(payload: Any) -> WidgetRoot:
@@ -494,17 +571,23 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
         state_view: Mapping[str, Any],
         context: ChatKitRequestContext,
     ) -> tuple[list[WidgetItem], list[NoticeEvent]]:
-        """Hydrate widget thread items from LangChain ToolMessages."""
-        candidates: list[_WidgetCandidate] = []
-        for message in _messages_from_state(state_view):
-            if not _is_tool_message(message):
-                continue
-            candidate = _extract_widget_candidate(message)
-            if candidate is not None:  # pragma: no branch
-                candidates.append(candidate)
+        """Hydrate widget thread items from LangChain ToolMessages.
+
+        The workflow state carries the full checkpointed message history, so the
+        same widget ``ToolMessage`` reappears on every turn. Track which widget
+        tool calls have already been hydrated on the thread (keyed by
+        ``tool_call_id``) and skip them, so a follow-up text message does not
+        re-emit every widget produced earlier in the conversation.
+        """
+        candidates, seen_this_turn = _collect_new_widget_candidates(
+            state_view, _hydrated_widget_tool_calls(thread)
+        )
 
         if not candidates:
             return [], []
+
+        if seen_this_turn:
+            _record_hydrated_widget_tool_calls(thread, seen_this_turn)
 
         async def _validate_candidate(
             candidate: _WidgetCandidate,

@@ -101,6 +101,84 @@ async def test_respond_hydrates_widget_toolmessage() -> None:
 
 
 @pytest.mark.asyncio
+async def test_respond_does_not_replay_previous_widgets() -> None:
+    """A follow-up turn must not re-emit widgets produced in earlier turns.
+
+    The checkpointed workflow state carries the full message history, so the
+    first turn's widget ``ToolMessage`` reappears on the second turn. The server
+    tracks hydrated ``tool_call_id``s on the thread so only genuinely new widgets
+    are emitted.
+    """
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(
+        id="thr_widget_replay",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    def _user_item(item_id: str, text: str) -> UserMessageItem:
+        return UserMessageItem(
+            id=item_id,
+            thread_id=thread.id,
+            created_at=datetime.now(UTC),
+            content=[UserMessageTextContent(type="input_text", text=text)],
+            attachments=[],
+            quoted_text=None,
+            inference_options=InferenceOptions(),
+        )
+
+    def _widget_tool_message(tool_call_id: str) -> ToolMessage:
+        return ToolMessage(
+            content=[{"type": "text", "text": "widget payload"}],
+            tool_call_id=tool_call_id,
+            name="widget_tool",
+            artifact={"structured_content": _sample_widget_root()},
+        )
+
+    # Turn 1: the agent emits a widget (tool call "call-1").
+    first_user = _user_item("msg_user_1", "Generate a widget")
+    await server.store.add_thread_item(thread.id, first_user, context)
+    server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
+        return_value=("Reply", {"messages": [_widget_tool_message("call-1")]}, None)
+    )
+    first_events = [
+        event async for event in server.respond(thread, first_user, context)
+    ]
+    first_widgets = [
+        event
+        for event in first_events
+        if isinstance(event, ThreadItemDoneEvent) and isinstance(event.item, WidgetItem)
+    ]
+    assert len(first_widgets) == 1
+
+    # Turn 2: a plain text reply, but the checkpointed history still includes
+    # the "call-1" widget ToolMessage. It must not be re-emitted.
+    second_user = _user_item("msg_user_2", "Thanks")
+    await server.store.add_thread_item(thread.id, second_user, context)
+    server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
+        return_value=(
+            "You're welcome",
+            {"messages": [_widget_tool_message("call-1")]},
+            None,
+        )
+    )
+    second_events = [
+        event async for event in server.respond(thread, second_user, context)
+    ]
+    second_widgets = [
+        event
+        for event in second_events
+        if isinstance(event, ThreadItemDoneEvent) and isinstance(event.item, WidgetItem)
+    ]
+    assert second_widgets == []
+
+
+@pytest.mark.asyncio
 async def test_widget_hydration_emits_notice_on_invalid_payload() -> None:
     repository = InMemoryWorkflowRepository()
     workflow = await create_workflow_with_graph(repository)
