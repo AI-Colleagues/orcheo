@@ -36,16 +36,6 @@ _GITHUB_CONTENTS_API_URL = (
 )
 _STACK_IMAGE_REPOSITORY = "ghcr.io/ai-colleagues/orcheo-stack"
 _CHATKIT_WIDGETS_DIR = "chatkit_widgets"
-_CHATKIT_WIDGETS_FALLBACK = (
-    "chatkit_widgets/Bounded number input.widget",
-    "chatkit_widgets/Bounded number slider.widget",
-    "chatkit_widgets/Conjoint - 3 concepts.widget",
-    "chatkit_widgets/Conjoint Choice.widget",
-    "chatkit_widgets/Conjoint carousel.widget",
-    "chatkit_widgets/Multi-choice Selector.widget",
-    "chatkit_widgets/Single-choice list.widget",
-    "chatkit_widgets/Todo list.widget",
-)
 _STACK_ASSET_FILES = (
     "docker-compose.yml",
     "Caddyfile",
@@ -1148,8 +1138,8 @@ def _list_chatkit_widget_paths(
 ) -> tuple[str, ...]:
     """List files in chatkit_widgets/ via the GitHub Contents API.
 
-    Falls back to _CHATKIT_WIDGETS_FALLBACK when the API is unreachable so that
-    installs still work in air-gapped or offline environments.
+    Returns an empty tuple when the API is unreachable so setup can continue
+    without relying on a stale hard-coded widget catalog.
     """
     ref = f"{_STACK_RELEASE_TAG_PREFIX}{stack_version}" if stack_version else "main"
     url = f"{_GITHUB_CONTENTS_API_URL}/{_CHATKIT_WIDGETS_DIR}?ref={ref}"
@@ -1172,9 +1162,9 @@ def _list_chatkit_widget_paths(
     ) as exc:
         console.print(
             f"[yellow]Could not list {_CHATKIT_WIDGETS_DIR}/ from GitHub; "
-            f"using known widget list: {exc}[/yellow]"
+            f"skipping widget sync: {exc}[/yellow]"
         )
-        return _CHATKIT_WIDGETS_FALLBACK
+        return ()
 
 
 def _download_stack_asset(

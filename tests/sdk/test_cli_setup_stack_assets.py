@@ -2089,12 +2089,11 @@ def test_discover_latest_stack_version_returns_none_when_no_stable_tag(
 # ---------------------------------------------------------------------------
 
 
-def test_list_chatkit_widget_paths_non_array_response_falls_back(
+def test_list_chatkit_widget_paths_non_array_response_skips_widgets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When the GitHub Contents API returns a JSON object instead of an array,
-    a ValueError is raised internally and the function falls back to the
-    hard-coded widget list."""
+    a ValueError is raised internally and the function skips widget sync."""
     from orcheo_sdk.cli import setup as setup_mod
 
     monkeypatch.setattr(
@@ -2104,15 +2103,14 @@ def test_list_chatkit_widget_paths_non_array_response_falls_back(
     )
     console = Console(record=True)
     result = setup_mod._list_chatkit_widget_paths(None, console)
-    assert result == setup_mod._CHATKIT_WIDGETS_FALLBACK
-    assert "using known widget list" in console.export_text()
+    assert result == ()
+    assert "skipping widget sync" in console.export_text()
 
 
-def test_list_chatkit_widget_paths_network_error_falls_back(
+def test_list_chatkit_widget_paths_network_error_skips_widgets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When urlopen raises OSError (e.g. network down), the function falls back
-    to the hard-coded widget list."""
+    """When urlopen raises OSError (e.g. network down), widget sync is skipped."""
     from orcheo_sdk.cli import setup as setup_mod
 
     def _raise(url: str, timeout: int) -> _Response:
@@ -2122,5 +2120,5 @@ def test_list_chatkit_widget_paths_network_error_falls_back(
     monkeypatch.setattr(setup_mod, "urlopen", _raise)
     console = Console(record=True)
     result = setup_mod._list_chatkit_widget_paths("0.23.0", console)
-    assert result == setup_mod._CHATKIT_WIDGETS_FALLBACK
-    assert "using known widget list" in console.export_text()
+    assert result == ()
+    assert "skipping widget sync" in console.export_text()

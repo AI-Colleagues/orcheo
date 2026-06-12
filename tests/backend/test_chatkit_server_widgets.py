@@ -3,7 +3,7 @@
 from __future__ import annotations
 import warnings
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 import pytest
 from chatkit.types import (
     AssistantMessageItem,
@@ -17,7 +17,8 @@ from chatkit.types import (
 )
 from chatkit.widgets import DynamicWidgetRoot
 from langchain_core.messages import ToolMessage
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError
+from orcheo_backend.app.chatkit import server as server_mod
 from orcheo_backend.app.chatkit import ChatKitRequestContext
 from orcheo_backend.app.chatkit.server import _MAX_WIDGET_PAYLOAD_BYTES
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
@@ -98,6 +99,84 @@ async def test_respond_hydrates_widget_toolmessage() -> None:
     )
     assert any(isinstance(item, WidgetItem) for item in stored_items.data)
     assert any(isinstance(item, AssistantMessageItem) for item in stored_items.data)
+
+
+@pytest.mark.asyncio
+async def test_respond_does_not_replay_previous_widgets() -> None:
+    """A follow-up turn must not re-emit widgets produced in earlier turns.
+
+    The checkpointed workflow state carries the full message history, so the
+    first turn's widget ``ToolMessage`` reappears on the second turn. The server
+    tracks hydrated ``tool_call_id``s on the thread so only genuinely new widgets
+    are emitted.
+    """
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(
+        id="thr_widget_replay",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    def _user_item(item_id: str, text: str) -> UserMessageItem:
+        return UserMessageItem(
+            id=item_id,
+            thread_id=thread.id,
+            created_at=datetime.now(UTC),
+            content=[UserMessageTextContent(type="input_text", text=text)],
+            attachments=[],
+            quoted_text=None,
+            inference_options=InferenceOptions(),
+        )
+
+    def _widget_tool_message(tool_call_id: str) -> ToolMessage:
+        return ToolMessage(
+            content=[{"type": "text", "text": "widget payload"}],
+            tool_call_id=tool_call_id,
+            name="widget_tool",
+            artifact={"structured_content": _sample_widget_root()},
+        )
+
+    # Turn 1: the agent emits a widget (tool call "call-1").
+    first_user = _user_item("msg_user_1", "Generate a widget")
+    await server.store.add_thread_item(thread.id, first_user, context)
+    server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
+        return_value=("Reply", {"messages": [_widget_tool_message("call-1")]}, None)
+    )
+    first_events = [
+        event async for event in server.respond(thread, first_user, context)
+    ]
+    first_widgets = [
+        event
+        for event in first_events
+        if isinstance(event, ThreadItemDoneEvent) and isinstance(event.item, WidgetItem)
+    ]
+    assert len(first_widgets) == 1
+
+    # Turn 2: a plain text reply, but the checkpointed history still includes
+    # the "call-1" widget ToolMessage. It must not be re-emitted.
+    second_user = _user_item("msg_user_2", "Thanks")
+    await server.store.add_thread_item(thread.id, second_user, context)
+    server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
+        return_value=(
+            "You're welcome",
+            {"messages": [_widget_tool_message("call-1")]},
+            None,
+        )
+    )
+    second_events = [
+        event async for event in server.respond(thread, second_user, context)
+    ]
+    second_widgets = [
+        event
+        for event in second_events
+        if isinstance(event, ThreadItemDoneEvent) and isinstance(event.item, WidgetItem)
+    ]
+    assert second_widgets == []
 
 
 @pytest.mark.asyncio
@@ -318,6 +397,89 @@ async def test_action_updates_existing_widget_root() -> None:
 
 
 @pytest.mark.asyncio
+async def test_action_freezes_submitted_selection_without_reemit() -> None:
+    """A submit must persist the user's selection into the stored widget root.
+
+    ChatKit form controls are uncontrolled, so unless the submitted selection is
+    written back into the widget root it snaps back to the original defaults on
+    the next render. When the workflow returns no replacement widget, the server
+    freezes the submitted form values into the sender so follow-up messages keep
+    the selection.
+    """
+    repository = InMemoryWorkflowRepository()
+    workflow = await create_workflow_with_graph(repository)
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(
+        id="thr_widget_freeze",
+        created_at=datetime.now(UTC),
+        metadata={"workflow_id": str(workflow.id)},
+    )
+    context: ChatKitRequestContext = {}
+    await server.store.save_thread(thread, context)
+
+    multi_select_root = {
+        "type": "Card",
+        "asForm": True,
+        "children": [
+            {
+                "type": "Checkbox",
+                "name": "choices.opt1",
+                "label": "Option 1",
+                "defaultChecked": False,
+            },
+            {
+                "type": "Checkbox",
+                "name": "choices.opt2",
+                "label": "Option 2",
+                "defaultChecked": True,
+            },
+            {
+                "type": "Checkbox",
+                "name": "choices.opt3",
+                "label": "Option 3",
+                "defaultChecked": False,
+            },
+        ],
+    }
+    sender = WidgetItem(
+        id="widget_multiselect",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        widget=TypeAdapter(DynamicWidgetRoot).validate_python(multi_select_root),
+    )
+    await server.store.add_thread_item(thread.id, sender, context)
+
+    # The workflow only acknowledges the submission with text; it does not
+    # re-emit the widget.
+    server._run_workflow = AsyncMock(  # type: ignore[attr-defined]
+        return_value=("Got your picks", {"messages": []}, None)
+    )
+
+    # User checked opt1 and opt3, unchecked opt2.
+    action: dict[str, object] = {
+        "type": "submit",
+        "payload": {"choices": {"opt1": True, "opt3": True}},
+    }
+
+    events = [event async for event in server.action(thread, action, sender, context)]
+
+    update_events = [event for event in events if event.type == "thread.item.updated"]
+    assert update_events, "Submitted selection should update the widget in place"
+
+    stored_item = await server.store.load_item(thread.id, sender.id, context=context)
+    assert isinstance(stored_item, WidgetItem)
+    checkbox_state = {
+        child.name: child.defaultChecked for child in stored_item.widget.children
+    }
+    assert checkbox_state == {
+        "choices.opt1": True,
+        "choices.opt2": False,
+        "choices.opt3": True,
+    }
+
+
+@pytest.mark.asyncio
 async def test_action_logs_failures_with_ids(caplog) -> None:
     repository = InMemoryWorkflowRepository()
     workflow = await create_workflow_with_graph(repository)
@@ -494,3 +656,110 @@ async def test_action_emits_progress_updates() -> None:
     ]
     assert progress_events
     assert any("node_a" in e.text for e in progress_events)
+
+
+# ---------------------------------------------------------------------------
+# _freeze_widget_selection (server.py lines 830, 843, 846-847)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_freeze_widget_selection_returns_none_for_none_payload() -> None:
+    """Covers line 830: _action_payload_mapping returns None → early return."""
+    repository = InMemoryWorkflowRepository()
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(id="thr-freeze-none-payload", created_at=datetime.now(UTC))
+    context: ChatKitRequestContext = {}
+
+    widget_root = TypeAdapter(DynamicWidgetRoot).validate_python(_sample_widget_root())
+    sender = WidgetItem(
+        id="widget-freeze-none-payload",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        widget=widget_root,
+    )
+
+    # Action with no "payload" key → _action_payload_mapping returns None → line 830
+    action: dict[str, object] = {"type": "submit"}
+    result = await server._freeze_widget_selection(thread, sender, action, context)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_freeze_widget_selection_returns_none_when_values_unchanged() -> None:
+    """Covers line 843: _apply_submitted_form_values returns changed=False."""
+    repository = InMemoryWorkflowRepository()
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(id="thr-freeze-unchanged", created_at=datetime.now(UTC))
+    context: ChatKitRequestContext = {}
+
+    # Checkbox widget with defaultChecked=True already.
+    checkbox_root = {
+        "type": "Card",
+        "asForm": True,
+        "children": [
+            {"type": "Checkbox", "name": "opt", "defaultChecked": True},
+        ],
+    }
+    widget_root = TypeAdapter(DynamicWidgetRoot).validate_python(checkbox_root)
+    sender = WidgetItem(
+        id="widget-freeze-unchanged",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        widget=widget_root,
+    )
+
+    # Submit the same value (True) that's already stored → no change → line 843
+    action: dict[str, object] = {"type": "submit", "payload": {"opt": True}}
+    result = await server._freeze_widget_selection(thread, sender, action, context)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_freeze_widget_selection_returns_none_on_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Covers lines 846-847: ValidationError from _WIDGET_ROOT_ADAPTER is caught."""
+    repository = InMemoryWorkflowRepository()
+    server = create_chatkit_test_server(repository)
+
+    thread = ThreadMetadata(id="thr-freeze-valerr", created_at=datetime.now(UTC))
+    context: ChatKitRequestContext = {}
+
+    # Widget with a checkbox so the payload triggers a real change
+    checkbox_root = {
+        "type": "Card",
+        "asForm": True,
+        "children": [
+            {"type": "Checkbox", "name": "opt", "defaultChecked": False},
+        ],
+    }
+    widget_root = TypeAdapter(DynamicWidgetRoot).validate_python(checkbox_root)
+    sender = WidgetItem(
+        id="widget-freeze-valerr",
+        thread_id=thread.id,
+        created_at=datetime.now(UTC),
+        widget=widget_root,
+    )
+
+    # Produce a real ValidationError instance to use as side_effect.
+    class _M(BaseModel):
+        x: int
+
+    try:
+        _M.model_validate({"x": "not-an-int"})
+    except ValidationError as _e:
+        fake_ve = _e
+
+    monkeypatch.setattr(
+        server_mod._WIDGET_ROOT_ADAPTER,
+        "validate_python",
+        Mock(side_effect=fake_ve),
+    )
+
+    # Submit True → defaultChecked was False → changed=True → validate_python raises
+    action: dict[str, object] = {"type": "submit", "payload": {"opt": True}}
+    result = await server._freeze_widget_selection(thread, sender, action, context)
+    assert result is None

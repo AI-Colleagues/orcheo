@@ -1,7 +1,7 @@
 {
   "version": "1.0",
-  "name": "Multi-choice Selector",
-  "template": "{\"type\":\"Card\",\"asForm\":true,\"size\":\"md\",\"confirm\":{\"label\":\"Done\",\"action\":{\"type\":\"choices.submit\",\"payload\":{\"max\":{{ (maxSelections) | tojson }}}}},\"children\":[{\"type\":\"Col\",\"gap\":2,\"children\":[{\"type\":\"Title\",\"value\":{{ (title) | tojson }},\"size\":\"sm\"},{\"type\":\"Row\",\"children\":[{\"type\":\"Caption\",\"value\":{{ ((\"Select up to \" ~ maxSelections)) | tojson }}},{\"type\":\"Spacer\"},{\"type\":\"Caption\",\"value\":{{ ((selectedCount ~ \"/\" ~ maxSelections ~ \" selected\")) | tojson }},\"color\":\"emphasis\"}]}]},{\"type\":\"Divider\",\"flush\":true},{\"type\":\"ListView\",\"limit\":30,\"children\":[{%- set _c -%}{%-for item in options -%},{\"type\":\"ListViewItem\",\"key\":{{ (item.id) | tojson }},\"align\":\"center\",\"children\":[{\"type\":\"Checkbox\",\"name\":{{ ((\"choices.\" ~ item.id)) | tojson }},\"label\":{{ (item.label) | tojson }},\"defaultChecked\":{{ (item.checked) | tojson }},\"disabled\":{{ ((selectedCount >= maxSelections) and (not item.checked)) | tojson }},\"onChangeAction\":{\"type\":\"choices.toggle\",\"payload\":{\"id\":{{ (item.id) | tojson }}}}}]}{%-endfor-%}{%- endset -%}{{- (_c[1:] if _c and _c[0] == ',' else _c) -}}]}]}",
+  "name": "Multi-choice selector",
+  "template": "{\"type\":\"Card\",\"asForm\":true,\"size\":\"md\",\"confirm\":{\"label\":\"Submit\",\"action\":{\"type\":\"submit\",\"payload\":{\"max\":{{ (maxSelections) | tojson }}},\"requestAssistantResponse\":true}},\"children\":[{\"type\":\"Col\",\"gap\":2,\"children\":[{\"type\":\"Title\",\"value\":{{ (title) | tojson }},\"size\":\"sm\"},{\"type\":\"Row\",\"children\":[{\"type\":\"Caption\",\"value\":{{ ((\"Select up to \" ~ maxSelections)) | tojson }}},{\"type\":\"Spacer\"},{\"type\":\"Caption\",\"value\":{{ ((selectedCount ~ \"/\" ~ maxSelections ~ \" selected\")) | tojson }},\"color\":\"emphasis\"}]}]},{\"type\":\"Divider\",\"flush\":true},{\"type\":\"ListView\",\"limit\":30,\"children\":[{%- set _c -%}{%-for item in options -%},{\"type\":\"ListViewItem\",\"key\":{{ (item.id) | tojson }},\"align\":\"center\",\"children\":[{\"type\":\"Checkbox\",\"name\":{{ ((\"choices.\" ~ item.id)) | tojson }},\"label\":{{ (item.label) | tojson }},\"defaultChecked\":{{ (item.checked) | tojson }},\"disabled\":{{ ((selectedCount >= maxSelections) and (not item.checked)) | tojson }},\"onChangeAction\":{\"type\":\"choices.toggle\",\"payload\":{\"id\":{{ (item.id) | tojson }}}}}]}{%-endfor-%}{%- endset -%}{{- (_c[1:] if _c and _c[0] == ',' else _c) -}}]}]}",
   "jsonSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -58,12 +58,13 @@
     "asForm": true,
     "size": "md",
     "confirm": {
-      "label": "Done",
+      "label": "Submit",
       "action": {
-        "type": "choices.submit",
+        "type": "submit",
         "payload": {
           "max": 3
-        }
+        },
+        "requestAssistantResponse": true
       }
     },
     "children": [

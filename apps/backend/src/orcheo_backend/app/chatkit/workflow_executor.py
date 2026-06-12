@@ -272,6 +272,29 @@ class WorkflowExecutor:
         return reply, state_view, run
 
     @staticmethod
+    async def _checkpoint_message_count(compiled: Any, config: Any) -> int:
+        """Return the number of messages already persisted for this thread.
+
+        Read before the run so the post-run snapshot can be sliced down to just
+        the messages produced this turn. Returns ``0`` when no checkpoint exists
+        or the compiled graph cannot report state.
+        """
+        aget_state = getattr(compiled, "aget_state", None)
+        if not callable(aget_state):
+            return 0
+        try:
+            snapshot = await aget_state(cast(Any, config))
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("Failed to read prior checkpoint state", exc_info=True)
+            return 0
+        values = getattr(snapshot, "values", snapshot)
+        if isinstance(values, Mapping):
+            messages = values.get("messages")
+            if isinstance(messages, list):
+                return len(messages)
+        return 0
+
+    @staticmethod
     def _extract_messages(final_state: Any) -> list[BaseMessage]:
         """Return LangChain messages from the workflow state when available."""
         candidates = []
@@ -415,6 +438,9 @@ class WorkflowExecutor:
                             else nullcontext()
                         )
                         with progress_context:
+                            prior_count = await self._checkpoint_message_count(
+                                compiled, config
+                            )
                             async for step in compiled.astream(
                                 payload,
                                 config=config,  # type: ignore[arg-type]
@@ -424,9 +450,12 @@ class WorkflowExecutor:
                                     await step_callback(step)
                             state_snapshot_config = cast(Any, config)
                             snapshot = await compiled.aget_state(state_snapshot_config)
-                            return getattr(snapshot, "values", snapshot)
+                            values = getattr(snapshot, "values", snapshot)
+                            return _annotate_new_messages(values, prior_count)
 
-                    return await compiled.ainvoke(payload, config=config)
+                    prior_count = await self._checkpoint_message_count(compiled, config)
+                    result = await compiled.ainvoke(payload, config=config)
+                    return _annotate_new_messages(result, prior_count)
 
     async def _mark_run_succeeded(
         self,
@@ -475,10 +504,45 @@ class WorkflowExecutor:
 
 __all__ = ["WorkflowExecutor"]
 
+# Private key used to carry the current turn's messages alongside the full
+# accumulated state returned by ``_execute_graph``.
+_NEW_MESSAGES_KEY = "_new_messages"
+
+
+def _annotate_new_messages(state: Any, prior_count: int) -> Any:
+    """Attach the current turn's new messages to the returned state.
+
+    The graph's ``messages`` channel accumulates across turns via the
+    checkpointer, so slice off everything that existed before this run. When the
+    history unexpectedly shrank (``prior_count`` out of range), fall back to the
+    full list rather than dropping messages.
+    """
+    if not isinstance(state, dict):
+        return state
+    messages = state.get("messages")
+    if not isinstance(messages, list):
+        return state
+    if 0 <= prior_count <= len(messages):
+        state[_NEW_MESSAGES_KEY] = messages[prior_count:]
+    else:
+        state[_NEW_MESSAGES_KEY] = messages
+    return state
+
+
+def _new_messages_from_state(final_state: Any) -> list[BaseMessage] | None:
+    """Return the current-turn messages annotated by ``_execute_graph``."""
+    if not isinstance(final_state, Mapping):
+        return None
+    annotated = final_state.get(_NEW_MESSAGES_KEY)
+    if not isinstance(annotated, list):
+        return None
+    return [message for message in annotated if isinstance(message, BaseMessage)]
+
 
 def _build_reply_state(final_state: Any) -> tuple[str, Mapping[str, Any]]:
     """Extract reply text and normalized state view from final graph state."""
     raw_messages = WorkflowExecutor._extract_messages(final_state)
+    new_messages = _new_messages_from_state(final_state)
 
     if isinstance(final_state, BaseModel):
         state_view: Mapping[str, Any] = final_state.model_dump()
@@ -488,8 +552,15 @@ def _build_reply_state(final_state: Any) -> tuple[str, Mapping[str, Any]]:
         state_view = dict(final_state or {})
 
     state_view = dict(state_view)
-    if raw_messages:
-        state_view["_messages"] = raw_messages
+    # Scope the messages exposed to downstream consumers (e.g. widget hydration)
+    # to those produced during the current turn. The checkpointer accumulates
+    # the full thread history, so the unscoped list would re-surface every
+    # widget emitted on earlier turns. Reply extraction below still sees the
+    # full ``messages`` list under its own key.
+    state_view.pop(_NEW_MESSAGES_KEY, None)
+    scoped_messages = new_messages if new_messages is not None else raw_messages
+    if scoped_messages:
+        state_view["_messages"] = scoped_messages
 
     reply = extract_reply_from_state(state_view)
     if reply is None:
