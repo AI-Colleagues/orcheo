@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "name": "Bounded number input",
-  "template": "{\"type\":\"Card\",\"size\":\"sm\",\"asForm\":true,\"confirm\":{\"label\":\"Save\",\"action\":{\"type\":{{ (submitActionType) | tojson }}}},\"cancel\":{\"label\":\"Clear\",\"action\":{\"type\":{{ (clearActionType) | tojson }}}},\"children\":[{\"type\":\"Col\",\"gap\":2,\"children\":[{\"type\":\"Label\",\"value\":{{ (label) | tojson }},\"fieldName\":{{ (fieldName) | tojson }}},{\"type\":\"Input\",\"name\":{{ (fieldName) | tojson }},\"inputType\":\"number\",\"defaultValue\":{{ (defaultValue) | tojson }},\"placeholder\":{{ (hint) | tojson }},\"required\":true,\"pattern\":{{ (pattern) | tojson }}},{\"type\":\"Caption\",\"value\":{{ (hint) | tojson }},\"color\":\"secondary\"}]}]}",
+  "template": "{\"type\":\"Card\",\"size\":\"sm\",\"asForm\":true,\"confirm\":{\"label\":\"Submit\",\"action\":{\"type\":{{ (submitActionType) | tojson }}}},\"cancel\":{\"label\":\"Clear\",\"action\":{\"type\":{{ (clearActionType) | tojson }}}},\"children\":[{\"type\":\"Col\",\"gap\":2,\"children\":[{\"type\":\"Label\",\"value\":{{ (label) | tojson }},\"fieldName\":{{ (fieldName) | tojson }}},{\"type\":\"Input\",\"name\":{{ (fieldName) | tojson }},\"inputType\":\"number\",\"defaultValue\":{{ (defaultValue) | tojson }},\"placeholder\":{{ (hint) | tojson }},\"required\":true,\"pattern\":{{ (pattern) | tojson }}},{\"type\":\"Caption\",\"value\":{{ (hint) | tojson }},\"color\":\"secondary\"}]}]}",
   "jsonSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -52,7 +52,7 @@
     "size": "sm",
     "asForm": true,
     "confirm": {
-      "label": "Save",
+      "label": "Submit",
       "action": {
         "type": "number.submit"
       }
