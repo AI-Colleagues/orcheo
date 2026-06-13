@@ -1,5 +1,7 @@
 """Node registry and metadata definitions for Orcheo."""
 
+# ruff: noqa: I001
+
 from orcheo.nodes.ai import AgentNode, AgentReplyExtractorNode, LLMNode
 from orcheo.nodes.ai.agentensor import AgentensorNode
 from orcheo.nodes.ai.deep_agent import DeepAgentNode
@@ -42,10 +44,40 @@ from orcheo.nodes.data import (
 from orcheo.nodes.logic import (
     DelayNode,
     ForLoopNode,
+    FinalReplyNode,
+    StructuredRouterDispatchNode,
     SetVariableNode,
 )
 from orcheo.nodes.logic.debug import DebugNode
 from orcheo.nodes.logic.sub_workflow import SubWorkflowNode
+from orcheo.nodes.qualitative import (
+    CodeAssignment,
+    CodeAssignmentEntry,
+    Codebook,
+    CodebookConsolidationResponse,
+    CodebookOutputNode,
+    CodedDataIngestNode,
+    ContextPreNode,
+    DataQualityNode,
+    ExportCodebookNode,
+    ExportCodedDataNode,
+    ExportReportNode,
+    FileValidatorNode,
+    IngestNode,
+    InsightCriticNode,
+    LLMStageFinalizeNode,
+    LLMStagePrepareNode,
+    ParsedRecord,
+    QualitativeResultKeys,
+    RecodeOutputNode,
+    RecommendationGeneratorNode,
+    ReportOutputNode,
+    SetupNode,
+    SourceParser,
+    Subtheme,
+    Theme,
+    Unit,
+)
 from orcheo.nodes.rag import (
     ChunkEmbeddingNode,
     ChunkingStrategyNode,
@@ -102,6 +134,34 @@ __all__ = [
     "SetVariableNode",
     "DelayNode",
     "ForLoopNode",
+    "StructuredRouterDispatchNode",
+    "FinalReplyNode",
+    "QualitativeResultKeys",
+    "Unit",
+    "Subtheme",
+    "Theme",
+    "Codebook",
+    "CodeAssignmentEntry",
+    "CodeAssignment",
+    "ParsedRecord",
+    "SourceParser",
+    "SetupNode",
+    "ContextPreNode",
+    "IngestNode",
+    "LLMStagePrepareNode",
+    "LLMStageFinalizeNode",
+    "FileValidatorNode",
+    "ExportCodebookNode",
+    "CodebookOutputNode",
+    "CodebookConsolidationResponse",
+    "CodedDataIngestNode",
+    "DataQualityNode",
+    "ExportCodedDataNode",
+    "ExportReportNode",
+    "InsightCriticNode",
+    "RecodeOutputNode",
+    "RecommendationGeneratorNode",
+    "ReportOutputNode",
     "MongoDBNode",
     "MongoDBAggregateNode",
     "MongoDBFindNode",
