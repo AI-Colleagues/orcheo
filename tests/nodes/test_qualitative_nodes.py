@@ -53,6 +53,13 @@ _REPORT_KEYS = QualitativeResultKeys(
     approved_codebook_producers=("ingest", "setup"),
     source_payload_producers=("setup", "ingest"),
 )
+_CHAINED_REPORT_KEYS = QualitativeResultKeys(
+    assignments_field="code_assignments_pass2",
+    assignments_producers=("ingest", "recoder_finalize"),
+    approved_codebook_producers=("ingest", "setup"),
+    source_payload_producers=("setup", "ingest"),
+    units_producers=("ingest", "data_quality"),
+)
 
 
 @pytest.mark.asyncio
@@ -78,6 +85,44 @@ async def test_setup_node_persists_objective_and_source_payload() -> None:
     setup_result = result["results"]["setup"]
     assert setup_result["research_objective"] == "Understand onboarding pain points"
     assert setup_result["source_payload"]["filename"] == "survey.csv"
+
+
+@pytest.mark.asyncio
+async def test_setup_node_resolves_seed_codebook_without_using_it_as_source() -> None:
+    keys = QualitativeResultKeys()
+    node = SetupNode(
+        name="setup",
+        result_keys=keys,
+        resolve_seed_codebook=True,
+        exclude_codebook_docs=True,
+    )
+    state = State(
+        {
+            "results": {
+                "context_pre": {
+                    "pending_documents": [
+                        {
+                            "filename": "codebook.csv",
+                            "content": (
+                                "theme_id,theme_title,code_id,code_title\n"
+                                "T1,Onboarding,C1,Clear setup\n"
+                            ),
+                        },
+                        {
+                            "filename": "survey.csv",
+                            "content": "id,text\n1,The setup was clear.\n",
+                        },
+                    ]
+                }
+            }
+        }
+    )
+
+    result = await node(state, RunnableConfig())
+
+    setup_result = result["results"]["setup"]
+    assert setup_result["source_payload"]["filename"] == "survey.csv"
+    assert setup_result["seed_codebook_from_file"]["themes"][0]["theme_id"] == "T1"
 
 
 @pytest.mark.asyncio
@@ -290,6 +335,62 @@ async def test_coded_data_ingest_node_quantifies() -> None:
 
 
 @pytest.mark.asyncio
+async def test_coded_data_ingest_node_quantifies_chained_results() -> None:
+    codebook = _simple_codebook()
+    units = [
+        Unit(
+            unit_id="U0001",
+            record_id="R1",
+            source="s",
+            text="clear",
+            original_text="clear",
+        ),
+        Unit(
+            unit_id="U0002",
+            record_id="R2",
+            source="s",
+            text="hard",
+            original_text="hard",
+        ),
+    ]
+    assignments = [
+        CodeAssignment(
+            unit_id="U0001",
+            assignments=[CodeAssignmentEntry(code_id="C1", confidence=0.9)],
+        ),
+        CodeAssignment(
+            unit_id="U0002",
+            assignments=[CodeAssignmentEntry(code_id="C1", confidence=0.8)],
+        ),
+    ]
+    node = CodedDataIngestNode(
+        name="ingest",
+        result_keys=_CHAINED_REPORT_KEYS,
+        allow_chained_results=True,
+    )
+    state = State(
+        {
+            "results": {
+                "setup": {"approved_codebook": codebook.model_dump(mode="json")},
+                "data_quality": {"units": [u.model_dump(mode="json") for u in units]},
+                "recoder_finalize": {
+                    "code_assignments_pass2": [
+                        a.model_dump(mode="json") for a in assignments
+                    ]
+                },
+            }
+        }
+    )
+
+    result = (await node(state, RunnableConfig()))["results"]["ingest"]
+
+    assert result["unit_count"] == 2
+    assert result["assignment_count"] == 2
+    quant = {row["theme_id"]: row for row in result["quantification"]}
+    assert quant["T1"]["respondents"] == 2
+
+
+@pytest.mark.asyncio
 async def test_recoder_finalize_merges_assignments() -> None:
     node = LLMStageFinalizeNode(
         name="recoder_finalize",
@@ -389,3 +490,64 @@ async def test_file_validator_recognises_coded_data() -> None:
 
     assert "coded data" in result["assistant_message"]
     assert "Ready" in result["assistant_message"]
+
+
+@pytest.mark.asyncio
+async def test_file_validator_auto_classifies_raw_codebook_and_coded_data() -> None:
+    keys = QualitativeResultKeys(source_payload_field="source_payload")
+    codebook = _simple_codebook()
+    units = [
+        Unit(
+            unit_id="U0001",
+            record_id="R1",
+            source="s",
+            text="clear",
+            original_text="clear",
+        ),
+    ]
+    assignments = [
+        CodeAssignment(
+            unit_id="U0001",
+            assignments=[CodeAssignmentEntry(code_id="C1", confidence=0.9)],
+        )
+    ]
+    coded_csv, _ = build_coded_data_csv(units, assignments, codebook)
+    node = FileValidatorNode(
+        name="validate_files",
+        result_keys=keys,
+        data_file_kind="auto",
+        codebook_result_field="approved_codebook",
+        seed_codebook_result_field="seed_codebook_from_file",
+        coded_data_result_field="coded_data_payload",
+        ready_message="Ready",
+    )
+    state = State(
+        {
+            "results": {
+                "context_pre": {
+                    "pending_documents": [
+                        {"filename": "survey.csv", "content": "id,text\n1,Clear.\n"},
+                        {
+                            "filename": "codebook.csv",
+                            "content": (
+                                "theme_id,theme_title,code_id,code_title\n"
+                                "T1,Onboarding,C1,Clear setup\n"
+                            ),
+                        },
+                        {"filename": "coded_data.csv", "content": coded_csv},
+                    ]
+                }
+            }
+        }
+    )
+
+    result = await node(state, RunnableConfig())
+    validate_result = result["results"]["validate_files"]
+
+    assert "survey.csv" in result["assistant_message"]
+    assert "codebook.csv" in result["assistant_message"]
+    assert "coded_data.csv" in result["assistant_message"]
+    assert validate_result["source_payload"]["filename"] == "survey.csv"
+    assert validate_result["coded_data_payload"]["filename"] == "coded_data.csv"
+    assert validate_result["approved_codebook"]["themes"][0]["theme_id"] == "T1"
+    assert validate_result["seed_codebook_from_file"]["themes"][0]["theme_id"] == "T1"

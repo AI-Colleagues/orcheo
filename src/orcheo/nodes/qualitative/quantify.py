@@ -11,8 +11,10 @@ from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.qualitative.accessors import (
     get_approved_codebook,
+    get_code_assignments,
     get_configurable,
     get_source_payload,
+    get_units,
 )
 from orcheo.nodes.qualitative.codebook import code_to_theme_map, normalise_codebook_ids
 from orcheo.nodes.qualitative.coded_data import parse_coded_data_csv
@@ -247,6 +249,7 @@ class CodedDataIngestNode(TaskNode):
 
     result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
     segment_variables_config_key: str = "segment_variables"
+    allow_chained_results: bool = False
     missing_data_message: str = (
         "No coded data file was found. Please upload the `coded_data.csv` "
         "exported by the Theme Coding Analyst."
@@ -261,6 +264,12 @@ class CodedDataIngestNode(TaskNode):
         source = get_source_payload(state, self.result_keys) or {}
         content = source.get("content") or ""
         parsed = parse_coded_data_csv(content) if content else None
+        if parsed is None and self.allow_chained_results:
+            units = get_units(state, self.result_keys)
+            assignments = get_code_assignments(state, self.result_keys)
+            codebook = get_approved_codebook(state, self.result_keys)
+            if units and assignments and codebook is not None:
+                parsed = (units, assignments, codebook)
         if parsed is None:
             return {"assistant_message": self.missing_data_message, "halt": True}
         units, assignments, reconstructed_codebook = parsed

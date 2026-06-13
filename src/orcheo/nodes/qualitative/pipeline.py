@@ -162,6 +162,7 @@ class SetupNode(TaskNode):
 
     resolve_objective: bool = True
     resolve_codebook: bool = False
+    resolve_seed_codebook: bool = False
     source_kind: Literal["raw_data", "coded_data"] = "raw_data"
     exclude_codebook_docs: bool = False
     flexible_columns: bool = False
@@ -264,6 +265,17 @@ class SetupNode(TaskNode):
                     )
                     break
 
+        if (
+            self.resolve_seed_codebook
+            and get_seed_codebook_from_file(state, keys) is None
+        ):
+            for doc in get_pending_documents(state, keys):
+                content = doc.get("content") or ""
+                codebook = parse_codebook_csv(content, reject_coded_data=True)
+                if codebook is not None:
+                    result[keys.seed_codebook_field] = codebook.model_dump(mode="json")
+                    break
+
         return result
 
 
@@ -346,11 +358,13 @@ class FileValidatorNode(AINode):
     """Validate uploaded files and classify them by role."""
 
     result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
-    data_file_kind: Literal["raw", "coded"] = "raw"
+    data_file_kind: Literal["raw", "coded", "auto"] = "raw"
     require_codebook: bool = False
     single_data_file: bool = False
     flexible_columns: bool = False
     codebook_result_field: str | None = None
+    coded_data_result_field: str | None = None
+    seed_codebook_result_field: str | None = None
     codebook_role_label: str = "seed codebook"
     announce_seed_codebook: bool = True
     no_files_message: str = (
@@ -369,7 +383,7 @@ class FileValidatorNode(AINode):
         self, content: str, filename: str
     ) -> tuple[str, dict[str, Any] | None, Codebook | None, str]:
         """Return (kind, data_payload, codebook, line) for one document."""
-        if self.data_file_kind == "coded":
+        if self.data_file_kind in {"coded", "auto"}:
             coded = parse_coded_data_csv(content)
             if coded is not None:
                 units, assignments, _ = coded
@@ -379,10 +393,11 @@ class FileValidatorNode(AINode):
                     f"✓ `{filename}` — coded data "
                     f"({len(units)} units, {total} assignments)"
                 )
-                return "data", payload, None, line
+                kind = "coded_data" if self.data_file_kind == "auto" else "data"
+                return kind, payload, None, line
 
         codebook = parse_codebook_csv(
-            content, reject_coded_data=self.data_file_kind == "coded"
+            content, reject_coded_data=self.data_file_kind in {"coded", "auto"}
         )
         if codebook is not None:
             theme_count = len(codebook.themes)
@@ -393,7 +408,7 @@ class FileValidatorNode(AINode):
             )
             return "codebook", None, codebook, line
 
-        if self.data_file_kind == "raw":
+        if self.data_file_kind in {"raw", "auto"}:
             payload = {
                 "content": content,
                 "filename": filename,
@@ -409,7 +424,8 @@ class FileValidatorNode(AINode):
                 line = (
                     f"✓ `{filename}` — {source_type} data file ({len(records)} records)"
                 )
-                return "data", {**payload, "source_type": source_type}, None, line
+                kind = "raw_data" if self.data_file_kind == "auto" else "data"
+                return kind, {**payload, "source_type": source_type}, None, line
 
         line = f"✗ `{filename}` — unrecognised format"
         return "unknown", None, None, line
@@ -423,8 +439,10 @@ class FileValidatorNode(AINode):
         result_lines: list[str] = ["## File Validation\n"]
         errors: list[str] = []
         data_payload: dict[str, Any] | None = None
+        coded_data_payload: dict[str, Any] | None = None
         codebook_data: Codebook | None = None
         data_count = 0
+        coded_data_count = 0
         codebook_count = 0
 
         for doc in pending:
@@ -440,6 +458,12 @@ class FileValidatorNode(AINode):
             if kind == "data":
                 data_payload = payload
                 data_count += 1
+            elif kind == "raw_data":
+                data_payload = payload
+                data_count += 1
+            elif kind == "coded_data":
+                coded_data_payload = payload
+                coded_data_count += 1
             elif kind == "codebook":
                 codebook_data = codebook
                 codebook_count += 1
@@ -448,10 +472,15 @@ class FileValidatorNode(AINode):
                     f"'{filename}' — could not parse as a data file or codebook"
                 )
 
-        if data_count == 0 and self.missing_data_message:
+        has_data = data_count > 0 or coded_data_count > 0
+        if not has_data and self.missing_data_message:
             errors.append(self.missing_data_message)
         if self.single_data_file and data_count > 1:
             errors.append("Multiple data files were uploaded; please provide one.")
+        if self.single_data_file and coded_data_count > 1:
+            errors.append(
+                "Multiple coded data files were uploaded; please provide one."
+            )
         if codebook_count > 1:
             errors.append(
                 "Multiple codebook CSV files were uploaded; please provide one."
@@ -460,7 +489,7 @@ class FileValidatorNode(AINode):
             errors.append("No valid codebook CSV was found.")
 
         is_valid = (
-            data_payload is not None
+            has_data
             and not errors
             and (codebook_data is not None or not self.require_codebook)
         )
@@ -468,6 +497,10 @@ class FileValidatorNode(AINode):
         nested: dict[str, Any] = {}
         if data_payload is not None and get_source_payload(state, keys) is None:
             nested[keys.source_payload_field] = data_payload
+        if coded_data_payload is not None:
+            nested[self.coded_data_result_field or keys.source_payload_field] = (
+                coded_data_payload
+            )
         if codebook_data is not None:
             target = self.codebook_result_field or keys.seed_codebook_field
             already = (
@@ -477,6 +510,12 @@ class FileValidatorNode(AINode):
             )
             if already is None:
                 nested[target] = codebook_data.model_dump(mode="json")
+            seed_target = self.seed_codebook_result_field
+            if (
+                seed_target is not None
+                and get_seed_codebook_from_file(state, keys) is None
+            ):
+                nested[seed_target] = codebook_data.model_dump(mode="json")
 
         if errors:
             result_lines.append("\n**Errors:**")
