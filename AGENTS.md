@@ -98,7 +98,6 @@ Available when environment is active (defined in `pyproject.toml` scripts):
 - Framework: `pytest` with `pytest-asyncio` and `pytest-cov`.
 - Location: place tests under `tests/` mirroring package paths.
 - Names: test files `test_*.py`, tests `test_*` functions; include async tests where relevant.
-- Coverage: CI enforces 95% project coverage and 100% diff coverage. Add tests for new code and branches.
 - Run subsets: `uv run pytest tests/nodes -q`.
 
 ## Commit & Pull Request Guidelines
