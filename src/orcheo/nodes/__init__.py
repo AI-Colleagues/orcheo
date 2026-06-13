@@ -1,7 +1,5 @@
 """Node registry and metadata definitions for Orcheo."""
 
-# ruff: noqa: I001
-
 from orcheo.nodes.ai import AgentNode, AgentReplyExtractorNode, LLMNode
 from orcheo.nodes.ai.agentensor import AgentensorNode
 from orcheo.nodes.ai.deep_agent import DeepAgentNode
@@ -43,10 +41,10 @@ from orcheo.nodes.data import (
 )
 from orcheo.nodes.logic import (
     DelayNode,
-    ForLoopNode,
     FinalReplyNode,
-    StructuredRouterDispatchNode,
+    ForLoopNode,
     SetVariableNode,
+    StructuredRouterDispatchNode,
 )
 from orcheo.nodes.logic.debug import DebugNode
 from orcheo.nodes.logic.sub_workflow import SubWorkflowNode

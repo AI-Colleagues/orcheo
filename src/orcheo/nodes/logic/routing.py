@@ -1,16 +1,11 @@
 """Generic routing nodes for agent-directed workflows."""
 
-# ruff: noqa: I001
-
 from __future__ import annotations
-
 from collections.abc import Mapping
 from typing import Any
-
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
-
 from orcheo.graph.state import State
 from orcheo.nodes.base import AINode
 from orcheo.nodes.registry import NodeMetadata, registry

@@ -1,12 +1,8 @@
 """Routing edges that read values from node results."""
 
-# ruff: noqa: I001
-
 from __future__ import annotations
-
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
-
 from orcheo.edges.base import BaseEdge
 from orcheo.edges.registry import EdgeMetadata, edge_registry
 from orcheo.graph.state import State

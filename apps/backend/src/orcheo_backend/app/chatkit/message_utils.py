@@ -1,12 +1,11 @@
 """Helper utilities for working with ChatKit and LangChain message payloads."""
-# ruff: noqa: I001
 
 from __future__ import annotations
-
 import json
 import warnings
 from collections.abc import Mapping
 from typing import Any
+
 
 with warnings.catch_warnings():
     warnings.filterwarnings(

@@ -6,45 +6,7 @@ Each workflow specialises the shared nodes purely through init arguments (result
 key wiring, prompt templates, classification modes, and messages).
 """
 
-# ruff: noqa: I001
-
 from __future__ import annotations
-
-from orcheo.nodes.qualitative.constants import (
-    DEFAULT_BATCH_SIZE,
-    DEFAULT_PER_TURN_BATCH_BUDGET,
-    DEFAULT_QUOTES_PER_THEME,
-    MAX_CODING_BATCHES,
-    OPEN_CODING_RECURSION_LIMIT,
-    RECODING_RECURSION_LIMIT,
-)
-from orcheo.nodes.qualitative.keys import QualitativeResultKeys
-from orcheo.nodes.qualitative.models import (
-    CandidateInsight,
-    CodeAssignment,
-    CodeAssignmentEntry,
-    Codebook,
-    CodebookConsolidationResponse,
-    CooccurrenceRow,
-    Insight,
-    InsightGenerationResponse,
-    OpenCodingBatchResponse,
-    ParsedRecord,
-    QualityFlagSummary,
-    QualityReport,
-    QuantificationRow,
-    Quote,
-    QuoteSelectionResponse,
-    Recommendation,
-    RecodingBatchResponse,
-    ReportData,
-    SegmentBreakdownRow,
-    SegmentComparison,
-    SegmentVariable,
-    Subtheme,
-    Theme,
-    Unit,
-)
 from orcheo.nodes.qualitative.accessors import (
     build_report_data,
     get_approved_codebook,
@@ -67,11 +29,6 @@ from orcheo.nodes.qualitative.accessors import (
     get_units,
     is_vacuous,
 )
-from orcheo.nodes.qualitative.sources import (
-    SourceParser,
-    pick_id_field,
-    pick_text_field,
-)
 from orcheo.nodes.qualitative.codebook import (
     code_to_theme_map,
     escape_markdown_table_cell,
@@ -90,6 +47,11 @@ from orcheo.nodes.qualitative.codebook import (
     recover_exportable_codebook,
     render_codebook_for_prompt,
 )
+from orcheo.nodes.qualitative.coded_data import (
+    CODED_DATA_CSV_HEADERS,
+    build_coded_data_csv,
+    parse_coded_data_csv,
+)
 from orcheo.nodes.qualitative.coding import (
     batch_units,
     existing_code_hints,
@@ -99,10 +61,61 @@ from orcheo.nodes.qualitative.coding import (
     format_recoding_user_text,
     with_inferred_sentiment,
 )
-from orcheo.nodes.qualitative.coded_data import (
-    CODED_DATA_CSV_HEADERS,
-    build_coded_data_csv,
-    parse_coded_data_csv,
+from orcheo.nodes.qualitative.constants import (
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_PER_TURN_BATCH_BUDGET,
+    DEFAULT_QUOTES_PER_THEME,
+    MAX_CODING_BATCHES,
+    OPEN_CODING_RECURSION_LIMIT,
+    RECODING_RECURSION_LIMIT,
+)
+from orcheo.nodes.qualitative.insights import (
+    InsightCriticNode,
+    RecommendationGeneratorNode,
+    critique_insights,
+    fallback_insights,
+    fallback_quotes,
+    filter_grounded_quotes,
+    normalise_candidate_insights,
+    recommend_action,
+    recommend_impact,
+)
+from orcheo.nodes.qualitative.keys import QualitativeResultKeys
+from orcheo.nodes.qualitative.models import (
+    CandidateInsight,
+    CodeAssignment,
+    CodeAssignmentEntry,
+    Codebook,
+    CodebookConsolidationResponse,
+    CooccurrenceRow,
+    Insight,
+    InsightGenerationResponse,
+    OpenCodingBatchResponse,
+    ParsedRecord,
+    QualityFlagSummary,
+    QualityReport,
+    QuantificationRow,
+    Quote,
+    QuoteSelectionResponse,
+    RecodingBatchResponse,
+    Recommendation,
+    ReportData,
+    SegmentBreakdownRow,
+    SegmentComparison,
+    SegmentVariable,
+    Subtheme,
+    Theme,
+    Unit,
+)
+from orcheo.nodes.qualitative.pipeline import (
+    CodebookOutputNode,
+    ContextPreNode,
+    ExportCodebookNode,
+    ExportCodedDataNode,
+    FileValidatorNode,
+    IngestNode,
+    RecodeOutputNode,
+    SetupNode,
 )
 from orcheo.nodes.qualitative.quality import (
     DataQualityNode,
@@ -116,36 +129,20 @@ from orcheo.nodes.qualitative.quantify import (
     parse_str_list,
     plan_segments,
 )
-from orcheo.nodes.qualitative.insights import (
-    InsightCriticNode,
-    RecommendationGeneratorNode,
-    critique_insights,
-    fallback_insights,
-    fallback_quotes,
-    filter_grounded_quotes,
-    normalise_candidate_insights,
-    recommend_action,
-    recommend_impact,
-)
 from orcheo.nodes.qualitative.report import (
     ExportReportNode,
     ReportOutputNode,
     render_markdown_report,
     validate_final_state,
 )
+from orcheo.nodes.qualitative.sources import (
+    SourceParser,
+    pick_id_field,
+    pick_text_field,
+)
 from orcheo.nodes.qualitative.stages import (
     LLMStageFinalizeNode,
     LLMStagePrepareNode,
-)
-from orcheo.nodes.qualitative.pipeline import (
-    CodebookOutputNode,
-    ContextPreNode,
-    ExportCodebookNode,
-    ExportCodedDataNode,
-    FileValidatorNode,
-    IngestNode,
-    RecodeOutputNode,
-    SetupNode,
 )
 
 
