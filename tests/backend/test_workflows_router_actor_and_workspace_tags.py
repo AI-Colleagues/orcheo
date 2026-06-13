@@ -5,11 +5,14 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
-from orcheo.models import Workflow, WorkflowDraftAccess
+from orcheo.models import Team, Workflow, WorkflowDraftAccess
 from orcheo.workspace import WorkspaceQuotas
 from orcheo_backend.app.authentication import AuthorizationPolicy, RequestContext
 from orcheo_backend.app.managed_workflows import MANAGED_VIBE_WORKFLOW_HANDLE
-from orcheo_backend.app.repository.errors import WorkflowNotFoundError
+from orcheo_backend.app.repository.errors import (
+    TeamNotFoundError,
+    WorkflowNotFoundError,
+)
 from orcheo_backend.app.routers import workflows
 from orcheo_backend.app.schemas.workflows import (
     WorkflowCreateRequest,
@@ -29,6 +32,28 @@ class _Repository:
         self.last_actor: str | None = None
         self.last_tags: list[str] | None = None
         self.last_draft_access: WorkflowDraftAccess | None = None
+        self.last_team_id: str | None = None
+        self.default_team = Team(
+            workspace_id=str(_MOCK_WORKSPACE.workspace_id),
+            slug="test",
+            name="test",
+            is_default=True,
+        )
+
+    async def ensure_default_team(
+        self, *, workspace_id: str, name: str, slug: str
+    ) -> Team:
+        del workspace_id, name, slug
+        return self.default_team
+
+    async def get_team(self, team_id: UUID, *, workspace_id: str) -> Team:
+        del workspace_id
+        return Team(
+            id=team_id,
+            workspace_id=str(_MOCK_WORKSPACE.workspace_id),
+            slug="explicit",
+            name="Explicit",
+        )
 
     async def create_workflow(
         self,
@@ -40,17 +65,20 @@ class _Repository:
         draft_access: WorkflowDraftAccess = WorkflowDraftAccess.PERSONAL,
         actor: str,
         workspace_id: str | None = None,
+        team_id: str | None = None,
         handle: str | None = None,
     ) -> Workflow:
         self.last_actor = actor
         self.last_tags = list(tags or [])
         self.last_draft_access = draft_access
+        self.last_team_id = team_id
         return Workflow(
             name=name,
             slug=slug or "",
             description=description,
             tags=tags or [],
             draft_access=draft_access,
+            team_id=team_id,
         )
 
     async def list_workflows(
@@ -241,6 +269,53 @@ async def test_create_workflow_keeps_request_actor_when_context_unavailable() ->
     assert repository.last_actor == "cli"
     assert repository.last_tags == ["legacy"]
     assert repository.last_draft_access is WorkflowDraftAccess.PERSONAL
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_defaults_to_workspace_default_team() -> None:
+    repository = _Repository()
+    request = WorkflowCreateRequest(name="CLI uploaded workflow", actor="cli")
+
+    await workflows.create_workflow(request, repository, _MOCK_WORKSPACE)
+
+    assert repository.last_team_id == str(repository.default_team.id)
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_honors_explicit_team_id() -> None:
+    repository = _Repository()
+    team_id = str(uuid4())
+    request = WorkflowCreateRequest(
+        name="Team-scoped workflow",
+        team_id=team_id,
+        actor="cli",
+    )
+
+    await workflows.create_workflow(request, repository, _MOCK_WORKSPACE)
+
+    assert repository.last_team_id == team_id
+
+
+@pytest.mark.asyncio()
+async def test_create_workflow_rejects_unknown_team_id() -> None:
+    repository = _Repository()
+
+    async def _missing_team(team_id, *, workspace_id):  # noqa: ANN001, ANN202
+        del team_id, workspace_id
+        raise TeamNotFoundError("missing")
+
+    repository.get_team = _missing_team  # type: ignore[assignment]
+    request = WorkflowCreateRequest(
+        name="Bad team workflow",
+        team_id=str(uuid4()),
+        actor="cli",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await workflows.create_workflow(request, repository, _MOCK_WORKSPACE)
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail["code"] == "team.not_found"
 
 
 @pytest.mark.asyncio()
