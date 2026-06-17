@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 from langgraph.graph import StateGraph
 from pydantic import BaseModel
+from orcheo.graph.ingestion.ast_extraction import extract_graph_index
 from orcheo.runtime.credentials import parse_credential_reference
 
 
@@ -23,10 +24,21 @@ def collect_workflow_credential_placeholders(
     """
     placeholders: dict[str, set[str]] = {}
     _collect_value(graph_payload, placeholders, seen=set())
+    _collect_source_index(graph_payload, placeholders)
     if runnable_config is not None:
         _collect_value(runnable_config, placeholders, seen=set())
 
     return placeholders
+
+
+def _collect_source_index(
+    graph_payload: Mapping[str, Any],
+    placeholders: dict[str, set[str]],
+) -> None:
+    source = graph_payload.get("source")
+    if not isinstance(source, str):
+        return
+    _collect_value(extract_graph_index(source), placeholders, seen=set())
 
 
 def _collect_state_graph(

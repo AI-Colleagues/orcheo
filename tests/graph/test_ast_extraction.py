@@ -5,11 +5,14 @@ import ast
 import textwrap
 
 import pytest
+from pydantic import BaseModel
 
 from orcheo.graph.ingestion.ast_extraction import (
     _AddNodeVisitor,
+    _collect_model_default_credentials,
     _extract_kwargs,
     _get_call_name,
+    _is_credential_placeholder,
     _literal_value,
     extract_graph_index,
 )
@@ -141,6 +144,36 @@ def test_get_call_name_other_returns_none() -> None:
     assert _get_call_name(node) is None  # type: ignore[arg-type]
 
 
+def test_is_credential_placeholder_matches_runtime_shape() -> None:
+    assert _is_credential_placeholder("[[credential-name]]")
+    assert _is_credential_placeholder("[[credential-name#oauth.access_token]]")
+    assert not _is_credential_placeholder("[[  ]]")
+    assert not _is_credential_placeholder("[[#oauth.access_token]]")
+    assert not _is_credential_placeholder("prefix [[credential-name]]")
+
+
+class _SyntheticCredentialNode(BaseModel):
+    api_key: str = "[[custom-service-key]]"
+    nested: dict[str, str] = {"refresh": "[[custom-refresh#oauth.refresh_token]]"}
+    normal_value: str = "not-a-credential"
+
+
+def test_collect_model_default_credentials_discovers_placeholder_defaults() -> None:
+    entries = _collect_model_default_credentials(
+        "SyntheticCredentialNode",
+        _SyntheticCredentialNode,
+        {"api_key"},
+    )
+
+    assert entries == [
+        {
+            "node_type": "SyntheticCredentialNode",
+            "field": "nested",
+            "placeholder": "[[custom-refresh#oauth.refresh_token]]",
+        }
+    ]
+
+
 # ---------------------------------------------------------------------------
 # _AddNodeVisitor
 # ---------------------------------------------------------------------------
@@ -158,6 +191,7 @@ def test_visitor_visit_expr_non_call() -> None:
     visitor = _parse_and_visit("x = 1\n1 + 2\n")
     assert visitor.cron_entries == []
     assert visitor.listener_entries == []
+    assert visitor.credential_entries == []
 
 
 def test_visitor_handle_call_non_attribute_func() -> None:
@@ -299,7 +333,7 @@ def test_visitor_listener_discord_platform() -> None:
 
 def test_extract_graph_index_empty_script() -> None:
     result = extract_graph_index("x = 1\n")
-    assert result == {"cron": [], "listeners": []}
+    assert result == {"cron": [], "listeners": [], "credentials": []}
 
 
 def test_extract_graph_index_cron_entry() -> None:
@@ -326,6 +360,67 @@ def test_extract_graph_index_listener_entry() -> None:
     assert result["listeners"][0]["platform"] == "telegram"
 
 
+def test_extract_graph_index_node_default_credentials() -> None:
+    source = textwrap.dedent("""\
+        from langgraph.graph import StateGraph
+        from orcheo.nodes.storage.mongodb import (
+            MongoDBEnsureSearchIndexNode,
+            MongoDBEnsureVectorIndexNode,
+        )
+
+        text_index = MongoDBEnsureSearchIndexNode(
+            name="ensure_text_index",
+            database="{{config.configurable.database}}",
+            collection="{{config.configurable.collection}}",
+            definition={"mappings": {"dynamic": False}},
+        )
+        vector_index = MongoDBEnsureVectorIndexNode(
+            name="ensure_vector_index",
+            database="{{config.configurable.database}}",
+            collection="{{config.configurable.collection}}",
+            dimensions="{{config.configurable.dimensions}}",
+            similarity="cosine",
+        )
+
+        graph = StateGraph(dict)
+        graph.add_node("ensure_text_index", text_index)
+        graph.add_node("ensure_vector_index", vector_index)
+    """)
+
+    result = extract_graph_index(source)
+
+    assert result["credentials"] == [
+        {
+            "node_type": "MongoDBEnsureSearchIndexNode",
+            "field": "connection_string",
+            "placeholder": "[[mdb_connection_string]]",
+        },
+        {
+            "node_type": "MongoDBEnsureVectorIndexNode",
+            "field": "connection_string",
+            "placeholder": "[[mdb_connection_string]]",
+        },
+    ]
+
+
+def test_extract_graph_index_skips_overridden_default_credential() -> None:
+    source = textwrap.dedent("""\
+        from orcheo.nodes.storage.mongodb import MongoDBEnsureSearchIndexNode as Search
+
+        Search(
+            name="ensure_text_index",
+            connection_string="{{config.configurable.connection_string}}",
+            database="{{config.configurable.database}}",
+            collection="{{config.configurable.collection}}",
+            definition={"mappings": {"dynamic": False}},
+        )
+    """)
+
+    result = extract_graph_index(source)
+
+    assert result["credentials"] == []
+
+
 def test_extract_graph_index_syntax_error_returns_empty() -> None:
     result = extract_graph_index("def broken(:\n    pass")
-    assert result == {"cron": [], "listeners": []}
+    assert result == {"cron": [], "listeners": [], "credentials": []}
