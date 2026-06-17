@@ -1,5 +1,4 @@
 """ChatKit server implementation streaming Orcheo workflow results."""
-# ruff: noqa: I001
 
 from __future__ import annotations
 import asyncio
@@ -10,6 +9,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mappin
 from datetime import UTC, datetime
 from typing import Any, NamedTuple
 from uuid import UUID
+
 
 with warnings.catch_warnings():
     warnings.filterwarnings(
@@ -37,8 +37,8 @@ with warnings.catch_warnings():
         UserMessageItem,
         WidgetItem,
         WidgetRoot,
+        WidgetRootUpdated,
     )
-    from chatkit.types import WidgetRootUpdated
     from chatkit.widgets import DynamicWidgetRoot
 from dynaconf import Dynaconf
 from langchain_core.messages import ToolMessage
@@ -50,7 +50,6 @@ from orcheo_backend.app.chatkit.message_utils import (
     build_action_inputs_payload,
     collect_text_from_user_content,
 )
-from orcheo_backend.app.chatkit.model_selection import resolve_chatkit_selected_model
 from orcheo_backend.app.chatkit.messages import (
     build_assistant_item,
     build_history,
@@ -60,8 +59,9 @@ from orcheo_backend.app.chatkit.messages import (
     resolve_user_item,
     sync_thread_inference_metadata,
 )
-from orcheo_backend.app.chatkit.workflow_executor import WorkflowExecutor
+from orcheo_backend.app.chatkit.model_selection import resolve_chatkit_selected_model
 from orcheo_backend.app.chatkit.telemetry import chatkit_telemetry
+from orcheo_backend.app.chatkit.workflow_executor import WorkflowExecutor
 from orcheo_backend.app.chatkit_store_postgres import PostgresChatKitStore
 from orcheo_backend.app.repository import (
     Workflow,

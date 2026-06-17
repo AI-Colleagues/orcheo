@@ -130,6 +130,35 @@ def test_load_graph_from_script_with_async_entrypoint() -> None:
     assert "first" in graph.nodes
 
 
+def test_load_graph_async_entrypoint_with_script_defined_typeddict_state() -> None:
+    # Regression: an async entrypoint builds its StateGraph after the script
+    # module has returned. If the loader unregisters the script module from
+    # sys.modules before the graph is built, get_type_hints() can no longer
+    # resolve the ForwardRefs in a script-defined TypedDict state subclass and
+    # fails with "NameError: name 'Any' is not defined".
+    script = textwrap.dedent(
+        """
+        from typing import Any
+
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        class CustomState(State, total=False):
+            payload: dict[str, Any] | None
+
+        async def orcheo_workflow():
+            graph = StateGraph(CustomState)
+            graph.add_node("first", lambda state: state)
+            graph.set_entry_point("first")
+            graph.set_finish_point("first")
+            return graph
+        """
+    )
+
+    graph = load_graph_from_script(script, entrypoint="orcheo_workflow")
+    assert "first" in graph.nodes
+
+
 def test_load_graph_awaits_top_level_coroutine() -> None:
     script = textwrap.dedent(
         """

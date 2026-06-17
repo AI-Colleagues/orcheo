@@ -65,6 +65,7 @@ from orcheo_backend.app.schemas.workflows import (
     WorkflowVersionIngestRequest,
     WorkflowVersionRunnableConfigUpdateRequest,
 )
+from orcheo_backend.app.teams_service import ensure_default_team
 from orcheo_backend.app.workspace import (
     WorkspaceContextDep,
     WorkspaceServiceDep,
@@ -632,6 +633,26 @@ async def create_workflow(
     tags = _append_workspace_tags(request.tags, context)
     draft_access = _resolve_draft_access(request.draft_access, tags, context)
 
+    # Resolve the target team. When unspecified, place the workflow in the
+    # workspace's default team rather than leaving it team-less.
+    workspace_id = str(workspace.workspace_id)
+    if request.team_id is not None:
+        try:
+            parsed_team_id = UUID(request.team_id)
+            await repository.get_team(parsed_team_id, workspace_id=workspace_id)
+        except (TeamNotFoundError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "message": f"Team '{request.team_id}' not found.",
+                    "code": "team.not_found",
+                },
+            ) from exc
+        target_team_id = str(parsed_team_id)
+    else:
+        default_team = await ensure_default_team(repository, workspace)
+        target_team_id = str(default_team.id)
+
     try:
         await ensure_workspace_workflow_quota(repository, workspace)
         create_kwargs: dict[str, Any] = {
@@ -641,7 +662,8 @@ async def create_workflow(
             "tags": tags,
             "draft_access": draft_access,
             "actor": actor,
-            "workspace_id": str(workspace.workspace_id),
+            "workspace_id": workspace_id,
+            "team_id": target_team_id,
         }
         if request.handle is not None:
             create_kwargs["handle"] = request.handle

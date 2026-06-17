@@ -25,6 +25,7 @@ class WorkflowCreateRequest(BaseModel):
     description: str | None = None
     tags: list[str] = Field(default_factory=list)
     draft_access: WorkflowDraftAccess | None = None
+    team_id: str | None = None
     actor: str = Field(default="system")
 
     @field_validator("handle", mode="before")

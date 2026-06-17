@@ -7,6 +7,7 @@ import builtins
 import inspect
 import sys
 import types
+import uuid
 from collections.abc import Awaitable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, get_origin
@@ -23,7 +24,12 @@ from orcheo.graph.ingestion.sandbox import (
 )
 
 
-_SCRIPT_MODULE_NAME = "__orcheo_ingest__"
+_SCRIPT_MODULE_NAME_PREFIX = "__orcheo_ingest__"
+
+
+def _new_script_module_name() -> str:
+    """Return a unique temporary module name for one script ingestion."""
+    return f"{_SCRIPT_MODULE_NAME_PREFIX}_{uuid.uuid4().hex}"
 
 
 def _execute_langgraph_script(
@@ -36,41 +42,57 @@ def _execute_langgraph_script(
     The script is executed inside a temporary module registered in ``sys.modules``
     so that decorators like ``@dataclass`` can resolve ``sys.modules[cls.__module__]``
     without raising ``AttributeError``.
+
+    On success the module is intentionally **left registered** in ``sys.modules``:
+    ``StateGraph`` resolves its ``TypedDict`` state schema with
+    ``typing.get_type_hints``, which evaluates the annotations' ``ForwardRef``s
+    against ``sys.modules[<schema module>].__dict__``.  For an async
+    ``orcheo_workflow`` entrypoint the graph is only built once the coroutine is
+    awaited in :func:`_load_graph_from_namespace`, i.e. after this function
+    returns, so the module must still be present then or ``Any`` (and every other
+    imported name) resolves to ``NameError``.  The caller is responsible for
+    removing it once graph resolution completes.
     """
     validate_script_size(source, max_script_bytes)
 
     # Register a real module so that @dataclass and similar decorators that look
     # up sys.modules[cls.__module__] do not encounter None.
-    module = types.ModuleType(_SCRIPT_MODULE_NAME)
+    module_name = _new_script_module_name()
+    module = types.ModuleType(module_name)
     module.__dict__["__builtins__"] = vars(builtins)
     namespace = module.__dict__
-    sys.modules[_SCRIPT_MODULE_NAME] = module
+    sys.modules[module_name] = module
 
     try:
-        compiled = compile(  # noqa: S307
-            source, "<langgraph-script>", "exec", ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
-        )
-    except SyntaxError as exc:
-        sys.modules.pop(_SCRIPT_MODULE_NAME, None)
-        raise ScriptIngestionError(f"Compilation error: {exc}") from exc
-    try:
-        with execution_timeout(execution_timeout_seconds):
-            result = eval(compiled, namespace)  # noqa: S307
-            if inspect.isawaitable(result):
-                _run_awaitable(result)
-    except ScriptIngestionError:
+        try:
+            compiled = compile(  # noqa: S307
+                source, "<langgraph-script>", "exec", ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
+            )
+        except SyntaxError as exc:
+            raise ScriptIngestionError(f"Compilation error: {exc}") from exc
+        try:
+            with execution_timeout(execution_timeout_seconds):
+                result = eval(compiled, namespace)  # noqa: S307
+                if inspect.isawaitable(result):
+                    _run_awaitable(result)
+        except ScriptIngestionError:
+            raise
+        except SyntaxError as exc:
+            message = f"Compilation error: {exc}"
+            raise ScriptIngestionError(message) from exc
+        except TimeoutError as exc:
+            message = "LangGraph script execution exceeded the configured timeout"
+            raise ScriptIngestionError(message) from exc
+        except Exception as exc:  # pragma: no cover - exercised via tests
+            message = (
+                f"Runtime error during script execution: {type(exc).__name__}: {exc}"
+            )
+            raise ScriptIngestionError(message) from exc
+    except BaseException:
+        # Execution failed: drop the temporary module so a failed ingestion does
+        # not leak into sys.modules. On success it stays registered (see docstring).
+        sys.modules.pop(module_name, None)
         raise
-    except SyntaxError as exc:
-        message = f"Compilation error: {exc}"
-        raise ScriptIngestionError(message) from exc
-    except TimeoutError as exc:
-        message = "LangGraph script execution exceeded the configured timeout"
-        raise ScriptIngestionError(message) from exc
-    except Exception as exc:  # pragma: no cover - exercised via tests
-        message = f"Runtime error during script execution: {type(exc).__name__}: {exc}"
-        raise ScriptIngestionError(message) from exc
-    finally:
-        sys.modules.pop(_SCRIPT_MODULE_NAME, None)
 
     return namespace
 
@@ -144,7 +166,13 @@ def load_graph_from_script(
     namespace = _execute_langgraph_script(
         source, max_script_bytes, execution_timeout_seconds
     )
-    return _load_graph_from_namespace(namespace, entrypoint)
+    try:
+        return _load_graph_from_namespace(namespace, entrypoint)
+    finally:
+        # The script module is left registered by _execute_langgraph_script so
+        # async entrypoints can resolve their state-schema type hints; remove it
+        # now that the graph (and its channels) have been fully built.
+        sys.modules.pop(namespace.get("__name__", ""), None)
 
 
 def load_graph_from_script_full_env(
@@ -155,7 +183,12 @@ def load_graph_from_script_full_env(
 ) -> StateGraph:
     """Execute a LangGraph script without size limits and return the graph."""
     namespace = _execute_langgraph_script(source, None, execution_timeout_seconds)
-    return _load_graph_from_namespace(namespace, entrypoint)
+    try:
+        return _load_graph_from_namespace(namespace, entrypoint)
+    finally:
+        # See load_graph_from_script: drop the temporary module once the graph
+        # has been resolved.
+        sys.modules.pop(namespace.get("__name__", ""), None)
 
 
 def _is_graph_candidate(obj: Any, module_name: str) -> bool:

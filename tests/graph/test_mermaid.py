@@ -28,6 +28,52 @@ def test_has_workflow_tool_subgraphs_traverses_nested_graphs() -> None:
     assert mermaid.has_workflow_tool_subgraphs(summary)
 
 
+def test_has_workflow_tool_subgraphs_detects_inlined_subgraph_node() -> None:
+    nested_summary = {"nodes": [{"name": "nested"}], "edges": []}
+    summary = {
+        "nodes": [
+            {"name": "broken_graph", "graph": "oops"},
+            {"name": "missing_summary", "graph": {"summary": "nope"}},
+            {"name": "branch", "graph": {"summary": nested_summary}},
+        ],
+    }
+    assert mermaid.has_workflow_tool_subgraphs(summary)
+
+
+def test_node_subgraph_summary_handles_invalid_and_valid_graphs() -> None:
+    nested_summary = {"nodes": [{"name": "nested"}], "edges": []}
+    assert mermaid._node_subgraph_summary({"graph": "oops"}) is None
+    assert mermaid._node_subgraph_summary({"graph": {"summary": "nope"}}) is None
+    assert mermaid._node_subgraph_summary({}) is None
+    assert (
+        mermaid._node_subgraph_summary({"graph": {"summary": nested_summary}})
+        is nested_summary
+    )
+
+
+def test_render_summary_mermaid_expands_inlined_subgraph_node() -> None:
+    nested = {
+        "nodes": [{"name": "nested-node"}],
+        "edges": [{"source": "START", "target": "nested-node"}],
+    }
+    summary = {
+        "nodes": [{"name": "branch", "graph": {"summary": nested}}],
+        "edges": [
+            {"source": "START", "target": "branch"},
+            {"source": "branch", "target": "END"},
+        ],
+    }
+    diagram = mermaid.render_summary_mermaid(summary)
+    assert 'subgraph root__branch__subgraph__subgraph["branch"]' in diagram
+    assert "direction LR" in diagram
+    assert "root__branch__subgraph__node__nested_node" in diagram
+    # Inlined in place: no plain node box, no dotted line; edges hit the box.
+    assert "root__node__branch[" not in diagram
+    assert "-.->" not in diagram
+    assert "root__start --> root__branch__subgraph__subgraph;" in diagram
+    assert "root__branch__subgraph__subgraph --> root__end;" in diagram
+
+
 def test_sequence_helpers_reject_strings_and_non_sequences() -> None:
     assert mermaid._sequence("string") == []
     assert mermaid._mapping_sequence("string") == []

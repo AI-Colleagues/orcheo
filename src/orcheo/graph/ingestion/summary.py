@@ -67,7 +67,7 @@ def _serialise_node(
     runnable_obj = _unwrap_runnable(runnable)
     metadata = registry.get_metadata_by_callable(runnable_obj)
     node_type = metadata.name if metadata else type(runnable_obj).__name__
-    payload = {"name": name, "type": node_type}
+    payload: dict[str, Any] = {"name": name, "type": node_type}
 
     if isinstance(runnable_obj, BaseModel):
         node_config = runnable_obj.model_dump(
@@ -79,8 +79,34 @@ def _serialise_node(
         )
         node_config.pop("name", None)
         payload.update(node_config)
+    elif nested_graph_depth > 0:
+        # A node whose runnable is itself a (compiled) StateGraph is an inlined
+        # sub-graph. Serialise its inner structure under ``graph`` — mirroring
+        # the ``workflow_tools[].graph`` shape produced for AgentNode tools — so
+        # the Mermaid renderer can expand it instead of drawing one opaque node.
+        nested_graph = _as_state_graph(runnable_obj)
+        if nested_graph is not None:
+            payload["graph"] = {
+                "type": node_type,
+                "nodes": sorted(nested_graph.nodes.keys()),
+                "summary": summarise_state_graph_with_depth(
+                    nested_graph,
+                    nested_graph_depth=nested_graph_depth - 1,
+                ),
+            }
 
     return payload
+
+
+def _as_state_graph(runnable_obj: Any) -> StateGraph | None:
+    """Return the underlying ``StateGraph`` for a graph node runnable, if any."""
+    if isinstance(runnable_obj, StateGraph):
+        return runnable_obj
+    if isinstance(runnable_obj, CompiledStateGraph):
+        builder = getattr(runnable_obj, "builder", None)
+        if isinstance(builder, StateGraph):
+            return builder
+    return None
 
 
 def _serialise_fallback(

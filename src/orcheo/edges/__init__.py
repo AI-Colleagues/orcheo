@@ -13,6 +13,7 @@ from orcheo.edges.branching import (
 )
 from orcheo.edges.conditions import ComparisonOperator, Condition
 from orcheo.edges.registry import EdgeMetadata, EdgeRegistry, edge_registry
+from orcheo.edges.results import ResultFieldRouteEdge, ResultFlagEdge
 
 
 __all__ = [
@@ -20,6 +21,8 @@ __all__ = [
     "IfElseEdge",
     "SwitchEdge",
     "WhileEdge",
+    "ResultFlagEdge",
+    "ResultFieldRouteEdge",
     "SwitchCase",
     "Condition",
     "ComparisonOperator",

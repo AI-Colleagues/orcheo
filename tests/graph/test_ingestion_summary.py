@@ -216,6 +216,48 @@ def test_summarise_graph_index_renders_workflow_tool_subgraph() -> None:
     assert 'root__end(["END"]):::last' in mermaid
 
 
+def test_summarise_state_graph_handles_inlined_subgraph_node() -> None:
+    graph = StateGraph(State)
+    graph.add_node("branch", _build_tool_graph().compile())
+    graph.add_edge(START, "branch")
+    graph.add_edge("branch", END)
+
+    summary = summarise_state_graph(graph)
+    json.dumps(summary)
+
+    branch_node = next(node for node in summary["nodes"] if node["name"] == "branch")
+    assert branch_node["graph"]["type"] == "CompiledStateGraph"
+    assert branch_node["graph"]["nodes"] == ["noop"]
+    assert branch_node["graph"]["summary"]["nodes"] == [
+        {"name": "noop", "type": "RunnableCallable"},
+    ]
+    assert branch_node["graph"]["summary"]["edges"] == [
+        ("START", "noop"),
+        ("noop", "END"),
+    ]
+
+
+def test_summarise_graph_index_renders_inlined_subgraph_node() -> None:
+    graph = StateGraph(State)
+    graph.add_node("branch", _build_tool_graph().compile())
+    graph.add_edge(START, "branch")
+    graph.add_edge("branch", END)
+
+    index = summarise_graph_index(graph)
+
+    mermaid = index.get("mermaid")
+    assert isinstance(mermaid, str)
+    # The expanded box is inlined in place: no standalone node box, no dotted
+    # line, and the outer edges connect straight to the subgraph.
+    assert 'subgraph root__branch__subgraph__subgraph["branch"]' in mermaid
+    assert "direction LR" in mermaid
+    assert "-.->" not in mermaid
+    assert "root__node__branch[" not in mermaid
+    assert "root__branch__subgraph__node__noop" in mermaid
+    assert "root__start --> root__branch__subgraph__subgraph;" in mermaid
+    assert "root__branch__subgraph__subgraph --> root__end;" in mermaid
+
+
 def test_extract_cron_index_skips_missing_cron_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

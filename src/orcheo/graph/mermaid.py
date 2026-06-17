@@ -10,8 +10,16 @@ _MERMAID_ID_RE = re.compile(r"[^0-9A-Za-z_]")
 
 
 def has_workflow_tool_subgraphs(summary: Mapping[str, Any]) -> bool:
-    """Return whether the summary contains nested workflow tool graphs."""
+    """Return whether the summary contains expandable nested graphs.
+
+    True when any node is an inlined sub-graph (its runnable is a compiled
+    ``StateGraph``) or carries a workflow tool whose graph has a nested summary.
+    Either case means the summary-based renderer can draw expanded subgraphs
+    instead of one opaque node.
+    """
     for node in _mapping_sequence(summary.get("nodes")):
+        if _node_subgraph_summary(node) is not None:
+            return True
         for tool in _mapping_sequence(node.get("workflow_tools")):
             graph = tool.get("graph")
             if not isinstance(graph, Mapping):
@@ -20,6 +28,15 @@ def has_workflow_tool_subgraphs(summary: Mapping[str, Any]) -> bool:
             if isinstance(nested_summary, Mapping):
                 return True
     return False
+
+
+def _node_subgraph_summary(node: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """Return the nested summary for an inlined sub-graph node, if present."""
+    graph = node.get("graph")
+    if not isinstance(graph, Mapping):
+        return None
+    nested_summary = graph.get("summary")
+    return nested_summary if isinstance(nested_summary, Mapping) else None
 
 
 def render_summary_mermaid(summary: Mapping[str, Any]) -> str:
@@ -68,23 +85,54 @@ def _render_graph_section(
     node_names = _collect_node_names(summary, node_map)
     edges = _ensure_entry_edges(_collect_edges(summary), node_names)
 
+    # Sub-graph nodes are inlined *in place*: the expanded box replaces the plain
+    # node box and the outer edges connect to it directly (keyed by node name ->
+    # subgraph id), rather than dangling off a dotted line like workflow tools.
+    subgraph_ids = {
+        name: _mermaid_id(f"{prefix}__{name}__subgraph__subgraph")
+        for name, node in node_map.items()
+        if _node_subgraph_summary(node) is not None
+    }
+
     start_id = _sentinel_id(prefix, "start")
     end_id = _sentinel_id(prefix, "end")
-    lines = [
+    lines: list[str] = []
+    if not root:
+        # Lay nested subgraphs out left-to-right while the outer graph stays
+        # top-down, so an inlined pipeline reads as a horizontal lane.
+        lines.append(f"{indent}direction LR")
+    lines.append(
         _terminal_node_line(
             start_id,
             "START",
             "first" if root else "toolBoundary",
             indent,
         )
-    ]
+    )
 
     for name in sorted(node_names):
+        if name in subgraph_ids:
+            continue
         node_id = _node_id(prefix, name)
         node_class = "tool" if not root else None
         lines.append(_node_line(node_id, name, indent, node_class=node_class))
 
     for name, node in sorted(node_map.items()):
+        nested_summary = _node_subgraph_summary(node)
+        if nested_summary is not None:
+            sub_prefix = f"{prefix}__{name}__subgraph"
+            subgraph_id = subgraph_ids[name]
+            lines.append(f'{indent}subgraph {subgraph_id}["{_escape_label(name)}"]')
+            lines.extend(
+                _render_graph_section(
+                    nested_summary,
+                    prefix=sub_prefix,
+                    indent=f"{indent}\t",
+                    root=False,
+                )
+            )
+            lines.append(f"{indent}end")
+
         for tool in _mapping_sequence(node.get("workflow_tools")):
             graph = tool.get("graph")
             if not isinstance(graph, Mapping):
@@ -122,8 +170,8 @@ def _render_graph_section(
 
     for source, target in edges:
         lines.append(
-            f"{indent}{_vertex_id(prefix, source, start_id, end_id)} --> "
-            f"{_vertex_id(prefix, target, start_id, end_id)};"
+            f"{indent}{_vertex_id(prefix, source, start_id, end_id, subgraph_ids)} --> "
+            f"{_vertex_id(prefix, target, start_id, end_id, subgraph_ids)};"
         )
     return lines
 
@@ -235,12 +283,20 @@ def _ensure_entry_edges(
     return [*edges, ("START", edges[0][0])]
 
 
-def _vertex_id(prefix: str, value: str, start_id: str, end_id: str) -> str:
+def _vertex_id(
+    prefix: str,
+    value: str,
+    start_id: str,
+    end_id: str,
+    subgraph_ids: Mapping[str, str] | None = None,
+) -> str:
     upper = value.upper()
     if upper == "START":
         return start_id
     if upper == "END":
         return end_id
+    if subgraph_ids and value in subgraph_ids:
+        return subgraph_ids[value]
     return _node_id(prefix, value)
 
 
