@@ -310,20 +310,12 @@ class SourceParser:
         content = source_payload.get("content")
         if isinstance(content, str) and content.strip():
             return content
-        storage_path = source_payload.get("storage_path")
-        if not isinstance(storage_path, str) or not storage_path.strip():
+        # ``storage_path`` can be supplied from workflow inputs, so do not open
+        # raw paths here. Qualitative workflows should receive inline content
+        # after the attachment/storage layer has resolved trusted uploads.
+        if source_payload.get("storage_path"):
             return ""
-        try:
-            with open(storage_path, "rb") as handle:
-                raw_bytes = handle.read()
-        except OSError:
-            return ""
-        for encoding in ("utf-8", "latin-1"):
-            try:
-                return raw_bytes.decode(encoding)
-            except UnicodeDecodeError:
-                continue
-        return raw_bytes.decode("utf-8", errors="replace")
+        return ""
 
     @classmethod
     def parse_payload(

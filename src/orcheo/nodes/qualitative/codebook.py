@@ -86,17 +86,31 @@ def code_to_theme_map(codebook: Codebook) -> dict[str, tuple[str, str]]:
 
 
 def merge_codebooks(seed: Codebook, emergent: Codebook) -> Codebook:
-    """Merge an emergent codebook into a seed codebook, deduping by title."""
+    """Merge an emergent codebook into a seed codebook, deduping by title and id."""
     seed_titles = {
         subtheme.title.strip().lower()
         for theme in seed.themes
         for subtheme in theme.subthemes
     }
+    used_code_ids = {
+        subtheme.code_id.strip()
+        for theme in seed.themes
+        for subtheme in theme.subthemes
+        if subtheme.code_id.strip()
+    }
     themes = [theme.model_copy(deep=True) for theme in seed.themes]
+    next_code_index = len(used_code_ids) + 1
     for theme in emergent.themes:
-        subthemes = [
-            s for s in theme.subthemes if s.title.strip().lower() not in seed_titles
-        ]
+        subthemes: list[Subtheme] = []
+        for subtheme in theme.subthemes:
+            if subtheme.title.strip().lower() in seed_titles:
+                continue
+            code_id = subtheme.code_id.strip() if subtheme.code_id else ""
+            while not code_id or code_id in used_code_ids:
+                code_id = make_code_id(next_code_index)
+                next_code_index += 1
+            used_code_ids.add(code_id)
+            subthemes.append(subtheme.model_copy(update={"code_id": code_id}))
         if subthemes:
             themes.append(theme.model_copy(update={"subthemes": subthemes}))
     return normalise_codebook_ids(Codebook(themes=themes))

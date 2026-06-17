@@ -22,8 +22,10 @@ from orcheo.nodes.qualitative import (
     Theme,
     Unit,
     build_coded_data_csv,
+    merge_codebooks,
     parse_coded_data_csv,
 )
+from orcheo.nodes.qualitative.sources import SourceParser
 
 
 def _simple_codebook() -> Codebook:
@@ -257,6 +259,48 @@ async def test_data_quality_node_flags_and_reports() -> None:
     assert result["flagged_units"] >= 2
 
 
+def test_source_parser_rejects_raw_storage_paths(tmp_path) -> None:
+    secret_file = tmp_path / "secret.txt"
+    secret_file.write_text("do not ingest", encoding="utf-8")
+
+    assert SourceParser.load_payload_content({"storage_path": str(secret_file)}) == ""
+
+
+def test_parse_coded_data_csv_requires_coded_headers() -> None:
+    csv_text = "unit_id,text\nU0001,plain survey response\n"
+
+    assert parse_coded_data_csv(csv_text) is None
+
+
+def test_merge_codebooks_remints_duplicate_emergent_code_ids() -> None:
+    seed = Codebook(
+        themes=[
+            Theme(
+                theme_id="T1",
+                title="Seed",
+                subthemes=[Subtheme(code_id="C001", title="Seed code")],
+            )
+        ]
+    )
+    emergent = Codebook(
+        themes=[
+            Theme(
+                theme_id="T2",
+                title="Emergent",
+                subthemes=[Subtheme(code_id="C001", title="New code")],
+            )
+        ]
+    )
+
+    merged = merge_codebooks(seed, emergent)
+    code_ids = [
+        subtheme.code_id for theme in merged.themes for subtheme in theme.subthemes
+    ]
+
+    assert len(code_ids) == len(set(code_ids))
+    assert code_ids == ["C001", "C002"]
+
+
 def test_coded_data_csv_round_trips() -> None:
     codebook = _simple_codebook()
     units = [
@@ -332,6 +376,29 @@ async def test_coded_data_ingest_node_quantifies() -> None:
     assert result["assignment_count"] == 2
     quant = {row["theme_id"]: row for row in result["quantification"]}
     assert quant["T1"]["respondents"] == 2
+
+
+@pytest.mark.asyncio
+async def test_coded_data_ingest_node_halts_without_assignments() -> None:
+    codebook = _simple_codebook()
+    units = [
+        Unit(
+            unit_id="U0001",
+            record_id="R1",
+            source="s",
+            text="clear",
+            original_text="clear",
+        )
+    ]
+    csv_text, total = build_coded_data_csv(units, [], codebook)
+    node = CodedDataIngestNode(name="ingest", result_keys=_REPORT_KEYS)
+    state = State({"results": {"setup": {"source_payload": {"content": csv_text}}}})
+
+    result = (await node(state, RunnableConfig()))["results"]["ingest"]
+
+    assert total == 0
+    assert result["halt"] is True
+    assert result["assistant_message"] == node.missing_assignments_message
 
 
 @pytest.mark.asyncio

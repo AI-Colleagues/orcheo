@@ -297,6 +297,21 @@ async def test_create_workflow_honors_explicit_team_id() -> None:
 
 
 @pytest.mark.asyncio()
+async def test_create_workflow_canonicalizes_explicit_team_id() -> None:
+    repository = _Repository()
+    team_id = uuid4()
+    request = WorkflowCreateRequest(
+        name="Team-scoped workflow",
+        team_id=f"{{{str(team_id).upper()}}}",
+        actor="cli",
+    )
+
+    await workflows.create_workflow(request, repository, _MOCK_WORKSPACE)
+
+    assert repository.last_team_id == str(team_id)
+
+
+@pytest.mark.asyncio()
 async def test_create_workflow_rejects_unknown_team_id() -> None:
     repository = _Repository()
 

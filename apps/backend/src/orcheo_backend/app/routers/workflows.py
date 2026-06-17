@@ -638,7 +638,8 @@ async def create_workflow(
     workspace_id = str(workspace.workspace_id)
     if request.team_id is not None:
         try:
-            await repository.get_team(UUID(request.team_id), workspace_id=workspace_id)
+            parsed_team_id = UUID(request.team_id)
+            await repository.get_team(parsed_team_id, workspace_id=workspace_id)
         except (TeamNotFoundError, ValueError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -647,7 +648,7 @@ async def create_workflow(
                     "code": "team.not_found",
                 },
             ) from exc
-        target_team_id = request.team_id
+        target_team_id = str(parsed_team_id)
     else:
         default_team = await ensure_default_team(repository, workspace)
         target_team_id = str(default_team.id)

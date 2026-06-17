@@ -276,7 +276,7 @@ class CodedDataIngestNode(TaskNode):
         codebook = (
             get_approved_codebook(state, self.result_keys) or reconstructed_codebook
         )
-        if codebook is None:
+        if codebook is None or not assignments:
             return {"assistant_message": self.missing_assignments_message, "halt": True}
         codebook = normalise_codebook_ids(codebook)
 

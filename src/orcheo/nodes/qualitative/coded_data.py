@@ -113,6 +113,9 @@ def parse_coded_data_csv(
     fieldnames = reader.fieldnames or []
     if "unit_id" not in fieldnames or "text" not in fieldnames:
         return None
+    coded_headers = {"code_id", "assignment_index", "theme_id", "theme_title"}
+    if not coded_headers.intersection(fieldnames):
+        return None
 
     units_by_id: dict[str, Unit] = {}
     order: list[str] = []
