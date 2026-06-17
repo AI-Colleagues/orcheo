@@ -8,6 +8,10 @@ from pathlib import Path
 
 import pytest
 
+from orcheo.graph.state import State
+from orcheo.nodes.qualitative.codebook import recover_exportable_codebook
+from orcheo.nodes.qualitative.pipeline import ContextPreNode, SetupNode
+
 _WORKFLOW_PATH = (
     Path(__file__).resolve().parents[2]
     / "colleague-experts"
@@ -28,10 +32,9 @@ def _load_workflow_module():
     if module_name in sys.modules:
         return sys.modules[module_name]
 
-    workflow_path = _WORKFLOW_PATH
-    spec = spec_from_file_location(module_name, workflow_path)
+    spec = spec_from_file_location(module_name, _WORKFLOW_PATH)
     if spec is None or spec.loader is None:
-        msg = f"Unable to load workflow module from {workflow_path}"
+        msg = f"Unable to load workflow module from {_WORKFLOW_PATH}"
         raise RuntimeError(msg)
     module = module_from_spec(spec)
     sys.modules[module_name] = module
@@ -43,187 +46,118 @@ def _load_workflow_module():
     return module
 
 
-def test_extract_thread_id_uses_attachment_scope_thread_id() -> None:
+@pytest.mark.asyncio
+async def test_insight_analyst_workflow_builds_and_compiles() -> None:
     workflow = _load_workflow_module()
-    config = {
-        "configurable": {
-            "thread_id": "exec-123",
-            "attachment_scope": {
-                "workspace_id": "ws-1",
-                "thread_id": "chat-456",
-                "workflow_id": "wf-789",
-            },
-        }
-    }
-    state = {
-        "workspace_id": "ws-1",
-        "config": config,
-        "inputs": {},
-    }
 
-    assert workflow.extract_thread_id(state) == "chat-456"
-    assert workflow.extract_thread_id_from_config(config) == "chat-456"
-    assert workflow.extract_workspace_id(state) == "ws-1"
-    assert workflow.extract_workspace_id_from_config(config) == "ws-1"
-    assert workflow.resolve_thread_namespace(state, config) == (
-        "ws-1",
-        workflow.THREAD_NAMESPACE_TAIL,
-        "chat-456",
-    )
+    graph = await workflow.orcheo_workflow()
+    compiled = graph.compile()
+
+    assert compiled is not None
 
 
 @pytest.mark.asyncio
-async def test_load_pending_documents_uses_configurable_inputs() -> None:
-    workflow = _load_workflow_module()
-    state = {
-        "config": {
-            "configurable": {
+async def test_context_pre_loads_attachment_content_from_resolver() -> None:
+    class _Attachment:
+        def __init__(self, content: bytes, name: str) -> None:
+            self.content = content
+            self.name = name
+
+    class _Resolver:
+        async def load_attachment_bytes(self, attachment_id, attachment_scope):  # noqa: ARG002
+            return _Attachment(b"respondent_id,text\nR1,hello\n", "survey.csv")
+
+    context_pre = ContextPreNode(name="context_pre")
+    result = await context_pre(
+        State(
+            {
                 "inputs": {
                     "documents": [
                         {
-                            "filename": "survey.csv",
-                            "content": "respondent_id,text\nR1,hello\n",
+                            "attachment_id": "att-1",
+                            "filename": "",
                         }
                     ]
                 }
             }
-        }
-    }
-
-    pending = await workflow.load_pending_documents_from_state(state, None)
-
-    assert len(pending) == 1
-    assert pending[0]["filename"] == "survey.csv"
-    assert pending[0]["content"] == "respondent_id,text\nR1,hello\n"
-
-
-@pytest.mark.asyncio
-async def test_load_pending_documents_deduplicates_by_attachment_id() -> None:
-    """Same attachment_id appearing in both state.inputs and state.config.configurable.inputs
-    should produce exactly one pending document, not two."""
-    workflow = _load_workflow_module()
-    doc = {
-        "attachment_id": "atc_abc123",
-        "source": "survey.csv",
-        "content": "r,t\n1,hello\n",
-    }
-    state = {
-        "inputs": {"documents": [doc]},
-        "config": {
+        ),
+        {
             "configurable": {
-                "inputs": {"documents": [doc]},
+                "attachment_resolver": _Resolver(),
+                "attachment_scope": object(),
             }
         },
-    }
+    )
 
-    pending = await workflow.load_pending_documents_from_state(state, None)
-
-    assert len(pending) == 1
-    assert pending[0]["attachment_id"] == "atc_abc123"
+    context_result = result["results"]["context_pre"]
+    assert context_result["source_hint"] == "1 file(s) loaded: survey.csv"
+    assert context_result["pending_documents"][0]["filename"] == "survey.csv"
+    assert context_result["pending_documents"][0]["content"] == (
+        "respondent_id,text\nR1,hello\n"
+    )
 
 
 @pytest.mark.asyncio
-async def test_codebook_setup_loads_raw_source_from_pending_documents(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workflow = _load_workflow_module()
-    saved_thread_state = {}
+async def test_setup_node_resolves_source_and_codebook_from_pending_documents() -> None:
+    setup = SetupNode(
+        name="setup",
+        resolve_codebook=True,
+        resolve_seed_codebook=True,
+        exclude_codebook_docs=True,
+    )
+    state = State(
+        {
+            "inputs": {"research_objective": "Understand onboarding pain points"},
+            "results": {
+                "context_pre": {
+                    "pending_documents": [
+                        {
+                            "filename": "codebook.csv",
+                            "content": (
+                                "theme_id,theme_title,code_id,code_title,definition\n"
+                                "T1,Onboarding,C1,Clear setup,Easy\n"
+                            ),
+                        },
+                        {
+                            "filename": "survey.csv",
+                            "content": "respondent_id,text\nR1,Hello\n",
+                        },
+                    ]
+                }
+            },
+        }
+    )
 
-    async def fake_save_thread_state(state, config, thread_state) -> None:  # noqa: ANN001
-        saved_thread_state["value"] = thread_state
+    result = (await setup(state, {}))["results"]["setup"]
 
-    async def fake_load_thread_state(state, config):  # noqa: ANN001
-        return workflow.ThreadState(
-            pending_documents=[
+    assert result["objective"] == "Understand onboarding pain points"
+    assert result["source_payload"]["filename"] == "survey.csv"
+    assert result["approved_codebook"]["themes"][0]["theme_id"] == "T1"
+    assert result["seed_codebook_from_file"]["themes"][0]["theme_id"] == "T1"
+
+
+def test_recover_exportable_codebook_uses_assistant_message_history() -> None:
+    state = State(
+        {
+            "messages": [
                 {
-                    "filename": "survey.csv",
+                    "role": "assistant",
                     "content": (
-                        "respondent_id,segment,role,text\n"
-                        'R1,new,admin,"The setup checklist was clear."\n'
+                        "# Insight Analyst - Draft Codebook\n\n"
+                        "| Theme ID | Theme Title | Code ID | Code Title | Definition | "
+                        "Include | Exclude |\n"
+                        "| --- | --- | --- | --- | --- | --- | --- |\n"
+                        "| T1 | Navigation and instruction clarity | T1.C1 | "
+                        "Confusing setup | The onboarding/setup process is hard to "
+                        "understand. | Statements that the setup is confusing. | "
+                        "Problems caused primarily by technical failures. |\n"
                     ),
                 }
             ]
-        )
-
-    async def fake_load_pending_documents_from_state(state, config):  # noqa: ANN001
-        return [
-            {
-                "filename": "survey.csv",
-                "content": (
-                    "respondent_id,segment,role,text\n"
-                    'R1,new,admin,"The setup checklist was clear."\n'
-                ),
-            }
-        ]
-
-    monkeypatch.setattr(workflow, "save_thread_state", fake_save_thread_state)
-    monkeypatch.setattr(workflow, "load_thread_state", fake_load_thread_state)
-    monkeypatch.setattr(
-        workflow,
-        "load_pending_documents_from_state",
-        fake_load_pending_documents_from_state,
+        }
     )
 
-    node = workflow.CodebookSetupNode(name="codebook_setup")
-    result = await node.run({"inputs": {}}, None)
+    codebook = recover_exportable_codebook(state)
 
-    assert result == {"objective": "(not provided)"}
-    assert "value" in saved_thread_state
-    assert saved_thread_state["value"].source_payload == {
-        "content": (
-            "respondent_id,segment,role,text\n"
-            'R1,new,admin,"The setup checklist was clear."\n'
-        ),
-        "filename": "survey.csv",
-        "source_type": "survey_csv",
-        "storage_path": None,
-    }
-
-
-@pytest.mark.asyncio
-async def test_recode_setup_recovers_codebook_from_assistant_message(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Recode setup falls back to the prior assistant codebook output."""
-    workflow = _load_workflow_module()
-    saved_thread_state = {}
-
-    async def fake_save_thread_state(state, config, thread_state) -> None:  # noqa: ANN001
-        saved_thread_state["value"] = thread_state
-
-    async def fake_load_thread_state(state, config):  # noqa: ANN001
-        return workflow.ThreadState()
-
-    async def fake_load_pending_documents_from_state(state, config):  # noqa: ANN001
-        return []
-
-    monkeypatch.setattr(workflow, "save_thread_state", fake_save_thread_state)
-    monkeypatch.setattr(workflow, "load_thread_state", fake_load_thread_state)
-    monkeypatch.setattr(
-        workflow,
-        "load_pending_documents_from_state",
-        fake_load_pending_documents_from_state,
-    )
-
-    codebook_markdown = (
-        "# Insight Analyst — Draft Codebook\n\n"
-        "| Theme ID | Theme Title | Code ID | Code Title | Definition | Include | Exclude |\n"
-        "| --- | --- | --- | --- | --- | --- | --- |\n"
-        "| T1 | Navigation and instruction clarity | T1.C1 | Confusing setup | "
-        "The onboarding/setup process is hard to understand. | Statements that "
-        "the setup is confusing. | Problems caused primarily by technical "
-        "failures. |\n"
-    )
-    state = {
-        "messages": [
-            {"role": "assistant", "content": codebook_markdown},
-        ]
-    }
-
-    node = workflow.RecodeSetupNode(name="recode_setup")
-    result = await node.run(state, None)
-
-    assert result == {"has_source": False, "has_codebook": True}
-    assert "value" in saved_thread_state
-    assert saved_thread_state["value"].approved_codebook is not None
-    assert saved_thread_state["value"].approved_codebook.themes[0].theme_id == "T1"
+    assert codebook is not None
+    assert codebook.themes[0].theme_id == "T1"
