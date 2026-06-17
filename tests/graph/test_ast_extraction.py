@@ -421,6 +421,36 @@ def test_extract_graph_index_skips_overridden_default_credential() -> None:
     assert result["credentials"] == []
 
 
+def test_extract_graph_index_does_not_fallback_for_custom_import_collision() -> None:
+    source = textwrap.dedent("""\
+        from custom_nodes import PostgresNode
+
+        PostgresNode(name="custom_postgres")
+    """)
+
+    result = extract_graph_index(source)
+
+    assert result["credentials"] == []
+
+
+def test_extract_graph_index_resolves_orcheo_module_alias_default_credential() -> None:
+    source = textwrap.dedent("""\
+        import orcheo.nodes.connectors.wecom as wecom
+
+        wecom.WeComGroupPushNode(name="push")
+    """)
+
+    result = extract_graph_index(source)
+
+    assert result["credentials"] == [
+        {
+            "node_type": "WeComGroupPushNode",
+            "field": "webhook_key",
+            "placeholder": "[[wecom_group_webhook_key]]",
+        }
+    ]
+
+
 def test_extract_graph_index_syntax_error_returns_empty() -> None:
     result = extract_graph_index("def broken(:\n    pass")
     assert result == {"cron": [], "listeners": [], "credentials": []}

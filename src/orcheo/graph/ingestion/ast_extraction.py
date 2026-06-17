@@ -67,9 +67,16 @@ class _AddNodeVisitor(ast.NodeVisitor):
     def __init__(self) -> None:
         self.import_aliases: dict[str, str] = {}
         self.import_modules: dict[str, str] = {}
+        self.module_aliases: dict[str, str] = {}
         self.cron_entries: list[dict[str, Any]] = []
         self.listener_entries: list[dict[str, Any]] = []
         self.credential_entries: list[dict[str, str]] = []
+
+    def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
+        for alias in node.names:
+            local_name = alias.asname or alias.name.split(".", 1)[0]
+            self.module_aliases[local_name] = alias.name
+        self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
         for alias in node.names:
@@ -102,6 +109,8 @@ class _AddNodeVisitor(ast.NodeVisitor):
             raw_name = _get_call_name(call.func)
             if raw_name is not None:
                 module_name = self.import_modules.get(raw_name)
+        else:
+            module_name = self._resolve_module_alias(module_name)
         self.credential_entries.extend(
             _extract_default_credentials(
                 class_name,
@@ -152,6 +161,13 @@ class _AddNodeVisitor(ast.NodeVisitor):
             }
             entry.update({k: v for k, v in kwargs.items() if k != "platform"})
             self.listener_entries.append(entry)
+
+    def _resolve_module_alias(self, module_name: str) -> str:
+        root, separator, remainder = module_name.partition(".")
+        resolved_root = self.module_aliases.get(root)
+        if resolved_root is None:
+            return module_name
+        return f"{resolved_root}{separator}{remainder}" if separator else resolved_root
 
 
 def _extract_default_credentials(
@@ -223,14 +239,18 @@ def _resolve_orcheo_node_class(
     class_name: str,
     module_name: str | None,
 ) -> type[BaseModel] | None:
-    candidates = []
-    if module_name is not None:
-        candidates.append((module_name, class_name))
-    candidates.append((_ORCHEO_NODE_MODULE_PREFIX, class_name))
+    if module_name is not None and not module_name.startswith(
+        _ORCHEO_NODE_MODULE_PREFIX
+    ):
+        return None
+
+    candidates = (
+        [(module_name, class_name), (_ORCHEO_NODE_MODULE_PREFIX, class_name)]
+        if module_name is not None
+        else [(_ORCHEO_NODE_MODULE_PREFIX, class_name)]
+    )
 
     for candidate_module, candidate_name in candidates:
-        if not candidate_module.startswith(_ORCHEO_NODE_MODULE_PREFIX):
-            continue
         try:
             module = importlib.import_module(candidate_module)
         except Exception:
