@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 import ast
+import importlib
+import re
+from functools import lru_cache
 from typing import Any
+from pydantic import BaseModel
+from pydantic_core import PydanticUndefined
 
 
 _CRON_NODE_TYPE = "CronTriggerNode"
@@ -15,6 +20,9 @@ _LISTENER_NODE_PLATFORMS: dict[str, str] = {
     "DiscordBotListenerNode": "discord",
     "QQBotListenerNode": "qq",
 }
+
+_CREDENTIAL_PLACEHOLDER_PATTERN = re.compile(r"^\[\[(?P<body>.+)\]\]$")
+_ORCHEO_NODE_MODULE_PREFIX = "orcheo.nodes"
 
 
 def _literal_value(node: ast.expr) -> Any:
@@ -57,15 +65,61 @@ class _AddNodeVisitor(ast.NodeVisitor):
     """Walk an AST to collect graph.add_node() call metadata."""
 
     def __init__(self) -> None:
+        self.import_aliases: dict[str, str] = {}
+        self.import_modules: dict[str, str] = {}
+        self.module_aliases: dict[str, str] = {}
         self.cron_entries: list[dict[str, Any]] = []
         self.listener_entries: list[dict[str, Any]] = []
+        self.credential_entries: list[dict[str, str]] = []
 
-    def visit_Expr(self, node: ast.Expr) -> None:  # noqa: N802
-        if isinstance(node.value, ast.Call):
-            self._handle_call(node.value)
+    def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
+        for alias in node.names:
+            local_name = alias.asname or alias.name.split(".", 1)[0]
+            self.module_aliases[local_name] = alias.name
         self.generic_visit(node)
 
-    def _handle_call(self, call: ast.Call) -> None:
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
+        for alias in node.names:
+            if alias.name == "*":
+                continue
+            self.import_aliases[alias.asname or alias.name] = alias.name
+            if node.module is not None:
+                self.import_modules[alias.asname or alias.name] = node.module
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
+        self._handle_constructor_call(node)
+        self._handle_add_node_call(node)
+        self.generic_visit(node)
+
+    def _resolve_class_name(self, node: ast.expr) -> str | None:
+        class_name = _get_call_name(node)
+        if class_name is None:
+            return None
+        return self.import_aliases.get(class_name, class_name)
+
+    def _handle_constructor_call(self, call: ast.Call) -> None:
+        class_name = self._resolve_class_name(call.func)
+        if class_name is None:
+            return
+
+        provided_fields = {kw.arg for kw in call.keywords if kw.arg is not None}
+        module_name = _get_call_module(call.func)
+        if module_name is None:
+            raw_name = _get_call_name(call.func)
+            if raw_name is not None:
+                module_name = self.import_modules.get(raw_name)
+        else:
+            module_name = self._resolve_module_alias(module_name)
+        self.credential_entries.extend(
+            _extract_default_credentials(
+                class_name,
+                provided_fields,
+                module_name=module_name,
+            )
+        )
+
+    def _handle_add_node_call(self, call: ast.Call) -> None:
         func = call.func
         if not (isinstance(func, ast.Attribute) and func.attr == "add_node"):
             return
@@ -83,7 +137,7 @@ class _AddNodeVisitor(ast.NodeVisitor):
 
         if not isinstance(ctor_node, ast.Call):
             return
-        class_name = _get_call_name(ctor_node.func)
+        class_name = self._resolve_class_name(ctor_node.func)
         if class_name is None:
             return
 
@@ -108,6 +162,119 @@ class _AddNodeVisitor(ast.NodeVisitor):
             entry.update({k: v for k, v in kwargs.items() if k != "platform"})
             self.listener_entries.append(entry)
 
+    def _resolve_module_alias(self, module_name: str) -> str:
+        root, separator, remainder = module_name.partition(".")
+        resolved_root = self.module_aliases.get(root)
+        if resolved_root is None:
+            return module_name
+        return f"{resolved_root}{separator}{remainder}" if separator else resolved_root
+
+
+def _extract_default_credentials(
+    class_name: str,
+    provided_fields: set[str],
+    *,
+    module_name: str | None = None,
+) -> list[dict[str, str]]:
+    """Return credential placeholders from node defaults not overridden in source."""
+    node_cls = _resolve_orcheo_node_class(class_name, module_name)
+    if node_cls is None:
+        return []
+    return _collect_model_default_credentials(class_name, node_cls, provided_fields)
+
+
+def _collect_model_default_credentials(
+    class_name: str,
+    node_cls: type[BaseModel],
+    provided_fields: set[str],
+) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    for field_name, field_info in node_cls.model_fields.items():
+        if field_name in provided_fields:
+            continue
+        default = field_info.default
+        if default is PydanticUndefined:
+            continue
+        placeholders = _collect_credential_placeholders(default)
+        for placeholder in placeholders:
+            entries.append(
+                {
+                    "node_type": class_name,
+                    "field": field_name,
+                    "placeholder": placeholder,
+                }
+            )
+    return entries
+
+
+def _collect_credential_placeholders(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value] if _is_credential_placeholder(value) else []
+    if isinstance(value, dict):
+        placeholders: list[str] = []
+        for nested in value.values():
+            placeholders.extend(_collect_credential_placeholders(nested))
+        return placeholders
+    if isinstance(value, list | tuple | set):
+        placeholders = []
+        for nested in value:
+            placeholders.extend(_collect_credential_placeholders(nested))
+        return placeholders
+    return []
+
+
+def _is_credential_placeholder(value: str) -> bool:
+    match = _CREDENTIAL_PLACEHOLDER_PATTERN.fullmatch(value.strip())
+    if match is None:
+        return False
+    body = match.group("body").strip()
+    if not body:
+        return False
+    identifier = body.split("#", 1)[0].strip()
+    return bool(identifier)
+
+
+@lru_cache(maxsize=256)
+def _resolve_orcheo_node_class(
+    class_name: str,
+    module_name: str | None,
+) -> type[BaseModel] | None:
+    if module_name is not None and not module_name.startswith(
+        _ORCHEO_NODE_MODULE_PREFIX
+    ):
+        return None
+
+    candidates = (
+        [(module_name, class_name), (_ORCHEO_NODE_MODULE_PREFIX, class_name)]
+        if module_name is not None
+        else [(_ORCHEO_NODE_MODULE_PREFIX, class_name)]
+    )
+
+    for candidate_module, candidate_name in candidates:
+        try:
+            module = importlib.import_module(candidate_module)
+        except Exception:
+            continue
+        node_cls = getattr(module, candidate_name, None)
+        if isinstance(node_cls, type) and issubclass(node_cls, BaseModel):
+            return node_cls
+    return None
+
+
+def _get_call_module(node: ast.expr) -> str | None:
+    if not isinstance(node, ast.Attribute):
+        return None
+    parts: list[str] = []
+    current: ast.expr = node.value
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if isinstance(current, ast.Name):
+        parts.append(current.id)
+    if not parts:
+        return None
+    return ".".join(reversed(parts))
+
 
 def extract_graph_index(source: str) -> dict[str, Any]:
     """Parse a LangGraph script and extract cron and listener metadata via AST walk.
@@ -119,11 +286,15 @@ def extract_graph_index(source: str) -> dict[str, Any]:
     try:
         tree = ast.parse(source)
     except SyntaxError:
-        return {"cron": [], "listeners": []}
+        return {"cron": [], "listeners": [], "credentials": []}
 
     visitor = _AddNodeVisitor()
     visitor.visit(tree)
-    return {"cron": visitor.cron_entries, "listeners": visitor.listener_entries}
+    return {
+        "cron": visitor.cron_entries,
+        "listeners": visitor.listener_entries,
+        "credentials": visitor.credential_entries,
+    }
 
 
 __all__ = ["extract_graph_index"]

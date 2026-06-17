@@ -239,8 +239,76 @@ def orcheo_workflow() -> StateGraph:
 
     payload = readiness.json()
     assert payload["status"] == "missing"
-    assert payload["available_credentials"] == ["openai_api_key"]
+    assert payload["available_credentials"] == ["openai_api_key", "telegram_token"]
     assert payload["missing_credentials"] == ["telegram_chat_id"]
+
+
+def test_workflow_credential_readiness_reports_implicit_node_defaults(
+    api_client: TestClient,
+) -> None:
+    """Readiness reports credential defaults omitted from uploaded scripts."""
+    workflow_id = _create_workflow(api_client)
+
+    response = api_client.post(
+        f"/api/workflows/{workflow_id}/versions/ingest",
+        json={
+            "script": """
+from langgraph.graph import END, START, StateGraph
+from orcheo.graph.state import State
+from orcheo.nodes.storage.mongodb import (
+    MongoDBEnsureSearchIndexNode,
+    MongoDBEnsureVectorIndexNode,
+)
+
+def orcheo_workflow() -> StateGraph:
+    text_index = MongoDBEnsureSearchIndexNode(
+        name="ensure_text_index",
+        database="{{config.configurable.database}}",
+        collection="{{config.configurable.collection}}",
+        definition={"mappings": {"dynamic": False}},
+        mode="ensure_or_update",
+    )
+    vector_index = MongoDBEnsureVectorIndexNode(
+        name="ensure_vector_index",
+        database="{{config.configurable.database}}",
+        collection="{{config.configurable.collection}}",
+        dimensions="{{config.configurable.dimensions}}",
+        similarity="cosine",
+        path="{{config.configurable.vector_path}}",
+        mode="ensure_or_update",
+    )
+
+    graph = StateGraph(State)
+    graph.add_node("ensure_text_index", text_index)
+    graph.add_node("ensure_vector_index", vector_index)
+    graph.add_edge(START, "ensure_text_index")
+    graph.add_edge("ensure_text_index", "ensure_vector_index")
+    graph.add_edge("ensure_vector_index", END)
+    return graph
+""",
+            "created_by": "tester",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["graph"]["index"]["credentials"] == [
+        {
+            "node_type": "MongoDBEnsureSearchIndexNode",
+            "field": "connection_string",
+            "placeholder": "[[mdb_connection_string]]",
+        },
+        {
+            "node_type": "MongoDBEnsureVectorIndexNode",
+            "field": "connection_string",
+            "placeholder": "[[mdb_connection_string]]",
+        },
+    ]
+
+    readiness = api_client.get(f"/api/workflows/{workflow_id}/credentials/readiness")
+    assert readiness.status_code == 200
+
+    payload = readiness.json()
+    assert payload["status"] == "missing"
+    assert payload["missing_credentials"] == ["mdb_connection_string"]
 
 
 def test_workflow_credential_readiness_no_credentials_required(

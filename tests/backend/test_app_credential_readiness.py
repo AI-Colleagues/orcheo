@@ -84,6 +84,7 @@ def orcheo_workflow() -> StateGraph:
     assert sorted(placeholders) == [
         "openai_api_key",
         "telegram_chat_id",
+        "telegram_token",
     ]
 
 
@@ -309,7 +310,7 @@ def orcheo_workflow() -> StateGraph:
     )
 
     assert response.status == "missing"
-    assert response.available_credentials == ["openai_api_key"]
+    assert response.available_credentials == ["openai_api_key", "telegram_token"]
     assert response.missing_credentials == ["telegram_chat_id"]
 
 
@@ -340,6 +341,52 @@ def test_collect_workflow_credential_placeholders_scans_graph_summary() -> None:
                 ],
                 "edges": [],
             }
+        },
+        None,
+    )
+
+    assert placeholders == {
+        "mdb_connection_string": {"[[mdb_connection_string]]"},
+    }
+
+
+def test_collect_workflow_credential_placeholders_scans_index_credentials() -> None:
+    placeholders = collect_workflow_credential_placeholders(
+        {
+            "format": "langgraph-script",
+            "source": "MongoDBEnsureSearchIndexNode(name='node')",
+            "index": {
+                "credentials": [
+                    {
+                        "node_type": "MongoDBEnsureSearchIndexNode",
+                        "field": "connection_string",
+                        "placeholder": "[[mdb_connection_string]]",
+                    }
+                ]
+            },
+        },
+        None,
+    )
+
+    assert placeholders == {
+        "mdb_connection_string": {"[[mdb_connection_string]]"},
+    }
+
+
+def test_collect_workflow_credential_placeholders_infers_source_defaults() -> None:
+    placeholders = collect_workflow_credential_placeholders(
+        {
+            "format": "langgraph-script",
+            "source": """
+from orcheo.nodes.storage.mongodb import MongoDBEnsureSearchIndexNode
+
+MongoDBEnsureSearchIndexNode(
+    name="ensure_text_index",
+    database="{{config.configurable.database}}",
+    collection="{{config.configurable.collection}}",
+    definition={"mappings": {"dynamic": False}},
+)
+""",
         },
         None,
     )

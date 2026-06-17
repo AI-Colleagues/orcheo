@@ -3,13 +3,21 @@
 from __future__ import annotations
 import ast
 import textwrap
+import types
 
 import pytest
+from pydantic import BaseModel
 
+import orcheo.graph.ingestion.ast_extraction as ast_extraction
 from orcheo.graph.ingestion.ast_extraction import (
     _AddNodeVisitor,
+    _collect_model_default_credentials,
+    _collect_credential_placeholders,
     _extract_kwargs,
+    _extract_default_credentials,
     _get_call_name,
+    _get_call_module,
+    _is_credential_placeholder,
     _literal_value,
     extract_graph_index,
 )
@@ -141,6 +149,61 @@ def test_get_call_name_other_returns_none() -> None:
     assert _get_call_name(node) is None  # type: ignore[arg-type]
 
 
+def test_is_credential_placeholder_matches_runtime_shape() -> None:
+    assert _is_credential_placeholder("[[credential-name]]")
+    assert _is_credential_placeholder("[[credential-name#oauth.access_token]]")
+    assert not _is_credential_placeholder("[[  ]]")
+    assert not _is_credential_placeholder("[[#oauth.access_token]]")
+    assert not _is_credential_placeholder("prefix [[credential-name]]")
+
+
+class _SyntheticCredentialNode(BaseModel):
+    api_key: str = "[[custom-service-key]]"
+    nested: dict[str, str] = {"refresh": "[[custom-refresh#oauth.refresh_token]]"}
+    normal_value: str = "not-a-credential"
+
+
+class _RequiredCredentialNode(BaseModel):
+    required_value: str
+    secret_value: str = "[[required-secret]]"
+
+
+def test_collect_model_default_credentials_discovers_placeholder_defaults() -> None:
+    entries = _collect_model_default_credentials(
+        "SyntheticCredentialNode",
+        _SyntheticCredentialNode,
+        {"api_key"},
+    )
+
+    assert entries == [
+        {
+            "node_type": "SyntheticCredentialNode",
+            "field": "nested",
+            "placeholder": "[[custom-refresh#oauth.refresh_token]]",
+        }
+    ]
+
+
+def test_collect_model_default_credentials_skips_required_fields() -> None:
+    entries = _collect_model_default_credentials(
+        "RequiredCredentialNode",
+        _RequiredCredentialNode,
+        set(),
+    )
+
+    assert entries == [
+        {
+            "node_type": "RequiredCredentialNode",
+            "field": "secret_value",
+            "placeholder": "[[required-secret]]",
+        }
+    ]
+
+
+def test_collect_credential_placeholders_returns_empty_for_scalars() -> None:
+    assert _collect_credential_placeholders(123) == []
+
+
 # ---------------------------------------------------------------------------
 # _AddNodeVisitor
 # ---------------------------------------------------------------------------
@@ -158,6 +221,7 @@ def test_visitor_visit_expr_non_call() -> None:
     visitor = _parse_and_visit("x = 1\n1 + 2\n")
     assert visitor.cron_entries == []
     assert visitor.listener_entries == []
+    assert visitor.credential_entries == []
 
 
 def test_visitor_handle_call_non_attribute_func() -> None:
@@ -292,6 +356,244 @@ def test_visitor_listener_discord_platform() -> None:
     assert visitor.listener_entries[0]["platform"] == "discord"
 
 
+def test_visitor_add_node_unknown_constructor_type_is_ignored() -> None:
+    source = """\
+        graph.add_node(
+            "plain_node",
+            PlainNode(payload="value"),
+        )
+    """
+    visitor = _parse_and_visit(source)
+    assert visitor.cron_entries == []
+    assert visitor.listener_entries == []
+
+
+def test_visitor_importfrom_star_and_relative_imports() -> None:
+    source = """\
+        from . import local_name
+        from some.pkg import *
+    """
+    visitor = _parse_and_visit(source)
+    assert visitor.import_aliases == {"local_name": "local_name"}
+    assert visitor.import_modules == {}
+
+
+def test_visitor_import_records_module_aliases() -> None:
+    source = """\
+        import orcheo.nodes.wecom as wecom
+        import orcheo.nodes.storage.mongodb.search
+    """
+    visitor = _parse_and_visit(source)
+    assert visitor.module_aliases["wecom"] == "orcheo.nodes.wecom"
+    assert visitor.module_aliases["orcheo"] == "orcheo.nodes.storage.mongodb.search"
+
+
+def test_resolve_module_alias_without_remainder() -> None:
+    visitor = _AddNodeVisitor()
+    visitor.module_aliases["wecom"] = "orcheo.nodes.wecom"
+
+    assert visitor._resolve_module_alias("wecom") == "orcheo.nodes.wecom"
+
+
+def test_handle_constructor_call_uses_import_modules_for_bare_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _ResolvedNode(BaseModel):
+        connection_string: str = "[[resolved-connection-string]]"
+
+    visitor = _AddNodeVisitor()
+    visitor.import_modules["MongoDBEnsureSearchIndexNode"] = (
+        "orcheo.nodes.storage.mongodb.search"
+    )
+    monkeypatch.setattr(
+        ast_extraction,
+        "_resolve_orcheo_node_class",
+        lambda *_args, **_kwargs: _ResolvedNode,
+    )
+
+    call = ast.parse(
+        'MongoDBEnsureSearchIndexNode(name="ensure_text_index")',
+        mode="eval",
+    ).body
+    assert isinstance(call, ast.Call)
+
+    visitor._handle_constructor_call(call)
+
+    assert visitor.credential_entries == [
+        {
+            "node_type": "MongoDBEnsureSearchIndexNode",
+            "field": "connection_string",
+            "placeholder": "[[resolved-connection-string]]",
+        }
+    ]
+
+
+def test_handle_constructor_call_resolves_module_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _ResolvedNode(BaseModel):
+        webhook_key: str = "[[resolved-webhook-key]]"
+
+    visitor = _AddNodeVisitor()
+    visitor.module_aliases["wecom"] = "orcheo.nodes.wecom"
+    monkeypatch.setattr(
+        ast_extraction,
+        "_resolve_orcheo_node_class",
+        lambda *_args, **_kwargs: _ResolvedNode,
+    )
+
+    call = ast.parse('wecom.WeComGroupPushNode(name="push")', mode="eval").body
+    assert isinstance(call, ast.Call)
+
+    visitor._handle_constructor_call(call)
+
+    assert visitor.credential_entries == [
+        {
+            "node_type": "WeComGroupPushNode",
+            "field": "webhook_key",
+            "placeholder": "[[resolved-webhook-key]]",
+        }
+    ]
+
+
+def test_handle_constructor_call_skips_import_module_lookup_when_name_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    visitor = _AddNodeVisitor()
+    call = ast.parse("ignored()", mode="eval").body
+    assert isinstance(call, ast.Call)
+
+    monkeypatch.setattr(visitor, "_resolve_class_name", lambda _node: "SyntheticNode")
+    monkeypatch.setattr(ast_extraction, "_get_call_module", lambda _node: None)
+    monkeypatch.setattr(ast_extraction, "_get_call_name", lambda _node: None)
+    monkeypatch.setattr(
+        ast_extraction,
+        "_extract_default_credentials",
+        lambda *_args, **_kwargs: [],
+    )
+
+    visitor._handle_constructor_call(call)
+
+    assert visitor.credential_entries == []
+
+
+def test_collect_credential_placeholders_recurses_nested_iterables() -> None:
+    value = [
+        "[[one]]",
+        ("[[two#oauth.refresh_token]]", {"[[three]]"}),
+        "not-a-placeholder",
+    ]
+
+    assert sorted(_collect_credential_placeholders(value)) == [
+        "[[one]]",
+        "[[three]]",
+        "[[two#oauth.refresh_token]]",
+    ]
+
+
+def test_resolve_orcheo_node_class_falls_back_after_import_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ast_extraction._resolve_orcheo_node_class.cache_clear()
+    fake_module = types.ModuleType("orcheo.nodes")
+
+    class FakeTelegramBotListenerNode(BaseModel):
+        pass
+
+    fake_module.TelegramBotListenerNode = FakeTelegramBotListenerNode
+
+    def fake_import_module(name: str, package: str | None = None) -> object:
+        if name == "orcheo.nodes.storage.missing":
+            raise ImportError("boom")
+        if name == "orcheo.nodes":
+            return fake_module
+        raise AssertionError(f"unexpected import: {name!r}")
+
+    monkeypatch.setattr(ast_extraction.importlib, "import_module", fake_import_module)
+
+    try:
+        node_cls = ast_extraction._resolve_orcheo_node_class(
+            "TelegramBotListenerNode",
+            "orcheo.nodes.storage.missing",
+        )
+        assert node_cls is not None
+        assert node_cls is FakeTelegramBotListenerNode
+    finally:
+        ast_extraction._resolve_orcheo_node_class.cache_clear()
+
+
+def test_resolve_orcheo_node_class_falls_back_when_primary_missing_class(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ast_extraction._resolve_orcheo_node_class.cache_clear()
+    primary_module = types.ModuleType("orcheo.nodes.storage.missing")
+    fallback_module = types.ModuleType("orcheo.nodes")
+
+    class FallbackTelegramBotListenerNode(BaseModel):
+        pass
+
+    fallback_module.TelegramBotListenerNode = FallbackTelegramBotListenerNode
+
+    def fake_import_module(name: str, package: str | None = None) -> object:
+        if name == "orcheo.nodes.storage.missing":
+            return primary_module
+        if name == "orcheo.nodes":
+            return fallback_module
+        raise AssertionError(f"unexpected import: {name!r}")
+
+    monkeypatch.setattr(ast_extraction.importlib, "import_module", fake_import_module)
+
+    try:
+        node_cls = ast_extraction._resolve_orcheo_node_class(
+            "TelegramBotListenerNode",
+            "orcheo.nodes.storage.missing",
+        )
+        assert node_cls is FallbackTelegramBotListenerNode
+    finally:
+        ast_extraction._resolve_orcheo_node_class.cache_clear()
+
+
+def test_resolve_orcheo_node_class_returns_imported_class(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ast_extraction._resolve_orcheo_node_class.cache_clear()
+    fake_module = types.ModuleType("orcheo.nodes.wecom")
+
+    class FakeWeComGroupPushNode(BaseModel):
+        pass
+
+    fake_module.WeComGroupPushNode = FakeWeComGroupPushNode
+
+    def fake_import_module(name: str, package: str | None = None) -> object:
+        if name == "orcheo.nodes.wecom":
+            return fake_module
+        raise AssertionError(f"unexpected import: {name!r}")
+
+    monkeypatch.setattr(ast_extraction.importlib, "import_module", fake_import_module)
+
+    try:
+        node_cls = ast_extraction._resolve_orcheo_node_class(
+            "WeComGroupPushNode",
+            "orcheo.nodes.wecom",
+        )
+        assert node_cls is not None
+        assert node_cls is FakeWeComGroupPushNode
+    finally:
+        ast_extraction._resolve_orcheo_node_class.cache_clear()
+
+
+def test_get_call_module_nested_attribute_and_invalid_root() -> None:
+    nested = ast.parse("pkg.mod.Class()", mode="eval").body.func
+    assert _get_call_module(nested) == "pkg.mod"
+
+    invalid = ast.Attribute(
+        value=ast.Constant(value=1),
+        attr="Class",
+        ctx=ast.Load(),
+    )
+    assert _get_call_module(invalid) is None
+
+
 # ---------------------------------------------------------------------------
 # extract_graph_index
 # ---------------------------------------------------------------------------
@@ -299,7 +601,7 @@ def test_visitor_listener_discord_platform() -> None:
 
 def test_extract_graph_index_empty_script() -> None:
     result = extract_graph_index("x = 1\n")
-    assert result == {"cron": [], "listeners": []}
+    assert result == {"cron": [], "listeners": [], "credentials": []}
 
 
 def test_extract_graph_index_cron_entry() -> None:
@@ -326,6 +628,88 @@ def test_extract_graph_index_listener_entry() -> None:
     assert result["listeners"][0]["platform"] == "telegram"
 
 
+def test_extract_graph_index_node_default_credentials() -> None:
+    class _ResolvedNode(BaseModel):
+        connection_string: str = "[[resolved-connection-string]]"
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        ast_extraction,
+        "_resolve_orcheo_node_class",
+        lambda *_args, **_kwargs: _ResolvedNode,
+    )
+    try:
+        assert _extract_default_credentials(
+            "MongoDBEnsureSearchIndexNode",
+            set(),
+            module_name="orcheo.nodes.storage.mongodb.search",
+        ) == [
+            {
+                "node_type": "MongoDBEnsureSearchIndexNode",
+                "field": "connection_string",
+                "placeholder": "[[resolved-connection-string]]",
+            }
+        ]
+    finally:
+        monkeypatch.undo()
+
+
+def test_extract_graph_index_skips_overridden_default_credential() -> None:
+    source = textwrap.dedent("""\
+        from orcheo.nodes.storage.mongodb import MongoDBEnsureSearchIndexNode as Search
+
+        Search(
+            name="ensure_text_index",
+            connection_string="{{config.configurable.connection_string}}",
+            database="{{config.configurable.database}}",
+            collection="{{config.configurable.collection}}",
+            definition={"mappings": {"dynamic": False}},
+        )
+    """)
+
+    result = extract_graph_index(source)
+
+    assert result["credentials"] == []
+
+
+def test_extract_graph_index_does_not_fallback_for_custom_import_collision() -> None:
+    source = textwrap.dedent("""\
+        from custom_nodes import PostgresNode
+
+        PostgresNode(name="custom_postgres")
+    """)
+
+    result = extract_graph_index(source)
+
+    assert result["credentials"] == []
+
+
+def test_extract_graph_index_resolves_orcheo_module_alias_default_credential() -> None:
+    class _ResolvedNode(BaseModel):
+        webhook_key: str = "[[resolved-webhook-key]]"
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        ast_extraction,
+        "_resolve_orcheo_node_class",
+        lambda *_args, **_kwargs: _ResolvedNode,
+    )
+    try:
+        assert _extract_default_credentials(
+            "WeComGroupPushNode",
+            set(),
+            module_name="orcheo.nodes.wecom",
+        ) == [
+            {
+                "node_type": "WeComGroupPushNode",
+                "field": "webhook_key",
+                "placeholder": "[[resolved-webhook-key]]",
+            }
+        ]
+    finally:
+        monkeypatch.undo()
+
+
 def test_extract_graph_index_syntax_error_returns_empty() -> None:
     result = extract_graph_index("def broken(:\n    pass")
-    assert result == {"cron": [], "listeners": []}
+    assert result == {"cron": [], "listeners": [], "credentials": []}
