@@ -72,7 +72,7 @@ def test_publish_workflow_includes_share_url(
 
     assert response.status_code == 201
     payload = response.json()
-    expected_url = f"https://orcheo-studio.ai-colleagues.com/chat/default/{workflow_id}"
+    expected_url = f"https://orcheo-studio.ai-colleagues.com/chat/default/team/default/{workflow_id}"
     assert payload["share_url"] == expected_url
     assert payload["workflow"]["share_url"] == expected_url
 

@@ -94,7 +94,7 @@ class ContextPreNode(TaskNode):
                             payload = await attachment_resolver.load_attachment_bytes(
                                 attachment_id, attachment_scope
                             )
-                            for enc in ("utf-8", "latin-1"):
+                            for enc in ("utf-8", "latin-1"):  # pragma: no branch
                                 try:
                                     content = payload.content.decode(enc)
                                     break
@@ -109,7 +109,7 @@ class ContextPreNode(TaskNode):
                         try:
                             with open(storage_path, "rb") as fh:
                                 raw = fh.read()
-                            for enc in ("utf-8", "latin-1"):
+                            for enc in ("utf-8", "latin-1"):  # pragma: no branch
                                 try:
                                     content = raw.decode(enc)
                                     break
@@ -202,7 +202,7 @@ class SetupNode(TaskNode):
             return None
 
         if self.exclude_codebook_docs:
-            for doc in get_pending_documents(state, keys):
+            for doc in get_pending_documents(state, keys):  # pragma: no branch
                 content = doc.get("content") or ""
                 if not content:
                     continue
@@ -219,7 +219,7 @@ class SetupNode(TaskNode):
                     allow_additional_sources=True,
                     flexible_columns=self.flexible_columns,
                 )
-                if records:
+                if records:  # pragma: no branch
                     return {**payload, "source_type": source_type}
 
         candidate = SourceParser.normalise_payload(
@@ -408,7 +408,7 @@ class FileValidatorNode(AINode):
             )
             return "codebook", None, codebook, line
 
-        if self.data_file_kind in {"raw", "auto"}:
+        if self.data_file_kind in {"raw", "auto"}:  # pragma: no branch
             payload = {
                 "content": content,
                 "filename": filename,

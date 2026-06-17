@@ -77,6 +77,16 @@ def _patch_workspace_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
         workflows_router, "ensure_workspace_workflow_quota", _no_op_quota
     )
 
+    async def _no_op_default_team(repository, workspace):  # noqa: ARG001
+        return SimpleNamespace(
+            id=uuid4(),
+            workspace_id=str(workspace.workspace_id),
+            slug=workspace.workspace_slug,
+            name=workspace.workspace_slug,
+        )
+
+    monkeypatch.setattr(workflows_router, "ensure_default_team", _no_op_default_team)
+
 
 @pytest.mark.asyncio()
 async def test_list_workflows_returns_all() -> None:
@@ -193,8 +203,10 @@ async def test_create_workflow_returns_new_workflow() -> None:
             draft_access=None,
             actor,
             workspace_id=None,
+            team_id=None,
             handle=None,
         ):
+            del team_id
             return Workflow(
                 id=workflow_id,
                 name=name,
@@ -395,8 +407,10 @@ async def test_create_workflow_translates_handle_conflicts() -> None:
             actor,
             handle=None,
             workspace_id=None,
+            team_id=None,
         ):
             del name, slug, description, tags, draft_access, actor, handle, workspace_id
+            del team_id
             raise WorkflowHandleConflictError(
                 "Workflow handle 'demo' is already in use."
             )
