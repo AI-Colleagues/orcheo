@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import type { UseChatKitOptions } from "@openai/chatkit-react";
+import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { ColorScheme } from "@/hooks/use-color-scheme";
@@ -9,6 +10,7 @@ import type {
 } from "@features/workflow/lib/workflow-storage.types";
 import { buildChatKitAttachmentOptions } from "@features/chatkit/lib/chatkit-attachments";
 import {
+  buildAuthenticatedChatFetch,
   buildPublicChatFetch,
   getChatKitDomainKey,
   type PublicChatHttpError,
@@ -24,6 +26,16 @@ interface PublicChatWidgetProps {
   workflowId: string;
   workflowName: string;
   backendBaseUrl?: string;
+  /**
+   * When true the workflow is published for workspace members only. The widget
+   * mints a ChatKit session token (JWT) so the backend can enforce membership.
+   */
+  requireLogin?: boolean;
+  /**
+   * Workspace slug the workflow belongs to. Sent as `X-Orcheo-Workspace` when
+   * minting the session token so membership resolves to the correct workspace.
+   */
+  workspaceSlug?: string;
   onReady?: () => void;
   onHttpError?: (error: PublicChatHttpError) => void;
   onLog?: (payload: Record<string, unknown>) => void;
@@ -43,6 +55,8 @@ export function PublicChatWidget({
   workflowId,
   workflowName,
   backendBaseUrl,
+  requireLogin = false,
+  workspaceSlug,
   onReady,
   onHttpError,
   onLog,
@@ -51,6 +65,33 @@ export function PublicChatWidget({
   startScreenPrompts,
   supportedModels,
 }: PublicChatWidgetProps) {
+  const resolveSessionToken = useCallback(async (): Promise<string> => {
+    // Use the workflow-scoped session endpoint so the backend resolves the
+    // caller's workspace via membership (real OIDC tokens do not carry
+    // workspace_ids) and scopes the JWT to this workflow + workspace.
+    const url = buildBackendHttpUrl(
+      `/api/workflows/${encodeURIComponent(workflowId)}/chatkit/session`,
+      backendBaseUrl,
+    );
+    const headers: Record<string, string> = {};
+    if (workspaceSlug) {
+      headers["X-Orcheo-Workspace"] = workspaceSlug;
+    }
+    const response = await authFetch(url, { method: "POST", headers });
+    if (!response.ok) {
+      throw new Error("Failed to obtain ChatKit session token");
+    }
+    const data = (await response.json()) as {
+      client_secret?: string;
+      clientSecret?: string;
+    };
+    const secret = data.client_secret ?? data.clientSecret;
+    if (!secret) {
+      throw new Error("ChatKit session response missing client secret");
+    }
+    return secret;
+  }, [backendBaseUrl, workflowId, workspaceSlug]);
+
   const options = useMemo<UseChatKitOptions>(() => {
     const domainKey = getChatKitDomainKey();
     const uploadBase = buildBackendHttpUrl(
@@ -62,17 +103,24 @@ export function PublicChatWidget({
     const uploadUrl = uploadUrlObj.toString();
     const modelOptions = buildModelOptions(supportedModels);
 
+    const fetchImpl = requireLogin
+      ? buildAuthenticatedChatFetch({
+          workflowId,
+          onHttpError,
+          metadata: { workflow_name: workflowName },
+          getToken: resolveSessionToken,
+        })
+      : buildPublicChatFetch({
+          workflowId,
+          onHttpError,
+          metadata: { workflow_name: workflowName },
+        });
+
     return {
       api: {
         url: buildBackendHttpUrl("/api/chatkit", backendBaseUrl),
         domainKey,
-        fetch: buildPublicChatFetch({
-          workflowId,
-          onHttpError,
-          metadata: {
-            workflow_name: workflowName,
-          },
-        }),
+        fetch: fetchImpl,
         uploadStrategy: { type: "direct", uploadUrl },
       },
       header: {
@@ -133,6 +181,8 @@ export function PublicChatWidget({
     supportedModels,
     workflowId,
     workflowName,
+    requireLogin,
+    resolveSessionToken,
   ]);
 
   return (

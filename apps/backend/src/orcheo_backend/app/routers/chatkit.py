@@ -1,6 +1,7 @@
 """ChatKit-related FastAPI routes."""
 
 from __future__ import annotations
+import hmac
 import inspect
 import json
 import logging
@@ -9,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
 from importlib import import_module
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Literal, NamedTuple, cast
@@ -39,6 +41,7 @@ from orcheo_backend.app.authentication import (
     load_auth_settings,
 )
 from orcheo_backend.app.authentication.rate_limit import SlidingWindowRateLimiter
+from orcheo_backend.app.authentication.settings import AuthSettings
 from orcheo_backend.app.authentication.utils import coerce_str_items
 from orcheo_backend.app.chatkit import ChatKitRequestContext
 from orcheo_backend.app.chatkit_asset_proxy import proxy_chatkit_asset
@@ -342,14 +345,109 @@ def _decode_chatkit_jwt(token: str) -> Mapping[str, Any]:
     return payload
 
 
-def _extract_session_subject(request: Request) -> str | None:
-    header_subject = request.headers.get("X-Orcheo-OAuth-Subject")
-    if header_subject and header_subject.strip():
-        return header_subject.strip()
-    cookie_subject = request.cookies.get("orcheo_oauth_session")
-    if cookie_subject and str(cookie_subject).strip():
-        return str(cookie_subject).strip()
-    return None
+def _ip_in_allowlist(client_host: str | None, allowed: tuple[str, ...]) -> bool:
+    """Return True when ``client_host`` falls within any allowed IP/CIDR entry."""
+    if not client_host:
+        return False
+    try:
+        address = ip_address(client_host)
+    except ValueError:
+        return False
+    for entry in allowed:
+        try:
+            network = ip_network(entry, strict=False)
+        except ValueError:
+            continue
+        if address in network:
+            return True
+    return False
+
+
+def _request_from_trusted_proxy(request: Request, auth_settings: AuthSettings) -> bool:
+    """Return True only when the request demonstrably originates from the proxy.
+
+    Trust is fail-closed: if no proxy secret or IP allowlist is configured, the
+    forwarded identity headers are never honored.
+    """
+    secret = auth_settings.trusted_proxy_secret
+    allowed_ips = auth_settings.trusted_proxy_ips
+    if not secret and not allowed_ips:
+        return False
+    if secret:
+        provided = request.headers.get("X-Orcheo-Proxy-Secret")
+        if not provided or not hmac.compare_digest(provided, secret):
+            return False
+    if allowed_ips:
+        client_host = request.client.host if request.client else None
+        if not _ip_in_allowlist(client_host, allowed_ips):
+            return False
+    return True
+
+
+def _parse_dev_session_subject(raw_value: str) -> str | None:
+    candidate = raw_value.strip()
+    if not candidate:
+        return None
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        subject = parsed.get("subject")
+        if isinstance(subject, str) and subject.strip():
+            return subject.strip()
+    return candidate.split(":", 1)[0].strip() or None
+
+
+def _extract_dev_identity(
+    request: Request, auth_settings: AuthSettings
+) -> tuple[str, frozenset[str]] | None:
+    """Resolve a published-chat identity from the local dev-login session."""
+    if not auth_settings.dev_login_enabled:
+        return None
+    raw_value = request.headers.get("x-orcheo-dev-session")
+    if raw_value is None:
+        cookie_name = auth_settings.dev_login_cookie_name
+        if not cookie_name:
+            return None
+        raw_value = request.cookies.get(cookie_name)
+    if not raw_value:
+        return None
+    subject = _parse_dev_session_subject(str(raw_value))
+    if not subject:
+        return None
+    workspaces = frozenset(
+        workspace_id.strip().lower()
+        for workspace_id in auth_settings.dev_login_workspace_ids
+        if workspace_id.strip()
+    )
+    return subject, workspaces
+
+
+def _extract_proxy_identity(request: Request) -> tuple[str | None, frozenset[str]]:
+    """Return the authenticated ``(subject, authorized_workspace_ids)``.
+
+    Forwarded ``X-Orcheo-OAuth-*`` headers are honored only when the request
+    originates from a trusted proxy; otherwise client-supplied copies are
+    ignored. A local dev-login session is accepted as a fallback.
+    """
+    auth_settings = load_auth_settings()
+    if _request_from_trusted_proxy(request, auth_settings):
+        header_subject = request.headers.get("X-Orcheo-OAuth-Subject")
+        subject = header_subject.strip() if header_subject else None
+        if subject:
+            workspaces = frozenset(
+                workspace_id.strip().lower()
+                for workspace_id in coerce_str_items(
+                    request.headers.get("X-Orcheo-OAuth-Workspaces")
+                )
+                if workspace_id.strip()
+            )
+            return subject, workspaces
+    dev_identity = _extract_dev_identity(request, auth_settings)
+    if dev_identity is not None:
+        return dev_identity
+    return None, frozenset()
 
 
 def _rate_limit(
@@ -1073,21 +1171,35 @@ async def _authenticate_publish_request(
 
     _rate_limit(_get_rate_limiters().workflow, str(workflow_id), now=now)
 
-    session_subject = _extract_session_subject(request)
-    if workflow.require_login and not session_subject:
-        raise _chatkit_error(
-            status.HTTP_401_UNAUTHORIZED,
-            message=(
-                "Publish authentication failed: OAuth login is required "
-                "to access this workflow."
-            ),
-            code="chatkit.auth.oauth_required",
-            auth_mode="publish",
-        )
+    session_subject, authorized_workspaces = _extract_proxy_identity(request)
+    workspace_id = await repository.get_workflow_workspace_id(workflow_id)
+    if workflow.require_login:
+        if not session_subject:
+            raise _chatkit_error(
+                status.HTTP_401_UNAUTHORIZED,
+                message=(
+                    "Publish authentication failed: OAuth login is required "
+                    "to access this workflow."
+                ),
+                code="chatkit.auth.oauth_required",
+                auth_mode="publish",
+            )
+        if (
+            workspace_id is not None
+            and workspace_id.strip().lower() not in authorized_workspaces
+        ):
+            raise _chatkit_error(
+                status.HTTP_403_FORBIDDEN,
+                message=(
+                    "Publish authentication failed: workflow workspace is not "
+                    "authorized for this user."
+                ),
+                code="chatkit.auth.workspace_mismatch",
+                auth_mode="publish",
+            )
 
     _rate_limit(_get_rate_limiters().session, session_subject, now=now)
 
-    workspace_id = await repository.get_workflow_workspace_id(workflow_id)
     actor = f"workflow:{workflow_id}"
     return ChatKitAuthResult(
         workflow_id=workflow_id,

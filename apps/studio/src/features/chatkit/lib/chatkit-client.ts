@@ -193,3 +193,31 @@ export const buildPublicChatFetch = ({
     return response;
   };
 };
+
+interface AuthenticatedChatFetchOptions extends PublicChatFetchOptions {
+  /**
+   * Resolver returning a ChatKit session token (JWT). It is invoked per request
+   * so the freshest token is attached, mirroring the authenticated Studio chat.
+   */
+  getToken: () => Promise<string>;
+}
+
+/**
+ * Wrap {@link buildPublicChatFetch} so each ChatKit request carries a session
+ * token in the `Authorization` header. Used for `require_login` workflows so the
+ * backend's JWT auth path can enforce workspace membership.
+ */
+export const buildAuthenticatedChatFetch = ({
+  getToken,
+  ...publicOptions
+}: AuthenticatedChatFetchOptions): typeof fetch => {
+  const base = buildPublicChatFetch(publicOptions);
+  return async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const token = await getToken();
+    const headers = new Headers(init.headers ?? {});
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+    return base(input, { ...init, headers });
+  };
+};

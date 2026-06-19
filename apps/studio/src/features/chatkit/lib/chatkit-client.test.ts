@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildPublicChatFetch } from "./chatkit-client";
+import {
+  buildAuthenticatedChatFetch,
+  buildPublicChatFetch,
+} from "./chatkit-client";
 
 const originalFetch = window.fetch;
 
@@ -159,5 +162,30 @@ describe("buildPublicChatFetch", () => {
     const [, options] = fetchMock.mock.calls[0]!;
     const headers = new Headers(options?.headers ?? {});
     expect(headers.has("Authorization")).toBe(false);
+  });
+});
+
+describe("buildAuthenticatedChatFetch", () => {
+  it("attaches the session token as a Bearer header", async () => {
+    const fetchMock = vi.fn(async () => createResponse(200, { ok: true }));
+    window.fetch = fetchMock as unknown as typeof window.fetch;
+    const getToken = vi.fn(async () => "session-jwt");
+
+    const handler = buildAuthenticatedChatFetch({
+      workflowId: "wf-333",
+      getToken,
+    });
+
+    await handler("http://localhost:2025/api/chatkit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(getToken).toHaveBeenCalledTimes(1);
+    const [, options] = fetchMock.mock.calls[0]!;
+    const headers = new Headers(options?.headers ?? {});
+    expect(headers.get("Authorization")).toBe("Bearer session-jwt");
+    expect(options?.credentials).toBe("include");
   });
 });

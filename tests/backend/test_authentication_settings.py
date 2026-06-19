@@ -66,6 +66,29 @@ def test_load_auth_settings_strips_trailing_slash_from_issuer(
     assert settings.issuer == "https://auth.example.com"
 
 
+def test_load_auth_settings_defaults_trusted_proxy_empty() -> None:
+    """Trusted-proxy trust is fail-closed by default."""
+
+    settings = load_auth_settings(refresh=True)
+
+    assert settings.trusted_proxy_secret is None
+    assert settings.trusted_proxy_ips == ()
+
+
+def test_load_auth_settings_reads_trusted_proxy_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Trusted-proxy secret and IP allowlist are read from configuration."""
+
+    monkeypatch.setenv("ORCHEO_AUTH_TRUSTED_PROXY_SECRET", "proxy-secret")
+    monkeypatch.setenv("ORCHEO_AUTH_TRUSTED_PROXY_IPS", "10.0.0.0/8, 192.168.1.5")
+
+    settings = load_auth_settings(refresh=True)
+
+    assert settings.trusted_proxy_secret == "proxy-secret"
+    assert set(settings.trusted_proxy_ips) == {"10.0.0.0/8", "192.168.1.5"}
+
+
 def test_get_authenticator_caching() -> None:
     """get_authenticator caches the instance."""
 

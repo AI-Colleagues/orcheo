@@ -314,6 +314,8 @@ export default function PublicChatPage() {
                   key={workflowState.workflow.id}
                   workflowId={workflowState.workflow.id}
                   workflowName={workflowState.workflow.name}
+                  requireLogin={workflowState.workflow.require_login}
+                  workspaceSlug={workspaceSlug}
                   startScreenPrompts={
                     workflowState.workflow.chatkit?.start_screen_prompts
                   }

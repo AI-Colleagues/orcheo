@@ -109,12 +109,87 @@ your configured OAuth provider before ChatKit initializes.
 - Use `orcheo workflow list --include-archived` to audit everything that is
   currently public.
 
+## Restricting access to workspace members (require login)
+
+A published workflow can be exposed in one of two modes:
+
+- **Public** (`require_login=false`, the default) – anyone with the share link can
+  use the chat. No identity is attached to requests.
+- **Workspace only** (`require_login=true`) – the request must carry an
+  authenticated end-user identity, and that user must belong to the workflow's
+  workspace. Otherwise the gateway returns `401 chatkit.auth.oauth_required`
+  (no identity) or `403 chatkit.auth.workspace_mismatch` (wrong workspace).
+
+In Studio, flipping the **Publish** toggle opens a dialog to choose between these
+two modes. From the CLI, pass `--require-login` / `--no-require-login`.
+
+### Signed-in workspace members (no proxy required)
+
+When a **logged-in Studio user** opens the public `/chat/...` page of a
+`require_login` workflow, the page mints a ChatKit **session token** (JWT) via
+`POST /api/workflows/{id}/chatkit/session` (sending the `X-Orcheo-Workspace`
+header) and attaches it to every `/api/chatkit` request. That endpoint resolves
+the caller's workspace through **membership** — so it works even though real
+OIDC tokens do not carry `workspace_ids` — and scopes the token to the workflow's
+workspace, which the backend's JWT auth path then enforces. No reverse proxy is
+involved. Unauthenticated visitors are shown a "Login required" prompt before the
+chat starts.
+
+This covers the common case (your own workspace members). The trusted-proxy setup
+below is only needed to admit **external users who are not Studio-authenticated**.
+
+### How identity is trusted (external users / proxy)
+
+Orcheo does **not** run the OAuth handshake for the published surface itself.
+Instead, you place an authenticating reverse proxy (e.g.
+[oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/)) in front of
+`/api/chatkit`. The proxy authenticates the user against your IdP and forwards
+the identity to the backend via request headers:
+
+| Header | Purpose |
+| --- | --- |
+| `X-Orcheo-OAuth-Subject` | The authenticated user's stable identifier. |
+| `X-Orcheo-OAuth-Workspaces` | Comma-separated workspace IDs the user belongs to (mapped from IdP groups/claims). |
+| `X-Orcheo-Proxy-Secret` | Shared secret proving the request came from the trusted proxy. |
+
+The backend honors these headers **only** when the request is proven to come from
+the trusted proxy. Configure the trust signal(s):
+
+- `ORCHEO_AUTH_TRUSTED_PROXY_SECRET` – the proxy must send a matching
+  `X-Orcheo-Proxy-Secret` header (compared in constant time).
+- `ORCHEO_AUTH_TRUSTED_PROXY_IPS` – comma-separated IPs/CIDRs; the request's
+  client address must fall within the allowlist.
+
+Trust is **fail-closed**: if neither is configured, forwarded identity headers are
+ignored entirely, so a `require_login` workflow rejects every request. The
+workspace IDs in `X-Orcheo-OAuth-Workspaces` are trusted the same way the JWT
+auth path trusts its `workspace_ids` claim — the proxy/IdP is the source of truth
+for mapping a user to their workspaces.
+
+> **Security:** never expose `/api/chatkit` directly to the internet when using
+> `require_login`. The proxy must terminate auth and **strip any inbound
+> `X-Orcheo-OAuth-*` headers** from clients before injecting its own, so callers
+> cannot forge an identity.
+
+### Local development
+
+With `ORCHEO_AUTH_DEV_LOGIN_ENABLED=true`, the backend also accepts the dev-login
+session (cookie `ORCHEO_AUTH_DEV_COOKIE_NAME`, default `orcheo_dev_session`, or
+the `x-orcheo-dev-session` header) as a stand-in for the proxy. The user's
+workspaces come from `ORCHEO_AUTH_DEV_WORKSPACE_IDS`, so include the workflow's
+workspace there to exercise the success path without a real proxy.
+
 ## Troubleshooting
 - **403 from `/chat` page** – the workflow was unpublished or the ID is wrong.
   Re-run `orcheo workflow show wf_123` to confirm `is_public=True`.
-- **401 from embeds** – the workflow requires login but the page is served from
-  a domain without the OAuth cookies. Host the page under the same origin or use
-  the login-required Studio route.
+- **401 from embeds** (`chatkit.auth.oauth_required`) – the workflow requires
+  login but no trusted identity reached the backend. Confirm the auth proxy is in
+  front of `/api/chatkit` and that `ORCHEO_AUTH_TRUSTED_PROXY_SECRET` /
+  `ORCHEO_AUTH_TRUSTED_PROXY_IPS` are configured. See
+  [Restricting access to workspace members](#restricting-access-to-workspace-members-require-login).
+- **403 from embeds** (`chatkit.auth.workspace_mismatch`) – the signed-in user is
+  not a member of the workflow's workspace. Check the `X-Orcheo-OAuth-Workspaces`
+  values the proxy injects (or `ORCHEO_AUTH_DEV_WORKSPACE_IDS` for dev login).
 - **CORS or preflight failures** – update `ORCHEO_CORS_ALLOW_ORIGINS` with every
   `http(s)://host:port` that will load ChatKit, restart the backend, and refresh.
 - **Domain key errors** – supply `ORCHEO_CHATKIT_DOMAIN_KEY` (or

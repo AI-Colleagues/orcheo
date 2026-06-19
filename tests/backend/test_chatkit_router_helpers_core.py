@@ -133,9 +133,99 @@ def test_decode_chatkit_jwt_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert payload["sub"] == "alice"
 
 
-def test_extract_session_subject_uses_cookie_fallback() -> None:
-    request = make_chatkit_request(cookies={"orcheo_oauth_session": "user-1"})
-    assert chatkit._extract_session_subject(request) == "user-1"
+def _proxy_auth_settings(
+    *,
+    secret: str | None = None,
+    ips: tuple[str, ...] = (),
+    dev_login_enabled: bool = False,
+    dev_cookie_name: str | None = None,
+    dev_workspace_ids: tuple[str, ...] = (),
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        trusted_proxy_secret=secret,
+        trusted_proxy_ips=ips,
+        dev_login_enabled=dev_login_enabled,
+        dev_login_cookie_name=dev_cookie_name,
+        dev_login_workspace_ids=dev_workspace_ids,
+    )
+
+
+def test_request_from_trusted_proxy_requires_configuration() -> None:
+    request = make_chatkit_request(headers={"X-Orcheo-Proxy-Secret": "anything"})
+    assert chatkit._request_from_trusted_proxy(request, _proxy_auth_settings()) is False
+
+
+def test_request_from_trusted_proxy_matches_secret() -> None:
+    settings = _proxy_auth_settings(secret="s3cret")
+    good = make_chatkit_request(headers={"X-Orcheo-Proxy-Secret": "s3cret"})
+    bad = make_chatkit_request(headers={"X-Orcheo-Proxy-Secret": "nope"})
+    missing = make_chatkit_request()
+    assert chatkit._request_from_trusted_proxy(good, settings) is True
+    assert chatkit._request_from_trusted_proxy(bad, settings) is False
+    assert chatkit._request_from_trusted_proxy(missing, settings) is False
+
+
+def test_request_from_trusted_proxy_matches_ip_allowlist() -> None:
+    settings = _proxy_auth_settings(ips=("127.0.0.0/8",))
+    request = make_chatkit_request()  # client host is 127.0.0.1
+    assert chatkit._request_from_trusted_proxy(request, settings) is True
+    assert (
+        chatkit._request_from_trusted_proxy(
+            request, _proxy_auth_settings(ips=("10.0.0.0/8",))
+        )
+        is False
+    )
+
+
+def test_extract_proxy_identity_ignores_untrusted_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(chatkit, "load_auth_settings", _proxy_auth_settings)
+    request = make_chatkit_request(
+        headers={
+            "X-Orcheo-OAuth-Subject": "attacker",
+            "X-Orcheo-OAuth-Workspaces": "ws-1",
+        }
+    )
+    assert chatkit._extract_proxy_identity(request) == (None, frozenset())
+
+
+def test_extract_proxy_identity_reads_trusted_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        chatkit, "load_auth_settings", lambda: _proxy_auth_settings(secret="s3cret")
+    )
+    request = make_chatkit_request(
+        headers={
+            "X-Orcheo-Proxy-Secret": "s3cret",
+            "X-Orcheo-OAuth-Subject": "alice@example.com",
+            "X-Orcheo-OAuth-Workspaces": "WS-1, ws-2",
+        }
+    )
+    subject, workspaces = chatkit._extract_proxy_identity(request)
+    assert subject == "alice@example.com"
+    assert workspaces == frozenset({"ws-1", "ws-2"})
+
+
+def test_extract_proxy_identity_dev_login_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        chatkit,
+        "load_auth_settings",
+        lambda: _proxy_auth_settings(
+            dev_login_enabled=True,
+            dev_cookie_name="orcheo_dev_session",
+            dev_workspace_ids=("WS-1",),
+        ),
+    )
+    request = make_chatkit_request(
+        cookies={"orcheo_dev_session": "dev@orcheo.local:abc123"}
+    )
+    subject, workspaces = chatkit._extract_proxy_identity(request)
+    assert subject == "dev@orcheo.local"
+    assert workspaces == frozenset({"ws-1"})
 
 
 def test_rate_limit_reraises_authentication_error() -> None:

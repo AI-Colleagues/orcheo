@@ -25,8 +25,15 @@ import {
 } from "@/design-system/ui/alert-dialog";
 import { Button } from "@/design-system/ui/button";
 import { Switch } from "@/design-system/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/design-system/ui/tooltip";
 import { toast } from "@/hooks/use-toast";
 import { ConfirmDeleteWorkflowDialog } from "@features/workflow/components/dialogs/confirm-delete-workflow-dialog";
+import { PublishWorkflowDialog } from "@features/workflow/components/dialogs/publish-workflow-dialog";
 import { UpdateWorkflowDialog } from "@features/workflow/components/dialogs/update-workflow-dialog";
 import { deleteWorkflow } from "@features/workflow/lib/workflow-storage";
 import {
@@ -201,6 +208,7 @@ export function WorkflowTabContent({
   const [isScheduled, setIsScheduled] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(initialShareUrl);
   const [isPublishPending, setIsPublishPending] = useState(false);
+  const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
   const [isSchedulePending, setIsSchedulePending] = useState(false);
   const [diagramSvg, setDiagramSvg] = useState<string | null>(null);
   const [diagramError, setDiagramError] = useState<string | null>(null);
@@ -409,33 +417,58 @@ export function WorkflowTabContent({
       return;
     }
 
+    if (nextValue) {
+      setIsPublishDialogOpen(true);
+      return;
+    }
+
     setIsPublishPending(true);
     try {
-      if (nextValue) {
-        const result = await publishWorkflow(workflowId, { actor: "studio" });
-        setIsPublished(true);
-        setShareUrl(result.shareUrl);
-        toast({
-          title: "Workflow published",
-          description:
-            result.message ??
-            "Workflow is now public and available via its chat URL.",
-        });
-      } else {
-        await unpublishWorkflow(workflowId, "studio");
-        setIsPublished(false);
-        setShareUrl(null);
-        toast({
-          title: "Workflow unpublished",
-          description: "Workflow is now private.",
-        });
-      }
-    } catch (error) {
-      setIsPublished(!nextValue);
+      await unpublishWorkflow(workflowId, "studio");
+      setIsPublished(false);
+      setShareUrl(null);
       toast({
-        title: nextValue
-          ? "Failed to publish workflow"
-          : "Failed to unpublish workflow",
+        title: "Workflow unpublished",
+        description: "Workflow is now private.",
+      });
+    } catch (error) {
+      setIsPublished(true);
+      toast({
+        title: "Failed to unpublish workflow",
+        description: getErrorMessage(error, "Unable to update publish status."),
+        variant: "destructive",
+      });
+    } finally {
+      setIsPublishPending(false);
+    }
+  };
+
+  const handleConfirmPublish = async (requireLogin: boolean) => {
+    if (!workflowId) {
+      return;
+    }
+
+    setIsPublishPending(true);
+    try {
+      const result = await publishWorkflow(workflowId, {
+        actor: "studio",
+        requireLogin,
+      });
+      setIsPublished(true);
+      setShareUrl(result.shareUrl);
+      setIsPublishDialogOpen(false);
+      toast({
+        title: "Workflow published",
+        description:
+          result.message ??
+          (requireLogin
+            ? "Workflow is now available to signed-in workspace members."
+            : "Workflow is now public and available via its chat URL."),
+      });
+    } catch (error) {
+      setIsPublished(false);
+      toast({
+        title: "Failed to publish workflow",
         description: getErrorMessage(error, "Unable to update publish status."),
         variant: "destructive",
       });
@@ -537,15 +570,31 @@ export function WorkflowTabContent({
             </p>
           </div>
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Publish</span>
-              <Switch
-                aria-label="Publish workflow"
-                checked={isPublished}
-                onCheckedChange={(checked) => void handlePublishToggle(checked)}
-                disabled={isPublishPending}
-              />
-            </div>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">
+                      Publish
+                    </span>
+                    <Switch
+                      aria-label="Publish workflow"
+                      checked={isPublished}
+                      onCheckedChange={(checked) =>
+                        void handlePublishToggle(checked)
+                      }
+                      disabled={isPublishPending}
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Expose this workflow through a shareable chat URL. When
+                  publishing, choose <strong>Public</strong> (anyone with the
+                  link) or <strong>Workspace only</strong> (sign-in required for
+                  members of this workspace).
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Schedule</span>
               <Switch
@@ -727,6 +776,13 @@ export function WorkflowTabContent({
           workflowName={workflowName}
         />
       ) : null}
+
+      <PublishWorkflowDialog
+        open={isPublishDialogOpen}
+        isPending={isPublishPending}
+        onOpenChange={setIsPublishDialogOpen}
+        onConfirm={handleConfirmPublish}
+      />
 
       <AlertDialog
         open={isMissingCredentialsDialogOpen}
