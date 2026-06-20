@@ -988,6 +988,19 @@ def _backend_url_requires_https_auth(backend_url: str) -> bool:
     return parsed.scheme == "https" and bool(parsed.netloc)
 
 
+def _is_local_hosting(config: SetupConfig) -> bool:
+    """Return ``True`` when the stack is hosted locally for trusted authors.
+
+    Local hosting means no bundled public ingress and a non-HTTPS (loopback)
+    backend.  In that case every workflow author is the operator themselves, so
+    client workflow uploads are enabled.  Any publicly reachable deployment
+    stays in the secure-by-default managed mode.
+    """
+    return not config.public_ingress_enabled and not _backend_url_requires_https_auth(
+        config.backend_url
+    )
+
+
 def _resolve_required_env_prompt(
     *,
     env_key: str,
@@ -1338,6 +1351,9 @@ def _build_env_updates(
         "ORCHEO_CADDY_SITE_ADDRESS": config.public_host or "",
         "ORCHEO_CADDY_BACKEND_UPSTREAMS": config.backend_upstreams,
         "ORCHEO_CADDY_STUDIO_UPSTREAM": config.studio_upstream,
+        "ORCHEO_WORKFLOW_TRUST_MODE": (
+            "allow_client_uploads" if _is_local_hosting(config) else "managed"
+        ),
     }
     if config.auth_mode == "api-key" and config.api_key:
         updates["ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN"] = config.api_key

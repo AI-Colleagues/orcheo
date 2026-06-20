@@ -519,6 +519,7 @@ def test_build_env_updates(monkeypatch):
     assert updates["COMPOSE_PROFILES"] == ""
     assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain"
     assert updates["ORCHEO_STACK_IMAGE"] == f"{setup._STACK_IMAGE_REPOSITORY}:2.0"
+    assert updates["ORCHEO_WORKFLOW_TRUST_MODE"] == "allow_client_uploads"
     assert defaults["ORCHEO_POSTGRES_PASSWORD"] == "safe"
 
 
@@ -554,6 +555,7 @@ def test_build_env_updates_sets_https_auth_contract(monkeypatch):
         "https://issuer.example.com/.well-known/jwks.json"
     )
     assert updates["VITE_ORCHEO_AUTH_ISSUER"] == "https://issuer.example.com/"
+    assert updates["ORCHEO_WORKFLOW_TRUST_MODE"] == "managed"
 
 
 def test_build_env_updates_rejects_missing_https_auth_values() -> None:

@@ -74,7 +74,9 @@ dependencies = [
   "pexpect>=4.9.0",
   "rouge-score>=0.1.2",
   "sacrebleu>=2.3.0",
-  "deepagents>=0.4.12"
+  "deepagents>=0.4.12",
+  "pypdfium2>=5.10.1",
+  "pillow>=12.2.0"
 ]
 description = "Add your description here"
 name = "orcheo"
