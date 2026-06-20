@@ -83,6 +83,7 @@ export function buildWorkflowLayoutProps(
     isLoading: core.metadata.isWorkflowLoading,
     loadError: core.metadata.workflowLoadError,
     isRunPending: execution.isRunPending,
+    isRunning: core.execution.isRunning,
     onRunWorkflow: execution.handleRunPersistedWorkflow,
     onSaveConfig: resources.saver.handleSaveWorkflowConfig,
     hasCronTriggerNode: hasSchedulableCronTrigger(

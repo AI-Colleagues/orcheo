@@ -75,6 +75,7 @@ const baseProps = {
   isLoading: false,
   loadError: null,
   isRunPending: false,
+  isRunning: false,
   onRunWorkflow: vi.fn(),
   onSaveConfig: vi.fn(),
   hasCronTriggerNode: false,
@@ -83,10 +84,62 @@ const baseProps = {
 } satisfies Parameters<typeof WorkflowTabContent>[0];
 
 describe("WorkflowTabContent", () => {
+  const runnableVersion = {
+    id: "version-1",
+    version: "v1",
+    versionNumber: 1,
+    timestamp: "2026-06-20T10:00:00Z",
+    message: "Uploaded from CLI",
+    author: { id: "cli", name: "cli", avatar: "" },
+    summary: { added: 0, removed: 0, modified: 0 },
+    snapshot: { name: "Workflow", description: "", nodes: [], edges: [] },
+  };
+
   it("shows the offboard action for regular workflows", () => {
     render(<WorkflowTabContent {...baseProps} workflowRouteRef="workflow-1" />);
 
     expect(screen.getByRole("button", { name: /^offboard$/i })).toBeTruthy();
+  });
+
+  it("keeps the run button disabled while a workflow is running", () => {
+    const onRunWorkflow = vi.fn();
+
+    render(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        isRunning
+        onRunWorkflow={onRunWorkflow}
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    const runButton = screen.getByRole("button", { name: /running/i });
+
+    expect(runButton).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Workflow run in progress. Check the latest record on the Trace tab for live status.",
+    );
+
+    fireEvent.click(runButton);
+
+    expect(onRunWorkflow).not.toHaveBeenCalled();
+  });
+
+  it("shows the same running reminder while a run is being submitted", () => {
+    render(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        isRunPending
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /running/i })).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Check the latest record on the Trace tab",
+    );
   });
 
   it("opens the publish dialog and publishes with the chosen visibility", async () => {

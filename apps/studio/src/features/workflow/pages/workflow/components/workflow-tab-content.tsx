@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Copy,
   ExternalLink,
+  LoaderCircle,
   Play,
   RefreshCw,
   UserMinus,
@@ -64,6 +65,7 @@ export interface WorkflowTabContentProps {
   isLoading: boolean;
   loadError: string | null;
   isRunPending: boolean;
+  isRunning: boolean;
   onRunWorkflow: () => Promise<void>;
   onSaveConfig: (nextConfig: WorkflowRunnableConfig | null) => Promise<void>;
   hasCronTriggerNode: boolean;
@@ -193,6 +195,7 @@ export function WorkflowTabContent({
   isLoading,
   loadError,
   isRunPending,
+  isRunning,
   onRunWorkflow,
   onSaveConfig,
   hasCronTriggerNode,
@@ -383,6 +386,8 @@ export function WorkflowTabContent({
 
   const canConfigure = Boolean(workflowId);
   const canRun = Boolean(workflowId && latestVersion);
+  const runButtonDisabled = !canRun || isRunPending || isRunning;
+  const runButtonLabel = isRunPending || isRunning ? "Running..." : "Run";
   const latestConfig = latestVersion?.runnableConfig ?? null;
   const canToggleSchedule = hasCronTriggerNode || isScheduled;
 
@@ -627,16 +632,23 @@ export function WorkflowTabContent({
             ) : null}
             <Button
               onClick={() => {
+                if (isRunPending || isRunning) {
+                  return;
+                }
                 if (hasMissingCredentials) {
                   setIsMissingCredentialsDialogOpen(true);
                   return;
                 }
                 void onRunWorkflow();
               }}
-              disabled={!canRun || isRunPending}
+              disabled={runButtonDisabled}
             >
-              <Play className="mr-1.5 h-4 w-4" />
-              {isRunPending ? "Running..." : "Run"}
+              {isRunPending || isRunning ? (
+                <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="mr-1.5 h-4 w-4" />
+              )}
+              {runButtonLabel}
             </Button>
             <Button
               variant="outline"
@@ -647,6 +659,16 @@ export function WorkflowTabContent({
             </Button>
           </div>
         </div>
+
+        {(isRunPending || isRunning) && (
+          <div
+            role="status"
+            className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-primary"
+          >
+            Workflow run in progress. Check the latest record on the Trace tab
+            for live status.
+          </div>
+        )}
 
         {isPublished && shareUrl && (
           <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/20 px-3 py-2">

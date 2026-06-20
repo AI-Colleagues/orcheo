@@ -49,8 +49,11 @@ export default function StudioBrand() {
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="max-w-xs">
-            This environment is experimental. Data created here may be reset,
-            deleted, or not migrated to the launched version.
+            Beta Disclaimer & Terms: This environment is experimental. Data
+            created here may be reset, deleted, or not migrated to the launched
+            version. Orcheo Cloud is currently offered as a free beta
+            environment for evaluation and testing purposes only, provided on
+            an "as-is" and "as-available" basis without warranties of any kind.
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
