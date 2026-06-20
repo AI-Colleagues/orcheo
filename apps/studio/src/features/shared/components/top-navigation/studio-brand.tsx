@@ -48,12 +48,20 @@ export default function StudioBrand() {
               </Badge>
             </button>
           </TooltipTrigger>
-          <TooltipContent side="bottom" className="max-w-xs">
-            Beta Disclaimer & Terms: This environment is experimental. Data
-            created here may be reset, deleted, or not migrated to the launched
-            version. Orcheo Cloud is currently offered as a free beta
-            environment for evaluation and testing purposes only, provided on
-            an "as-is" and "as-available" basis without warranties of any kind.
+          <TooltipContent side="bottom" className="max-w-sm">
+            Beta Disclaimer & Terms: Orcheo Cloud is a free beta for evaluation
+            and testing, provided as-is. Data, workflows, and credentials may be
+            reset, deleted, or not migrated, so do not use it as your only
+            storage for critical production data; read the{" "}
+            <a
+              href="https://ai-colleagues.com/terms"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium underline underline-offset-2"
+            >
+              full terms
+            </a>
+            .
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
