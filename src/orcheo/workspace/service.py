@@ -439,9 +439,21 @@ class WorkspaceService:
             raise WorkspaceInvitationExpiredError("Invitation has expired")
 
         normalized_email = normalize_email(email) if email else None
-        if not email_verified or normalized_email != invitation.email:
+        if normalized_email is None:
             raise WorkspaceInvitationEmailMismatchError(
-                "A verified email matching the invitation is required to accept it"
+                "We couldn't read your email from your sign-in. Ensure your "
+                "identity provider exposes a verified email, then open the "
+                "invitation link again."
+            )
+        if not email_verified:
+            raise WorkspaceInvitationEmailMismatchError(
+                f"Your email ({normalized_email}) is not verified yet. Verify it "
+                "with your identity provider, then open the invitation link again."
+            )
+        if normalized_email != invitation.email:
+            raise WorkspaceInvitationEmailMismatchError(
+                f"This invitation was sent to {invitation.email}, but you are "
+                f"signed in as {normalized_email}."
             )
 
         try:

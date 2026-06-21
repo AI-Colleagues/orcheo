@@ -20,6 +20,11 @@ export default function InvitationAccept() {
   const startedRef = useRef(false);
 
   useEffect(() => {
+    // The single-use token must be redeemed exactly once. `startedRef` guards
+    // against React 18 StrictMode's double-invoke. We intentionally do not gate
+    // the result on an "active" flag: the in-flight redemption must always
+    // settle the UI (navigate or show the error), even across a StrictMode
+    // remount of the same component instance.
     if (startedRef.current) {
       return;
     }
@@ -31,21 +36,14 @@ export default function InvitationAccept() {
       return;
     }
 
-    let active = true;
     void (async () => {
       try {
         const result = await acceptWorkspaceInvitation(token);
-        if (!active) {
-          return;
-        }
         setWorkspaceName(result.name);
         setSelectedWorkspaceSlug(result.slug);
         setState("success");
         navigate(getWorkspaceGalleryPath(result.slug), { replace: true });
       } catch (err) {
-        if (!active) {
-          return;
-        }
         setState("error");
         setMessage(
           err instanceof Error
@@ -54,10 +52,6 @@ export default function InvitationAccept() {
         );
       }
     })();
-
-    return () => {
-      active = false;
-    };
   }, [token, navigate]);
 
   return (

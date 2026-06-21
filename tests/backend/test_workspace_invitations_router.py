@@ -10,12 +10,16 @@ from orcheo.workspace import (
 )
 from orcheo.workspace.email import InvitationEmail
 from orcheo_backend.app.authentication import RequestContext
+from orcheo_backend.app.routers import workspaces as workspaces_router
 from orcheo_backend.app.routers.workspaces import (
+    _request_bearer_token,
+    _verified_email,
     accept_workspace_invitation,
     create_workspace_invitation,
     list_workspace_invitations,
     revoke_workspace_invitation,
 )
+from starlette.requests import Request
 from orcheo_backend.app.schemas.workspaces import (
     InvitationAcceptRequest,
     InvitationCreateRequest,
@@ -139,3 +143,59 @@ def test_revoke_invitation(setup) -> None:
         auth=_auth("auth0|owner"),
     )
     assert revoked.status.value == "revoked"
+
+
+def _request_with_auth(header: str | None) -> Request:
+    headers = [(b"authorization", header.encode())] if header is not None else []
+    return Request({"type": "http", "headers": headers})
+
+
+def test_request_bearer_token_parsing() -> None:
+    assert _request_bearer_token(_request_with_auth("Bearer tok123")) == "tok123"
+    assert _request_bearer_token(_request_with_auth("bearer tok123")) == "tok123"
+    assert _request_bearer_token(_request_with_auth("Basic abc")) is None
+    assert _request_bearer_token(_request_with_auth(None)) is None
+
+
+def test_verified_email_prefers_token_claims() -> None:
+    auth = _auth("auth0|x", email="claim@example.com", email_verified=True)
+    # Claims win; no userinfo lookup attempted (access_token ignored).
+    assert _verified_email(auth, access_token="tok") == ("claim@example.com", True)
+
+
+def test_verified_email_falls_back_to_userinfo(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_userinfo(token: str) -> tuple[str, bool]:
+        calls.append(token)
+        return "userinfo@example.com", True
+
+    monkeypatch.setattr(workspaces_router, "_fetch_userinfo_email", fake_userinfo)
+    # Access token carries no email claim -> userinfo fallback is used.
+    auth = _auth("auth0|x")
+    assert _verified_email(auth, access_token="tok") == ("userinfo@example.com", True)
+    assert calls == ["tok"]
+
+
+def test_accept_unverified_email_message(setup, monkeypatch) -> None:
+    sender, service, workspace, admin_ctx = setup
+    create_workspace_invitation(
+        slug="acme",
+        payload=InvitationCreateRequest(email="newbie@example.com", role=Role.EDITOR),
+        service=service,
+        context=admin_ctx,
+        auth=_auth("auth0|owner"),
+    )
+    token = sender.sent[0].accept_url.split("token=", 1)[1]
+    with pytest.raises(WorkspaceHTTPError) as exc:
+        accept_workspace_invitation(
+            payload=InvitationAcceptRequest(token=token),
+            service=service,
+            auth=_auth(
+                "auth0|newbie",
+                email="newbie@example.com",
+                email_verified=False,
+            ),
+        )
+    assert exc.value.status_code == 403
+    assert "not verified" in str(exc.value.message)
