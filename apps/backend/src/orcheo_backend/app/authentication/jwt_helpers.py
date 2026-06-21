@@ -31,6 +31,36 @@ def claims_to_context(claims: Mapping[str, Any]) -> RequestContext:
     )
 
 
+def _claim_str(claims: Mapping[str, Any], key: str) -> str | None:
+    value = claims.get(key)
+    if not isinstance(value, str):
+        return None
+    trimmed = value.strip()
+    return trimmed or None
+
+
+def extract_identity(claims: Mapping[str, Any]) -> tuple[str | None, str | None]:
+    """Return ``(email, display_name)`` derived from JWT/OIDC claims.
+
+    Mirrors the Studio client's resolution order so the persisted identity
+    matches what users see elsewhere.
+    """
+    email = _claim_str(claims, "email")
+    name = (
+        _claim_str(claims, "name")
+        or _claim_str(claims, "preferred_username")
+        or _claim_str(claims, "nickname")
+    )
+    if name is None:
+        given = _claim_str(claims, "given_name")
+        family = _claim_str(claims, "family_name")
+        if given and family:
+            name = f"{given} {family}"
+        else:
+            name = given or family
+    return email, name
+
+
 def _parse_max_age(cache_control: str | None) -> int | None:
     if not cache_control:
         return None
@@ -101,4 +131,5 @@ __all__ = [
     "_infer_identity_type",
     "_parse_max_age",
     "claims_to_context",
+    "extract_identity",
 ]

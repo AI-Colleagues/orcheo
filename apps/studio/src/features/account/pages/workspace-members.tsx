@@ -22,35 +22,41 @@ import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
 import {
   getActiveWorkspace,
   listWorkspaceMembers,
-  addWorkspaceMember,
+  listWorkspaceInvitations,
+  createWorkspaceInvitation,
+  revokeWorkspaceInvitation,
   updateWorkspaceMemberRole,
   removeWorkspaceMember,
   type WorkspaceMember,
+  type WorkspaceInvitation,
 } from "@/lib/api";
 import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
 
 type MemberRole = "owner" | "admin" | "editor" | "viewer";
 
 const ROLE_OPTIONS: MemberRole[] = ["owner", "admin", "editor", "viewer"];
-const USER_ID_PATTERN = /^[A-Za-z0-9._:@+-]{3,128}$/;
-const USER_ID_VALIDATION_MESSAGE =
-  "Enter a valid user ID using letters, numbers, dots, underscores, colons, at signs, plus signs, or hyphens.";
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_VALIDATION_MESSAGE = "Enter a valid email address.";
 
-const isValidUserId = (userId: string): boolean =>
-  USER_ID_PATTERN.test(userId.trim());
+const isValidEmail = (email: string): boolean =>
+  EMAIL_PATTERN.test(email.trim());
 
 export default function WorkspaceMembers() {
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
+  const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [canManage, setCanManage] = useState(false);
   const [isForbidden, setIsForbidden] = useState(false);
 
-  const [newUserId, setNewUserId] = useState("");
-  const [newUserIdError, setNewUserIdError] = useState<string | null>(null);
+  const [newEmail, setNewEmail] = useState("");
+  const [newEmailError, setNewEmailError] = useState<string | null>(null);
   const [newRole, setNewRole] = useState<MemberRole>("editor");
   const [isAdding, setIsAdding] = useState(false);
   const [removingUserId, setRemovingUserId] = useState<string | null>(null);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+  const [revokingInvitationId, setRevokingInvitationId] = useState<
+    string | null
+  >(null);
 
   const slug = getSelectedWorkspaceSlug();
   const currentUserId = getAuthenticatedUserProfile()?.subject ?? null;
@@ -76,11 +82,15 @@ export default function WorkspaceMembers() {
           setIsForbidden(true);
           return;
         }
-        const memberList = await listWorkspaceMembers(slug);
+        const [memberList, invitationList] = await Promise.all([
+          listWorkspaceMembers(slug),
+          listWorkspaceInvitations(slug),
+        ]);
         if (!active) {
           return;
         }
         setMembers(memberList);
+        setInvitations(invitationList);
       } catch {
         if (active) {
           toast({
@@ -102,34 +112,59 @@ export default function WorkspaceMembers() {
     };
   }, [slug]);
 
-  const handleAddMember = async () => {
-    const normalizedUserId = newUserId.trim();
-    if (!slug || !normalizedUserId) {
+  const handleInvite = async () => {
+    const normalizedEmail = newEmail.trim();
+    if (!slug || !normalizedEmail) {
       return;
     }
-    if (!isValidUserId(normalizedUserId)) {
-      setNewUserIdError(USER_ID_VALIDATION_MESSAGE);
+    if (!isValidEmail(normalizedEmail)) {
+      setNewEmailError(EMAIL_VALIDATION_MESSAGE);
       return;
     }
     setIsAdding(true);
     try {
-      const member = await addWorkspaceMember(slug, {
-        user_id: normalizedUserId,
+      const invitation = await createWorkspaceInvitation(slug, {
+        email: normalizedEmail,
         role: newRole,
       });
-      setMembers((prev) => [...prev, member]);
-      setNewUserId("");
-      setNewUserIdError(null);
+      setInvitations((prev) => [invitation, ...prev]);
+      setNewEmail("");
+      setNewEmailError(null);
       setNewRole("editor");
-      toast({ title: "Member added successfully" });
+      toast({
+        title: "Invitation sent",
+        description: `An invite was emailed to ${invitation.email}.`,
+      });
     } catch (err) {
       toast({
-        title: "Failed to add member",
+        title: "Failed to send invitation",
         description: err instanceof Error ? err.message : undefined,
         variant: "destructive",
       });
     } finally {
       setIsAdding(false);
+    }
+  };
+
+  const handleRevokeInvitation = async (invitationId: string) => {
+    if (!slug) {
+      return;
+    }
+    setRevokingInvitationId(invitationId);
+    try {
+      const revoked = await revokeWorkspaceInvitation(slug, invitationId);
+      setInvitations((prev) =>
+        prev.map((i) => (i.id === invitationId ? revoked : i)),
+      );
+      toast({ title: "Invitation revoked" });
+    } catch (err) {
+      toast({
+        title: "Failed to revoke invitation",
+        description: err instanceof Error ? err.message : undefined,
+        variant: "destructive",
+      });
+    } finally {
+      setRevokingInvitationId(null);
     }
   };
 
@@ -186,27 +221,30 @@ export default function WorkspaceMembers() {
 
       {canManage && (
         <div className="rounded-lg border p-4">
-          <h3 className="mb-4 text-lg font-medium">Add Member</h3>
+          <h3 className="mb-1 text-lg font-medium">Invite Member</h3>
+          <p className="mb-4 text-sm text-muted-foreground">
+            We&apos;ll email an invitation link. The member joins once they
+            accept while signed in with a verified email that matches.
+          </p>
           <div className="flex items-end gap-3">
             <div className="flex-1 space-y-1.5">
-              <Label htmlFor="new-user-id">User ID</Label>
+              <Label htmlFor="new-email">Email</Label>
               <Input
-                id="new-user-id"
-                placeholder="Enter user ID"
-                value={newUserId}
+                id="new-email"
+                type="email"
+                placeholder="person@example.com"
+                value={newEmail}
                 onChange={(e) => {
-                  setNewUserId(e.target.value);
-                  setNewUserIdError(null);
+                  setNewEmail(e.target.value);
+                  setNewEmailError(null);
                 }}
                 disabled={isAdding}
-                aria-invalid={newUserIdError ? true : undefined}
-                aria-describedby={
-                  newUserIdError ? "new-user-id-error" : undefined
-                }
+                aria-invalid={newEmailError ? true : undefined}
+                aria-describedby={newEmailError ? "new-email-error" : undefined}
               />
-              {newUserIdError && (
-                <p id="new-user-id-error" className="text-xs text-destructive">
-                  {newUserIdError}
+              {newEmailError && (
+                <p id="new-email-error" className="text-xs text-destructive">
+                  {newEmailError}
                 </p>
               )}
             </div>
@@ -234,15 +272,70 @@ export default function WorkspaceMembers() {
                 Action
               </Label>
               <Button
-                onClick={() => void handleAddMember()}
-                disabled={isAdding || !newUserId.trim()}
+                onClick={() => void handleInvite()}
+                disabled={isAdding || !newEmail.trim()}
               >
-                {isAdding ? "Adding..." : "Add"}
+                {isAdding ? "Sending..." : "Send invite"}
               </Button>
             </div>
           </div>
         </div>
       )}
+
+      {canManage &&
+        invitations.some((i) => i.status === "pending") && (
+          <div className="rounded-lg border">
+            <div className="border-b px-4 py-3">
+              <h3 className="text-sm font-medium">Pending Invitations</h3>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Expires</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {invitations
+                  .filter((i) => i.status === "pending")
+                  .map((invitation) => {
+                    const isRevoking =
+                      revokingInvitationId === invitation.id;
+                    return (
+                      <TableRow key={invitation.id}>
+                        <TableCell className="text-sm">
+                          {invitation.email}
+                        </TableCell>
+                        <TableCell className="capitalize">
+                          {invitation.role}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {new Date(
+                            invitation.expires_at,
+                          ).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() =>
+                              void handleRevokeInvitation(invitation.id)
+                            }
+                            disabled={isRevoking}
+                          >
+                            {isRevoking ? "Revoking..." : "Revoke"}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
 
       {isForbidden ? null : isLoading ? (
         <p className="text-sm text-muted-foreground">Loading members...</p>
@@ -254,7 +347,7 @@ export default function WorkspaceMembers() {
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
-                <TableHead>User ID</TableHead>
+                <TableHead>Email / ID</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Joined</TableHead>
                 {canManage && (
@@ -271,10 +364,19 @@ export default function WorkspaceMembers() {
                 return (
                   <TableRow key={member.id}>
                     <TableCell className="text-sm">
-                      {member.user_name ?? "—"}
+                      {member.user_name ?? member.email ?? "—"}
                     </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {member.user_id}
+                    <TableCell className="text-sm">
+                      {member.email ? (
+                        <div className="flex flex-col">
+                          <span>{member.email}</span>
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {member.user_id}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="font-mono">{member.user_id}</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {canManage && !isSelf ? (

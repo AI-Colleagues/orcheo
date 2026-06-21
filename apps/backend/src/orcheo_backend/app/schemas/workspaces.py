@@ -5,11 +5,16 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
-from orcheo.workspace import Role, WorkspaceQuotas, WorkspaceStatus
+from orcheo.workspace import InvitationStatus, Role, WorkspaceQuotas, WorkspaceStatus
 
 
 __all__ = [
     "ActiveWorkspaceResponse",
+    "InvitationAcceptRequest",
+    "InvitationAcceptResponse",
+    "InvitationCreateRequest",
+    "InvitationListResponse",
+    "InvitationResponse",
     "MembershipCreateRequest",
     "MembershipResponse",
     "MembershipRoleUpdateRequest",
@@ -108,6 +113,8 @@ class MembershipResponse(BaseModel):
     id: UUID
     workspace_id: UUID
     user_id: str
+    email: str | None = None
+    user_name: str | None = None
     role: Role
     created_at: datetime
 
@@ -147,3 +154,56 @@ class MeMembershipsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     memberships: list[_MeMembershipEntry]
+
+
+class InvitationCreateRequest(BaseModel):
+    """Body for POST /api/workspaces/{slug}/invitations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=3, max_length=320)
+    role: Role = Role.EDITOR
+
+
+class InvitationResponse(BaseModel):
+    """Workspace invitation payload (never includes the raw token)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    workspace_id: UUID
+    email: str
+    role: Role
+    status: InvitationStatus
+    invited_by: str | None
+    accepted_by: str | None
+    created_at: datetime
+    expires_at: datetime
+    accepted_at: datetime | None
+
+
+class InvitationListResponse(BaseModel):
+    """List wrapper for workspace invitations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    invitations: list[InvitationResponse]
+
+
+class InvitationAcceptRequest(BaseModel):
+    """Body for POST /api/workspaces/invitations/accept."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1)
+
+
+class InvitationAcceptResponse(BaseModel):
+    """Result of redeeming an invitation, used to route the new member."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID
+    slug: str
+    name: str
+    role: Role

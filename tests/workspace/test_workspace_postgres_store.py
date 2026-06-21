@@ -54,7 +54,11 @@ class FakeConnection:
     def execute(self, query: str, params: Any | None = None) -> FakeCursor:
         statement = query.strip()
         self.queries.append((statement, params))
-        if statement.startswith("CREATE TABLE") or statement.startswith("CREATE INDEX"):
+        if (
+            statement.startswith("CREATE TABLE")
+            or statement.startswith("CREATE INDEX")
+            or statement.startswith("ALTER TABLE")
+        ):
             return FakeCursor()
         response = self._responses.pop(0) if self._responses else {}
         if isinstance(response, FakeCursor):

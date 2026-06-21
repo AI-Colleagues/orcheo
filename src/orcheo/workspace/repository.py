@@ -5,16 +5,21 @@ from typing import Protocol
 from uuid import UUID
 from orcheo.models.base import _utcnow
 from orcheo.workspace.errors import (
+    WorkspaceInvitationError,
+    WorkspaceInvitationNotFoundError,
     WorkspaceMembershipError,
     WorkspaceNotFoundError,
     WorkspaceSlugConflictError,
 )
 from orcheo.workspace.models import (
+    InvitationStatus,
     Role,
     Workspace,
     WorkspaceAuditEvent,
+    WorkspaceInvitation,
     WorkspaceMembership,
     WorkspaceStatus,
+    normalize_email,
     normalize_slug,
 )
 
@@ -57,6 +62,16 @@ class WorkspaceRepository(Protocol):
     ) -> WorkspaceMembership:
         """Change a membership's role and return the updated record."""
 
+    def update_membership_identity(
+        self,
+        workspace_id: UUID,
+        user_id: str,
+        *,
+        email: str | None = None,
+        user_name: str | None = None,
+    ) -> WorkspaceMembership:
+        """Backfill a membership's identity fields; ``None`` values are ignored."""
+
     def get_membership(self, workspace_id: UUID, user_id: str) -> WorkspaceMembership:
         """Return the membership identified by `(workspace_id, user_id)`."""
 
@@ -76,6 +91,28 @@ class WorkspaceRepository(Protocol):
     ) -> list[WorkspaceAuditEvent]:
         """Return the most recent workspace audit events."""
 
+    def add_invitation(self, invitation: WorkspaceInvitation) -> WorkspaceInvitation:
+        """Persist a new invitation; raises on a duplicate pending email."""
+
+    def get_invitation(self, invitation_id: UUID) -> WorkspaceInvitation:
+        """Return the invitation identified by `invitation_id`."""
+
+    def get_invitation_by_token_hash(self, token_hash: str) -> WorkspaceInvitation:
+        """Return the invitation matching a token hash."""
+
+    def find_pending_invitation(
+        self, workspace_id: UUID, email: str
+    ) -> WorkspaceInvitation | None:
+        """Return the pending invitation for `(workspace_id, email)` if any."""
+
+    def list_invitations(
+        self, workspace_id: UUID, *, include_inactive: bool = True
+    ) -> list[WorkspaceInvitation]:
+        """Return invitations for a workspace, newest first."""
+
+    def update_invitation(self, invitation: WorkspaceInvitation) -> WorkspaceInvitation:
+        """Persist status/acceptance changes for an existing invitation."""
+
 
 class InMemoryWorkspaceRepository:
     """In-memory workspace repository used for tests and embedded deployments."""
@@ -86,6 +123,7 @@ class InMemoryWorkspaceRepository:
         self._slug_index: dict[str, UUID] = {}
         self._memberships: dict[tuple[UUID, str], WorkspaceMembership] = {}
         self._audit_events: list[WorkspaceAuditEvent] = []
+        self._invitations: dict[UUID, WorkspaceInvitation] = {}
 
     def create_workspace(self, workspace: Workspace) -> Workspace:
         """Persist a new workspace; raises on slug conflict."""
@@ -140,6 +178,9 @@ class InMemoryWorkspaceRepository:
         self._audit_events = [
             event for event in self._audit_events if event.workspace_id != workspace.id
         ]
+        for invitation_id in list(self._invitations):
+            if self._invitations[invitation_id].workspace_id == workspace.id:
+                self._invitations.pop(invitation_id, None)
 
     def add_membership(self, membership: WorkspaceMembership) -> WorkspaceMembership:
         """Persist a new membership; raises on duplicates."""
@@ -170,6 +211,27 @@ class InMemoryWorkspaceRepository:
         """Change a membership's role and return the updated record."""
         membership = self.get_membership(workspace_id, user_id)
         updated = membership.model_copy(update={"role": role})
+        self._memberships[(workspace_id, user_id)] = updated
+        return updated
+
+    def update_membership_identity(
+        self,
+        workspace_id: UUID,
+        user_id: str,
+        *,
+        email: str | None = None,
+        user_name: str | None = None,
+    ) -> WorkspaceMembership:
+        """Backfill a membership's identity fields; ``None`` values are ignored."""
+        membership = self.get_membership(workspace_id, user_id)
+        updates: dict[str, str] = {}
+        if email is not None:
+            updates["email"] = email
+        if user_name is not None:
+            updates["user_name"] = user_name
+        if not updates:
+            return membership
+        updated = membership.model_copy(update=updates)
         self._memberships[(workspace_id, user_id)] = updated
         return updated
 
@@ -206,3 +268,65 @@ class InMemoryWorkspaceRepository:
             event for event in self._audit_events if event.workspace_id == workspace_id
         ]
         return list(reversed(events[-limit:]))
+
+    def add_invitation(self, invitation: WorkspaceInvitation) -> WorkspaceInvitation:
+        """Persist a new invitation; raises on a duplicate pending email."""
+        if invitation.workspace_id not in self._workspaces:
+            raise WorkspaceNotFoundError(str(invitation.workspace_id))
+        if invitation.status is InvitationStatus.PENDING:
+            existing = self.find_pending_invitation(
+                invitation.workspace_id, invitation.email
+            )
+            if existing is not None:
+                raise WorkspaceInvitationError(
+                    f"A pending invitation already exists for {invitation.email}"
+                )
+        self._invitations[invitation.id] = invitation
+        return invitation
+
+    def get_invitation(self, invitation_id: UUID) -> WorkspaceInvitation:
+        """Return the invitation identified by `invitation_id`."""
+        invitation = self._invitations.get(invitation_id)
+        if invitation is None:
+            raise WorkspaceInvitationNotFoundError(str(invitation_id))
+        return invitation
+
+    def get_invitation_by_token_hash(self, token_hash: str) -> WorkspaceInvitation:
+        """Return the invitation matching a token hash."""
+        for invitation in self._invitations.values():
+            if invitation.token_hash == token_hash:
+                return invitation
+        raise WorkspaceInvitationNotFoundError(token_hash)
+
+    def find_pending_invitation(
+        self, workspace_id: UUID, email: str
+    ) -> WorkspaceInvitation | None:
+        """Return the pending invitation for `(workspace_id, email)` if any."""
+        normalized = normalize_email(email)
+        for invitation in self._invitations.values():
+            if (
+                invitation.workspace_id == workspace_id
+                and invitation.email == normalized
+                and invitation.status is InvitationStatus.PENDING
+            ):
+                return invitation
+        return None
+
+    def list_invitations(
+        self, workspace_id: UUID, *, include_inactive: bool = True
+    ) -> list[WorkspaceInvitation]:
+        """Return invitations for a workspace, newest first."""
+        invitations = [
+            invitation
+            for invitation in self._invitations.values()
+            if invitation.workspace_id == workspace_id
+            and (include_inactive or invitation.status is InvitationStatus.PENDING)
+        ]
+        return sorted(invitations, key=lambda i: i.created_at, reverse=True)
+
+    def update_invitation(self, invitation: WorkspaceInvitation) -> WorkspaceInvitation:
+        """Persist status/acceptance changes for an existing invitation."""
+        if invitation.id not in self._invitations:
+            raise WorkspaceInvitationNotFoundError(str(invitation.id))
+        self._invitations[invitation.id] = invitation
+        return invitation

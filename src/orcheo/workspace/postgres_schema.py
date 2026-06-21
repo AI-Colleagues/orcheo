@@ -41,10 +41,15 @@ CREATE TABLE IF NOT EXISTS workspace_memberships (
     id UUID PRIMARY KEY,
     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL,
+    email TEXT,
+    user_name TEXT,
     role TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     UNIQUE (workspace_id, user_id)
 );
+
+ALTER TABLE workspace_memberships ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE workspace_memberships ADD COLUMN IF NOT EXISTS user_name TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_workspace_memberships_user
     ON workspace_memberships(user_id);

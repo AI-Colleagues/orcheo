@@ -728,6 +728,31 @@ def test_create_own_workspace_success_returns_response() -> None:
     assert result.slug == ws.slug
 
 
+def test_create_own_workspace_passes_owner_identity_from_claims() -> None:
+    ws = _workspace()
+    ms = _membership(ws.id)
+    service = _service(workspace=ws, membership=ms)
+    captured: dict[str, object] = {}
+
+    def _spy(**kwargs: object) -> tuple[object, object]:
+        captured.update(kwargs)
+        return ws, ms
+
+    service.create_workspace = _spy
+    auth = RequestContext(
+        subject="user-a",
+        identity_type="user",
+        claims={"email": "user-a@example.com", "name": "User A"},
+    )
+    payload = WorkspaceCreateRequest(slug="test", name="Test")
+
+    create_own_workspace(payload, service, auth)  # type: ignore[arg-type]
+
+    assert captured["owner_email"] == "user-a@example.com"
+    assert captured["owner_name"] == "User A"
+    assert captured["owner_user_id"] == "user-a"
+
+
 # ---------------------------------------------------------------------------
 # list_workspaces (lines 199-200)
 # ---------------------------------------------------------------------------
@@ -775,12 +800,59 @@ def test_get_active_workspace_returns_active_workspace() -> None:
     ws = _workspace()
     service = _service(workspace=ws)
     context = _context(workspace_id=ws.id)
+    auth = RequestContext(subject=context.user_id, identity_type="user")
 
-    result = get_active_workspace(service, context)  # type: ignore[arg-type]
+    result = get_active_workspace(service, context, auth)  # type: ignore[arg-type]
 
     assert result.workspace_id == ws.id
     assert result.slug == ws.slug
     assert result.role == context.role
+
+
+def test_get_active_workspace_backfills_identity_from_claims() -> None:
+    from orcheo_backend.app.routers.workspaces import get_active_workspace
+
+    ws = _workspace()
+    service = _service(workspace=ws)
+    recorded: list[dict[str, object]] = []
+    service.record_member_identity = lambda **kwargs: recorded.append(kwargs)
+    context = _context(workspace_id=ws.id)
+    auth = RequestContext(
+        subject=context.user_id,
+        identity_type="user",
+        claims={"email": "admin@example.com", "name": "Admin User"},
+    )
+
+    get_active_workspace(service, context, auth)  # type: ignore[arg-type]
+
+    assert recorded == [
+        {
+            "workspace_id": ws.id,
+            "user_id": context.user_id,
+            "email": "admin@example.com",
+            "user_name": "Admin User",
+        }
+    ]
+
+
+def test_get_active_workspace_skips_identity_without_claims() -> None:
+    from orcheo_backend.app.routers.workspaces import get_active_workspace
+
+    ws = _workspace()
+    service = _service(workspace=ws)
+    called = False
+
+    def _record(**_kwargs: object) -> None:
+        nonlocal called
+        called = True
+
+    service.record_member_identity = _record
+    context = _context(workspace_id=ws.id)
+    auth = RequestContext(subject=context.user_id, identity_type="user")
+
+    get_active_workspace(service, context, auth)  # type: ignore[arg-type]
+
+    assert called is False
 
 
 # ---------------------------------------------------------------------------

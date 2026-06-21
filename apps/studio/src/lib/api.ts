@@ -266,7 +266,8 @@ export interface WorkspaceMember {
   id: string;
   workspace_id: string;
   user_id: string;
-  user_name?: string;
+  email?: string | null;
+  user_name?: string | null;
   role: "owner" | "admin" | "editor" | "viewer";
   created_at: string;
 }
@@ -324,6 +325,82 @@ export async function removeWorkspaceMember(
     }));
     throw new Error(errorData.detail || `HTTP ${response.status}`);
   }
+}
+
+export type WorkspaceRole = "owner" | "admin" | "editor" | "viewer";
+
+export type InvitationStatus = "pending" | "accepted" | "revoked";
+
+export interface WorkspaceInvitation {
+  id: string;
+  workspace_id: string;
+  email: string;
+  role: WorkspaceRole;
+  status: InvitationStatus;
+  invited_by?: string | null;
+  accepted_by?: string | null;
+  created_at: string;
+  expires_at: string;
+  accepted_at?: string | null;
+}
+
+interface WorkspaceInvitationListResponse {
+  invitations: WorkspaceInvitation[];
+}
+
+export interface InvitationAcceptResult {
+  workspace_id: string;
+  slug: string;
+  name: string;
+  role: WorkspaceRole;
+}
+
+export async function listWorkspaceInvitations(
+  slug: string,
+  baseUrl?: string,
+): Promise<WorkspaceInvitation[]> {
+  const data = await requestSystemJson<WorkspaceInvitationListResponse>(
+    `/api/workspaces/${slug}/invitations`,
+    { method: "GET" },
+    baseUrl,
+  );
+  return data.invitations;
+}
+
+export async function createWorkspaceInvitation(
+  slug: string,
+  request: { email: string; role: WorkspaceRole },
+  baseUrl?: string,
+): Promise<WorkspaceInvitation> {
+  return requestSystemJson<WorkspaceInvitation>(
+    `/api/workspaces/${slug}/invitations`,
+    { method: "POST", body: JSON.stringify(request) },
+    baseUrl,
+  );
+}
+
+export async function revokeWorkspaceInvitation(
+  slug: string,
+  invitationId: string,
+  baseUrl?: string,
+): Promise<WorkspaceInvitation> {
+  return requestSystemJson<WorkspaceInvitation>(
+    `/api/workspaces/${slug}/invitations/${invitationId}`,
+    { method: "DELETE" },
+    baseUrl,
+  );
+}
+
+export async function acceptWorkspaceInvitation(
+  token: string,
+  baseUrl?: string,
+): Promise<InvitationAcceptResult> {
+  return requestSystemJson<InvitationAcceptResult>(
+    "/api/workspaces/invitations/accept",
+    { method: "POST", body: JSON.stringify({ token }) },
+    baseUrl,
+    { includeWorkspaceHeaders: false },
+  );
 }
 
 export interface ServiceToken {

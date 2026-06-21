@@ -17,6 +17,7 @@ import OAuthCallback from "@features/auth/pages/oauth-callback";
 import Profile from "@features/account/pages/profile";
 import Settings from "@features/account/pages/settings";
 import WorkspaceManagement from "@features/account/pages/workspace-management";
+import InvitationAccept from "@features/account/pages/invitation-accept";
 import PublicChatPage from "@features/chatkit/pages/public-chat";
 import {
   getSelectedWorkspaceSlug,
@@ -97,6 +98,10 @@ export default function OrcheoStudioApp() {
             <Route path="/chat/:workspaceSlug/team/:teamSlug/:workflowId" element={<PublicChatPage />} />
 
             <Route element={<RequireAuth />}>
+              <Route
+                path="/invitations/accept"
+                element={<InvitationAccept />}
+              />
               <Route element={<RequireWorkspace />}>
                 <Route path="/" element={<WorkspaceHomeRedirect />} />
                 <Route

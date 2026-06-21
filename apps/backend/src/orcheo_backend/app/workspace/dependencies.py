@@ -19,6 +19,10 @@ from orcheo.workspace import (
     WorkspaceService,
     WorkspaceStatus,
 )
+from orcheo.workspace.service import (
+    DEFAULT_INVITATION_BASE_URL,
+    DEFAULT_INVITATION_TTL_HOURS,
+)
 from orcheo_backend.app.authentication import RequestContext, authenticate_request
 from orcheo_backend.app.errors import WorkspaceRateLimitError
 from orcheo_backend.app.workspace.errors import (
@@ -96,7 +100,20 @@ def get_workspace_service() -> WorkspaceService:
     """Return the cached workspace service singleton."""
     service = _workspace_service_ref.get("service")
     if service is None:
-        service = WorkspaceService(get_workspace_repository())
+        settings = get_settings()
+        base_url = str(
+            settings.get("INVITE_BASE_URL")
+            or settings.get("STUDIO_BASE_URL")
+            or DEFAULT_INVITATION_BASE_URL
+        )
+        ttl_hours = int(
+            settings.get("INVITE_TTL_HOURS") or DEFAULT_INVITATION_TTL_HOURS
+        )
+        service = WorkspaceService(
+            get_workspace_repository(),
+            invitation_base_url=base_url,
+            invitation_ttl_hours=ttl_hours,
+        )
         _workspace_service_ref["service"] = service
     return service
 

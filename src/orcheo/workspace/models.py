@@ -11,13 +11,16 @@ from orcheo.models.base import OrcheoBaseModel, _utcnow
 
 __all__ = [
     "DEFAULT_WORKSPACE_SLUG",
+    "InvitationStatus",
     "Role",
     "Workspace",
     "WorkspaceAuditEvent",
     "WorkspaceContext",
+    "WorkspaceInvitation",
     "WorkspaceMembership",
     "WorkspaceQuotas",
     "WorkspaceStatus",
+    "normalize_email",
     "normalize_slug",
 ]
 
@@ -56,6 +59,27 @@ class WorkspaceStatus(str, Enum):
     ACTIVE = "active"
     SUSPENDED = "suspended"
     DELETED = "deleted"
+
+
+class InvitationStatus(str, Enum):
+    """Lifecycle states for a workspace invitation."""
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REVOKED = "revoked"
+
+
+def normalize_email(value: str) -> str:
+    """Normalize an email to a stable, comparable lower-case form."""
+    candidate = value.strip().lower()
+    if not candidate or candidate.count("@") != 1 or candidate.startswith("@"):
+        msg = "A valid email address is required."
+        raise ValueError(msg)
+    local, _, domain = candidate.partition("@")
+    if not local or "." not in domain or domain.endswith("."):
+        msg = "A valid email address is required."
+        raise ValueError(msg)
+    return candidate
 
 
 def normalize_slug(value: str) -> str:
@@ -129,8 +153,40 @@ class WorkspaceMembership(OrcheoBaseModel):
     id: UUID = Field(default_factory=uuid4)
     workspace_id: UUID
     user_id: str
+    email: str | None = None
+    user_name: str | None = None
     role: Role = Role.VIEWER
     created_at: datetime = Field(default_factory=_utcnow)
+
+
+class WorkspaceInvitation(OrcheoBaseModel):
+    """Pending or resolved invitation binding an email to a future membership.
+
+    The invitation is addressed by ``email`` but a membership is ultimately
+    keyed by the IdP ``sub``. ``accepted_by`` records the subject that redeemed
+    the invitation, bridging the two at first authenticated login.
+    """
+
+    id: UUID = Field(default_factory=uuid4)
+    workspace_id: UUID
+    email: str
+    role: Role = Role.EDITOR
+    token_hash: str
+    status: InvitationStatus = InvitationStatus.PENDING
+    invited_by: str | None = None
+    accepted_by: str | None = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    expires_at: datetime
+    accepted_at: datetime | None = None
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _coerce_email(cls, value: object) -> str:
+        return normalize_email(str(value))
+
+    def is_expired(self, *, now: datetime) -> bool:
+        """Return True when a still-pending invitation has passed its expiry."""
+        return now >= self.expires_at
 
 
 class WorkspaceContext(OrcheoBaseModel):

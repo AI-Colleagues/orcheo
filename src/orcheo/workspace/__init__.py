@@ -1,7 +1,16 @@
 """Workspace core: identity, repositories, and resolver for multi-workspace Orcheo."""
 
+from orcheo.workspace.email import (
+    InvitationEmail,
+    InvitationEmailSender,
+    LoggingInvitationEmailSender,
+)
 from orcheo.workspace.errors import (
     WorkspaceError,
+    WorkspaceInvitationEmailMismatchError,
+    WorkspaceInvitationError,
+    WorkspaceInvitationExpiredError,
+    WorkspaceInvitationNotFoundError,
     WorkspaceMembershipError,
     WorkspaceMembershipLimitError,
     WorkspaceNotFoundError,
@@ -10,13 +19,16 @@ from orcheo.workspace.errors import (
 )
 from orcheo.workspace.models import (
     DEFAULT_WORKSPACE_SLUG,
+    InvitationStatus,
     Role,
     Workspace,
     WorkspaceAuditEvent,
     WorkspaceContext,
+    WorkspaceInvitation,
     WorkspaceMembership,
     WorkspaceQuotas,
     WorkspaceStatus,
+    normalize_email,
     normalize_slug,
 )
 from orcheo.workspace.postgres_schema import POSTGRES_WORKSPACE_SCHEMA
@@ -40,6 +52,10 @@ __all__ = [
     "DEFAULT_WORKSPACE_SLUG",
     "InMemoryMembershipCache",
     "InMemoryWorkspaceRepository",
+    "InvitationEmail",
+    "InvitationEmailSender",
+    "InvitationStatus",
+    "LoggingInvitationEmailSender",
     "MembershipCache",
     "POSTGRES_WORKSPACE_SCHEMA",
     "PostgresWorkspaceRepository",
@@ -48,6 +64,11 @@ __all__ = [
     "Workspace",
     "WorkspaceContext",
     "WorkspaceError",
+    "WorkspaceInvitation",
+    "WorkspaceInvitationEmailMismatchError",
+    "WorkspaceInvitationError",
+    "WorkspaceInvitationExpiredError",
+    "WorkspaceInvitationNotFoundError",
     "WorkspaceMembership",
     "WorkspaceMembershipError",
     "WorkspaceMembershipLimitError",
@@ -63,6 +84,7 @@ __all__ = [
     "coerce_workspace_id",
     "ensure_default_workspace",
     "ensure_workspace_id",
+    "normalize_email",
     "normalize_slug",
     "workspace_scoped_sql",
 ]
