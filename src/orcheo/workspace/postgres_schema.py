@@ -53,4 +53,23 @@ ALTER TABLE workspace_memberships ADD COLUMN IF NOT EXISTS user_name TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_workspace_memberships_user
     ON workspace_memberships(user_id);
+
+CREATE TABLE IF NOT EXISTS workspace_invitations (
+    id UUID PRIMARY KEY,
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    invited_by TEXT,
+    accepted_by TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    accepted_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_invitations_workspace
+    ON workspace_invitations(workspace_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_invitations_token_hash
+    ON workspace_invitations(token_hash);
 """
