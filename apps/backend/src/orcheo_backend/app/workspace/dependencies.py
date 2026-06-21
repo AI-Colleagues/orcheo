@@ -102,11 +102,7 @@ def get_workspace_service() -> WorkspaceService:
     service = _workspace_service_ref.get("service")
     if service is None:
         settings = get_settings()
-        base_url = str(
-            settings.get("INVITE_BASE_URL")
-            or settings.get("STUDIO_BASE_URL")
-            or DEFAULT_INVITATION_BASE_URL
-        )
+        base_url = str(settings.get("STUDIO_URL") or DEFAULT_INVITATION_BASE_URL)
         ttl_hours = int(
             settings.get("INVITE_TTL_HOURS") or DEFAULT_INVITATION_TTL_HOURS
         )

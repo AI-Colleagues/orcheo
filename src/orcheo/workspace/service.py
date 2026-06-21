@@ -40,7 +40,7 @@ __all__ = ["WorkspaceService", "ensure_default_workspace"]
 
 MAX_WORKSPACE_MEMBERSHIPS_PER_USER = 3
 DEFAULT_INVITATION_TTL_HOURS = 72
-DEFAULT_INVITATION_BASE_URL = "http://localhost:5173"
+DEFAULT_INVITATION_BASE_URL = "http://localhost:2026"
 _INVITATION_TOKEN_BYTES = 32
 
 
