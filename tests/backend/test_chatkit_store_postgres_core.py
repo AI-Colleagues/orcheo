@@ -149,8 +149,17 @@ async def test_postgres_chatkit_schema_creates_workspace_index() -> None:
         "CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace_id ON chat_threads(workspace_id)"
         in conn.statements
     )
-    assert not any(
-        stmt.startswith("ALTER TABLE chat_threads") for stmt in conn.statements
+    # The owner_key column is backfilled on existing deployments via ALTER and
+    # backed by a scoped index for per-user history lookups.
+    assert (
+        "ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS owner_key TEXT"
+        in conn.statements
+    )
+    assert any(
+        stmt.startswith(
+            "CREATE INDEX IF NOT EXISTS idx_chat_threads_owner_scope ON chat_threads"
+        )
+        for stmt in conn.statements
     )
 
 
