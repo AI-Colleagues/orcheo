@@ -157,8 +157,8 @@ def test_extract_identity_prefers_namespaced_access_token_claims() -> None:
 
     email, name = extract_identity(
         {
-            "https://orcheo.ai/email": "ns@example.com",
-            "https://orcheo.ai/name": "Namespaced User",
+            "https://orcheo.cloud/email": "ns@example.com",
+            "https://orcheo.cloud/name": "Namespaced User",
             "email": "plain@example.com",
             "name": "Plain User",
         }
@@ -187,3 +187,34 @@ def test_extract_identity_returns_none_without_identity_claims() -> None:
         None,
         None,
     )
+
+
+def test_claim_namespace_is_configurable(monkeypatch) -> None:
+    """The namespace defaults to orcheo.cloud and honours the env override."""
+    from orcheo_backend.app.authentication.jwt_helpers import (
+        DEFAULT_CLAIM_NAMESPACE,
+        claim_namespace,
+        extract_identity,
+    )
+
+    monkeypatch.delenv("ORCHEO_AUTH_CLAIM_NAMESPACE", raising=False)
+    assert claim_namespace() == "https://orcheo.cloud"
+    assert DEFAULT_CLAIM_NAMESPACE == "https://orcheo.cloud"
+
+    # A trailing slash on the override is normalized away.
+    monkeypatch.setenv("ORCHEO_AUTH_CLAIM_NAMESPACE", "https://example.test/")
+    assert claim_namespace() == "https://example.test"
+    email, _ = extract_identity({"https://example.test/email": "x@example.test"})
+    assert email == "x@example.test"
+
+
+def test_extract_email_verified() -> None:
+    """Verified-email reads the namespaced claim, then the plain one."""
+    from orcheo_backend.app.authentication import extract_email_verified
+
+    assert extract_email_verified({"https://orcheo.cloud/email_verified": True})
+    assert extract_email_verified({"email_verified": "true"})
+    assert not extract_email_verified({"email_verified": False})
+    assert not extract_email_verified({"email_verified": "false"})
+    # Absent claim is treated as unverified.
+    assert not extract_email_verified({"email": "x@example.com"})

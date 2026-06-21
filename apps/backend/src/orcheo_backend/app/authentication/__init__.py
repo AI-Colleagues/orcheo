@@ -29,6 +29,7 @@ from .jwt_helpers import (
     _infer_identity_type,
     _parse_max_age,
     claims_to_context,
+    extract_email_verified,
     extract_identity,
 )
 from .policy import (
@@ -107,6 +108,7 @@ __all__ = [
     "_normalize_jwk_list",
     "_token_manager_cache",
     "claims_to_context",
+    "extract_email_verified",
     "extract_identity",
     "auth_telemetry",
     "authenticate_request",

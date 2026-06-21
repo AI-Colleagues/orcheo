@@ -24,6 +24,7 @@ from orcheo.workspace import (
 from orcheo_backend.app.authentication import (
     RequestContext,
     authenticate_request,
+    extract_email_verified,
     extract_identity,
 )
 from orcheo_backend.app.schemas.workspaces import (
@@ -116,12 +117,11 @@ def _verified_email(auth: RequestContext) -> tuple[str | None, bool]:
     """Return ``(email, email_verified)`` for the authenticated principal.
 
     Mirrors the member-identity capture path (``extract_identity``) for the
-    address, and reads ``email_verified`` from the token claims. Developer
+    address, and reads the namespaced ``email_verified`` claim. Developer
     logins carry no claims, so their email-shaped subject is trusted locally.
     """
     email, _ = extract_identity(auth.claims)
-    verified_claim = auth.claims.get("email_verified")
-    verified = verified_claim is True or str(verified_claim).lower() == "true"
+    verified = extract_email_verified(auth.claims)
     if email is None and auth.identity_type == "developer" and "@" in auth.subject:
         return auth.subject, True
     return email, verified

@@ -1,10 +1,35 @@
 """Helper utilities for JWT authentication."""
 
 from __future__ import annotations
+import os
 from collections.abc import Mapping
 from typing import Any
 from .context import RequestContext
 from .utils import coerce_str_items, parse_timestamp
+
+
+DEFAULT_CLAIM_NAMESPACE = "https://orcheo.cloud"
+
+
+def claim_namespace() -> str:
+    """Return the namespace prefixing Auth0 custom claims (no trailing slash).
+
+    Auth0 only honours custom claims on an access token when they use a
+    collision-resistant namespace, so the Login Action and this backend must
+    agree on the same value. Configurable via ``ORCHEO_AUTH_CLAIM_NAMESPACE``;
+    the namespace string is an arbitrary identifier and is never dereferenced.
+    """
+    raw = os.environ.get("ORCHEO_AUTH_CLAIM_NAMESPACE") or DEFAULT_CLAIM_NAMESPACE
+    return raw.rstrip("/")
+
+
+def _namespaced_claim(claims: Mapping[str, Any], key: str) -> str | None:
+    """Read a custom claim, preferring the namespaced form over the bare name.
+
+    The bare OIDC claim is honoured as a fallback for ID-token contexts and dev
+    sessions, where the namespaced access-token claim is absent.
+    """
+    return _claim_str(claims, f"{claim_namespace()}/{key}") or _claim_str(claims, key)
 
 
 def claims_to_context(claims: Mapping[str, Any]) -> RequestContext:
@@ -39,26 +64,20 @@ def _claim_str(claims: Mapping[str, Any], key: str) -> str | None:
     return trimmed or None
 
 
-_CLAIM_NAMESPACE = "https://orcheo.ai/"
-
-
 def extract_identity(claims: Mapping[str, Any]) -> tuple[str | None, str | None]:
     """Return ``(email, display_name)`` derived from JWT/OIDC claims.
 
     Standard OIDC ``email``/``name`` claims only appear on the ID token, while
     the backend validates the *access* token. Auth0 (and similar IdPs) can only
     add custom claims to an access token under a collision-resistant namespace,
-    so the namespaced ``https://orcheo.ai/{email,name}`` claims are checked
-    first. The plain OIDC claims are still honoured as a fallback for ID-token
-    contexts and dev sessions. Mirrors the Studio client's resolution order so
-    the persisted identity matches what users see elsewhere.
+    so the namespaced ``{namespace}/{email,name}`` claims are checked first. The
+    plain OIDC claims are still honoured as a fallback for ID-token contexts and
+    dev sessions. Mirrors the Studio client's resolution order so the persisted
+    identity matches what users see elsewhere.
     """
-    email = _claim_str(claims, f"{_CLAIM_NAMESPACE}email") or _claim_str(
-        claims, "email"
-    )
+    email = _namespaced_claim(claims, "email")
     name = (
-        _claim_str(claims, f"{_CLAIM_NAMESPACE}name")
-        or _claim_str(claims, "name")
+        _namespaced_claim(claims, "name")
         or _claim_str(claims, "preferred_username")
         or _claim_str(claims, "nickname")
     )
@@ -70,6 +89,20 @@ def extract_identity(claims: Mapping[str, Any]) -> tuple[str | None, str | None]
         else:
             name = given or family
     return email, name
+
+
+def extract_email_verified(claims: Mapping[str, Any]) -> bool:
+    """Return True when the token asserts a verified email.
+
+    Checks the namespaced ``{namespace}/email_verified`` access-token claim
+    first, then the bare OIDC ``email_verified`` claim. Accepts the boolean
+    ``True`` or its string form, matching how IdPs serialize the claim.
+    """
+    for key in (f"{claim_namespace()}/email_verified", "email_verified"):
+        if key in claims:
+            value = claims[key]
+            return value is True or str(value).strip().lower() == "true"
+    return False
 
 
 def _parse_max_age(cache_control: str | None) -> int | None:
@@ -137,10 +170,13 @@ def _extract_workspace_ids(claims: Mapping[str, Any]) -> set[str]:
 
 
 __all__ = [
+    "DEFAULT_CLAIM_NAMESPACE",
     "_extract_scopes",
     "_extract_workspace_ids",
     "_infer_identity_type",
     "_parse_max_age",
+    "claim_namespace",
     "claims_to_context",
+    "extract_email_verified",
     "extract_identity",
 ]
