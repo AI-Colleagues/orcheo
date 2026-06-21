@@ -149,3 +149,41 @@ def test_extract_workspace_ids_with_null_nested_value() -> None:
     # orcheo is a Mapping but orcheo.workspace_ids is None
     ids = set(_extract_workspace_ids({"orcheo": {"other_key": "value"}}))
     assert len(ids) == 0
+
+
+def test_extract_identity_prefers_namespaced_access_token_claims() -> None:
+    """Namespaced custom claims win over plain OIDC claims (access tokens)."""
+    from orcheo_backend.app.authentication import extract_identity
+
+    email, name = extract_identity(
+        {
+            "https://orcheo.ai/email": "ns@example.com",
+            "https://orcheo.ai/name": "Namespaced User",
+            "email": "plain@example.com",
+            "name": "Plain User",
+        }
+    )
+    assert email == "ns@example.com"
+    assert name == "Namespaced User"
+
+
+def test_extract_identity_falls_back_to_plain_oidc_claims() -> None:
+    """Plain OIDC claims are used when namespaced ones are absent (ID tokens)."""
+    from orcheo_backend.app.authentication import extract_identity
+
+    assert extract_identity({"email": "a@b.com", "name": "Ann"}) == ("a@b.com", "Ann")
+    assert extract_identity({"preferred_username": "ann"}) == (None, "ann")
+    assert extract_identity({"given_name": "Ann", "family_name": "Lee"}) == (
+        None,
+        "Ann Lee",
+    )
+
+
+def test_extract_identity_returns_none_without_identity_claims() -> None:
+    """A bare access token (sub/scope only) yields no identity."""
+    from orcheo_backend.app.authentication import extract_identity
+
+    assert extract_identity({"sub": "auth0|abc", "scope": "workflows:read"}) == (
+        None,
+        None,
+    )

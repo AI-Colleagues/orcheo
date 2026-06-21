@@ -39,15 +39,26 @@ def _claim_str(claims: Mapping[str, Any], key: str) -> str | None:
     return trimmed or None
 
 
+_CLAIM_NAMESPACE = "https://orcheo.ai/"
+
+
 def extract_identity(claims: Mapping[str, Any]) -> tuple[str | None, str | None]:
     """Return ``(email, display_name)`` derived from JWT/OIDC claims.
 
-    Mirrors the Studio client's resolution order so the persisted identity
-    matches what users see elsewhere.
+    Standard OIDC ``email``/``name`` claims only appear on the ID token, while
+    the backend validates the *access* token. Auth0 (and similar IdPs) can only
+    add custom claims to an access token under a collision-resistant namespace,
+    so the namespaced ``https://orcheo.ai/{email,name}`` claims are checked
+    first. The plain OIDC claims are still honoured as a fallback for ID-token
+    contexts and dev sessions. Mirrors the Studio client's resolution order so
+    the persisted identity matches what users see elsewhere.
     """
-    email = _claim_str(claims, "email")
+    email = _claim_str(claims, f"{_CLAIM_NAMESPACE}email") or _claim_str(
+        claims, "email"
+    )
     name = (
-        _claim_str(claims, "name")
+        _claim_str(claims, f"{_CLAIM_NAMESPACE}name")
+        or _claim_str(claims, "name")
         or _claim_str(claims, "preferred_username")
         or _claim_str(claims, "nickname")
     )

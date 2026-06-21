@@ -115,13 +115,46 @@ Update your stack `.env` (derived from `deploy/stack/.env.example`):
 - `ORCHEO_CHATKIT_TOKEN_SIGNING_KEY=<long-random-secret>`
 - `VITE_ORCHEO_CHATKIT_DOMAIN_KEY=<chatkit-domain-public-key>`
 
-## 6. Restart and verify
+## 6. Add email/name to the access token (Workspace Members display)
+
+Studio sends the **access token** to the backend, not the ID token. With a custom
+API audience, Auth0 access tokens do **not** include the standard `email`/`name`
+claims (those live only on the ID token / userinfo). Without the action below,
+the Workspace Management → Workspace Members table can only show each member's
+opaque subject (`sub`), never their email.
+
+Auth0 only allows custom claims on access tokens under a collision-resistant
+namespace, so Orcheo reads the namespaced claims `https://orcheo.ai/email` and
+`https://orcheo.ai/name`.
+
+1. Go to `Actions > Library > Create Action > Build from scratch` (trigger:
+   `Login / Post Login`).
+2. Use this code, then `Deploy`:
+   ```js
+   exports.onExecutePostLogin = async (event, api) => {
+     const namespace = "https://orcheo.ai/";
+     if (event.user.email) {
+       api.accessToken.setCustomClaim(`${namespace}email`, event.user.email);
+     }
+     if (event.user.name) {
+       api.accessToken.setCustomClaim(`${namespace}name`, event.user.name);
+     }
+   };
+   ```
+3. Add the action to the `Login` flow (`Actions > Flows > Login`) and apply.
+
+The backend backfills a member's email/name onto their membership row the next
+time they load Studio (and captures the owner's identity at workspace creation),
+so existing members are populated as they sign in again.
+
+## 7. Restart and verify
 
 1. Restart stack services (`docker compose up -d` from `deploy/stack`).
 2. Log out of Studio and log in again (to refresh tokens with new scopes).
 3. Verify access token claims:
    - `aud` contains your API audience.
    - `scope` contains `workflows:read workflows:execute chatkit:session`.
+   - `https://orcheo.ai/email` is present (if you added the action in step 6).
 4. Open a workflow ChatKit window in Studio.
 
 ## Troubleshooting checklist
