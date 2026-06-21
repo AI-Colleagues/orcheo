@@ -21,7 +21,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 RESEND_API_URL = "https://api.resend.com/emails"
-DEFAULT_INVITE_FROM_EMAIL = "Orcheo <invites@orcheo.cloud>"
+DEFAULT_INVITE_FROM_EMAIL = "no-reply@orcheo.cloud"
 
 
 @dataclass(frozen=True)

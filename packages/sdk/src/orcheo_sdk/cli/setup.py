@@ -985,7 +985,7 @@ def _resolve_chatkit_domain_key(
     return existing
 
 
-_DEFAULT_INVITE_FROM_EMAIL = "Orcheo <invites@orcheo.cloud>"
+_DEFAULT_INVITE_FROM_EMAIL = "no-reply@orcheo.cloud"
 
 
 def _resolve_invite_email_config(
