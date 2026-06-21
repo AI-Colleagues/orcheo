@@ -1,9 +1,12 @@
 """Workspace core: identity, repositories, and resolver for multi-workspace Orcheo."""
 
 from orcheo.workspace.email import (
+    DEFAULT_INVITE_FROM_EMAIL,
     InvitationEmail,
     InvitationEmailSender,
     LoggingInvitationEmailSender,
+    ResendInvitationEmailSender,
+    build_invitation_email_sender,
 )
 from orcheo.workspace.errors import (
     WorkspaceError,
@@ -50,12 +53,15 @@ from orcheo.workspace.service import WorkspaceService, ensure_default_workspace
 
 __all__ = [
     "DEFAULT_WORKSPACE_SLUG",
+    "DEFAULT_INVITE_FROM_EMAIL",
     "InMemoryMembershipCache",
     "InMemoryWorkspaceRepository",
     "InvitationEmail",
     "InvitationEmailSender",
     "InvitationStatus",
     "LoggingInvitationEmailSender",
+    "ResendInvitationEmailSender",
+    "build_invitation_email_sender",
     "MembershipCache",
     "POSTGRES_WORKSPACE_SCHEMA",
     "PostgresWorkspaceRepository",

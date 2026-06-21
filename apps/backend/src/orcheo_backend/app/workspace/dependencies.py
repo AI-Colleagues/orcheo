@@ -19,6 +19,7 @@ from orcheo.workspace import (
     WorkspaceService,
     WorkspaceStatus,
 )
+from orcheo.workspace.email import build_invitation_email_sender
 from orcheo.workspace.service import (
     DEFAULT_INVITATION_BASE_URL,
     DEFAULT_INVITATION_TTL_HOURS,
@@ -109,8 +110,13 @@ def get_workspace_service() -> WorkspaceService:
         ttl_hours = int(
             settings.get("INVITE_TTL_HOURS") or DEFAULT_INVITATION_TTL_HOURS
         )
+        email_sender = build_invitation_email_sender(
+            api_key=settings.get("RESEND_API_KEY"),
+            from_email=settings.get("INVITE_FROM_EMAIL"),
+        )
         service = WorkspaceService(
             get_workspace_repository(),
+            email_sender=email_sender,
             invitation_base_url=base_url,
             invitation_ttl_hours=ttl_hours,
         )

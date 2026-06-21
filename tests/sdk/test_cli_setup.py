@@ -521,6 +521,76 @@ def test_build_env_updates(monkeypatch):
     assert updates["ORCHEO_STACK_IMAGE"] == f"{setup._STACK_IMAGE_REPOSITORY}:2.0"
     assert updates["ORCHEO_WORKFLOW_TRUST_MODE"] == "allow_client_uploads"
     assert defaults["ORCHEO_POSTGRES_PASSWORD"] == "safe"
+    # No invitation email key configured -> no Resend env emitted.
+    assert "ORCHEO_RESEND_API_KEY" not in updates
+
+
+def test_build_env_updates_emits_invitation_email_keys():
+    config = setup.SetupConfig(
+        mode="install",
+        backend_url="http://backend",
+        studio_url="http://localhost:2026",
+        auth_mode="api-key",
+        api_key="provided",
+        chatkit_domain_key=None,
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_local_ports=True,
+        backend_upstreams="backend:2025",
+        studio_upstream="studio:2026",
+        start_stack=False,
+        install_docker_if_missing=False,
+        invite_email_api_key="re_live_123",
+        invite_email_from="Orcheo <invites@orcheo.cloud>",
+    )
+    updates, _ = setup._build_env_updates(config)
+    assert updates["ORCHEO_RESEND_API_KEY"] == "re_live_123"
+    assert updates["ORCHEO_INVITE_FROM_EMAIL"] == "Orcheo <invites@orcheo.cloud>"
+
+
+def test_resolve_invite_email_config_prompts_for_key_and_sender(monkeypatch, tmp_path):
+    prompts: list[str] = []
+
+    def fake_prompt(message: str, **kwargs: object) -> str:
+        prompts.append(message)
+        return "re_typed_key" if "Resend API key" in message else "team@orcheo.cloud"
+
+    monkeypatch.setattr(setup.typer, "prompt", fake_prompt)
+    api_key, from_email = setup._resolve_invite_email_config(
+        None,
+        None,
+        yes=False,
+        env_file=tmp_path / ".env",
+        env_exists=False,
+    )
+    assert api_key == "re_typed_key"
+    assert from_email == "team@orcheo.cloud"
+    assert any("Resend API key" in p for p in prompts)
+
+
+def test_resolve_invite_email_config_skips_when_blank(monkeypatch, tmp_path):
+    monkeypatch.setattr(setup.typer, "prompt", lambda *a, **k: "")
+    api_key, from_email = setup._resolve_invite_email_config(
+        None,
+        None,
+        yes=False,
+        env_file=tmp_path / ".env",
+        env_exists=False,
+    )
+    assert api_key is None
+    assert from_email is None
+
+
+def test_resolve_invite_email_config_non_interactive_defaults_sender(tmp_path):
+    api_key, from_email = setup._resolve_invite_email_config(
+        "re_flag_key",
+        None,
+        yes=True,
+        env_file=tmp_path / ".env",
+        env_exists=False,
+    )
+    assert api_key == "re_flag_key"
+    assert from_email == setup._DEFAULT_INVITE_FROM_EMAIL
 
 
 def test_build_env_updates_sets_https_auth_contract(monkeypatch):
@@ -649,6 +719,12 @@ def test_run_setup_https_backend_prompts_auth_and_chatkit_from_current_values(
         ("Auth client ID", "current-client", True),
         ("Auth audience", "current-audience", True),
         ("ChatKit domain key", "****4989", True),
+        (
+            "Resend API key for workspace invitation emails - press Enter to "
+            "skip (links are logged instead)",
+            "",
+            False,
+        ),
     ]
     assert "confirm:Install Orcheo skill for Claude Code and Codex?" in events
     assert events.index("prompt:Auth issuer") < events.index(
@@ -1217,7 +1293,7 @@ def test_run_setup_generates_api_key(monkeypatch, tmp_path):
     monkeypatch.setattr(secrets, "token_urlsafe", lambda _: "tokenized")
     monkeypatch.setattr(setup, "_resolve_stack_env_file", lambda: tmp_path / ".env")
     monkeypatch.setattr(setup.typer, "confirm", lambda _prompt, default: default)
-    monkeypatch.setattr(setup.typer, "prompt", lambda _prompt, default: default)
+    monkeypatch.setattr(setup.typer, "prompt", lambda _prompt, default="", **_: default)
     console = make_console()
     config = setup.run_setup(
         mode="install",

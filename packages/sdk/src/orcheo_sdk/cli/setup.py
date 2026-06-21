@@ -80,6 +80,8 @@ class SetupConfig:
     auth_issuer: str | None = None
     auth_client_id: str | None = None
     auth_audience: str | None = None
+    invite_email_api_key: str | None = None
+    invite_email_from: str | None = None
 
 
 def _run_command(command: list[str], *, console: Console) -> None:
@@ -983,6 +985,57 @@ def _resolve_chatkit_domain_key(
     return existing
 
 
+_DEFAULT_INVITE_FROM_EMAIL = "Orcheo <invites@orcheo.cloud>"
+
+
+def _resolve_invite_email_config(
+    resend_api_key: str | None,
+    invite_from_email: str | None,
+    *,
+    yes: bool,
+    env_file: Path,
+    env_exists: bool,
+) -> tuple[str | None, str | None]:
+    """Resolve the workspace-invitation email sender configuration.
+
+    Returns ``(resend_api_key, invite_from_email)``. With no API key the backend
+    falls back to logging invitation links instead of emailing them, so the key
+    is always optional.
+    """
+    existing_key = (
+        _read_env_value(env_file, "ORCHEO_RESEND_API_KEY") if env_exists else None
+    )
+    existing_from = (
+        _read_env_value(env_file, "ORCHEO_INVITE_FROM_EMAIL") if env_exists else None
+    )
+    resolved_key = _normalize_optional_value(resend_api_key) or existing_key
+    resolved_from = _normalize_optional_value(invite_from_email) or existing_from
+
+    if not yes and resolved_key is None:
+        resolved_key = _normalize_optional_value(
+            typer.prompt(
+                "Resend API key for workspace invitation emails - press Enter to "
+                "skip (links are logged instead)",
+                default="",
+                show_default=False,
+            )
+        )
+
+    if resolved_key is not None:
+        default_from = resolved_from or _DEFAULT_INVITE_FROM_EMAIL
+        if yes:
+            resolved_from = default_from
+        else:
+            resolved_from = (
+                _normalize_optional_value(
+                    typer.prompt("Invitation sender email", default=default_from)
+                )
+                or default_from
+            )
+
+    return resolved_key, resolved_from
+
+
 def _backend_url_requires_https_auth(backend_url: str) -> bool:
     parsed = urlsplit(backend_url)
     return parsed.scheme == "https" and bool(parsed.netloc)
@@ -1361,6 +1414,11 @@ def _build_env_updates(
         updates["ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN"] = ""
     if config.chatkit_domain_key:
         updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] = config.chatkit_domain_key
+    if config.invite_email_api_key:
+        updates["ORCHEO_RESEND_API_KEY"] = config.invite_email_api_key
+        updates["ORCHEO_INVITE_FROM_EMAIL"] = (
+            config.invite_email_from or _DEFAULT_INVITE_FROM_EMAIL
+        )
     if _backend_url_requires_https_auth(config.backend_url):
         issuer = _normalize_optional_value(config.auth_issuer)
         client_id = _normalize_optional_value(config.auth_client_id)
@@ -1623,6 +1681,8 @@ def run_setup(
     yes: bool,
     manual_secrets: bool,
     console: Console,
+    resend_api_key: str | None = None,
+    invite_from_email: str | None = None,
 ) -> SetupConfig:
     """Collect interactive/non-interactive setup options."""
     stack_env_file = _resolve_stack_env_file()
@@ -1714,6 +1774,13 @@ def run_setup(
         env_file=stack_env_file,
         env_exists=has_existing_stack_env,
     )
+    resolved_invite_api_key, resolved_invite_from = _resolve_invite_email_config(
+        resend_api_key,
+        invite_from_email,
+        yes=yes,
+        env_file=stack_env_file,
+        env_exists=has_existing_stack_env,
+    )
     resolved_backend_upstreams, resolved_studio_upstream = _resolve_stack_upstreams(
         stack_env_file,
         env_exists=has_existing_stack_env,
@@ -1755,6 +1822,8 @@ def run_setup(
         auth_issuer=resolved_auth_issuer,
         auth_client_id=resolved_auth_client_id,
         auth_audience=resolved_auth_audience,
+        invite_email_api_key=resolved_invite_api_key,
+        invite_email_from=resolved_invite_from,
     )
 
 

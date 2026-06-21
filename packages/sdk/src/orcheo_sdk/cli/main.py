@@ -293,6 +293,8 @@ def _run_install_flow(
     install_docker: bool | None,
     manual_secrets: bool,
     forced_mode: SetupMode | None = None,
+    resend_api_key: str | None = None,
+    invite_from_email: str | None = None,
 ) -> None:
     """Run guided install/upgrade for Orcheo components."""
     mode_value = forced_mode or cast(SetupMode | None, _parse_setup_mode(mode))
@@ -312,6 +314,8 @@ def _run_install_flow(
         yes=yes,
         manual_secrets=manual_secrets,
         console=console,
+        resend_api_key=resend_api_key,
+        invite_from_email=invite_from_email,
     )
     execute_setup(config, console=console, stack_version=stack_version)
     print_summary(config, console=console)
@@ -483,6 +487,26 @@ def install_command(
             help="Prompt for manual secret entry instead of auto-generating.",
         ),
     ] = False,
+    resend_api_key: Annotated[
+        str | None,
+        typer.Option(
+            "--resend-api-key",
+            help=(
+                "Resend API key for workspace invitation emails (sets "
+                "ORCHEO_RESEND_API_KEY). Leave unset to log links instead."
+            ),
+        ),
+    ] = None,
+    invite_from_email: Annotated[
+        str | None,
+        typer.Option(
+            "--invite-from-email",
+            help=(
+                "Sender address for invitation emails (sets "
+                "ORCHEO_INVITE_FROM_EMAIL); requires a Resend-verified domain."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Run guided install/upgrade for Orcheo components."""
     if ctx.invoked_subcommand is not None:
@@ -503,6 +527,8 @@ def install_command(
         start_stack=start_stack,
         install_docker=install_docker,
         manual_secrets=manual_secrets,
+        resend_api_key=resend_api_key,
+        invite_from_email=invite_from_email,
     )
 
 
