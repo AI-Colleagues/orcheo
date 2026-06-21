@@ -177,6 +177,23 @@ def test_verified_email_falls_back_to_userinfo(monkeypatch) -> None:
     assert calls == ["tok"]
 
 
+def test_verified_email_rechecks_stale_unverified_claim(monkeypatch) -> None:
+    # Token has the email but a stale email_verified=false; userinfo is live.
+    monkeypatch.setattr(
+        workspaces_router,
+        "_fetch_userinfo_email",
+        lambda token: ("claim@example.com", True),
+    )
+    auth = _auth("auth0|x", email="claim@example.com", email_verified=False)
+    assert _verified_email(auth, access_token="tok") == ("claim@example.com", True)
+
+
+def test_verified_email_stays_unverified_when_userinfo_unavailable(monkeypatch) -> None:
+    monkeypatch.setattr(workspaces_router, "_fetch_userinfo_email", lambda token: None)
+    auth = _auth("auth0|x", email="claim@example.com", email_verified=False)
+    assert _verified_email(auth, access_token="tok") == ("claim@example.com", False)
+
+
 def test_accept_unverified_email_message(setup, monkeypatch) -> None:
     sender, service, workspace, admin_ctx = setup
     create_workspace_invitation(

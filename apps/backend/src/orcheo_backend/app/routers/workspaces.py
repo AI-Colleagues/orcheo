@@ -166,20 +166,24 @@ def _verified_email(
 ) -> tuple[str | None, bool]:
     """Return ``(email, email_verified)`` for the authenticated principal.
 
-    Resolution order: namespaced/plain token claims (``extract_identity``), then
-    a developer login's email-shaped subject (trusted locally), then the IdP
-    ``/userinfo`` endpoint when the access token itself carries no email.
+    Token claims are a snapshot from issuance time, so a user who verifies their
+    email after signing in keeps a stale ``email_verified=false`` until their
+    next login. To avoid blocking them, the live IdP ``/userinfo`` endpoint is
+    consulted whenever the token does not already assert a verified email (the
+    token is missing the address, or carries it but unverified). A verified token
+    claim is trusted directly as the fast path.
     """
     email, _ = extract_identity(auth.claims)
     verified = extract_email_verified(auth.claims)
-    if email is not None:
-        return email, verified
+    if email is not None and verified:
+        return email, True
     if auth.identity_type == "developer" and "@" in auth.subject:
         return auth.subject, True
     if access_token:
         fetched = _fetch_userinfo_email(access_token)
         if fetched is not None:
-            return fetched
+            fetched_email, fetched_verified = fetched
+            return (fetched_email or email), (fetched_verified or verified)
     return email, verified
 
 
