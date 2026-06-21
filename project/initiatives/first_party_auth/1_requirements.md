@@ -50,6 +50,7 @@ The approach is to own the simple self-serve IdP and delegate to external IdPs o
 - First-party, passwordless (magic link + OTP) email sign up and log in.
 - A first-party Studio login/signup UI replacing the Auth0 redirect flow.
 - An internal `users` identity keyed by verified email; memberships re-keyed off the Auth0 `sub`.
+- Clean cutover with **no backward compatibility**: the backend is switched to first-party tokens in a single change — there is no dual-run window, no dual-issuer acceptance of Auth0 and first-party tokens, and no rollback that re-enables Auth0 (rollback is by database restore).
 - Complete removal of Auth0-specific env vars, configuration, frontend OIDC client, and the invitation flow's Auth0-claim/Action dependency.
 - Switch transactional email (auth challenges and invitations) to **SMTP**, replacing the Resend HTTP integration with a provider-agnostic SMTP sender behind the existing port.
 - No regression to the just-shipped workspace invitation flow; `email_verified` now comes from the first-party IdP.
@@ -75,7 +76,7 @@ The approach is to own the simple self-serve IdP and delegate to external IdPs o
 - Replace the Auth0 OIDC redirect/callback/auto-login flow; retain route-guard and session-storage behavior backed by the new endpoints.
 
 **P0 — Migration & invitation continuity**
-- Backfill `users` from existing membership emails (populated by member-identity capture) and re-key memberships from Auth0 `sub` → internal user id using the existing `list_memberships_for_email` / `reassign_membership` primitives.
+- Backfill `users` from existing membership emails (populated by member-identity capture) and re-key memberships from Auth0 `sub` → internal user id. This requires two **new** repository primitives — an email-indexed membership lookup (`list_memberships_for_email`) and a re-key operation (`reassign_membership`) — added alongside the existing `list_memberships_for_user` / `update_membership_identity` methods, neither of which re-keys the `user_id`.
 - Invitation accept continues to work, sourcing `email_verified` from first-party tokens; remove the Auth0 custom-claim/Action requirement and the `/userinfo` fallback added for Auth0.
 
 **P0 — Auth0 decommission**
@@ -103,7 +104,7 @@ A new identity service (backend module) owns users, email challenges, and token 
 ### Technical Requirements
 - Reuse `AUTH_JWT_SECRET` and existing JWT validation; no new verification path on the hot route.
 - Provide an SMTP-backed transactional email sender (replacing the Resend HTTP integration) behind the existing sender port; reuse `authentication/rate_limit.py`.
-- Migration must be idempotent and reversible during a rollback window; existing service-token auth is unaffected.
+- Migration is a one-time, idempotent batch backfill run at cutover (create `users` from membership emails, then re-key memberships); because there is no backward compatibility, rollback is by database restore, not by re-enabling Auth0. Existing service-token auth is unaffected.
 - Email deliverability becomes a hard dependency for *every* login (consequence of passwordless) — see Risks.
 
 ### AI/ML Considerations (if applicable)
@@ -124,21 +125,21 @@ N/A — platform infrastructure, no market-launch gating.
 | [Secondary] Abuse blocked | Rate-limit/anti-enumeration effective; no enumeration oracle |
 
 ### Rollout Strategy
-Feature-flagged first-party auth alongside Auth0; dual-run with lazy per-user migration on first first-party login; flip default once migration coverage is high; then remove Auth0. See `./3_plan.md`.
+Clean cutover with no backward compatibility: stand up the first-party IdP and Studio UI, run the one-time membership backfill, switch the backend to first-party tokens, and remove Auth0 in the same change. There is no dual-run or dual-issuer window. Staff verify end-to-end on a staging deployment before the production cutover. See `./3_plan.md`.
 
 ### Estimated Launch Phases (if applicable)
 | Phase | Target | Description |
 |-------|--------|-------------|
-| **Phase 1** | Internal/flagged | First-party IdP + Studio UI behind a flag; staff dogfood |
-| **Phase 2** | Opt-in cohort | Lazy migration on login; monitor delivery and migration coverage |
-| **Phase 3** | Default + decommission | First-party default; backfill remaining users; remove Auth0 |
+| **Phase 1** | Staging | First-party IdP + Studio UI on staging; staff dogfood signup, login, refresh, logout, invites end-to-end |
+| **Phase 2** | Cutover dry-run | Run the membership backfill against a staging copy of production data; verify 100% coverage, no orphaned users |
+| **Phase 3** | Production cutover | Single change: backfill memberships, switch backend to first-party tokens, remove Auth0 |
 
 ## HYPOTHESIS & RISKS
 **Hypothesis:** Email-centric users will complete passwordless login at parity-or-better vs. Auth0, and owning the IdP removes vendor cost/lock-in with no loss of capability for the self-serve tier.
 
 **Risks & mitigations**
 - *Email deliverability is now on the login critical path.* Mitigate with a reputable transactional provider, monitoring, OTP fallback, and a documented self-host SMTP requirement.
-- *Migration lockout (sub → user re-keying).* Mitigate with member-identity-captured emails, idempotent lazy + batch migration, a dual-run window, and a rollback path that re-enables Auth0.
+- *Migration lockout (sub → user re-keying).* Mitigate with member-identity-captured emails, an idempotent batch backfill verified to 100% coverage on a staging copy before cutover, and a database-restore rollback. (No backward compatibility, so there is no dual-run fallback to Auth0 — coverage must be proven before the cutover.)
 - *Account-takeover via email compromise* (inherent to passwordless). Mitigate with short-TTL single-use tokens, rate limits, attempt lockout, and session revocation; MFA deferred but noted.
 - *Loss of social login* may frustrate Google/GitHub users. Mitigate by migrating them by verified email and signposting the future SSO initiative.
 
@@ -146,3 +147,5 @@ Feature-flagged first-party auth alongside Auth0; dual-run with lazy per-user mi
 - Decision: passwordless (magic link + OTP); passwords explicitly out of scope.
 - Decision: retain generic OIDC RP layer (not Auth0-specific) for a future enterprise SSO initiative; remove only Auth0-specific configuration/code.
 - Decision: transactional email is delivered via SMTP; the Resend HTTP integration is replaced by an SMTP sender behind the existing port, and the Resend dependency/config is removed.
+- Decision: clean cutover with **no backward compatibility** — no dual-run, no dual-issuer acceptance of Auth0 + first-party tokens, and no Auth0 rollback; rollback is by database restore. Existing Auth0 sessions are invalidated at cutover and users re-authenticate via the first-party flow.
+- Note: the membership-migration primitives `list_memberships_for_email` / `reassign_membership` are **new** (to be added); the repository today exposes `list_memberships_for_user` / `update_membership_identity`, which do not re-key `user_id`.

@@ -11,7 +11,7 @@
 
 ## Overview
 
-Build a first-party, passwordless email identity provider that mints Orcheo's existing JWT contract, replace the Studio Auth0 login with a first-party UI, migrate workspace memberships from the Auth0 `sub` to an internal verified-email identity, switch transactional email to SMTP, and decommission all Auth0-specific configuration and code (and the Resend integration). Scope is email magic-link + OTP login/signup only; social login, enterprise SSO, MFA, and deregistration are out of scope.
+Build a first-party, passwordless email identity provider that mints Orcheo's existing JWT contract, replace the Studio Auth0 login with a first-party UI, migrate workspace memberships from the Auth0 `sub` to an internal verified-email identity, switch transactional email to SMTP, and decommission all Auth0-specific configuration and code (and the Resend integration). This is a **clean cutover with no backward compatibility** — no dual-run, no dual-issuer window, and no rollback that re-enables Auth0 (rollback is by database restore). Scope is email magic-link + OTP login/signup only; social login, enterprise SSO, MFA, and deregistration are out of scope.
 
 **Related Documents:**
 - Requirements: `./1_requirements.md`
@@ -37,7 +37,7 @@ Build a first-party, passwordless email identity provider that mints Orcheo's ex
   - Dependencies: None
 - [ ] Task 1.5: Expose endpoints `POST /api/auth/email/start`, `/email/verify`, `/refresh`, `/logout`, `GET /api/auth/me` with rate limiting and anti-enumeration.
   - Dependencies: Tasks 1.2, 1.3
-- [ ] Task 1.6: Configure `authentication/` to accept first-party HS256 tokens (issuer/audience/secret); keep generic JWKS path intact.
+- [ ] Task 1.6: Configure `authentication/` to validate first-party HS256 tokens (issuer/audience/secret) as the sole accepted issuer — no dual-issuer/Auth0 acceptance; keep the generic JWKS code present but dormant for the future SSO initiative.
   - Dependencies: Task 1.3
 
 ---
@@ -65,9 +65,9 @@ Build a first-party, passwordless email identity provider that mints Orcheo's ex
 
 #### Task Checklist
 
-- [ ] Task 3.1: Implement lazy migration on first first-party login using `list_memberships_for_email` + `reassign_membership`; invalidate the resolver cache.
+- [ ] Task 3.1: Add the two **new** repository primitives — `list_memberships_for_email(email)` and `reassign_membership(workspace_id, from_user_id, to_user_id)` (the existing `list_memberships_for_user` / `update_membership_identity` do not re-key `user_id`); invalidate the resolver cache on re-key.
   - Dependencies: Milestone 1
-- [ ] Task 3.2: Add an idempotent batch backfill (CLI/management task) to migrate users who have not yet logged in, from captured `membership.email`.
+- [ ] Task 3.2: Implement the one-time idempotent batch backfill (CLI/management task) run at cutover: create a `users` row per distinct captured `membership.email`, then re-key every `sub`-keyed membership to the internal id via `reassign_membership` (resolving any `(workspace_id, internal_id)` collision by keeping the existing row, highest role wins). Because there is no dual-run, this is the primary migration path, not a straggler cleanup.
   - Dependencies: Task 3.1
 - [ ] Task 3.3: Simplify the invitation accept path — read `email_verified` from first-party claims; remove the Auth0 `/userinfo` fallback and custom-claim handling in `routers/workspaces.py::_verified_email`.
   - Dependencies: Milestone 2
@@ -84,7 +84,7 @@ Build a first-party, passwordless email identity provider that mints Orcheo's ex
 
 - [ ] Task 4.1: Remove Auth0 frontend env/config (`VITE_ORCHEO_AUTH_ISSUER/CLIENT_ID/AUDIENCE/ORGANIZATION/PROVIDER_*/REDIRECT_URI/SCOPES/STATE_BYTES/VERIFIER_BYTES`) from manifests, `.env` examples, and stack templates.
   - Dependencies: Milestone 2
-- [ ] Task 4.2: Remove Auth0 backend issuer/JWKS/audience *values* and dual-issuer config; retain generic JWKS code marked dormant for the SSO initiative.
+- [ ] Task 4.2: Remove the Auth0 backend issuer/JWKS/audience *values* (there is no dual-issuer config — the backend accepts only the first-party issuer); retain the generic JWKS code marked dormant for the SSO initiative.
   - Dependencies: Milestone 3
 - [ ] Task 4.3: Delete the Auth0 Action / custom-claim documentation and references introduced for the invitation flow.
   - Dependencies: Task 3.3
@@ -99,7 +99,7 @@ Build a first-party, passwordless email identity provider that mints Orcheo's ex
 
 ### Milestone 5: Hardening & rollout
 
-**Description:** Production-readiness for the passwordless critical path and a safe phased rollout. Success: rate limits and anti-enumeration verified, email delivery monitored, and first-party auth defaulted with a rollback path.
+**Description:** Production-readiness for the passwordless critical path and a safe clean cutover (no backward compatibility). Success: rate limits and anti-enumeration verified, email delivery monitored, and the production cutover completed with a database-restore rollback path.
 
 #### Task Checklist
 
@@ -107,7 +107,7 @@ Build a first-party, passwordless email identity provider that mints Orcheo's ex
   - Dependencies: Milestone 1
 - [ ] Task 5.2: Add telemetry/alerts for signups, logins, verification expiry, and email-delivery failures.
   - Dependencies: Milestone 1
-- [ ] Task 5.3: Phased rollout — flag on for staff (Phase 1) → dual-run cohort (Phase 2) → default (Phase 3); document rollback (re-enable Auth0 during the dual-run window).
+- [ ] Task 5.3: Clean-cutover rollout — staging dogfood (Phase 1) → cutover dry-run against a staging copy verifying 100% backfill coverage (Phase 2) → single-change production cutover (Phase 3). No dual-run; document database-restore rollback (not re-enabling Auth0).
   - Dependencies: Milestones 2, 3
 - [ ] Task 5.4: Document `AUTH_JWT_SECRET` rotation and the optional future move to RS256/JWKS.
   - Dependencies: Task 1.3
@@ -119,3 +119,4 @@ Build a first-party, passwordless email identity provider that mints Orcheo's ex
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-06-21 | Claude (Opus 4.8) | Initial draft |
+| 2026-06-21 | Claude (Opus 4.8) | Clean cutover, no backward compatibility (removed dual-run/dual-issuer/Auth0 rollback); corrected migration tasks to add new `list_memberships_for_email` / `reassign_membership` primitives |

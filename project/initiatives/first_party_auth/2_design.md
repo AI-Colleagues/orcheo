@@ -17,6 +17,8 @@ The design is deliberately minimal: own the simple email IdP for self-serve, and
 
 Scope is passwordless email login + signup only. Passwords, social login, enterprise SSO/SAML, MFA, and account deregistration are out of scope (see Requirements doc).
 
+This ships as a **clean cutover with no backward compatibility**: after cutover the backend validates only first-party HS256 tokens, there is no dual-run or dual-issuer window in which Auth0 and first-party tokens are both accepted, existing Auth0 sessions are invalidated, and rollback is by database restore rather than re-enabling Auth0.
+
 ## Components
 
 - **Identity Service (FastAPI, new module — `apps/backend/src/orcheo_backend/app/identity/`)**
@@ -32,8 +34,8 @@ Scope is passwordless email login + signup only. Passwords, social login, enterp
   - The `InvitationEmailSender` abstraction (logging default) is generalized/shared to send auth challenge emails (magic link + OTP).
   - The production implementation is an **SMTP** sender, replacing the Resend HTTP integration. SMTP becomes the sole production transport for both auth challenges and invitations.
 
-- **Workspace Membership & Migration (existing — `src/orcheo/workspace/repository.py`)**
-  - Reuses `list_memberships_for_email`, `reassign_membership`, and member-identity-captured `membership.email` to migrate memberships from `sub` → internal user id.
+- **Workspace Membership & Migration (`src/orcheo/workspace/repository.py`)**
+  - Adds two **new** repository primitives — `list_memberships_for_email(email)` and `reassign_membership(workspace_id, from_user_id, to_user_id)` — built on the existing store, which already captures `membership.email` and exposes `list_memberships_for_user` / `update_membership_identity` (neither of which re-keys `user_id`). These drive the `sub` → internal user id backfill.
 
 - **Studio Auth UI (React — `apps/studio/src/features/auth/`)**
   - Replaces the Auth0 OIDC client (`lib/oidc-client.ts`, `pages/oauth-callback.tsx`, `components/auto-login.tsx`) with a first-party email login/signup flow.
@@ -46,7 +48,7 @@ Scope is passwordless email login + signup only. Passwords, social login, enterp
 2. Identity Service normalizes the email, finds-or-stages a user, creates a challenge (random token + 6–8 digit OTP), stores **hashes** with a 15-min TTL, and emails the magic link (`/auth/verify?token=…`) plus the OTP. Response is constant-time regardless of whether the email exists (anti-enumeration).
 3. User clicks the link → Studio calls `POST /api/auth/email/verify { token }`.
 4. Identity Service validates the token (unconsumed, unexpired, attempt-OK), marks the user `email_verified=true`, consumes the challenge, creates a session, and returns access + refresh tokens and the profile.
-5. On first first-party login, the service runs membership migration (Flow 4) before returning.
+5. On login the service resolves the user's memberships by verified email — they were re-keyed to the internal user id by the one-time backfill (Flow 4) — before returning.
 6. Studio stores tokens and routes the user in.
 
 ### Flow 2: OTP fallback
@@ -58,10 +60,10 @@ Scope is passwordless email login + signup only. Passwords, social login, enterp
 1. Access token nears expiry → `POST /api/auth/refresh` with the refresh token → new access token; refresh token rotated.
 2. `POST /api/auth/logout` revokes the server-side session/refresh token; Studio clears local tokens.
 
-### Flow 4: Membership migration (first first-party login)
-1. After a user verifies, the service looks up the user's verified email via `list_memberships_for_email(email)`.
-2. For each membership still keyed by an Auth0 `sub`, `reassign_membership(workspace_id, from=sub, to=user_id)` moves it to the internal user id (idempotent; preserves role and row).
-3. The resolver cache is invalidated so the new identity immediately resolves its workspaces.
+### Flow 4: Membership migration (one-time backfill at cutover)
+1. A one-time, idempotent backfill creates a `users` row (new UUID) for each distinct `membership.email`, then for every membership still keyed by an Auth0 `sub` calls `reassign_membership(workspace_id, from_user_id=sub, to_user_id=user_id)` to move it to that internal user id via `list_memberships_for_email(email)` (preserves role and row; skips rows already on an internal id).
+2. After cutover, first-party login resolves the pre-created `users` row by verified email, so its memberships already point at the matching internal id. The resolver cache is invalidated so identities resolve their workspaces immediately.
+3. Because there is no backward compatibility (no dual-run), no new Auth0-keyed rows are created after cutover; any stragglers are caught by re-running the idempotent backfill.
 
 ### Flow 5: Invitation acceptance (continuity)
 1. Invitee logs in via Flow 1/2 → holds a first-party token with `email_verified=true`.
@@ -138,7 +140,7 @@ Response: 200 OK -> { id, email, email_verified, name }
 | expires_at / revoked_at | TIMESTAMPTZ | Lifecycle / logout |
 | user_agent / ip | TEXT (nullable) | Audit context |
 
-**Membership change:** `workspace_memberships.user_id` transitions from the Auth0 `sub` string to the internal `users.id` (UUID as text). Migration is data-only; the column and uniqueness constraint are unchanged.
+**Membership change:** `workspace_memberships.user_id` transitions from the Auth0 `sub` string to the internal `users.id` (UUID as text). Migration is data-only; the column and the `(workspace_id, user_id)` uniqueness constraint are unchanged. The one-time backfill assigns each email exactly one internal id, so a workspace cannot end up with two rows for the same person; if a target `(workspace_id, internal_id)` row already exists, the backfill keeps it and drops the duplicate `sub`-keyed row (highest role wins).
 
 ## Security Considerations
 
@@ -161,11 +163,12 @@ Response: 200 OK -> { id, email, email_verified, name }
 - **Manual QA:** Studio signup, login (link + OTP), reload/refresh, logout, invite acceptance, and a fresh deployment with zero Auth0 env vars.
 
 ## Rollout Plan
-1. **Phase 1 — flagged:** ship Identity Service + Studio UI behind a flag alongside Auth0; staff dogfood.
-2. **Phase 2 — dual-run:** lazy per-user migration on first first-party login; monitor delivery and migration coverage.
-3. **Phase 3 — default + decommission:** make first-party default; batch-migrate stragglers; remove Auth0 env vars/code, the Studio OIDC client, the invitation Auth0-claim path, and the Resend integration/config (SMTP becomes the sole transport). Keep the generic OIDC RP code dormant for the SSO initiative.
+This initiative ships as a **clean cutover with no backward compatibility** — there is no dual-run, no dual-issuer window, and no rollback that re-enables Auth0.
+1. **Phase 1 — staging:** ship Identity Service + Studio UI to staging; staff dogfood signup, login (link + OTP), refresh, logout, and invitation acceptance end-to-end.
+2. **Phase 2 — cutover dry-run:** run the one-time membership backfill against a staging copy of production data; verify 100% of email-bearing memberships re-key and no user is orphaned.
+3. **Phase 3 — production cutover (single change):** run the backfill, switch the backend from the Auth0 issuer/JWKS to first-party HS256 tokens, and remove Auth0 env vars/code, the Studio OIDC client, the invitation Auth0-claim path, and the Resend integration/config (SMTP becomes the sole transport). Keep the generic OIDC RP code dormant for the SSO initiative.
 
-Backwards compatibility: during dual-run the backend accepts both Auth0 and first-party tokens (two configured issuers); after decommission only the first-party issuer remains.
+**No backward compatibility:** after cutover the backend validates only first-party HS256 tokens — it never accepts Auth0 and first-party tokens concurrently. Any Auth0 session is invalidated at cutover and users re-authenticate via the first-party flow. Rollback is by database restore, not by re-enabling Auth0.
 
 ---
 
@@ -174,3 +177,4 @@ Backwards compatibility: during dual-run the backend accepts both Auth0 and firs
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-06-21 | Claude (Opus 4.8) | Initial draft |
+| 2026-06-21 | Claude (Opus 4.8) | Clean cutover, no backward compatibility (removed dual-run/dual-issuer); corrected membership-migration primitives as new (`list_memberships_for_email` / `reassign_membership`); added re-key conflict handling |
