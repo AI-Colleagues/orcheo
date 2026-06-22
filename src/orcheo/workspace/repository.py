@@ -126,6 +126,20 @@ class WorkspaceRepository(Protocol):
     def update_invitation(self, invitation: WorkspaceInvitation) -> WorkspaceInvitation:
         """Persist status/acceptance changes for an existing invitation."""
 
+    def accept_invitation_atomic(
+        self,
+        membership: WorkspaceMembership,
+        invited_email: str,
+        invitation: WorkspaceInvitation,
+    ) -> tuple[WorkspaceMembership, WorkspaceInvitation]:
+        """Atomically add/upsert membership and mark the invitation ACCEPTED.
+
+        Adds the membership row if it does not exist; otherwise updates the
+        existing row's email. Both writes happen in a single transaction so a
+        crash between them cannot leave the invitation permanently PENDING.
+        Returns the final membership and the accepted invitation.
+        """
+
 
 class InMemoryWorkspaceRepository:
     """In-memory workspace repository used for tests and embedded deployments."""
@@ -375,3 +389,31 @@ class InMemoryWorkspaceRepository:
             raise WorkspaceInvitationNotFoundError(str(invitation.id))
         self._invitations[invitation.id] = invitation
         return invitation
+
+    def accept_invitation_atomic(
+        self,
+        membership: WorkspaceMembership,
+        invited_email: str,
+        invitation: WorkspaceInvitation,
+    ) -> tuple[WorkspaceMembership, WorkspaceInvitation]:
+        """Atomically add/upsert membership and mark the invitation ACCEPTED."""
+        key = (membership.workspace_id, membership.user_id)
+        if key not in self._memberships:
+            self._memberships[key] = membership.model_copy(
+                update={"email": invited_email}
+            )
+        else:
+            existing = self._memberships[key]
+            self._memberships[key] = existing.model_copy(
+                update={"email": invited_email or existing.email}
+            )
+        final_membership = self._memberships[key]
+        accepted = invitation.model_copy(
+            update={
+                "status": InvitationStatus.ACCEPTED,
+                "accepted_by": membership.user_id,
+                "accepted_at": _utcnow(),
+            }
+        )
+        self._invitations[invitation.id] = accepted
+        return final_membership, accepted

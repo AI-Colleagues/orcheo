@@ -514,6 +514,85 @@ class PostgresWorkspaceRepository:
                 raise WorkspaceInvitationNotFoundError(str(invitation.id))
         return invitation
 
+    def accept_invitation_atomic(
+        self,
+        membership: WorkspaceMembership,
+        invited_email: str,
+        invitation: WorkspaceInvitation,
+    ) -> tuple[WorkspaceMembership, WorkspaceInvitation]:
+        """Atomically add/upsert membership and mark the invitation ACCEPTED."""
+        now = _utc_now()
+        with self._connect() as conn:
+            existing_row = conn.execute(
+                """
+                SELECT * FROM workspace_memberships
+                 WHERE workspace_id = %s AND user_id = %s
+                """,
+                (str(membership.workspace_id), membership.user_id),
+            ).fetchone()
+            if existing_row is None:
+                conn.execute(
+                    """
+                    INSERT INTO workspace_memberships (
+                        id, workspace_id, user_id, email, user_name, role, created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        str(membership.id),
+                        str(membership.workspace_id),
+                        membership.user_id,
+                        invited_email,
+                        membership.user_name,
+                        membership.role.value,
+                        membership.created_at,
+                    ),
+                )
+                final_membership = membership.model_copy(update={"email": invited_email})
+            else:
+                conn.execute(
+                    """
+                    UPDATE workspace_memberships
+                       SET email = COALESCE(%s, email)
+                     WHERE workspace_id = %s AND user_id = %s
+                    """,
+                    (invited_email, str(membership.workspace_id), membership.user_id),
+                )
+                row = conn.execute(
+                    """
+                    SELECT * FROM workspace_memberships
+                     WHERE workspace_id = %s AND user_id = %s
+                    """,
+                    (str(membership.workspace_id), membership.user_id),
+                ).fetchone()
+                final_membership = self._row_to_membership(row)
+
+            accepted = invitation.model_copy(
+                update={
+                    "status": InvitationStatus.ACCEPTED,
+                    "accepted_by": membership.user_id,
+                    "accepted_at": now,
+                }
+            )
+            cursor = conn.execute(
+                """
+                UPDATE workspace_invitations
+                   SET status = %s,
+                       accepted_by = %s,
+                       accepted_at = %s
+                 WHERE id = %s
+                """,
+                (
+                    accepted.status.value,
+                    accepted.accepted_by,
+                    accepted.accepted_at,
+                    str(accepted.id),
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise WorkspaceInvitationNotFoundError(str(invitation.id))
+        return final_membership, accepted
+
     @staticmethod
     def _row_to_workspace(row: dict[str, object]) -> Workspace:
         quotas_payload = row["quotas"] or {}

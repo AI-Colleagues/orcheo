@@ -303,8 +303,13 @@ export default function WorkspaceMembers() {
                   .map((invitation) => {
                     const isRevoking =
                       revokingInvitationId === invitation.id;
+                    const isExpired =
+                      new Date(invitation.expires_at) < new Date();
                     return (
-                      <TableRow key={invitation.id}>
+                      <TableRow
+                        key={invitation.id}
+                        className={isExpired ? "opacity-60" : undefined}
+                      >
                         <TableCell className="text-sm">
                           {invitation.email}
                         </TableCell>
@@ -312,9 +317,13 @@ export default function WorkspaceMembers() {
                           {invitation.role}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {new Date(
-                            invitation.expires_at,
-                          ).toLocaleDateString()}
+                          {isExpired ? (
+                            <span className="text-destructive">Expired</span>
+                          ) : (
+                            new Date(
+                              invitation.expires_at,
+                            ).toLocaleDateString()
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <Button

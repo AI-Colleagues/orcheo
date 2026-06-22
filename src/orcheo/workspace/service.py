@@ -15,7 +15,7 @@ from orcheo.workspace.errors import (
     WorkspaceInvitationEmailMismatchError,
     WorkspaceInvitationError,
     WorkspaceInvitationExpiredError,
-    WorkspaceMembershipError,
+    WorkspaceInvitationNotFoundError,
     WorkspaceMembershipLimitError,
     WorkspacePermissionError,
 )
@@ -434,7 +434,7 @@ class WorkspaceService:
         if invitation.status is InvitationStatus.ACCEPTED:
             if invitation.accepted_by == user_id:
                 return self._repository.get_membership(invitation.workspace_id, user_id)
-            raise WorkspaceInvitationError("Invitation has already been accepted")
+            raise WorkspaceInvitationNotFoundError("Invitation not found")
         if invitation.is_expired(now=datetime.now(tz=UTC)):
             raise WorkspaceInvitationExpiredError("Invitation has expired")
 
@@ -456,33 +456,17 @@ class WorkspaceService:
                 f"signed in as {normalized_email}."
             )
 
-        try:
-            self.invite_member(
-                workspace_id=invitation.workspace_id,
-                user_id=user_id,
-                role=invitation.role,
-            )
-            membership = self._repository.update_membership_identity(
-                invitation.workspace_id,
-                user_id,
-                email=invitation.email,
-            )
-        except WorkspaceMembershipLimitError:
-            raise
-        except WorkspaceMembershipError:
-            # Already a member — treat acceptance as idempotent.
-            membership = self._repository.get_membership(
-                invitation.workspace_id, user_id
-            )
-
-        accepted = invitation.model_copy(
-            update={
-                "status": InvitationStatus.ACCEPTED,
-                "accepted_by": user_id,
-                "accepted_at": datetime.now(tz=UTC),
-            }
+        self._ensure_membership_capacity(user_id, workspace_id=invitation.workspace_id)
+        new_membership = WorkspaceMembership(
+            workspace_id=invitation.workspace_id,
+            user_id=user_id,
+            role=invitation.role,
         )
-        self._repository.update_invitation(accepted)
+        membership, accepted = self._repository.accept_invitation_atomic(
+            new_membership,
+            invitation.email,
+            invitation,
+        )
         self._record_invitation_audit(
             invitation.workspace_id,
             action="workspace.invitation.accepted",

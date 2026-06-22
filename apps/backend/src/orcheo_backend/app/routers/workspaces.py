@@ -683,6 +683,3 @@ def _scoped_workspace(
             error_code="workspace.scope_mismatch",
         )
     return workspace
-
-
-_RoleParam = Annotated[Role, Depends(require_role(Role.ADMIN))]
