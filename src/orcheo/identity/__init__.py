@@ -15,12 +15,6 @@ from orcheo.identity.errors import (
     IdentitySessionNotFoundError,
     UserNotFoundError,
 )
-from orcheo.identity.migration import (
-    CoverageReport,
-    MigrationReport,
-    backfill_identities,
-    report_migration_coverage,
-)
 from orcheo.identity.models import (
     AuthEmailChallenge,
     AuthSession,
@@ -42,10 +36,6 @@ __all__ = [
     "AuthEmailChallenge",
     "AuthSession",
     "ChallengePurpose",
-    "CoverageReport",
-    "MigrationReport",
-    "backfill_identities",
-    "report_migration_coverage",
     "IdentityChallengeError",
     "IdentityChallengeExpiredError",
     "IdentityChallengeLockedError",

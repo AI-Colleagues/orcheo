@@ -2,8 +2,8 @@
 
 Orcheo authenticates users with a **first-party, passwordless email identity
 provider** (magic link + OTP). There is no Auth0 dependency. This page covers
-the production cutover, the membership migration, signing-key rotation, and the
-future move to RS256/JWKS.
+the production cutover, signing-key rotation, and the future move to
+RS256/JWKS.
 
 ## Overview
 
@@ -19,44 +19,22 @@ future move to RS256/JWKS.
   dual-issuer window, existing Auth0 sessions are invalidated, and rollback is
   by **database restore** (not by re-enabling Auth0).
 
-## Membership migration (Auth0 `sub` → internal user id)
-
-Every workspace membership is keyed by the Auth0 `sub` before cutover. The
-one-time, **idempotent** backfill creates a `users` row per distinct captured
-`membership.email` and re-keys each membership onto the internal user id.
-
-```bash
-# Report coverage without changing anything (cutover readiness).
-python -m orcheo.identity.cli coverage      # or: orcheo-identity-migrate coverage
-
-# Run the idempotent backfill.
-python -m orcheo.identity.cli backfill      # or: orcheo-identity-migrate backfill
-```
-
-Both build the Postgres-backed stores from `ORCHEO_POSTGRES_DSN`. The backfill
-resolves any `(workspace_id, internal_id)` collision by keeping the existing row
-(highest role wins) and dropping the duplicate `sub`-keyed row. Re-running makes
-no further changes once memberships already point at internal ids. `coverage`
-exits non-zero while any email-bearing membership remains unmigrated.
-
 ## Rollout phases
 
 1. **Phase 1 — staging dogfood.** Deploy the identity service + Studio UI to
    staging. Staff verify signup, login (link **and** OTP), reload/refresh,
    logout, and invitation acceptance end-to-end.
 2. **Phase 2 — cutover dry-run.** Restore a copy of production data to staging
-   and run `orcheo-identity-migrate coverage`, then `backfill`, then `coverage`
-   again. Confirm 100% of email-bearing memberships re-key and no user is
-   orphaned.
-3. **Phase 3 — production cutover (single change).** Run the backfill, switch
-   the backend to first-party tokens (`ORCHEO_AUTH_JWT_SECRET` /
-   `ORCHEO_AUTH_ISSUER` / `ORCHEO_AUTH_AUDIENCE` set, no `ORCHEO_AUTH_JWKS_URL`),
-   and remove the Auth0 env/tenant. Users re-authenticate via the first-party
-   flow.
+   and exercise signup, login, refresh, logout, and invitation acceptance
+   against it. Confirm no user is orphaned.
+3. **Phase 3 — production cutover (single change).** Switch the backend to
+   first-party tokens (`ORCHEO_AUTH_JWT_SECRET` / `ORCHEO_AUTH_ISSUER` /
+   `ORCHEO_AUTH_AUDIENCE` set, no `ORCHEO_AUTH_JWKS_URL`), and remove the Auth0
+   env/tenant. Users re-authenticate via the first-party flow.
 
 **Rollback.** There is no dual-run fallback. If the cutover must be reverted,
-restore the database from the pre-cutover backup. Prove migration coverage on a
-staging copy (Phase 2) before touching production.
+restore the database from the pre-cutover backup. Validate the full auth flow on
+a staging copy (Phase 2) before touching production.
 
 ## `ORCHEO_AUTH_JWT_SECRET` rotation
 
