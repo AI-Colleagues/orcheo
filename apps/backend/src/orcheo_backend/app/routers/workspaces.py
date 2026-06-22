@@ -4,8 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 from uuid import UUID
-import httpx
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Query, status
 from orcheo.workspace import (
     Role,
     Workspace,
@@ -29,7 +28,6 @@ from orcheo_backend.app.authentication import (
     extract_email_verified,
     extract_identity,
 )
-from orcheo_backend.app.authentication.settings import load_auth_settings
 from orcheo_backend.app.schemas.workspaces import (
     ActiveWorkspaceResponse,
     InvitationAcceptRequest,
@@ -119,59 +117,13 @@ def _to_invitation_response(invitation: WorkspaceInvitation) -> InvitationRespon
 logger = logging.getLogger(__name__)
 
 
-def _request_bearer_token(request: Request) -> str | None:
-    """Extract the raw bearer access token from the Authorization header."""
-    header = request.headers.get("Authorization") or ""
-    scheme, _, token = header.partition(" ")
-    if scheme.lower() == "bearer" and token.strip():
-        return token.strip()
-    return None
-
-
-def _fetch_userinfo_email(access_token: str) -> tuple[str, bool] | None:
-    """Fetch ``(email, email_verified)`` from the IdP ``/userinfo`` endpoint.
-
-    Auth0 access tokens do not carry ``email`` unless a custom claim is added via
-    a Login Action. Studio requests the ``email`` scope, so the OIDC ``/userinfo``
-    endpoint can return it directly with the same access token — letting the
-    accept flow work without a custom Action. Best effort: any failure returns
-    ``None`` so the caller falls back to whatever the token claims provide.
-    """
-    settings = load_auth_settings()
-    issuer = settings.issuer
-    if not issuer:
-        return None
-    url = f"{issuer.rstrip('/')}/userinfo"
-    try:
-        response = httpx.get(
-            url,
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=settings.jwks_timeout or 5.0,
-        )
-        response.raise_for_status()
-        data = response.json()
-    except (httpx.HTTPError, ValueError):
-        logger.warning("userinfo lookup failed during invitation accept", exc_info=True)
-        return None
-    email = data.get("email")
-    if not isinstance(email, str) or not email.strip():
-        return None
-    verified = data.get("email_verified")
-    is_verified = verified is True or str(verified).strip().lower() == "true"
-    return email.strip(), is_verified
-
-
-def _verified_email(
-    auth: RequestContext, *, access_token: str | None = None
-) -> tuple[str | None, bool]:
+def _verified_email(auth: RequestContext) -> tuple[str | None, bool]:
     """Return ``(email, email_verified)`` for the authenticated principal.
 
-    Token claims are a snapshot from issuance time, so a user who verifies their
-    email after signing in keeps a stale ``email_verified=false`` until their
-    next login. To avoid blocking them, the live IdP ``/userinfo`` endpoint is
-    consulted whenever the token does not already assert a verified email (the
-    token is missing the address, or carries it but unverified). A verified token
-    claim is trusted directly as the fast path.
+    First-party tokens carry ``email`` and ``email_verified`` directly (the
+    latter set true only by a completed email challenge), so the invitation
+    accept flow reads them straight from the token claims. The developer-login
+    session is honoured as a local convenience.
     """
     email, _ = extract_identity(auth.claims)
     verified = extract_email_verified(auth.claims)
@@ -179,11 +131,6 @@ def _verified_email(
         return email, True
     if auth.identity_type == "developer" and "@" in auth.subject:
         return auth.subject, True
-    if access_token:
-        fetched = _fetch_userinfo_email(access_token)
-        if fetched is not None:
-            fetched_email, fetched_verified = fetched
-            return (fetched_email or email), (fetched_verified or verified)
     return email, verified
 
 
@@ -675,14 +622,13 @@ def accept_workspace_invitation(
     payload: InvitationAcceptRequest,
     service: WorkspaceServiceDep,
     auth: Annotated[RequestContext, Depends(authenticate_request)],
-    bearer_token: Annotated[str | None, Depends(_request_bearer_token)] = None,
 ) -> InvitationAcceptResponse:
     """Redeem an invitation token for the authenticated caller.
 
     Reachable by any logged-in user (no workspace scope required). The caller's
     verified email must match the invited address.
     """
-    email, email_verified = _verified_email(auth, access_token=bearer_token)
+    email, email_verified = _verified_email(auth)
     try:
         membership = service.accept_invitation(
             raw_token=payload.token,

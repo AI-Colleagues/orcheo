@@ -13,7 +13,7 @@ import WorkflowGallery from "@features/workflow/pages/workflow-gallery";
 import WorkflowPage from "@features/workflow/pages/workflow";
 import Login from "@features/auth/pages/login";
 import RequireAuth from "@features/auth/components/require-auth";
-import OAuthCallback from "@features/auth/pages/oauth-callback";
+import AuthVerify from "@features/auth/pages/verify";
 import Profile from "@features/account/pages/profile";
 import Settings from "@features/account/pages/settings";
 import WorkspaceManagement from "@features/account/pages/workspace-management";
@@ -91,7 +91,7 @@ export default function OrcheoStudioApp() {
           <Routes>
             <Route path="/login" element={<Login />} />
 
-            <Route path="/auth/callback" element={<OAuthCallback />} />
+            <Route path="/auth/verify" element={<AuthVerify />} />
             <Route path="/chat/:workflowId" element={<PublicChatPage />} />
             <Route path="/chat/team/:teamSlug/:workflowId" element={<PublicChatPage />} />
             <Route path="/chat/:workspaceSlug/:workflowId" element={<PublicChatPage />} />

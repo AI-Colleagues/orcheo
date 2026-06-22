@@ -1,26 +1,37 @@
-"""Invitation email delivery port, a logging default, and a Resend sender."""
+"""Transactional email ports, a logging default, and an SMTP sender.
+
+The transactional email abstraction is shared by two callers: workspace
+invitations and first-party auth challenges (magic link + OTP). Production
+deployments use the :class:`SmtpEmailSender`; local/self-host setups fall back
+to the :class:`LoggingInvitationEmailSender`, which logs the link/code instead
+of delivering email. SMTP is the sole production transport.
+"""
 
 from __future__ import annotations
 import html
 import logging
+import smtplib
 from dataclasses import dataclass
 from datetime import datetime
+from email.message import EmailMessage
 from typing import Protocol
-import httpx
 
 
 __all__ = [
     "DEFAULT_INVITE_FROM_EMAIL",
+    "AuthChallengeEmail",
+    "AuthChallengeEmailSender",
     "InvitationEmail",
     "InvitationEmailSender",
     "LoggingInvitationEmailSender",
-    "ResendInvitationEmailSender",
-    "build_invitation_email_sender",
+    "SmtpEmailSender",
+    "SmtpSettings",
+    "TransactionalEmailSender",
+    "build_email_sender",
 ]
 
 logger = logging.getLogger(__name__)
 
-RESEND_API_URL = "https://api.resend.com/emails"
 DEFAULT_INVITE_FROM_EMAIL = "no-reply@orcheo.cloud"
 
 
@@ -36,25 +47,42 @@ class InvitationEmail:
     invited_by: str | None = None
 
 
-class InvitationEmailSender(Protocol):
-    """Port for delivering workspace invitation emails.
+@dataclass(frozen=True)
+class AuthChallengeEmail:
+    """Rendered passwordless auth challenge (magic link + OTP code)."""
 
-    Production deployments inject an implementation backed by their transactional
-    email provider (SES, SendGrid, Resend, SMTP, ...). The send is best effort
-    from the caller's perspective: implementations should raise on hard failures
-    so the service can surface them.
-    """
+    to: str
+    magic_link_url: str
+    otp_code: str
+    expires_at: datetime
+
+
+class InvitationEmailSender(Protocol):
+    """Port for delivering workspace invitation emails."""
 
     def send_invitation(self, email: InvitationEmail) -> None:
         """Deliver a single invitation email."""
 
 
+class AuthChallengeEmailSender(Protocol):
+    """Port for delivering passwordless auth challenge emails."""
+
+    def send_auth_challenge(self, email: AuthChallengeEmail) -> None:
+        """Deliver a single auth challenge email (magic link + OTP)."""
+
+
+class TransactionalEmailSender(
+    InvitationEmailSender, AuthChallengeEmailSender, Protocol
+):
+    """Combined transactional email port covering invitations and challenges."""
+
+
 class LoggingInvitationEmailSender:
-    """Default sender that logs the invitation link instead of sending email.
+    """Default sender that logs links/codes instead of sending email.
 
     Used for local development and self-hosting where no transactional email
-    provider is configured. The acceptance URL is logged so operators can copy
-    it to the invitee manually.
+    provider is configured. The acceptance URL / magic link and OTP are logged
+    so operators can relay them manually.
     """
 
     def send_invitation(self, email: InvitationEmail) -> None:
@@ -66,6 +94,16 @@ class LoggingInvitationEmailSender:
             email.role,
             email.expires_at.isoformat(),
             email.accept_url,
+        )
+
+    def send_auth_challenge(self, email: AuthChallengeEmail) -> None:
+        """Log the magic link and OTP code."""
+        logger.info(
+            "Auth challenge for %s — expires %s — code %s: %s",
+            email.to,
+            email.expires_at.isoformat(),
+            email.otp_code,
+            email.magic_link_url,
         )
 
 
@@ -84,60 +122,81 @@ def _render_invitation_html(email: InvitationEmail) -> str:
     )
 
 
-class ResendInvitationEmailSender:
-    """Deliver invitation emails through the Resend HTTP API.
+def _render_auth_challenge_html(email: AuthChallengeEmail) -> str:
+    """Render a minimal, provider-agnostic HTML body for an auth challenge."""
+    url = html.escape(email.magic_link_url, quote=True)
+    code = html.escape(email.otp_code)
+    expires = html.escape(email.expires_at.strftime("%Y-%m-%d %H:%M UTC"))
+    return (
+        "<p>Use the link below to sign in to Orcheo:</p>"
+        f'<p><a href="{url}">Sign in to Orcheo</a></p>'
+        f"<p>Or enter this code: <strong>{code}</strong></p>"
+        f"<p>This link and code expire on {expires}. If you didn't request this, "
+        f"you can ignore this email.</p>"
+    )
 
-    Used in production when ``ORCHEO_RESEND_API_KEY`` is configured. The sender
-    address must belong to a domain verified in the Resend dashboard. Raises on
-    a non-2xx response so the calling service surfaces delivery failures.
+
+@dataclass(frozen=True)
+class SmtpSettings:
+    """Connection settings for the SMTP transactional email transport."""
+
+    host: str
+    port: int = 587
+    username: str | None = None
+    password: str | None = None
+    from_email: str = DEFAULT_INVITE_FROM_EMAIL
+    use_tls: bool = True
+    timeout: float = 10.0
+
+
+class SmtpEmailSender:
+    """Deliver transactional email over SMTP (the production transport).
+
+    Implements both the invitation and auth-challenge ports. Raises on a hard
+    SMTP failure so the calling service surfaces delivery problems.
     """
 
-    def __init__(
-        self,
-        *,
-        api_key: str,
-        from_email: str = DEFAULT_INVITE_FROM_EMAIL,
-        timeout: float = 10.0,
-    ) -> None:
-        """Bind the sender to a Resend API key and verified ``from`` address."""
-        self._api_key = api_key
-        self._from_email = from_email
-        self._timeout = timeout
+    def __init__(self, settings: SmtpSettings) -> None:
+        """Bind the sender to SMTP connection settings."""
+        self._settings = settings
 
     def send_invitation(self, email: InvitationEmail) -> None:
-        """POST the rendered invitation to the Resend API."""
-        response = httpx.post(
-            RESEND_API_URL,
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "from": self._from_email,
-                "to": [email.to],
-                "subject": (f"You've been invited to {email.workspace_name} on Orcheo"),
-                "html": _render_invitation_html(email),
-            },
-            timeout=self._timeout,
-        )
-        response.raise_for_status()
+        """Send a workspace invitation email over SMTP."""
+        subject = f"You've been invited to {email.workspace_name} on Orcheo"
+        self._send(email.to, subject, _render_invitation_html(email))
+
+    def send_auth_challenge(self, email: AuthChallengeEmail) -> None:
+        """Send a passwordless auth challenge email over SMTP."""
+        self._send(email.to, "Sign in to Orcheo", _render_auth_challenge_html(email))
+
+    def _send(self, to: str, subject: str, html_body: str) -> None:
+        message = EmailMessage()
+        message["From"] = self._settings.from_email
+        message["To"] = to
+        message["Subject"] = subject
+        message.set_content("This message requires an HTML-capable email client.")
+        message.add_alternative(html_body, subtype="html")
+
+        settings = self._settings
+        with smtplib.SMTP(
+            settings.host, settings.port, timeout=settings.timeout
+        ) as smtp:
+            if settings.use_tls:
+                smtp.starttls()
+            if settings.username and settings.password:
+                smtp.login(settings.username, settings.password)
+            smtp.send_message(message)
 
 
-def build_invitation_email_sender(
+def build_email_sender(
     *,
-    api_key: str | None = None,
-    from_email: str | None = None,
-) -> InvitationEmailSender:
-    """Return the configured sender: Resend when an API key is set, else logging.
+    smtp: SmtpSettings | None = None,
+) -> TransactionalEmailSender:
+    """Return the configured transactional sender.
 
-    Keeping the selection here means deployments opt into real delivery purely
-    through configuration, while local/self-hosting setups fall back to logging
-    the acceptance link.
+    Uses the SMTP sender when an SMTP host is configured, otherwise the logging
+    sender. Deployments opt into real delivery purely through configuration.
     """
-    normalized_key = (api_key or "").strip()
-    if normalized_key:
-        return ResendInvitationEmailSender(
-            api_key=normalized_key,
-            from_email=(from_email or "").strip() or DEFAULT_INVITE_FROM_EMAIL,
-        )
+    if smtp is not None and smtp.host.strip():
+        return SmtpEmailSender(smtp)
     return LoggingInvitationEmailSender()
