@@ -62,7 +62,7 @@ export default function Login() {
     setError(null);
     setBusy(true);
     try {
-      await startEmailChallenge(email.trim());
+      await startEmailChallenge(email.trim(), "login", redirectTo);
       setStage("sent");
     } catch (err) {
       setError(

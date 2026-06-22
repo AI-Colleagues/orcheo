@@ -69,11 +69,16 @@ const readErrorMessage = async (
 export const startEmailChallenge = async (
   email: string,
   intent: "login" | "signup" = "login",
+  redirectTo?: string,
 ): Promise<void> => {
   const response = await fetch(authUrl("/email/start"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, intent }),
+    body: JSON.stringify({
+      email,
+      intent,
+      ...(redirectTo ? { redirect_to: redirectTo } : {}),
+    }),
   });
   if (response.status === 429) {
     throw new Error("Too many attempts. Please wait a moment and try again.");

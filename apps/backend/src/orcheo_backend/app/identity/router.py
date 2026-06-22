@@ -41,6 +41,7 @@ class EmailStartRequest(BaseModel):
 
     email: str
     intent: Literal["login", "signup"] = "login"
+    redirect_to: str | None = None
 
 
 class EmailStartResponse(BaseModel):
@@ -99,8 +100,10 @@ class TokenResponse(BaseModel):
     expires_in: int
 
 
-def _enforce_start_rate_limits(ip: str | None, email_key: str) -> None:
-    now = datetime.now(tz=UTC)
+def _enforce_start_rate_limits(
+    ip: str | None, email_key: str, *, now: datetime | None = None
+) -> None:
+    now = now or datetime.now(tz=UTC)
     limiter = get_auth_rate_limiter()
     limiter.check_ip(ip, now=now)
     limiter.check_identity(email_key, now=now)
@@ -113,9 +116,11 @@ async def email_start(
     ip: Annotated[str | None, Depends(get_client_ip)],
 ) -> EmailStartResponse:
     """Issue a passwordless challenge; always responds identically."""
-    _enforce_start_rate_limits(ip, f"auth-email:{payload.email.strip().lower()}")
+    _enforce_start_rate_limits(
+        ip, f"auth-email:{payload.email.strip().lower()}", now=service.now()
+    )
     try:
-        service.start_challenge(payload.email)
+        service.start_challenge(payload.email, redirect_to=payload.redirect_to)
     except ValueError:
         # Malformed email — respond identically to avoid a format/existence
         # oracle. Nothing was sent.

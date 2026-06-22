@@ -90,6 +90,7 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_AUTH_RATE_LIMIT_IP` | `0` | Integer ≥ 0 | Per-IP HTTP rate limit for authentication endpoints (`authentication/settings.py`). |
 | `ORCHEO_AUTH_RATE_LIMIT_IDENTITY` | `0` | Integer ≥ 0 | Rate limit keyed by identity (`authentication/settings.py`). |
 | `ORCHEO_AUTH_RATE_LIMIT_INTERVAL` | `60` | Integer > 0 | Interval (seconds) governing the authentication rate limits (`authentication/settings.py`). |
+| `ORCHEO_TRUSTED_PROXY` | `false` | Boolean (`1/0`, `true/false`, etc.) | When true, passwordless auth start rate limiting uses the first `X-Forwarded-For` entry as the client IP. Enable only when the backend is reachable exclusively through a trusted reverse proxy that overwrites this header (`identity/dependencies.py`). |
 | `ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN` | _none_ | Token string | Temporary service token used for bootstrapping before persistent storage exists (`authentication/settings.py`). |
 | `ORCHEO_AUTH_BOOTSTRAP_TOKEN_SCOPES` | `admin:tokens:read`, `admin:tokens:write`, `workflows:read`, `workflows:write`, `workflows:execute`, `vault:read`, `vault:write` | Comma/JSON list of scope strings | Scopes granted to the bootstrap token (`authentication/settings.py`). |
 | `ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT` | _none_ | ISO 8601 string or UNIX timestamp | Expiration to attach to the bootstrap token (`authentication/settings.py`). |

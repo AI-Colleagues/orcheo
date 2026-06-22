@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from urllib.parse import urlencode
 from uuid import UUID
 from orcheo.identity.errors import (
     IdentityChallengeError,
@@ -50,6 +51,16 @@ from orcheo_backend.app.identity.tokens import (
 
 
 __all__ = ["IdentityService", "IssuedTokens", "VerificationResult"]
+
+
+def _safe_relative_redirect(value: str | None) -> str | None:
+    """Return a same-origin relative redirect path, or None when unsafe."""
+    if value is None:
+        return None
+    stripped = value.strip()
+    if stripped.startswith("/") and not stripped.startswith("//"):
+        return stripped
+    return None
 
 
 @dataclass(frozen=True)
@@ -117,7 +128,11 @@ class IdentityService:
 
     # -- challenge issuance --------------------------------------------------
 
-    def start_challenge(self, email: str) -> None:
+    def now(self) -> datetime:
+        """Return the service clock value for deterministic auth flows."""
+        return self._clock()
+
+    def start_challenge(self, email: str, *, redirect_to: str | None = None) -> None:
         """Issue a magic-link + OTP challenge and email it.
 
         No user row is created here; the account is materialized on first
@@ -126,7 +141,7 @@ class IdentityService:
         only on a malformed email (a format error, not an existence oracle).
         """
         normalized = normalize_email(email)
-        now = self._clock()
+        now = self.now()
         raw_token = generate_magic_link_token()
         raw_code = generate_otp_code(self._config.otp_digits)
         expires_at = now + timedelta(minutes=self._config.challenge_ttl_minutes)
@@ -139,7 +154,11 @@ class IdentityService:
         )
         self._repository.add_challenge(challenge)
         base = self._config.verify_base_url.rstrip("/")
-        magic_link_url = f"{base}/auth/verify?token={raw_token}"
+        query = {"token": raw_token}
+        safe_redirect = _safe_relative_redirect(redirect_to)
+        if safe_redirect is not None:
+            query["redirect"] = safe_redirect
+        magic_link_url = f"{base}/auth/verify?{urlencode(query)}"
         try:
             self._email_sender.send_auth_challenge(
                 AuthChallengeEmail(

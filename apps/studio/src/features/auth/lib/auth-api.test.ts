@@ -28,12 +28,13 @@ afterEach(() => {
 describe("auth-api", () => {
   it("posts to email/start and resolves on success", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ status: "sent" }));
-    await startEmailChallenge("alice@example.com", "signup");
+    await startEmailChallenge("alice@example.com", "signup", "/workflows/abc?tab=runs");
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toContain("/api/auth/email/start");
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
       email: "alice@example.com",
       intent: "signup",
+      redirect_to: "/workflows/abc?tab=runs",
     });
   });
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlparse
 import jwt
 import pytest
 from orcheo.identity import (
@@ -65,6 +66,23 @@ def test_start_challenge_sends_link_and_code() -> None:
     assert "token=" in sender.last.magic_link_url
     assert sender.last.magic_link_url.startswith("https://studio.test/auth/verify")
     assert sender.last.otp_code.isdigit()
+
+
+def test_start_challenge_preserves_safe_redirect() -> None:
+    service, sender, _ = _service()
+    service.start_challenge("Alice@Example.com", redirect_to="/workflows/123?tab=run")
+
+    parsed = urlparse(sender.last.magic_link_url)
+    query = parse_qs(parsed.query)
+    assert query["redirect"] == ["/workflows/123?tab=run"]
+
+
+def test_start_challenge_ignores_unsafe_redirect() -> None:
+    service, sender, _ = _service()
+    service.start_challenge("Alice@Example.com", redirect_to="//evil.test/path")
+
+    parsed = urlparse(sender.last.magic_link_url)
+    assert "redirect" not in parse_qs(parsed.query)
 
 
 def test_start_challenge_rejects_malformed_email() -> None:

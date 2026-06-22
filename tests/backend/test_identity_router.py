@@ -1,17 +1,21 @@
 """HTTP integration tests for the first-party auth endpoints."""
 
 from __future__ import annotations
+from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 from orcheo.identity import InMemoryIdentityRepository
 from orcheo.workspace.email import AuthChallengeEmail
 from orcheo_backend.app.authentication import reset_authentication_state
 from orcheo_backend.app.identity import (
     IdentityConfig,
     IdentityService,
+    get_client_ip,
     reset_identity_state,
     set_identity_service,
 )
+from orcheo_backend.app.identity.router import _enforce_start_rate_limits
 from tests.backend.authentication_test_utils import create_test_client
 
 SECRET = "identity-http-secret"  # noqa: S105 - test fixture
@@ -58,8 +62,13 @@ def client(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, CapturingSender
         reset_authentication_state()
 
 
-def _start(client: TestClient, email: str = "alice@example.com") -> None:
-    response = client.post("/api/auth/email/start", json={"email": email})
+def _start(
+    client: TestClient, email: str = "alice@example.com", redirect_to: str | None = None
+) -> None:
+    payload = {"email": email}
+    if redirect_to is not None:
+        payload["redirect_to"] = redirect_to
+    response = client.post("/api/auth/email/start", json=payload)
     assert response.status_code == 200
     assert response.json() == {"status": "sent"}
 
@@ -71,6 +80,12 @@ def test_email_start_is_constant_response(client) -> None:
     bad = test_client.post("/api/auth/email/start", json={"email": "nope"})
     assert bad.status_code == 200
     assert bad.json() == {"status": "sent"}
+
+
+def test_email_start_threads_redirect_to_magic_link(client) -> None:
+    test_client, sender = client
+    _start(test_client, redirect_to="/workflows/abc?tab=runs")
+    assert "redirect=%2Fworkflows%2Fabc%3Ftab%3Druns" in sender.sent[-1].magic_link_url
 
 
 def test_full_magic_link_login_and_me(client) -> None:
@@ -134,3 +149,59 @@ def test_verify_requires_token_or_code(client) -> None:
     test_client, _ = client
     response = test_client.post("/api/auth/email/verify", json={})
     assert response.status_code == 400
+
+
+def test_get_client_ip_ignores_forwarded_for_without_trusted_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ORCHEO_TRUSTED_PROXY", raising=False)
+    reset_identity_state()
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"x-forwarded-for", b"203.0.113.10, 10.0.0.2")],
+            "client": ("10.0.0.2", 1234),
+        }
+    )
+
+    assert get_client_ip(request) == "10.0.0.2"
+
+
+def test_get_client_ip_honors_forwarded_for_with_trusted_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ORCHEO_TRUSTED_PROXY", "true")
+    reset_identity_state()
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"x-forwarded-for", b"203.0.113.10, 10.0.0.2")],
+            "client": ("10.0.0.2", 1234),
+        }
+    )
+
+    assert get_client_ip(request) == "203.0.113.10"
+
+
+def test_enforce_start_rate_limits_accepts_injected_now(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[datetime] = []
+
+    class CapturingLimiter:
+        def check_ip(self, ip: str | None, *, now: datetime) -> None:
+            observed.append(now)
+
+        def check_identity(self, identity: str, *, now: datetime) -> None:
+            observed.append(now)
+
+    frozen = datetime(2026, 1, 1, tzinfo=UTC)
+    monkeypatch.setitem(
+        _enforce_start_rate_limits.__globals__,
+        "get_auth_rate_limiter",
+        lambda: CapturingLimiter(),
+    )
+
+    _enforce_start_rate_limits("203.0.113.10", "auth-email:a@example.com", now=frozen)
+
+    assert observed == [frozen, frozen]

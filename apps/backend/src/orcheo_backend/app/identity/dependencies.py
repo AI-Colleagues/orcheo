@@ -18,6 +18,9 @@ from orcheo_backend.app.identity.config import (
 from orcheo_backend.app.identity.service import IdentityService
 
 
+TRUTHY_VALUES = {"1", "true", "yes", "on"}
+
+
 __all__ = [
     "IdentityServiceDep",
     "get_client_ip",
@@ -106,8 +109,28 @@ def get_identity_service() -> IdentityService:
     return service
 
 
+def _trusted_proxy_enabled() -> bool:
+    """Return whether reverse-proxy client IP headers are trusted."""
+    value = get_settings().get("TRUSTED_PROXY")
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in TRUTHY_VALUES
+
+
 def get_client_ip(request: Request) -> str | None:
-    """Return the client IP for rate limiting, honoring the direct peer."""
+    """Return the client IP for rate limiting.
+
+    ``X-Forwarded-For`` is honored only when ``ORCHEO_TRUSTED_PROXY`` is
+    enabled, because clients can otherwise spoof that header directly.
+    """
+    if _trusted_proxy_enabled():
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            first = forwarded_for.split(",", 1)[0].strip()
+            if first:
+                return first
     return request.client.host if request.client else None
 
 
