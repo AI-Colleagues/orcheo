@@ -92,7 +92,6 @@ That's it! Your agent handles the complexity while you focus on describing what 
 
 - **[Manual Setup Guide](manual_setup.md)** — Installation and configuration
 - **[Studio](studio.md)** — Workflow monitor, default-config editor, and Credential Vault manager
-- **[Auth0 IdP Setup](auth0_idp_setup.md)** — Configure Auth0 OAuth/OIDC for the Docker stack
 - **[MCP Integration](mcp_integration.md)** — Connect AI assistants to Orcheo
 - **[Workflow Config Annotations](workflow_config_annotations.md)** — Declare typed configurable fields with a companion schema file
 - **[Conversational Search](examples/conversational_search.md)** — Step-by-step demos from basic RAG to production-ready search

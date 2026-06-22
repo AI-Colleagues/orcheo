@@ -32,6 +32,7 @@ class _ThreadState:
     thread: ThreadMetadata
     items: list[ThreadItem]
     workspace_id: str | None = None
+    owner_key: str | None = None
 
 
 class InMemoryChatKitStore(Store[ChatKitRequestContext]):
@@ -73,13 +74,23 @@ class InMemoryChatKitStore(Store[ChatKitRequestContext]):
         thread.metadata = merged
 
     # -- Thread metadata -------------------------------------------------
+    @staticmethod
+    def _owner_matches(
+        stored_owner_key: str | None, context: ChatKitRequestContext
+    ) -> bool:
+        """Return whether the caller may access a thread with ``stored_owner_key``."""
+        owner_key = context.get("owner_key") if context else None
+        if owner_key is None or stored_owner_key is None:
+            return True
+        return stored_owner_key == owner_key
+
     async def load_thread(
         self, thread_id: str, context: ChatKitRequestContext
     ) -> ThreadMetadata:
         """Return stored metadata for ``thread_id`` or raise if missing."""
         async with self._lock:
             state = self._threads.get(thread_id)
-            if state is None:
+            if state is None or not self._owner_matches(state.owner_key, context):
                 raise NotFoundError(f"Thread {thread_id} not found")
             return self._clone_metadata(state.thread)
 
@@ -90,6 +101,7 @@ class InMemoryChatKitStore(Store[ChatKitRequestContext]):
         if not thread.title:
             thread.title = _extract_title_from_request(context)
         workspace_id: str | None = context.get("workspace_id") if context else None
+        owner_key: str | None = context.get("owner_key") if context else None
         async with self._lock:
             self._merge_metadata_from_context(thread, context)
             existing = self._threads.get(thread.id)
@@ -97,9 +109,15 @@ class InMemoryChatKitStore(Store[ChatKitRequestContext]):
             if existing:
                 existing.thread = metadata
                 existing.workspace_id = workspace_id
+                # Never reassign an established owner (prevents thread hijacking).
+                if existing.owner_key is None:
+                    existing.owner_key = owner_key
             else:
                 self._threads[thread.id] = _ThreadState(
-                    thread=metadata, items=[], workspace_id=workspace_id
+                    thread=metadata,
+                    items=[],
+                    workspace_id=workspace_id,
+                    owner_key=owner_key,
                 )
 
     async def load_threads(
@@ -112,6 +130,7 @@ class InMemoryChatKitStore(Store[ChatKitRequestContext]):
         """Return a page of stored thread metadata scoped to the workflow in context."""
         workflow_id: str | None = context.get("workflow_id") if context else None
         workspace_id: str | None = context.get("workspace_id") if context else None
+        owner_key: str | None = context.get("owner_key") if context else None
         async with self._lock:
             all_states = list(self._threads.values())
             if workflow_id:
@@ -126,6 +145,8 @@ class InMemoryChatKitStore(Store[ChatKitRequestContext]):
                     for s in all_states
                     if s.workspace_id is None or s.workspace_id == workspace_id
                 ]
+            if owner_key is not None:
+                all_states = [s for s in all_states if s.owner_key == owner_key]
             all_threads = (self._clone_metadata(s.thread) for s in all_states)
             threads = sorted(
                 all_threads,
@@ -152,9 +173,13 @@ class InMemoryChatKitStore(Store[ChatKitRequestContext]):
     async def delete_thread(
         self, thread_id: str, context: ChatKitRequestContext
     ) -> None:
-        """Remove the stored thread state if present."""
+        """Remove the stored thread state if present and owned by the caller."""
         async with self._lock:
-            self._threads.pop(thread_id, None)
+            state = self._threads.get(thread_id)
+            if state is None:
+                return
+            if self._owner_matches(state.owner_key, context):
+                self._threads.pop(thread_id, None)
 
     # -- Thread items ----------------------------------------------------
     async def load_thread_items(

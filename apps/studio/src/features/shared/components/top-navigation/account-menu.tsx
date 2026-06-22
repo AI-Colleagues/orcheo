@@ -17,10 +17,8 @@ import {
   DialogTitle,
 } from "@/design-system/ui/dialog";
 import { Building2, Github, LogOut, Settings, User, Vault } from "lucide-react";
-import {
-  clearAuthSession,
-  getAuthenticatedUserProfile,
-} from "@features/auth/lib/auth-session";
+import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
+import { logoutSession } from "@features/auth/lib/auth-api";
 import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
 import CredentialsVault from "@features/workflow/components/dialogs/credentials-vault";
 import { usePageContext } from "@/hooks/use-page-context";
@@ -155,8 +153,9 @@ export default function AccountMenu({
               type="button"
               className="flex w-full items-center gap-0"
               onClick={() => {
-                clearAuthSession();
-                navigate("/login", { replace: true });
+                void logoutSession().finally(() => {
+                  navigate("/login", { replace: true });
+                });
               }}
             >
               <LogOut className="mr-2 h-4 w-4" />

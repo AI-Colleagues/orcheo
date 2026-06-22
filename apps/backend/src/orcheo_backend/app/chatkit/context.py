@@ -14,6 +14,7 @@ class ChatKitRequestContext(TypedDict, total=False):
     actor: str
     auth_mode: Literal["jwt", "publish"]
     subject: str | None
+    owner_key: str | None
     upload_session_id: str | None
 
 

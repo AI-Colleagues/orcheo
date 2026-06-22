@@ -149,3 +149,37 @@ def test_extract_workspace_ids_with_null_nested_value() -> None:
     # orcheo is a Mapping but orcheo.workspace_ids is None
     ids = set(_extract_workspace_ids({"orcheo": {"other_key": "value"}}))
     assert len(ids) == 0
+
+
+def test_extract_identity_reads_first_party_claims() -> None:
+    """First-party tokens carry standard ``email`` / ``name`` claims directly."""
+    from orcheo_backend.app.authentication import extract_identity
+
+    assert extract_identity({"email": "a@b.com", "name": "Ann"}) == ("a@b.com", "Ann")
+    assert extract_identity({"preferred_username": "ann"}) == (None, "ann")
+    assert extract_identity({"given_name": "Ann", "family_name": "Lee"}) == (
+        None,
+        "Ann Lee",
+    )
+
+
+def test_extract_identity_returns_none_without_identity_claims() -> None:
+    """A bare access token (sub/scope only) yields no identity."""
+    from orcheo_backend.app.authentication import extract_identity
+
+    assert extract_identity({"sub": "uuid-abc", "scope": "workflows:read"}) == (
+        None,
+        None,
+    )
+
+
+def test_extract_email_verified() -> None:
+    """Verified-email reads the standard ``email_verified`` claim."""
+    from orcheo_backend.app.authentication import extract_email_verified
+
+    assert extract_email_verified({"email_verified": True})
+    assert extract_email_verified({"email_verified": "true"})
+    assert not extract_email_verified({"email_verified": False})
+    assert not extract_email_verified({"email_verified": "false"})
+    # Absent claim is treated as unverified.
+    assert not extract_email_verified({"email": "x@example.com"})

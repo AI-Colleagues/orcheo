@@ -1,6 +1,7 @@
 """Workspace admin and member-management routes."""
 
 from __future__ import annotations
+import logging
 from typing import Annotated
 from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
@@ -8,6 +9,11 @@ from orcheo.workspace import (
     Role,
     Workspace,
     WorkspaceAuditEvent,
+    WorkspaceInvitation,
+    WorkspaceInvitationEmailMismatchError,
+    WorkspaceInvitationError,
+    WorkspaceInvitationExpiredError,
+    WorkspaceInvitationNotFoundError,
     WorkspaceMembership,
     WorkspaceMembershipError,
     WorkspaceMembershipLimitError,
@@ -19,9 +25,16 @@ from orcheo.workspace import (
 from orcheo_backend.app.authentication import (
     RequestContext,
     authenticate_request,
+    extract_email_verified,
+    extract_identity,
 )
 from orcheo_backend.app.schemas.workspaces import (
     ActiveWorkspaceResponse,
+    InvitationAcceptRequest,
+    InvitationAcceptResponse,
+    InvitationCreateRequest,
+    InvitationListResponse,
+    InvitationResponse,
     MembershipCreateRequest,
     MembershipResponse,
     MembershipRoleUpdateRequest,
@@ -79,9 +92,46 @@ def _to_membership_response(membership: WorkspaceMembership) -> MembershipRespon
         id=membership.id,
         workspace_id=membership.workspace_id,
         user_id=membership.user_id,
+        email=membership.email,
+        user_name=membership.user_name,
         role=membership.role,
         created_at=membership.created_at,
     )
+
+
+def _to_invitation_response(invitation: WorkspaceInvitation) -> InvitationResponse:
+    return InvitationResponse(
+        id=invitation.id,
+        workspace_id=invitation.workspace_id,
+        email=invitation.email,
+        role=invitation.role,
+        status=invitation.status,
+        invited_by=invitation.invited_by,
+        accepted_by=invitation.accepted_by,
+        created_at=invitation.created_at,
+        expires_at=invitation.expires_at,
+        accepted_at=invitation.accepted_at,
+    )
+
+
+logger = logging.getLogger(__name__)
+
+
+def _verified_email(auth: RequestContext) -> tuple[str | None, bool]:
+    """Return ``(email, email_verified)`` for the authenticated principal.
+
+    First-party tokens carry ``email`` and ``email_verified`` directly (the
+    latter set true only by a completed email challenge), so the invitation
+    accept flow reads them straight from the token claims. The developer-login
+    session is honoured as a local convenience.
+    """
+    email, _ = extract_identity(auth.claims)
+    verified = extract_email_verified(auth.claims)
+    if email is not None and verified:
+        return email, True
+    if auth.identity_type == "developer" and "@" in auth.subject:
+        return auth.subject, True
+    return email, verified
 
 
 def _to_audit_event_response(event: WorkspaceAuditEvent) -> WorkspaceAuditEventResponse:
@@ -161,12 +211,15 @@ def create_own_workspace(
             error_code="workspace.owner_mismatch",
         )
 
+    owner_email, owner_name = extract_identity(auth.claims)
     try:
         workspace, _ = service.create_workspace(
             slug=payload.slug,
             name=payload.name,
             owner_user_id=auth.subject,
             quotas=payload.quotas,
+            owner_email=owner_email,
+            owner_name=owner_name,
         )
     except WorkspaceSlugConflictError as exc:
         raise WorkspaceHTTPError(
@@ -309,9 +362,18 @@ def list_my_memberships(
 def get_active_workspace(
     service: WorkspaceServiceDep,
     context: WorkspaceContextDep,
+    auth: Annotated[RequestContext, Depends(authenticate_request)],
 ) -> ActiveWorkspaceResponse:
     """Return the active workspace currently resolved for the request."""
     workspace = service.repository.get_workspace(context.workspace_id)
+    email, user_name = extract_identity(auth.claims)
+    if email is not None or user_name is not None:
+        service.record_member_identity(
+            workspace_id=context.workspace_id,
+            user_id=context.user_id,
+            email=email,
+            user_name=user_name,
+        )
     return ActiveWorkspaceResponse(
         workspace_id=workspace.id,
         slug=workspace.slug,
@@ -459,4 +521,165 @@ def remove_workspace_member(
         raise_workspace_forbidden(str(exc))
 
 
-_RoleParam = Annotated[Role, Depends(require_role(Role.ADMIN))]
+@router.get(
+    "/{slug}/invitations",
+    response_model=InvitationListResponse,
+    dependencies=[Depends(require_role(Role.ADMIN))],
+)
+def list_workspace_invitations(
+    slug: str,
+    service: WorkspaceServiceDep,
+    context: WorkspaceContextDep,
+) -> InvitationListResponse:
+    """List invitations for the workspace; requires admin or owner role."""
+    workspace = _scoped_workspace(slug, service, context)
+    invitations = service.list_invitations(workspace.id)
+    return InvitationListResponse(
+        invitations=[_to_invitation_response(i) for i in invitations]
+    )
+
+
+@router.post(
+    "/{slug}/invitations",
+    response_model=InvitationResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_role(Role.ADMIN))],
+)
+def create_workspace_invitation(
+    slug: str,
+    payload: InvitationCreateRequest,
+    service: WorkspaceServiceDep,
+    context: WorkspaceContextDep,
+    auth: Annotated[RequestContext, Depends(authenticate_request)],
+) -> InvitationResponse:
+    """Invite a user by email; sends an acceptance link to that address."""
+    workspace = _scoped_workspace(slug, service, context)
+    try:
+        invitation = service.create_invitation(
+            workspace_id=workspace.id,
+            email=payload.email,
+            role=payload.role,
+            invited_by=auth.subject,
+            actor_role=context.role,
+            workspace_name=workspace.name,
+        )
+    except ValueError as exc:
+        raise WorkspaceHTTPError(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            message=str(exc),
+            error_code="workspace.invitation_invalid_email",
+        ) from exc
+    except WorkspaceInvitationError as exc:
+        raise WorkspaceHTTPError(
+            status_code=status.HTTP_409_CONFLICT,
+            message=str(exc),
+            error_code="workspace.invitation_conflict",
+        ) from exc
+    except WorkspacePermissionError as exc:
+        raise_workspace_forbidden(str(exc))
+    return _to_invitation_response(invitation)
+
+
+@router.delete(
+    "/{slug}/invitations/{invitation_id}",
+    response_model=InvitationResponse,
+    dependencies=[Depends(require_role(Role.ADMIN))],
+)
+def revoke_workspace_invitation(
+    slug: str,
+    invitation_id: UUID,
+    service: WorkspaceServiceDep,
+    context: WorkspaceContextDep,
+    auth: Annotated[RequestContext, Depends(authenticate_request)],
+) -> InvitationResponse:
+    """Revoke a pending invitation; requires admin or owner role."""
+    workspace = _scoped_workspace(slug, service, context)
+    try:
+        invitation = service.revoke_invitation(
+            workspace_id=workspace.id,
+            invitation_id=invitation_id,
+            actor_role=context.role,
+            actor=auth.subject,
+        )
+    except WorkspaceInvitationNotFoundError:
+        raise_workspace_not_found("Invitation not found")
+    except WorkspaceInvitationError as exc:
+        raise WorkspaceHTTPError(
+            status_code=status.HTTP_409_CONFLICT,
+            message=str(exc),
+            error_code="workspace.invitation_conflict",
+        ) from exc
+    except WorkspacePermissionError as exc:
+        raise_workspace_forbidden(str(exc))
+    return _to_invitation_response(invitation)
+
+
+@self_service_router.post(
+    "/invitations/accept",
+    response_model=InvitationAcceptResponse,
+)
+def accept_workspace_invitation(
+    payload: InvitationAcceptRequest,
+    service: WorkspaceServiceDep,
+    auth: Annotated[RequestContext, Depends(authenticate_request)],
+) -> InvitationAcceptResponse:
+    """Redeem an invitation token for the authenticated caller.
+
+    Reachable by any logged-in user (no workspace scope required). The caller's
+    verified email must match the invited address.
+    """
+    email, email_verified = _verified_email(auth)
+    try:
+        membership = service.accept_invitation(
+            raw_token=payload.token,
+            user_id=auth.subject,
+            email=email,
+            email_verified=email_verified,
+        )
+    except WorkspaceInvitationNotFoundError:
+        raise_workspace_not_found("Invitation not found")
+    except WorkspaceInvitationEmailMismatchError as exc:
+        raise_workspace_forbidden(str(exc), error_code="workspace.invitation_email")
+    except WorkspaceInvitationExpiredError as exc:
+        raise WorkspaceHTTPError(
+            status_code=status.HTTP_410_GONE,
+            message=str(exc),
+            error_code="workspace.invitation_expired",
+        ) from exc
+    except WorkspaceMembershipLimitError as exc:
+        raise WorkspaceHTTPError(
+            status_code=status.HTTP_409_CONFLICT,
+            message=str(exc),
+            error_code="workspace.membership_limit_reached",
+        ) from exc
+    except WorkspaceInvitationError as exc:
+        raise WorkspaceHTTPError(
+            status_code=status.HTTP_409_CONFLICT,
+            message=str(exc),
+            error_code="workspace.invitation_conflict",
+        ) from exc
+    workspace = service.repository.get_workspace(membership.workspace_id)
+    return InvitationAcceptResponse(
+        workspace_id=workspace.id,
+        slug=workspace.slug,
+        name=workspace.name,
+        role=membership.role,
+    )
+
+
+def _scoped_workspace(
+    slug: str,
+    service: WorkspaceServiceDep,
+    context: WorkspaceContextDep,
+) -> Workspace:
+    """Resolve a workspace by slug and assert the request is scoped to it."""
+    try:
+        workspace = service.repository.get_workspace_by_slug(slug)
+    except WorkspaceNotFoundError:
+        raise_workspace_not_found()
+    if context.workspace_id != workspace.id:
+        raise_workspace_forbidden(
+            "Cannot manage invitations for a workspace you are not actively scoped to",
+            error_code="workspace.scope_mismatch",
+        )
+    return workspace

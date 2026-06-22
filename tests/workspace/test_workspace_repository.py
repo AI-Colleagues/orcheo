@@ -82,6 +82,30 @@ def test_membership_lifecycle(repository: object) -> None:
         repo.remove_membership(workspace.id, "bob")  # type: ignore[attr-defined]
 
 
+def test_update_membership_identity_backfills_and_preserves(repository: object) -> None:
+    repo = repository  # type: ignore[assignment]
+    workspace = _make_workspace()
+    repo.create_workspace(workspace)  # type: ignore[attr-defined]
+    repo.add_membership(  # type: ignore[attr-defined]
+        WorkspaceMembership(workspace_id=workspace.id, user_id="alice", role=Role.OWNER)
+    )
+
+    updated = repo.update_membership_identity(  # type: ignore[attr-defined]
+        workspace.id, "alice", email="alice@example.com", user_name="Alice"
+    )
+    assert updated.email == "alice@example.com"
+    assert updated.user_name == "Alice"
+
+    # A None field must not clobber a previously stored value.
+    preserved = repo.update_membership_identity(  # type: ignore[attr-defined]
+        workspace.id, "alice", email="alice@new.com"
+    )
+    assert preserved.email == "alice@new.com"
+    assert preserved.user_name == "Alice"
+    # Role and other fields remain intact.
+    assert preserved.role is Role.OWNER
+
+
 def test_delete_workspace_cascades_memberships(repository: object) -> None:
     repo = repository  # type: ignore[assignment]
     workspace = _make_workspace()

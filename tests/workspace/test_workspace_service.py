@@ -197,3 +197,61 @@ def test_ensure_membership_capacity_allows_existing_workspace_membership() -> No
     svc = _service()
     workspace, _ = svc.create_workspace(slug="acme", name="Acme", owner_user_id="alice")
     svc._ensure_membership_capacity("alice", workspace_id=workspace.id)
+
+
+def test_create_workspace_persists_owner_identity() -> None:
+    svc = _service()
+    _, membership = svc.create_workspace(
+        slug="acme",
+        name="Acme",
+        owner_user_id="auth0|alice",
+        owner_email="alice@example.com",
+        owner_name="Alice Smith",
+    )
+    assert membership.email == "alice@example.com"
+    assert membership.user_name == "Alice Smith"
+
+
+def test_record_member_identity_backfills_existing_membership() -> None:
+    svc = _service()
+    workspace, _ = svc.create_workspace(
+        slug="acme", name="Acme", owner_user_id="auth0|alice"
+    )
+
+    svc.record_member_identity(
+        workspace_id=workspace.id,
+        user_id="auth0|alice",
+        email="alice@example.com",
+        user_name="Alice Smith",
+    )
+
+    member = svc.repository.get_membership(workspace.id, "auth0|alice")
+    assert member.email == "alice@example.com"
+    assert member.user_name == "Alice Smith"
+
+
+def test_record_member_identity_ignores_missing_membership() -> None:
+    svc = _service()
+    workspace, _ = svc.create_workspace(
+        slug="acme", name="Acme", owner_user_id="auth0|alice"
+    )
+
+    # Should not raise even though the user has no membership here.
+    svc.record_member_identity(
+        workspace_id=workspace.id,
+        user_id="auth0|ghost",
+        email="ghost@example.com",
+    )
+
+
+def test_record_member_identity_noop_without_values() -> None:
+    svc = _service()
+    workspace, _ = svc.create_workspace(
+        slug="acme", name="Acme", owner_user_id="auth0|alice"
+    )
+
+    svc.record_member_identity(workspace_id=workspace.id, user_id="auth0|alice")
+
+    member = svc.repository.get_membership(workspace.id, "auth0|alice")
+    assert member.email is None
+    assert member.user_name is None

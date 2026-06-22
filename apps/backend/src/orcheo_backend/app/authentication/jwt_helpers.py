@@ -31,6 +31,52 @@ def claims_to_context(claims: Mapping[str, Any]) -> RequestContext:
     )
 
 
+def _claim_str(claims: Mapping[str, Any], key: str) -> str | None:
+    value = claims.get(key)
+    if not isinstance(value, str):
+        return None
+    trimmed = value.strip()
+    return trimmed or None
+
+
+def extract_identity(claims: Mapping[str, Any]) -> tuple[str | None, str | None]:
+    """Return ``(email, display_name)`` derived from first-party JWT claims.
+
+    First-party access tokens carry the standard ``email`` / ``name`` claims
+    directly, so they are read straight from the token (``preferred_username``
+    / ``nickname`` / ``given_name`` / ``family_name`` are honoured as common
+    fallbacks). Mirrors the Studio client's resolution order so the persisted
+    identity matches what users see elsewhere.
+    """
+    email = _claim_str(claims, "email")
+    name = (
+        _claim_str(claims, "name")
+        or _claim_str(claims, "preferred_username")
+        or _claim_str(claims, "nickname")
+    )
+    if name is None:
+        given = _claim_str(claims, "given_name")
+        family = _claim_str(claims, "family_name")
+        if given and family:
+            name = f"{given} {family}"
+        else:
+            name = given or family
+    return email, name
+
+
+def extract_email_verified(claims: Mapping[str, Any]) -> bool:
+    """Return True when the token asserts a verified email.
+
+    Reads the standard ``email_verified`` claim carried by first-party tokens
+    (set true only by a completed email challenge). Accepts the boolean ``True``
+    or its string form.
+    """
+    if "email_verified" in claims:
+        value = claims["email_verified"]
+        return value is True or str(value).strip().lower() == "true"
+    return False
+
+
 def _parse_max_age(cache_control: str | None) -> int | None:
     if not cache_control:
         return None
@@ -101,4 +147,6 @@ __all__ = [
     "_infer_identity_type",
     "_parse_max_age",
     "claims_to_context",
+    "extract_email_verified",
+    "extract_identity",
 ]

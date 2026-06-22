@@ -1,29 +1,24 @@
 import { useEffect, useState } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import {
   isAuthenticated,
   getAuthTokens,
 } from "@features/auth/lib/auth-session";
-import { tryRefreshTokens } from "@features/auth/lib/oidc-client";
-import AutoLogin from "@features/auth/components/auto-login";
-
-const isValidHttpUrl = (value: unknown): boolean => {
-  if (!value || typeof value !== "string") return false;
-  try {
-    const url = new URL(value.trim());
-    return url.protocol === "https:" || url.protocol === "http:";
-  } catch {
-    return false;
-  }
-};
-
-const authEnabled = isValidHttpUrl(import.meta.env.VITE_ORCHEO_AUTH_ISSUER);
+import { refreshSession } from "@features/auth/lib/auth-api";
 
 type AuthState = "authenticated" | "refreshing" | "unauthenticated";
 
+// Self-host/dev deployments that run the backend with auth disabled opt out of
+// the login gate via VITE_ORCHEO_AUTH_DISABLED=true. Hosted deployments leave
+// it unset so first-party login is required.
+const authDisabled = (): boolean =>
+  String(import.meta.env?.VITE_ORCHEO_AUTH_DISABLED ?? "")
+    .trim()
+    .toLowerCase() === "true";
+
 const resolveInitialAuthState = (): AuthState => {
-  if (!authEnabled || isAuthenticated()) return "authenticated";
+  if (authDisabled() || isAuthenticated()) return "authenticated";
   if (getAuthTokens()?.refreshToken) return "refreshing";
   return "unauthenticated";
 };
@@ -37,7 +32,7 @@ export default function RequireAuth() {
 
   useEffect(() => {
     if (authState !== "refreshing") return;
-    tryRefreshTokens().then((refreshed) => {
+    void refreshSession().then((refreshed) => {
       setAuthState(refreshed ? "authenticated" : "unauthenticated");
     });
   }, [authState]);
@@ -52,5 +47,5 @@ export default function RequireAuth() {
     );
   }
 
-  return <AutoLogin redirectTo={redirectTo} />;
+  return <Navigate to="/login" replace state={{ from: redirectTo }} />;
 }

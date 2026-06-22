@@ -234,7 +234,6 @@ export const getAccessToken = (): string | null => {
     return null;
   }
   if (!isTokenFresh(tokens)) {
-    clearAuthSession();
     return null;
   }
   return tokens.accessToken;

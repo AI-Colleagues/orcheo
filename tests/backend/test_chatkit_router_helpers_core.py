@@ -228,6 +228,43 @@ def test_extract_proxy_identity_dev_login_fallback(
     assert workspaces == frozenset({"ws-1"})
 
 
+def _auth_result(subject: str | None) -> chatkit.ChatKitAuthResult:
+    return chatkit.ChatKitAuthResult(
+        workflow_id=uuid4(),
+        actor="tester",
+        auth_mode="publish",
+        subject=subject,
+    )
+
+
+def test_resolve_owner_key_prefers_authenticated_subject() -> None:
+    request = make_chatkit_request(headers={"X-Orcheo-Visitor-Id": "visitor-12345678"})
+    owner = chatkit._resolve_owner_key(_auth_result("alice@example.com"), request)
+    assert owner == "sub:alice@example.com"
+
+
+def test_resolve_owner_key_uses_visitor_header_when_anonymous() -> None:
+    request = make_chatkit_request(headers={"X-Orcheo-Visitor-Id": "visitor-12345678"})
+    owner = chatkit._resolve_owner_key(_auth_result(None), request)
+    assert owner == "visitor:visitor-12345678"
+
+
+def test_resolve_owner_key_rejects_malformed_visitor_id() -> None:
+    request = make_chatkit_request(headers={"X-Orcheo-Visitor-Id": "bad id!"})
+    with pytest.raises(HTTPException) as excinfo:
+        chatkit._resolve_owner_key(_auth_result(None), request)
+    assert excinfo.value.status_code == status.HTTP_401_UNAUTHORIZED
+    assert excinfo.value.detail["code"] == "chatkit.auth.missing_visitor_id"
+
+
+def test_resolve_owner_key_requires_visitor_id_without_identity() -> None:
+    request = make_chatkit_request()
+    with pytest.raises(HTTPException) as excinfo:
+        chatkit._resolve_owner_key(_auth_result(None), request)
+    assert excinfo.value.status_code == status.HTTP_401_UNAUTHORIZED
+    assert excinfo.value.detail["code"] == "chatkit.auth.missing_visitor_id"
+
+
 def test_rate_limit_reraises_authentication_error() -> None:
     error = AuthenticationError(
         "denied",

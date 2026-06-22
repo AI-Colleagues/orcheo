@@ -5,6 +5,7 @@ import hmac
 import inspect
 import json
 import logging
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -451,6 +452,60 @@ def _extract_proxy_identity(request: Request) -> tuple[str | None, frozenset[str
     return None, frozenset()
 
 
+# Client-supplied visitor identifiers must be opaque, bounded tokens. The value
+# is a bearer-style handle (mirroring the secrecy of a thread id) and is only
+# trusted to scope an anonymous visitor's own history — never for authorization.
+_VISITOR_ID_RE = re.compile(r"[A-Za-z0-9_-]{8,128}")
+_VISITOR_ID_HEADER = "X-Orcheo-Visitor-Id"
+
+
+def _resolve_owner_key(auth_result: ChatKitAuthResult, request: Request) -> str:
+    """Return the per-user thread owner key for history scoping.
+
+    Authenticated callers are scoped by their server-resolved OAuth subject so a
+    user only ever sees their own threads. Anonymous published-chat visitors are
+    scoped by an opaque, client-generated visitor id (persisted in the browser
+    and sent via ``X-Orcheo-Visitor-Id``); this isolates each browser's history
+    without granting any cross-thread authorization.
+    """
+    if auth_result.subject:
+        return f"sub:{auth_result.subject}"
+    raw = request.headers.get(_VISITOR_ID_HEADER)
+    if raw:
+        candidate = raw.strip()
+        if _VISITOR_ID_RE.fullmatch(candidate):
+            return f"visitor:{candidate}"
+    raise _chatkit_error(
+        status.HTTP_401_UNAUTHORIZED,
+        message="Anonymous ChatKit requests require a valid visitor id",
+        code="chatkit.auth.missing_visitor_id",
+        auth_mode=auth_result.auth_mode,
+    )
+
+
+def _build_request_context(
+    *,
+    auth_result: ChatKitAuthResult,
+    request: Request,
+    parsed_request: Any,
+    upload_session_id_value: Any,
+) -> ChatKitRequestContext:
+    """Assemble the store/handler context for a ChatKit invocation."""
+    context: ChatKitRequestContext = {
+        "chatkit_request": parsed_request,
+        "workflow_id": str(auth_result.workflow_id),
+        "workspace_id": auth_result.workspace_id,
+        "actor": auth_result.actor,
+        "auth_mode": auth_result.auth_mode,
+    }
+    if auth_result.subject is not None:
+        context["subject"] = auth_result.subject
+    context["owner_key"] = _resolve_owner_key(auth_result, request)
+    if upload_session_id_value:
+        context["upload_session_id"] = str(upload_session_id_value)
+    return context
+
+
 def _rate_limit(
     limiter: SlidingWindowRateLimiter,
     key: str | None,
@@ -646,17 +701,12 @@ async def chatkit_gateway(request: Request, repository: RepositoryDep) -> Respon
 
     sanitized_payload = json.dumps(payload_dict).encode("utf-8")
 
-    context: ChatKitRequestContext = {
-        "chatkit_request": parsed_request,
-        "workflow_id": str(auth_result.workflow_id),
-        "workspace_id": auth_result.workspace_id,
-        "actor": auth_result.actor,
-        "auth_mode": auth_result.auth_mode,
-    }
-    if auth_result.subject is not None:
-        context["subject"] = auth_result.subject
-    if upload_session_id_value:
-        context["upload_session_id"] = str(upload_session_id_value)
+    context = _build_request_context(
+        auth_result=auth_result,
+        request=request,
+        parsed_request=parsed_request,
+        upload_session_id_value=upload_session_id_value,
+    )
 
     server = _resolve_chatkit_server()
     result = await server.process(sanitized_payload, context)
