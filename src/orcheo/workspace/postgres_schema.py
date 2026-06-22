@@ -72,4 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_workspace_invitations_workspace
     ON workspace_invitations(workspace_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_invitations_token_hash
     ON workspace_invitations(token_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_invitations_pending_email
+    ON workspace_invitations(workspace_id, email)
+    WHERE status = 'pending';
 """

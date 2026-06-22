@@ -251,12 +251,18 @@ def test_resolve_owner_key_uses_visitor_header_when_anonymous() -> None:
 
 def test_resolve_owner_key_rejects_malformed_visitor_id() -> None:
     request = make_chatkit_request(headers={"X-Orcheo-Visitor-Id": "bad id!"})
-    assert chatkit._resolve_owner_key(_auth_result(None), request) is None
+    with pytest.raises(HTTPException) as excinfo:
+        chatkit._resolve_owner_key(_auth_result(None), request)
+    assert excinfo.value.status_code == status.HTTP_401_UNAUTHORIZED
+    assert excinfo.value.detail["code"] == "chatkit.auth.missing_visitor_id"
 
 
-def test_resolve_owner_key_none_without_identity() -> None:
+def test_resolve_owner_key_requires_visitor_id_without_identity() -> None:
     request = make_chatkit_request()
-    assert chatkit._resolve_owner_key(_auth_result(None), request) is None
+    with pytest.raises(HTTPException) as excinfo:
+        chatkit._resolve_owner_key(_auth_result(None), request)
+    assert excinfo.value.status_code == status.HTTP_401_UNAUTHORIZED
+    assert excinfo.value.detail["code"] == "chatkit.auth.missing_visitor_id"
 
 
 def test_rate_limit_reraises_authentication_error() -> None:

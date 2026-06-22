@@ -467,6 +467,8 @@ class WorkspaceService:
                 user_id,
                 email=invitation.email,
             )
+        except WorkspaceMembershipLimitError:
+            raise
         except WorkspaceMembershipError:
             # Already a member — treat acceptance as idempotent.
             membership = self._repository.get_membership(

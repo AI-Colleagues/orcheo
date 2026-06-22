@@ -474,7 +474,12 @@ def _resolve_owner_key(auth_result: ChatKitAuthResult, request: Request) -> str 
         candidate = raw.strip()
         if _VISITOR_ID_RE.fullmatch(candidate):
             return f"visitor:{candidate}"
-    return None
+    raise _chatkit_error(
+        status.HTTP_401_UNAUTHORIZED,
+        message="Anonymous ChatKit requests require a valid visitor id",
+        code="chatkit.auth.missing_visitor_id",
+        auth_mode=auth_result.auth_mode,
+    )
 
 
 def _build_request_context(

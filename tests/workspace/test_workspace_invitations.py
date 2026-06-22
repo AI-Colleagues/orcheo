@@ -11,6 +11,7 @@ from orcheo.workspace import (
     WorkspaceInvitationError,
     WorkspaceInvitationExpiredError,
     WorkspaceInvitationNotFoundError,
+    WorkspaceMembershipLimitError,
     WorkspacePermissionError,
     WorkspaceService,
 )
@@ -133,6 +134,35 @@ def test_accept_invitation_creates_membership_bound_to_subject() -> None:
         m.workspace_id == workspace.id
         for m in svc.resolver.list_memberships("auth0|newbie-sub")
     )
+
+
+def test_accept_invitation_preserves_membership_limit_error() -> None:
+    sender = _FakeSender()
+    svc = _service(sender)
+    for index in range(3):
+        svc.create_workspace(
+            slug=f"existing-{index}",
+            name=f"Existing {index}",
+            owner_user_id="auth0|newbie",
+        )
+    workspace, _ = svc.create_workspace(
+        slug="acme", name="Acme", owner_user_id="auth0|owner"
+    )
+    svc.create_invitation(
+        workspace_id=workspace.id,
+        email="newbie@example.com",
+        role=Role.EDITOR,
+        actor_role=Role.OWNER,
+    )
+    token = _token_from_url(sender.sent[0].accept_url)
+
+    with pytest.raises(WorkspaceMembershipLimitError):
+        svc.accept_invitation(
+            raw_token=token,
+            user_id="auth0|newbie",
+            email="newbie@example.com",
+            email_verified=True,
+        )
 
 
 def test_accept_requires_verified_matching_email() -> None:
