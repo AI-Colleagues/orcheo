@@ -16,11 +16,9 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/design-system/ui/dialog";
-import { Building2, LogOut, Settings, User, Vault } from "lucide-react";
-import {
-  clearAuthSession,
-  getAuthenticatedUserProfile,
-} from "@features/auth/lib/auth-session";
+import { Building2, Github, LogOut, Settings, User, Vault } from "lucide-react";
+import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
+import { logoutSession } from "@features/auth/lib/auth-api";
 import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
 import CredentialsVault from "@features/workflow/components/dialogs/credentials-vault";
 import { usePageContext } from "@/hooks/use-page-context";
@@ -41,6 +39,9 @@ interface AccountMenuProps {
   onDeleteCredential?: (id: string) => Promise<void> | void;
   onRevealCredentialSecret?: (id: string) => Promise<string | null>;
 }
+
+const ORCHEO_ISSUE_CHOOSER_URL =
+  "https://github.com/AI-Colleagues/orcheo/issues/new/choose";
 
 export default function AccountMenu({
   credentials,
@@ -135,14 +136,26 @@ export default function AccountMenu({
               <span>Credential Vault</span>
             </button>
           </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <a
+              href={ORCHEO_ISSUE_CHOOSER_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="flex w-full items-center gap-0"
+            >
+              <Github className="mr-2 h-4 w-4" />
+              <span>Feedback & issues</span>
+            </a>
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
             <button
               type="button"
               className="flex w-full items-center gap-0"
               onClick={() => {
-                clearAuthSession();
-                navigate("/login", { replace: true });
+                void logoutSession().finally(() => {
+                  navigate("/login", { replace: true });
+                });
               }}
             >
               <LogOut className="mr-2 h-4 w-4" />

@@ -43,6 +43,8 @@ class AuthSettings:
     configured_mode: str | None = None
     public_exposure_detected: bool = False
     public_exposure_sources: tuple[str, ...] = field(default_factory=tuple)
+    trusted_proxy_secret: str | None = None
+    trusted_proxy_ips: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def enforce(self) -> bool:
@@ -117,6 +119,10 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
         dev_scopes,
         dev_workspace_ids,
     ) = _load_dev_login_settings(settings, public_exposure_sources)
+    trusted_proxy_secret = _coerce_optional_str(
+        settings.get("AUTH_TRUSTED_PROXY_SECRET")
+    )
+    trusted_proxy_ips = _parse_str_sequence(settings.get("AUTH_TRUSTED_PROXY_IPS"))
 
     return AuthSettings(
         mode=mode,
@@ -143,6 +149,8 @@ def load_auth_settings(*, refresh: bool = False) -> AuthSettings:
         dev_login_workspace_ids=tuple(dev_workspace_ids),
         public_exposure_detected=bool(public_exposure_sources),
         public_exposure_sources=public_exposure_sources,
+        trusted_proxy_secret=trusted_proxy_secret,
+        trusted_proxy_ips=trusted_proxy_ips,
     )
 
 

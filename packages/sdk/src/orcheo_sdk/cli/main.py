@@ -293,6 +293,12 @@ def _run_install_flow(
     install_docker: bool | None,
     manual_secrets: bool,
     forced_mode: SetupMode | None = None,
+    smtp_host: str | None = None,
+    smtp_port: int | None = None,
+    smtp_username: str | None = None,
+    smtp_password: str | None = None,
+    smtp_from_email: str | None = None,
+    smtp_use_tls: bool | None = None,
 ) -> None:
     """Run guided install/upgrade for Orcheo components."""
     mode_value = forced_mode or cast(SetupMode | None, _parse_setup_mode(mode))
@@ -312,6 +318,12 @@ def _run_install_flow(
         yes=yes,
         manual_secrets=manual_secrets,
         console=console,
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+        smtp_username=smtp_username,
+        smtp_password=smtp_password,
+        smtp_from_email=smtp_from_email,
+        smtp_use_tls=smtp_use_tls,
     )
     execute_setup(config, console=console, stack_version=stack_version)
     print_summary(config, console=console)
@@ -483,6 +495,55 @@ def install_command(
             help="Prompt for manual secret entry instead of auto-generating.",
         ),
     ] = False,
+    smtp_host: Annotated[
+        str | None,
+        typer.Option(
+            "--smtp-host",
+            help=(
+                "SMTP host for transactional email — workspace invites and "
+                "first-party auth sign-in links/codes (sets ORCHEO_SMTP_HOST). "
+                "Leave unset to log links/codes instead."
+            ),
+        ),
+    ] = None,
+    smtp_port: Annotated[
+        int | None,
+        typer.Option(
+            "--smtp-port",
+            help="SMTP port (sets ORCHEO_SMTP_PORT; defaults to 587).",
+        ),
+    ] = None,
+    smtp_username: Annotated[
+        str | None,
+        typer.Option(
+            "--smtp-username",
+            help="SMTP username (sets ORCHEO_SMTP_USERNAME).",
+        ),
+    ] = None,
+    smtp_password: Annotated[
+        str | None,
+        typer.Option(
+            "--smtp-password",
+            help="SMTP password (sets ORCHEO_SMTP_PASSWORD).",
+        ),
+    ] = None,
+    smtp_from_email: Annotated[
+        str | None,
+        typer.Option(
+            "--smtp-from-email",
+            help=(
+                "Sender address for transactional email (sets "
+                "ORCHEO_SMTP_FROM_EMAIL); defaults to no-reply@orcheo.cloud."
+            ),
+        ),
+    ] = None,
+    smtp_use_tls: Annotated[
+        bool | None,
+        typer.Option(
+            "--smtp-use-tls/--no-smtp-use-tls",
+            help="Use STARTTLS for the SMTP connection (sets ORCHEO_SMTP_USE_TLS).",
+        ),
+    ] = None,
 ) -> None:
     """Run guided install/upgrade for Orcheo components."""
     if ctx.invoked_subcommand is not None:
@@ -503,6 +564,12 @@ def install_command(
         start_stack=start_stack,
         install_docker=install_docker,
         manual_secrets=manual_secrets,
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+        smtp_username=smtp_username,
+        smtp_password=smtp_password,
+        smtp_from_email=smtp_from_email,
+        smtp_use_tls=smtp_use_tls,
     )
 
 

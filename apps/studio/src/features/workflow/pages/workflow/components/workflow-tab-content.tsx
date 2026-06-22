@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Copy,
   ExternalLink,
+  LoaderCircle,
   Play,
   RefreshCw,
   UserMinus,
@@ -25,8 +26,15 @@ import {
 } from "@/design-system/ui/alert-dialog";
 import { Button } from "@/design-system/ui/button";
 import { Switch } from "@/design-system/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/design-system/ui/tooltip";
 import { toast } from "@/hooks/use-toast";
 import { ConfirmDeleteWorkflowDialog } from "@features/workflow/components/dialogs/confirm-delete-workflow-dialog";
+import { PublishWorkflowDialog } from "@features/workflow/components/dialogs/publish-workflow-dialog";
 import { UpdateWorkflowDialog } from "@features/workflow/components/dialogs/update-workflow-dialog";
 import { deleteWorkflow } from "@features/workflow/lib/workflow-storage";
 import {
@@ -57,10 +65,12 @@ export interface WorkflowTabContentProps {
   isLoading: boolean;
   loadError: string | null;
   isRunPending: boolean;
+  isRunning: boolean;
   onRunWorkflow: () => Promise<void>;
   onSaveConfig: (nextConfig: WorkflowRunnableConfig | null) => Promise<void>;
   hasCronTriggerNode: boolean;
   initialIsPublished: boolean;
+  initialRequireLogin: boolean;
   initialShareUrl: string | null;
   missingCredentials?: string[];
 }
@@ -186,10 +196,12 @@ export function WorkflowTabContent({
   isLoading,
   loadError,
   isRunPending,
+  isRunning,
   onRunWorkflow,
   onSaveConfig,
   hasCronTriggerNode,
   initialIsPublished,
+  initialRequireLogin,
   initialShareUrl,
   missingCredentials = [],
 }: WorkflowTabContentProps) {
@@ -198,9 +210,11 @@ export function WorkflowTabContent({
   const latestVersion = versions.at(-1);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isPublished, setIsPublished] = useState(initialIsPublished);
+  const [requireLogin, setRequireLogin] = useState(initialRequireLogin);
   const [isScheduled, setIsScheduled] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(initialShareUrl);
   const [isPublishPending, setIsPublishPending] = useState(false);
+  const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
   const [isSchedulePending, setIsSchedulePending] = useState(false);
   const [diagramSvg, setDiagramSvg] = useState<string | null>(null);
   const [diagramError, setDiagramError] = useState<string | null>(null);
@@ -216,12 +230,14 @@ export function WorkflowTabContent({
     if (!workflowId) {
       setIsPublished(false);
       setIsScheduled(false);
+      setRequireLogin(false);
       setShareUrl(null);
       return;
     }
     setIsPublished(initialIsPublished);
+    setRequireLogin(initialRequireLogin);
     setShareUrl(initialShareUrl);
-  }, [initialIsPublished, initialShareUrl, workflowId]);
+  }, [initialIsPublished, initialRequireLogin, initialShareUrl, workflowId]);
 
   useEffect(() => {
     if (!workflowId) {
@@ -375,6 +391,8 @@ export function WorkflowTabContent({
 
   const canConfigure = Boolean(workflowId);
   const canRun = Boolean(workflowId && latestVersion);
+  const runButtonDisabled = !canRun || isRunPending || isRunning;
+  const runButtonLabel = isRunPending || isRunning ? "Running..." : "Run";
   const latestConfig = latestVersion?.runnableConfig ?? null;
   const canToggleSchedule = hasCronTriggerNode || isScheduled;
 
@@ -409,33 +427,60 @@ export function WorkflowTabContent({
       return;
     }
 
+    if (nextValue) {
+      setIsPublishDialogOpen(true);
+      return;
+    }
+
     setIsPublishPending(true);
     try {
-      if (nextValue) {
-        const result = await publishWorkflow(workflowId, { actor: "studio" });
-        setIsPublished(true);
-        setShareUrl(result.shareUrl);
-        toast({
-          title: "Workflow published",
-          description:
-            result.message ??
-            "Workflow is now public and available via its chat URL.",
-        });
-      } else {
-        await unpublishWorkflow(workflowId, "studio");
-        setIsPublished(false);
-        setShareUrl(null);
-        toast({
-          title: "Workflow unpublished",
-          description: "Workflow is now private.",
-        });
-      }
-    } catch (error) {
-      setIsPublished(!nextValue);
+      await unpublishWorkflow(workflowId, "studio");
+      setIsPublished(false);
+      setRequireLogin(false);
+      setShareUrl(null);
       toast({
-        title: nextValue
-          ? "Failed to publish workflow"
-          : "Failed to unpublish workflow",
+        title: "Workflow unpublished",
+        description: "Workflow is now private.",
+      });
+    } catch (error) {
+      setIsPublished(true);
+      toast({
+        title: "Failed to unpublish workflow",
+        description: getErrorMessage(error, "Unable to update publish status."),
+        variant: "destructive",
+      });
+    } finally {
+      setIsPublishPending(false);
+    }
+  };
+
+  const handleConfirmPublish = async (requireLogin: boolean) => {
+    if (!workflowId) {
+      return;
+    }
+
+    setIsPublishPending(true);
+    try {
+      const result = await publishWorkflow(workflowId, {
+        actor: "studio",
+        requireLogin,
+      });
+      setIsPublished(true);
+      setRequireLogin(result.workflow.require_login);
+      setShareUrl(result.shareUrl);
+      setIsPublishDialogOpen(false);
+      toast({
+        title: "Workflow published",
+        description:
+          result.message ??
+          (requireLogin
+            ? "Workflow is now available to signed-in workspace members."
+            : "Workflow is now public and available via its chat URL."),
+      });
+    } catch (error) {
+      setIsPublished(false);
+      toast({
+        title: "Failed to publish workflow",
         description: getErrorMessage(error, "Unable to update publish status."),
         variant: "destructive",
       });
@@ -537,15 +582,31 @@ export function WorkflowTabContent({
             </p>
           </div>
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Publish</span>
-              <Switch
-                aria-label="Publish workflow"
-                checked={isPublished}
-                onCheckedChange={(checked) => void handlePublishToggle(checked)}
-                disabled={isPublishPending}
-              />
-            </div>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">
+                      Publish
+                    </span>
+                    <Switch
+                      aria-label="Publish workflow"
+                      checked={isPublished}
+                      onCheckedChange={(checked) =>
+                        void handlePublishToggle(checked)
+                      }
+                      disabled={isPublishPending}
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Expose this workflow through a shareable chat URL. When
+                  publishing, choose <strong>Public</strong> (anyone with the
+                  link) or <strong>Workspace only</strong> (sign-in required for
+                  members of this workspace).
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Schedule</span>
               <Switch
@@ -578,16 +639,23 @@ export function WorkflowTabContent({
             ) : null}
             <Button
               onClick={() => {
+                if (isRunPending || isRunning) {
+                  return;
+                }
                 if (hasMissingCredentials) {
                   setIsMissingCredentialsDialogOpen(true);
                   return;
                 }
                 void onRunWorkflow();
               }}
-              disabled={!canRun || isRunPending}
+              disabled={runButtonDisabled}
             >
-              <Play className="mr-1.5 h-4 w-4" />
-              {isRunPending ? "Running..." : "Run"}
+              {isRunPending || isRunning ? (
+                <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="mr-1.5 h-4 w-4" />
+              )}
+              {runButtonLabel}
             </Button>
             <Button
               variant="outline"
@@ -599,11 +667,21 @@ export function WorkflowTabContent({
           </div>
         </div>
 
+        {(isRunPending || isRunning) && (
+          <div
+            role="status"
+            className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-primary"
+          >
+            Workflow run in progress. Check the latest record on the Trace tab
+            for live status.
+          </div>
+        )}
+
         {isPublished && shareUrl && (
           <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/20 px-3 py-2">
             <div className="min-w-0">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                Public URL
+                {requireLogin ? "Members-only URL" : "Public URL"}
               </p>
               <a
                 href={shareUrl}
@@ -727,6 +805,13 @@ export function WorkflowTabContent({
           workflowName={workflowName}
         />
       ) : null}
+
+      <PublishWorkflowDialog
+        open={isPublishDialogOpen}
+        isPending={isPublishPending}
+        onOpenChange={setIsPublishDialogOpen}
+        onConfirm={handleConfirmPublish}
+      />
 
       <AlertDialog
         open={isMissingCredentialsDialogOpen}

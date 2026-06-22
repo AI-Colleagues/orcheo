@@ -77,6 +77,19 @@ async def test_in_memory_store_delete_thread() -> None:
 
 
 @pytest.mark.asyncio
+async def test_in_memory_store_delete_missing_thread_is_noop() -> None:
+    store = InMemoryChatKitStore()
+    context: ChatKitRequestContext = {}
+
+    await store.delete_thread("thr_missing", context)
+
+    from chatkit.store import NotFoundError
+
+    with pytest.raises(NotFoundError):
+        await store.load_thread("thr_missing", context)
+
+
+@pytest.mark.asyncio
 async def test_in_memory_store_attachment_methods_not_implemented() -> None:
     store = InMemoryChatKitStore()
     context: ChatKitRequestContext = {}

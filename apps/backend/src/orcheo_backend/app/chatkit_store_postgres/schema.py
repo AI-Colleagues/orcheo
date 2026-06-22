@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS chat_threads (
     title TEXT,
     workflow_id TEXT,
     workspace_id TEXT,
+    owner_key TEXT,
     status_json JSONB NOT NULL,
     metadata_json JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -77,6 +78,12 @@ CREATE TABLE IF NOT EXISTS chat_attachment_blobs (
 );
 """
 
+# ALTER TABLE statements for new columns added to chat_threads. Nullable so
+# existing deployments upgrade cleanly; legacy rows simply have no owner_key.
+_CHAT_THREADS_ALTER_STMTS = [
+    "ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS owner_key TEXT",
+]
+
 # ALTER TABLE statements for new columns added to chat_attachments.
 # New columns are all nullable at the schema level so existing deployments
 # do not fail on startup — the service layer enforces required-shape rules
@@ -104,6 +111,10 @@ _ATTACHMENT_SCOPE_INDEXES = [
         "ON chat_threads(workspace_id)",
     ),
     (
+        "idx_chat_threads_owner_scope",
+        "ON chat_threads(workflow_id, workspace_id, owner_key, created_at)",
+    ),
+    (
         "idx_chat_attachments_workspace_id",
         "ON chat_attachments(workspace_id, id)",
     ),
@@ -128,7 +139,7 @@ async def ensure_schema(conn: Any) -> None:
         stmt = raw_stmt.strip()
         if stmt:
             await conn.execute(stmt)
-    for alter_stmt in _CHAT_ATTACHMENTS_ALTER_STMTS:
+    for alter_stmt in (*_CHAT_THREADS_ALTER_STMTS, *_CHAT_ATTACHMENTS_ALTER_STMTS):
         await conn.execute(alter_stmt)
     for index_name, index_body in _ATTACHMENT_SCOPE_INDEXES:
         await conn.execute(f"CREATE INDEX IF NOT EXISTS {index_name} {index_body}")

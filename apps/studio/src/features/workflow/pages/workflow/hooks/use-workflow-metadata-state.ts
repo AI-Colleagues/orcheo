@@ -21,6 +21,7 @@ export function useWorkflowMetadataState() {
     null,
   );
   const [isWorkflowPublic, setIsWorkflowPublic] = useState(false);
+  const [workflowRequireLogin, setWorkflowRequireLogin] = useState(false);
   const [workflowShareUrl, setWorkflowShareUrl] = useState<string | null>(null);
   const [chatkitStartScreenPrompts, setChatkitStartScreenPrompts] = useState<
     ChatKitStartScreenPrompt[] | null
@@ -46,6 +47,8 @@ export function useWorkflowMetadataState() {
     setWorkflowLoadError,
     isWorkflowPublic,
     setIsWorkflowPublic,
+    workflowRequireLogin,
+    setWorkflowRequireLogin,
     workflowShareUrl,
     setWorkflowShareUrl,
     chatkitStartScreenPrompts,

@@ -1,3 +1,12 @@
+"""Generic JWKS cache for external-issuer (OIDC RP) JWT validation.
+
+DORMANT: after the first-party auth cutover the backend validates only
+first-party HS256 tokens (signed with ``AUTH_JWT_SECRET``), so this JWKS path
+is never exercised unless ``AUTH_JWKS_URL`` / ``AUTH_JWKS`` is configured. It is
+retained intentionally for the future enterprise-SSO initiative (OIDC/SAML
+federation), which will reuse this generic relying-party layer.
+"""
+
 from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping

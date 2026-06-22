@@ -18,6 +18,21 @@ from orcheo_backend.app.chatkit_store_postgres.utils import (
 )
 
 
+def _owner_matches(
+    stored_owner_key: str | None, context: ChatKitRequestContext | None
+) -> bool:
+    """Return whether the requester may access a thread with ``stored_owner_key``.
+
+    Access is granted when the caller is unscoped (no owner in context, e.g.
+    internal/dev callers), when the stored thread predates owner scoping
+    (legacy ``NULL`` owner), or when the owners match exactly.
+    """
+    owner_key = context.get("owner_key") if context else None
+    if owner_key is None or stored_owner_key is None:
+        return True
+    return stored_owner_key == owner_key
+
+
 def _extract_title_from_request(context: ChatKitRequestContext | None) -> str | None:
     """Return the first user text content in the request as the thread title."""
     if not context:
@@ -45,14 +60,14 @@ class ThreadStoreMixin(BasePostgresStore):
         async with self._connection() as conn:
             cursor = await conn.execute(
                 """
-                SELECT id, title, status_json, metadata_json, created_at
+                SELECT id, title, owner_key, status_json, metadata_json, created_at
                   FROM chat_threads
                  WHERE id = %s
                 """,
                 (thread_id,),
             )
             row = await cursor.fetchone()
-        if row is None:
+        if row is None or not _owner_matches(row.get("owner_key"), context):
             raise NotFoundError(f"Thread {thread_id} not found")
         return thread_from_row(row)
 
@@ -68,6 +83,7 @@ class ThreadStoreMixin(BasePostgresStore):
                 metadata_payload = self._merge_metadata_from_context(thread, context)
                 workflow_id = metadata_payload.get("workflow_id")
                 workspace_id = context.get("workspace_id") if context else None
+                owner_key = context.get("owner_key") if context else None
                 await conn.execute(
                     """
                     INSERT INTO chat_threads (
@@ -75,15 +91,19 @@ class ThreadStoreMixin(BasePostgresStore):
                         title,
                         workflow_id,
                         workspace_id,
+                        owner_key,
                         status_json,
                         metadata_json,
                         created_at,
                         updated_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT(id) DO UPDATE SET
                         title = excluded.title,
                         workflow_id = excluded.workflow_id,
                         workspace_id = excluded.workspace_id,
+                        owner_key = COALESCE(
+                            chat_threads.owner_key, excluded.owner_key
+                        ),
                         status_json = excluded.status_json,
                         metadata_json = excluded.metadata_json,
                         updated_at = excluded.updated_at
@@ -93,6 +113,7 @@ class ThreadStoreMixin(BasePostgresStore):
                         thread.title,
                         str(workflow_id) if workflow_id else None,
                         workspace_id,
+                        owner_key,
                         serialize_thread_status(thread),
                         compact_json(metadata_payload),
                         ensure_datetime(thread.created_at),
@@ -111,6 +132,7 @@ class ThreadStoreMixin(BasePostgresStore):
         await self._ensure_initialized()
         workflow_id: str | None = context.get("workflow_id") if context else None
         workspace_id: str | None = context.get("workspace_id") if context else None
+        owner_key: str | None = context.get("owner_key") if context else None
         limit = max(limit, 1)
         ordering = "asc" if order.lower() == "asc" else "desc"
         comparator = ">" if ordering == "asc" else "<"
@@ -125,10 +147,16 @@ class ThreadStoreMixin(BasePostgresStore):
             conditions.append("workspace_id = %s")
             params.append(workspace_id)
 
+        # Scope the history to the requesting user (authenticated subject) or
+        # anonymous visitor so callers never see threads they do not own.
+        if owner_key is not None:
+            conditions.append("owner_key = %s")
+            params.append(owner_key)
+
         async with self._connection() as conn:
             if after:  # pragma: no branch
-                # Cursor lookup must be scoped to the same workflow/workspace to prevent
-                # information leakage and ensure consistent pagination
+                # Cursor lookup must be scoped to the same workflow/workspace/owner to
+                # prevent information leakage and ensure consistent pagination
                 cursor_query = "SELECT created_at, id FROM chat_threads WHERE id = %s"
                 cursor_params = [after]
                 if workflow_id:
@@ -137,6 +165,9 @@ class ThreadStoreMixin(BasePostgresStore):
                 if workspace_id is not None:
                     cursor_query += " AND workspace_id = %s"
                     cursor_params.append(workspace_id)
+                if owner_key is not None:
+                    cursor_query += " AND owner_key = %s"
+                    cursor_params.append(owner_key)
 
                 cursor = await conn.execute(cursor_query, tuple(cursor_params))
                 marker = await cursor.fetchone()
@@ -169,12 +200,22 @@ class ThreadStoreMixin(BasePostgresStore):
     ) -> None:
         """Remove ``thread_id`` and cascade associated entities."""
         await self._ensure_initialized()
+        owner_key: str | None = context.get("owner_key") if context else None
         async with self._lock:
             async with self._connection() as conn:
-                await conn.execute(
-                    "DELETE FROM chat_threads WHERE id = %s",
-                    (thread_id,),
-                )
+                # When the caller is scoped to an owner, only allow deleting their
+                # own threads (legacy unowned rows remain deletable).
+                if owner_key is not None:
+                    await conn.execute(
+                        "DELETE FROM chat_threads "
+                        "WHERE id = %s AND (owner_key IS NULL OR owner_key = %s)",
+                        (thread_id, owner_key),
+                    )
+                else:
+                    await conn.execute(
+                        "DELETE FROM chat_threads WHERE id = %s",
+                        (thread_id,),
+                    )
 
     async def filter_threads(
         self,

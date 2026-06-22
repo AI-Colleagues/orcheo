@@ -8,6 +8,7 @@ from orcheo.workspace import (
     WorkspaceContext,
     WorkspaceQuotas,
     WorkspaceStatus,
+    normalize_email,
     normalize_slug,
 )
 
@@ -27,6 +28,22 @@ def test_normalize_slug_lowercases_and_validates() -> None:
         normalize_slug("   ")
     with pytest.raises(ValueError, match="alphanumeric"):
         normalize_slug("acme inc")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "   ",
+        "@example.com",
+        "alice@example",
+        "alice@example.",
+        "alice@@example.com",
+    ],
+)
+def test_normalize_email_rejects_invalid_addresses(value: str) -> None:
+    with pytest.raises(ValueError, match="valid email"):
+        normalize_email(value)
 
 
 def test_workspace_validates_slug_and_name() -> None:

@@ -45,6 +45,7 @@ from orcheo_backend.app.dependencies import (
     set_vault,
 )
 from orcheo_backend.app.history import RunHistoryStore
+from orcheo_backend.app.identity.router import router as identity_api_router
 from orcheo_backend.app.listener_runtime_service import ListenerRuntimeService
 from orcheo_backend.app.logging_config import configure_logging
 from orcheo_backend.app.managed_workflows import ensure_managed_vibe_workflow
@@ -168,6 +169,7 @@ def _build_api_router() -> APIRouter:
     router.include_router(candidates.router)
     router.include_router(chatkit_router.router)
     router.include_router(auth.router)
+    router.include_router(identity_api_router)
     router.include_router(system.public_router)
     router.include_router(workspaces_router.self_service_router)
     # Public webhook invocation routes - external services (Slack, GitHub, etc.)

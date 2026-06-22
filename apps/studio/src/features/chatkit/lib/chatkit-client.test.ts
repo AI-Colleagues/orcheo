@@ -1,10 +1,20 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildPublicChatFetch } from "./chatkit-client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  buildAuthenticatedChatFetch,
+  buildPublicChatFetch,
+  getOrCreateVisitorId,
+  VISITOR_ID_HEADER,
+} from "./chatkit-client";
 
 const originalFetch = window.fetch;
 
+beforeEach(() => {
+  window.localStorage.clear();
+});
+
 afterEach(() => {
   window.fetch = originalFetch;
+  window.localStorage.clear();
   vi.restoreAllMocks();
 });
 
@@ -142,6 +152,32 @@ describe("buildPublicChatFetch", () => {
     });
   });
 
+  it("attaches a stable visitor id header for history scoping", async () => {
+    const fetchMock = vi.fn(async () => createResponse(200, { ok: true }));
+    window.fetch = fetchMock as unknown as typeof window.fetch;
+
+    const handler = buildPublicChatFetch({ workflowId: "wf-visitor" });
+
+    await handler("http://localhost:2025/api/chatkit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    await handler("http://localhost:2025/api/chatkit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    const visitorId = getOrCreateVisitorId();
+    expect(visitorId).toBeTruthy();
+    const firstHeaders = new Headers(fetchMock.mock.calls[0]![1]?.headers ?? {});
+    const secondHeaders = new Headers(fetchMock.mock.calls[1]![1]?.headers ?? {});
+    // The same id must be reused across requests so history stays attributed.
+    expect(firstHeaders.get(VISITOR_ID_HEADER)).toBe(visitorId);
+    expect(secondHeaders.get(VISITOR_ID_HEADER)).toBe(visitorId);
+  });
+
   it("does not inject Authorization headers by default", async () => {
     const fetchMock = vi.fn(async () => createResponse(200, { ok: true }));
     window.fetch = fetchMock as unknown as typeof window.fetch;
@@ -159,5 +195,52 @@ describe("buildPublicChatFetch", () => {
     const [, options] = fetchMock.mock.calls[0]!;
     const headers = new Headers(options?.headers ?? {});
     expect(headers.has("Authorization")).toBe(false);
+  });
+});
+
+describe("buildAuthenticatedChatFetch", () => {
+  it("attaches the session token as a Bearer header", async () => {
+    const fetchMock = vi.fn(async () => createResponse(200, { ok: true }));
+    window.fetch = fetchMock as unknown as typeof window.fetch;
+    const getToken = vi.fn(async () => "session-jwt");
+
+    const handler = buildAuthenticatedChatFetch({
+      workflowId: "wf-333",
+      getToken,
+    });
+
+    await handler("http://localhost:2025/api/chatkit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(getToken).toHaveBeenCalledTimes(1);
+    const [, options] = fetchMock.mock.calls[0]!;
+    const headers = new Headers(options?.headers ?? {});
+    expect(headers.get("Authorization")).toBe("Bearer session-jwt");
+    expect(options?.credentials).toBe("include");
+  });
+
+  it("propagates session token resolver errors", async () => {
+    const fetchMock = vi.fn(async () => createResponse(200, { ok: true }));
+    window.fetch = fetchMock as unknown as typeof window.fetch;
+    const getToken = vi.fn(async () => {
+      throw new Error("session unavailable");
+    });
+
+    const handler = buildAuthenticatedChatFetch({
+      workflowId: "wf-444",
+      getToken,
+    });
+
+    await expect(
+      handler("http://localhost:2025/api/chatkit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+    ).rejects.toThrow("session unavailable");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

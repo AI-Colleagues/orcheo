@@ -86,6 +86,41 @@ export const getChatKitDomainKey = (): string => {
   return fromEnv ?? fromRuntime ?? DEFAULT_DOMAIN_KEY;
 };
 
+export const VISITOR_ID_HEADER = "X-Orcheo-Visitor-Id";
+const VISITOR_ID_STORAGE_KEY = "orcheo.chatkit.visitorId";
+
+const createVisitorId = (): string => {
+  const cryptoObj =
+    typeof globalThis !== "undefined"
+      ? (globalThis.crypto as Crypto | undefined)
+      : undefined;
+  if (cryptoObj?.randomUUID) {
+    return cryptoObj.randomUUID();
+  }
+  return `v-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+};
+
+/**
+ * Return a stable, browser-local visitor id used to scope anonymous chat
+ * history to this device. The id is opaque and never used for authorization —
+ * the backend only filters a visitor's own threads by it. Falls back to an
+ * ephemeral per-call id when storage is unavailable (e.g. SSR, private mode).
+ */
+export const getOrCreateVisitorId = (): string => {
+  try {
+    const storage = window.localStorage;
+    const existing = safeString(storage.getItem(VISITOR_ID_STORAGE_KEY));
+    if (existing) {
+      return existing;
+    }
+    const next = createVisitorId();
+    storage.setItem(VISITOR_ID_STORAGE_KEY, next);
+    return next;
+  } catch {
+    return createVisitorId();
+  }
+};
+
 export const buildPublicChatFetch = ({
   workflowId,
   onHttpError,
@@ -120,6 +155,10 @@ export const buildPublicChatFetch = ({
     for (const [key, value] of new Headers(nextInit.headers ?? {})) {
       requestHeaders.set(key, value);
     }
+
+    // Scope chat history to this browser for anonymous visitors. Authenticated
+    // requests are scoped server-side by OAuth subject, so this is ignored there.
+    requestHeaders.set(VISITOR_ID_HEADER, getOrCreateVisitorId());
 
     const contentType = requestHeaders.get("Content-Type") ?? "";
     const expectsJson = contentType.includes("application/json");
@@ -191,5 +230,32 @@ export const buildPublicChatFetch = ({
     }
 
     return response;
+  };
+};
+
+interface AuthenticatedChatFetchOptions extends PublicChatFetchOptions {
+  /**
+   * Resolver returning a cached ChatKit session token (JWT).
+   */
+  getToken: () => Promise<string>;
+}
+
+/**
+ * Wrap {@link buildPublicChatFetch} so each ChatKit request carries a session
+ * token in the `Authorization` header. Used for `require_login` workflows so the
+ * backend's JWT auth path can enforce workspace membership.
+ */
+export const buildAuthenticatedChatFetch = ({
+  getToken,
+  ...publicOptions
+}: AuthenticatedChatFetchOptions): typeof fetch => {
+  const base = buildPublicChatFetch(publicOptions);
+  return async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const token = await getToken();
+    const headers = new Headers(init.headers ?? {});
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+    return base(input, { ...init, headers });
   };
 };

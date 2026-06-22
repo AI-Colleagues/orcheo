@@ -31,9 +31,9 @@ nav:
   - Getting Started:
       - Manual Setup: manual_setup.md
       - Studio: studio.md
-      - Auth0 IdP Setup: auth0_idp_setup.md
       - Environment Variables: environment_variables.md
       - Authentication: authentication_guide.md
+      - First-party Auth Rollout: first_party_auth_rollout.md
       - Lark App Setup: integrations/lark_app_setup.md
   - Examples:
       - Conversational Search: examples/conversational_search.md

@@ -5,6 +5,10 @@ from __future__ import annotations
 
 __all__ = [
     "WorkspaceError",
+    "WorkspaceInvitationEmailMismatchError",
+    "WorkspaceInvitationError",
+    "WorkspaceInvitationExpiredError",
+    "WorkspaceInvitationNotFoundError",
     "WorkspaceMembershipLimitError",
     "WorkspaceNotFoundError",
     "WorkspaceSlugConflictError",
@@ -35,3 +39,19 @@ class WorkspaceMembershipLimitError(WorkspaceMembershipError):
 
 class WorkspacePermissionError(WorkspaceError):
     """Raised when the actor lacks the required role."""
+
+
+class WorkspaceInvitationError(WorkspaceError):
+    """Raised when an invitation is missing, duplicated, or in a bad state."""
+
+
+class WorkspaceInvitationNotFoundError(WorkspaceInvitationError):
+    """Raised when an invitation cannot be located by id or token."""
+
+
+class WorkspaceInvitationExpiredError(WorkspaceInvitationError):
+    """Raised when a pending invitation is redeemed after it expired."""
+
+
+class WorkspaceInvitationEmailMismatchError(WorkspaceInvitationError):
+    """Raised when the redeemer's verified email does not match the invite."""

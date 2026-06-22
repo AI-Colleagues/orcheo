@@ -83,12 +83,14 @@ export function buildWorkflowLayoutProps(
     isLoading: core.metadata.isWorkflowLoading,
     loadError: core.metadata.workflowLoadError,
     isRunPending: execution.isRunPending,
+    isRunning: core.execution.isRunning,
     onRunWorkflow: execution.handleRunPersistedWorkflow,
     onSaveConfig: resources.saver.handleSaveWorkflowConfig,
     hasCronTriggerNode: hasSchedulableCronTrigger(
       core.metadata.workflowVersions ?? [],
     ),
     initialIsPublished: core.metadata.isWorkflowPublic,
+    initialRequireLogin: core.metadata.workflowRequireLogin,
     initialShareUrl: core.metadata.workflowShareUrl,
     missingCredentials: resources.credentialReadiness.missingCredentials,
   };

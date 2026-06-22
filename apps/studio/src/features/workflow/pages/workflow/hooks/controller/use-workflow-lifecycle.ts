@@ -18,6 +18,7 @@ export function useWorkflowLifecycle(
     setChatkitStartScreenPrompts: core.metadata.setChatkitStartScreenPrompts,
     setChatkitSupportedModels: core.metadata.setChatkitSupportedModels,
     setIsWorkflowPublic: core.metadata.setIsWorkflowPublic,
+    setWorkflowRequireLogin: core.metadata.setWorkflowRequireLogin,
     setWorkflowShareUrl: core.metadata.setWorkflowShareUrl,
     setIsWorkflowLoading: core.metadata.setIsWorkflowLoading,
     setWorkflowLoadError: core.metadata.setWorkflowLoadError,

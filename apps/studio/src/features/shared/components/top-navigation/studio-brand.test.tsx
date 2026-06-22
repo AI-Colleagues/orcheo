@@ -26,7 +26,10 @@ describe("StudioBrand", () => {
     await user.hover(screen.getByRole("button", { name: /beta badge/i }));
 
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "This environment is experimental. Data created here may be reset, deleted, or not migrated to the launched version.",
+      "Beta Disclaimer & Terms: Orcheo Cloud is a free beta for evaluation and testing, provided as-is. Data, workflows, and credentials may be reset, deleted, or not migrated, so do not use it as your only storage for critical production data; read the full terms.",
     );
+    for (const link of screen.getAllByRole("link", { name: /full terms/i })) {
+      expect(link).toHaveAttribute("href", "https://ai-colleagues.com/terms");
+    }
   });
 });

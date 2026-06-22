@@ -159,7 +159,7 @@ export const WorkflowGalleryTabs = ({
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:gap-4">
           <TabsList className="flex h-auto flex-wrap justify-start gap-1">
             <TabsTrigger value="all" className="gap-2">
-              <span>AI Colleagues</span>
+              <span>AI Teams</span>
               <span className="text-xs text-muted-foreground">
                 {tabCounts.all}
               </span>

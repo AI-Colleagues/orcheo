@@ -149,8 +149,17 @@ async def test_postgres_chatkit_schema_creates_workspace_index() -> None:
         "CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace_id ON chat_threads(workspace_id)"
         in conn.statements
     )
-    assert not any(
-        stmt.startswith("ALTER TABLE chat_threads") for stmt in conn.statements
+    # The owner_key column is backfilled on existing deployments via ALTER and
+    # backed by a scoped index for per-user history lookups.
+    assert (
+        "ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS owner_key TEXT"
+        in conn.statements
+    )
+    assert any(
+        stmt.startswith(
+            "CREATE INDEX IF NOT EXISTS idx_chat_threads_owner_scope ON chat_threads"
+        )
+        for stmt in conn.statements
     )
 
 
@@ -352,6 +361,49 @@ async def test_postgres_store_load_threads_scoped_by_workspace_and_workflow(
     assert "AND workspace_id = %s" in conn.queries[0][0]
     assert "workspace_id = %s" in conn.queries[1][0]
     assert page.data[0].id == "thr_workspace"
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_load_threads_scoped_by_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    thread = ThreadMetadata(
+        id="thr_owner",
+        created_at=datetime(2024, 1, 3, tzinfo=UTC),
+    )
+    store = make_store(monkeypatch, responses=[{"rows": [_thread_row(thread)]}])
+    context: dict[str, object] = {"owner_key": "sub:alice"}
+
+    page = await store.load_threads(limit=10, after=None, order="asc", context=context)
+
+    conn = store._pool.connection()
+    assert conn.queries[0][1] == ("sub:alice", 11)
+    assert "WHERE owner_key = %s" in conn.queries[0][0]
+    assert page.data[0].id == "thr_owner"
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_owner_match_helper_branches() -> None:
+    from orcheo_backend.app.chatkit_store_postgres.threads import _owner_matches
+
+    assert _owner_matches(None, {"owner_key": "sub:alice"}) is True
+    assert _owner_matches("sub:alice", None) is True
+    assert _owner_matches("sub:alice", {"owner_key": "sub:alice"}) is True
+    assert _owner_matches("sub:alice", {"owner_key": "sub:bob"}) is False
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_delete_thread_scoped_by_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = make_store(monkeypatch, responses=[{}])
+    context: dict[str, object] = {"owner_key": "sub:alice"}
+
+    await store.delete_thread("thr_delete", context)
+
+    conn = store._pool.connection()
+    assert conn.queries[0][1] == ("thr_delete", "sub:alice")
+    assert "(owner_key IS NULL OR owner_key = %s)" in conn.queries[0][0]
 
 
 @pytest.mark.asyncio

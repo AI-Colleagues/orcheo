@@ -1,6 +1,7 @@
 """Tests covering the ChatKit authentication helper."""
 
 from __future__ import annotations
+from types import SimpleNamespace
 from typing import Any
 import pytest
 from starlette.requests import Request
@@ -108,6 +109,7 @@ async def test_authenticate_chatkit_invocation_with_public_access(
 async def test_authenticate_chatkit_requires_session_when_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    workspace_id = "test-workspace"
     repository = InMemoryWorkflowRepository()
     workflow = await repository.create_workflow(
         name="Protected Workflow",
@@ -116,6 +118,7 @@ async def test_authenticate_chatkit_requires_session_when_configured(
         tags=None,
         draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
+        workspace_id=workspace_id,
     )
 
     await repository.publish_workflow(
@@ -124,17 +127,36 @@ async def test_authenticate_chatkit_requires_session_when_configured(
         actor="tester",
     )
 
-    request = _make_request()
+    # Untrusted forwarded identity headers must be ignored -> still rejected.
+    spoofed_request = _make_request({"X-Orcheo-OAuth-Subject": "bob"})
     with pytest.raises(backend_app.routers.chatkit.HTTPException) as exc:
         await backend_app.routers.chatkit.authenticate_chatkit_invocation(
-            request=request,
+            request=spoofed_request,
             payload={"workflow_id": str(workflow.id)},
             repository=repository,
         )
 
     assert exc.value.status_code == 401
 
-    session_request = _make_request({"X-Orcheo-OAuth-Subject": "bob"})
+    # Identity from a trusted proxy is accepted when the workspace is authorized.
+    monkeypatch.setattr(
+        backend_app.routers.chatkit,
+        "load_auth_settings",
+        lambda: SimpleNamespace(
+            trusted_proxy_secret="s3cret",
+            trusted_proxy_ips=(),
+            dev_login_enabled=False,
+            dev_login_cookie_name=None,
+            dev_login_workspace_ids=(),
+        ),
+    )
+    session_request = _make_request(
+        {
+            "X-Orcheo-Proxy-Secret": "s3cret",
+            "X-Orcheo-OAuth-Subject": "bob",
+            "X-Orcheo-OAuth-Workspaces": workspace_id,
+        }
+    )
     result = await backend_app.routers.chatkit.authenticate_chatkit_invocation(
         request=session_request,
         payload={"workflow_id": str(workflow.id)},
