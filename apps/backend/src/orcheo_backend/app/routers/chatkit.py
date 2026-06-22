@@ -458,7 +458,7 @@ _VISITOR_ID_RE = re.compile(r"[A-Za-z0-9_-]{8,128}")
 _VISITOR_ID_HEADER = "X-Orcheo-Visitor-Id"
 
 
-def _resolve_owner_key(auth_result: ChatKitAuthResult, request: Request) -> str | None:
+def _resolve_owner_key(auth_result: ChatKitAuthResult, request: Request) -> str:
     """Return the per-user thread owner key for history scoping.
 
     Authenticated callers are scoped by their server-resolved OAuth subject so a
@@ -499,9 +499,7 @@ def _build_request_context(
     }
     if auth_result.subject is not None:
         context["subject"] = auth_result.subject
-    owner_key = _resolve_owner_key(auth_result, request)
-    if owner_key is not None:
-        context["owner_key"] = owner_key
+    context["owner_key"] = _resolve_owner_key(auth_result, request)
     if upload_session_id_value:
         context["upload_session_id"] = str(upload_session_id_value)
     return context

@@ -62,3 +62,23 @@ def test_email_start_is_rate_limited_per_ip(client: TestClient) -> None:
     # Third attempt within the window from the same IP is throttled.
     throttled = client.post("/api/auth/email/start", json={"email": "c@example.com"})
     assert throttled.status_code == 429
+
+
+def test_email_verify_is_rate_limited_per_ip(client: TestClient) -> None:
+    first = client.post("/api/auth/email/verify", json={})
+    second = client.post("/api/auth/email/verify", json={})
+    assert first.status_code == 400
+    assert second.status_code == 400
+
+    throttled = client.post("/api/auth/email/verify", json={})
+    assert throttled.status_code == 429
+
+
+def test_refresh_is_rate_limited_per_ip(client: TestClient) -> None:
+    first = client.post("/api/auth/refresh", json={"refresh_token": "missing"})
+    second = client.post("/api/auth/refresh", json={"refresh_token": "missing"})
+    assert first.status_code == 401
+    assert second.status_code == 401
+
+    throttled = client.post("/api/auth/refresh", json={"refresh_token": "missing"})
+    assert throttled.status_code == 429

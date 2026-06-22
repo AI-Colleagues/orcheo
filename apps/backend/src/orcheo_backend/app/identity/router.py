@@ -138,6 +138,7 @@ async def email_verify(
     ip: Annotated[str | None, Depends(get_client_ip)],
 ) -> SessionResponse:
     """Verify a magic-link token or OTP code and start a session."""
+    get_auth_rate_limiter().check_ip(ip, now=service.now())
     user_agent = request.headers.get("User-Agent")
     try:
         if payload.token:
@@ -175,8 +176,10 @@ async def email_verify(
 async def refresh(
     payload: RefreshRequest,
     service: IdentityServiceDep,
+    ip: Annotated[str | None, Depends(get_client_ip)],
 ) -> TokenResponse:
     """Rotate a refresh token and mint a new access token."""
+    get_auth_rate_limiter().check_ip(ip, now=service.now())
     try:
         tokens = service.refresh(payload.refresh_token)
     except IdentitySessionNotFoundError as exc:
