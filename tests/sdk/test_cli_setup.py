@@ -528,7 +528,7 @@ def test_build_env_updates(monkeypatch):
     monkeypatch.setattr(secrets, "token_hex", lambda _: "hex")
     config = setup.SetupConfig(
         mode="install",
-        backend_url="http://backend",
+        backend_url="http://localhost:2025",
         studio_url="http://localhost:2026",
         auth_mode="api-key",
         api_key="provided",
@@ -542,7 +542,7 @@ def test_build_env_updates(monkeypatch):
         install_docker_if_missing=False,
     )
     updates, defaults = setup._build_env_updates(config, requested_stack_version="2.0")
-    assert updates["ORCHEO_API_URL"] == "http://backend"
+    assert updates["ORCHEO_API_URL"] == "http://localhost:2025"
     assert updates["ORCHEO_STUDIO_URL"] == "http://localhost:2026"
     assert updates["ORCHEO_CORS_ALLOW_ORIGINS"] == (
         "http://localhost:2026,http://127.0.0.1:2026"
@@ -661,6 +661,30 @@ def test_resolve_smtp_email_config_non_interactive_defaults_sender(tmp_path):
     assert config.port == setup._DEFAULT_SMTP_PORT
     assert config.from_email == setup._DEFAULT_SMTP_FROM_EMAIL
     assert config.use_tls is True
+
+
+def test_build_env_updates_keeps_managed_mode_for_non_loopback_http(monkeypatch):
+    monkeypatch.setattr(secrets, "token_urlsafe", lambda _: "safe")
+    monkeypatch.setattr(secrets, "token_hex", lambda _: "hex")
+    config = setup.SetupConfig(
+        mode="install",
+        backend_url="http://api.example.com",
+        studio_url="http://localhost:2026",
+        auth_mode="api-key",
+        api_key="provided",
+        chatkit_domain_key="domain",
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_local_ports=True,
+        backend_upstreams="backend:2025",
+        studio_upstream="studio:2026",
+        start_stack=False,
+        install_docker_if_missing=False,
+    )
+
+    updates, _ = setup._build_env_updates(config)
+
+    assert updates["ORCHEO_WORKFLOW_TRUST_MODE"] == "managed"
 
 
 def test_build_env_updates_sets_https_auth_contract(monkeypatch):

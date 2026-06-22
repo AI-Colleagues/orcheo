@@ -41,7 +41,11 @@ describe("Login", () => {
     await user.click(screen.getByRole("button", { name: /continue with email/i }));
 
     await waitFor(() =>
-      expect(startEmailChallenge).toHaveBeenCalledWith("alice@example.com"),
+      expect(startEmailChallenge).toHaveBeenCalledWith(
+        "alice@example.com",
+        "login",
+        "/",
+      ),
     );
     expect(await screen.findByLabelText(/sign-in code/i)).toBeInTheDocument();
 
@@ -78,5 +82,54 @@ describe("Login", () => {
     await user.click(screen.getByRole("button", { name: /continue with email/i }));
 
     expect(await screen.findByText(/rate limited/i)).toBeInTheDocument();
+  });
+
+  it("falls back to the redirect query param", async () => {
+    locationMock.search = "?redirect=/chat/abc";
+    const user = userEvent.setup();
+    render(<Login />);
+
+    await user.type(screen.getByLabelText(/email address/i), "alice@example.com");
+    await user.click(screen.getByRole("button", { name: /continue with email/i }));
+    await user.type(await screen.findByLabelText(/sign-in code/i), "999000");
+    await user.click(screen.getByRole("button", { name: /verify code/i }));
+
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith("/chat/abc", { replace: true }),
+    );
+  });
+
+  it("falls back to the from query param", async () => {
+    locationMock.search = "?from=/chat/ws/team/ws/typesetter";
+    const user = userEvent.setup();
+    render(<Login />);
+
+    await user.type(screen.getByLabelText(/email address/i), "alice@example.com");
+    await user.click(screen.getByRole("button", { name: /continue with email/i }));
+    await user.type(await screen.findByLabelText(/sign-in code/i), "999000");
+    await user.click(screen.getByRole("button", { name: /verify code/i }));
+
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith(
+        "/chat/ws/team/ws/typesetter",
+        { replace: true },
+      ),
+    );
+  });
+
+  it("ignores external or protocol-relative redirect targets", async () => {
+    locationMock.search = "?redirect=https://evil.example.com";
+    locationMock.state = { from: "//evil.example.com" } as never;
+    const user = userEvent.setup();
+    render(<Login />);
+
+    await user.type(screen.getByLabelText(/email address/i), "alice@example.com");
+    await user.click(screen.getByRole("button", { name: /continue with email/i }));
+    await user.type(await screen.findByLabelText(/sign-in code/i), "999000");
+    await user.click(screen.getByRole("button", { name: /verify code/i }));
+
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith("/", { replace: true }),
+    );
   });
 });

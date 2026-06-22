@@ -165,6 +165,45 @@ async def _publish_workspace_workflow(
 
 
 @pytest.mark.asyncio()
+async def test_authenticate_publish_request_rejects_require_login_without_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(chatkit, "load_auth_settings", _trusted_proxy_settings)
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Publish",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+    )
+    await repository.publish_workflow(
+        workflow.id,
+        require_login=True,
+        actor="tester",
+    )
+    request = make_chatkit_request(
+        headers={
+            "X-Orcheo-Proxy-Secret": "s3cret",
+            "X-Orcheo-OAuth-Subject": "alice@example.com",
+            "X-Orcheo-OAuth-Workspaces": "ws-1",
+        }
+    )
+
+    with pytest.raises(HTTPException) as excinfo:
+        await chatkit._authenticate_publish_request(
+            request=request,
+            workflow_id=workflow.id,
+            now=datetime.now(tz=UTC),
+            repository=repository,
+        )
+
+    assert excinfo.value.status_code == status.HTTP_403_FORBIDDEN
+    assert excinfo.value.detail["code"] == "chatkit.auth.workspace_required"
+
+
+@pytest.mark.asyncio()
 async def test_authenticate_publish_request_accepts_matching_workspace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

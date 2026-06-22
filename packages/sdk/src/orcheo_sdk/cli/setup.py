@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import getpass
+import ipaddress
 import json
 import os
 import platform
@@ -1115,15 +1116,28 @@ def _backend_url_requires_https_auth(backend_url: str) -> bool:
     return parsed.scheme == "https" and bool(parsed.netloc)
 
 
+def _is_loopback_backend_url(backend_url: str) -> bool:
+    parsed = urlsplit(backend_url)
+    if parsed.scheme not in {"http", "ws"} or not parsed.hostname:
+        return False
+    host = parsed.hostname.strip().lower()
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def _is_local_hosting(config: SetupConfig) -> bool:
     """Return ``True`` when the stack is hosted locally for trusted authors.
 
-    Local hosting means no bundled public ingress and a non-HTTPS (loopback)
+    Local hosting means no bundled public ingress and a non-HTTPS loopback
     backend.  In that case every workflow author is the operator themselves, so
     client workflow uploads are enabled.  Any publicly reachable deployment
     stays in the secure-by-default managed mode.
     """
-    return not config.public_ingress_enabled and not _backend_url_requires_https_auth(
+    return not config.public_ingress_enabled and _is_loopback_backend_url(
         config.backend_url
     )
 

@@ -25,7 +25,8 @@ const PUBLISH_OPTIONS: PublishOption[] = [
   {
     value: "public",
     title: "Public",
-    description: "Anyone with the link can use the workflow. No sign-in required.",
+    description:
+      "Anyone with the link can use the workflow. No sign-in required.",
     icon: Globe,
   },
   {
@@ -51,9 +52,15 @@ export function PublishWorkflowDialog({
   onConfirm,
 }: PublishWorkflowDialogProps) {
   const [selected, setSelected] = useState<PublishVisibility>("public");
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setSelected("public");
+    }
+    onOpenChange(nextOpen);
+  };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Publish workflow</DialogTitle>
@@ -96,7 +103,7 @@ export function PublishWorkflowDialog({
         <DialogFooter>
           <Button
             variant="outline"
-            onClick={() => onOpenChange(false)}
+            onClick={() => handleOpenChange(false)}
             disabled={isPending}
           >
             Cancel

@@ -218,8 +218,7 @@ const parseWorkflowMetadata = (
   }
 
   const metadataRecord = metadata as Record<string, unknown>;
-  const workflowMetadata =
-    metadataRecord.workflow ?? metadataRecord.canvas;
+  const workflowMetadata = metadataRecord.workflow ?? metadataRecord.canvas;
   if (!workflowMetadata || typeof workflowMetadata !== "object") {
     return (
       resolveTemplateFallback() ?? {
@@ -232,7 +231,9 @@ const parseWorkflowMetadata = (
   }
 
   const workflowRecord = workflowMetadata as Record<string, unknown>;
-  const snapshotPayload = workflowRecord.snapshot as WorkflowSnapshot | undefined;
+  const snapshotPayload = workflowRecord.snapshot as
+    | WorkflowSnapshot
+    | undefined;
   const summaryPayload = workflowRecord.summary as
     | WorkflowDiffResult["summary"]
     | undefined;
@@ -373,6 +374,7 @@ export const toStoredWorkflow = (
     lastRun: undefined,
     isArchived: workflow.is_archived,
     isPublic: workflow.is_public,
+    requireLogin: workflow.require_login,
     shareUrl: workflow.share_url ?? null,
     chatkitStartScreenPrompts: workflow.chatkit?.start_screen_prompts ?? null,
     chatkitSupportedModels: workflow.chatkit?.supported_models ?? null,

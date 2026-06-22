@@ -80,6 +80,7 @@ const baseProps = {
   onSaveConfig: vi.fn(),
   hasCronTriggerNode: false,
   initialIsPublished: false,
+  initialRequireLogin: false,
   initialShareUrl: null,
 } satisfies Parameters<typeof WorkflowTabContent>[0];
 

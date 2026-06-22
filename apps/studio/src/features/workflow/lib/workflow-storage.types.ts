@@ -249,6 +249,7 @@ export interface StoredWorkflow extends Workflow {
   draftAccess?: "personal" | "authenticated" | "workspace";
   isArchived?: boolean;
   isPublic?: boolean;
+  requireLogin?: boolean;
   shareUrl?: string | null;
   chatkitStartScreenPrompts?: ChatKitStartScreenPrompt[] | null;
   chatkitSupportedModels?: ChatKitSupportedModel[] | null;

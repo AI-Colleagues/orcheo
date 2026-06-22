@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import type { UseChatKitOptions } from "@openai/chatkit-react";
 import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
@@ -31,6 +31,7 @@ interface PublicChatWidgetProps {
    * mints a ChatKit session token (JWT) so the backend can enforce membership.
    */
   requireLogin?: boolean;
+  useSessionToken?: boolean;
   /**
    * Workspace slug the workflow belongs to. Sent as `X-Orcheo-Workspace` when
    * minting the session token so membership resolves to the correct workspace.
@@ -56,6 +57,7 @@ export function PublicChatWidget({
   workflowName,
   backendBaseUrl,
   requireLogin = false,
+  useSessionToken = requireLogin,
   workspaceSlug,
   onReady,
   onHttpError,
@@ -65,7 +67,17 @@ export function PublicChatWidget({
   startScreenPrompts,
   supportedModels,
 }: PublicChatWidgetProps) {
+  const cachedSessionTokenRef = useRef<{
+    token: string;
+    expiresAt: number;
+  } | null>(null);
+
   const resolveSessionToken = useCallback(async (): Promise<string> => {
+    const cached = cachedSessionTokenRef.current;
+    if (cached && cached.expiresAt - Date.now() > 30_000) {
+      return cached.token;
+    }
+
     // Use the workflow-scoped session endpoint so the backend resolves the
     // caller's workspace via membership (real OIDC tokens do not carry
     // workspace_ids) and scopes the JWT to this workflow + workspace.
@@ -79,15 +91,32 @@ export function PublicChatWidget({
     }
     const response = await authFetch(url, { method: "POST", headers });
     if (!response.ok) {
+      if (response.status === 403) {
+        throw new Error(
+          "Unable to obtain a ChatKit session token: your account is missing the required chatkit:session scope or workspace membership.",
+        );
+      }
+      if (response.status === 401) {
+        throw new Error(
+          "Unable to obtain a ChatKit session token: sign in again and retry.",
+        );
+      }
       throw new Error("Failed to obtain ChatKit session token");
     }
     const data = (await response.json()) as {
       client_secret?: string;
       clientSecret?: string;
+      expires_at?: string;
+      expiresAt?: string;
     };
     const secret = data.client_secret ?? data.clientSecret;
     if (!secret) {
       throw new Error("ChatKit session response missing client secret");
+    }
+    const expiresAtRaw = data.expires_at ?? data.expiresAt;
+    const expiresAt = expiresAtRaw ? Date.parse(expiresAtRaw) : Number.NaN;
+    if (Number.isFinite(expiresAt)) {
+      cachedSessionTokenRef.current = { token: secret, expiresAt };
     }
     return secret;
   }, [backendBaseUrl, workflowId, workspaceSlug]);
@@ -103,18 +132,19 @@ export function PublicChatWidget({
     const uploadUrl = uploadUrlObj.toString();
     const modelOptions = buildModelOptions(supportedModels);
 
-    const fetchImpl = requireLogin
-      ? buildAuthenticatedChatFetch({
-          workflowId,
-          onHttpError,
-          metadata: { workflow_name: workflowName },
-          getToken: resolveSessionToken,
-        })
-      : buildPublicChatFetch({
-          workflowId,
-          onHttpError,
-          metadata: { workflow_name: workflowName },
-        });
+    const fetchImpl =
+      requireLogin && useSessionToken
+        ? buildAuthenticatedChatFetch({
+            workflowId,
+            onHttpError,
+            metadata: { workflow_name: workflowName },
+            getToken: resolveSessionToken,
+          })
+        : buildPublicChatFetch({
+            workflowId,
+            onHttpError,
+            metadata: { workflow_name: workflowName },
+          });
 
     return {
       api: {
@@ -183,6 +213,7 @@ export function PublicChatWidget({
     workflowName,
     requireLogin,
     resolveSessionToken,
+    useSessionToken,
   ]);
 
   return (
