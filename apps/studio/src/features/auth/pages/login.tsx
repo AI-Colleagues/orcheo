@@ -96,8 +96,8 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-foreground">
-      <Card className="w-full max-w-md border-primary/25 bg-primary/5">
+    <div className="flex min-h-screen items-center justify-center bg-[#ebd3a6] p-6 text-foreground">
+      <Card className="w-full max-w-md border-border bg-card text-card-foreground shadow-xl">
         <CardHeader className="text-center">
           <CardTitle className="text-xl">Sign in to Orcheo</CardTitle>
           <CardDescription>
