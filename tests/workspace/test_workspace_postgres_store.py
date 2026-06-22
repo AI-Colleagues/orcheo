@@ -705,6 +705,38 @@ def test_postgres_workspace_repository_accept_invitation_atomic_paths(
         )
 
 
+def test_postgres_workspace_repository_accept_invitation_atomic_missing_membership_row(
+    fake_connect: tuple[FakeConnection, str],
+) -> None:
+    connection, dsn = fake_connect
+    repo = PostgresWorkspaceRepository(dsn)
+
+    workspace_id = uuid4()
+    membership = WorkspaceMembership(
+        workspace_id=workspace_id,
+        user_id="alice",
+        role=Role.EDITOR,
+    )
+    invitation = WorkspaceInvitation(
+        workspace_id=workspace_id,
+        email="alice@example.com",
+        role=Role.EDITOR,
+        token_hash="token",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        expires_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    connection._responses.extend(
+        [
+            {"row": _membership_row(membership)},
+            {},
+            {"row": None},
+        ]
+    )
+
+    with pytest.raises(WorkspaceMembershipError, match="No membership for user"):
+        repo.accept_invitation_atomic(membership, "alice@example.com", invitation)
+
+
 def test_postgres_workspace_repository_invitation_row_mapper_handles_nulls() -> None:
     invitation = WorkspaceInvitation(
         workspace_id=uuid4(),

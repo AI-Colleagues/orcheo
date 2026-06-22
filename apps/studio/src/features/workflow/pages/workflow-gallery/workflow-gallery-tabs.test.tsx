@@ -96,7 +96,7 @@ describe("WorkflowGalleryTabs", () => {
       />,
     );
 
-    expect(screen.getByRole("tab", { name: /ai colleagues 12/i })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /ai teams 12/i })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /starred 3/i })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /candidates 20/i })).toBeTruthy();
     expect(screen.getByPlaceholderText(/search colleagues/i)).toBeTruthy();

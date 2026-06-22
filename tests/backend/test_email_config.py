@@ -52,3 +52,20 @@ def test_build_smtp_settings_uses_default_tls_for_non_boolean_values(
     settings = email_config.build_smtp_settings()
     assert settings is not None
     assert settings.use_tls is True
+
+
+def test_build_smtp_settings_preserves_boolean_tls_values(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        email_config,
+        "get_settings",
+        lambda: {
+            "SMTP_HOST": "smtp.example.com",
+            "SMTP_USE_TLS": False,
+        },
+    )
+
+    settings = email_config.build_smtp_settings()
+    assert settings is not None
+    assert settings.use_tls is False
