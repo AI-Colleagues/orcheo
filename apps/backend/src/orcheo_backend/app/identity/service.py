@@ -219,11 +219,14 @@ class IdentityService:
         ip: str | None,
     ) -> VerificationResult:
         now = self._clock()
-        user, created = self._find_or_create_user(challenge.email, now=now)
-        # Mark the challenge consumed (single-use) and the user verified.
-        self._repository.update_challenge(
-            challenge.model_copy(update={"consumed_at": now})
-        )
+        try:
+            consumed = self._repository.consume_challenge(challenge, consumed_at=now)
+        except IdentityChallengeNotFoundError as exc:
+            self._record("auth.verify_expired", "failure", ip=ip)
+            raise IdentityChallengeExpiredError(
+                "Invalid or expired challenge."
+            ) from exc
+        user, created = self._find_or_create_user(consumed.email, now=now)
         tokens = self._issue_session(user, user_agent=user_agent, ip=ip, now=now)
         if created:
             self._record("auth.signup", "success", subject=str(user.id), ip=ip)

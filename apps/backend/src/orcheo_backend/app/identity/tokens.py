@@ -19,6 +19,7 @@ from orcheo.identity.models import User
 
 
 __all__ = [
+    "DEFAULT_USER_SCOPES",
     "generate_magic_link_token",
     "generate_otp_code",
     "generate_refresh_token",
@@ -29,6 +30,13 @@ __all__ = [
 
 _MAGIC_LINK_BYTES = 32
 _REFRESH_TOKEN_BYTES = 32
+DEFAULT_USER_SCOPES: tuple[str, ...] = (
+    "workflows:read",
+    "workflows:write",
+    "workflows:execute",
+    "vault:read",
+    "vault:write",
+)
 
 
 def generate_magic_link_token() -> str:
@@ -82,6 +90,8 @@ def mint_access_token(
         "email": user.email,
         "email_verified": user.email_verified,
         "name": user.name,
+        "scope": " ".join(DEFAULT_USER_SCOPES),
+        "scopes": list(DEFAULT_USER_SCOPES),
         "iss": issuer,
         "iat": int(now.timestamp()),
         "exp": int(expires_at.timestamp()),

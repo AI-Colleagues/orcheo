@@ -93,6 +93,32 @@ describe("auth-api", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("refreshes an expired token before revoking on logout", async () => {
+    setAuthTokens({
+      accessToken: "expired",
+      refreshToken: "refresh-1",
+      expiresAt: Date.now() - 1000,
+    });
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          access_token: "fresh-access",
+          refresh_token: "fresh-refresh",
+          expires_in: 900,
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await logoutSession();
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/api/auth/refresh");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("/api/auth/logout");
+    expect(fetchMock.mock.calls[1][1].headers).toMatchObject({
+      Authorization: "Bearer fresh-access",
+    });
+    expect(getAuthTokens()).toBeNull();
+  });
+
   it("revokes the server session and clears tokens on logout", async () => {
     setAuthTokens({ accessToken: "access-1", refreshToken: "refresh-1" });
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));

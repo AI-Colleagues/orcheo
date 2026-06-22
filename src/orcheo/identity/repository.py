@@ -56,6 +56,11 @@ class IdentityRepository(Protocol):
     def update_challenge(self, challenge: AuthEmailChallenge) -> AuthEmailChallenge:
         """Persist attempt/consumption changes for an existing challenge."""
 
+    def consume_challenge(
+        self, challenge: AuthEmailChallenge, *, consumed_at: datetime
+    ) -> AuthEmailChallenge:
+        """Atomically mark an unconsumed challenge as consumed."""
+
     def add_session(self, session: AuthSession) -> AuthSession:
         """Persist a new refresh-token session."""
 
@@ -156,6 +161,17 @@ class InMemoryIdentityRepository:
             raise IdentityChallengeNotFoundError(str(challenge.id))
         self._challenges[challenge.id] = challenge
         return challenge
+
+    def consume_challenge(
+        self, challenge: AuthEmailChallenge, *, consumed_at: datetime
+    ) -> AuthEmailChallenge:
+        """Atomically mark an unconsumed challenge as consumed."""
+        current = self._challenges.get(challenge.id)
+        if current is None or current.consumed_at is not None:
+            raise IdentityChallengeNotFoundError(str(challenge.id))
+        consumed = current.model_copy(update={"consumed_at": consumed_at})
+        self._challenges[challenge.id] = consumed
+        return consumed
 
     def add_session(self, session: AuthSession) -> AuthSession:
         """Persist a new refresh-token session."""

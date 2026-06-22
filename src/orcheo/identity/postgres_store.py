@@ -223,6 +223,24 @@ class PostgresIdentityRepository:
                 raise IdentityChallengeNotFoundError(str(challenge.id))
         return challenge
 
+    def consume_challenge(
+        self, challenge: AuthEmailChallenge, *, consumed_at: datetime
+    ) -> AuthEmailChallenge:
+        """Atomically mark an unconsumed challenge as consumed."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE auth_email_challenges
+                   SET consumed_at = %s
+                 WHERE id = %s
+                   AND consumed_at IS NULL
+                """,
+                (consumed_at, str(challenge.id)),
+            )
+            if cursor.rowcount == 0:
+                raise IdentityChallengeNotFoundError(str(challenge.id))
+        return challenge.model_copy(update={"consumed_at": consumed_at})
+
     # -- sessions ------------------------------------------------------------
 
     def add_session(self, session: AuthSession) -> AuthSession:

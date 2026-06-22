@@ -8,6 +8,7 @@ from orcheo.identity import (
     IdentityChallengeError,
     IdentityChallengeExpiredError,
     IdentityChallengeLockedError,
+    IdentityChallengeNotFoundError,
     IdentitySessionNotFoundError,
     InMemoryIdentityRepository,
 )
@@ -88,6 +89,10 @@ def test_verify_token_creates_user_and_mints_claims() -> None:
     assert claims["email"] == "alice@example.com"
     assert claims["email_verified"] is True
     assert claims["iss"] == ISSUER
+    assert claims["scope"] == (
+        "workflows:read workflows:write workflows:execute vault:read vault:write"
+    )
+    assert "workflows:execute" in claims["scopes"]
 
 
 def test_verify_token_is_single_use() -> None:
@@ -163,3 +168,21 @@ def test_logout_revokes_sessions_and_blocks_refresh() -> None:
     assert revoked == 1
     with pytest.raises(IdentitySessionNotFoundError):
         service.refresh(result.tokens.refresh_token)
+
+
+def test_verify_token_atomic_consume_failure_blocks_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, sender, repo = _service()
+    service.start_challenge("alice@example.com")
+    token = sender.token_from_link()
+
+    def consume_race(*args: object, **kwargs: object) -> object:
+        raise IdentityChallengeNotFoundError("already-consumed")
+
+    monkeypatch.setattr(repo, "consume_challenge", consume_race)
+
+    with pytest.raises(IdentityChallengeExpiredError):
+        service.verify_token(token)
+
+    assert repo.get_user_by_email("alice@example.com") is None

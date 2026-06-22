@@ -154,13 +154,29 @@ export const refreshSession = async (): Promise<boolean> => {
  * Always clears the local session, even if the network call fails.
  */
 export const logoutSession = async (): Promise<void> => {
-  const tokens = getAuthTokens();
+  let tokens = getAuthTokens();
+  const isExpired =
+    typeof tokens?.expiresAt === "number" && Date.now() >= tokens.expiresAt;
+
   try {
+    if (isExpired && tokens?.refreshToken && (await refreshSession())) {
+      tokens = getAuthTokens();
+    }
+
     if (tokens?.accessToken) {
-      await fetch(authUrl("/logout"), {
+      let response = await fetch(authUrl("/logout"), {
         method: "POST",
         headers: { Authorization: `Bearer ${tokens.accessToken}` },
       });
+      if (response.status === 401 && tokens.refreshToken && (await refreshSession())) {
+        tokens = getAuthTokens();
+        if (tokens?.accessToken) {
+          await fetch(authUrl("/logout"), {
+            method: "POST",
+            headers: { Authorization: `Bearer ${tokens.accessToken}` },
+          });
+        }
+      }
     }
   } catch {
     // Best effort — the local session is cleared regardless.
