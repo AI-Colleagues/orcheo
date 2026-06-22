@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   clearAuthSession,
+  getAccessToken,
   getAuthenticatedUserProfile,
   getAuthTokens,
   setAuthTokens,
@@ -87,14 +88,19 @@ describe("getAuthenticatedUserProfile", () => {
     expect(getAuthenticatedUserProfile()?.name).toBe("José Núñez");
   });
 
-  it("returns null and clears persisted tokens when access token is expired", () => {
+  it("returns null without clearing persisted tokens when access token is expired", () => {
     setAuthTokens({
       accessToken: createJwt({ sub: "expired|123", name: "Expired User" }),
+      refreshToken: "refresh-still-valid",
       expiresAt: Date.now() - 1_000,
     });
 
+    expect(getAccessToken()).toBeNull();
     expect(getAuthenticatedUserProfile()).toBeNull();
-    expect(getAuthTokens()).toBeNull();
+    expect(getAuthTokens()).toMatchObject({
+      accessToken: expect.any(String),
+      refreshToken: "refresh-still-valid",
+    });
   });
 
   it("uses the developer session when no JWT tokens are stored", () => {

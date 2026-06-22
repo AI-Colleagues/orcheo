@@ -415,8 +415,8 @@ def test_run_setup_install_explicit_public_ingress_updates_backend_url_defaults(
     (stack_dir / ".env").write_text(
         "ORCHEO_API_URL=http://existing-api.test\n"
         "VITE_ORCHEO_BACKEND_URL=http://existing-api.test\n"
+        "ORCHEO_AUTH_JWT_SECRET=existing-secret\n"
         "ORCHEO_AUTH_ISSUER=https://issuer.example.com/\n"
-        "ORCHEO_AUTH_CLIENT_ID=current-client\n"
         "ORCHEO_AUTH_AUDIENCE=current-audience\n",
         encoding="utf-8",
     )
@@ -587,8 +587,8 @@ def test_execute_setup_normalizes_quoted_backend_url_on_upgrade_preserve(
     (stack_dir / ".env").write_text(
         'ORCHEO_API_URL="https://api.example.com"\n'
         'VITE_ORCHEO_BACKEND_URL="https://api.example.com"\n'
+        "ORCHEO_AUTH_JWT_SECRET=existing-secret\n"
         "ORCHEO_AUTH_ISSUER=https://issuer.example.com/\n"
-        "ORCHEO_AUTH_CLIENT_ID=current-client\n"
         "ORCHEO_AUTH_AUDIENCE=current-audience\n",
         encoding="utf-8",
     )
@@ -598,8 +598,8 @@ def test_execute_setup_normalizes_quoted_backend_url_on_upgrade_preserve(
     config.mode = "upgrade"
     config.start_stack = False
     config.preserve_existing_backend_url = True
+    config.auth_jwt_secret = "existing-secret"
     config.auth_issuer = "https://issuer.example.com/"
-    config.auth_client_id = "current-client"
     config.auth_audience = "current-audience"
     execute_setup(config, console=Console(record=True))
 
@@ -1498,8 +1498,8 @@ def test_run_setup_public_ingress_derives_public_env_contract(
     stack_dir = tmp_path / "stack"
     stack_dir.mkdir(parents=True, exist_ok=True)
     (stack_dir / ".env").write_text(
+        "ORCHEO_AUTH_JWT_SECRET=existing-secret\n"
         "ORCHEO_AUTH_ISSUER=https://issuer.example.com/\n"
-        "ORCHEO_AUTH_CLIENT_ID=current-client\n"
         "ORCHEO_AUTH_AUDIENCE=current-audience\n",
         encoding="utf-8",
     )
@@ -1528,13 +1528,13 @@ def test_run_setup_public_ingress_derives_public_env_contract(
     assert updates["VITE_ORCHEO_BACKEND_URL"] == "https://orcheo.example.com"
     assert updates["ORCHEO_STUDIO_URL"] == "https://orcheo.example.com"
     assert updates["ORCHEO_AUTH_MODE"] == "required"
+    assert updates["ORCHEO_AUTH_JWT_SECRET"] == "existing-secret"
     assert updates["ORCHEO_AUTH_ISSUER"] == "https://issuer.example.com/"
-    assert updates["ORCHEO_AUTH_CLIENT_ID"] == "current-client"
     assert updates["ORCHEO_AUTH_AUDIENCE"] == "current-audience"
-    assert updates["ORCHEO_AUTH_JWKS_URL"] == (
-        "https://issuer.example.com/.well-known/jwks.json"
-    )
-    assert updates["VITE_ORCHEO_AUTH_ISSUER"] == "https://issuer.example.com/"
+    assert updates["VITE_ORCHEO_AUTH_DISABLED"] == "false"
+    assert "ORCHEO_AUTH_CLIENT_ID" not in updates
+    assert "ORCHEO_AUTH_JWKS_URL" not in updates
+    assert "VITE_ORCHEO_AUTH_ISSUER" not in updates
     assert updates["ORCHEO_CORS_ALLOW_ORIGINS"] == (
         "https://orcheo.example.com,http://localhost:2026,http://127.0.0.1:2026"
     )

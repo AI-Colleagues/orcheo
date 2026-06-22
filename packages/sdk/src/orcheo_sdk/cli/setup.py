@@ -77,11 +77,15 @@ class SetupConfig:
     preserve_existing_backend_url: bool = False
     stack_project_dir: str | None = None
     stack_env_file: str | None = None
+    auth_jwt_secret: str | None = None
     auth_issuer: str | None = None
-    auth_client_id: str | None = None
     auth_audience: str | None = None
-    invite_email_api_key: str | None = None
-    invite_email_from: str | None = None
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
+    smtp_use_tls: bool = True
 
 
 def _run_command(command: list[str], *, console: Console) -> None:
@@ -826,9 +830,9 @@ def _print_setup_resolution_notes(
             )
     if resolved_auth_mode == "oauth":
         console.print(
-            "[yellow]OAuth mode selected. Configure ORCHEO_AUTH_ISSUER, "
-            "ORCHEO_AUTH_AUDIENCE, ORCHEO_AUTH_JWKS_URL, and matching "
-            "VITE_ORCHEO_AUTH_* values in your stack .env.[/yellow]"
+            "[yellow]OAuth mode selected. Configure ORCHEO_AUTH_JWT_SECRET, "
+            "ORCHEO_AUTH_ISSUER, and ORCHEO_AUTH_AUDIENCE in your stack "
+            ".env for the first-party email IdP.[/yellow]"
         )
 
 
@@ -922,6 +926,16 @@ def _parse_bool_value(value: str | None) -> bool | None:
     return None
 
 
+def _parse_int_value(value: str | None) -> int | None:
+    normalized = _normalize_dotenv_value(value)
+    if normalized is None:
+        return None
+    try:
+        return int(normalized)
+    except ValueError:
+        return None
+
+
 def _normalize_public_host(value: str) -> str:
     candidate = value.strip().lower()
     if not candidate:
@@ -985,55 +999,115 @@ def _resolve_chatkit_domain_key(
     return existing
 
 
-_DEFAULT_INVITE_FROM_EMAIL = "no-reply@orcheo.cloud"
+_DEFAULT_SMTP_FROM_EMAIL = "no-reply@orcheo.cloud"
+_DEFAULT_SMTP_PORT = 587
 
 
-def _resolve_invite_email_config(
-    resend_api_key: str | None,
-    invite_from_email: str | None,
+@dataclass(slots=True)
+class SmtpEmailConfig:
+    """Resolved SMTP transactional-email settings for the stack .env."""
+
+    host: str | None
+    port: int
+    username: str | None
+    password: str | None
+    from_email: str | None
+    use_tls: bool
+
+
+def _resolve_smtp_email_config(
+    smtp_host: str | None,
+    smtp_port: int | None,
+    smtp_username: str | None,
+    smtp_password: str | None,
+    smtp_from_email: str | None,
+    smtp_use_tls: bool | None,
     *,
     yes: bool,
     env_file: Path,
     env_exists: bool,
-) -> tuple[str | None, str | None]:
-    """Resolve the workspace-invitation email sender configuration.
+) -> SmtpEmailConfig:
+    """Resolve the SMTP transactional-email sender configuration.
 
-    Returns ``(resend_api_key, invite_from_email)``. With no API key the backend
-    falls back to logging invitation links instead of emailing them, so the key
-    is always optional.
+    SMTP delivers both workspace invitations and first-party auth sign-in
+    links/codes. With no host the backend logs links/codes instead of sending
+    email, so every SMTP setting is optional.
     """
-    existing_key = (
-        _read_env_value(env_file, "ORCHEO_RESEND_API_KEY") if env_exists else None
+    existing_host = (
+        _read_env_value(env_file, "ORCHEO_SMTP_HOST") if env_exists else None
+    )
+    existing_port = (
+        _read_env_value(env_file, "ORCHEO_SMTP_PORT") if env_exists else None
+    )
+    existing_username = (
+        _read_env_value(env_file, "ORCHEO_SMTP_USERNAME") if env_exists else None
+    )
+    existing_password = (
+        _read_env_value(env_file, "ORCHEO_SMTP_PASSWORD") if env_exists else None
     )
     existing_from = (
-        _read_env_value(env_file, "ORCHEO_INVITE_FROM_EMAIL") if env_exists else None
+        _read_env_value(env_file, "ORCHEO_SMTP_FROM_EMAIL") if env_exists else None
     )
-    resolved_key = _normalize_optional_value(resend_api_key) or existing_key
-    resolved_from = _normalize_optional_value(invite_from_email) or existing_from
+    existing_use_tls = (
+        _parse_bool_value(_read_env_value(env_file, "ORCHEO_SMTP_USE_TLS"))
+        if env_exists
+        else None
+    )
 
-    if not yes and resolved_key is None:
-        resolved_key = _normalize_optional_value(
+    host = _normalize_optional_value(smtp_host) or existing_host
+    if not yes and host is None:
+        host = _normalize_optional_value(
             typer.prompt(
-                "Resend API key for workspace invitation emails - press Enter to "
-                "skip (links are logged instead)",
+                "SMTP host for transactional email (invites and sign-in links) - "
+                "press Enter to skip (links/codes are logged instead)",
                 default="",
                 show_default=False,
             )
         )
 
-    if resolved_key is not None:
-        default_from = resolved_from or _DEFAULT_INVITE_FROM_EMAIL
-        if yes:
-            resolved_from = default_from
-        else:
-            resolved_from = (
-                _normalize_optional_value(
-                    typer.prompt("Invitation sender email", default=default_from)
-                )
-                or default_from
-            )
+    port = smtp_port or _parse_int_value(existing_port) or _DEFAULT_SMTP_PORT
+    username = _normalize_optional_value(smtp_username) or existing_username
+    password = _normalize_optional_value(smtp_password) or existing_password
+    from_email = _normalize_optional_value(smtp_from_email) or existing_from
+    use_tls = smtp_use_tls if smtp_use_tls is not None else existing_use_tls
 
-    return resolved_key, resolved_from
+    if host is not None and not yes:
+        port = _parse_int_value(typer.prompt("SMTP port", default=str(port))) or port
+        username = (
+            _normalize_optional_value(
+                typer.prompt("SMTP username", default=username or "")
+            )
+            or username
+        )
+        password = (
+            _normalize_optional_value(
+                typer.prompt("SMTP password", default=password or "", hide_input=True)
+            )
+            or password
+        )
+        from_email = (
+            _normalize_optional_value(
+                typer.prompt(
+                    "Transactional email sender address",
+                    default=from_email or _DEFAULT_SMTP_FROM_EMAIL,
+                )
+            )
+            or from_email
+            or _DEFAULT_SMTP_FROM_EMAIL
+        )
+        use_tls = typer.confirm(
+            "Use STARTTLS for the SMTP connection?",
+            default=True if use_tls is None else use_tls,
+        )
+
+    return SmtpEmailConfig(
+        host=host,
+        port=port,
+        username=username,
+        password=password,
+        from_email=from_email or (_DEFAULT_SMTP_FROM_EMAIL if host else None),
+        use_tls=True if use_tls is None else use_tls,
+    )
 
 
 def _backend_url_requires_https_auth(backend_url: str) -> bool:
@@ -1054,30 +1128,20 @@ def _is_local_hosting(config: SetupConfig) -> bool:
     )
 
 
-def _resolve_required_env_prompt(
+_DEFAULT_AUTH_ISSUER = "https://auth.orcheo.cloud"
+_DEFAULT_AUTH_AUDIENCE = "orcheo-api"
+
+
+def _resolve_defaulted_env_prompt(
     *,
-    env_key: str,
     label: str,
-    current_value: str | None,
+    current_value: str,
     yes: bool,
 ) -> str:
-    if current_value is not None:
-        if yes:
-            return current_value
-        selected = _normalize_optional_value(typer.prompt(label, default=current_value))
-        return selected or current_value
-
     if yes:
-        raise typer.BadParameter(
-            f"{env_key} is required when the backend URL uses HTTPS."
-        )
-
-    selected = _normalize_optional_value(typer.prompt(label))
-    if selected is None:
-        raise typer.BadParameter(
-            f"{env_key} is required when the backend URL uses HTTPS."
-        )
-    return selected
+        return current_value
+    selected = _normalize_optional_value(typer.prompt(label, default=current_value))
+    return selected or current_value
 
 
 def _resolve_https_auth_config(
@@ -1087,38 +1151,37 @@ def _resolve_https_auth_config(
     env_file: Path,
     env_exists: bool,
 ) -> tuple[str | None, str | None, str | None]:
+    """Resolve first-party auth settings for an HTTPS (managed) backend.
+
+    Returns ``(jwt_secret, issuer, audience)``. The HS256 signing secret is
+    preserved from the existing .env or generated when absent; issuer and
+    audience fall back to the first-party IdP defaults.
+    """
     if not _backend_url_requires_https_auth(backend_url):
         return None, None, None
 
+    existing_secret = (
+        _read_env_value(env_file, "ORCHEO_AUTH_JWT_SECRET") if env_exists else None
+    )
     existing_issuer = (
         _read_env_value(env_file, "ORCHEO_AUTH_ISSUER") if env_exists else None
-    )
-    existing_client_id = (
-        _read_env_value(env_file, "ORCHEO_AUTH_CLIENT_ID") if env_exists else None
     )
     existing_audience = (
         _read_env_value(env_file, "ORCHEO_AUTH_AUDIENCE") if env_exists else None
     )
 
-    issuer = _resolve_required_env_prompt(
-        env_key="ORCHEO_AUTH_ISSUER",
+    jwt_secret = existing_secret or secrets.token_hex(32)
+    issuer = _resolve_defaulted_env_prompt(
         label="Auth issuer",
-        current_value=existing_issuer,
+        current_value=existing_issuer or _DEFAULT_AUTH_ISSUER,
         yes=yes,
     )
-    client_id = _resolve_required_env_prompt(
-        env_key="ORCHEO_AUTH_CLIENT_ID",
-        label="Auth client ID",
-        current_value=existing_client_id,
-        yes=yes,
-    )
-    audience = _resolve_required_env_prompt(
-        env_key="ORCHEO_AUTH_AUDIENCE",
+    audience = _resolve_defaulted_env_prompt(
         label="Auth audience",
-        current_value=existing_audience,
+        current_value=existing_audience or _DEFAULT_AUTH_AUDIENCE,
         yes=yes,
     )
-    return issuer, client_id, audience
+    return jwt_secret, issuer, audience
 
 
 def _resolve_stack_project_dir() -> Path:
@@ -1414,40 +1477,31 @@ def _build_env_updates(
         updates["ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN"] = ""
     if config.chatkit_domain_key:
         updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] = config.chatkit_domain_key
-    if config.invite_email_api_key:
-        updates["ORCHEO_RESEND_API_KEY"] = config.invite_email_api_key
-        updates["ORCHEO_INVITE_FROM_EMAIL"] = (
-            config.invite_email_from or _DEFAULT_INVITE_FROM_EMAIL
+    if config.smtp_host:
+        updates["ORCHEO_SMTP_HOST"] = config.smtp_host
+        updates["ORCHEO_SMTP_PORT"] = str(config.smtp_port)
+        updates["ORCHEO_SMTP_USERNAME"] = config.smtp_username or ""
+        updates["ORCHEO_SMTP_PASSWORD"] = config.smtp_password or ""
+        updates["ORCHEO_SMTP_FROM_EMAIL"] = (
+            config.smtp_from_email or _DEFAULT_SMTP_FROM_EMAIL
         )
+        updates["ORCHEO_SMTP_USE_TLS"] = str(config.smtp_use_tls).lower()
     if _backend_url_requires_https_auth(config.backend_url):
-        issuer = _normalize_optional_value(config.auth_issuer)
-        client_id = _normalize_optional_value(config.auth_client_id)
-        audience = _normalize_optional_value(config.auth_audience)
-        missing = [
-            env_key
-            for env_key, value in (
-                ("ORCHEO_AUTH_ISSUER", issuer),
-                ("ORCHEO_AUTH_CLIENT_ID", client_id),
-                ("ORCHEO_AUTH_AUDIENCE", audience),
-            )
-            if value is None
-        ]
-        if missing:
+        jwt_secret = _normalize_optional_value(config.auth_jwt_secret)
+        if jwt_secret is None:
             raise typer.BadParameter(
-                "Backend URLs using HTTPS require ORCHEO_AUTH_ISSUER, "
-                "ORCHEO_AUTH_CLIENT_ID, and ORCHEO_AUTH_AUDIENCE to be set."
+                "Backend URLs using HTTPS require ORCHEO_AUTH_JWT_SECRET to be set."
             )
-
-        assert issuer is not None
-        assert client_id is not None
-        assert audience is not None
+        issuer = _normalize_optional_value(config.auth_issuer) or _DEFAULT_AUTH_ISSUER
+        audience = (
+            _normalize_optional_value(config.auth_audience) or _DEFAULT_AUTH_AUDIENCE
+        )
 
         updates["ORCHEO_AUTH_MODE"] = "required"
+        updates["ORCHEO_AUTH_JWT_SECRET"] = jwt_secret
         updates["ORCHEO_AUTH_ISSUER"] = issuer
-        updates["ORCHEO_AUTH_CLIENT_ID"] = client_id
         updates["ORCHEO_AUTH_AUDIENCE"] = audience
-        updates["ORCHEO_AUTH_JWKS_URL"] = f"{issuer.rstrip('/')}/.well-known/jwks.json"
-        updates["VITE_ORCHEO_AUTH_ISSUER"] = issuer
+        updates["VITE_ORCHEO_AUTH_DISABLED"] = "false"
     if requested_stack_version:
         updates["ORCHEO_STACK_IMAGE"] = (
             f"{_STACK_IMAGE_REPOSITORY}:{requested_stack_version}"
@@ -1681,8 +1735,12 @@ def run_setup(
     yes: bool,
     manual_secrets: bool,
     console: Console,
-    resend_api_key: str | None = None,
-    invite_from_email: str | None = None,
+    smtp_host: str | None = None,
+    smtp_port: int | None = None,
+    smtp_username: str | None = None,
+    smtp_password: str | None = None,
+    smtp_from_email: str | None = None,
+    smtp_use_tls: bool | None = None,
 ) -> SetupConfig:
     """Collect interactive/non-interactive setup options."""
     stack_env_file = _resolve_stack_env_file()
@@ -1742,8 +1800,8 @@ def run_setup(
         if preserved_backend_url is not None:
             auth_backend_url = preserved_backend_url
     (
+        resolved_auth_jwt_secret,
         resolved_auth_issuer,
-        resolved_auth_client_id,
         resolved_auth_audience,
     ) = _resolve_https_auth_config(
         backend_url=auth_backend_url,
@@ -1774,9 +1832,13 @@ def run_setup(
         env_file=stack_env_file,
         env_exists=has_existing_stack_env,
     )
-    resolved_invite_api_key, resolved_invite_from = _resolve_invite_email_config(
-        resend_api_key,
-        invite_from_email,
+    resolved_smtp = _resolve_smtp_email_config(
+        smtp_host,
+        smtp_port,
+        smtp_username,
+        smtp_password,
+        smtp_from_email,
+        smtp_use_tls,
         yes=yes,
         env_file=stack_env_file,
         env_exists=has_existing_stack_env,
@@ -1819,11 +1881,15 @@ def run_setup(
         install_docker_if_missing=resolved_install_docker,
         install_agent_skills=resolved_install_agent_skills,
         preserve_existing_backend_url=preserve_existing_backend_url,
+        auth_jwt_secret=resolved_auth_jwt_secret,
         auth_issuer=resolved_auth_issuer,
-        auth_client_id=resolved_auth_client_id,
         auth_audience=resolved_auth_audience,
-        invite_email_api_key=resolved_invite_api_key,
-        invite_email_from=resolved_invite_from,
+        smtp_host=resolved_smtp.host,
+        smtp_port=resolved_smtp.port,
+        smtp_username=resolved_smtp.username,
+        smtp_password=resolved_smtp.password,
+        smtp_from_email=resolved_smtp.from_email,
+        smtp_use_tls=resolved_smtp.use_tls,
     )
 
 

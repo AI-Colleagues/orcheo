@@ -6,13 +6,16 @@ import { MemoryRouter } from "react-router-dom";
 import AccountMenu from "@/features/shared/components/top-navigation/account-menu";
 
 vi.mock("@features/auth/lib/auth-session", () => ({
-  clearAuthSession: vi.fn(),
   getAuthenticatedUserProfile: () => ({
     avatar: null,
     email: "shaojie@example.com",
     name: "Shaojie Jiang",
     subject: "user-1",
   }),
+}));
+
+vi.mock("@features/auth/lib/auth-api", () => ({
+  logoutSession: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("@/lib/workspace-session", () => ({

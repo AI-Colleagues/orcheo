@@ -290,6 +290,55 @@ class PostgresWorkspaceRepository:
             ).fetchall()
         return [self._row_to_membership(row) for row in rows]
 
+    def list_memberships_for_email(self, email: str) -> list[WorkspaceMembership]:
+        """Return every membership whose captured email matches (case-insensitive)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM workspace_memberships WHERE LOWER(email) = LOWER(%s)",
+                (email.strip(),),
+            ).fetchall()
+        return [self._row_to_membership(row) for row in rows]
+
+    def reassign_membership(
+        self, workspace_id: UUID, from_user_id: str, to_user_id: str
+    ) -> WorkspaceMembership:
+        """Re-key a membership's ``user_id`` from `from_user_id` to `to_user_id`."""
+        if from_user_id == to_user_id:
+            return self.get_membership(workspace_id, from_user_id)
+        with self._connect() as conn:
+            source = conn.execute(
+                """
+                SELECT 1 FROM workspace_memberships
+                WHERE workspace_id = %s AND user_id = %s
+                """,
+                (str(workspace_id), from_user_id),
+            ).fetchone()
+            if source is None:
+                raise WorkspaceMembershipError(
+                    f"No membership for user {from_user_id} in workspace {workspace_id}"
+                )
+            collision = conn.execute(
+                """
+                SELECT 1 FROM workspace_memberships
+                WHERE workspace_id = %s AND user_id = %s
+                """,
+                (str(workspace_id), to_user_id),
+            ).fetchone()
+            if collision is not None:
+                raise WorkspaceMembershipError(
+                    f"Membership already exists for user {to_user_id} in workspace "
+                    f"{workspace_id}"
+                )
+            conn.execute(
+                """
+                UPDATE workspace_memberships
+                   SET user_id = %s
+                 WHERE workspace_id = %s AND user_id = %s
+                """,
+                (to_user_id, str(workspace_id), from_user_id),
+            )
+        return self.get_membership(workspace_id, to_user_id)
+
     def list_memberships_for_workspace(
         self, workspace_id: UUID
     ) -> list[WorkspaceMembership]:

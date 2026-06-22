@@ -41,18 +41,7 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
 | `VITE_ORCHEO_BACKEND_URL` | `http://localhost:2025` | HTTP(S) URL | Base URL for the Orcheo backend API used by Studio. Public-ingress installs set this to the shared public origin (for example, `https://orcheo.example.com`). |
-| `VITE_ORCHEO_AUTH_ISSUER` | _none_ | OIDC issuer URL | OIDC issuer used for IdP-only login (Studio OAuth). |
-| `VITE_ORCHEO_AUTH_CLIENT_ID` | _none_ | String | OAuth client ID registered for the Studio SPA. |
-| `VITE_ORCHEO_AUTH_REDIRECT_URI` | `${origin}/auth/callback` | URL | Redirect URI registered with the IdP (Studio callback route). |
-| `VITE_ORCHEO_AUTH_SCOPES` | `openid profile email` | Space-delimited scopes | Scopes requested during OIDC login. |
-| `VITE_ORCHEO_AUTH_STATE_BYTES` | `32` | Integer in `[16, 96]` | Byte length for generated OAuth `state` random values (`features/auth/lib/oidc-client.ts`). |
-| `VITE_ORCHEO_AUTH_VERIFIER_BYTES` | `64` | Integer in `[32, 96]` | Byte length for PKCE `code_verifier` random values (`features/auth/lib/oidc-client.ts`). |
-| `VITE_ORCHEO_AUTH_AUDIENCE` | _none_ | String | Optional audience value required by some IdPs. |
-| `VITE_ORCHEO_AUTH_ORGANIZATION` | _none_ | String | Optional organization identifier for IdPs that support organization-scoped login (e.g., Auth0 Organizations). When set, restricts login to users belonging to the specified organization. |
-| `VITE_ORCHEO_AUTH_PROVIDER_PARAM` | _none_ | String | Optional IdP hint parameter name (e.g., `connection`, `idp`). |
-| `VITE_ORCHEO_AUTH_PROVIDER_GOOGLE` | _none_ | String | Provider hint value for Google when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
-| `VITE_ORCHEO_AUTH_PROVIDER_GITHUB` | _none_ | String | Provider hint value for GitHub when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. |
-| `VITE_ORCHEO_AUTH_PROVIDER_SIGNUP` | _none_ | String | Optional provider hint used for the sign-up flow when `VITE_ORCHEO_AUTH_PROVIDER_PARAM` is set. Leave unset to send sign-up to the generic IdP signup screen. |
+| `VITE_ORCHEO_AUTH_DISABLED` | `false` | Boolean (`true`/`false`) | When `true`, the Studio login gate is bypassed entirely — for self-host/dev deployments running the backend with `ORCHEO_AUTH_MODE=disabled`. Leave unset/`false` in production so the first-party email login screen is required. |
 | `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` | _none_ | String | ChatKit domain key used by Studio public chat surfaces. Setup prompts for this value; if left unset/placeholder, ChatKit UI features remain disabled until configured. |
 | `VITE_ORCHEO_CHATKIT_DEFAULT_DOMAIN_KEY` | `domain_pk_localhost_dev` | String | Dev-only fallback domain key used when neither `VITE_ORCHEO_CHATKIT_DOMAIN_KEY` nor runtime `window.__ORCHEO_CONFIG__.chatkitDomainKey` is provided (`features/chatkit/lib/chatkit-client.ts`). |
 | `VITE_ORCHEO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated hostnames | Hostnames the Studio server will accept requests for (maps to `server.allowedHosts` in `vite.config.ts`). Public-ingress installs append the configured public hostname. Tunnel or custom split-origin installs should include the public Studio hostname here. |
@@ -84,18 +73,24 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
 | `ORCHEO_AUTH_MODE` | `optional` | `disabled`, `optional`, `required` | Controls whether authentication is disabled, allowed, or enforced (`authentication/settings.py`). |
-| `ORCHEO_AUTH_JWT_SECRET` | _none_ | Arbitrary string | Symmetric key for signing/verifying JWTs (`authentication/settings.py`). |
-| `ORCHEO_AUTH_JWKS_URL` | _none_ | URL returning JWKS JSON | Remote JWKS endpoint for asymmetric JWT validation (`authentication/settings.py`). |
+| `ORCHEO_AUTH_JWT_SECRET` | _none_ | Arbitrary string | First-party HS256 signing key for the passwordless email IdP — signs and verifies access tokens. **Required when auth is enabled.** Generate with e.g. `openssl rand -hex 32` (`authentication/settings.py`). |
+| `ORCHEO_AUTH_ACCESS_TOKEN_TTL_SECONDS` | `900` | Integer > 0 | Lifetime of issued first-party access tokens (identity service). |
+| `ORCHEO_AUTH_CHALLENGE_TTL_MINUTES` | `15` | Integer > 0 | Lifetime of a magic-link/OTP email challenge (identity service). |
+| `ORCHEO_AUTH_SESSION_TTL_DAYS` | `30` | Integer > 0 | Lifetime of a refresh-token session (identity service). |
+| `ORCHEO_AUTH_OTP_DIGITS` | `6` | Integer ≥ 4 | Number of digits in the emailed OTP code (identity service). |
+| `ORCHEO_AUTH_OTP_MAX_ATTEMPTS` | `5` | Integer > 0 | OTP attempts before a challenge is locked out (identity service). |
+| `ORCHEO_AUTH_JWKS_URL` | _none_ | URL returning JWKS JSON | **Dormant.** Generic external-issuer JWKS endpoint, retained for the future enterprise-SSO initiative; unset for first-party auth (`authentication/settings.py`). |
 | `ORCHEO_AUTH_JWKS` / `ORCHEO_AUTH_JWKS_STATIC` | _none_ | JSON text or mapping containing JWKS data | Inline JWKS definitions as JSON/text for offline validation (`authentication/settings.py`). |
 | `ORCHEO_AUTH_JWKS_CACHE_TTL` | `300` | Integer ≥ 0 | Cache duration (seconds) for downloaded JWKS docs (`authentication/settings.py`). |
 | `ORCHEO_AUTH_JWKS_TIMEOUT` | `5.0` | Float > 0 | HTTP timeout (seconds) when fetching remote JWKS (`authentication/settings.py`). |
 | `ORCHEO_AUTH_ALLOWED_ALGORITHMS` | `RS256, HS256` | Comma/JSON list of JWT algorithm names | Restricts acceptable signing algorithms (`authentication/settings.py`). |
-| `ORCHEO_AUTH_AUDIENCE` | _none_ | Comma/JSON list of strings | Acceptable JWT audiences (`authentication/settings.py`). |
-| `ORCHEO_AUTH_ISSUER` | _none_ | String | Expected JWT issuer claim (`authentication/settings.py`). |
+| `ORCHEO_AUTH_AUDIENCE` | _none_ | Comma/JSON list of strings | Audience embedded in first-party tokens and validated by the backend (e.g. `orcheo-api`) (`authentication/settings.py`). |
+| `ORCHEO_AUTH_ISSUER` | _none_ | String | First-party token issuer; the backend accepts only this issuer (e.g. `https://auth.orcheo.cloud`) (`authentication/settings.py`). |
 | `ORCHEO_AUTH_SERVICE_TOKEN_DB_PATH` | _none_ | Filesystem path | Override the service token store path when needed (`authentication/settings.py`). |
 | `ORCHEO_AUTH_RATE_LIMIT_IP` | `0` | Integer ≥ 0 | Per-IP HTTP rate limit for authentication endpoints (`authentication/settings.py`). |
 | `ORCHEO_AUTH_RATE_LIMIT_IDENTITY` | `0` | Integer ≥ 0 | Rate limit keyed by identity (`authentication/settings.py`). |
 | `ORCHEO_AUTH_RATE_LIMIT_INTERVAL` | `60` | Integer > 0 | Interval (seconds) governing the authentication rate limits (`authentication/settings.py`). |
+| `ORCHEO_TRUSTED_PROXY` | `false` | Boolean (`1/0`, `true/false`, etc.) | When true, passwordless auth start rate limiting uses the first `X-Forwarded-For` entry as the client IP. Enable only when the backend is reachable exclusively through a trusted reverse proxy that overwrites this header (`identity/dependencies.py`). |
 | `ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN` | _none_ | Token string | Temporary service token used for bootstrapping before persistent storage exists (`authentication/settings.py`). |
 | `ORCHEO_AUTH_BOOTSTRAP_TOKEN_SCOPES` | `admin:tokens:read`, `admin:tokens:write`, `workflows:read`, `workflows:write`, `workflows:execute`, `vault:read`, `vault:write` | Comma/JSON list of scope strings | Scopes granted to the bootstrap token (`authentication/settings.py`). |
 | `ORCHEO_AUTH_BOOTSTRAP_TOKEN_EXPIRES_AT` | _none_ | ISO 8601 string or UNIX timestamp | Expiration to attach to the bootstrap token (`authentication/settings.py`). |
@@ -103,6 +98,22 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_AUTH_DEV_COOKIE_NAME` | `orcheo_dev_session` | Cookie name string | Name of the cookie used for dev login sessions (`authentication/settings.py`). |
 | `ORCHEO_AUTH_DEV_SCOPES` | `workflows:read`, `workflows:write`, `workflows:execute`, `vault:read`, `vault:write` | Comma/JSON list of scope strings | Scopes issued to dev login tokens (`authentication/settings.py`). |
 | `ORCHEO_AUTH_DEV_WORKSPACE_IDS` | _none_ | Comma/JSON list of workspace IDs | Limits dev login tokens to specific workspaces (`authentication/settings.py`). |
+
+## Transactional email (SMTP)
+
+SMTP is the sole production transport for both passwordless auth challenges
+(sign-in links/codes) and workspace invitation emails. When `ORCHEO_SMTP_HOST`
+is unset, the backend logs the link/code instead of delivering email (the
+self-host/dev default).
+
+| Variable | Default | Valid values | Purpose |
+| --- | --- | --- | --- |
+| `ORCHEO_SMTP_HOST` | _none_ | Hostname | SMTP server host. Unset → log links/codes instead of sending (`email_config.py`). |
+| `ORCHEO_SMTP_PORT` | `587` | Integer | SMTP server port (`email_config.py`). |
+| `ORCHEO_SMTP_USERNAME` | _none_ | String | SMTP auth username (`email_config.py`). |
+| `ORCHEO_SMTP_PASSWORD` | _none_ | String | SMTP auth password (`email_config.py`). |
+| `ORCHEO_SMTP_FROM_EMAIL` | `no-reply@orcheo.cloud` | Email address | From-address for all transactional email; use a domain you control (`email_config.py`). |
+| `ORCHEO_SMTP_USE_TLS` | `true` | Boolean | Use STARTTLS for the SMTP connection (`email_config.py`). |
 
 ## ChatKit session tokens
 

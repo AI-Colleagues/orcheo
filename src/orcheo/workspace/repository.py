@@ -78,6 +78,19 @@ class WorkspaceRepository(Protocol):
     def list_memberships_for_user(self, user_id: str) -> list[WorkspaceMembership]:
         """Return every membership for a given principal."""
 
+    def list_memberships_for_email(self, email: str) -> list[WorkspaceMembership]:
+        """Return every membership whose captured email matches (case-insensitive)."""
+
+    def reassign_membership(
+        self, workspace_id: UUID, from_user_id: str, to_user_id: str
+    ) -> WorkspaceMembership:
+        """Re-key a membership's ``user_id`` from `from_user_id` to `to_user_id`.
+
+        Raises ``WorkspaceMembershipError`` when the source membership is absent
+        or a ``(workspace_id, to_user_id)`` row already exists (a collision the
+        caller must resolve).
+        """
+
     def list_memberships_for_workspace(
         self, workspace_id: UUID
     ) -> list[WorkspaceMembership]:
@@ -248,6 +261,38 @@ class InMemoryWorkspaceRepository:
     def list_memberships_for_user(self, user_id: str) -> list[WorkspaceMembership]:
         """Return every membership for a given principal."""
         return [m for m in self._memberships.values() if m.user_id == user_id]
+
+    def list_memberships_for_email(self, email: str) -> list[WorkspaceMembership]:
+        """Return every membership whose captured email matches (case-insensitive)."""
+        target = email.strip().lower()
+        return [
+            m
+            for m in self._memberships.values()
+            if m.email is not None and m.email.strip().lower() == target
+        ]
+
+    def reassign_membership(
+        self, workspace_id: UUID, from_user_id: str, to_user_id: str
+    ) -> WorkspaceMembership:
+        """Re-key a membership's ``user_id`` from `from_user_id` to `to_user_id`."""
+        from_key = (workspace_id, from_user_id)
+        membership = self._memberships.get(from_key)
+        if membership is None:
+            raise WorkspaceMembershipError(
+                f"No membership for user {from_user_id} in workspace {workspace_id}"
+            )
+        if from_user_id == to_user_id:
+            return membership
+        to_key = (workspace_id, to_user_id)
+        if to_key in self._memberships:
+            raise WorkspaceMembershipError(
+                f"Membership already exists for user {to_user_id} in workspace "
+                f"{workspace_id}"
+            )
+        updated = membership.model_copy(update={"user_id": to_user_id})
+        self._memberships.pop(from_key, None)
+        self._memberships[to_key] = updated
+        return updated
 
     def list_memberships_for_workspace(
         self, workspace_id: UUID

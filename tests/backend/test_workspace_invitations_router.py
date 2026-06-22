@@ -10,16 +10,13 @@ from orcheo.workspace import (
 )
 from orcheo.workspace.email import InvitationEmail
 from orcheo_backend.app.authentication import RequestContext
-from orcheo_backend.app.routers import workspaces as workspaces_router
 from orcheo_backend.app.routers.workspaces import (
-    _request_bearer_token,
     _verified_email,
     accept_workspace_invitation,
     create_workspace_invitation,
     list_workspace_invitations,
     revoke_workspace_invitation,
 )
-from starlette.requests import Request
 from orcheo_backend.app.schemas.workspaces import (
     InvitationAcceptRequest,
     InvitationCreateRequest,
@@ -145,53 +142,21 @@ def test_revoke_invitation(setup) -> None:
     assert revoked.status.value == "revoked"
 
 
-def _request_with_auth(header: str | None) -> Request:
-    headers = [(b"authorization", header.encode())] if header is not None else []
-    return Request({"type": "http", "headers": headers})
+def test_verified_email_reads_first_party_claims() -> None:
+    auth = _auth("uuid-x", email="claim@example.com", email_verified=True)
+    assert _verified_email(auth) == ("claim@example.com", True)
 
 
-def test_request_bearer_token_parsing() -> None:
-    assert _request_bearer_token(_request_with_auth("Bearer tok123")) == "tok123"
-    assert _request_bearer_token(_request_with_auth("bearer tok123")) == "tok123"
-    assert _request_bearer_token(_request_with_auth("Basic abc")) is None
-    assert _request_bearer_token(_request_with_auth(None)) is None
+def test_verified_email_stays_unverified_for_unverified_token() -> None:
+    # A first-party token that has not completed an email challenge is not
+    # trusted as verified; no /userinfo recheck is attempted.
+    auth = _auth("uuid-x", email="claim@example.com", email_verified=False)
+    assert _verified_email(auth) == ("claim@example.com", False)
 
 
-def test_verified_email_prefers_token_claims() -> None:
-    auth = _auth("auth0|x", email="claim@example.com", email_verified=True)
-    # Claims win; no userinfo lookup attempted (access_token ignored).
-    assert _verified_email(auth, access_token="tok") == ("claim@example.com", True)
-
-
-def test_verified_email_falls_back_to_userinfo(monkeypatch) -> None:
-    calls: list[str] = []
-
-    def fake_userinfo(token: str) -> tuple[str, bool]:
-        calls.append(token)
-        return "userinfo@example.com", True
-
-    monkeypatch.setattr(workspaces_router, "_fetch_userinfo_email", fake_userinfo)
-    # Access token carries no email claim -> userinfo fallback is used.
-    auth = _auth("auth0|x")
-    assert _verified_email(auth, access_token="tok") == ("userinfo@example.com", True)
-    assert calls == ["tok"]
-
-
-def test_verified_email_rechecks_stale_unverified_claim(monkeypatch) -> None:
-    # Token has the email but a stale email_verified=false; userinfo is live.
-    monkeypatch.setattr(
-        workspaces_router,
-        "_fetch_userinfo_email",
-        lambda token: ("claim@example.com", True),
-    )
-    auth = _auth("auth0|x", email="claim@example.com", email_verified=False)
-    assert _verified_email(auth, access_token="tok") == ("claim@example.com", True)
-
-
-def test_verified_email_stays_unverified_when_userinfo_unavailable(monkeypatch) -> None:
-    monkeypatch.setattr(workspaces_router, "_fetch_userinfo_email", lambda token: None)
-    auth = _auth("auth0|x", email="claim@example.com", email_verified=False)
-    assert _verified_email(auth, access_token="tok") == ("claim@example.com", False)
+def test_verified_email_honours_developer_session() -> None:
+    auth = RequestContext(subject="dev@example.com", identity_type="developer")
+    assert _verified_email(auth) == ("dev@example.com", True)
 
 
 def test_accept_unverified_email_message(setup, monkeypatch) -> None:
