@@ -364,6 +364,49 @@ async def test_postgres_store_load_threads_scoped_by_workspace_and_workflow(
 
 
 @pytest.mark.asyncio
+async def test_postgres_store_load_threads_scoped_by_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    thread = ThreadMetadata(
+        id="thr_owner",
+        created_at=datetime(2024, 1, 3, tzinfo=UTC),
+    )
+    store = make_store(monkeypatch, responses=[{"rows": [_thread_row(thread)]}])
+    context: dict[str, object] = {"owner_key": "sub:alice"}
+
+    page = await store.load_threads(limit=10, after=None, order="asc", context=context)
+
+    conn = store._pool.connection()
+    assert conn.queries[0][1] == ("sub:alice", 11)
+    assert "WHERE owner_key = %s" in conn.queries[0][0]
+    assert page.data[0].id == "thr_owner"
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_owner_match_helper_branches() -> None:
+    from orcheo_backend.app.chatkit_store_postgres.threads import _owner_matches
+
+    assert _owner_matches(None, {"owner_key": "sub:alice"}) is True
+    assert _owner_matches("sub:alice", None) is True
+    assert _owner_matches("sub:alice", {"owner_key": "sub:alice"}) is True
+    assert _owner_matches("sub:alice", {"owner_key": "sub:bob"}) is False
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_delete_thread_scoped_by_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = make_store(monkeypatch, responses=[{}])
+    context: dict[str, object] = {"owner_key": "sub:alice"}
+
+    await store.delete_thread("thr_delete", context)
+
+    conn = store._pool.connection()
+    assert conn.queries[0][1] == ("thr_delete", "sub:alice")
+    assert "(owner_key IS NULL OR owner_key = %s)" in conn.queries[0][0]
+
+
+@pytest.mark.asyncio
 async def test_postgres_store_items_and_search(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

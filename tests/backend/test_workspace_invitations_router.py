@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 import pytest
+from uuid import uuid4
 from orcheo.workspace import (
     InMemoryWorkspaceRepository,
     Role,
     WorkspaceContext,
+    WorkspaceInvitationError,
+    WorkspaceInvitationExpiredError,
+    WorkspaceInvitationNotFoundError,
+    WorkspaceMembershipLimitError,
+    WorkspacePermissionError,
+    WorkspaceNotFoundError,
     WorkspaceService,
 )
 from orcheo.workspace.email import InvitationEmail
@@ -15,6 +22,7 @@ from orcheo_backend.app.routers.workspaces import (
     accept_workspace_invitation,
     create_workspace_invitation,
     list_workspace_invitations,
+    _scoped_workspace,
     revoke_workspace_invitation,
 )
 from orcheo_backend.app.schemas.workspaces import (
@@ -181,3 +189,190 @@ def test_accept_unverified_email_message(setup, monkeypatch) -> None:
         )
     assert exc.value.status_code == 403
     assert "not verified" in str(exc.value.message)
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code", "error_code"),
+    [
+        (ValueError("bad email"), 422, "workspace.invitation_invalid_email"),
+        (
+            WorkspaceInvitationError("duplicate"),
+            409,
+            "workspace.invitation_conflict",
+        ),
+        (WorkspacePermissionError("nope"), 403, "workspace.forbidden"),
+    ],
+)
+def test_create_workspace_invitation_error_paths(
+    setup,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+    status_code: int,
+    error_code: str,
+) -> None:
+    _, service, _, admin_ctx = setup
+
+    def _create_invitation(**kwargs: object) -> object:
+        del kwargs
+        raise error
+
+    monkeypatch.setattr(service, "create_invitation", _create_invitation)
+
+    with pytest.raises(WorkspaceHTTPError) as exc:
+        create_workspace_invitation(
+            slug="acme",
+            payload=InvitationCreateRequest(email="new@example.com", role=Role.EDITOR),
+            service=service,
+            context=admin_ctx,
+            auth=_auth("auth0|owner"),
+        )
+
+    assert exc.value.status_code == status_code
+    assert exc.value.error_code == error_code
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code", "error_code"),
+    [
+        (
+            WorkspaceInvitationNotFoundError(),
+            404,
+            "workspace.not_found",
+        ),
+        (
+            WorkspaceInvitationError("bad invitation"),
+            409,
+            "workspace.invitation_conflict",
+        ),
+        (WorkspacePermissionError("nope"), 403, "workspace.forbidden"),
+    ],
+)
+def test_revoke_workspace_invitation_error_paths(
+    setup,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+    status_code: int,
+    error_code: str,
+) -> None:
+    _, service, _, admin_ctx = setup
+    created = create_workspace_invitation(
+        slug="acme",
+        payload=InvitationCreateRequest(email="temp@example.com", role=Role.EDITOR),
+        service=service,
+        context=admin_ctx,
+        auth=_auth("auth0|owner"),
+    )
+
+    def _revoke_invitation(**kwargs: object) -> object:
+        del kwargs
+        raise error
+
+    monkeypatch.setattr(service, "revoke_invitation", _revoke_invitation)
+
+    with pytest.raises(WorkspaceHTTPError) as exc:
+        revoke_workspace_invitation(
+            slug="acme",
+            invitation_id=created.id,
+            service=service,
+            context=admin_ctx,
+            auth=_auth("auth0|owner"),
+        )
+
+    assert exc.value.status_code == status_code
+    assert exc.value.error_code == error_code
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code", "error_code"),
+    [
+        (
+            WorkspaceInvitationExpiredError("expired"),
+            410,
+            "workspace.invitation_expired",
+        ),
+        (
+            WorkspaceMembershipLimitError("limit"),
+            409,
+            "workspace.membership_limit_reached",
+        ),
+        (
+            WorkspaceInvitationError("conflict"),
+            409,
+            "workspace.invitation_conflict",
+        ),
+    ],
+)
+def test_accept_workspace_invitation_error_paths(
+    setup,
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+    status_code: int,
+    error_code: str,
+) -> None:
+    sender, service, _, admin_ctx = setup
+    create_workspace_invitation(
+        slug="acme",
+        payload=InvitationCreateRequest(email="temp@example.com", role=Role.EDITOR),
+        service=service,
+        context=admin_ctx,
+        auth=_auth("auth0|owner"),
+    )
+
+    def _accept_invitation(**kwargs: object) -> object:
+        del kwargs
+        raise error
+
+    monkeypatch.setattr(service, "accept_invitation", _accept_invitation)
+
+    with pytest.raises(WorkspaceHTTPError) as exc:
+        accept_workspace_invitation(
+            payload=InvitationAcceptRequest(
+                token=sender.sent[-1].accept_url.split("token=", 1)[1]
+            ),
+            service=service,
+            auth=_auth(
+                "auth0|newbie",
+                email="newbie@example.com",
+                email_verified=True,
+            ),
+        )
+
+    assert exc.value.status_code == status_code
+    assert exc.value.error_code == error_code
+
+
+def test_scoped_workspace_not_found_raises_http_error(setup, monkeypatch) -> None:
+    _, service, _, admin_ctx = setup
+
+    def _missing_workspace(slug: str) -> object:
+        del slug
+        raise WorkspaceNotFoundError()
+
+    monkeypatch.setattr(service.repository, "get_workspace_by_slug", _missing_workspace)
+
+    with pytest.raises(WorkspaceHTTPError) as exc:
+        _scoped_workspace("missing", service, admin_ctx)
+
+    assert exc.value.status_code == 404
+
+
+def test_scoped_workspace_mismatch_raises_http_error(setup, monkeypatch) -> None:
+    _, service, workspace, _admin_ctx = setup
+
+    monkeypatch.setattr(
+        service.repository, "get_workspace_by_slug", lambda slug: workspace
+    )
+
+    with pytest.raises(WorkspaceHTTPError) as exc:
+        _scoped_workspace(
+            "acme",
+            service,
+            WorkspaceContext(
+                workspace_id=uuid4(),
+                workspace_slug="other",
+                user_id="auth0|owner",
+                role=Role.OWNER,
+            ),
+        )
+
+    assert exc.value.status_code == 403

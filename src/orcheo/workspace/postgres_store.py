@@ -548,7 +548,9 @@ class PostgresWorkspaceRepository:
                         membership.created_at,
                     ),
                 )
-                final_membership = membership.model_copy(update={"email": invited_email})
+                final_membership = membership.model_copy(
+                    update={"email": invited_email}
+                )
             else:
                 conn.execute(
                     """
@@ -565,6 +567,11 @@ class PostgresWorkspaceRepository:
                     """,
                     (str(membership.workspace_id), membership.user_id),
                 ).fetchone()
+                if row is None:
+                    raise WorkspaceMembershipError(
+                        f"No membership for user {membership.user_id} in workspace "
+                        f"{membership.workspace_id}"
+                    )
                 final_membership = self._row_to_membership(row)
 
             accepted = invitation.model_copy(

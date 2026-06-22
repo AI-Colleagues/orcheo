@@ -540,6 +540,7 @@ def test_build_env_updates(monkeypatch):
         studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=False,
+        auth_mode_required=False,
     )
     updates, defaults = setup._build_env_updates(config, requested_stack_version="2.0")
     assert updates["ORCHEO_API_URL"] == "http://localhost:2025"
@@ -571,6 +572,7 @@ def test_build_env_updates_emits_smtp_keys():
         studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=False,
+        auth_mode_required=False,
         smtp_host="smtp.example.com",
         smtp_port=2525,
         smtp_username="mailer",
@@ -645,6 +647,56 @@ def test_resolve_smtp_email_config_skips_when_blank(monkeypatch, tmp_path):
     assert config.use_tls is True
 
 
+def test_resolve_smtp_email_config_reprompts_existing_host_and_masks_password(
+    monkeypatch, tmp_path
+):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "ORCHEO_SMTP_HOST=smtp.example.com\n"
+        "ORCHEO_SMTP_PORT=2525\n"
+        "ORCHEO_SMTP_USERNAME=mailer\n"
+        "ORCHEO_SMTP_PASSWORD=super-s3cret\n"
+        "ORCHEO_SMTP_FROM_EMAIL=team@orcheo.cloud\n"
+        "ORCHEO_SMTP_USE_TLS=true\n",
+        encoding="utf-8",
+    )
+
+    prompts: list[tuple[str, str, bool]] = []
+
+    def fake_prompt(
+        message: str,
+        *,
+        default: str = "",
+        show_default: bool = True,
+        **kwargs: object,
+    ) -> str:
+        prompts.append((message, default, show_default))
+        # Accept every default (i.e. press Enter to keep existing values).
+        return default
+
+    monkeypatch.setattr(setup.typer, "prompt", fake_prompt)
+    monkeypatch.setattr(setup.typer, "confirm", lambda *a, **k: True)
+    config = setup._resolve_smtp_email_config(
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        yes=False,
+        env_file=env_file,
+        env_exists=True,
+    )
+
+    # The existing host is re-prompted (with the current value as the default).
+    assert ("SMTP host", "smtp.example.com", True) in prompts
+    # The existing password is shown masked, matching the ChatKit domain key style.
+    assert ("SMTP password", "****cret", True) in prompts
+    assert config.host == "smtp.example.com"
+    # Accepting the masked default keeps the real password, not the mask.
+    assert config.password == "super-s3cret"
+
+
 def test_resolve_smtp_email_config_non_interactive_defaults_sender(tmp_path):
     config = setup._resolve_smtp_email_config(
         "smtp.example.com",
@@ -680,6 +732,7 @@ def test_build_env_updates_keeps_managed_mode_for_non_loopback_http(monkeypatch)
         studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=False,
+        auth_mode_required=False,
     )
 
     updates, _ = setup._build_env_updates(config)
@@ -687,70 +740,44 @@ def test_build_env_updates_keeps_managed_mode_for_non_loopback_http(monkeypatch)
     assert updates["ORCHEO_WORKFLOW_TRUST_MODE"] == "managed"
 
 
-def test_build_env_updates_sets_https_auth_contract(monkeypatch):
+def test_build_env_updates_generates_required_auth_secret_when_missing(monkeypatch):
     monkeypatch.setattr(secrets, "token_urlsafe", lambda _: "safe")
-    monkeypatch.setattr(secrets, "token_hex", lambda _: "hex")
+    monkeypatch.setattr(secrets, "token_hex", lambda _: "generated-secret")
     config = setup.SetupConfig(
         mode="install",
-        backend_url="https://orcheo.example.com",
-        studio_url="https://orcheo.example.com",
+        backend_url="http://localhost:2025",
+        studio_url="http://localhost:2026",
         auth_mode="api-key",
         api_key="provided",
         chatkit_domain_key="domain",
-        public_ingress_enabled=True,
-        public_host="orcheo.example.com",
+        public_ingress_enabled=False,
+        public_host=None,
         publish_local_ports=True,
         backend_upstreams="backend:2025",
         studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=False,
-        auth_jwt_secret="signing-secret",
-        auth_issuer="https://issuer.example.com/",
-        auth_audience="audience",
+        auth_mode_required=True,
     )
 
     updates, _ = setup._build_env_updates(config)
 
     assert updates["ORCHEO_AUTH_MODE"] == "required"
-    assert updates["ORCHEO_AUTH_JWT_SECRET"] == "signing-secret"
-    assert updates["ORCHEO_AUTH_ISSUER"] == "https://issuer.example.com/"
-    assert updates["ORCHEO_AUTH_AUDIENCE"] == "audience"
+    assert updates["ORCHEO_AUTH_JWT_SECRET"] == "generated-secret"
+    assert updates["ORCHEO_AUTH_ISSUER"] == setup._DEFAULT_AUTH_ISSUER
+    assert updates["ORCHEO_AUTH_AUDIENCE"] == setup._DEFAULT_AUTH_AUDIENCE
     assert updates["VITE_ORCHEO_AUTH_DISABLED"] == "false"
     assert "ORCHEO_AUTH_CLIENT_ID" not in updates
     assert "ORCHEO_AUTH_JWKS_URL" not in updates
     assert "VITE_ORCHEO_AUTH_ISSUER" not in updates
-    assert updates["ORCHEO_WORKFLOW_TRUST_MODE"] == "managed"
+    assert updates["ORCHEO_WORKFLOW_TRUST_MODE"] == "allow_client_uploads"
 
 
-def test_build_env_updates_defaults_https_auth_issuer_and_audience() -> None:
+def test_build_env_updates_defaults_required_auth_issuer_and_audience() -> None:
     config = setup.SetupConfig(
         mode="install",
-        backend_url="https://orcheo.example.com",
-        studio_url="https://orcheo.example.com",
-        auth_mode="api-key",
-        api_key=None,
-        chatkit_domain_key=None,
-        public_ingress_enabled=True,
-        public_host="orcheo.example.com",
-        publish_local_ports=True,
-        backend_upstreams="backend:2025",
-        studio_upstream="studio:2026",
-        start_stack=False,
-        install_docker_if_missing=False,
-        auth_jwt_secret="signing-secret",
-    )
-
-    updates, _ = setup._build_env_updates(config)
-
-    assert updates["ORCHEO_AUTH_ISSUER"] == setup._DEFAULT_AUTH_ISSUER
-    assert updates["ORCHEO_AUTH_AUDIENCE"] == setup._DEFAULT_AUTH_AUDIENCE
-
-
-def test_build_env_updates_rejects_missing_https_auth_values() -> None:
-    config = setup.SetupConfig(
-        mode="install",
-        backend_url="https://orcheo.example.com",
-        studio_url="https://orcheo.example.com",
+        backend_url="http://localhost:2025",
+        studio_url="http://localhost:2026",
         auth_mode="api-key",
         api_key=None,
         chatkit_domain_key=None,
@@ -761,13 +788,41 @@ def test_build_env_updates_rejects_missing_https_auth_values() -> None:
         studio_upstream="studio:2026",
         start_stack=False,
         install_docker_if_missing=False,
+        auth_mode_required=True,
+        auth_jwt_secret="signing-secret",
     )
 
-    with pytest.raises(
-        setup.typer.BadParameter,
-        match="Backend URLs using HTTPS require ORCHEO_AUTH_JWT_SECRET",
-    ):
-        setup._build_env_updates(config)
+    updates, _ = setup._build_env_updates(config)
+
+    assert updates["ORCHEO_AUTH_ISSUER"] == setup._DEFAULT_AUTH_ISSUER
+    assert updates["ORCHEO_AUTH_AUDIENCE"] == setup._DEFAULT_AUTH_AUDIENCE
+
+
+def test_build_env_updates_generates_missing_required_auth_values(monkeypatch) -> None:
+    monkeypatch.setattr(secrets, "token_hex", lambda _: "generated-secret")
+    config = setup.SetupConfig(
+        mode="install",
+        backend_url="http://localhost:2025",
+        studio_url="http://localhost:2026",
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key=None,
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_local_ports=True,
+        backend_upstreams="backend:2025",
+        studio_upstream="studio:2026",
+        start_stack=False,
+        install_docker_if_missing=False,
+        auth_mode_required=True,
+    )
+
+    updates, _ = setup._build_env_updates(config)
+
+    assert updates["ORCHEO_AUTH_MODE"] == "required"
+    assert updates["ORCHEO_AUTH_JWT_SECRET"] == "generated-secret"
+    assert updates["ORCHEO_AUTH_ISSUER"] == setup._DEFAULT_AUTH_ISSUER
+    assert updates["ORCHEO_AUTH_AUDIENCE"] == setup._DEFAULT_AUTH_AUDIENCE
 
 
 def test_run_setup_https_backend_prompts_auth_and_chatkit_from_current_values(
@@ -1001,6 +1056,8 @@ def test_setup_resolution_helpers_cover_env_branches(
     assert setup._parse_bool_value("off") is False
     assert setup._parse_bool_value("maybe") is None
     assert setup._parse_bool_value(None) is None
+    assert setup._parse_int_value(" 42 ") == 42
+    assert setup._parse_int_value("not-a-number") is None
 
     monkeypatch.setattr(
         setup.typer, "prompt", lambda *args, **kwargs: "Prompted.Example.com"
@@ -1374,6 +1431,7 @@ def test_ensure_stack_assets_writes_auth_for_preserved_https_backend(
         start_stack=False,
         install_docker_if_missing=False,
         preserve_existing_backend_url=True,
+        auth_mode_required=True,
         auth_jwt_secret="signing-secret",
         auth_issuer="https://issuer.example.com/",
         auth_audience="current-audience",

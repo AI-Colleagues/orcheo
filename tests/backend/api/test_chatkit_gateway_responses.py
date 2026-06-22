@@ -474,6 +474,7 @@ async def test_chatkit_gateway_omits_subject_when_not_provided(
     response = api_client.post(
         "/api/chatkit",
         json={"test": "payload", "workflow_id": str(auth_result.workflow_id)},
+        headers={"X-Orcheo-Visitor-Id": "test-visitor-id-1234"},
     )
 
     assert response.status_code == 200

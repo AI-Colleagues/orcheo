@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 import pytest
 from orcheo.workspace import (
+    InvitationStatus,
     PostgresWorkspaceRepository,
     Role,
     Workspace,
     WorkspaceAuditEvent,
+    WorkspaceInvitation,
+    WorkspaceInvitationError,
+    WorkspaceInvitationNotFoundError,
     WorkspaceMembership,
     WorkspaceMembershipError,
     WorkspaceNotFoundError,
@@ -141,6 +145,22 @@ def _db_audit_row(event: WorkspaceAuditEvent) -> dict[str, Any]:
     return row
 
 
+def _invitation_row(invitation: WorkspaceInvitation) -> dict[str, Any]:
+    return {
+        "id": invitation.id,
+        "workspace_id": invitation.workspace_id,
+        "email": invitation.email,
+        "role": invitation.role.value,
+        "token_hash": invitation.token_hash,
+        "status": invitation.status.value,
+        "invited_by": invitation.invited_by,
+        "accepted_by": invitation.accepted_by,
+        "created_at": invitation.created_at,
+        "expires_at": invitation.expires_at,
+        "accepted_at": invitation.accepted_at,
+    }
+
+
 def test_postgres_workspace_repository_roundtrip(
     fake_connect: tuple[FakeConnection, str],
 ) -> None:
@@ -232,6 +252,26 @@ def test_postgres_workspace_repository_update_and_delete(
 
     with pytest.raises(WorkspaceNotFoundError):
         repo.get_workspace(uuid4())
+
+
+def test_postgres_workspace_repository_add_invitation_missing_workspace(
+    fake_connect: tuple[FakeConnection, str],
+) -> None:
+    connection, dsn = fake_connect
+    repo = PostgresWorkspaceRepository(dsn)
+
+    invitation = WorkspaceInvitation(
+        workspace_id=uuid4(),
+        email="invitee@example.com",
+        role=Role.EDITOR,
+        token_hash="missing-workspace",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        expires_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    connection._responses.extend([{"row": None}])
+
+    with pytest.raises(WorkspaceNotFoundError):
+        repo.add_invitation(invitation)
 
 
 def test_postgres_workspace_repository_raises_on_duplicate_slug(
@@ -401,3 +441,296 @@ def test_postgres_workspace_repository_membership_updates(
     repo.remove_membership(workspace.id, "alice")
     updated = repo.update_membership_role(workspace.id, "alice", Role.ADMIN)
     assert updated.role is Role.ADMIN
+
+
+def test_postgres_workspace_repository_membership_identity_paths(
+    fake_connect: tuple[FakeConnection, str],
+) -> None:
+    connection, dsn = fake_connect
+    repo = PostgresWorkspaceRepository(dsn)
+
+    workspace = Workspace(slug="acme", name="Acme")
+    membership = WorkspaceMembership(
+        workspace_id=workspace.id,
+        user_id="alice",
+        role=Role.OWNER,
+    )
+    connection._responses.extend(
+        [
+            {"row": None},
+            {},
+            {"row": {"id": str(workspace.id)}},
+            {"row": None},
+            {},
+            {"row": _membership_row(membership)},
+            {"rowcount": 1},
+            {
+                "row": {
+                    **_membership_row(membership),
+                    "email": "alice@example.com",
+                }
+            },
+            {"rowcount": 1},
+            {"row": {**_membership_row(membership), "user_name": "Alice"}},
+            {"rowcount": 0},
+        ]
+    )
+
+    repo.create_workspace(workspace)
+    repo.add_membership(membership)
+
+    assert repo.update_membership_identity(workspace.id, "alice") == membership
+    assert (
+        repo.update_membership_identity(
+            workspace.id, "alice", email="alice@example.com"
+        ).email
+        == "alice@example.com"
+    )
+    assert (
+        repo.update_membership_identity(
+            workspace.id, "alice", user_name="Alice"
+        ).user_name
+        == "Alice"
+    )
+    with pytest.raises(WorkspaceMembershipError):
+        repo.update_membership_identity(
+            workspace.id, "alice", email="alice@missing.com"
+        )
+
+
+def test_postgres_workspace_repository_membership_lookup_and_reassign_paths(
+    fake_connect: tuple[FakeConnection, str],
+) -> None:
+    connection, dsn = fake_connect
+    repo = PostgresWorkspaceRepository(dsn)
+
+    workspace_id = uuid4()
+    source = WorkspaceMembership(
+        workspace_id=workspace_id,
+        user_id="alice",
+        role=Role.OWNER,
+    )
+    moved = source.model_copy(update={"user_id": "carol"})
+    connection._responses.extend(
+        [
+            {"row": _membership_row(source)},
+            {"rows": [_membership_row(source), _membership_row(moved)]},
+            {"row": _membership_row(source)},
+            {"row": None},
+            {"row": _membership_row(source)},
+            {"row": {"id": "collision"}},
+            {"row": _membership_row(source)},
+            {},
+            {},
+            {"row": _membership_row(moved)},
+        ]
+    )
+
+    assert repo.get_membership(workspace_id, "alice") == source
+    assert [
+        member.user_id
+        for member in repo.list_memberships_for_email("ALICE@example.com")
+    ] == [  # type: ignore[attr-defined]
+        "alice",
+        "carol",
+    ]
+    assert repo.reassign_membership(workspace_id, "alice", "alice") == source
+    with pytest.raises(WorkspaceMembershipError):
+        repo.reassign_membership(workspace_id, "ghost", "bob")
+    with pytest.raises(WorkspaceMembershipError):
+        repo.reassign_membership(workspace_id, "alice", "bob")
+    assert repo.reassign_membership(workspace_id, "alice", "carol") == moved
+
+
+def test_postgres_workspace_repository_invitation_paths(
+    fake_connect: tuple[FakeConnection, str],
+) -> None:
+    connection, dsn = fake_connect
+    repo = PostgresWorkspaceRepository(dsn)
+
+    workspace = Workspace(slug="acme", name="Acme")
+    pending = WorkspaceInvitation(
+        workspace_id=workspace.id,
+        email="invitee@example.com",
+        role=Role.EDITOR,
+        token_hash="pending-token",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        expires_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    accepted = pending.model_copy(
+        update={
+            "id": uuid4(),
+            "status": InvitationStatus.ACCEPTED,
+            "token_hash": "accepted-token",
+            "accepted_by": "auth0|invitee",
+            "accepted_at": datetime(2026, 1, 3, tzinfo=UTC),
+        }
+    )
+    revoked = pending.model_copy(update={"status": InvitationStatus.REVOKED})
+
+    connection._responses.extend(
+        [
+            {"row": None},
+            {},
+            {"row": {"id": str(workspace.id)}},
+            {"row": None},
+            {},
+            {"row": {"id": str(workspace.id)}},
+            {},
+            {"row": {"id": str(workspace.id)}},
+            {"row": {"id": str(workspace.id)}},
+            {"row": _invitation_row(pending)},
+            {"row": _invitation_row(pending)},
+            {"row": _invitation_row(pending)},
+            {"row": None},
+            {"rows": [_invitation_row(pending)]},
+            {"rows": [_invitation_row(pending), _invitation_row(accepted)]},
+            {"row": None},
+            {"row": None},
+            {"rowcount": 0},
+            {"rowcount": 1},
+        ]
+    )
+
+    repo.create_workspace(workspace)
+    assert repo.add_invitation(pending) == pending
+    assert repo.add_invitation(accepted) == accepted
+    with pytest.raises(WorkspaceInvitationError):
+        repo.add_invitation(pending.model_copy(update={"id": uuid4()}))
+    assert repo.get_invitation(pending.id) == pending
+    assert repo.get_invitation_by_token_hash("pending-token") == pending
+    assert repo.find_pending_invitation(workspace.id, "INVITEE@example.com") == pending
+    assert repo.find_pending_invitation(workspace.id, "missing@example.com") is None
+    assert [
+        inv.id for inv in repo.list_invitations(workspace.id, include_inactive=False)
+    ] == [pending.id]
+    assert {
+        inv.id for inv in repo.list_invitations(workspace.id, include_inactive=True)
+    } == {
+        pending.id,
+        accepted.id,
+    }
+    with pytest.raises(WorkspaceInvitationNotFoundError):
+        repo.get_invitation(uuid4())
+    with pytest.raises(WorkspaceInvitationNotFoundError):
+        repo.get_invitation_by_token_hash("missing-token")
+    with pytest.raises(WorkspaceInvitationNotFoundError):
+        repo.update_invitation(pending.model_copy(update={"id": uuid4()}))
+    updated = repo.update_invitation(revoked)
+    assert updated.status is InvitationStatus.REVOKED
+
+
+def test_postgres_workspace_repository_accept_invitation_atomic_paths(
+    fake_connect: tuple[FakeConnection, str],
+) -> None:
+    connection, dsn = fake_connect
+    repo = PostgresWorkspaceRepository(dsn)
+
+    workspace_id = uuid4()
+    insert_membership = WorkspaceMembership(
+        workspace_id=workspace_id,
+        user_id="alice",
+        role=Role.EDITOR,
+    )
+    existing_membership = WorkspaceMembership(
+        workspace_id=workspace_id,
+        user_id="bob",
+        role=Role.ADMIN,
+    )
+    insert_invitation = WorkspaceInvitation(
+        workspace_id=workspace_id,
+        email="alice@example.com",
+        role=Role.EDITOR,
+        token_hash="insert-token",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        expires_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    update_invitation = WorkspaceInvitation(
+        workspace_id=workspace_id,
+        email="bob@example.com",
+        role=Role.ADMIN,
+        token_hash="update-token",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        expires_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    failing_invitation = WorkspaceInvitation(
+        workspace_id=workspace_id,
+        email="carol@example.com",
+        role=Role.VIEWER,
+        token_hash="failing-token",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        expires_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    updated_row = _membership_row(
+        existing_membership.model_copy(update={"email": "bob@example.com"})
+    )
+
+    connection._responses.extend(
+        [
+            None,
+            {},
+            {"rowcount": 1},
+            {"row": _membership_row(existing_membership)},
+            {},
+            {"row": updated_row},
+            {"rowcount": 1},
+            {"row": _membership_row(existing_membership)},
+            {},
+            {"row": updated_row},
+            {"rowcount": 0},
+        ]
+    )
+
+    inserted_membership, accepted_insert = repo.accept_invitation_atomic(
+        insert_membership,
+        "alice@example.com",
+        insert_invitation,
+    )
+    assert inserted_membership.email == "alice@example.com"
+    assert accepted_insert.status is InvitationStatus.ACCEPTED
+
+    updated_membership, accepted_update = repo.accept_invitation_atomic(
+        existing_membership,
+        "bob@example.com",
+        update_invitation,
+    )
+    assert updated_membership.user_id == "bob"
+    assert accepted_update.accepted_by == "bob"
+
+    with pytest.raises(WorkspaceInvitationNotFoundError):
+        repo.accept_invitation_atomic(
+            existing_membership,
+            "carol@example.com",
+            failing_invitation,
+        )
+
+
+def test_postgres_workspace_repository_invitation_row_mapper_handles_nulls() -> None:
+    invitation = WorkspaceInvitation(
+        workspace_id=uuid4(),
+        email="invitee@example.com",
+        role=Role.EDITOR,
+        token_hash="token",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        expires_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    row = _invitation_row(
+        invitation.model_copy(
+            update={
+                "invited_by": "auth0|owner",
+                "accepted_by": "auth0|invitee",
+                "accepted_at": datetime(2026, 1, 3, tzinfo=UTC),
+            }
+        )
+    )
+    row_with_nulls = _invitation_row(invitation)
+
+    mapped = PostgresWorkspaceRepository._row_to_invitation(row)
+    null_mapped = PostgresWorkspaceRepository._row_to_invitation(row_with_nulls)
+
+    assert mapped.invited_by == "auth0|owner"
+    assert mapped.accepted_by == "auth0|invitee"
+    assert mapped.accepted_at == datetime(2026, 1, 3, tzinfo=UTC)
+    assert null_mapped.invited_by is None
+    assert null_mapped.accepted_by is None
+    assert null_mapped.accepted_at is None

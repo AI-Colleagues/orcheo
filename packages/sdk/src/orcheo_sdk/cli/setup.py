@@ -78,6 +78,7 @@ class SetupConfig:
     preserve_existing_backend_url: bool = False
     stack_project_dir: str | None = None
     stack_env_file: str | None = None
+    auth_mode_required: bool = False
     auth_jwt_secret: str | None = None
     auth_issuer: str | None = None
     auth_audience: str | None = None
@@ -956,10 +957,14 @@ def _normalize_public_host(value: str) -> str:
     return candidate
 
 
-def _mask_chatkit_domain_key(value: str) -> str:
+def _mask_secret(value: str) -> str:
     if len(value) <= 4:
         return value
     return f"****{value[-4:]}"
+
+
+def _mask_chatkit_domain_key(value: str) -> str:
+    return _mask_secret(value)
 
 
 def _resolve_chatkit_domain_key(
@@ -1056,15 +1061,21 @@ def _resolve_smtp_email_config(
     )
 
     host = _normalize_optional_value(smtp_host) or existing_host
-    if not yes and host is None:
-        host = _normalize_optional_value(
-            typer.prompt(
-                "SMTP host for transactional email (invites and sign-in links) - "
-                "press Enter to skip (links/codes are logged instead)",
-                default="",
-                show_default=False,
+    if not yes:
+        if host is None:
+            host = _normalize_optional_value(
+                typer.prompt(
+                    "SMTP host for transactional email (invites and sign-in links) - "
+                    "press Enter to skip (links/codes are logged instead)",
+                    default="",
+                    show_default=False,
+                )
             )
-        )
+        else:
+            host = (
+                _normalize_optional_value(typer.prompt("SMTP host", default=host))
+                or host
+            )
 
     port = smtp_port or _parse_int_value(existing_port) or _DEFAULT_SMTP_PORT
     username = _normalize_optional_value(smtp_username) or existing_username
@@ -1080,12 +1091,16 @@ def _resolve_smtp_email_config(
             )
             or username
         )
-        password = (
-            _normalize_optional_value(
-                typer.prompt("SMTP password", default=password or "", hide_input=True)
+        masked_password = _mask_secret(password) if password else ""
+        entered_password = _normalize_optional_value(
+            typer.prompt(
+                "SMTP password",
+                default=masked_password,
+                show_default=bool(password),
             )
-            or password
         )
+        if entered_password is not None and entered_password != masked_password:
+            password = entered_password
         from_email = (
             _normalize_optional_value(
                 typer.prompt(
@@ -1158,20 +1173,20 @@ def _resolve_defaulted_env_prompt(
     return selected or current_value
 
 
-def _resolve_https_auth_config(
+def _resolve_required_auth_config(
     *,
-    backend_url: str,
+    auth_mode_required: bool,
     yes: bool,
     env_file: Path,
     env_exists: bool,
 ) -> tuple[str | None, str | None, str | None]:
-    """Resolve first-party auth settings for an HTTPS (managed) backend.
+    """Resolve first-party auth settings when the backend requires auth.
 
     Returns ``(jwt_secret, issuer, audience)``. The HS256 signing secret is
     preserved from the existing .env or generated when absent; issuer and
     audience fall back to the first-party IdP defaults.
     """
-    if not _backend_url_requires_https_auth(backend_url):
+    if not auth_mode_required:
         return None, None, None
 
     existing_secret = (
@@ -1196,6 +1211,22 @@ def _resolve_https_auth_config(
         yes=yes,
     )
     return jwt_secret, issuer, audience
+
+
+def _resolve_https_auth_config(
+    *,
+    backend_url: str,
+    yes: bool,
+    env_file: Path,
+    env_exists: bool,
+) -> tuple[str | None, str | None, str | None]:
+    """Backward-compatible wrapper for the required-auth resolver."""
+    return _resolve_required_auth_config(
+        auth_mode_required=_backend_url_requires_https_auth(backend_url),
+        yes=yes,
+        env_file=env_file,
+        env_exists=env_exists,
+    )
 
 
 def _resolve_stack_project_dir() -> Path:
@@ -1500,17 +1531,14 @@ def _build_env_updates(
             config.smtp_from_email or _DEFAULT_SMTP_FROM_EMAIL
         )
         updates["ORCHEO_SMTP_USE_TLS"] = str(config.smtp_use_tls).lower()
-    if _backend_url_requires_https_auth(config.backend_url):
+    if config.auth_mode_required:
         jwt_secret = _normalize_optional_value(config.auth_jwt_secret)
         if jwt_secret is None:
-            raise typer.BadParameter(
-                "Backend URLs using HTTPS require ORCHEO_AUTH_JWT_SECRET to be set."
-            )
+            jwt_secret = secrets.token_hex(32)
         issuer = _normalize_optional_value(config.auth_issuer) or _DEFAULT_AUTH_ISSUER
         audience = (
             _normalize_optional_value(config.auth_audience) or _DEFAULT_AUTH_AUDIENCE
         )
-
         updates["ORCHEO_AUTH_MODE"] = "required"
         updates["ORCHEO_AUTH_JWT_SECRET"] = jwt_secret
         updates["ORCHEO_AUTH_ISSUER"] = issuer
@@ -1813,12 +1841,21 @@ def run_setup(
         preserved_backend_url = _read_env_value(stack_env_file, "ORCHEO_API_URL")
         if preserved_backend_url is not None:
             auth_backend_url = preserved_backend_url
+    existing_auth_mode = (
+        _read_env_value(stack_env_file, "ORCHEO_AUTH_MODE")
+        if has_existing_stack_env
+        else None
+    )
+    resolved_auth_mode_required = (
+        _backend_url_requires_https_auth(auth_backend_url)
+        or existing_auth_mode == "required"
+    )
     (
         resolved_auth_jwt_secret,
         resolved_auth_issuer,
         resolved_auth_audience,
-    ) = _resolve_https_auth_config(
-        backend_url=auth_backend_url,
+    ) = _resolve_required_auth_config(
+        auth_mode_required=resolved_auth_mode_required,
         yes=yes,
         env_file=stack_env_file,
         env_exists=has_existing_stack_env,
@@ -1895,6 +1932,7 @@ def run_setup(
         install_docker_if_missing=resolved_install_docker,
         install_agent_skills=resolved_install_agent_skills,
         preserve_existing_backend_url=preserve_existing_backend_url,
+        auth_mode_required=resolved_auth_mode_required,
         auth_jwt_secret=resolved_auth_jwt_secret,
         auth_issuer=resolved_auth_issuer,
         auth_audience=resolved_auth_audience,

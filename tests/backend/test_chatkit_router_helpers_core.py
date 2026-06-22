@@ -228,6 +228,102 @@ def test_extract_proxy_identity_dev_login_fallback(
     assert workspaces == frozenset({"ws-1"})
 
 
+def test_ip_in_allowlist_covers_invalid_inputs() -> None:
+    assert chatkit._ip_in_allowlist(None, ("127.0.0.0/8",)) is False
+    assert chatkit._ip_in_allowlist("not-an-ip", ("127.0.0.0/8",)) is False
+    assert (
+        chatkit._ip_in_allowlist(
+            "127.0.0.1",
+            ("bad-cidr", "127.0.0.0/8"),
+        )
+        is True
+    )
+
+
+def test_parse_dev_session_subject_covers_json_and_plain_text() -> None:
+    assert chatkit._parse_dev_session_subject("   ") is None
+    assert (
+        chatkit._parse_dev_session_subject('{"subject": "dev@example.com"}')
+        == "dev@example.com"
+    )
+    assert chatkit._parse_dev_session_subject('{"subject": 42}').startswith("{")
+    assert (
+        chatkit._parse_dev_session_subject("dev@example.com:abc123")
+        == "dev@example.com"
+    )
+
+
+def test_extract_dev_identity_covers_missing_cookie_and_invalid_subject() -> None:
+    enabled = _proxy_auth_settings(
+        dev_login_enabled=True,
+        dev_cookie_name="orcheo_dev_session",
+        dev_workspace_ids=("WS-1",),
+    )
+    request = make_chatkit_request()
+    missing_request = SimpleNamespace(
+        headers=SimpleNamespace(get=lambda *args, **kwargs: None),
+        cookies=SimpleNamespace(get=lambda *args, **kwargs: None),
+    )
+
+    assert (
+        chatkit._extract_dev_identity(
+            request, _proxy_auth_settings(dev_login_enabled=True)
+        )
+        is None
+    )
+    assert chatkit._extract_dev_identity(missing_request, enabled) is None
+    assert chatkit._extract_dev_identity(request, enabled) is None
+    assert chatkit._extract_dev_identity(
+        make_chatkit_request(
+            headers={"x-orcheo-dev-session": "dev@orcheo.local:abc123"}
+        ),
+        enabled,
+    ) == ("dev@orcheo.local", frozenset({"ws-1"}))
+    assert (
+        chatkit._extract_dev_identity(
+            request, _proxy_auth_settings(dev_login_enabled=True, dev_cookie_name=None)
+        )
+        is None
+    )
+    assert (
+        chatkit._extract_dev_identity(
+            make_chatkit_request(cookies={"orcheo_dev_session": ""}),
+            enabled,
+        )
+        is None
+    )
+    assert (
+        chatkit._extract_dev_identity(
+            make_chatkit_request(cookies={"orcheo_dev_session": ":"}),
+            enabled,
+        )
+        is None
+    )
+
+
+def test_extract_proxy_identity_falls_back_to_dev_session_when_subject_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        chatkit,
+        "load_auth_settings",
+        lambda: _proxy_auth_settings(
+            secret="s3cret",
+            dev_login_enabled=True,
+            dev_cookie_name="orcheo_dev_session",
+            dev_workspace_ids=("WS-1",),
+        ),
+    )
+    request = make_chatkit_request(
+        headers={"X-Orcheo-Proxy-Secret": "s3cret"},
+        cookies={"orcheo_dev_session": "dev@orcheo.local:abc123"},
+    )
+
+    subject, workspaces = chatkit._extract_proxy_identity(request)
+    assert subject == "dev@orcheo.local"
+    assert workspaces == frozenset({"ws-1"})
+
+
 def _auth_result(subject: str | None) -> chatkit.ChatKitAuthResult:
     return chatkit.ChatKitAuthResult(
         workflow_id=uuid4(),

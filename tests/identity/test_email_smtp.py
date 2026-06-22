@@ -96,6 +96,31 @@ def test_smtp_sends_invitation() -> None:
     assert "Acme" in smtp.sent["Subject"]
 
 
+def test_smtp_skips_tls_and_login_when_disabled_or_missing_credentials() -> None:
+    sender = SmtpEmailSender(
+        SmtpSettings(
+            host="smtp.test",
+            port=2525,
+            use_tls=False,
+            username=None,
+            password=None,
+        )
+    )
+    sender.send_invitation(
+        InvitationEmail(
+            to="carol@example.com",
+            workspace_name="Carol",
+            role="viewer",
+            accept_url="https://studio.test/invitations/accept?token=xyz",
+            expires_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+    )
+    smtp = FakeSMTP.instances[-1]
+    assert smtp.started_tls is False
+    assert smtp.logged_in is None
+    assert smtp.sent is not None
+
+
 def test_builder_uses_smtp_when_configured_else_logging() -> None:
     assert isinstance(build_email_sender(smtp=_settings()), SmtpEmailSender)
     assert isinstance(build_email_sender(), LoggingInvitationEmailSender)

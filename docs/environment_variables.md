@@ -73,7 +73,7 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
 | `ORCHEO_AUTH_MODE` | `optional` | `disabled`, `optional`, `required` | Controls whether authentication is disabled, allowed, or enforced (`authentication/settings.py`). |
-| `ORCHEO_AUTH_JWT_SECRET` | _none_ | Arbitrary string | First-party HS256 signing key for the passwordless email IdP — signs and verifies access tokens. **Required when auth is enabled.** Generate with e.g. `openssl rand -hex 32` (`authentication/settings.py`). |
+| `ORCHEO_AUTH_JWT_SECRET` | _none_ | Arbitrary string | First-party HS256 signing key for the passwordless email IdP — signs and verifies access tokens. **Required when `ORCHEO_AUTH_MODE=required`.** `orcheo install` auto-generates it for required-auth stacks; otherwise generate with e.g. `openssl rand -hex 32` (`authentication/settings.py`). |
 | `ORCHEO_AUTH_ACCESS_TOKEN_TTL_SECONDS` | `900` | Integer > 0 | Lifetime of issued first-party access tokens (identity service). |
 | `ORCHEO_AUTH_CHALLENGE_TTL_MINUTES` | `15` | Integer > 0 | Lifetime of a magic-link/OTP email challenge (identity service). |
 | `ORCHEO_AUTH_SESSION_TTL_DAYS` | `30` | Integer > 0 | Lifetime of a refresh-token session (identity service). |

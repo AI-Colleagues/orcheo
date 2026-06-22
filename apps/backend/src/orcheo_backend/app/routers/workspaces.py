@@ -565,7 +565,7 @@ def create_workspace_invitation(
         )
     except ValueError as exc:
         raise WorkspaceHTTPError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             message=str(exc),
             error_code="workspace.invitation_invalid_email",
         ) from exc

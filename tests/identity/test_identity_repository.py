@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import timedelta
+from uuid import uuid4
 import pytest
 from orcheo.identity import (
     AuthEmailChallenge,
@@ -135,3 +136,73 @@ def test_missing_session_lookup_raises() -> None:
     repo = InMemoryIdentityRepository()
     with pytest.raises(IdentitySessionNotFoundError):
         repo.get_session_by_refresh_hash("nope")
+
+
+def test_challenge_and_session_lookup_update_paths() -> None:
+    repo = InMemoryIdentityRepository()
+    user = repo.create_user(_make_user())
+    first_challenge = repo.add_challenge(
+        _make_challenge(email="first@example.com").model_copy(
+            update={"token_hash": "first-token"}
+        )
+    )
+    second_challenge = repo.add_challenge(
+        _make_challenge(email="second@example.com").model_copy(
+            update={"token_hash": "second-token"}
+        )
+    )
+
+    assert repo.get_challenge_by_token_hash("second-token") == second_challenge
+    consumed = repo.consume_challenge(second_challenge, consumed_at=_utcnow())
+    assert consumed.consumed_at is not None
+
+    repo.add_session(
+        AuthSession(
+            user_id=user.id,
+            refresh_token_hash="first-refresh",
+            expires_at=_utcnow() + timedelta(days=1),
+        )
+    )
+    second_session = repo.add_session(
+        AuthSession(
+            user_id=user.id,
+            refresh_token_hash="second-refresh",
+            expires_at=_utcnow() + timedelta(days=1),
+        )
+    )
+    assert repo.get_session_by_refresh_hash("second-refresh") == second_session
+
+    updated = repo.update_session(
+        second_session.model_copy(update={"revoked_at": _utcnow()})
+    )
+    assert updated.revoked_at is not None
+    assert first_challenge.token_hash == "first-token"
+
+
+def test_missing_updates_and_lookups_raise() -> None:
+    repo = InMemoryIdentityRepository()
+    missing_user = _make_user()
+    missing_challenge = _make_challenge()
+    missing_session = AuthSession(
+        user_id=uuid4(),
+        refresh_token_hash="missing",
+        expires_at=_utcnow() + timedelta(days=1),
+    )
+
+    with pytest.raises(UserNotFoundError):
+        repo.update_user(missing_user)
+
+    with pytest.raises(IdentityChallengeNotFoundError):
+        repo.get_challenge(missing_challenge.id)
+
+    with pytest.raises(IdentityChallengeNotFoundError):
+        repo.update_challenge(missing_challenge)
+
+    with pytest.raises(IdentityChallengeNotFoundError):
+        repo.consume_challenge(missing_challenge, consumed_at=_utcnow())
+
+    with pytest.raises(IdentitySessionNotFoundError):
+        repo.get_session(missing_session.id)
+
+    with pytest.raises(IdentitySessionNotFoundError):
+        repo.update_session(missing_session)

@@ -1,11 +1,19 @@
 """HTTP integration tests for the first-party auth endpoints."""
 
 from __future__ import annotations
+import importlib
 from datetime import UTC, datetime
+from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 from orcheo.identity import InMemoryIdentityRepository
+from orcheo.identity.errors import (
+    IdentityChallengeExpiredError,
+    IdentityChallengeLockedError,
+    IdentitySessionNotFoundError,
+    UserNotFoundError,
+)
 from orcheo.workspace.email import AuthChallengeEmail
 from orcheo_backend.app.authentication import reset_authentication_state
 from orcheo_backend.app.identity import (
@@ -21,6 +29,7 @@ from tests.backend.authentication_test_utils import create_test_client
 SECRET = "identity-http-secret"  # noqa: S105 - test fixture
 ISSUER = "https://auth.orcheo.test"
 AUDIENCE = "orcheo-api"
+identity_router = importlib.import_module("orcheo_backend.app.identity.router")
 
 
 class CapturingSender:
@@ -205,3 +214,141 @@ def test_enforce_start_rate_limits_accepts_injected_now(
     _enforce_start_rate_limits("203.0.113.10", "auth-email:a@example.com", now=frozen)
 
     assert observed == [frozen, frozen]
+
+
+class _NoopLimiter:
+    def check_ip(self, ip: str | None, *, now: datetime) -> None:
+        del ip, now
+
+
+class _FakeIdentityService:
+    def __init__(self) -> None:
+        self.now_calls = 0
+
+    def now(self) -> datetime:
+        self.now_calls += 1
+        return datetime(2026, 1, 1, tzinfo=UTC)
+
+
+@pytest.mark.asyncio
+async def test_email_start_swallows_value_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _FakeIdentityService()
+
+    def _start_challenge(email: str, *, redirect_to: str | None = None) -> None:
+        del email, redirect_to
+        raise ValueError("bad email")
+
+    service.start_challenge = _start_challenge  # type: ignore[attr-defined]
+    monkeypatch.setattr(
+        identity_router, "_enforce_start_rate_limits", lambda *a, **k: None
+    )
+
+    response = await identity_router.email_start(
+        identity_router.EmailStartRequest(email="not-an-email"),
+        service,  # type: ignore[arg-type]
+        ip=None,
+    )
+
+    assert response.status == "sent"
+
+
+@pytest.mark.asyncio
+async def test_email_start_swallows_generic_delivery_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _FakeIdentityService()
+
+    def _start_challenge(email: str, *, redirect_to: str | None = None) -> None:
+        del email, redirect_to
+        raise RuntimeError("smtp down")
+
+    service.start_challenge = _start_challenge  # type: ignore[attr-defined]
+    monkeypatch.setattr(
+        identity_router, "_enforce_start_rate_limits", lambda *a, **k: None
+    )
+
+    response = await identity_router.email_start(
+        identity_router.EmailStartRequest(email="alice@example.com"),
+        service,  # type: ignore[arg-type]
+        ip=None,
+    )
+
+    assert response.status == "sent"
+
+
+@pytest.mark.asyncio
+async def test_email_verify_handles_domain_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _FakeIdentityService()
+    monkeypatch.setattr(
+        identity_router, "get_auth_rate_limiter", lambda: _NoopLimiter()
+    )
+    request = SimpleNamespace(headers={"User-Agent": "pytest"})
+
+    for exc, status_code, message in [
+        (IdentityChallengeLockedError(), 423, None),
+        (IdentityChallengeExpiredError(), 410, None),
+        (ValueError("bad code"), 400, "bad code"),
+        (RuntimeError("boom"), 400, "Invalid or expired challenge."),
+    ]:
+        if isinstance(exc, IdentityChallengeLockedError):
+            service.verify_token = lambda *a, **k: (_ for _ in ()).throw(exc)  # type: ignore[attr-defined]
+        elif isinstance(exc, IdentityChallengeExpiredError):
+            service.verify_token = lambda *a, **k: (_ for _ in ()).throw(exc)  # type: ignore[attr-defined]
+        elif isinstance(exc, ValueError):
+            service.verify_token = lambda *a, **k: (_ for _ in ()).throw(exc)  # type: ignore[attr-defined]
+        else:
+            service.verify_token = lambda *a, **k: (_ for _ in ()).throw(exc)  # type: ignore[attr-defined]
+
+        with pytest.raises(Exception) as raised:
+            await identity_router.email_verify(
+                identity_router.EmailVerifyRequest(token="token"),
+                service,  # type: ignore[arg-type]
+                request,  # type: ignore[arg-type]
+                ip="127.0.0.1",
+            )
+
+        http_error = raised.value
+        assert getattr(http_error, "status_code", None) == status_code
+        if message is not None:
+            detail = getattr(http_error, "detail", {})
+            assert message in str(detail)
+
+
+@pytest.mark.asyncio
+async def test_refresh_and_me_and_logout_error_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _FakeIdentityService()
+    monkeypatch.setattr(
+        identity_router, "get_auth_rate_limiter", lambda: _NoopLimiter()
+    )
+
+    service.refresh = lambda token: (_ for _ in ()).throw(
+        IdentitySessionNotFoundError()
+    )  # type: ignore[attr-defined]
+    with pytest.raises(Exception) as refresh_exc:
+        await identity_router.refresh(
+            identity_router.RefreshRequest(refresh_token="missing"),
+            service,  # type: ignore[arg-type]
+            ip="127.0.0.1",
+        )
+    assert getattr(refresh_exc.value, "status_code", None) == 401
+
+    service.logout = lambda subject: (_ for _ in ()).throw(ValueError("nope"))  # type: ignore[attr-defined]
+    logout = await identity_router.logout(
+        service,  # type: ignore[arg-type]
+        auth=SimpleNamespace(subject="missing"),
+    )
+    assert logout.status_code == 204
+
+    service.get_user = lambda subject: (_ for _ in ()).throw(UserNotFoundError(subject))  # type: ignore[attr-defined]
+    with pytest.raises(Exception) as me_exc:
+        await identity_router.me(
+            service,  # type: ignore[arg-type]
+            auth=SimpleNamespace(subject="missing"),
+        )
+    assert getattr(me_exc.value, "status_code", None) == 404

@@ -307,3 +307,87 @@ def test_accept_unknown_token_raises_not_found() -> None:
             email="x@example.com",
             email_verified=True,
         )
+
+
+def test_revoke_invitation_requires_admin_and_matching_workspace() -> None:
+    sender = _FakeSender()
+    svc = _service(sender)
+    workspace_a, _ = svc.create_workspace(
+        slug="acme", name="Acme", owner_user_id="auth0|owner"
+    )
+    workspace_b, _ = svc.create_workspace(
+        slug="globex", name="Globex", owner_user_id="auth0|owner-2"
+    )
+    invitation = svc.create_invitation(
+        workspace_id=workspace_a.id,
+        email="newbie@example.com",
+        role=Role.EDITOR,
+        actor_role=Role.OWNER,
+    )
+
+    with pytest.raises(WorkspacePermissionError):
+        svc.revoke_invitation(
+            workspace_id=workspace_a.id,
+            invitation_id=invitation.id,
+            actor_role=Role.EDITOR,
+        )
+    with pytest.raises(WorkspaceInvitationError):
+        svc.revoke_invitation(
+            workspace_id=workspace_b.id,
+            invitation_id=invitation.id,
+            actor_role=Role.OWNER,
+        )
+
+
+def test_accept_invitation_requires_claimed_email() -> None:
+    sender = _FakeSender()
+    svc = _service(sender)
+    workspace, _ = svc.create_workspace(
+        slug="acme", name="Acme", owner_user_id="auth0|owner"
+    )
+    svc.create_invitation(
+        workspace_id=workspace.id,
+        email="newbie@example.com",
+        role=Role.EDITOR,
+        actor_role=Role.OWNER,
+    )
+    token = _token_from_url(sender.sent[0].accept_url)
+
+    with pytest.raises(WorkspaceInvitationEmailMismatchError):
+        svc.accept_invitation(
+            raw_token=token,
+            user_id="auth0|newbie",
+            email=None,
+            email_verified=True,
+        )
+
+
+def test_create_invitation_falls_back_to_generic_workspace_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sender = _FakeSender()
+    repo = InMemoryWorkspaceRepository()
+    svc = WorkspaceService(
+        repo,
+        email_sender=sender,
+        invitation_base_url="https://studio.example.com",
+        invitation_ttl_hours=72,
+    )
+    workspace, _ = svc.create_workspace(
+        slug="acme", name="Acme", owner_user_id="auth0|owner"
+    )
+
+    def _boom(_workspace_id):
+        raise RuntimeError("missing workspace")
+
+    monkeypatch.setattr(repo, "get_workspace", _boom)
+
+    invitation = svc.create_invitation(
+        workspace_id=workspace.id,
+        email="newbie@example.com",
+        role=Role.EDITOR,
+        actor_role=Role.OWNER,
+    )
+
+    assert invitation.email == "newbie@example.com"
+    assert sender.sent[0].workspace_name == "your workspace"

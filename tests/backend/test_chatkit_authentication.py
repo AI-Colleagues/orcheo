@@ -109,6 +109,7 @@ async def test_authenticate_chatkit_invocation_with_public_access(
 async def test_authenticate_chatkit_requires_session_when_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    workspace_id = "test-workspace"
     repository = InMemoryWorkflowRepository()
     workflow = await repository.create_workflow(
         name="Protected Workflow",
@@ -117,6 +118,7 @@ async def test_authenticate_chatkit_requires_session_when_configured(
         tags=None,
         draft_access=WorkflowDraftAccess.PERSONAL,
         actor="tester",
+        workspace_id=workspace_id,
     )
 
     await repository.publish_workflow(
@@ -136,7 +138,7 @@ async def test_authenticate_chatkit_requires_session_when_configured(
 
     assert exc.value.status_code == 401
 
-    # Identity from a trusted proxy is accepted.
+    # Identity from a trusted proxy is accepted when the workspace is authorized.
     monkeypatch.setattr(
         backend_app.routers.chatkit,
         "load_auth_settings",
@@ -149,7 +151,11 @@ async def test_authenticate_chatkit_requires_session_when_configured(
         ),
     )
     session_request = _make_request(
-        {"X-Orcheo-Proxy-Secret": "s3cret", "X-Orcheo-OAuth-Subject": "bob"}
+        {
+            "X-Orcheo-Proxy-Secret": "s3cret",
+            "X-Orcheo-OAuth-Subject": "bob",
+            "X-Orcheo-OAuth-Workspaces": workspace_id,
+        }
     )
     result = await backend_app.routers.chatkit.authenticate_chatkit_invocation(
         request=session_request,
