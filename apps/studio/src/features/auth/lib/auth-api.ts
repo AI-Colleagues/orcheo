@@ -25,7 +25,8 @@ interface TokenPayload {
   expires_in: number;
 }
 
-const authUrl = (path: string): string => buildBackendHttpUrl(`/api/auth${path}`);
+const authUrl = (path: string): string =>
+  buildBackendHttpUrl(`/api/auth${path}`);
 
 const persistTokens = (payload: TokenPayload): void => {
   setAuthTokens({
@@ -164,11 +165,15 @@ export const logoutSession = async (): Promise<void> => {
     }
 
     if (tokens?.accessToken) {
-      let response = await fetch(authUrl("/logout"), {
+      const response = await fetch(authUrl("/logout"), {
         method: "POST",
         headers: { Authorization: `Bearer ${tokens.accessToken}` },
       });
-      if (response.status === 401 && tokens.refreshToken && (await refreshSession())) {
+      if (
+        response.status === 401 &&
+        tokens.refreshToken &&
+        (await refreshSession())
+      ) {
         tokens = getAuthTokens();
         if (tokens?.accessToken) {
           await fetch(authUrl("/logout"), {
