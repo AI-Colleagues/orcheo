@@ -91,6 +91,16 @@ export function PublicChatWidget({
     }
     const response = await authFetch(url, { method: "POST", headers });
     if (!response.ok) {
+      if (response.status === 403) {
+        throw new Error(
+          "Unable to obtain a ChatKit session token: your account is missing the required chatkit:session scope or workspace membership.",
+        );
+      }
+      if (response.status === 401) {
+        throw new Error(
+          "Unable to obtain a ChatKit session token: sign in again and retry.",
+        );
+      }
       throw new Error("Failed to obtain ChatKit session token");
     }
     const data = (await response.json()) as {

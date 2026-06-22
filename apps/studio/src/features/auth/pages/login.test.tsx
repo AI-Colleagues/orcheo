@@ -48,6 +48,12 @@ describe("Login", () => {
     expect(renderLogin({ search: "?redirect=/chat/abc" })).toBe("/chat/abc");
   });
 
+  it("falls back to the from query param", () => {
+    expect(renderLogin({ search: "?from=/chat/ws/team/ws/typesetter" })).toBe(
+      "/chat/ws/team/ws/typesetter",
+    );
+  });
+
   it("ignores external or protocol-relative redirect targets", () => {
     expect(
       renderLogin({
