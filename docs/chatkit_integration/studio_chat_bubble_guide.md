@@ -26,11 +26,11 @@ context without leaving Studio.
 4. **Backend reachability** – ensure the editor can reach the backend base URL
   returned by `getBackendBaseUrl()` (typically `http://localhost:2025` in dev)
   so JWT refresh calls succeed.
-5. **IdP login (local or hosted)** – configure Studio OIDC settings
-  (`VITE_ORCHEO_AUTH_ISSUER`, `VITE_ORCHEO_AUTH_CLIENT_ID`, and optionally
-  `VITE_ORCHEO_AUTH_AUDIENCE`) plus backend JWT validation (`ORCHEO_AUTH_JWKS_URL`,
-  `ORCHEO_AUTH_AUDIENCE`, `ORCHEO_AUTH_ISSUER`). The Studio login screen now
-  redirects to the IdP instead of using the dev-login shim.
+5. **Login (local or hosted)** – authentication is a first-party passwordless
+  email IdP. The backend mints and validates HS256 access tokens signed with
+  `ORCHEO_AUTH_JWT_SECRET` (sole accepted issuer = `ORCHEO_AUTH_ISSUER`); the
+  Studio login screen sends a magic link + OTP. Set `VITE_ORCHEO_AUTH_DISABLED=true`
+  to bypass the login gate for local dev.
 6. **ChatKit signing key** – set `ORCHEO_CHATKIT_TOKEN_SIGNING_KEY` (HS or RSA
    private key material) so the backend can mint workflow-scoped ChatKit
    session JWTs. Without this key, `/api/workflows/{id}/chatkit/session` returns
