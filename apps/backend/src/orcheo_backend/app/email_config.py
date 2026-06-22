@@ -38,11 +38,7 @@ def build_smtp_settings() -> SmtpSettings | None:
         port=int(settings.get("SMTP_PORT") or 587),
         username=settings.get("SMTP_USERNAME"),
         password=settings.get("SMTP_PASSWORD"),
-        from_email=str(
-            settings.get("SMTP_FROM_EMAIL")
-            or settings.get("INVITE_FROM_EMAIL")
-            or DEFAULT_INVITE_FROM_EMAIL
-        ),
+        from_email=str(settings.get("SMTP_FROM_EMAIL") or DEFAULT_INVITE_FROM_EMAIL),
         use_tls=_parse_bool(settings.get("SMTP_USE_TLS", True), True),
     )
 
