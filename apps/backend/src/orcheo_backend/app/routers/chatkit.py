@@ -429,7 +429,8 @@ def _extract_proxy_identity(request: Request) -> tuple[str | None, frozenset[str
 
     Forwarded ``X-Orcheo-OAuth-*`` headers are honored only when the request
     originates from a trusted proxy; otherwise client-supplied copies are
-    ignored. A local dev-login session is accepted as a fallback.
+    ignored. A local dev-login session is accepted as a fallback, including
+    trusted-proxy requests that do not carry an OAuth subject header.
     """
     auth_settings = load_auth_settings()
     if _request_from_trusted_proxy(request, auth_settings):
@@ -1184,10 +1185,17 @@ async def _authenticate_publish_request(
                 code="chatkit.auth.oauth_required",
                 auth_mode="publish",
             )
-        if (
-            workspace_id is not None
-            and workspace_id.strip().lower() not in authorized_workspaces
-        ):
+        if workspace_id is None or not workspace_id.strip():
+            raise _chatkit_error(
+                status.HTTP_403_FORBIDDEN,
+                message=(
+                    "Publish authentication failed: workflow workspace is not "
+                    "configured for this members-only workflow."
+                ),
+                code="chatkit.auth.workspace_required",
+                auth_mode="publish",
+            )
+        if workspace_id.strip().lower() not in authorized_workspaces:
             raise _chatkit_error(
                 status.HTTP_403_FORBIDDEN,
                 message=(

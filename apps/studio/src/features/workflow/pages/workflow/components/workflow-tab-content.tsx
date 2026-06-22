@@ -70,6 +70,7 @@ export interface WorkflowTabContentProps {
   onSaveConfig: (nextConfig: WorkflowRunnableConfig | null) => Promise<void>;
   hasCronTriggerNode: boolean;
   initialIsPublished: boolean;
+  initialRequireLogin: boolean;
   initialShareUrl: string | null;
   missingCredentials?: string[];
 }
@@ -200,6 +201,7 @@ export function WorkflowTabContent({
   onSaveConfig,
   hasCronTriggerNode,
   initialIsPublished,
+  initialRequireLogin,
   initialShareUrl,
   missingCredentials = [],
 }: WorkflowTabContentProps) {
@@ -208,6 +210,7 @@ export function WorkflowTabContent({
   const latestVersion = versions.at(-1);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isPublished, setIsPublished] = useState(initialIsPublished);
+  const [requireLogin, setRequireLogin] = useState(initialRequireLogin);
   const [isScheduled, setIsScheduled] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(initialShareUrl);
   const [isPublishPending, setIsPublishPending] = useState(false);
@@ -227,12 +230,14 @@ export function WorkflowTabContent({
     if (!workflowId) {
       setIsPublished(false);
       setIsScheduled(false);
+      setRequireLogin(false);
       setShareUrl(null);
       return;
     }
     setIsPublished(initialIsPublished);
+    setRequireLogin(initialRequireLogin);
     setShareUrl(initialShareUrl);
-  }, [initialIsPublished, initialShareUrl, workflowId]);
+  }, [initialIsPublished, initialRequireLogin, initialShareUrl, workflowId]);
 
   useEffect(() => {
     if (!workflowId) {
@@ -431,6 +436,7 @@ export function WorkflowTabContent({
     try {
       await unpublishWorkflow(workflowId, "studio");
       setIsPublished(false);
+      setRequireLogin(false);
       setShareUrl(null);
       toast({
         title: "Workflow unpublished",
@@ -460,6 +466,7 @@ export function WorkflowTabContent({
         requireLogin,
       });
       setIsPublished(true);
+      setRequireLogin(result.workflow.require_login);
       setShareUrl(result.shareUrl);
       setIsPublishDialogOpen(false);
       toast({
@@ -674,7 +681,7 @@ export function WorkflowTabContent({
           <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/20 px-3 py-2">
             <div className="min-w-0">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                Public URL
+                {requireLogin ? "Members-only URL" : "Public URL"}
               </p>
               <a
                 href={shareUrl}

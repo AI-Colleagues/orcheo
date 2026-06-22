@@ -196,8 +196,7 @@ export const buildPublicChatFetch = ({
 
 interface AuthenticatedChatFetchOptions extends PublicChatFetchOptions {
   /**
-   * Resolver returning a ChatKit session token (JWT). It is invoked per request
-   * so the freshest token is attached, mirroring the authenticated Studio chat.
+   * Resolver returning a cached ChatKit session token (JWT).
    */
   getToken: () => Promise<string>;
 }

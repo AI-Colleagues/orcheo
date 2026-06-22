@@ -28,6 +28,7 @@ interface UseWorkflowLoaderParams {
     SetStateAction<ChatKitSupportedModel[] | null>
   >;
   setIsWorkflowPublic: Dispatch<SetStateAction<boolean>>;
+  setWorkflowRequireLogin: Dispatch<SetStateAction<boolean>>;
   setWorkflowShareUrl: Dispatch<SetStateAction<string | null>>;
   setIsWorkflowLoading: Dispatch<SetStateAction<boolean>>;
   setWorkflowLoadError: Dispatch<SetStateAction<string | null>>;
@@ -46,6 +47,7 @@ export function useWorkflowLoader({
   setChatkitStartScreenPrompts,
   setChatkitSupportedModels,
   setIsWorkflowPublic,
+  setWorkflowRequireLogin,
   setWorkflowShareUrl,
   setIsWorkflowLoading,
   setWorkflowLoadError,
@@ -67,6 +69,7 @@ export function useWorkflowLoader({
       setChatkitStartScreenPrompts(null);
       setChatkitSupportedModels(null);
       setIsWorkflowPublic(false);
+      setWorkflowRequireLogin(false);
       setWorkflowShareUrl(null);
       setExecutions([]);
       setActiveExecutionId(null);
@@ -102,6 +105,7 @@ export function useWorkflowLoader({
           );
           setChatkitSupportedModels(persisted.chatkitSupportedModels ?? null);
           setIsWorkflowPublic(persisted.isPublic ?? false);
+          setWorkflowRequireLogin(persisted.requireLogin ?? false);
           setWorkflowShareUrl(persisted.shareUrl ?? null);
           setExecutions([]);
           setActiveExecutionId(null);
@@ -124,6 +128,7 @@ export function useWorkflowLoader({
           setChatkitStartScreenPrompts(null);
           setChatkitSupportedModels(null);
           setIsWorkflowPublic(false);
+          setWorkflowRequireLogin(false);
           setWorkflowShareUrl(null);
           setExecutions([]);
           setActiveExecutionId(null);

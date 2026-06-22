@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Monitor, Moon, Sun } from "lucide-react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
 import { Button } from "@/design-system/ui/button";
 import { Skeleton } from "@/design-system/ui/skeleton";
@@ -39,7 +39,6 @@ export default function PublicChatPage() {
     workspaceSlug?: string;
     teamSlug?: string;
   }>();
-  const location = useLocation();
   const [workflowState, setWorkflowState] = useState<WorkflowState>({
     status: workflowId ? "loading" : "error",
     ...(workflowId ? {} : { message: "Workflow identifier missing from URL." }),
@@ -56,7 +55,6 @@ export default function PublicChatPage() {
   );
   const { theme, setTheme } = useThemePreferences({});
   const backendBaseUrl = useMemo(() => getBackendBaseUrl(), []);
-  const redirectTo = `${location.pathname}${location.search}${location.hash}`;
 
   useEffect(() => {
     setChatError(null);
@@ -239,31 +237,6 @@ export default function PublicChatPage() {
         );
       }
 
-      if (
-        workflowState.status === "ready" &&
-        workflowState.workflow.require_login &&
-        !isAuthenticated()
-      ) {
-        return (
-          <div className="rounded-3xl border border-slate-200/80 bg-white/70 p-6 text-slate-900 shadow-sm dark:border-slate-800/60 dark:bg-slate-950/40 dark:text-white">
-            <p className="text-lg font-semibold">Login required</p>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-              The owner requires OAuth login before this chat can start.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-3">
-              <Button asChild>
-                <Link to="/login" state={{ from: redirectTo }}>
-                  Sign in to continue
-                </Link>
-              </Button>
-              <Button asChild variant="outline">
-                <a href={contactHref}>Contact owner</a>
-              </Button>
-            </div>
-          </div>
-        );
-      }
-
       return (
         <div className="space-y-4">
           {rateLimitError && (
@@ -315,6 +288,7 @@ export default function PublicChatPage() {
                   workflowId={workflowState.workflow.id}
                   workflowName={workflowState.workflow.name}
                   requireLogin={workflowState.workflow.require_login}
+                  useSessionToken={isAuthenticated()}
                   workspaceSlug={workspaceSlug}
                   startScreenPrompts={
                     workflowState.workflow.chatkit?.start_screen_prompts

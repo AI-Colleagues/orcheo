@@ -188,4 +188,26 @@ describe("buildAuthenticatedChatFetch", () => {
     expect(headers.get("Authorization")).toBe("Bearer session-jwt");
     expect(options?.credentials).toBe("include");
   });
+
+  it("propagates session token resolver errors", async () => {
+    const fetchMock = vi.fn(async () => createResponse(200, { ok: true }));
+    window.fetch = fetchMock as unknown as typeof window.fetch;
+    const getToken = vi.fn(async () => {
+      throw new Error("session unavailable");
+    });
+
+    const handler = buildAuthenticatedChatFetch({
+      workflowId: "wf-444",
+      getToken,
+    });
+
+    await expect(
+      handler("http://localhost:2025/api/chatkit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+    ).rejects.toThrow("session unavailable");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

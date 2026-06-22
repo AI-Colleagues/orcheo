@@ -90,6 +90,7 @@ export function buildWorkflowLayoutProps(
       core.metadata.workflowVersions ?? [],
     ),
     initialIsPublished: core.metadata.isWorkflowPublic,
+    initialRequireLogin: core.metadata.workflowRequireLogin,
     initialShareUrl: core.metadata.workflowShareUrl,
     missingCredentials: resources.credentialReadiness.missingCredentials,
   };
