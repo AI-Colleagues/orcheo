@@ -124,4 +124,8 @@ export const persistRunnableConfig = async (
       }),
     },
   );
+  // The cached workflow still holds the previous runnable config; drop it so the
+  // next fetch reflects the value we just persisted.
+  invalidateWorkflowCache(workflowId);
+  return targetVersion;
 };

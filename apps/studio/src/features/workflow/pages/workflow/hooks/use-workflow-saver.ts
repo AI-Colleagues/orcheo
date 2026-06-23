@@ -58,10 +58,19 @@ export function useWorkflowSaver(
       }
 
       try {
-        await persistRunnableConfig(
+        const targetVersion = await persistRunnableConfig(
           currentWorkflowId,
           "studio",
           runnableConfig,
+        );
+        // Keep the in-memory versions in sync so reopening the config sheet
+        // shows the saved values without a page refresh.
+        setWorkflowVersions((versions) =>
+          versions.map((version) =>
+            version.versionNumber === targetVersion
+              ? { ...version, runnableConfig }
+              : version,
+          ),
         );
         toast({
           title: "Workflow config saved",
@@ -76,7 +85,7 @@ export function useWorkflowSaver(
         });
       }
     },
-    [currentWorkflowId, workflowName],
+    [currentWorkflowId, setWorkflowVersions, workflowName],
   );
 
   const handleSaveWorkflowDetails = useCallback(async () => {
