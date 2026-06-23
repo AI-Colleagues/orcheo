@@ -152,6 +152,111 @@ describe("WorkflowGalleryTabs", () => {
     expect(screen.getAllByTestId("workflow-card")).toHaveLength(1);
   });
 
+  it("groups candidates into sections mirroring the colleagues layout", async () => {
+    const baseTemplate = {
+      name: "Candidate",
+      description: "",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      owner: { id: "owner-1", name: "Owner", avatar: "" },
+      tags: ["template"],
+      nodes: [],
+      edges: [],
+    };
+    renderTabs(
+      <WorkflowGalleryTabs
+        selectedTab="templates"
+        onSelectedTabChange={vi.fn()}
+        isLoading={false}
+        sortedWorkflows={[
+          { ...baseTemplate, id: "template-chat_interviewer" },
+          { ...baseTemplate, id: "template-general_assistant" },
+          {
+            ...baseTemplate,
+            id: "template-knowledge_desk-knowledge_guide",
+            candidateGroup: "knowledge_desk",
+          },
+          {
+            ...baseTemplate,
+            id: "template-knowledge_desk-web_archivist",
+            candidateGroup: "knowledge_desk",
+          },
+          {
+            ...baseTemplate,
+            id: "template-news_desk-feed_curator",
+            candidateGroup: "news_desk",
+          },
+        ]}
+        tabCounts={{ all: 0, pinned: 0, templates: 5 }}
+        isTemplateView
+        workspaceLabel="AI Company"
+        searchQuery=""
+        onSearchQueryChange={vi.fn()}
+        onImportStarterPack={vi.fn()}
+        onOpenWorkflow={vi.fn()}
+        onUseTemplate={vi.fn()}
+        onExportWorkflow={vi.fn()}
+        onDeleteWorkflow={vi.fn()}
+      />,
+    );
+
+    // Underscored folder names become sentence-case section labels.
+    const knowledgeHeader = screen.getByRole("button", {
+      name: /Knowledge desk 2/i,
+    });
+    expect(knowledgeHeader).toBeTruthy();
+    expect(screen.getByRole("button", { name: /News desk 1/i })).toBeTruthy();
+    // Independent candidates are not wrapped in a section.
+    expect(
+      screen.queryByRole("button", { name: /Chat interviewer/i }),
+    ).toBeNull();
+    // Two independents + three grouped candidates.
+    expect(screen.getAllByTestId("workflow-card")).toHaveLength(5);
+
+    // Collapsing a group hides only that group's cards.
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+    await user.click(knowledgeHeader);
+    expect(screen.getAllByTestId("workflow-card")).toHaveLength(3);
+  });
+
+  it("keeps candidates flat when none belong to a group", () => {
+    const baseTemplate = {
+      name: "Candidate",
+      description: "",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      owner: { id: "owner-1", name: "Owner", avatar: "" },
+      tags: ["template"],
+      nodes: [],
+      edges: [],
+    };
+    renderTabs(
+      <WorkflowGalleryTabs
+        selectedTab="templates"
+        onSelectedTabChange={vi.fn()}
+        isLoading={false}
+        sortedWorkflows={[
+          { ...baseTemplate, id: "template-chat_interviewer" },
+          { ...baseTemplate, id: "template-insight_analyst" },
+        ]}
+        tabCounts={{ all: 0, pinned: 0, templates: 2 }}
+        isTemplateView
+        workspaceLabel="AI Company"
+        searchQuery=""
+        onSearchQueryChange={vi.fn()}
+        onImportStarterPack={vi.fn()}
+        onOpenWorkflow={vi.fn()}
+        onUseTemplate={vi.fn()}
+        onExportWorkflow={vi.fn()}
+        onDeleteWorkflow={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /desk/i })).toBeNull();
+    expect(screen.getAllByTestId("workflow-card")).toHaveLength(2);
+  });
+
   it("shows empty team sections with no cards inside", () => {
     renderTabs(
       <WorkflowGalleryTabs
