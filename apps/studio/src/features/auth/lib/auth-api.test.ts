@@ -28,7 +28,11 @@ afterEach(() => {
 describe("auth-api", () => {
   it("posts to email/start and resolves on success", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ status: "sent" }));
-    await startEmailChallenge("alice@example.com", "signup", "/workflows/abc?tab=runs");
+    await startEmailChallenge(
+      "alice@example.com",
+      "signup",
+      "/workflows/abc?tab=runs",
+    );
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toContain("/api/auth/email/start");
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
@@ -64,9 +68,14 @@ describe("auth-api", () => {
 
   it("surfaces the backend error message on verify failure", async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse({ detail: { message: "Invalid or expired challenge." } }, 400),
+      jsonResponse(
+        { detail: { message: "Invalid or expired challenge." } },
+        400,
+      ),
     );
-    await expect(verifyEmailToken("bad")).rejects.toThrow(/invalid or expired/i);
+    await expect(verifyEmailToken("bad")).rejects.toThrow(
+      /invalid or expired/i,
+    );
   });
 
   it("rotates tokens on refresh and returns true", async () => {
@@ -80,6 +89,45 @@ describe("auth-api", () => {
     );
     expect(await refreshSession()).toBe(true);
     expect(getAuthTokens()?.refreshToken).toBe("r-new");
+  });
+
+  it("shares one in-flight refresh across concurrent callers", async () => {
+    setAuthTokens({ accessToken: "old", refreshToken: "r-old" });
+    let resolveRefresh: (response: Response) => void = () => undefined;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveRefresh = resolve;
+      }),
+    );
+
+    const first = refreshSession();
+    const second = refreshSession();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveRefresh(
+      jsonResponse({
+        access_token: "new",
+        refresh_token: "r-new",
+        expires_in: 900,
+      }),
+    );
+
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+    expect(getAuthTokens()?.refreshToken).toBe("r-new");
+  });
+
+  it("does not clear a newer session when a stale refresh fails", async () => {
+    setAuthTokens({ accessToken: "old", refreshToken: "r-old" });
+    fetchMock.mockImplementationOnce(async () => {
+      setAuthTokens({ accessToken: "new", refreshToken: "r-new" });
+      return jsonResponse({}, 401);
+    });
+
+    expect(await refreshSession()).toBe(false);
+    expect(getAuthTokens()).toMatchObject({
+      accessToken: "new",
+      refreshToken: "r-new",
+    });
   });
 
   it("returns false and clears the session on refresh failure", async () => {
