@@ -1184,8 +1184,8 @@ def _resolve_required_auth_config(
 
     Returns ``(jwt_secret, issuer, audience)``. The HS256 signing secret is
     preserved from the existing .env or generated when absent; the issuer
-    defaults to the HTTPS backend URL and the audience falls back to the
-    first-party IdP default.
+    defaults to the HTTPS backend URL when available and the audience falls
+    back to the first-party IdP default.
     """
     if not auth_mode_required:
         return None, None, None
@@ -1201,9 +1201,14 @@ def _resolve_required_auth_config(
     )
 
     jwt_secret = existing_secret or secrets.token_hex(32)
+    issuer_default = (
+        backend_url
+        if _backend_url_requires_https_auth(backend_url)
+        else _DEFAULT_AUTH_ISSUER
+    )
     issuer = _resolve_defaulted_env_prompt(
         label="Auth issuer",
-        current_value=existing_issuer or backend_url or _DEFAULT_AUTH_ISSUER,
+        current_value=existing_issuer or issuer_default,
         yes=yes,
     )
     audience = _resolve_defaulted_env_prompt(

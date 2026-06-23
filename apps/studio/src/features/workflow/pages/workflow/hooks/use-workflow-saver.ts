@@ -63,8 +63,9 @@ export function useWorkflowSaver(
           "studio",
           runnableConfig,
         );
-        // Keep the in-memory versions in sync so reopening the config sheet
-        // shows the saved values without a page refresh.
+        // Keep the in-memory runnable config in sync so reopening the config
+        // sheet shows the saved values without a page refresh. Other persisted
+        // fields will refresh on the next full workflow fetch.
         setWorkflowVersions((versions) =>
           versions.map((version) =>
             version.versionNumber === targetVersion

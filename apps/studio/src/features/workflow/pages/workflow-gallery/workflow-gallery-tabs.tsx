@@ -114,15 +114,17 @@ export const WorkflowGalleryTabs = ({
     return (
       <div className="flex flex-col gap-1 pb-6">
         {independents.length > 0 ? renderGrid(independents) : null}
-        {[...byGroup.entries()].map(([slug, items]) => (
-          <TeamSection
-            key={slug}
-            name={formatCandidateGroupName(slug)}
-            count={items.length}
-          >
-            {renderGrid(items)}
-          </TeamSection>
-        ))}
+        {[...byGroup.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([slug, items]) => (
+            <TeamSection
+              key={slug}
+              name={formatCandidateGroupName(slug)}
+              count={items.length}
+            >
+              {renderGrid(items)}
+            </TeamSection>
+          ))}
       </div>
     );
   };

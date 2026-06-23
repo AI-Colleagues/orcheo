@@ -206,6 +206,11 @@ describe("WorkflowGalleryTabs", () => {
     });
     expect(knowledgeHeader).toBeTruthy();
     expect(screen.getByRole("button", { name: /News desk 1/i })).toBeTruthy();
+    expect(
+      knowledgeHeader.compareDocumentPosition(
+        screen.getByRole("button", { name: /News desk 1/i }),
+      ),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     // Independent candidates are not wrapped in a section.
     expect(
       screen.queryByRole("button", { name: /Chat interviewer/i }),
@@ -268,7 +273,12 @@ describe("WorkflowGalleryTabs", () => {
         isTemplateView={false}
         teams={[
           { id: "team-default", slug: "acme", name: "Acme", is_default: true },
-          { id: "team-eng", slug: "engineering", name: "Engineering", is_default: false },
+          {
+            id: "team-eng",
+            slug: "engineering",
+            name: "Engineering",
+            is_default: false,
+          },
         ]}
         workspaceLabel="Acme"
         searchQuery=""

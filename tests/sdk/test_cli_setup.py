@@ -1168,6 +1168,39 @@ def test_read_env_value_and_warn(tmp_path):
     assert "ChatKit domain key" in console.file.getvalue()
 
 
+def test_resolve_required_auth_config_ignores_http_backend_url_for_issuer_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    monkeypatch.setattr(secrets, "token_hex", lambda _: "generated-secret")
+
+    prompts: list[tuple[str, str]] = []
+
+    def _prompt(prompt: str, *, default: str = "", **_: object) -> str:
+        prompts.append((prompt, default))
+        return default
+
+    monkeypatch.setattr(setup.typer, "prompt", _prompt)
+
+    jwt_secret, issuer, audience = setup._resolve_required_auth_config(
+        auth_mode_required=True,
+        backend_url="http://localhost:8000",
+        yes=False,
+        env_file=env_file,
+        env_exists=False,
+    )
+
+    assert jwt_secret == "generated-secret"
+    assert issuer == setup._DEFAULT_AUTH_ISSUER
+    assert audience == setup._DEFAULT_AUTH_AUDIENCE
+    assert prompts == [
+        ("Auth issuer", setup._DEFAULT_AUTH_ISSUER),
+        ("Auth audience", setup._DEFAULT_AUTH_AUDIENCE),
+    ]
+
+
 def test_mask_chatkit_domain_key_preserves_short_values() -> None:
     assert setup._mask_chatkit_domain_key("abc") == "abc"
     assert setup._mask_chatkit_domain_key("abcd") == "abcd"
