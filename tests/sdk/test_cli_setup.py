@@ -426,7 +426,7 @@ def test_resolve_https_auth_config_uses_current_values_as_defaults(
     ]
 
 
-def test_resolve_https_auth_config_falls_back_to_first_party_defaults(
+def test_resolve_https_auth_config_defaults_issuer_to_backend_url(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -450,10 +450,10 @@ def test_resolve_https_auth_config_falls_back_to_first_party_defaults(
     )
 
     assert jwt_secret == "generated-secret"
-    assert issuer == setup._DEFAULT_AUTH_ISSUER
+    assert issuer == "https://orcheo.example.com"
     assert audience == setup._DEFAULT_AUTH_AUDIENCE
     assert prompts == [
-        ("Auth issuer", setup._DEFAULT_AUTH_ISSUER),
+        ("Auth issuer", "https://orcheo.example.com"),
         ("Auth audience", setup._DEFAULT_AUTH_AUDIENCE),
     ]
 
@@ -891,12 +891,7 @@ def test_run_setup_https_backend_prompts_auth_and_chatkit_from_current_values(
         ("Auth issuer", "https://issuer.example.com/", True),
         ("Auth audience", "current-audience", True),
         ("ChatKit domain key", "****4989", True),
-        (
-            "SMTP host for transactional email (invites and sign-in links) - "
-            "press Enter to skip (links/codes are logged instead)",
-            "",
-            False,
-        ),
+        ("SMTP host", "", False),
     ]
     assert "confirm:Install Orcheo skill for Claude Code and Codex?" in events
     assert events.index("prompt:Auth issuer") < events.index(
@@ -1192,7 +1187,7 @@ def test_resolve_https_auth_config_generates_secret_and_defaults_when_yes(
         env_exists=False,
     ) == (
         "generated-secret",
-        setup._DEFAULT_AUTH_ISSUER,
+        "https://orcheo.example.com",
         setup._DEFAULT_AUTH_AUDIENCE,
     )
 
