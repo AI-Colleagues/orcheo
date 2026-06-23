@@ -1065,8 +1065,7 @@ def _resolve_smtp_email_config(
         if host is None:
             host = _normalize_optional_value(
                 typer.prompt(
-                    "SMTP host for transactional email (invites and sign-in links) - "
-                    "press Enter to skip (links/codes are logged instead)",
+                    "SMTP host",
                     default="",
                     show_default=False,
                 )
@@ -1176,6 +1175,7 @@ def _resolve_defaulted_env_prompt(
 def _resolve_required_auth_config(
     *,
     auth_mode_required: bool,
+    backend_url: str,
     yes: bool,
     env_file: Path,
     env_exists: bool,
@@ -1183,8 +1183,9 @@ def _resolve_required_auth_config(
     """Resolve first-party auth settings when the backend requires auth.
 
     Returns ``(jwt_secret, issuer, audience)``. The HS256 signing secret is
-    preserved from the existing .env or generated when absent; issuer and
-    audience fall back to the first-party IdP defaults.
+    preserved from the existing .env or generated when absent; the issuer
+    defaults to the HTTPS backend URL when available and the audience falls
+    back to the first-party IdP default.
     """
     if not auth_mode_required:
         return None, None, None
@@ -1200,9 +1201,14 @@ def _resolve_required_auth_config(
     )
 
     jwt_secret = existing_secret or secrets.token_hex(32)
+    issuer_default = (
+        backend_url
+        if _backend_url_requires_https_auth(backend_url)
+        else _DEFAULT_AUTH_ISSUER
+    )
     issuer = _resolve_defaulted_env_prompt(
         label="Auth issuer",
-        current_value=existing_issuer or _DEFAULT_AUTH_ISSUER,
+        current_value=existing_issuer or issuer_default,
         yes=yes,
     )
     audience = _resolve_defaulted_env_prompt(
@@ -1223,6 +1229,7 @@ def _resolve_https_auth_config(
     """Backward-compatible wrapper for the required-auth resolver."""
     return _resolve_required_auth_config(
         auth_mode_required=_backend_url_requires_https_auth(backend_url),
+        backend_url=backend_url,
         yes=yes,
         env_file=env_file,
         env_exists=env_exists,
@@ -1856,19 +1863,12 @@ def run_setup(
         resolved_auth_audience,
     ) = _resolve_required_auth_config(
         auth_mode_required=resolved_auth_mode_required,
+        backend_url=auth_backend_url,
         yes=yes,
         env_file=stack_env_file,
         env_exists=has_existing_stack_env,
     )
     resolved_auth_mode = _resolve_auth_mode(auth_mode, yes=yes)
-    (
-        resolved_start_stack,
-        resolved_install_docker,
-    ) = _resolve_setup_toggles(
-        start_stack=start_stack,
-        install_docker=install_docker,
-        yes=yes,
-    )
 
     resolved_api_key = _resolve_api_key(
         resolved_auth_mode,
@@ -1897,6 +1897,14 @@ def run_setup(
     resolved_backend_upstreams, resolved_studio_upstream = _resolve_stack_upstreams(
         stack_env_file,
         env_exists=has_existing_stack_env,
+    )
+    (
+        resolved_start_stack,
+        resolved_install_docker,
+    ) = _resolve_setup_toggles(
+        start_stack=start_stack,
+        install_docker=install_docker,
+        yes=yes,
     )
     resolved_install_agent_skills = _resolve_bool(
         None,

@@ -27,6 +27,33 @@ export interface CandidateBadgeDefinition extends CandidateBadgeSpec {
   templateDefinition: WorkflowTemplateDefinition;
 }
 
+/**
+ * Derive a candidate's group slug from its colleague-candidates directory path.
+ *
+ * Candidates are grouped one level under `colleagues/`: a directory that holds a
+ * `workflow.py` directly (no slash in the id) is independent and returns null,
+ * while a nested path such as `news_desk/feed_curator` belongs to the
+ * `news_desk` group.
+ */
+export const candidateGroupSlug = (
+  candidateId: string | null | undefined,
+): string | null => {
+  if (!candidateId) {
+    return null;
+  }
+  const separator = candidateId.indexOf("/");
+  return separator === -1 ? null : candidateId.slice(0, separator);
+};
+
+/**
+ * Turn an underscored group slug into a display label, e.g.
+ * `news_desk` → `News desk`.
+ */
+export const formatCandidateGroupName = (slug: string): string => {
+  const spaced = slug.replace(/_/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+};
+
 const toStringArray = (value: unknown): string[] | undefined => {
   if (!Array.isArray(value)) {
     return undefined;
@@ -70,6 +97,7 @@ const buildCandidateWorkflow = (
     handle: preserveHandle,
     name: spec.name,
     description: spec.description,
+    candidateGroup: candidateGroupSlug(spec.candidateId),
     avatarEmoji: avatarId,
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",

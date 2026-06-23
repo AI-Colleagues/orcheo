@@ -34,6 +34,12 @@ export interface Workflow {
   id: string;
   handle?: string;
   teamId?: string | null;
+  /**
+   * Group slug for candidate colleagues, derived from the first path segment
+   * of the colleague-candidates directory (e.g. "news_desk"). Null when the
+   * candidate lives directly under `colleagues/` and is therefore independent.
+   */
+  candidateGroup?: string | null;
   name: string;
   description?: string;
   avatarEmoji?: string | null;

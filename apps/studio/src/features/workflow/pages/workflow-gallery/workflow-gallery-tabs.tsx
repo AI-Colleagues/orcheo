@@ -9,6 +9,7 @@ import {
 } from "@/design-system/ui/tabs";
 import { Loader2, Search, Upload, Zap } from "lucide-react";
 import { type Workflow } from "@features/workflow/data/workflow-data";
+import { formatCandidateGroupName } from "@features/workflow/data/templates/candidate-badges";
 import { type ApiTeam } from "@features/workflow/lib/workflow-storage-api";
 import { UploadWorkflowDialog } from "@features/workflow/components/dialogs/upload-workflow-dialog";
 import { useUploadsAllowed } from "@/hooks/use-uploads-allowed";
@@ -84,11 +85,55 @@ export const WorkflowGalleryTabs = ({
     </div>
   );
 
-  // Group colleagues into vertical, collapsible team sections. Candidate
-  // (template) view stays flat since candidates are not yet assigned a team.
+  // Group candidates into vertical, collapsible sections that mirror the
+  // grouping of the colleague-candidates repository (one level under
+  // `colleagues/`). Independent candidates — those that live directly under
+  // `colleagues/` — stay in a flat grid above the grouped sections.
+  const renderCandidates = () => {
+    const independents: Workflow[] = [];
+    const byGroup = new Map<string, Workflow[]>();
+    for (const workflow of sortedWorkflows) {
+      const group = workflow.candidateGroup;
+      if (!group) {
+        independents.push(workflow);
+        continue;
+      }
+      const bucket = byGroup.get(group);
+      if (bucket) {
+        bucket.push(workflow);
+      } else {
+        byGroup.set(group, [workflow]);
+      }
+    }
+
+    // Nothing is grouped — keep the flat grid.
+    if (byGroup.size === 0) {
+      return renderGrid(sortedWorkflows);
+    }
+
+    return (
+      <div className="flex flex-col gap-1 pb-6">
+        {independents.length > 0 ? renderGrid(independents) : null}
+        {[...byGroup.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([slug, items]) => (
+            <TeamSection
+              key={slug}
+              name={formatCandidateGroupName(slug)}
+              count={items.length}
+            >
+              {renderGrid(items)}
+            </TeamSection>
+          ))}
+      </div>
+    );
+  };
+
+  // Group colleagues into vertical, collapsible team sections. Candidates are
+  // grouped to mirror the colleague-candidates repository layout instead.
   const renderColleagues = () => {
     if (isTemplateView) {
-      return renderGrid(sortedWorkflows);
+      return renderCandidates();
     }
 
     // No teams yet — fall back to flat grid (e.g. during first load).
