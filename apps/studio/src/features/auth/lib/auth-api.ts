@@ -39,6 +39,8 @@ const persistTokens = (payload: TokenPayload): void => {
   });
 };
 
+let refreshInFlight: Promise<boolean> | null = null;
+
 const readErrorMessage = async (
   response: Response,
   fallback: string,
@@ -128,28 +130,44 @@ export const verifyEmailCode = (
  * is missing, invalid, or revoked.
  */
 export const refreshSession = async (): Promise<boolean> => {
+  if (refreshInFlight) {
+    return refreshInFlight;
+  }
+
+  refreshInFlight = refreshSessionOnce().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+};
+
+const refreshSessionOnce = async (): Promise<boolean> => {
   const tokens = getAuthTokens();
   if (!tokens?.refreshToken) {
     return false;
   }
+  const refreshToken = tokens.refreshToken;
   let response: Response;
   try {
     response = await fetch(authUrl("/refresh"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: tokens.refreshToken }),
+      body: JSON.stringify({ refresh_token: refreshToken }),
     });
   } catch {
     return false;
   }
   if (!response.ok) {
-    clearAuthSession();
+    if (getAuthTokens()?.refreshToken === refreshToken) {
+      clearAuthSession();
+    }
     return false;
   }
   try {
     persistTokens((await response.json()) as TokenPayload);
   } catch {
-    clearAuthSession();
+    if (getAuthTokens()?.refreshToken === refreshToken) {
+      clearAuthSession();
+    }
     return false;
   }
   return true;
