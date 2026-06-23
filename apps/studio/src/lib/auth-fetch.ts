@@ -6,17 +6,19 @@ import {
 import { refreshSession } from "@features/auth/lib/auth-api";
 import { getWorkspaceSelectionHeaders } from "./workspace-session";
 
-const buildAuthHeaders = (init: RequestInit): Headers => {
-  const headers = new Headers(init.headers ?? {});
+const buildAuthHeaders = (
+  headers: Headers,
+  shouldAttachAuth: boolean,
+): string | null => {
   const token = getAccessToken();
-  if (token && !headers.has("Authorization")) {
+  if (token && shouldAttachAuth) {
     headers.set("Authorization", `Bearer ${token}`);
   }
   const devSession = getDevAuthSessionHeaderValue();
   if (devSession && !headers.has("X-Orcheo-Dev-Session")) {
     headers.set("X-Orcheo-Dev-Session", devSession);
   }
-  return headers;
+  return shouldAttachAuth ? token : null;
 };
 
 const attachWorkspaceHeaders = (headers: Headers): void => {
@@ -38,35 +40,62 @@ const fetchWithHeaders = (
     headers,
   });
 
+const buildRequestHeaders = (
+  init: RequestInit,
+  shouldAttachAuth: boolean,
+  includeWorkspaceHeaders: boolean,
+  headers = new Headers(init.headers ?? {}),
+): { headers: Headers; accessToken: string | null } => {
+  const accessToken = buildAuthHeaders(headers, shouldAttachAuth);
+  if (includeWorkspaceHeaders) {
+    attachWorkspaceHeaders(headers);
+  }
+  return { headers, accessToken };
+};
+
 export const authFetch = async (
   input: RequestInfo | URL,
   init: RequestInit = {},
   options: { includeWorkspaceHeaders?: boolean } = {},
 ): Promise<Response> => {
-  const shouldAttachAuth = !new Headers(init.headers ?? {}).has(
-    "Authorization",
-  );
+  const originalHeaders = new Headers(init.headers ?? {});
+  const shouldAttachAuth = !originalHeaders.has("Authorization");
+  // getAccessToken includes the shared 60-second expiry skew, so nearly expired
+  // tokens are treated as missing and refreshed before protected requests.
   if (shouldAttachAuth && !getAccessToken() && getAuthTokens()?.refreshToken) {
     await refreshSession();
   }
 
-  const headers = buildAuthHeaders(init);
-  if (options.includeWorkspaceHeaders ?? true) {
-    attachWorkspaceHeaders(headers);
-  }
+  const includeWorkspaceHeaders = options.includeWorkspaceHeaders ?? true;
+  const { headers, accessToken: requestAccessToken } = buildRequestHeaders(
+    init,
+    shouldAttachAuth,
+    includeWorkspaceHeaders,
+    originalHeaders,
+  );
   const response = await fetchWithHeaders(input, init, headers);
-  if (
-    response.status !== 401 ||
-    !shouldAttachAuth ||
-    !getAuthTokens()?.refreshToken ||
-    !(await refreshSession())
-  ) {
+  if (response.status !== 401 || !shouldAttachAuth) {
     return response;
   }
 
-  const retryHeaders = buildAuthHeaders(init);
-  if (options.includeWorkspaceHeaders ?? true) {
-    attachWorkspaceHeaders(retryHeaders);
+  const currentAccessToken = getAccessToken();
+  if (currentAccessToken && currentAccessToken !== requestAccessToken) {
+    const { headers: retryHeaders } = buildRequestHeaders(
+      init,
+      shouldAttachAuth,
+      includeWorkspaceHeaders,
+    );
+    return fetchWithHeaders(input, init, retryHeaders);
   }
+
+  if (!getAuthTokens()?.refreshToken || !(await refreshSession())) {
+    return response;
+  }
+
+  const { headers: retryHeaders } = buildRequestHeaders(
+    init,
+    shouldAttachAuth,
+    includeWorkspaceHeaders,
+  );
   return fetchWithHeaders(input, init, retryHeaders);
 };
