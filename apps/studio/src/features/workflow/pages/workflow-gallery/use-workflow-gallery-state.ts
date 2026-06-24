@@ -50,6 +50,8 @@ const toCandidateSpec = (candidate: ApiCandidate): CandidateBadgeSpec => ({
   notes: candidate.notes,
   mermaid: candidate.mermaid,
   rawMetadata: candidate.metadata,
+  version: candidate.version,
+  updates: candidate.updates,
 });
 
 const matchesWorkflowSearch = (

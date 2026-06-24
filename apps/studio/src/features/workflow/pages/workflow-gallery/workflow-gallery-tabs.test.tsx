@@ -34,6 +34,7 @@ describe("WorkflowGalleryTabs", () => {
         onUseTemplate={vi.fn()}
         onExportWorkflow={vi.fn()}
         onDeleteWorkflow={vi.fn()}
+        onUpdateCandidateWorkflow={vi.fn()}
       />,
     );
 
@@ -69,6 +70,7 @@ describe("WorkflowGalleryTabs", () => {
         onUseTemplate={vi.fn()}
         onExportWorkflow={vi.fn()}
         onDeleteWorkflow={vi.fn()}
+        onUpdateCandidateWorkflow={vi.fn()}
       />,
     );
 
@@ -93,6 +95,7 @@ describe("WorkflowGalleryTabs", () => {
         onUseTemplate={vi.fn()}
         onExportWorkflow={vi.fn()}
         onDeleteWorkflow={vi.fn()}
+        onUpdateCandidateWorkflow={vi.fn()}
       />,
     );
 
@@ -136,6 +139,7 @@ describe("WorkflowGalleryTabs", () => {
         onUseTemplate={vi.fn()}
         onExportWorkflow={vi.fn()}
         onDeleteWorkflow={vi.fn()}
+        onUpdateCandidateWorkflow={vi.fn()}
       />,
     );
 
@@ -197,6 +201,7 @@ describe("WorkflowGalleryTabs", () => {
         onUseTemplate={vi.fn()}
         onExportWorkflow={vi.fn()}
         onDeleteWorkflow={vi.fn()}
+        onUpdateCandidateWorkflow={vi.fn()}
       />,
     );
 
@@ -255,6 +260,7 @@ describe("WorkflowGalleryTabs", () => {
         onUseTemplate={vi.fn()}
         onExportWorkflow={vi.fn()}
         onDeleteWorkflow={vi.fn()}
+        onUpdateCandidateWorkflow={vi.fn()}
       />,
     );
 
@@ -288,6 +294,7 @@ describe("WorkflowGalleryTabs", () => {
         onUseTemplate={vi.fn()}
         onExportWorkflow={vi.fn()}
         onDeleteWorkflow={vi.fn()}
+        onUpdateCandidateWorkflow={vi.fn()}
       />,
     );
 

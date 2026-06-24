@@ -23,6 +23,12 @@ _WORKFLOW_WITH_FRONTMATTER = (
     '# description = "Publishes posts to LinkedIn."\n'
     '# avatar = "avatar-07"\n'
     '# subtitle = "AI Social Media"\n'
+    '# version = "1.2.0"\n'
+    "#\n"
+    "# [[updates]]\n"
+    '# version = "1.2.0"\n'
+    '# summary = "Adds publishing guardrails."\n'
+    '# migration = "Review scheduled posting windows."\n'
     "# ///\n"
     "\n"
     "graph = object()\n"
@@ -71,6 +77,14 @@ def test_parse_tarball_extracts_candidate_metadata() -> None:
     assert item.avatar == "avatar-07"
     assert item.subtitle == "AI Social Media"
     assert item.description == "Publishes posts to LinkedIn."
+    assert item.version == "1.2.0"
+    assert [note.model_dump() for note in item.updates] == [
+        {
+            "version": "1.2.0",
+            "summary": "Adds publishing guardrails.",
+            "migration": "Review scheduled posting windows.",
+        }
+    ]
 
 
 def test_parse_tarball_handles_nested_dirs_and_missing_frontmatter() -> None:

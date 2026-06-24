@@ -1,6 +1,7 @@
 import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl, getBackendBaseUrl } from "@/lib/config";
 import type {
+  CandidateUpdateNote,
   ApiTeam,
   ApiWorkflow,
   ApiWorkflowPagePayload,
@@ -179,6 +180,8 @@ export interface ApiCandidate {
   notes: string | null;
   metadata: Record<string, unknown> | null;
   mermaid: string | null;
+  version: string | null;
+  updates: CandidateUpdateNote[];
 }
 
 export const fetchCandidates = async (): Promise<ApiCandidate[]> =>
@@ -211,6 +214,18 @@ export const onboardCandidate = async (
     body: JSON.stringify({
       id: candidateId,
       ...(teamId ? { team_id: teamId } : {}),
+    }),
+  });
+
+export const updateCandidateWorkflow = async (
+  workflowId: string,
+  candidateId: string,
+): Promise<ApiWorkflow> =>
+  request<ApiWorkflow>("/api/candidates/update", {
+    method: "POST",
+    body: JSON.stringify({
+      workflow_id: workflowId,
+      candidate_id: candidateId,
     }),
   });
 

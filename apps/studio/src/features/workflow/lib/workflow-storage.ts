@@ -16,6 +16,7 @@ import {
   fetchWorkflowVersions,
   onboardCandidate,
   request,
+  updateCandidateWorkflow,
   upsertWorkflow,
 } from "./workflow-storage-api";
 import {
@@ -467,6 +468,22 @@ export const onboardCandidateAsWorkflow = async (
     throw new Error("Failed to load onboarded workflow");
   }
   invalidateWorkflowListCache();
+  primeWorkflowCache(stored);
+  emitUpdate();
+  return stored;
+};
+
+export const updateCandidateWorkflowAsLatest = async (
+  workflowId: string,
+  candidateId: string,
+): Promise<StoredWorkflow> => {
+  const apiWorkflow = await updateCandidateWorkflow(workflowId, candidateId);
+  invalidateWorkflowCache(apiWorkflow.id);
+  invalidateWorkflowListCache();
+  const stored = await ensureWorkflow(apiWorkflow.id);
+  if (!stored) {
+    throw new Error("Failed to load updated workflow");
+  }
   primeWorkflowCache(stored);
   emitUpdate();
   return stored;

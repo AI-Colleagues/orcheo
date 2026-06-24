@@ -97,6 +97,33 @@ const extractAvatarEmoji = (metadata: unknown): string | undefined => {
   return undefined;
 };
 
+const extractCandidateSource = (
+  metadata: unknown,
+): WorkflowVersionMetadata["candidateSource"] => {
+  if (!isRecord(metadata) || metadata.source !== "candidate-onboard") {
+    return undefined;
+  }
+
+  return {
+    candidateId:
+      typeof metadata.candidate_id === "string"
+        ? metadata.candidate_id
+        : undefined,
+    candidateHandle:
+      typeof metadata.candidate_handle === "string"
+        ? metadata.candidate_handle
+        : undefined,
+    candidateVersion:
+      typeof metadata.candidate_version === "string"
+        ? metadata.candidate_version
+        : undefined,
+    candidateSourceRef:
+      typeof metadata.candidate_source_ref === "string"
+        ? metadata.candidate_source_ref
+        : undefined,
+  };
+};
+
 const toAuthor = (id: string | undefined): Workflow["owner"] => {
   if (!id) {
     return { ...DEFAULT_OWNER };
@@ -178,6 +205,7 @@ const parseWorkflowMetadata = (
     isRecord(metadata) ? metadata.configurable_schema : undefined,
   );
   const avatarEmoji = extractAvatarEmoji(metadata);
+  const candidateSource = extractCandidateSource(metadata);
   const resolveTemplateFallback = (): WorkflowVersionMetadata | undefined => {
     if (!metadata || typeof metadata !== "object") {
       return undefined;
@@ -204,6 +232,7 @@ const parseWorkflowMetadata = (
       templateId,
       configurableSchemas,
       avatarEmoji,
+      candidateSource,
     };
   };
 
@@ -214,6 +243,7 @@ const parseWorkflowMetadata = (
       templateId: undefined,
       configurableSchemas: undefined,
       avatarEmoji: undefined,
+      candidateSource: undefined,
     };
   }
 
@@ -226,6 +256,7 @@ const parseWorkflowMetadata = (
         summary: { ...DEFAULT_SUMMARY },
         configurableSchemas,
         avatarEmoji,
+        candidateSource,
       }
     );
   }
@@ -280,6 +311,7 @@ const parseWorkflowMetadata = (
     templateId,
     configurableSchemas,
     avatarEmoji,
+    candidateSource,
   };
 };
 
@@ -337,6 +369,7 @@ const toVersionRecord = (
     graphToWorkflow: metadata.graphToWorkflow,
     templateId: metadata.templateId,
     avatarEmoji: metadata.avatarEmoji,
+    candidateSource: metadata.candidateSource,
   };
 };
 

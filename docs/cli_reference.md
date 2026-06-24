@@ -264,8 +264,9 @@ Workflow `.py` files may include an optional PEP 723-style metadata block. When 
 # id = "wf-abc123"
 # config = "./my-workflow.config.json"
 # entrypoint = "build_graph"
-# emoji = "🤖"
+# avatar = "avatar-07"
 # subtitle = "AI Assistant"
+# version = "1.3.0"
 # ///
 
 from langgraph.graph import StateGraph
@@ -280,12 +281,42 @@ Supported fields (all optional):
 - `id` (or `handle`) – workflow reference; when set, the upload updates this existing workflow instead of creating a new one.
 - `config` – path to a companion JSON runnable config file. Relative paths resolve against the workflow file's directory.
 - `entrypoint` – LangGraph entrypoint function/variable name.
-- `emoji` – emoji shown on the colleague's Candidates badge in Studio.
+- `avatar` – avatar id shown on the colleague's Candidates badge in Studio.
 - `subtitle` – short role line shown on the Candidates badge.
 - `notes` – free-form notes describing the workflow template.
 - `metadata` – a `[metadata]` table of template compatibility info (e.g. `required_plugins`, `validated_provider_api`).
+- `version` – candidate release version in strict `MAJOR.MINOR.PATCH` format. Versions with a leading `v`, prerelease suffix, build metadata, missing segments, or leading zero segments are rejected.
+- `updates` – a `[[updates]]` table array for candidate release notes. Each entry requires `version` and `summary`; `migration` is optional.
 
 The block is parsed as TOML; only the fields above are accepted. CLI flags (`--name`, `--id`, `--config-file`, `--entrypoint`) always win over the frontmatter values.
+
+Candidate workflows can use versioned update notes so Studio can show update
+availability for onboarded colleagues:
+
+```python
+# /// orcheo
+# name = "Insight Analyst"
+# handle = "insight-analyst"
+# version = "1.3.0"
+# notes = "Best used with uploaded research documents."
+#
+# [[updates]]
+# version = "1.3.0"
+# summary = "Adds source-quality checks before insight synthesis."
+# migration = "Review custom prompt overrides if they assume every source is accepted."
+#
+# [[updates]]
+# version = "1.2.0"
+# summary = "Improves citation formatting and report structure."
+# ///
+```
+
+Use patch bumps for bug fixes and low-risk prompt or formatting improvements,
+minor bumps for backwards-compatible capability changes, and major bumps when
+the workflow changes required inputs, credential expectations, output contracts,
+or operator behavior. Add `migration` whenever users may need to review custom
+prompts, runnable config overrides, credential bindings, schedules, or dependent
+automation before updating.
 
 ## Offline Mode
 

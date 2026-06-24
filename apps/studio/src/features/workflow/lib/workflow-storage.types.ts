@@ -5,6 +5,7 @@ import type {
 } from "@features/workflow/data/workflow-data";
 import type { WorkflowDiffResult, WorkflowSnapshot } from "./workflow-diff";
 import type { RJSFSchema } from "@rjsf/utils";
+import type { CandidateUpdateNote } from "./candidate-version-updates";
 
 export interface ApiTeam {
   id: string;
@@ -219,6 +220,12 @@ export interface WorkflowVersionMetadata {
   templateId?: string;
   configurableSchemas?: Record<string, RJSFSchema>;
   avatarEmoji?: string;
+  candidateSource?: {
+    candidateId?: string;
+    candidateHandle?: string;
+    candidateVersion?: string;
+    candidateSourceRef?: string;
+  };
 }
 
 export interface RequestOptions extends RequestInit {
@@ -241,7 +248,10 @@ export interface WorkflowVersionRecord {
   configurableSchemas?: Record<string, RJSFSchema>;
   graphToWorkflow?: Record<string, string>;
   templateId?: string;
+  candidateSource?: WorkflowVersionMetadata["candidateSource"];
 }
+
+export type { CandidateUpdateNote };
 
 export interface StoredWorkflow extends Workflow {
   versions: WorkflowVersionRecord[];

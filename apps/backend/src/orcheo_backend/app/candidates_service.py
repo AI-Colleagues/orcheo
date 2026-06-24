@@ -20,7 +20,7 @@ from typing import Any
 import httpx
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
 from orcheo.workflow.mermaid import render_mermaid_from_graph_payload
-from orcheo_backend.app.schemas.candidates import CandidateItem
+from orcheo_backend.app.schemas.candidates import CandidateItem, CandidateUpdateNote
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.workflow.frontmatter import parse_workflow_frontmatter
 
@@ -139,6 +139,15 @@ def _build_candidate(
         entrypoint=frontmatter.entrypoint,
         notes=frontmatter.notes,
         metadata=frontmatter.metadata,
+        version=frontmatter.version,
+        updates=[
+            CandidateUpdateNote(
+                version=note.version,
+                summary=note.summary,
+                migration=note.migration,
+            )
+            for note in (frontmatter.updates or [])
+        ],
         # Populated later by catalog preview enrichment; parsing the archive
         # itself must not execute remotely sourced Python.
         mermaid=None,

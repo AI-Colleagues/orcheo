@@ -92,6 +92,10 @@ def test_workflow_frontmatter_is_not_empty_when_populated() -> None:
     assert not frontmatter.WorkflowFrontmatter(subtitle="x").is_empty
     assert not frontmatter.WorkflowFrontmatter(notes="x").is_empty
     assert not frontmatter.WorkflowFrontmatter(metadata={"a": "b"}).is_empty
+    assert not frontmatter.WorkflowFrontmatter(version="1.0.0").is_empty
+    assert not frontmatter.WorkflowFrontmatter(
+        updates=[frontmatter.WorkflowUpdateNote(version="1.0.0", summary="x")]
+    ).is_empty
 
 
 def test_parse_returns_empty_when_no_block() -> None:
@@ -144,6 +148,59 @@ def test_parse_extracts_notes_and_metadata_table() -> None:
         "required_plugins": ["telegram-plugin"],
     }
     assert not fm.is_empty
+
+
+def test_parse_extracts_version_and_sorted_update_notes() -> None:
+    source = (
+        "# /// orcheo\n"
+        '# name = "Versioned"\n'
+        '# version = "1.3.0"\n'
+        "#\n"
+        "# [[updates]]\n"
+        '# version = "1.2.0"\n'
+        '# summary = "Improves summaries."\n'
+        "#\n"
+        "# [[updates]]\n"
+        '# version = "1.3.0"\n'
+        '# summary = "Adds source checks."\n'
+        '# migration = "Review custom prompts."\n'
+        "# ///\n"
+    )
+
+    fm = frontmatter.parse_workflow_frontmatter(source)
+
+    assert fm.version == "1.3.0"
+    assert fm.updates == [
+        frontmatter.WorkflowUpdateNote(
+            version="1.3.0",
+            summary="Adds source checks.",
+            migration="Review custom prompts.",
+        ),
+        frontmatter.WorkflowUpdateNote(
+            version="1.2.0",
+            summary="Improves summaries.",
+            migration=None,
+        ),
+    ]
+
+
+@pytest.mark.parametrize("version", ["1", "v1.2.3", "1.2", "1.2.3-beta", "01.2.3"])
+def test_parse_rejects_invalid_semver(version: str) -> None:
+    source = f'# /// orcheo\n# version = "{version}"\n# ///\n'
+    with pytest.raises(frontmatter.CLIError, match="strict SemVer"):
+        frontmatter.parse_workflow_frontmatter(source)
+
+
+def test_parse_rejects_malformed_update_notes() -> None:
+    source = '# /// orcheo\n# [[updates]]\n# version = "1.0.0"\n# ///\n'
+    with pytest.raises(frontmatter.CLIError, match="requires 'summary'"):
+        frontmatter.parse_workflow_frontmatter(source)
+
+
+def test_compare_strict_semver_orders_segments() -> None:
+    assert frontmatter.compare_strict_semver("2.0.0", "1.9.9") == 1
+    assert frontmatter.compare_strict_semver("1.3.0", "1.3.0") == 0
+    assert frontmatter.compare_strict_semver("1.2.9", "1.3.0") == -1
 
 
 def test_parse_rejects_non_table_metadata() -> None:

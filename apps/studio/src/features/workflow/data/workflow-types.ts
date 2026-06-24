@@ -28,6 +28,12 @@ export interface WorkflowMermaidPreviewVersion {
   id: string;
   mermaid?: string | null;
   templateId?: string;
+  candidateSource?: {
+    candidateId?: string;
+    candidateHandle?: string;
+    candidateVersion?: string;
+    candidateSourceRef?: string;
+  };
 }
 
 export interface Workflow {

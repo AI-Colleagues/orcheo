@@ -79,6 +79,7 @@ const createHandlers = () => ({
   onUseTemplate: vi.fn(),
   onExportWorkflow: vi.fn(),
   onDeleteWorkflow: vi.fn(),
+  onUpdateCandidateWorkflow: vi.fn(),
 });
 
 afterEach(() => {
@@ -89,12 +90,25 @@ beforeEach(() => {
   setCandidateBadges([
     {
       id: "template-insight-analyst",
+      candidateId: "insight-analyst",
       name: "Insight Analyst",
       handle: "insight-analyst",
       subtitle: "AI Insights & Analytics",
       description:
         "Detects themes from text data using advanced thematic coding frameworks.",
       avatar: "avatar-03",
+      version: "1.3.0",
+      updates: [
+        {
+          version: "1.3.0",
+          summary: "Adds source-quality checks.",
+          migration: "Review custom prompt overrides.",
+        },
+        {
+          version: "1.2.0",
+          summary: "Improves citation formatting.",
+        },
+      ],
     },
   ]);
 });
@@ -247,6 +261,124 @@ describe("WorkflowCard", () => {
     );
 
     expect(screen.getByRole("img", { hidden: true })).toBeInTheDocument();
+  });
+
+  it("shows and confirms candidate update actions for older onboarded versions", async () => {
+    const user = userEvent.setup();
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard
+        workflow={{
+          ...onboardedCandidateWorkflow,
+          versions: [
+            {
+              id: "version-1",
+              candidateSource: {
+                candidateId: "insight-analyst",
+                candidateHandle: "insight-analyst",
+                candidateVersion: "1.1.0",
+              },
+            },
+          ],
+        }}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /update candidate from 1\.1\.0 to 1\.3\.0/i,
+      }),
+    );
+
+    expect(screen.getByText("Update candidate version")).toBeInTheDocument();
+    expect(screen.getByText("Adds source-quality checks.")).toBeInTheDocument();
+    expect(screen.getByText("Improves citation formatting.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^update$/i }));
+
+    expect(handlers.onUpdateCandidateWorkflow).toHaveBeenCalledWith(
+      "workflow-onboarded-insight",
+      "insight-analyst",
+    );
+  });
+
+  it("shows compact candidate update context on hover", async () => {
+    const user = userEvent.setup();
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard
+        workflow={{
+          ...onboardedCandidateWorkflow,
+          versions: [
+            {
+              id: "version-1",
+              candidateSource: {
+                candidateId: "insight-analyst",
+                candidateHandle: "insight-analyst",
+                candidateVersion: "1.1.0",
+              },
+            },
+          ],
+        }}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
+    );
+
+    await user.hover(
+      screen.getByRole("button", {
+        name: /update candidate from 1\.1\.0 to 1\.3\.0/i,
+      }),
+    );
+
+    expect(await screen.findAllByText("Candidate update")).not.toHaveLength(0);
+    expect(screen.getAllByText("1.1.0 to 1.3.0")).not.toHaveLength(0);
+    expect(screen.getAllByText("Adds source-quality checks.")).not.toHaveLength(0);
+    expect(screen.getAllByText("Review custom prompt overrides.")).not.toHaveLength(
+      0,
+    );
+  });
+
+  it("cancels candidate updates without calling the update handler", async () => {
+    const user = userEvent.setup();
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard
+        workflow={{
+          ...onboardedCandidateWorkflow,
+          versions: [
+            {
+              id: "version-1",
+              candidateSource: {
+                candidateId: "insight-analyst",
+                candidateHandle: "insight-analyst",
+                candidateVersion: "1.1.0",
+              },
+            },
+          ],
+        }}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /update candidate from 1\.1\.0 to 1\.3\.0/i,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: /^cancel$/i }));
+
+    expect(handlers.onUpdateCandidateWorkflow).not.toHaveBeenCalled();
+    expect(screen.queryByText("Update candidate version")).toBeNull();
   });
 
   it("keeps dropdown transfer actions from triggering navigation", async () => {

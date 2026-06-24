@@ -5,6 +5,7 @@ import type {
   WorkflowTemplateDefinition,
   WorkflowTemplateMetadata,
 } from "./template-definition";
+import type { CandidateUpdateNote } from "../../lib/candidate-version-updates";
 
 export interface CandidateBadgeSpec {
   id: string;
@@ -20,6 +21,8 @@ export interface CandidateBadgeSpec {
   mermaid?: string | null;
   /** Raw snake_case metadata dict from the colleague-candidates frontmatter. */
   rawMetadata?: Record<string, unknown> | null;
+  version?: string | null;
+  updates?: CandidateUpdateNote[];
 }
 
 export interface CandidateBadgeDefinition extends CandidateBadgeSpec {
@@ -164,6 +167,11 @@ export const getCandidateBadgeByHandle = (
   handle: string,
 ): CandidateBadgeDefinition | undefined =>
   candidateBadges.find((badge) => badge.handle === handle);
+
+export const getCandidateBadgeByCandidateId = (
+  candidateId: string,
+): CandidateBadgeDefinition | undefined =>
+  candidateBadges.find((badge) => badge.candidateId === candidateId);
 
 export const getCandidateTemplateDefinition = (
   templateId: string,
