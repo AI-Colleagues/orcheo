@@ -77,17 +77,22 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
   useEffect(() => {
     let isMounted = true;
 
-    const loadCandidates = async () => {
+    const loadCandidates = async (existingWorkflows?: StoredWorkflow[]) => {
       try {
         // Load both candidates and existing workflows to check for handle conflicts
-        const [candidates, existingWorkflows] = await Promise.all([
+        const [candidates, workflowsForConflicts] = await Promise.all([
           fetchCandidates(),
-          listWorkflows(),
+          existingWorkflows
+            ? Promise.resolve(existingWorkflows)
+            : listWorkflows(),
         ]);
         if (!isMounted) {
           return;
         }
-        setCandidateBadges(candidates.map(toCandidateSpec), existingWorkflows);
+        setCandidateBadges(
+          candidates.map(toCandidateSpec),
+          workflowsForConflicts,
+        );
         setCandidateWorkflows(getCandidateWorkflows());
       } catch (error) {
         if (isMounted) {
@@ -96,26 +101,8 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
       }
     };
 
-    void loadCandidates();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  const refreshTeams = useCallback(async () => {
-    try {
-      const teamList = await fetchTeams();
-      setTeams(teamList);
-    } catch {
-      // non-fatal — teams list will stay stale
-    }
-  }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const load = async (forceRefresh = false) => {
+    const load = async (forceRefresh = false, refreshCandidates = false) => {
+      let loadedWorkflows: StoredWorkflow[] | undefined;
       if (isMounted) {
         setIsLoadingWorkflows(true);
       }
@@ -124,6 +111,7 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
           listWorkflows({ forceRefresh }),
           fetchTeams().catch(() => [] as ApiTeam[]),
         ]);
+        loadedWorkflows = items;
         if (isMounted) {
           setWorkflows(items);
           setTeams(teamList);
@@ -145,14 +133,19 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
           setIsLoadingWorkflows(false);
         }
       }
+
+      if (refreshCandidates && loadedWorkflows) {
+        await loadCandidates(loadedWorkflows);
+      }
     };
 
+    void loadCandidates();
     void load();
 
     const targetWindow = typeof window !== "undefined" ? window : undefined;
     if (targetWindow) {
       const handler = () => {
-        void load(true);
+        void load(true, true);
       };
       targetWindow.addEventListener(WORKFLOW_STORAGE_EVENT, handler);
 
@@ -165,6 +158,15 @@ export const useWorkflowGalleryState = (): WorkflowGalleryStateSlice => {
     return () => {
       isMounted = false;
     };
+  }, []);
+
+  const refreshTeams = useCallback(async () => {
+    try {
+      const teamList = await fetchTeams();
+      setTeams(teamList);
+    } catch {
+      // non-fatal — teams list will stay stale
+    }
   }, []);
 
   const templates = useMemo(
