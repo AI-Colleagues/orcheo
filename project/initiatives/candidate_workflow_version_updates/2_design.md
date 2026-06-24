@@ -139,7 +139,7 @@ Body:
   candidate_id: string
 ```
 
-The endpoint should be idempotent for already-current colleagues: if installed version equals latest candidate version, return `409` with code `candidate.no_update_available` or `200` with no mutation and a clear `updated=false` response. Choose one behavior and document it consistently before implementation.
+The endpoint returns `409` with code `candidate.no_update_available` for already-current colleagues and performs no mutation.
 
 ## Data Models / Schemas
 

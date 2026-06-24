@@ -9,6 +9,7 @@ import { getCandidateBadgeDefinition } from "@features/workflow/data/templates/c
 import {
   deleteWorkflow,
   onboardCandidateAsWorkflow,
+  updateCandidateWorkflowVersion,
 } from "@features/workflow/lib/workflow-storage";
 import {
   type ApiTeam,
@@ -104,10 +105,9 @@ export const useWorkflowGalleryActions = (
   const handleOpenWorkflow = useCallback(
     (workflowId: string, teamSlug?: string) => {
       const slug = getSelectedWorkspaceSlug();
-      const path =
-        teamSlug
-          ? getWorkspaceTeamWorkflowPath(slug, teamSlug, workflowId)
-          : getWorkspaceWorkflowPath(slug, workflowId);
+      const path = teamSlug
+        ? getWorkspaceTeamWorkflowPath(slug, teamSlug, workflowId)
+        : getWorkspaceWorkflowPath(slug, workflowId);
       navigate(path);
     },
     [navigate],
@@ -302,6 +302,30 @@ export const useWorkflowGalleryActions = (
     [],
   );
 
+  const handleUpdateCandidateWorkflow = useCallback(
+    async (workflowId: string, candidateId: string) => {
+      try {
+        const workflow = await updateCandidateWorkflowVersion(
+          workflowId,
+          candidateId,
+        );
+        toast({
+          title: "Candidate updated",
+          description: `"${workflow.name}" is now on the latest candidate version.`,
+        });
+      } catch (error) {
+        toast({
+          title: "Failed to update candidate",
+          description:
+            error instanceof Error ? error.message : "Unknown error occurred",
+          variant: "destructive",
+        });
+        throw error;
+      }
+    },
+    [],
+  );
+
   const openCreateTeamDialog = useCallback(() => setIsCreateTeamOpen(true), []);
   const closeCreateTeamDialog = useCallback(
     () => setIsCreateTeamOpen(false),
@@ -314,6 +338,7 @@ export const useWorkflowGalleryActions = (
     handleImportStarterPack,
     handleExportWorkflow,
     handleDeleteWorkflow,
+    handleUpdateCandidateWorkflow,
     onboardTarget,
     confirmOnboardTeam,
     cancelOnboardTeam,

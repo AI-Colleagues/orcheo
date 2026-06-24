@@ -39,6 +39,10 @@ interface WorkflowGalleryTabsProps {
     workflowId: string,
     workflowName: string,
   ) => Promise<void> | void;
+  onUpdateCandidateWorkflow: (
+    workflowId: string,
+    candidateId: string,
+  ) => Promise<void> | void;
   onDeleteTeam?: (teamId: string) => void;
 }
 
@@ -58,6 +62,7 @@ export const WorkflowGalleryTabs = ({
   onUseTemplate,
   onExportWorkflow,
   onDeleteWorkflow,
+  onUpdateCandidateWorkflow,
   onDeleteTeam,
 }: WorkflowGalleryTabsProps) => {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -80,6 +85,7 @@ export const WorkflowGalleryTabs = ({
           onUseTemplate={onUseTemplate}
           onExportWorkflow={onExportWorkflow}
           onDeleteWorkflow={onDeleteWorkflow}
+          onUpdateCandidateWorkflow={onUpdateCandidateWorkflow}
         />
       ))}
     </div>

@@ -68,6 +68,20 @@ export interface ApiWorkflowVersionSummary {
   updated_at: string;
 }
 
+export interface CandidateUpdateNote {
+  version: string;
+  summary: string;
+  migration?: string | null;
+}
+
+export interface WorkflowCandidateSource {
+  source?: string;
+  candidateId?: string;
+  candidateHandle?: string;
+  candidateVersion?: string;
+  candidateSourceRef?: string;
+}
+
 export interface ApiWorkflowPageData {
   workflow: ApiWorkflow;
   versions?: ApiWorkflowVersionSummary[];
@@ -219,6 +233,7 @@ export interface WorkflowVersionMetadata {
   templateId?: string;
   configurableSchemas?: Record<string, RJSFSchema>;
   avatarEmoji?: string;
+  candidateSource?: WorkflowCandidateSource;
 }
 
 export interface RequestOptions extends RequestInit {
@@ -241,6 +256,7 @@ export interface WorkflowVersionRecord {
   configurableSchemas?: Record<string, RJSFSchema>;
   graphToWorkflow?: Record<string, string>;
   templateId?: string;
+  candidateSource?: WorkflowCandidateSource;
 }
 
 export interface StoredWorkflow extends Workflow {

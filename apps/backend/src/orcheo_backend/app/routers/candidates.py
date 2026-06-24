@@ -14,7 +14,11 @@ from orcheo.runtime.configurable_schema import (
 )
 from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo.workflow.mermaid import render_mermaid_from_graph_payload_full_env
-from orcheo_backend.app.candidates_service import CandidateFetchError, get_candidates
+from orcheo_backend.app.candidates_service import (
+    CandidateFetchError,
+    get_candidate_source_ref,
+    get_candidates,
+)
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import WorkspaceQuotaExceededError
 from orcheo_backend.app.plugin_inventory import (
@@ -24,12 +28,15 @@ from orcheo_backend.app.plugin_inventory import (
 from orcheo_backend.app.repository import (
     WorkflowHandleConflictError,
     WorkflowNotFoundError,
+    WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.repository.errors import TeamNotFoundError
 from orcheo_backend.app.schemas.candidates import CandidateItem, CandidatePublicItem
 from orcheo_backend.app.teams_service import ensure_default_team
 from orcheo_backend.app.workspace import WorkspaceContextDep
 from orcheo_backend.app.workspace_governance import ensure_workspace_workflow_quota
+from orcheo_sdk.cli.errors import CLIError
+from orcheo_sdk.cli.workflow.frontmatter import compare_semver, parse_semver
 
 
 logger = logging.getLogger(__name__)
@@ -41,6 +48,13 @@ class CandidateOnboardRequest(BaseModel):
 
     id: str
     team_id: str | None = None
+
+
+class CandidateUpdateRequest(BaseModel):
+    """Request body for updating a workflow from a candidate release."""
+
+    workflow_id: str
+    candidate_id: str
 
 
 def _candidates_502(exc: Exception) -> HTTPException:
@@ -68,15 +82,131 @@ async def _fetch_candidate_by_id(candidate_id: str) -> CandidateItem:
 
 def _build_version_metadata(candidate: CandidateItem) -> dict[str, Any]:
     metadata: dict[str, Any] = {
+        **(candidate.metadata or {}),
         "source": "candidate-onboard",
         "candidate_id": candidate.id,
-        **(candidate.metadata or {}),
+        "candidate_handle": candidate.handle,
+        "candidate_version": candidate.version,
+        "candidate_source_ref": get_candidate_source_ref(),
     }
     if candidate.avatar:
         metadata.setdefault("avatar", candidate.avatar)
     if candidate.subtitle:
         metadata.setdefault("subtitle", candidate.subtitle)
     return metadata
+
+
+def _raise_candidate_error(
+    status_code: int,
+    message: str,
+    code: str,
+) -> None:
+    """Raise a structured candidate HTTP error."""
+    raise HTTPException(
+        status_code=status_code,
+        detail={"message": message, "code": code},
+    )
+
+
+def _validate_candidate_version(candidate: CandidateItem) -> str:
+    """Return the candidate SemVer or reject unversioned/malformed candidates."""
+    if candidate.version is None:
+        _raise_candidate_error(
+            status.HTTP_400_BAD_REQUEST,
+            "Candidate does not declare a release version.",
+            "candidate.unversioned",
+        )
+    assert candidate.version is not None
+    try:
+        parse_semver(candidate.version)
+    except CLIError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": "Candidate release version is invalid.",
+                "code": "candidate.invalid_version",
+            },
+        ) from exc
+    return candidate.version
+
+
+def _prepare_candidate_version_payload(
+    candidate: CandidateItem,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]:
+    """Validate and build the version payload for a candidate release."""
+    metadata = _build_version_metadata(candidate)
+    _raise_for_missing_required_plugins(metadata)
+    runnable_config, metadata = _resolve_candidate_runnable_config(candidate, metadata)
+
+    try:
+        graph_payload = ingest_langgraph_script(
+            candidate.script,
+            entrypoint=candidate.entrypoint,
+        )
+    except ScriptIngestionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": f"Candidate script ingestion failed: {exc}",
+                "code": "candidate.script_ingestion_failed",
+            },
+        ) from exc
+
+    mermaid = render_mermaid_from_graph_payload_full_env(graph_payload)
+    if mermaid and isinstance(graph_payload.get("index"), dict):
+        graph_payload["index"]["mermaid"] = mermaid
+
+    return graph_payload, metadata, runnable_config
+
+
+async def _create_candidate_version_from_payload(
+    repository: RepositoryDep,
+    workflow: Workflow,
+    candidate: CandidateItem,
+    payload: tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None],
+    *,
+    actor: str,
+) -> None:
+    """Persist a prepared candidate workflow version."""
+    graph_payload, metadata, runnable_config = payload
+    await repository.create_version(
+        workflow.id,
+        graph=graph_payload,
+        metadata=metadata,
+        notes=candidate.notes,
+        created_by=actor,
+        runnable_config=runnable_config,
+    )
+
+
+async def _append_candidate_workflow_version(
+    repository: RepositoryDep,
+    workflow: Workflow,
+    candidate: CandidateItem,
+    *,
+    actor: str,
+) -> None:
+    """Append a workflow version sourced from the candidate release."""
+    payload = _prepare_candidate_version_payload(candidate)
+    await _create_candidate_version_from_payload(
+        repository,
+        workflow,
+        candidate,
+        payload,
+        actor=actor,
+    )
+
+
+def _workflow_matches_candidate_source(
+    metadata: dict[str, Any],
+    candidate: CandidateItem,
+) -> bool:
+    """Return True when version metadata identifies the same source candidate."""
+    if metadata.get("source") != "candidate-onboard":
+        return False
+    candidate_id = metadata.get("candidate_id")
+    candidate_handle = metadata.get("candidate_handle")
+    return candidate_id == candidate.id or candidate_handle == candidate.handle
 
 
 def _merge_configurable_schema(
@@ -234,28 +364,7 @@ async def onboard_candidate(
         },
     )
 
-    metadata = _build_version_metadata(candidate)
-    _raise_for_missing_required_plugins(metadata)
-    runnable_config, metadata = _resolve_candidate_runnable_config(candidate, metadata)
-
-    try:
-        graph_payload = ingest_langgraph_script(
-            candidate.script,
-            entrypoint=candidate.entrypoint,
-        )
-    except ScriptIngestionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "message": f"Candidate script ingestion failed: {exc}",
-                "code": "candidate.script_ingestion_failed",
-            },
-        ) from exc
-
-    mermaid = render_mermaid_from_graph_payload_full_env(graph_payload)
-    if mermaid and isinstance(graph_payload.get("index"), dict):
-        graph_payload["index"]["mermaid"] = mermaid
-
+    version_payload = _prepare_candidate_version_payload(candidate)
     workspace_id = str(workspace.workspace_id)
 
     # Resolve the target team. When unspecified, onboard into the default team.
@@ -307,13 +416,12 @@ async def onboard_candidate(
                 detail={"message": str(exc), "code": "workflow.handle.conflict"},
             ) from exc
 
-    await repository.create_version(
-        workflow.id,
-        graph=graph_payload,
-        metadata=metadata,
-        notes=candidate.notes,
-        created_by="onboard",
-        runnable_config=runnable_config,
+    await _create_candidate_version_from_payload(
+        repository,
+        workflow,
+        candidate,
+        version_payload,
+        actor="onboard",
     )
 
     logger.info(
@@ -322,6 +430,107 @@ async def onboard_candidate(
             "candidate_id": request.id,
             "candidate_handle": candidate.handle,
             "workflow_id": workflow.id,
+            "workspace_id": str(workspace.workspace_id),
+        },
+    )
+
+    return workflow
+
+
+@router.post(
+    "/candidates/update",
+    response_model=Workflow,
+    status_code=status.HTTP_200_OK,
+)
+async def update_candidate_workflow(
+    request: CandidateUpdateRequest,
+    repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
+) -> Workflow:
+    """Update an existing onboarded colleague from the latest candidate release."""
+    candidate = await _fetch_candidate_by_id(request.candidate_id)
+    latest_candidate_version = _validate_candidate_version(candidate)
+
+    workspace_id = str(workspace.workspace_id)
+    try:
+        workflow_id = UUID(request.workflow_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "message": f"Workflow '{request.workflow_id}' not found.",
+                "code": "workflow.not_found",
+            },
+        ) from exc
+
+    try:
+        workflow = await repository.get_workflow(
+            workflow_id,
+            workspace_id=workspace_id,
+        )
+        latest_version = await repository.get_latest_version(workflow.id)
+    except WorkflowNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"message": "Workflow not found.", "code": "workflow.not_found"},
+        ) from exc
+    except WorkflowVersionNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Workflow has no installed candidate version.",
+                "code": "candidate.workflow_unversioned",
+            },
+        ) from exc
+
+    metadata = latest_version.metadata
+    if not _workflow_matches_candidate_source(metadata, candidate):
+        _raise_candidate_error(
+            status.HTTP_409_CONFLICT,
+            "Workflow is not sourced from the requested candidate.",
+            "candidate.source_mismatch",
+        )
+
+    installed_version = metadata.get("candidate_version")
+    if not isinstance(installed_version, str):
+        _raise_candidate_error(
+            status.HTTP_409_CONFLICT,
+            "Workflow does not have an installed candidate version.",
+            "candidate.installed_version_unknown",
+        )
+
+    try:
+        comparison = compare_semver(latest_candidate_version, installed_version)
+    except CLIError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": "Workflow installed candidate version is invalid.",
+                "code": "candidate.installed_version_invalid",
+            },
+        ) from exc
+
+    if comparison <= 0:
+        _raise_candidate_error(
+            status.HTTP_409_CONFLICT,
+            "Candidate is already current for this workflow.",
+            "candidate.no_update_available",
+        )
+
+    await _append_candidate_workflow_version(
+        repository,
+        workflow,
+        candidate,
+        actor="candidate-update",
+    )
+
+    logger.info(
+        "Candidate workflow updated successfully",
+        extra={
+            "candidate_id": candidate.id,
+            "candidate_handle": candidate.handle,
+            "candidate_version": candidate.version,
+            "workflow_id": str(workflow.id),
             "workspace_id": str(workspace.workspace_id),
         },
     )

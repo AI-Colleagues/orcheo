@@ -49,6 +49,8 @@ const toCandidateSpec = (candidate: ApiCandidate): CandidateBadgeSpec => ({
   avatar: candidate.avatar ?? undefined,
   notes: candidate.notes,
   mermaid: candidate.mermaid,
+  version: candidate.version,
+  updates: candidate.updates,
   rawMetadata: candidate.metadata,
 });
 

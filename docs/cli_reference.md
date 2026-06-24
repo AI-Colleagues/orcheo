@@ -264,8 +264,15 @@ Workflow `.py` files may include an optional PEP 723-style metadata block. When 
 # id = "wf-abc123"
 # config = "./my-workflow.config.json"
 # entrypoint = "build_graph"
-# emoji = "🤖"
+# avatar = "avatar-07"
 # subtitle = "AI Assistant"
+# version = "1.3.0"
+# notes = "Best used with uploaded research documents."
+#
+# [[updates]]
+# version = "1.3.0"
+# summary = "Adds source-quality checks before synthesis."
+# migration = "Review prompt overrides if they assume every source is accepted."
 # ///
 
 from langgraph.graph import StateGraph
@@ -280,12 +287,16 @@ Supported fields (all optional):
 - `id` (or `handle`) – workflow reference; when set, the upload updates this existing workflow instead of creating a new one.
 - `config` – path to a companion JSON runnable config file. Relative paths resolve against the workflow file's directory.
 - `entrypoint` – LangGraph entrypoint function/variable name.
-- `emoji` – emoji shown on the colleague's Candidates badge in Studio.
+- `avatar` – avatar id shown on the colleague's Candidates badge in Studio.
 - `subtitle` – short role line shown on the Candidates badge.
 - `notes` – free-form notes describing the workflow template.
 - `metadata` – a `[metadata]` table of template compatibility info (e.g. `required_plugins`, `validated_provider_api`).
+- `version` – candidate release version using strict `MAJOR.MINOR.PATCH` SemVer. Candidates without a version stay onboardable but do not show update availability.
+- `updates` – `[[updates]]` entries with `version`, `summary`, and optional `migration` text. Entries are shown to Studio users when they update an onboarded candidate colleague.
 
 The block is parsed as TOML; only the fields above are accepted. CLI flags (`--name`, `--id`, `--config-file`, `--entrypoint`) always win over the frontmatter values.
+
+Candidate authors should bump patch versions for compatible fixes, minor versions for compatible behavior or capability additions, and major versions when prompt contracts, required config, credentials, or operational behavior may require review. Write `migration` notes for any risky or manual step; keep `summary` short enough to fit in update hover text.
 
 ## Offline Mode
 

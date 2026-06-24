@@ -20,7 +20,7 @@ from typing import Any
 import httpx
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
 from orcheo.workflow.mermaid import render_mermaid_from_graph_payload
-from orcheo_backend.app.schemas.candidates import CandidateItem
+from orcheo_backend.app.schemas.candidates import CandidateItem, CandidateUpdateNote
 from orcheo_sdk.cli.errors import CLIError
 from orcheo_sdk.cli.workflow.frontmatter import parse_workflow_frontmatter
 
@@ -75,6 +75,12 @@ def _repo_settings() -> tuple[str, str, str | None]:
     ref = os.getenv("ORCHEO_CANDIDATES_REPO_REF", "").strip() or _DEFAULT_REF
     token = os.getenv("ORCHEO_CANDIDATES_GITHUB_TOKEN") or None
     return repo, ref, token
+
+
+def get_candidate_source_ref() -> str:
+    """Return the configured candidate repository ref for source metadata."""
+    _, ref, _ = _repo_settings()
+    return ref
 
 
 async def _download_tarball() -> bytes:
@@ -139,6 +145,15 @@ def _build_candidate(
         entrypoint=frontmatter.entrypoint,
         notes=frontmatter.notes,
         metadata=frontmatter.metadata,
+        version=frontmatter.version,
+        updates=[
+            CandidateUpdateNote(
+                version=update.version,
+                summary=update.summary,
+                migration=update.migration,
+            )
+            for update in (frontmatter.updates or [])
+        ],
         # Populated later by catalog preview enrichment; parsing the archive
         # itself must not execute remotely sourced Python.
         mermaid=None,

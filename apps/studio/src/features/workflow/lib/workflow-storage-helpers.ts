@@ -20,6 +20,7 @@ import type {
   ApiWorkflow,
   ApiWorkflowVersion,
   ApiWorkflowVersionSummary,
+  WorkflowCandidateSource,
   WorkflowVersionMetadata,
   StoredWorkflow,
   WorkflowVersionRecord,
@@ -95,6 +96,45 @@ const extractAvatarEmoji = (metadata: unknown): string | undefined => {
   }
 
   return undefined;
+};
+
+const extractCandidateSource = (
+  metadata: unknown,
+): WorkflowCandidateSource | undefined => {
+  if (!isRecord(metadata)) {
+    return undefined;
+  }
+
+  const source =
+    typeof metadata.source === "string" ? metadata.source : undefined;
+  const candidateId =
+    typeof metadata.candidate_id === "string"
+      ? metadata.candidate_id
+      : undefined;
+  const candidateHandle =
+    typeof metadata.candidate_handle === "string"
+      ? metadata.candidate_handle
+      : undefined;
+  const candidateVersion =
+    typeof metadata.candidate_version === "string"
+      ? metadata.candidate_version
+      : undefined;
+  const candidateSourceRef =
+    typeof metadata.candidate_source_ref === "string"
+      ? metadata.candidate_source_ref
+      : undefined;
+
+  if (!source && !candidateId && !candidateHandle && !candidateVersion) {
+    return undefined;
+  }
+
+  return {
+    source,
+    candidateId,
+    candidateHandle,
+    candidateVersion,
+    candidateSourceRef,
+  };
 };
 
 const toAuthor = (id: string | undefined): Workflow["owner"] => {
@@ -178,6 +218,7 @@ const parseWorkflowMetadata = (
     isRecord(metadata) ? metadata.configurable_schema : undefined,
   );
   const avatarEmoji = extractAvatarEmoji(metadata);
+  const candidateSource = extractCandidateSource(metadata);
   const resolveTemplateFallback = (): WorkflowVersionMetadata | undefined => {
     if (!metadata || typeof metadata !== "object") {
       return undefined;
@@ -204,6 +245,7 @@ const parseWorkflowMetadata = (
       templateId,
       configurableSchemas,
       avatarEmoji,
+      candidateSource,
     };
   };
 
@@ -214,6 +256,7 @@ const parseWorkflowMetadata = (
       templateId: undefined,
       configurableSchemas: undefined,
       avatarEmoji: undefined,
+      candidateSource,
     };
   }
 
@@ -226,6 +269,7 @@ const parseWorkflowMetadata = (
         summary: { ...DEFAULT_SUMMARY },
         configurableSchemas,
         avatarEmoji,
+        candidateSource,
       }
     );
   }
@@ -280,6 +324,7 @@ const parseWorkflowMetadata = (
     templateId,
     configurableSchemas,
     avatarEmoji,
+    candidateSource,
   };
 };
 
@@ -337,6 +382,7 @@ const toVersionRecord = (
     graphToWorkflow: metadata.graphToWorkflow,
     templateId: metadata.templateId,
     avatarEmoji: metadata.avatarEmoji,
+    candidateSource: metadata.candidateSource,
   };
 };
 
