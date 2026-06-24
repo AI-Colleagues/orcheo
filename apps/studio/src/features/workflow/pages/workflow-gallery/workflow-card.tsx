@@ -125,6 +125,9 @@ export const WorkflowCard = ({
     : rawHandle;
   const displayHandle =
     !isTemplate && teamSlug ? `${teamSlug}/${workflowSlug}` : workflowSlug;
+  const versionToDisplay = isTemplate
+    ? (candidateBadge?.version ?? null)
+    : (workflow.versions?.at(-1)?.candidateSource?.candidateVersion ?? null);
   const avatarUrl = resolveAvatarUrl(
     workflow.avatarEmoji ?? getWorkflowTemplateAvatar(workflow),
     workflow.id,
@@ -389,6 +392,12 @@ export const WorkflowCard = ({
           <div className="mt-1 shrink-0 font-mono text-[10px] tracking-[0.04em] text-muted-foreground">
             @{displayHandle}
           </div>
+
+          {versionToDisplay ? (
+            <div className="mt-0.5 shrink-0 font-mono text-[9px] tracking-[0.04em] text-muted-foreground/60">
+              v{versionToDisplay}
+            </div>
+          ) : null}
 
           <div className="mt-3 flex min-h-0 w-full flex-1 flex-col items-center justify-start">
             <div className="h-px w-8 rounded-full bg-border/80" />
