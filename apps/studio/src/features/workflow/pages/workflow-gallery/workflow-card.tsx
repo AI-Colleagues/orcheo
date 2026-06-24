@@ -103,13 +103,16 @@ export const WorkflowCard = ({
     ? workflow.versions?.at(-1)?.candidateSource
     : undefined;
   const templateBadge = !isTemplate
-    ? candidateSource?.candidateId
-      ? getCandidateBadgeByCandidateId(candidateSource.candidateId)
-      : templateId
-        ? getCandidateBadgeDefinition(templateId)
-        : workflow.handle
-          ? getCandidateBadgeByHandle(workflow.handle)
-          : undefined
+    ? ((candidateSource?.candidateId
+        ? getCandidateBadgeByCandidateId(candidateSource.candidateId)
+        : undefined) ??
+      (candidateSource?.candidateHandle
+        ? getCandidateBadgeByHandle(candidateSource.candidateHandle)
+        : undefined) ??
+      (templateId ? getCandidateBadgeDefinition(templateId) : undefined) ??
+      (workflow.handle
+        ? getCandidateBadgeByHandle(workflow.handle)
+        : undefined))
     : undefined;
   const displayBadge = candidateBadge ?? templateBadge;
   const candidateUpdate = !isTemplate

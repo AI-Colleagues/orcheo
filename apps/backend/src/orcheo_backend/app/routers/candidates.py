@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 import logging
-from typing import Any
+from typing import Any, NoReturn
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ValidationError
@@ -100,7 +100,7 @@ def _raise_candidate_error(
     status_code: int,
     message: str,
     code: str,
-) -> None:
+) -> NoReturn:
     """Raise a structured candidate HTTP error."""
     raise HTTPException(
         status_code=status_code,
@@ -116,7 +116,6 @@ def _validate_candidate_version(candidate: CandidateItem) -> str:
             "Candidate does not declare a release version.",
             "candidate.unversioned",
         )
-    assert candidate.version is not None
     try:
         parse_semver(candidate.version)
     except CLIError as exc:
@@ -206,6 +205,7 @@ def _workflow_matches_candidate_source(
         return False
     candidate_id = metadata.get("candidate_id")
     candidate_handle = metadata.get("candidate_handle")
+    # Fall back to handles for workflow versions created before candidate_id metadata.
     return candidate_id == candidate.id or candidate_handle == candidate.handle
 
 
@@ -476,7 +476,7 @@ async def update_candidate_workflow(
         ) from exc
     except WorkflowVersionNotFoundError as exc:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "message": "Workflow has no installed candidate version.",
                 "code": "candidate.workflow_unversioned",
@@ -510,6 +510,7 @@ async def update_candidate_workflow(
             },
         ) from exc
 
+    # Block equal or older candidate releases.
     if comparison <= 0:
         _raise_candidate_error(
             status.HTTP_409_CONFLICT,
