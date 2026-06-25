@@ -28,6 +28,25 @@ _WORKFLOW_WITH_FRONTMATTER = (
     "graph = object()\n"
 )
 
+_WORKFLOW_WITH_RELEASE_FRONTMATTER = (
+    "# /// orcheo\n"
+    '# name = "LinkedIn Publisher"\n'
+    '# handle = "linkedin_post"\n'
+    '# version = "1.3.0"\n'
+    "#\n"
+    "# [[updates]]\n"
+    '# version = "1.3.0"\n'
+    '# summary = "Adds source checks."\n'
+    '# migration = "Review prompt overrides."\n'
+    "#\n"
+    "# [[updates]]\n"
+    '# version = "1.2.0"\n'
+    '# summary = "Improves formatting."\n'
+    "# ///\n"
+    "\n"
+    "graph = object()\n"
+)
+
 _WORKFLOW_WITHOUT_FRONTMATTER = "graph = object()\n"
 
 
@@ -71,6 +90,22 @@ def test_parse_tarball_extracts_candidate_metadata() -> None:
     assert item.avatar == "avatar-07"
     assert item.subtitle == "AI Social Media"
     assert item.description == "Publishes posts to LinkedIn."
+
+
+def test_parse_tarball_extracts_candidate_release_metadata() -> None:
+    """Version and update notes are surfaced as candidate metadata."""
+    tarball = _make_tarball(
+        {"colleagues/linkedin_post/workflow.py": _WORKFLOW_WITH_RELEASE_FRONTMATTER}
+    )
+
+    candidates = candidates_service._parse_tarball(tarball)
+
+    assert len(candidates) == 1
+    item = candidates[0]
+    assert item.version == "1.3.0"
+    assert [update.version for update in item.updates] == ["1.3.0", "1.2.0"]
+    assert item.updates[0].summary == "Adds source checks."
+    assert item.updates[0].migration == "Review prompt overrides."
 
 
 def test_parse_tarball_handles_nested_dirs_and_missing_frontmatter() -> None:

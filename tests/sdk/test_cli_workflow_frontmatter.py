@@ -146,6 +146,88 @@ def test_parse_extracts_notes_and_metadata_table() -> None:
     assert not fm.is_empty
 
 
+def test_parse_extracts_version_and_update_notes_sorted_newest_first() -> None:
+    source = (
+        "# /// orcheo\n"
+        '# name = "Versioned"\n'
+        '# version = "1.3.0"\n'
+        "#\n"
+        "# [[updates]]\n"
+        '# version = "1.2.0"\n'
+        '# summary = "Improves formatting."\n'
+        "#\n"
+        "# [[updates]]\n"
+        '# version = "1.3.0"\n'
+        '# summary = "Adds quality checks."\n'
+        '# migration = "Review prompt overrides."\n'
+        "# ///\n"
+        "print('hello')\n"
+    )
+    fm = frontmatter.parse_workflow_frontmatter(source)
+    assert fm.version == "1.3.0"
+    assert fm.updates == [
+        frontmatter.WorkflowUpdateNote(
+            version="1.3.0",
+            summary="Adds quality checks.",
+            migration="Review prompt overrides.",
+        ),
+        frontmatter.WorkflowUpdateNote(
+            version="1.2.0",
+            summary="Improves formatting.",
+        ),
+    ]
+    assert not fm.is_empty
+
+
+def test_compare_semver_orders_major_minor_patch() -> None:
+    assert frontmatter.compare_semver("1.2.0", "1.1.9") == 1
+    assert frontmatter.compare_semver("1.2.0", "1.2.0") == 0
+    assert frontmatter.compare_semver("1.2.0", "2.0.0") == -1
+
+
+def test_parse_rejects_invalid_version() -> None:
+    source = '# /// orcheo\n# version = "v1.2.3"\n# ///\n'
+    with pytest.raises(frontmatter.CLIError, match="strict SemVer"):
+        frontmatter.parse_workflow_frontmatter(source)
+
+
+def test_parse_rejects_malformed_update_notes() -> None:
+    source = '# /// orcheo\n# [[updates]]\n# version = "1.0.0"\n# ///\n'
+    with pytest.raises(frontmatter.CLIError, match="requires 'summary'"):
+        frontmatter.parse_workflow_frontmatter(source)
+
+
+def test_parse_rejects_non_array_updates() -> None:
+    source = '# /// orcheo\n# updates = "not an array"\n# ///\n'
+    with pytest.raises(frontmatter.CLIError, match="must be an array"):
+        frontmatter.parse_workflow_frontmatter(source)
+
+
+def test_parse_rejects_non_table_update_entry() -> None:
+    source = '# /// orcheo\n# updates = ["not a table"]\n# ///\n'
+    with pytest.raises(frontmatter.CLIError, match="updates entry 1 must be a table"):
+        frontmatter.parse_workflow_frontmatter(source)
+
+
+def test_parse_rejects_unknown_update_field() -> None:
+    source = (
+        "# /// orcheo\n"
+        "# [[updates]]\n"
+        '# version = "1.0.0"\n'
+        '# summary = "Initial release."\n'
+        '# extra = "nope"\n'
+        "# ///\n"
+    )
+    with pytest.raises(frontmatter.CLIError, match="updates field\\(s\\): extra"):
+        frontmatter.parse_workflow_frontmatter(source)
+
+
+def test_parse_rejects_update_entry_without_version() -> None:
+    source = '# /// orcheo\n# [[updates]]\n# summary = "Initial release."\n# ///\n'
+    with pytest.raises(frontmatter.CLIError, match="requires 'version'"):
+        frontmatter.parse_workflow_frontmatter(source)
+
+
 def test_parse_rejects_non_table_metadata() -> None:
     source = '# /// orcheo\n# metadata = "nope"\n# ///\n'
     with pytest.raises(frontmatter.CLIError, match="must be a table"):

@@ -1,6 +1,9 @@
 import { seededAvatarId } from "@/assets/avatars";
 import type { Workflow } from "../workflow-types";
-import type { StoredWorkflow } from "../../lib/workflow-storage.types";
+import type {
+  CandidateUpdateNote,
+  StoredWorkflow,
+} from "../../lib/workflow-storage.types";
 import type {
   WorkflowTemplateDefinition,
   WorkflowTemplateMetadata,
@@ -18,6 +21,8 @@ export interface CandidateBadgeSpec {
   avatar?: string;
   notes?: string | null;
   mermaid?: string | null;
+  version?: string | null;
+  updates?: CandidateUpdateNote[];
   /** Raw snake_case metadata dict from the colleague-candidates frontmatter. */
   rawMetadata?: Record<string, unknown> | null;
 }
@@ -164,6 +169,11 @@ export const getCandidateBadgeByHandle = (
   handle: string,
 ): CandidateBadgeDefinition | undefined =>
   candidateBadges.find((badge) => badge.handle === handle);
+
+export const getCandidateBadgeByCandidateId = (
+  candidateId: string,
+): CandidateBadgeDefinition | undefined =>
+  candidateBadges.find((badge) => badge.candidateId === candidateId);
 
 export const getCandidateTemplateDefinition = (
   templateId: string,

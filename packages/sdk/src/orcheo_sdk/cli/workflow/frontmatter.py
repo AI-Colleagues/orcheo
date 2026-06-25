@@ -44,9 +44,30 @@ _ALLOWED_FIELDS = frozenset(
         "subtitle",
         "notes",
         "metadata",
+        "version",
+        "updates",
     }
 )
 _ENCODING_RE = re.compile(r"coding[=:]\s*([-\w.]+)")
+_SEMVER_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+
+
+@dataclass(frozen=True, order=True)
+class SemVer:
+    """Strict ``MAJOR.MINOR.PATCH`` semantic version."""
+
+    major: int
+    minor: int
+    patch: int
+
+
+@dataclass(frozen=True)
+class WorkflowUpdateNote:
+    """Versioned update notes from workflow frontmatter."""
+
+    version: str
+    summary: str
+    migration: str | None = None
 
 
 def _encoding_from_cookie(line: bytes) -> str | None:
@@ -122,6 +143,8 @@ class WorkflowFrontmatter:
     subtitle: str | None = None
     notes: str | None = None
     metadata: dict[str, Any] | None = None
+    version: str | None = None
+    updates: list[WorkflowUpdateNote] | None = None
 
     @property
     def is_empty(self) -> bool:
@@ -138,6 +161,8 @@ class WorkflowFrontmatter:
                 self.subtitle,
                 self.notes,
                 self.metadata,
+                self.version,
+                self.updates,
             )
         )
 
@@ -179,7 +204,31 @@ def parse_workflow_frontmatter(source: str) -> WorkflowFrontmatter:
         subtitle=_string_field(data, "subtitle"),
         notes=_string_field(data, "notes"),
         metadata=_table_field(data, "metadata"),
+        version=_semver_field(data, "version"),
+        updates=_updates_field(data, "updates"),
     )
+
+
+def parse_semver(value: str) -> SemVer:
+    """Parse a strict ``MAJOR.MINOR.PATCH`` version string."""
+    match = _SEMVER_RE.fullmatch(value)
+    if match is None:
+        raise CLIError(
+            "Semantic versions must use strict 'MAJOR.MINOR.PATCH' format "
+            "with no prefix, prerelease, or build metadata."
+        )
+    return SemVer(*(int(part) for part in match.groups()))
+
+
+def compare_semver(left: str, right: str) -> int:
+    """Compare two strict semantic version strings."""
+    left_version = parse_semver(left)
+    right_version = parse_semver(right)
+    if left_version < right_version:
+        return -1
+    if left_version > right_version:
+        return 1
+    return 0
 
 
 def _collect_frontmatter_blocks(source: str) -> list[list[str]]:
@@ -250,6 +299,62 @@ def _table_field(data: dict[str, Any], key: str) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         raise CLIError(f"'orcheo' frontmatter field '{key}' must be a table.")
     return value
+
+
+def _semver_field(data: dict[str, Any], key: str) -> str | None:
+    """Return a validated SemVer string field, or None when absent."""
+    value = _string_field(data, key)
+    if value is None:
+        return None
+    try:
+        parse_semver(value)
+    except CLIError as exc:
+        raise CLIError(
+            f"'orcheo' frontmatter field '{key}' must be a strict SemVer "
+            "string in 'MAJOR.MINOR.PATCH' format."
+        ) from exc
+    return value
+
+
+def _updates_field(data: dict[str, Any], key: str) -> list[WorkflowUpdateNote] | None:
+    """Return validated versioned update notes sorted newest first."""
+    if key not in data:
+        return None
+    value = data[key]
+    if not isinstance(value, list):
+        raise CLIError(f"'orcheo' frontmatter field '{key}' must be an array.")
+
+    updates: list[WorkflowUpdateNote] = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, dict):
+            raise CLIError(
+                f"'orcheo' frontmatter updates entry {index} must be a table."
+            )
+        unknown = set(item) - {"version", "summary", "migration"}
+        if unknown:
+            keys = ", ".join(sorted(unknown))
+            raise CLIError(f"Unknown 'orcheo' frontmatter updates field(s): {keys}.")
+        version = _semver_field(item, "version")
+        if version is None:
+            raise CLIError(
+                f"'orcheo' frontmatter updates entry {index} requires 'version'."
+            )
+        summary = _string_field(item, "summary")
+        if summary is None:
+            raise CLIError(
+                f"'orcheo' frontmatter updates entry {index} requires 'summary'."
+            )
+        migration = _string_field(item, "migration")
+        updates.append(
+            WorkflowUpdateNote(
+                version=version,
+                summary=summary,
+                migration=migration,
+            )
+        )
+
+    updates.sort(key=lambda entry: parse_semver(entry.version), reverse=True)
+    return updates
 
 
 def load_workflow_frontmatter(path: Path) -> WorkflowFrontmatter:
@@ -357,7 +462,11 @@ def _normalize_schema_definition_map(
 
 
 __all__ = [
+    "SemVer",
+    "WorkflowUpdateNote",
     "WorkflowFrontmatter",
+    "parse_semver",
+    "compare_semver",
     "parse_workflow_frontmatter",
     "load_workflow_frontmatter",
     "resolve_frontmatter_config",

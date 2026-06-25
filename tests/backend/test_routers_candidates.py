@@ -6,10 +6,15 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
-from orcheo.models import Workflow, WorkflowDraftAccess
+from orcheo.models import Workflow, WorkflowDraftAccess, WorkflowVersion
 from orcheo_backend.app.candidates_service import CandidateFetchError
 from orcheo_backend.app.routers import candidates as candidates_router
-from orcheo_backend.app.routers.candidates import list_candidates, onboard_candidate
+from orcheo_backend.app.routers.candidates import (
+    CandidateUpdateRequest,
+    list_candidates,
+    onboard_candidate,
+    update_candidate_workflow,
+)
 from orcheo_backend.app.routers.candidates import CandidateOnboardRequest
 from orcheo_backend.app.schemas.candidates import CandidateItem
 
@@ -106,6 +111,7 @@ class _Repository:
         self.last_metadata: dict | None = None
         self.last_version_graph: dict | None = None
         self.last_runnable_config: dict | None = None
+        self.latest_version: WorkflowVersion | None = None
 
     async def resolve_workflow_ref(
         self, workflow_ref, *, include_archived=True, workspace_id=None, team_id=None
@@ -150,21 +156,26 @@ class _Repository:
     async def create_version(
         self, wf_id, *, graph, metadata, notes, created_by, runnable_config=None
     ):  # noqa: PLR0913
-        from orcheo.models import WorkflowVersion
-
         self.versions_created += 1
         self.last_metadata = metadata
         self.last_version_graph = graph
         self.last_runnable_config = runnable_config
-        return WorkflowVersion(
+        version = WorkflowVersion(
             id=uuid4(),
             workflow_id=wf_id,
             version=self.versions_created,
             graph=graph,
+            metadata=metadata,
             created_by=created_by,
             created_at=datetime.now(tz=UTC),
             updated_at=datetime.now(tz=UTC),
         )
+        self.latest_version = version
+        return version
+
+    async def get_latest_version(self, workflow_id) -> WorkflowVersion:
+        assert self.latest_version is not None
+        return self.latest_version
 
     async def list_workflows(self, *, workspace_id=None, include_archived=False):
         return []
@@ -216,6 +227,77 @@ async def test_onboard_candidate_appends_version_to_existing_workflow(
     assert repo.created_workflow is None, "should not have created a new workflow"
     assert result.id == existing_wf.id
     assert repo.versions_created == 1
+
+
+@pytest.mark.asyncio()
+async def test_onboard_candidate_accepts_explicit_team_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A provided team id is validated before creating the workflow."""
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [_SAMPLE]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    repo = _Repository()
+    request = CandidateOnboardRequest(id="insight-analyst", team_id=str(uuid4()))
+    result = await onboard_candidate(request, repo, _MOCK_WORKSPACE)  # type: ignore[arg-type]
+
+    assert repo.created_workflow is not None
+    assert result.id == repo.created_workflow.id
+    assert repo.versions_created == 1
+
+
+@pytest.mark.asyncio()
+async def test_onboard_candidate_rejects_invalid_team_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid team ids return the same not-found shape as missing teams."""
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [_SAMPLE]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    repo = _Repository()
+    request = CandidateOnboardRequest(id="insight-analyst", team_id="not-a-uuid")
+    with pytest.raises(HTTPException) as exc_info:
+        await onboard_candidate(request, repo, _MOCK_WORKSPACE)  # type: ignore[arg-type]
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail["code"] == "team.not_found"
+    assert repo.created_workflow is None
+    assert repo.versions_created == 0
+
+
+@pytest.mark.asyncio()
+async def test_onboard_candidate_stores_source_version_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Onboarding records candidate source metadata on the workflow version."""
+
+    candidate = _SAMPLE.model_copy(update={"version": "1.2.3"})
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+    monkeypatch.setattr(candidates_router, "get_candidate_source_ref", lambda: "main")
+
+    repo = _Repository()
+    await onboard_candidate(
+        CandidateOnboardRequest(id="insight-analyst"),
+        repo,  # type: ignore[arg-type]
+        _MOCK_WORKSPACE,  # type: ignore[arg-type]
+    )
+
+    assert repo.last_metadata is not None
+    assert repo.last_metadata["source"] == "candidate-onboard"
+    assert repo.last_metadata["candidate_id"] == "insight-analyst"
+    assert repo.last_metadata["candidate_handle"] == "insight-analyst"
+    assert repo.last_metadata["candidate_version"] == "1.2.3"
+    assert repo.last_metadata["candidate_source_ref"] == "main"
 
 
 @pytest.mark.asyncio()
@@ -291,6 +373,17 @@ def test_resolve_candidate_runnable_config_rejects_invalid_inline_schema() -> No
 
     assert exc_info.value.status_code == 400
     assert "no runtime default" in str(exc_info.value.detail)
+
+
+def test_workflow_matches_candidate_source_rejects_non_candidate_versions() -> None:
+    """Only versions marked as candidate-onboard are considered candidate-sourced."""
+    metadata = {
+        "source": "manual-upload",
+        "candidate_id": "insight-analyst",
+        "candidate_handle": "insight-analyst",
+    }
+
+    assert not candidates_router._workflow_matches_candidate_source(metadata, _SAMPLE)
 
 
 @pytest.mark.asyncio()
@@ -458,6 +551,512 @@ async def test_onboard_candidate_rejects_missing_required_plugins(
     assert exc_info.value.status_code == 400
     assert "orcheo-plugin-lark-listener" in str(exc_info.value.detail)
     assert repo.created_workflow is None
+    assert repo.versions_created == 0
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_appends_new_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Updating a sourced workflow appends the latest candidate as a new version."""
+
+    existing_wf = _make_workflow(uuid4())
+    candidate = _SAMPLE.model_copy(update={"version": "1.1.0"})
+    repo = _Repository(existing_workflow=existing_wf)
+    repo.latest_version = WorkflowVersion(
+        workflow_id=existing_wf.id,
+        version=1,
+        graph={"format": "langgraph-script"},
+        metadata={
+            "source": "candidate-onboard",
+            "candidate_id": "insight-analyst",
+            "candidate_handle": "insight-analyst",
+            "candidate_version": "1.0.0",
+        },
+        created_by="onboard",
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    result = await update_candidate_workflow(
+        CandidateUpdateRequest(
+            workflow_id=str(existing_wf.id),
+            candidate_id="insight-analyst",
+        ),
+        repo,  # type: ignore[arg-type]
+        _MOCK_WORKSPACE,  # type: ignore[arg-type]
+    )
+
+    assert result.id == existing_wf.id
+    assert repo.versions_created == 1
+    assert repo.last_metadata is not None
+    assert repo.last_metadata["candidate_version"] == "1.1.0"
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_wrong_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The update endpoint refuses workflows sourced from another candidate."""
+
+    existing_wf = _make_workflow(uuid4())
+    candidate = _SAMPLE.model_copy(update={"version": "1.1.0"})
+    repo = _Repository(existing_workflow=existing_wf)
+    repo.latest_version = WorkflowVersion(
+        workflow_id=existing_wf.id,
+        version=1,
+        graph={"format": "langgraph-script"},
+        metadata={
+            "source": "candidate-onboard",
+            "candidate_id": "other-candidate",
+            "candidate_handle": "other-candidate",
+            "candidate_version": "1.0.0",
+        },
+        created_by="onboard",
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(existing_wf.id),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 409
+    assert repo.versions_created == 0
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_already_current(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No new version is created when installed candidate version is current."""
+
+    existing_wf = _make_workflow(uuid4())
+    candidate = _SAMPLE.model_copy(update={"version": "1.1.0"})
+    repo = _Repository(existing_workflow=existing_wf)
+    repo.latest_version = WorkflowVersion(
+        workflow_id=existing_wf.id,
+        version=1,
+        graph={"format": "langgraph-script"},
+        metadata={
+            "source": "candidate-onboard",
+            "candidate_id": "insight-analyst",
+            "candidate_handle": "insight-analyst",
+            "candidate_version": "1.1.0",
+        },
+        created_by="onboard",
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(existing_wf.id),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "candidate.no_update_available" in str(exc_info.value.detail)
+    assert repo.versions_created == 0
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_unversioned_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unversioned candidates cannot be used by explicit update."""
+
+    existing_wf = _make_workflow(uuid4())
+    repo = _Repository(existing_workflow=existing_wf)
+    repo.latest_version = WorkflowVersion(
+        workflow_id=existing_wf.id,
+        version=1,
+        graph={"format": "langgraph-script"},
+        metadata={
+            "source": "candidate-onboard",
+            "candidate_id": "insight-analyst",
+            "candidate_handle": "insight-analyst",
+            "candidate_version": "1.0.0",
+        },
+        created_by="onboard",
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [_SAMPLE]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(existing_wf.id),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 400
+    assert repo.versions_created == 0
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_invalid_candidate_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Malformed candidate release versions cannot be used for updates."""
+    candidate = _SAMPLE.model_copy(update={"version": "v1.1.0"})
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    repo = _Repository(existing_workflow=_make_workflow(uuid4()))
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(uuid4()),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "candidate.invalid_version"
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_invalid_workflow_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Malformed workflow ids are reported as not found."""
+    candidate = _SAMPLE.model_copy(update={"version": "1.1.0"})
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    repo = _Repository(existing_workflow=_make_workflow(uuid4()))
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id="not-a-uuid",
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail["code"] == "workflow.not_found"
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_missing_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Repository misses are mapped to workflow.not_found."""
+    from orcheo_backend.app.repository import WorkflowNotFoundError
+
+    candidate = _SAMPLE.model_copy(update={"version": "1.1.0"})
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    class _MissingWorkflowRepository(_Repository):
+        async def get_workflow(self, workflow_id, *, workspace_id=None):  # type: ignore[override]
+            raise WorkflowNotFoundError(str(workflow_id))
+
+    repo = _MissingWorkflowRepository(existing_workflow=_make_workflow(uuid4()))
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(uuid4()),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail["code"] == "workflow.not_found"
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_workflow_without_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A workflow with no latest version cannot be candidate-updated."""
+    from orcheo_backend.app.repository import WorkflowVersionNotFoundError
+
+    existing_wf = _make_workflow(uuid4())
+    candidate = _SAMPLE.model_copy(update={"version": "1.1.0"})
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    class _UnversionedRepository(_Repository):
+        async def get_latest_version(self, workflow_id):  # type: ignore[override]
+            raise WorkflowVersionNotFoundError(str(workflow_id))
+
+    repo = _UnversionedRepository(existing_workflow=existing_wf)
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(existing_wf.id),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail["code"] == "candidate.workflow_unversioned"
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_missing_installed_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Candidate-sourced versions must record their installed candidate version."""
+    existing_wf = _make_workflow(uuid4())
+    candidate = _SAMPLE.model_copy(update={"version": "1.1.0"})
+    repo = _Repository(existing_workflow=existing_wf)
+    repo.latest_version = WorkflowVersion(
+        workflow_id=existing_wf.id,
+        version=1,
+        graph={"format": "langgraph-script"},
+        metadata={
+            "source": "candidate-onboard",
+            "candidate_id": "insight-analyst",
+            "candidate_handle": "insight-analyst",
+        },
+        created_by="onboard",
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(existing_wf.id),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "candidate.installed_version_unknown"
+    assert repo.versions_created == 0
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_invalid_installed_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Malformed installed candidate versions block update comparison."""
+    existing_wf = _make_workflow(uuid4())
+    candidate = _SAMPLE.model_copy(update={"version": "1.1.0"})
+    repo = _Repository(existing_workflow=existing_wf)
+    repo.latest_version = WorkflowVersion(
+        workflow_id=existing_wf.id,
+        version=1,
+        graph={"format": "langgraph-script"},
+        metadata={
+            "source": "candidate-onboard",
+            "candidate_id": "insight-analyst",
+            "candidate_handle": "insight-analyst",
+            "candidate_version": "1.x.0",
+        },
+        created_by="onboard",
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(existing_wf.id),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "candidate.installed_version_invalid"
+    assert repo.versions_created == 0
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_invalid_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid candidate config prevents update mutation."""
+
+    existing_wf = _make_workflow(uuid4())
+    candidate = _SAMPLE.model_copy(
+        update={"version": "1.1.0", "config": {"configurable": "bad"}}
+    )
+    repo = _Repository(existing_workflow=existing_wf)
+    repo.latest_version = WorkflowVersion(
+        workflow_id=existing_wf.id,
+        version=1,
+        graph={"format": "langgraph-script"},
+        metadata={
+            "source": "candidate-onboard",
+            "candidate_id": "insight-analyst",
+            "candidate_handle": "insight-analyst",
+            "candidate_version": "1.0.0",
+        },
+        created_by="onboard",
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(existing_wf.id),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 400
+    assert repo.versions_created == 0
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_missing_plugins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing required plugins prevent update mutation."""
+
+    existing_wf = _make_workflow(uuid4())
+    candidate = _SAMPLE.model_copy(
+        update={
+            "version": "1.1.0",
+            "metadata": {
+                "template": {"requiredPlugins": ["orcheo-plugin-lark-listener"]}
+            },
+        }
+    )
+    repo = _Repository(existing_workflow=existing_wf)
+    repo.latest_version = WorkflowVersion(
+        workflow_id=existing_wf.id,
+        version=1,
+        graph={"format": "langgraph-script"},
+        metadata={
+            "source": "candidate-onboard",
+            "candidate_id": "insight-analyst",
+            "candidate_handle": "insight-analyst",
+            "candidate_version": "1.0.0",
+        },
+        created_by="onboard",
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+    monkeypatch.setattr(
+        candidates_router,
+        "missing_required_plugins",
+        lambda required_plugins: list(required_plugins),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(existing_wf.id),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 400
+    assert repo.versions_created == 0
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_ingestion_failure_does_not_append(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Script ingestion failure leaves the previous latest version untouched."""
+
+    existing_wf = _make_workflow(uuid4())
+    candidate = _SAMPLE.model_copy(
+        update={"version": "1.1.0", "script": "invalid python {{{"}
+    )
+    repo = _Repository(existing_workflow=existing_wf)
+    repo.latest_version = WorkflowVersion(
+        workflow_id=existing_wf.id,
+        version=1,
+        graph={"format": "langgraph-script"},
+        metadata={
+            "source": "candidate-onboard",
+            "candidate_id": "insight-analyst",
+            "candidate_handle": "insight-analyst",
+            "candidate_version": "1.0.0",
+        },
+        created_by="onboard",
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(existing_wf.id),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 400
     assert repo.versions_created == 0
 
 

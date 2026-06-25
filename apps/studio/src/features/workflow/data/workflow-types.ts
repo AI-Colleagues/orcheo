@@ -1,3 +1,5 @@
+import type { WorkflowCandidateSource } from "@features/workflow/lib/workflow-storage.types";
+
 export interface WorkflowNode {
   id: string;
   type: string;
@@ -28,6 +30,7 @@ export interface WorkflowMermaidPreviewVersion {
   id: string;
   mermaid?: string | null;
   templateId?: string;
+  candidateSource?: WorkflowCandidateSource;
 }
 
 export interface Workflow {

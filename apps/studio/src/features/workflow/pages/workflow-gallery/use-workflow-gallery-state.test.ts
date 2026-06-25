@@ -1,5 +1,5 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listWorkflows } from "@features/workflow/lib/workflow-storage";
 import type { StoredWorkflow } from "@features/workflow/lib/workflow-storage.types";
 import {
@@ -65,16 +65,15 @@ const STORED_WORKFLOWS: StoredWorkflow[] = [
 const makeCandidate = (
   partial: Pick<
     ApiCandidate,
-    "id" | "handle" | "name" | "description" | "emoji" | "subtitle"
+    "id" | "handle" | "name" | "description" | "avatar" | "subtitle"
   >,
 ): ApiCandidate => ({
   ...partial,
-  script: "",
-  config: null,
-  entrypoint: null,
   notes: null,
   metadata: null,
   mermaid: null,
+  version: null,
+  updates: [],
 });
 
 const CANDIDATES: ApiCandidate[] = [
@@ -83,7 +82,7 @@ const CANDIDATES: ApiCandidate[] = [
     handle: "insight-analyst",
     name: "Insight Analyst",
     description: "Detects themes from text data.",
-    emoji: "👨‍🎓",
+    avatar: "avatar-01",
     subtitle: "AI Insights & Analytics",
   }),
   makeCandidate({
@@ -91,7 +90,7 @@ const CANDIDATES: ApiCandidate[] = [
     handle: "marketing-specialist",
     name: "Marketing Specialist",
     description: "Creates engaging content.",
-    emoji: "🧑‍💼",
+    avatar: "avatar-02",
     subtitle: "AI Content & Campaigns",
   }),
   makeCandidate({
@@ -99,7 +98,7 @@ const CANDIDATES: ApiCandidate[] = [
     handle: "market-intelligence",
     name: "Market Intelligence Analyst",
     description: "Gathers competitive intelligence.",
-    emoji: "🕵️",
+    avatar: "avatar-03",
     subtitle: "AI Competitive Intelligence",
   }),
   makeCandidate({
@@ -107,12 +106,16 @@ const CANDIDATES: ApiCandidate[] = [
     handle: "market-research",
     name: "Market Research Interviewer",
     description: "Conducts structured interviews.",
-    emoji: "🙋",
+    avatar: "avatar-04",
     subtitle: "AI Consumer Research",
   }),
 ];
 
 describe("useWorkflowGalleryState", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     mockedListWorkflows.mockReset();
     mockedListWorkflows.mockResolvedValue(STORED_WORKFLOWS);
@@ -144,6 +147,25 @@ describe("useWorkflowGalleryState", () => {
         pinned: 0,
         templates: 3,
       });
+    });
+  });
+
+  it("refreshes candidates after workflow storage changes", async () => {
+    renderHook(() => useWorkflowGalleryState());
+
+    await waitFor(() => {
+      expect(mockedFetchCandidates).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("workflow-storage-updated"));
+    });
+
+    await waitFor(() => {
+      expect(mockedListWorkflows).toHaveBeenCalledWith({
+        forceRefresh: true,
+      });
+      expect(mockedFetchCandidates).toHaveBeenCalledTimes(2);
     });
   });
 });

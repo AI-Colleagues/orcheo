@@ -1,6 +1,14 @@
 import { useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, SyntheticEvent } from "react";
-import { MoreHorizontal, Send, Star, UserMinus, UserPlus } from "lucide-react";
+import {
+  Loader2,
+  MoreHorizontal,
+  RefreshCcw,
+  Send,
+  Star,
+  UserMinus,
+  UserPlus,
+} from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/design-system/ui/button";
 import {
@@ -10,21 +18,37 @@ import {
   CardHeader,
 } from "@/design-system/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/design-system/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/design-system/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/design-system/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { resolveAvatarUrl } from "@/assets/avatars";
 import { ConfirmDeleteWorkflowDialog } from "@features/workflow/components/dialogs/confirm-delete-workflow-dialog";
 import {
+  getCandidateBadgeByCandidateId,
   getCandidateBadgeByHandle,
   getCandidateBadgeDefinition,
 } from "@features/workflow/data/templates/candidate-badges";
 import { type Workflow } from "@features/workflow/data/workflow-data";
 import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
+import { getCandidateUpdateAvailability } from "./candidate-updates";
 import { WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME } from "./workflow-card-size";
 
 const getWorkflowTemplateAvatar = (workflow: Workflow): string | undefined => {
@@ -49,6 +73,10 @@ interface WorkflowCardProps {
     workflowId: string,
     workflowName: string,
   ) => Promise<void> | void;
+  onUpdateCandidateWorkflow: (
+    workflowId: string,
+    candidateId: string,
+  ) => Promise<void> | void;
 }
 
 export const WorkflowCard = ({
@@ -60,6 +88,7 @@ export const WorkflowCard = ({
   onUseTemplate,
   onExportWorkflow,
   onDeleteWorkflow,
+  onUpdateCandidateWorkflow,
 }: WorkflowCardProps) => {
   const workflowRouteRef = getWorkflowRouteRef(workflow);
   const isClickable = !isTemplate;
@@ -70,14 +99,25 @@ export const WorkflowCard = ({
   const templateId = !isTemplate
     ? workflow.versions?.at(-1)?.templateId
     : undefined;
+  const candidateSource = !isTemplate
+    ? workflow.versions?.at(-1)?.candidateSource
+    : undefined;
   const templateBadge = !isTemplate
-    ? (templateId
-        ? getCandidateBadgeDefinition(templateId)
-        : workflow.handle
-          ? getCandidateBadgeByHandle(workflow.handle)
-          : undefined)
+    ? ((candidateSource?.candidateId
+        ? getCandidateBadgeByCandidateId(candidateSource.candidateId)
+        : undefined) ??
+      (candidateSource?.candidateHandle
+        ? getCandidateBadgeByHandle(candidateSource.candidateHandle)
+        : undefined) ??
+      (templateId ? getCandidateBadgeDefinition(templateId) : undefined) ??
+      (workflow.handle
+        ? getCandidateBadgeByHandle(workflow.handle)
+        : undefined))
     : undefined;
   const displayBadge = candidateBadge ?? templateBadge;
+  const candidateUpdate = !isTemplate
+    ? getCandidateUpdateAvailability(workflow, templateBadge)
+    : undefined;
   const headerLabel = isTemplate ? "Candidate" : workspaceLabel;
   const rawHandle = workflow.handle ?? workflow.id;
   const workflowSlug = isTemplate
@@ -85,6 +125,9 @@ export const WorkflowCard = ({
     : rawHandle;
   const displayHandle =
     !isTemplate && teamSlug ? `${teamSlug}/${workflowSlug}` : workflowSlug;
+  const versionToDisplay = isTemplate
+    ? (candidateBadge?.version ?? null)
+    : (workflow.versions?.at(-1)?.candidateSource?.candidateVersion ?? null);
   const avatarUrl = resolveAvatarUrl(
     workflow.avatarEmoji ?? getWorkflowTemplateAvatar(workflow),
     workflow.id,
@@ -94,6 +137,8 @@ export const WorkflowCard = ({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeletePending, setIsDeletePending] = useState(false);
+  const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
+  const [isUpdatePending, setIsUpdatePending] = useState(false);
 
   const suppressCardOpen = () => {
     suppressCardOpenRef.current = true;
@@ -146,6 +191,20 @@ export const WorkflowCard = ({
       setIsDeleteDialogOpen(false);
     } finally {
       setIsDeletePending(false);
+    }
+  };
+
+  const handleConfirmUpdate = async () => {
+    if (!candidateUpdate) {
+      return;
+    }
+
+    setIsUpdatePending(true);
+    try {
+      await onUpdateCandidateWorkflow(workflow.id, candidateUpdate.candidateId);
+      setIsUpdateDialogOpen(false);
+    } finally {
+      setIsUpdatePending(false);
     }
   };
 
@@ -266,6 +325,45 @@ export const WorkflowCard = ({
               />
             </div>
 
+            {candidateUpdate ? (
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="absolute right-10 top-0 h-8 w-8 border-emerald-500/40 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60"
+                      aria-label={`Update ${workflow.name} to candidate version ${candidateUpdate.latestVersion}`}
+                      data-card-action="true"
+                      onClick={(event) => {
+                        stopPropagation(event);
+                        setIsUpdateDialogOpen(true);
+                      }}
+                      onPointerDown={stopPropagation}
+                    >
+                      <RefreshCcw className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[280px]">
+                    <div className="space-y-2 text-xs">
+                      <div className="font-semibold text-foreground">
+                        Candidate version {candidateUpdate.currentVersion} to{" "}
+                        {candidateUpdate.latestVersion}
+                      </div>
+                      {candidateUpdate.latestSummary ? (
+                        <p>{candidateUpdate.latestSummary}</p>
+                      ) : null}
+                      {candidateUpdate.firstMigration ? (
+                        <p className="text-amber-600 dark:text-amber-300">
+                          {candidateUpdate.firstMigration}
+                        </p>
+                      ) : null}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : null}
+
             {!isTemplate ? (
               <Button
                 variant="ghost"
@@ -294,6 +392,12 @@ export const WorkflowCard = ({
           <div className="mt-1 shrink-0 font-mono text-[10px] tracking-[0.04em] text-muted-foreground">
             @{displayHandle}
           </div>
+
+          {versionToDisplay ? (
+            <div className="mt-0.5 shrink-0 font-mono text-[9px] tracking-[0.04em] text-muted-foreground/60">
+              v{versionToDisplay}
+            </div>
+          ) : null}
 
           <div className="mt-3 flex min-h-0 w-full flex-1 flex-col items-center justify-start">
             <div className="h-px w-8 rounded-full bg-border/80" />
@@ -342,6 +446,83 @@ export const WorkflowCard = ({
           onOpenChange={setIsDeleteDialogOpen}
           onConfirm={handleConfirmDelete}
         />
+      ) : null}
+
+      {candidateUpdate ? (
+        <Dialog
+          open={isUpdateDialogOpen}
+          onOpenChange={(open) => {
+            if (!isUpdatePending) {
+              setIsUpdateDialogOpen(open);
+            }
+          }}
+        >
+          <DialogContent className="max-w-xl">
+            <DialogHeader>
+              <DialogTitle>Update candidate version</DialogTitle>
+              <DialogDescription>
+                Review release notes before updating {workflow.name} from{" "}
+                {candidateUpdate.currentVersion} to{" "}
+                {candidateUpdate.latestVersion}.
+              </DialogDescription>
+            </DialogHeader>
+
+            {candidateUpdate.isMajor ? (
+              <div className="rounded-md border border-amber-500/50 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                This is a major candidate update. Review migration notes before
+                applying it to this colleague.
+              </div>
+            ) : null}
+
+            <div className="max-h-[320px] space-y-3 overflow-y-auto pr-1">
+              {candidateUpdate.crossedUpdates.length > 0 ? (
+                candidateUpdate.crossedUpdates.map((note) => (
+                  <div
+                    key={note.version}
+                    className="rounded-md border border-border/70 p-3 text-sm"
+                  >
+                    <div className="font-semibold">
+                      Candidate version {note.version}
+                    </div>
+                    <p className="mt-1 text-muted-foreground">{note.summary}</p>
+                    {note.migration ? (
+                      <p className="mt-2 text-amber-700 dark:text-amber-300">
+                        {note.migration}
+                      </p>
+                    ) : null}
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No release notes were provided for the versions being crossed.
+                </p>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsUpdateDialogOpen(false)}
+                disabled={isUpdatePending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleConfirmUpdate}
+                disabled={isUpdatePending}
+              >
+                {isUpdatePending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCcw className="mr-2 h-4 w-4" />
+                )}
+                Update
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       ) : null}
     </>
   );

@@ -73,12 +73,27 @@ const onboardedCandidateWorkflow = {
   ],
 } satisfies Parameters<typeof WorkflowCard>[0]["workflow"];
 
+const updateAvailableWorkflow = {
+  ...onboardedCandidateWorkflow,
+  versions: [
+    {
+      id: "version-1",
+      candidateSource: {
+        source: "candidate-onboard",
+        candidateId: "insight-analyst",
+        candidateHandle: "insight-analyst",
+        candidateVersion: "1.0.0",
+      },
+    },
+  ],
+} satisfies Parameters<typeof WorkflowCard>[0]["workflow"];
 
 const createHandlers = () => ({
   onOpenWorkflow: vi.fn(),
   onUseTemplate: vi.fn(),
   onExportWorkflow: vi.fn(),
   onDeleteWorkflow: vi.fn(),
+  onUpdateCandidateWorkflow: vi.fn(),
 });
 
 afterEach(() => {
@@ -89,12 +104,21 @@ beforeEach(() => {
   setCandidateBadges([
     {
       id: "template-insight-analyst",
+      candidateId: "insight-analyst",
       name: "Insight Analyst",
       handle: "insight-analyst",
       subtitle: "AI Insights & Analytics",
       description:
         "Detects themes from text data using advanced thematic coding frameworks.",
       avatar: "avatar-03",
+      version: "1.1.0",
+      updates: [
+        {
+          version: "1.1.0",
+          summary: "Adds stronger evidence checks.",
+          migration: "Review prompt overrides before updating.",
+        },
+      ],
     },
   ]);
 });
@@ -249,6 +273,91 @@ describe("WorkflowCard", () => {
     expect(screen.getByRole("img", { hidden: true })).toBeInTheDocument();
   });
 
+  it("shows candidate update details and confirms selected workflow update", async () => {
+    const user = userEvent.setup();
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard
+        workflow={updateAvailableWorkflow}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /update insight analyst to candidate version 1.1.0/i,
+      }),
+    );
+
+    expect(screen.getByText("Update candidate version")).toBeInTheDocument();
+    expect(
+      screen.getByText("Adds stronger evidence checks."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Review prompt overrides before updating."),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^update$/i }));
+
+    expect(handlers.onUpdateCandidateWorkflow).toHaveBeenCalledWith(
+      updateAvailableWorkflow.id,
+      "insight-analyst",
+    );
+  });
+
+  it("shows compact candidate update context on hover", async () => {
+    const user = userEvent.setup();
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard
+        workflow={updateAvailableWorkflow}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
+    );
+
+    await user.hover(
+      screen.getByRole("button", {
+        name: /update insight analyst to candidate version 1.1.0/i,
+      }),
+    );
+
+    expect(
+      await screen.findAllByText(/candidate version 1.0.0 to 1.1.0/i),
+    ).not.toHaveLength(0);
+    expect(
+      screen.getAllByText("Adds stronger evidence checks."),
+    ).not.toHaveLength(0);
+  });
+
+  it("cancels candidate update without calling the update action", async () => {
+    const user = userEvent.setup();
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard
+        workflow={updateAvailableWorkflow}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /update insight analyst to candidate version 1.1.0/i,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: /^cancel$/i }));
+
+    expect(handlers.onUpdateCandidateWorkflow).not.toHaveBeenCalled();
+  });
+
   it("keeps dropdown transfer actions from triggering navigation", async () => {
     const user = userEvent.setup();
     const handlers = createHandlers();
@@ -274,5 +383,4 @@ describe("WorkflowCard", () => {
     expect(handlers.onExportWorkflow).toHaveBeenCalledTimes(1);
     expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
   });
-
 });

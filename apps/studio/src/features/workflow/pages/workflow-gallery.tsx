@@ -62,6 +62,7 @@ export default function WorkflowGallery() {
     handleImportStarterPack,
     handleExportWorkflow,
     handleDeleteWorkflow,
+    handleUpdateCandidateWorkflow,
     handleOpenWorkflow,
     onboardTarget,
     confirmOnboardTeam,
@@ -102,6 +103,7 @@ export default function WorkflowGallery() {
             onUseTemplate={handleUseTemplate}
             onExportWorkflow={handleExportWorkflow}
             onDeleteWorkflow={handleDeleteWorkflow}
+            onUpdateCandidateWorkflow={handleUpdateCandidateWorkflow}
             onDeleteTeam={handleDeleteTeam}
           />
         </div>

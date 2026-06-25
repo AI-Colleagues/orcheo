@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 from typing import Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class CandidateUpdateNote(BaseModel):
+    """Versioned candidate release note."""
+
+    version: str
+    summary: str
+    migration: str | None = None
 
 
 class CandidateItem(BaseModel):
@@ -24,6 +32,8 @@ class CandidateItem(BaseModel):
     notes: str | None = None
     metadata: dict[str, Any] | None = None
     mermaid: str | None = None
+    version: str | None = None
+    updates: list[CandidateUpdateNote] = Field(default_factory=list)
 
 
 class CandidatePublicItem(BaseModel):
@@ -43,3 +53,5 @@ class CandidatePublicItem(BaseModel):
     notes: str | None = None
     metadata: dict[str, Any] | None = None
     mermaid: str | None = None
+    version: str | None = None
+    updates: list[CandidateUpdateNote] = Field(default_factory=list)
