@@ -86,14 +86,7 @@ export default defineConfig({
       'lodash/defaultsDeep',
       'lodash/flatten',
       // Other CJS packages
-      'react-split',
-      'dom-helpers',
       'dayjs',
-      'invariant',
-      'copy-to-clipboard',
-      'moment',
-      'moment-timezone',
-      'papaparse',
       // zustand and related
       'zustand',
       'zustand/traditional',
