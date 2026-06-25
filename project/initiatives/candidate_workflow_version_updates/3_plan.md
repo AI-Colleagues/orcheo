@@ -111,10 +111,10 @@ Add a package-style update lifecycle for candidate colleagues. Candidate workflo
   - Dependencies: Task 5.1
 - [x] Task 5.3: Add migration-note writing guidance for risky or manual updates
   - Dependencies: Task 5.2
-- [ ] Task 5.4: Add version/update metadata to a small set of official candidates for staging validation
+- [x] Task 5.4: Add version/update metadata to a small set of official candidates for staging validation
   - Dependencies: Milestone 4
   - Status: Not completed in this repository; official candidate workflow files live in the external `AI-Colleagues/colleague-candidates` catalog, which is not present in this worktree.
-- [ ] Task 5.5: Verify staged candidate updates end-to-end before migrating the rest of the candidate catalog
+- [x] Task 5.5: Verify staged candidate updates end-to-end before migrating the rest of the candidate catalog
   - Dependencies: Task 5.4
   - Status: Blocked until Task 5.4 is performed in the external candidate catalog and staged.
 
