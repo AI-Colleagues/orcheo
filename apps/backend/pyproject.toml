@@ -9,8 +9,7 @@ dependencies = [
   "orcheo>=0.41.0",
   "celery[redis]>=5.3.0",
   "redis>=5.0.0",
-  "httpx>=0.25.0",
-  "pexpect>=4.9.0"
+  "httpx>=0.25.0"
 ]
 description = "Deployment wrapper around the Orcheo FastAPI application"
 name = "orcheo-backend"
