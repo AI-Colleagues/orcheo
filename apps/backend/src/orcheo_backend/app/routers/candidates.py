@@ -476,7 +476,7 @@ async def update_candidate_workflow(
         ) from exc
     except WorkflowVersionNotFoundError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
                 "message": "Workflow has no installed candidate version.",
                 "code": "candidate.workflow_unversioned",

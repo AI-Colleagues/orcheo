@@ -230,6 +230,48 @@ async def test_onboard_candidate_appends_version_to_existing_workflow(
 
 
 @pytest.mark.asyncio()
+async def test_onboard_candidate_accepts_explicit_team_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A provided team id is validated before creating the workflow."""
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [_SAMPLE]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    repo = _Repository()
+    request = CandidateOnboardRequest(id="insight-analyst", team_id=str(uuid4()))
+    result = await onboard_candidate(request, repo, _MOCK_WORKSPACE)  # type: ignore[arg-type]
+
+    assert repo.created_workflow is not None
+    assert result.id == repo.created_workflow.id
+    assert repo.versions_created == 1
+
+
+@pytest.mark.asyncio()
+async def test_onboard_candidate_rejects_invalid_team_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid team ids return the same not-found shape as missing teams."""
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [_SAMPLE]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    repo = _Repository()
+    request = CandidateOnboardRequest(id="insight-analyst", team_id="not-a-uuid")
+    with pytest.raises(HTTPException) as exc_info:
+        await onboard_candidate(request, repo, _MOCK_WORKSPACE)  # type: ignore[arg-type]
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail["code"] == "team.not_found"
+    assert repo.created_workflow is None
+    assert repo.versions_created == 0
+
+
+@pytest.mark.asyncio()
 async def test_onboard_candidate_stores_source_version_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -331,6 +373,17 @@ def test_resolve_candidate_runnable_config_rejects_invalid_inline_schema() -> No
 
     assert exc_info.value.status_code == 400
     assert "no runtime default" in str(exc_info.value.detail)
+
+
+def test_workflow_matches_candidate_source_rejects_non_candidate_versions() -> None:
+    """Only versions marked as candidate-onboard are considered candidate-sourced."""
+    metadata = {
+        "source": "manual-upload",
+        "candidate_id": "insight-analyst",
+        "candidate_handle": "insight-analyst",
+    }
+
+    assert not candidates_router._workflow_matches_candidate_source(metadata, _SAMPLE)
 
 
 @pytest.mark.asyncio()
@@ -663,6 +716,208 @@ async def test_update_candidate_workflow_rejects_unversioned_candidate(
         )
 
     assert exc_info.value.status_code == 400
+    assert repo.versions_created == 0
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_invalid_candidate_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Malformed candidate release versions cannot be used for updates."""
+    candidate = _SAMPLE.model_copy(update={"version": "v1.1.0"})
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    repo = _Repository(existing_workflow=_make_workflow(uuid4()))
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(uuid4()),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "candidate.invalid_version"
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_invalid_workflow_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Malformed workflow ids are reported as not found."""
+    candidate = _SAMPLE.model_copy(update={"version": "1.1.0"})
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    repo = _Repository(existing_workflow=_make_workflow(uuid4()))
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id="not-a-uuid",
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail["code"] == "workflow.not_found"
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_missing_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Repository misses are mapped to workflow.not_found."""
+    from orcheo_backend.app.repository import WorkflowNotFoundError
+
+    candidate = _SAMPLE.model_copy(update={"version": "1.1.0"})
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    class _MissingWorkflowRepository(_Repository):
+        async def get_workflow(self, workflow_id, *, workspace_id=None):  # type: ignore[override]
+            raise WorkflowNotFoundError(str(workflow_id))
+
+    repo = _MissingWorkflowRepository(existing_workflow=_make_workflow(uuid4()))
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(uuid4()),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail["code"] == "workflow.not_found"
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_workflow_without_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A workflow with no latest version cannot be candidate-updated."""
+    from orcheo_backend.app.repository import WorkflowVersionNotFoundError
+
+    existing_wf = _make_workflow(uuid4())
+    candidate = _SAMPLE.model_copy(update={"version": "1.1.0"})
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    class _UnversionedRepository(_Repository):
+        async def get_latest_version(self, workflow_id):  # type: ignore[override]
+            raise WorkflowVersionNotFoundError(str(workflow_id))
+
+    repo = _UnversionedRepository(existing_workflow=existing_wf)
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(existing_wf.id),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail["code"] == "candidate.workflow_unversioned"
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_missing_installed_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Candidate-sourced versions must record their installed candidate version."""
+    existing_wf = _make_workflow(uuid4())
+    candidate = _SAMPLE.model_copy(update={"version": "1.1.0"})
+    repo = _Repository(existing_workflow=existing_wf)
+    repo.latest_version = WorkflowVersion(
+        workflow_id=existing_wf.id,
+        version=1,
+        graph={"format": "langgraph-script"},
+        metadata={
+            "source": "candidate-onboard",
+            "candidate_id": "insight-analyst",
+            "candidate_handle": "insight-analyst",
+        },
+        created_by="onboard",
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(existing_wf.id),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "candidate.installed_version_unknown"
+    assert repo.versions_created == 0
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_rejects_invalid_installed_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Malformed installed candidate versions block update comparison."""
+    existing_wf = _make_workflow(uuid4())
+    candidate = _SAMPLE.model_copy(update={"version": "1.1.0"})
+    repo = _Repository(existing_workflow=existing_wf)
+    repo.latest_version = WorkflowVersion(
+        workflow_id=existing_wf.id,
+        version=1,
+        graph={"format": "langgraph-script"},
+        metadata={
+            "source": "candidate-onboard",
+            "candidate_id": "insight-analyst",
+            "candidate_handle": "insight-analyst",
+            "candidate_version": "1.x.0",
+        },
+        created_by="onboard",
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_candidate_workflow(
+            CandidateUpdateRequest(
+                workflow_id=str(existing_wf.id),
+                candidate_id="insight-analyst",
+            ),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "candidate.installed_version_invalid"
     assert repo.versions_created == 0
 
 
