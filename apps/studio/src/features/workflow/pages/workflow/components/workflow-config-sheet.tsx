@@ -44,12 +44,28 @@ const baseWorkflowConfigSchema: RJSFSchema = {
   },
 };
 
-const workflowConfigUiSchema: UiSchema = {
-  configurable: {
-    fields: {
-      "ui:field": "jsonObject",
+const buildWorkflowConfigUiSchema = (
+  configurableSchemas?: Record<string, RJSFSchema>,
+): UiSchema => {
+  // Opt any key declared with `"format": "cron"` into the visual cron widget.
+  const cronEntries: UiSchema = {};
+  for (const [key, schema] of Object.entries(configurableSchemas ?? {})) {
+    if (schema?.format === "cron") {
+      cronEntries[key] = { "ui:widget": "cron" };
+    }
+  }
+
+  return {
+    configurable: {
+      // Render configurable fields in the order declared by config.json,
+      // with any data-only keys appended afterwards via the "*" wildcard.
+      "ui:order": [...Object.keys(configurableSchemas ?? {}), "*"],
+      fields: {
+        "ui:field": "jsonObject",
+      },
+      ...cronEntries,
     },
-  },
+  };
 };
 
 interface WorkflowConfigSheetProps {
@@ -90,6 +106,11 @@ export function WorkflowConfigSheet({
       },
     };
   }, [formData.configurable, configurableSchemas]);
+
+  const workflowConfigUiSchema = useMemo<UiSchema>(
+    () => buildWorkflowConfigUiSchema(configurableSchemas),
+    [configurableSchemas],
+  );
 
   useEffect(() => {
     if (open) {
