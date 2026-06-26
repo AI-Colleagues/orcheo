@@ -62,6 +62,56 @@ def test_stack_logs_shortcut_runs_compose_logs_follow(
     ]
 
 
+def test_stack_logs_forwards_extra_args_to_compose(
+    runner: Any,
+    env: dict[str, str],
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    stack_dir = tmp_path / "stack"
+    stack_dir.mkdir(exist_ok=True)
+    compose_file = stack_dir / "docker-compose.yml"
+    compose_file.write_text("services: {}\n", encoding="utf-8")
+
+    executed: list[str] = []
+
+    def _run(command: list[str], *, check: bool) -> subprocess.CompletedProcess[str]:
+        del check
+        executed[:] = command
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("orcheo_sdk.cli.main.subprocess.run", _run)
+    monkeypatch.setattr("orcheo_sdk.cli.main.shutil.which", lambda _: "/usr/bin/docker")
+
+    result = runner.invoke(
+        app,
+        [
+            "--no-update-check",
+            "stack",
+            "--logs",
+            "--since",
+            "2026-06-19",
+            "backend",
+        ],
+        env=_stack_env(env, stack_dir),
+    )
+
+    assert result.exit_code == 0
+    assert executed == [
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "--project-directory",
+        str(stack_dir),
+        "logs",
+        "-f",
+        "--since",
+        "2026-06-19",
+        "backend",
+    ]
+
+
 def test_stack_start_shortcut_runs_compose_up_detached(
     runner: Any,
     env: dict[str, str],
