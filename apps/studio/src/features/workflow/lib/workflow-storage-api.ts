@@ -14,6 +14,7 @@ import type {
   WorkflowListenerMetricsResponse,
   WorkflowCredentialReadinessResponse,
   WorkflowPublishResponse,
+  WorkflowRunnableConfig,
   CandidateUpdateNote,
 } from "./workflow-storage.types";
 
@@ -454,6 +455,62 @@ export const extractCronConfigFromVersionGraph = (
   return extractCronConfigFromGraphNodes(graph);
 };
 
+// Matches a value that is exactly a single `{{config.configurable.<name>}}`
+// placeholder, optionally padded with whitespace inside the braces.
+const CONFIGURABLE_TEMPLATE = /^\{\{\s*config\.configurable\.([^}\s.]+)\s*\}\}$/;
+
+const resolveConfigurableTemplate = (
+  value: string | null | undefined,
+  configurable: Record<string, unknown> | undefined,
+): string | null | undefined => {
+  if (typeof value !== "string") {
+    return value;
+  }
+  const match = CONFIGURABLE_TEMPLATE.exec(value.trim());
+  if (!match) {
+    return value;
+  }
+  const name = match[1];
+  const resolved = configurable?.[name];
+  if (typeof resolved !== "string") {
+    throw new Error(
+      `Cron trigger references '{{config.configurable.${name}}}' but the ` +
+        `workflow has no configurable value named '${name}'. Set a default ` +
+        `for it in the workflow config.`,
+    );
+  }
+  return resolved;
+};
+
+// Cron triggers may parametrize fields (e.g. `expression`) with
+// `{{config.configurable.X}}` placeholders that the workflow runtime resolves
+// from its `configurable` config. Scheduling needs the concrete value, so
+// resolve any such placeholder against the version's configurable values
+// before the payload is validated as a cron expression by the backend.
+const resolveConfigurableCronConfig = (
+  config: CronTriggerConfig,
+  runnableConfig: WorkflowRunnableConfig | null | undefined,
+): CronTriggerConfig => {
+  const configurable = runnableConfig?.configurable;
+  return {
+    ...config,
+    expression:
+      resolveConfigurableTemplate(config.expression, configurable) ??
+      config.expression,
+    timezone: resolveConfigurableTemplate(config.timezone, configurable) as
+      | string
+      | undefined,
+    start_at: resolveConfigurableTemplate(config.start_at, configurable) as
+      | string
+      | null
+      | undefined,
+    end_at: resolveConfigurableTemplate(config.end_at, configurable) as
+      | string
+      | null
+      | undefined,
+  };
+};
+
 const normalizeTemplateCronConfig = (
   config: CronTriggerConfig,
   metadata: unknown,
@@ -562,7 +619,10 @@ export const scheduleWorkflowFromLatestVersion = async (
 
   const cronConfigRaw = extractCronConfigFromVersionGraph(latest.graph);
   const cronConfig = cronConfigRaw
-    ? normalizeTemplateCronConfig(cronConfigRaw, latest.metadata)
+    ? normalizeTemplateCronConfig(
+        resolveConfigurableCronConfig(cronConfigRaw, latest.runnable_config),
+        latest.metadata,
+      )
     : null;
   if (!cronConfig) {
     return {

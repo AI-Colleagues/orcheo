@@ -159,6 +159,87 @@ describe("workflow-storage-api helpers", () => {
     expect(requestBody.allow_overlapping).toBe(true);
   });
 
+  it("resolves a configurable cron template when scheduling", async () => {
+    const mockFetch = getFetchMock();
+    queueResponses([
+      jsonResponse([
+        {
+          id: "v1",
+          workflow_id: "wf-feed",
+          version: 1,
+          graph: {
+            index: {
+              cron: [
+                {
+                  expression: "{{config.configurable.cron_expression}}",
+                  timezone: "UTC",
+                  allow_overlapping: false,
+                },
+              ],
+            },
+          },
+          metadata: {},
+          runnable_config: {
+            configurable: {
+              cron_expression: "*/30 * * * *",
+            },
+          },
+          notes: null,
+          created_by: "studio",
+          created_at: "2026-03-10T10:00:00Z",
+          updated_at: "2026-03-10T10:00:00Z",
+        },
+      ]),
+      jsonResponse({
+        expression: "*/30 * * * *",
+        timezone: "UTC",
+        allow_overlapping: false,
+      }),
+    ]);
+
+    const result = await scheduleWorkflowFromLatestVersion("wf-feed");
+
+    expect(result.status).toBe("scheduled");
+    expect(result.config?.expression).toBe("*/30 * * * *");
+
+    const requestBody = JSON.parse(
+      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+    ) as { expression?: string };
+    expect(requestBody.expression).toBe("*/30 * * * *");
+  });
+
+  it("throws when a configurable cron template cannot be resolved", async () => {
+    queueResponses([
+      jsonResponse([
+        {
+          id: "v1",
+          workflow_id: "wf-feed",
+          version: 1,
+          graph: {
+            index: {
+              cron: [
+                {
+                  expression: "{{config.configurable.cron_expression}}",
+                  timezone: "UTC",
+                },
+              ],
+            },
+          },
+          metadata: {},
+          runnable_config: { configurable: {} },
+          notes: null,
+          created_by: "studio",
+          created_at: "2026-03-10T10:00:00Z",
+          updated_at: "2026-03-10T10:00:00Z",
+        },
+      ]),
+    ]);
+
+    await expect(scheduleWorkflowFromLatestVersion("wf-feed")).rejects.toThrow(
+      "no configurable value named 'cron_expression'",
+    );
+  });
+
   it("triggers a workflow run using the latest version", async () => {
     const mockFetch = getFetchMock();
     queueResponses([

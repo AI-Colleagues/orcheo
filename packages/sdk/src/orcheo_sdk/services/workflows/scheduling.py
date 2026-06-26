@@ -1,6 +1,7 @@
 """Workflow cron scheduling helpers."""
 
 from __future__ import annotations
+import re
 from collections.abc import Mapping
 from typing import Any
 from orcheo.graph.ingestion.config import LANGGRAPH_SCRIPT_FORMAT
@@ -8,6 +9,11 @@ from orcheo.triggers.cron import CronTriggerConfig
 from orcheo_sdk.cli.errors import APICallError, CLIError
 from orcheo_sdk.cli.http import ApiClient
 from orcheo_sdk.services.workflows.versions import get_latest_workflow_version_data
+
+
+# Matches a value that is exactly a single ``{{config.configurable.<name>}}``
+# placeholder, optionally padded with whitespace inside the braces.
+_CONFIGURABLE_TEMPLATE = re.compile(r"^\{\{\s*config\.configurable\.([^}\s.]+)\s*\}\}$")
 
 
 def schedule_workflow_cron(
@@ -20,7 +26,7 @@ def schedule_workflow_cron(
     if not isinstance(graph, Mapping):
         raise CLIError("Latest workflow version is missing graph data.")
 
-    cron_config = _extract_cron_config(graph)
+    cron_config = _extract_cron_config(graph, _extract_configurable(version))
     if cron_config is None:
         return {
             "status": "noop",
@@ -55,7 +61,7 @@ def sync_cron_schedule_if_changed(
     graph = version.get("graph")
     if not isinstance(graph, Mapping):
         return {"status": "noop", "reason": "no_graph"}
-    new_config = _extract_cron_config(graph)
+    new_config = _extract_cron_config(graph, _extract_configurable(version))
     if new_config is None:
         return {"status": "noop", "reason": "no_cron_trigger"}
 
@@ -87,9 +93,12 @@ def unschedule_workflow_cron(
     }
 
 
-def _extract_cron_config(graph: Mapping[str, Any]) -> CronTriggerConfig | None:
+def _extract_cron_config(
+    graph: Mapping[str, Any],
+    configurable: Mapping[str, Any] | None = None,
+) -> CronTriggerConfig | None:
     """Return the cron trigger config if the workflow contains one."""
-    index_config = _extract_cron_config_from_index(graph)
+    index_config = _extract_cron_config_from_index(graph, configurable)
     if index_config is not None:
         return index_config
 
@@ -114,11 +123,13 @@ def _extract_cron_config(graph: Mapping[str, Any]) -> CronTriggerConfig | None:
         config_payload["start_at"] = node.get("start_at")
     if "end_at" in node:
         config_payload["end_at"] = node.get("end_at")
+    _resolve_configurable_templates(config_payload, configurable)
     return CronTriggerConfig(**config_payload)
 
 
 def _extract_cron_config_from_index(
     graph: Mapping[str, Any],
+    configurable: Mapping[str, Any] | None = None,
 ) -> CronTriggerConfig | None:
     """Return cron config from ``graph.index.cron`` when present."""
     index = graph.get("index")
@@ -146,7 +157,47 @@ def _extract_cron_config_from_index(
     ):
         if key in entry:  # pragma: no branch
             config_payload[key] = entry.get(key)
+    _resolve_configurable_templates(config_payload, configurable)
     return CronTriggerConfig(**config_payload)
+
+
+def _extract_configurable(version: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the resolved ``configurable`` values for a workflow version."""
+    runnable_config = version.get("runnable_config")
+    if not isinstance(runnable_config, Mapping):
+        return {}
+    configurable = runnable_config.get("configurable")
+    if not isinstance(configurable, Mapping):
+        return {}
+    return dict(configurable)
+
+
+def _resolve_configurable_templates(
+    config_payload: dict[str, Any],
+    configurable: Mapping[str, Any] | None,
+) -> None:
+    """Replace ``{{config.configurable.X}}`` placeholders with their values.
+
+    Cron triggers may parametrize fields (e.g. ``expression``) with template
+    placeholders that the workflow runtime resolves from its ``configurable``
+    config. Scheduling needs the concrete value, so resolve any such
+    placeholder against the version's resolved configurable values before the
+    payload is validated as a cron expression.
+    """
+    for key, value in list(config_payload.items()):
+        if not isinstance(value, str):
+            continue
+        match = _CONFIGURABLE_TEMPLATE.fullmatch(value.strip())
+        if match is None:
+            continue
+        name = match.group(1)
+        if not configurable or name not in configurable:
+            raise CLIError(
+                f"Cron trigger references '{{{{config.configurable.{name}}}}}' "
+                f"but the workflow has no configurable value named '{name}'. "
+                "Set a default for it in the workflow config."
+            )
+        config_payload[key] = configurable[name]
 
 
 def _extract_nodes(graph: Mapping[str, Any]) -> list[Mapping[str, Any]]:
