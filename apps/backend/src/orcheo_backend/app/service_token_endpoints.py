@@ -38,6 +38,7 @@ def _record_to_response(
     """Convert ServiceTokenRecord to API response."""
     return ServiceTokenResponse(
         identifier=record.identifier,
+        name=record.name,
         secret=secret,
         secret_preview=record.secret_preview,
         scopes=sorted(record.scopes),
@@ -96,7 +97,7 @@ async def create_service_token(
     workspace_id = str(workspace.workspace_id)
 
     secret, record = await token_manager.mint(
-        identifier=request.identifier,
+        name=request.name,
         scopes=request.scopes,
         workspace_ids=[workspace_id],
         expires_in=request.expires_in_seconds,

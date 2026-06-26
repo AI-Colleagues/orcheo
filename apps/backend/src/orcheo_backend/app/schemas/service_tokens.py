@@ -12,9 +12,9 @@ class CreateServiceTokenRequest(BaseModel):
     does not supply workspace identifiers.
     """
 
-    identifier: str | None = Field(
+    name: str | None = Field(
         default=None,
-        description="Optional identifier for the token (auto-generated if omitted)",
+        description="Optional human-readable name for the token (need not be unique)",
     )
     scopes: list[str] = Field(
         default_factory=list,
@@ -31,6 +31,10 @@ class ServiceTokenResponse(BaseModel):
     """Response payload describing a service token."""
 
     identifier: str = Field(description="Unique identifier for the token")
+    name: str | None = Field(
+        default=None,
+        description="Human-readable name for the token",
+    )
     secret: str | None = Field(
         default=None,
         description="Raw token secret (only shown once on creation)",

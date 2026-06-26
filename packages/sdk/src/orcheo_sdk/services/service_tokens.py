@@ -38,7 +38,7 @@ def show_service_token_data(
 
 def create_service_token_data(
     client: ApiClient,
-    identifier: str | None = None,
+    name: str | None = None,
     scopes: list[str] | None = None,
     workspace_ids: list[str] | None = None,
     expires_in_seconds: int | None = None,
@@ -47,7 +47,7 @@ def create_service_token_data(
 
     Args:
         client: API client instance
-        identifier: Optional identifier for the token
+        name: Optional human-readable name for the token (need not be unique)
         scopes: Optional list of scopes to grant
         workspace_ids: Optional list of workspace IDs the token can access
         expires_in_seconds: Optional expiration time in seconds
@@ -56,8 +56,8 @@ def create_service_token_data(
         Created token with identifier and secret
     """
     payload: dict[str, str | list[str] | int] = {}
-    if identifier:
-        payload["identifier"] = identifier
+    if name:
+        payload["name"] = name
     if scopes:
         payload["scopes"] = scopes
     if workspace_ids:

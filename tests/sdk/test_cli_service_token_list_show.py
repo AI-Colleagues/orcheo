@@ -19,7 +19,7 @@ def test_token_list_empty(runner: CliRunner, env: dict[str, str]) -> None:
 
     assert result.exit_code == 0
     assert "Service Tokens (0 total)" in result.stdout
-    assert "ID" in result.stdout
+    assert "Name" in result.stdout
     assert "Scopes" in result.stdout
 
 

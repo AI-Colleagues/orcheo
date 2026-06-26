@@ -2,6 +2,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
@@ -17,6 +18,7 @@ class ServiceTokenRecord:
 
     identifier: str
     secret_hash: str
+    name: str | None = None
     secret_preview: str | None = None
     scopes: frozenset[str] = field(default_factory=frozenset)
     workspace_ids: frozenset[str] = field(default_factory=frozenset)
@@ -125,13 +127,18 @@ class ServiceTokenManager:
     async def mint(
         self,
         *,
-        identifier: str | None = None,
+        name: str | None = None,
         scopes: Iterable[str] = (),
         workspace_ids: Iterable[str] = (),
         expires_in: timedelta | int | None = None,
         workspace_id: str | None = None,
     ) -> tuple[str, ServiceTokenRecord]:
-        """Mint a new service token and return the raw secret and record."""
+        """Mint a new service token and return the raw secret and record.
+
+        The ``name`` is a human-readable, non-unique label; the primary
+        ``identifier`` is always generated server-side so distinct tokens can
+        share the same name.
+        """
         secret = secrets.token_urlsafe(32)
         digest = hashlib.sha256(secret.encode("utf-8")).hexdigest()
         now = self._clock()
@@ -143,7 +150,8 @@ class ServiceTokenManager:
             expires_at = now + timedelta(seconds=int(expires_in))
 
         record = ServiceTokenRecord(
-            identifier=identifier or digest[:8],
+            identifier=uuid.uuid4().hex,
+            name=name,
             secret_hash=digest,
             secret_preview=secret[-4:],
             scopes=frozenset(scopes),
@@ -173,6 +181,7 @@ class ServiceTokenManager:
         now = self._clock()
         overlap = max(int(overlap_seconds), 0)
         secret, new_record = await self.mint(
+            name=record.name,
             scopes=record.scopes,
             workspace_ids=record.workspace_ids,
             expires_in=expires_in,

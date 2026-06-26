@@ -405,6 +405,7 @@ export async function acceptWorkspaceInvitation(
 
 export interface ServiceToken {
   identifier: string;
+  name?: string | null;
   secret?: string | null;
   secret_preview?: string | null;
   scopes: string[];
@@ -425,7 +426,7 @@ export interface ServiceTokenListResponse {
 }
 
 export interface CreateServiceTokenRequest {
-  identifier?: string;
+  name?: string;
   scopes?: string[];
   expires_in_seconds?: number | null;
 }

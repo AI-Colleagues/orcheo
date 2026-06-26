@@ -90,7 +90,7 @@ export default function ServiceTokens() {
   const [workspaceName, setWorkspaceName] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [identifier, setIdentifier] = useState("");
+  const [name, setName] = useState("");
   const [selectedScopes, setSelectedScopes] = useState<Set<string>>(new Set());
   const [expiry, setExpiry] = useState<string>("never");
   const [isMinting, setIsMinting] = useState(false);
@@ -137,7 +137,7 @@ export default function ServiceTokens() {
   }, []);
 
   const resetCreateForm = () => {
-    setIdentifier("");
+    setName("");
     setSelectedScopes(new Set());
     setExpiry("never");
   };
@@ -161,14 +161,14 @@ export default function ServiceTokens() {
         (option) => option.value === expiry,
       );
       const token = await createServiceToken({
-        identifier: identifier.trim() || undefined,
+        name: name.trim() || undefined,
         scopes: [...selectedScopes],
         expires_in_seconds: expiryOption?.seconds ?? undefined,
       });
       setTokens((prev) => [token, ...prev]);
       setRevealed({
         title: "API key created",
-        identifier: token.identifier,
+        identifier: token.name ?? token.identifier,
         secret: token.secret ?? "",
       });
       resetCreateForm();
@@ -196,7 +196,7 @@ export default function ServiceTokens() {
       setTokens(tokenList.tokens);
       setRevealed({
         title: "API key rotated",
-        identifier: rotated.identifier,
+        identifier: rotated.name ?? rotated.identifier,
         secret: rotated.secret ?? "",
       });
       toast({ title: "API key rotated" });
@@ -277,7 +277,7 @@ export default function ServiceTokens() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Identifier</TableHead>
+                <TableHead>Name</TableHead>
                 <TableHead>Key</TableHead>
                 <TableHead>Scopes</TableHead>
                 <TableHead>Issued</TableHead>
@@ -294,7 +294,7 @@ export default function ServiceTokens() {
                 return (
                   <TableRow key={token.identifier}>
                     <TableCell className="font-mono text-sm">
-                      {token.identifier}
+                      {token.name ?? token.identifier}
                     </TableCell>
                     <TableCell className="font-mono text-sm text-muted-foreground">
                       {token.secret_preview
@@ -391,12 +391,12 @@ export default function ServiceTokens() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="token-identifier">Identifier (optional)</Label>
+              <Label htmlFor="token-name">Name (optional)</Label>
               <Input
-                id="token-identifier"
-                placeholder="Auto-generated if left blank"
-                value={identifier}
-                onChange={(event) => setIdentifier(event.target.value)}
+                id="token-name"
+                placeholder="e.g. Local, CI, Production"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
                 disabled={isMinting}
               />
             </div>

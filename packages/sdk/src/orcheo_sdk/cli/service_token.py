@@ -32,8 +32,12 @@ def _state(ctx: typer.Context) -> CLIState:
 @app.command("create")
 def create_token(
     ctx: typer.Context,
-    identifier: Annotated[
-        str | None, typer.Option("--id", help="Optional identifier for the token")
+    name: Annotated[
+        str | None,
+        typer.Option(
+            "--name",
+            help="Optional human-readable name for the token (need not be unique)",
+        ),
     ] = None,
     scopes: Annotated[
         list[str] | None,
@@ -67,7 +71,7 @@ def create_token(
 
     data = create_service_token_data(
         state.client,
-        identifier=identifier,
+        name=name,
         scopes=scopes,
         workspace_ids=workspaces,
         expires_in_seconds=expires_in,
@@ -83,6 +87,8 @@ def create_token(
         style="green",
     )
     state.console.print()
+    if data.get("name"):
+        state.console.print(f"[bold]Name:[/] {data['name']}")
     state.console.print(f"[bold]ID:[/] {data['identifier']}")
     state.console.print(
         f"[bold yellow]Secret:[/] [reverse]{data['secret']}[/]",
@@ -114,7 +120,7 @@ def list_tokens(ctx: typer.Context) -> None:
         return
 
     table = Table(title=f"Service Tokens ({data['total']} total)")
-    table.add_column("ID", style="cyan")
+    table.add_column("Name", style="cyan")
     table.add_column("Scopes", style="green")
     table.add_column("Workspaces", style="blue")
     table.add_column("Issued", style="dim")
@@ -139,7 +145,7 @@ def list_tokens(ctx: typer.Context) -> None:
             status = "[green]Active[/]"
 
         table.add_row(
-            token["identifier"],
+            token.get("name") or token["identifier"],
             scopes_str,
             workspaces_str,
             issued_str,
@@ -171,6 +177,9 @@ def show_token(
     table = Table(show_header=False, box=None)
     table.add_column("Field", style="bold")
     table.add_column("Value")
+
+    if data.get("name"):
+        table.add_row("Name", data["name"])
 
     table.add_row("ID", data["identifier"])
 

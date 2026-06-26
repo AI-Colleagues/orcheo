@@ -31,6 +31,7 @@ except Exception:  # pragma: no cover - fallback when dependency missing
 POSTGRES_SERVICE_TOKEN_SCHEMA = """
 CREATE TABLE IF NOT EXISTS service_tokens (
     identifier TEXT PRIMARY KEY,
+    name TEXT,
     secret_hash TEXT NOT NULL,
     secret_preview TEXT,
     scopes JSONB,
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS service_tokens (
 );
 
 ALTER TABLE service_tokens ADD COLUMN IF NOT EXISTS secret_preview TEXT;
+ALTER TABLE service_tokens ADD COLUMN IF NOT EXISTS name TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_service_tokens_hash
     ON service_tokens(secret_hash);
@@ -109,6 +111,7 @@ def _row_to_record(row: dict[str, Any]) -> ServiceTokenRecord:
 
     return ServiceTokenRecord(
         identifier=row["identifier"],
+        name=row.get("name"),
         secret_hash=row["secret_hash"],
         secret_preview=row.get("secret_preview"),
         scopes=parse_set(row.get("scopes")),
@@ -281,16 +284,17 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
             await conn.execute(
                 """
                 INSERT INTO service_tokens (
-                    identifier, secret_hash, secret_preview, scopes,
+                    identifier, name, secret_hash, secret_preview, scopes,
                     workspace_ids, created_at, created_by, issued_at,
                     expires_at, rotation_expires_at, rotated_to, revoked_at,
                     revoked_by, revocation_reason, workspace_id
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 """,
                 (
                     record.identifier,
+                    record.name,
                     record.secret_hash,
                     record.secret_preview,
                     serialize_string_set(record.scopes),
