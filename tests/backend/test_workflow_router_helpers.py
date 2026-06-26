@@ -83,6 +83,37 @@ def test_merge_configurable_schema_merges_dict_existing() -> None:
     assert result["key3"] == "only-existing"
 
 
+def test_apply_configurable_schema_order_records_key_order() -> None:
+    """The authored field order is captured as a sibling array before JSONB."""
+    metadata = {
+        "configurable_schema": {
+            "zebra": {"type": "string"},
+            "apple": {"type": "string"},
+            "mango": {"type": "string"},
+        }
+    }
+    result = workflows._apply_configurable_schema_order(metadata)
+    assert result["configurable_schema_order"] == ["zebra", "apple", "mango"]
+
+
+def test_apply_configurable_schema_order_noop_without_schema() -> None:
+    """Metadata without a configurable_schema dict is returned unchanged."""
+    assert workflows._apply_configurable_schema_order({}) == {}
+    assert workflows._apply_configurable_schema_order({"configurable_schema": {}}) == {
+        "configurable_schema": {}
+    }
+
+
+def test_apply_configurable_schema_order_preserves_caller_order() -> None:
+    """An explicit caller-supplied order is left untouched."""
+    metadata = {
+        "configurable_schema": {"a": {"type": "string"}, "b": {"type": "string"}},
+        "configurable_schema_order": ["b", "a"],
+    }
+    result = workflows._apply_configurable_schema_order(metadata)
+    assert result["configurable_schema_order"] == ["b", "a"]
+
+
 def test_resolve_ingest_configurable_schema_raises_400_on_schema_error() -> None:
     """ConfigurableSchemaError from split_configurable is re-raised as HTTP 400."""
     from orcheo.runtime.runnable_config import RunnableConfigModel as RC

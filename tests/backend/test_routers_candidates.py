@@ -437,6 +437,7 @@ async def test_onboard_candidate_resolves_inline_configurable_schema(
             "default": "openai:gpt-4.1-mini",
         }
     }
+    assert repo.last_metadata["configurable_schema_order"] == ["ai_model"]
 
 
 @pytest.mark.asyncio()

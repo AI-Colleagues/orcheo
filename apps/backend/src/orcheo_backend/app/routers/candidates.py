@@ -259,11 +259,15 @@ def _resolve_candidate_runnable_config(
         ) from exc
 
     if inline_schema:
+        merged_schema = _merge_configurable_schema(
+            metadata.get("configurable_schema"), inline_schema
+        )
         metadata = {
             **metadata,
-            "configurable_schema": _merge_configurable_schema(
-                metadata.get("configurable_schema"), inline_schema
-            ),
+            "configurable_schema": merged_schema,
+            # Persist the authored field order separately: ``configurable_schema``
+            # is stored in a JSONB column that does not preserve object key order.
+            "configurable_schema_order": list(merged_schema.keys()),
         }
         runnable_config = runnable_config.model_copy(
             update={"configurable": resolved_configurable}

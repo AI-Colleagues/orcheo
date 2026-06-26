@@ -218,6 +218,23 @@ def _merge_configurable_schema(
     return inline
 
 
+def _apply_configurable_schema_order(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Record the authored key order of ``configurable_schema`` as an array.
+
+    ``configurable_schema`` is persisted inside a JSONB column, which normalizes
+    object key order and therefore loses the field order declared in the source
+    ``config.json``. Capturing the order in a sibling list (arrays keep their
+    order in JSONB) lets the workflow page render configurable fields in their
+    authored sequence. A caller-supplied order is left untouched.
+    """
+    schema = metadata.get("configurable_schema")
+    if not isinstance(schema, dict) or not schema:
+        return metadata
+    if isinstance(metadata.get("configurable_schema_order"), list):
+        return metadata
+    return {**metadata, "configurable_schema_order": list(schema.keys())}
+
+
 def _resolve_ingest_configurable_schema(
     runnable_config: RunnableConfigModel | None,
     metadata: dict[str, Any],
@@ -880,6 +897,7 @@ async def ingest_workflow_version(
         request.metadata,
     )
     metadata = _merge_frontmatter_avatar(request.script, metadata)
+    metadata = _apply_configurable_schema_order(metadata)
 
     try:
         version = await repository.create_version(

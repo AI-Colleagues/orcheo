@@ -195,4 +195,65 @@ describe("workflow-storage-versioning", () => {
       },
     });
   });
+
+  it("reorders configurable schemas by configurable_schema_order", async () => {
+    queueResponses([
+      jsonResponse({
+        workflow: {
+          id: "wf-1",
+          handle: "wf-1",
+          name: "Simple Agent",
+          slug: "simple-agent",
+          description: "Test",
+          tags: ["draft"],
+          is_archived: false,
+          is_public: false,
+          require_login: false,
+          published_at: null,
+          published_by: null,
+          created_at: "2026-03-10T09:00:00Z",
+          updated_at: "2026-03-10T10:00:00Z",
+          share_url: null,
+        },
+        versions: [
+          {
+            id: "v1",
+            workflow_id: "wf-1",
+            version: 1,
+            mermaid: "graph TD; A-->B",
+            metadata: {
+              // Keys arrive scrambled, as PostgreSQL JSONB does not preserve
+              // object key order. The sibling order array restores intent.
+              configurable_schema: {
+                apple: { type: "string" },
+                mango: { type: "string" },
+                zebra: { type: "string" },
+              },
+              configurable_schema_order: ["zebra", "apple", "mango"],
+              workflow: {
+                snapshot: {
+                  name: "Simple Agent",
+                  description: "Test",
+                  nodes: [],
+                  edges: [],
+                },
+                summary: { added: 0, removed: 0, modified: 0 },
+              },
+            },
+            runnable_config: null,
+            notes: null,
+            created_by: "cli",
+            created_at: "2026-03-10T10:00:00Z",
+            updated_at: "2026-03-10T10:00:00Z",
+          },
+        ],
+      }),
+    ]);
+
+    const workflow = await ensureWorkflow("wf-1");
+
+    expect(
+      Object.keys(workflow?.versions[0]?.configurableSchemas ?? {}),
+    ).toEqual(["zebra", "apple", "mango"]);
+  });
 });

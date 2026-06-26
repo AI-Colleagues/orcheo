@@ -216,6 +216,7 @@ const parseWorkflowMetadata = (
 ): WorkflowVersionMetadata => {
   const configurableSchemas = parseConfigurableSchemas(
     isRecord(metadata) ? metadata.configurable_schema : undefined,
+    isRecord(metadata) ? metadata.configurable_schema_order : undefined,
   );
   const avatarEmoji = extractAvatarEmoji(metadata);
   const candidateSource = extractCandidateSource(metadata);
@@ -330,6 +331,7 @@ const parseWorkflowMetadata = (
 
 const parseConfigurableSchemas = (
   value: unknown,
+  order: unknown,
 ): Record<string, RJSFSchema> | undefined => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
@@ -342,6 +344,23 @@ const parseConfigurableSchemas = (
 
   if (entries.length === 0) {
     return undefined;
+  }
+
+  // The schema object is persisted in a JSONB column that does not preserve key
+  // order, so reorder by the authored `configurable_schema_order` array when
+  // present. Keys missing from the order list keep their existing position at
+  // the end, keeping output stable for legacy versions without the array.
+  if (Array.isArray(order) && order.length > 0) {
+    const byKey = new Map(entries);
+    const orderedKeys = order.filter(
+      (key): key is string => typeof key === "string" && byKey.has(key),
+    );
+    const seen = new Set(orderedKeys);
+    const orderedEntries = [
+      ...orderedKeys.map((key) => [key, byKey.get(key)] as const),
+      ...entries.filter(([key]) => !seen.has(key)),
+    ];
+    return Object.fromEntries(orderedEntries) as Record<string, RJSFSchema>;
   }
 
   return Object.fromEntries(entries) as Record<string, RJSFSchema>;
