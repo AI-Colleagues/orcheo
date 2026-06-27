@@ -612,6 +612,8 @@ async def test_dispatch_listener_event_success(
             {},  # UPDATE listener_subscriptions
             # _get_version_locked (explicit call in dispatch_listener_event)
             {"row": {"payload": ver_payload}},
+            # _get_workflow_workspace_id_locked → unscoped workflow
+            {"row": {"workspace_id": None}},
             # _create_run_locked → _get_version_locked (internal)
             {"row": {"payload": ver_payload}},
             {},  # INSERT workflow_runs

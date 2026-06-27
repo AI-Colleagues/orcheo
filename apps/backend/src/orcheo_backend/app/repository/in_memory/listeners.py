@@ -205,6 +205,7 @@ class ListenerRepositoryMixin(InMemoryRepositoryState):
 
             subscription.last_event_at = now
             subscription.last_error = None
+            workspace_id = self._workflow_workspaces.get(subscription.workflow_id)
             run = self._create_run_locked(
                 workflow_id=subscription.workflow_id,
                 workflow_version_id=version.id,
@@ -213,6 +214,7 @@ class ListenerRepositoryMixin(InMemoryRepositoryState):
                     update={"listener_subscription_id": subscription_id}
                 ).to_input_payload(),
                 actor="listener",
+                workspace_id=workspace_id,
             )
             return run.model_copy(deep=True)
 

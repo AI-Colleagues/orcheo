@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 import orcheo_backend.app.repository_postgres._triggers as trigger_module
 from orcheo.listeners import (
@@ -442,6 +442,10 @@ class ListenerRepositoryMixin(PostgresPersistenceMixin):
                     ),
                 )
             version = await self._get_version_locked(subscription.workflow_version_id)
+            workspace_repo = cast(trigger_module._WorkflowWorkspaceLookup, self)
+            workspace_id = await workspace_repo._get_workflow_workspace_id_locked(
+                subscription.workflow_id
+            )
             run = await self._create_run_locked(
                 workflow_id=subscription.workflow_id,
                 workflow_version_id=version.id,
@@ -450,6 +454,7 @@ class ListenerRepositoryMixin(PostgresPersistenceMixin):
                     update={"listener_subscription_id": subscription_id}
                 ).to_input_payload(),
                 actor="listener",
+                workspace_id=workspace_id,
             )
             run_copy = run.model_copy(deep=True)
         trigger_module._enqueue_run_for_execution(run_copy)
