@@ -143,6 +143,52 @@ describe("WorkflowTabContent", () => {
     );
   });
 
+  it("shows a success result banner once a run finishes", () => {
+    render(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        lastRunStatus="success"
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Workflow run succeeded. See the full trace on the Trace tab.",
+    );
+  });
+
+  it("shows a failure result banner once a run fails", () => {
+    render(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        lastRunStatus="failed"
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Workflow run failed. Check the Trace tab for details.",
+    );
+  });
+
+  it("prefers the in-progress reminder over a prior result while running", () => {
+    render(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        isRunning
+        lastRunStatus="success"
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Workflow run in progress. Check the latest record on the Trace tab for live status.",
+    );
+  });
+
   it("opens the publish dialog and publishes with the chosen visibility", async () => {
     render(<WorkflowTabContent {...baseProps} workflowRouteRef="workflow-1" />);
 
