@@ -44,6 +44,46 @@ const readText = async (response: Response): Promise<string> => {
   }
 };
 
+/**
+ * Extract a human-readable message from an error response body.
+ *
+ * FastAPI serializes errors as `{ "detail": ... }`, where `detail` may be a
+ * plain string, our structured `{ message, code }` object, or a list of
+ * validation errors. Surface the readable message instead of the raw JSON so
+ * error toasts stay legible; fall back to the original text otherwise.
+ */
+export const extractErrorMessage = (body: string): string => {
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    const detail = (parsed as { detail?: unknown })?.detail ?? parsed;
+
+    if (typeof detail === "string") {
+      return detail;
+    }
+    if (detail && typeof detail === "object") {
+      const message = (detail as { message?: unknown }).message;
+      if (typeof message === "string") {
+        return message;
+      }
+      if (Array.isArray(detail)) {
+        const messages = detail
+          .map((item) =>
+            item && typeof item === "object"
+              ? (item as { msg?: unknown }).msg
+              : undefined,
+          )
+          .filter((msg): msg is string => typeof msg === "string");
+        if (messages.length > 0) {
+          return messages.join("; ");
+        }
+      }
+    }
+  } catch {
+    // Body was not JSON; fall through to the raw text.
+  }
+  return body;
+};
+
 export const request = async <T>(
   path: string,
   options: RequestOptions = {},
@@ -57,7 +97,8 @@ export const request = async <T>(
   });
 
   if (!response.ok) {
-    const detail = (await readText(response)) || response.statusText;
+    const body = await readText(response);
+    const detail = body ? extractErrorMessage(body) : response.statusText;
     throw new ApiRequestError(detail, response.status);
   }
 

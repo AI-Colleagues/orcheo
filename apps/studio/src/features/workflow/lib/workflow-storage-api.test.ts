@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   extractCronConfigFromVersionGraph,
+  extractErrorMessage,
   fetchWorkflowPageData,
   fetchWorkflowCredentialReadiness,
   fetchWorkflowListenerMetrics,
@@ -31,6 +32,44 @@ describe("workflow-storage-api helpers", () => {
     });
 
     expect(shareUrl).toBe("https://studio.example/chat/my-flow");
+  });
+
+  it("extracts the readable message from a structured FastAPI error", () => {
+    const body = JSON.stringify({
+      detail: {
+        message: "Candidate script failed to build: ImportError: ...",
+        code: "candidate.script_build_failed",
+      },
+    });
+
+    expect(extractErrorMessage(body)).toBe(
+      "Candidate script failed to build: ImportError: ...",
+    );
+  });
+
+  it("extracts a plain string FastAPI detail", () => {
+    expect(extractErrorMessage(JSON.stringify({ detail: "Not found" }))).toBe(
+      "Not found",
+    );
+  });
+
+  it("joins validation error messages", () => {
+    const body = JSON.stringify({
+      detail: [
+        { loc: ["body", "id"], msg: "field required", type: "value_error" },
+        { loc: ["body", "name"], msg: "must be a string", type: "type_error" },
+      ],
+    });
+
+    expect(extractErrorMessage(body)).toBe(
+      "field required; must be a string",
+    );
+  });
+
+  it("falls back to the raw body when it is not JSON", () => {
+    expect(extractErrorMessage("Internal Server Error")).toBe(
+      "Internal Server Error",
+    );
   });
 
   it("extracts cron config from graph index", () => {

@@ -6,7 +6,11 @@ from typing import Any, NoReturn
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ValidationError
-from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
+from orcheo.graph.ingestion import (
+    ScriptIngestionError,
+    ingest_langgraph_script,
+    load_graph_from_script_full_env,
+)
 from orcheo.models import Workflow, WorkflowDraftAccess
 from orcheo.runtime.configurable_schema import (
     ConfigurableSchemaError,
@@ -148,6 +152,25 @@ def _prepare_candidate_version_payload(
             detail={
                 "message": f"Candidate script ingestion failed: {exc}",
                 "code": "candidate.script_ingestion_failed",
+            },
+        ) from exc
+
+    # ``ingest_langgraph_script`` only compiles the source (a syntax check); it
+    # never executes it, so import errors and other runtime build failures slip
+    # through.  Build the graph in the full environment here so a broken
+    # candidate fails onboarding loudly instead of silently producing a workflow
+    # that only errors at execution time.
+    try:
+        load_graph_from_script_full_env(
+            candidate.script,
+            entrypoint=candidate.entrypoint,
+        )
+    except ScriptIngestionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": f"Candidate script failed to build: {exc}",
+                "code": "candidate.script_build_failed",
             },
         ) from exc
 
