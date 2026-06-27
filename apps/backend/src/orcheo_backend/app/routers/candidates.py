@@ -11,7 +11,7 @@ from orcheo.graph.ingestion import (
     ingest_langgraph_script,
     load_graph_from_script_full_env,
 )
-from orcheo.models import Workflow, WorkflowDraftAccess
+from orcheo.models import Workflow, WorkflowDraftAccess, WorkflowVersion
 from orcheo.runtime.configurable_schema import (
     ConfigurableSchemaError,
     split_configurable,
@@ -22,6 +22,11 @@ from orcheo_backend.app.candidates_service import (
     CandidateFetchError,
     get_candidate_source_ref,
     get_candidates,
+)
+from orcheo_backend.app.configurable_merge import (
+    CONFIGURABLE_DEFAULTS_KEY,
+    apply_user_configurable_overrides,
+    extract_configurable_defaults,
 )
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import WorkspaceQuotaExceededError
@@ -141,6 +146,12 @@ def _prepare_candidate_version_payload(
     _raise_for_missing_required_plugins(metadata)
     runnable_config, metadata = _resolve_candidate_runnable_config(candidate, metadata)
 
+    # Record this release's pristine configurable defaults so a future release
+    # can distinguish a user's deliberate override from an untouched default.
+    defaults = extract_configurable_defaults(runnable_config)
+    if defaults:
+        metadata = {**metadata, CONFIGURABLE_DEFAULTS_KEY: defaults}
+
     try:
         graph_payload = ingest_langgraph_script(
             candidate.script,
@@ -201,15 +212,27 @@ async def _create_candidate_version_from_payload(
     )
 
 
+def _apply_user_configurable_overrides(
+    payload: tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None],
+    existing_version: WorkflowVersion | None,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]:
+    """Carry user-changed configurable values onto a prepared version payload."""
+    graph_payload, metadata, runnable_config = payload
+    merged = apply_user_configurable_overrides(runnable_config, existing_version)
+    return graph_payload, metadata, merged
+
+
 async def _append_candidate_workflow_version(
     repository: RepositoryDep,
     workflow: Workflow,
     candidate: CandidateItem,
     *,
     actor: str,
+    existing_version: WorkflowVersion | None = None,
 ) -> None:
     """Append a workflow version sourced from the candidate release."""
     payload = _prepare_candidate_version_payload(candidate)
+    payload = _apply_user_configurable_overrides(payload, existing_version)
     await _create_candidate_version_from_payload(
         repository,
         workflow,
@@ -412,6 +435,7 @@ async def onboard_candidate(
     # If the candidate already lives in the target team, append a version;
     # otherwise onboard it as a new colleague within that team.
     workflow: Workflow
+    existing_version: WorkflowVersion | None = None
     try:
         workflow_id = await repository.resolve_workflow_ref(
             candidate.handle,
@@ -420,6 +444,12 @@ async def onboard_candidate(
             team_id=target_team_id,
         )
         workflow = await repository.get_workflow(workflow_id, workspace_id=workspace_id)
+        # Re-onboard path: preserve configs the user changed on the installed
+        # version instead of resetting them to the candidate's defaults.
+        try:
+            existing_version = await repository.get_latest_version(workflow.id)
+        except WorkflowVersionNotFoundError:
+            existing_version = None
     except WorkflowNotFoundError:
         try:
             await ensure_workspace_workflow_quota(repository, workspace)
@@ -443,6 +473,9 @@ async def onboard_candidate(
                 detail={"message": str(exc), "code": "workflow.handle.conflict"},
             ) from exc
 
+    version_payload = _apply_user_configurable_overrides(
+        version_payload, existing_version
+    )
     await _create_candidate_version_from_payload(
         repository,
         workflow,
@@ -550,6 +583,7 @@ async def update_candidate_workflow(
         workflow,
         candidate,
         actor="candidate-update",
+        existing_version=latest_version,
     )
 
     logger.info(

@@ -33,6 +33,11 @@ from orcheo_backend.app.authentication import (
 from orcheo_backend.app.authentication.settings import load_auth_settings
 from orcheo_backend.app.chatkit_runtime import resolve_chatkit_token_issuer
 from orcheo_backend.app.chatkit_tokens import ChatKitSessionTokenIssuer
+from orcheo_backend.app.configurable_merge import (
+    CONFIGURABLE_DEFAULTS_KEY,
+    apply_user_configurable_overrides,
+    extract_configurable_defaults,
+)
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import WorkspaceQuotaExceededError, raise_not_found
 from orcheo_backend.app.managed_workflows import (
@@ -899,6 +904,24 @@ async def ingest_workflow_version(
     metadata = _merge_frontmatter_avatar(request.script, metadata)
     metadata = _apply_configurable_schema_order(metadata)
 
+    serialized_config = _serialize_runnable_config(runnable_config)
+
+    # Record this upload's pristine configurable defaults so a future re-upload
+    # can distinguish a user's deliberate override from an untouched default.
+    defaults = extract_configurable_defaults(serialized_config)
+    if defaults:
+        metadata = {**metadata, CONFIGURABLE_DEFAULTS_KEY: defaults}
+
+    # Re-upload path: carry forward configs the user changed on the installed
+    # version instead of resetting them to this upload's defaults.
+    try:
+        installed_version = await repository.get_latest_version(workflow.id)
+    except WorkflowVersionNotFoundError:
+        installed_version = None
+    serialized_config = apply_user_configurable_overrides(
+        serialized_config, installed_version
+    )
+
     try:
         version = await repository.create_version(
             workflow.id,
@@ -906,7 +929,7 @@ async def ingest_workflow_version(
             metadata=metadata,
             notes=request.notes,
             created_by=request.created_by,
-            runnable_config=_serialize_runnable_config(runnable_config),
+            runnable_config=serialized_config,
         )
         return _attach_mermaid(version)
     except WorkflowNotFoundError as exc:

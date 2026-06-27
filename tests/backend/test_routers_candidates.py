@@ -174,7 +174,10 @@ class _Repository:
         return version
 
     async def get_latest_version(self, workflow_id) -> WorkflowVersion:
-        assert self.latest_version is not None
+        if self.latest_version is None:
+            from orcheo_backend.app.repository import WorkflowVersionNotFoundError
+
+            raise WorkflowVersionNotFoundError(str(workflow_id))
         return self.latest_version
 
     async def list_workflows(self, *, workspace_id=None, include_archived=False):
@@ -595,6 +598,64 @@ async def test_update_candidate_workflow_appends_new_version(
     assert repo.versions_created == 1
     assert repo.last_metadata is not None
     assert repo.last_metadata["candidate_version"] == "1.1.0"
+
+
+@pytest.mark.asyncio()
+async def test_update_candidate_workflow_preserves_user_configurable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """User-changed configurable values survive a candidate update."""
+
+    existing_wf = _make_workflow(uuid4())
+    # New release ships a different default for ``model`` and a brand-new field.
+    candidate = _SAMPLE.model_copy(
+        update={
+            "version": "1.1.0",
+            "config": {"configurable": {"model": "gpt-5", "added": "new"}},
+        }
+    )
+    repo = _Repository(existing_workflow=existing_wf)
+    repo.latest_version = WorkflowVersion(
+        workflow_id=existing_wf.id,
+        version=1,
+        graph={"format": "langgraph-script"},
+        metadata={
+            "source": "candidate-onboard",
+            "candidate_id": "insight-analyst",
+            "candidate_handle": "insight-analyst",
+            "candidate_version": "1.0.0",
+            # The 1.0.0 release shipped this pristine default for ``model``.
+            "configurable_defaults": {"model": "gpt-4.1"},
+        },
+        # The user changed ``model`` away from the shipped default.
+        runnable_config={"configurable": {"model": "claude"}},
+        created_by="onboard",
+    )
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [candidate]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    await update_candidate_workflow(
+        CandidateUpdateRequest(
+            workflow_id=str(existing_wf.id),
+            candidate_id="insight-analyst",
+        ),
+        repo,  # type: ignore[arg-type]
+        _MOCK_WORKSPACE,  # type: ignore[arg-type]
+    )
+
+    assert repo.versions_created == 1
+    assert repo.last_runnable_config is not None
+    configurable = repo.last_runnable_config["configurable"]
+    # User override preserved; new field adopted from the release default.
+    assert configurable == {"model": "claude", "added": "new"}
+    # The new release's pristine defaults are recorded for the next update.
+    assert repo.last_metadata["configurable_defaults"] == {
+        "model": "gpt-5",
+        "added": "new",
+    }
 
 
 @pytest.mark.asyncio()
