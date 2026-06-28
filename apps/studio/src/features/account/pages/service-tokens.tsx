@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Copy, KeyRound, RotateCw, Trash2 } from "lucide-react";
+import { Copy, KeyRound, Trash2 } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
 import { Input } from "@/design-system/ui/input";
 import { Label } from "@/design-system/ui/label";
@@ -43,7 +43,6 @@ import {
   getActiveWorkspace,
   listServiceTokens,
   revokeServiceToken,
-  rotateServiceToken,
   type ServiceToken,
 } from "@/lib/api";
 
@@ -62,8 +61,6 @@ const EXPIRY_OPTIONS = [
   { value: "7d", label: "7 days", seconds: 604800 },
   { value: "30d", label: "30 days", seconds: 2592000 },
 ] as const;
-
-const ROTATION_OVERLAP_SECONDS = 300;
 
 const formatDate = (value: string | null | undefined): string =>
   value ? new Date(value).toLocaleString() : "—";
@@ -90,13 +87,12 @@ export default function ServiceTokens() {
   const [workspaceName, setWorkspaceName] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [identifier, setIdentifier] = useState("");
+  const [name, setName] = useState("");
   const [selectedScopes, setSelectedScopes] = useState<Set<string>>(new Set());
   const [expiry, setExpiry] = useState<string>("never");
   const [isMinting, setIsMinting] = useState(false);
 
   const [revealed, setRevealed] = useState<RevealedSecret | null>(null);
-  const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
 
@@ -137,7 +133,7 @@ export default function ServiceTokens() {
   }, []);
 
   const resetCreateForm = () => {
-    setIdentifier("");
+    setName("");
     setSelectedScopes(new Set());
     setExpiry("never");
   };
@@ -161,14 +157,14 @@ export default function ServiceTokens() {
         (option) => option.value === expiry,
       );
       const token = await createServiceToken({
-        identifier: identifier.trim() || undefined,
+        name: name.trim() || undefined,
         scopes: [...selectedScopes],
         expires_in_seconds: expiryOption?.seconds ?? undefined,
       });
       setTokens((prev) => [token, ...prev]);
       setRevealed({
         title: "API key created",
-        identifier: token.identifier,
+        identifier: token.name ?? token.identifier,
         secret: token.secret ?? "",
       });
       resetCreateForm();
@@ -182,32 +178,6 @@ export default function ServiceTokens() {
       });
     } finally {
       setIsMinting(false);
-    }
-  };
-
-  const handleRotate = async (tokenId: string) => {
-    setRotatingId(tokenId);
-    try {
-      const rotated = await rotateServiceToken(
-        tokenId,
-        ROTATION_OVERLAP_SECONDS,
-      );
-      const tokenList = await listServiceTokens();
-      setTokens(tokenList.tokens);
-      setRevealed({
-        title: "API key rotated",
-        identifier: rotated.identifier,
-        secret: rotated.secret ?? "",
-      });
-      toast({ title: "API key rotated" });
-    } catch (err) {
-      toast({
-        title: "Failed to rotate API key",
-        description: err instanceof Error ? err.message : undefined,
-        variant: "destructive",
-      });
-    } finally {
-      setRotatingId(null);
     }
   };
 
@@ -277,7 +247,7 @@ export default function ServiceTokens() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Identifier</TableHead>
+                <TableHead>Name</TableHead>
                 <TableHead>Key</TableHead>
                 <TableHead>Scopes</TableHead>
                 <TableHead>Issued</TableHead>
@@ -294,7 +264,7 @@ export default function ServiceTokens() {
                 return (
                   <TableRow key={token.identifier}>
                     <TableCell className="font-mono text-sm">
-                      {token.identifier}
+                      {token.name ?? token.identifier}
                     </TableCell>
                     <TableCell className="font-mono text-sm text-muted-foreground">
                       {token.secret_preview
@@ -335,27 +305,10 @@ export default function ServiceTokens() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => void handleRotate(token.identifier)}
-                          disabled={
-                            !isActive ||
-                            rotatingId === token.identifier ||
-                            revokingId === token.identifier
-                          }
-                        >
-                          <RotateCw className="mr-2 h-4 w-4" />
-                          {rotatingId === token.identifier
-                            ? "Rotating..."
-                            : "Rotate"}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
                           className="text-destructive hover:text-destructive"
                           onClick={() => setRevokeTarget(token.identifier)}
                           disabled={
-                            !isActive ||
-                            rotatingId === token.identifier ||
-                            revokingId === token.identifier
+                            !isActive || revokingId === token.identifier
                           }
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
@@ -391,12 +344,12 @@ export default function ServiceTokens() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="token-identifier">Identifier (optional)</Label>
+              <Label htmlFor="token-name">Name (optional)</Label>
               <Input
-                id="token-identifier"
-                placeholder="Auto-generated if left blank"
-                value={identifier}
-                onChange={(event) => setIdentifier(event.target.value)}
+                id="token-name"
+                placeholder="e.g. Local, CI, Production"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
                 disabled={isMinting}
               />
             </div>

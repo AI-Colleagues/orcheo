@@ -725,12 +725,22 @@ def ensure_stack_env_command(
     )
 
 
-@app.command("stack")
+@app.command(
+    "stack",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
 def stack_command(
     ctx: typer.Context,
     logs: Annotated[
         bool,
-        typer.Option("--logs", help="Stream stack logs (docker compose logs -f)."),
+        typer.Option(
+            "--logs",
+            help=(
+                "Stream stack logs (docker compose logs -f). Extra arguments and "
+                "flags are forwarded to docker compose, e.g. "
+                "'orcheo stack --logs --since 2026-06-19 backend'."
+            ),
+        ),
     ] = False,
     start: Annotated[
         bool,
@@ -797,8 +807,9 @@ def stack_command(
         "pull": [*compose_base_args, "pull"],
         "down": [*compose_base_args, "down"],
     }
+    extra_args = list(ctx.args)
     _run_stack_command(
-        command_by_action[action],
+        [*command_by_action[action], *extra_args],
         console=_resolve_install_console(ctx),
         expected_exit_codes={0, 130} if action == "logs" else {0},
     )

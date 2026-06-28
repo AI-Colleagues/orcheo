@@ -41,7 +41,6 @@ from orcheo_sdk.services.service_tokens import (
     create_service_token_data,
     list_service_tokens_data,
     revoke_service_token_data,
-    rotate_service_token_data,
     show_service_token_data,
 )
 from orcheo_sdk.services.workflows import (
@@ -122,6 +121,5 @@ __all__ = [
     "list_service_tokens_data",
     "show_service_token_data",
     "create_service_token_data",
-    "rotate_service_token_data",
     "revoke_service_token_data",
 ]

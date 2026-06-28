@@ -98,7 +98,6 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo token create [--id <id>] [--scope <scope>]` | Create a service token for CLI/API authentication. |
 | `orcheo token list` | List all service tokens with their scopes and status. |
 | `orcheo token show <token-id>` | Show detailed information for a specific service token. |
-| `orcheo token rotate <token-id> [--overlap <seconds>]` | Rotate a service token with grace period overlap. |
 | `orcheo token revoke <token-id> [--reason <reason>]` | Immediately invalidate a service token. |
 | `orcheo config [--profile <name>] [--api-url <url>] [--service-token <token>] [--env-file <path>]` | Write CLI profile settings to `cli.toml`. Supports OAuth options (see below). |
 | `orcheo code template [-o <file>] [--name <name>]` | Generate a minimal Python LangGraph workflow template file. |

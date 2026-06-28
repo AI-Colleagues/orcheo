@@ -424,3 +424,58 @@ async def test_inmemory_dispatch_listener_event_prunes_expired_dedupe() -> None:
     assert run is not None
     assert "expired" not in repository._listener_dedupe[subscription.id]  # noqa: SLF001
     assert "telegram:fresh" in repository._listener_dedupe[subscription.id]  # noqa: SLF001
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_dispatch_listener_event_passes_workspace_id() -> None:
+    """Dispatch attaches the workflow's workspace_id so the run is accepted."""
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Dispatch Workspace",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph=_listener_graph(
+            {"node_name": "tg", "platform": "telegram", "token": "[[tok]]"}
+        ),
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+    subscription = (
+        await repository.list_listener_subscriptions(workflow_id=workflow.id)
+    )[0]
+    repository._workflow_workspaces[workflow.id] = "ws-listener"  # noqa: SLF001
+
+    captured: dict[str, object] = {}
+
+    class _StubRun:
+        def model_copy(self, *, deep: bool = False) -> _StubRun:
+            return self
+
+    def _capture(**kwargs: object) -> _StubRun:
+        captured.update(kwargs)
+        return _StubRun()
+
+    repository._create_run_locked = _capture  # type: ignore[method-assign]  # noqa: SLF001
+
+    await repository.dispatch_listener_event(
+        subscription.id,
+        ListenerDispatchPayload(
+            platform="telegram",
+            event_type="message",
+            dedupe_key="telegram:ws",
+            bot_identity=subscription.bot_identity_key,
+            message=ListenerDispatchMessage(chat_id="1", text="hello"),
+            reply_target={"chat_id": "1"},
+            raw_event={},
+        ),
+    )
+
+    assert captured["workspace_id"] == "ws-listener"
+    assert captured["triggered_by"] == "listener"

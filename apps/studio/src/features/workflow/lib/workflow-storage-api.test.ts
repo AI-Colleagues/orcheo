@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   extractCronConfigFromVersionGraph,
+  extractErrorMessage,
   fetchWorkflowPageData,
   fetchWorkflowCredentialReadiness,
   fetchWorkflowListenerMetrics,
@@ -31,6 +32,44 @@ describe("workflow-storage-api helpers", () => {
     });
 
     expect(shareUrl).toBe("https://studio.example/chat/my-flow");
+  });
+
+  it("extracts the readable message from a structured FastAPI error", () => {
+    const body = JSON.stringify({
+      detail: {
+        message: "Candidate script failed to build: ImportError: ...",
+        code: "candidate.script_build_failed",
+      },
+    });
+
+    expect(extractErrorMessage(body)).toBe(
+      "Candidate script failed to build: ImportError: ...",
+    );
+  });
+
+  it("extracts a plain string FastAPI detail", () => {
+    expect(extractErrorMessage(JSON.stringify({ detail: "Not found" }))).toBe(
+      "Not found",
+    );
+  });
+
+  it("joins validation error messages", () => {
+    const body = JSON.stringify({
+      detail: [
+        { loc: ["body", "id"], msg: "field required", type: "value_error" },
+        { loc: ["body", "name"], msg: "must be a string", type: "type_error" },
+      ],
+    });
+
+    expect(extractErrorMessage(body)).toBe(
+      "field required; must be a string",
+    );
+  });
+
+  it("falls back to the raw body when it is not JSON", () => {
+    expect(extractErrorMessage("Internal Server Error")).toBe(
+      "Internal Server Error",
+    );
   });
 
   it("extracts cron config from graph index", () => {
@@ -157,6 +196,87 @@ describe("workflow-storage-api helpers", () => {
       String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
     ) as { allow_overlapping?: boolean };
     expect(requestBody.allow_overlapping).toBe(true);
+  });
+
+  it("resolves a configurable cron template when scheduling", async () => {
+    const mockFetch = getFetchMock();
+    queueResponses([
+      jsonResponse([
+        {
+          id: "v1",
+          workflow_id: "wf-feed",
+          version: 1,
+          graph: {
+            index: {
+              cron: [
+                {
+                  expression: "{{config.configurable.cron_expression}}",
+                  timezone: "UTC",
+                  allow_overlapping: false,
+                },
+              ],
+            },
+          },
+          metadata: {},
+          runnable_config: {
+            configurable: {
+              cron_expression: "*/30 * * * *",
+            },
+          },
+          notes: null,
+          created_by: "studio",
+          created_at: "2026-03-10T10:00:00Z",
+          updated_at: "2026-03-10T10:00:00Z",
+        },
+      ]),
+      jsonResponse({
+        expression: "*/30 * * * *",
+        timezone: "UTC",
+        allow_overlapping: false,
+      }),
+    ]);
+
+    const result = await scheduleWorkflowFromLatestVersion("wf-feed");
+
+    expect(result.status).toBe("scheduled");
+    expect(result.config?.expression).toBe("*/30 * * * *");
+
+    const requestBody = JSON.parse(
+      String(mockFetch.mock.calls[1]?.[1]?.body ?? "{}"),
+    ) as { expression?: string };
+    expect(requestBody.expression).toBe("*/30 * * * *");
+  });
+
+  it("throws when a configurable cron template cannot be resolved", async () => {
+    queueResponses([
+      jsonResponse([
+        {
+          id: "v1",
+          workflow_id: "wf-feed",
+          version: 1,
+          graph: {
+            index: {
+              cron: [
+                {
+                  expression: "{{config.configurable.cron_expression}}",
+                  timezone: "UTC",
+                },
+              ],
+            },
+          },
+          metadata: {},
+          runnable_config: { configurable: {} },
+          notes: null,
+          created_by: "studio",
+          created_at: "2026-03-10T10:00:00Z",
+          updated_at: "2026-03-10T10:00:00Z",
+        },
+      ]),
+    ]);
+
+    await expect(scheduleWorkflowFromLatestVersion("wf-feed")).rejects.toThrow(
+      "no configurable value named 'cron_expression'",
+    );
   });
 
   it("triggers a workflow run using the latest version", async () => {

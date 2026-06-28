@@ -224,6 +224,79 @@ def test_extract_cron_config_populates_optional_fields() -> None:
     assert config.end_at == end_at
 
 
+def test_schedule_workflow_cron_resolves_configurable_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``{{config.configurable.X}}`` expression resolves to its config value."""
+
+    version = {
+        "graph": {
+            "nodes": [
+                {
+                    "type": "CronTriggerNode",
+                    "expression": "{{config.configurable.cron_expression}}",
+                    "timezone": "{{config.configurable.cron_timezone}}",
+                }
+            ]
+        },
+        "runnable_config": {
+            "configurable": {
+                "cron_expression": "*/30 * * * *",
+                "cron_timezone": "America/New_York",
+            }
+        },
+    }
+
+    monkeypatch.setattr(
+        scheduling,
+        "get_latest_workflow_version_data",
+        lambda *_args, **_kwargs: version,
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_put(
+        path: str, *, json_body: dict[str, object] | None = None
+    ) -> dict[str, object]:
+        captured["json_body"] = json_body
+        return json_body or {}
+
+    client = SimpleNamespace(put=fake_put)
+
+    result = scheduling.schedule_workflow_cron(client, workflow_id="wf-tmpl")
+
+    assert result["status"] == "scheduled"
+    assert captured["json_body"]["expression"] == "*/30 * * * *"  # type: ignore[index]
+    assert captured["json_body"]["timezone"] == "America/New_York"  # type: ignore[index]
+
+
+def test_schedule_workflow_cron_raises_for_unresolvable_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unresolvable configurable placeholder raises a clear error."""
+
+    version = {
+        "graph": {
+            "nodes": [
+                {
+                    "type": "CronTriggerNode",
+                    "expression": "{{config.configurable.cron_expression}}",
+                }
+            ]
+        },
+        "runnable_config": {"configurable": {}},
+    }
+
+    monkeypatch.setattr(
+        scheduling,
+        "get_latest_workflow_version_data",
+        lambda *_args, **_kwargs: version,
+    )
+
+    with pytest.raises(CLIError, match="no configurable value named 'cron_expression'"):
+        scheduling.schedule_workflow_cron(SimpleNamespace(), workflow_id="wf-tmpl")
+
+
 def test_extract_nodes_returns_empty_for_summary_without_nodes() -> None:
     graph = {"format": "langgraph_script", "summary": {"nodes": "invalid"}}
     assert scheduling._extract_nodes(graph) == []
@@ -241,6 +314,11 @@ def test_extract_nodes_returns_summary_nodes_for_langgraph_format() -> None:
     }
 
     assert scheduling._extract_nodes(graph) == [{"id": "cron_node"}]
+
+
+def test_extract_configurable_returns_empty_when_configurable_not_mapping() -> None:
+    version = {"runnable_config": {"configurable": "not-a-map"}}
+    assert scheduling._extract_configurable(version) == {}
 
 
 def test_extract_cron_config_from_index_requires_list_entries() -> None:

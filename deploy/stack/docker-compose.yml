@@ -3,9 +3,19 @@ name: orcheo
 # or from the project-local .env file otherwise.
 # Environment variables explicitly defined in the 'environment' section take precedence
 # over those from env_file. This allows overriding .env values when needed.
+
+# Shared log rotation: keep the default json-file driver but cap each container's
+# logs at ORCHEO_LOG_MAX_SIZE per file and ORCHEO_LOG_MAX_FILE rotated files.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: ${ORCHEO_LOG_MAX_SIZE:-10m}
+    max-file: "${ORCHEO_LOG_MAX_FILE:-5}"
+
 services:
   postgres:
     image: postgres:16-alpine
+    logging: *default-logging
     ports:
       - "127.0.0.1:${ORCHEO_POSTGRES_LOCAL_PORT:-5432}:5432"
     volumes:
@@ -22,6 +32,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    logging: *default-logging
     ports:
       - "127.0.0.1:${ORCHEO_REDIS_LOCAL_PORT:-6379}:6379"
     volumes:
@@ -36,6 +47,7 @@ services:
   backend:
     image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
     env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
+    logging: *default-logging
     ports:
       - "127.0.0.1:${ORCHEO_BACKEND_LOCAL_PORT:-2025}:2025"
     volumes:
@@ -91,6 +103,7 @@ services:
   worker:
     image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
     env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
+    logging: *default-logging
     volumes:
       - orcheo_data:/data
       - ./workspace/agents:/workspace/agents
@@ -135,6 +148,7 @@ services:
   celery-beat:
     image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
     env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
+    logging: *default-logging
     volumes:
       - orcheo_data:/data
       - ./chatkit_widgets:/app/examples/chatkit_widgets/widgets:ro
@@ -178,12 +192,13 @@ services:
   studio:
     image: ${ORCHEO_STUDIO_IMAGE:-ghcr.io/ai-colleagues/orcheo-studio:latest}
     env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
+    logging: *default-logging
     ports:
       - "127.0.0.1:${ORCHEO_STUDIO_LOCAL_PORT:-2026}:2026"
     environment:
       VITE_ORCHEO_BACKEND_URL: ${VITE_ORCHEO_BACKEND_URL:-http://localhost:2025}
       VITE_ORCHEO_AUTH_DISABLED: ${VITE_ORCHEO_AUTH_DISABLED:-false}
-      VITE_ORCHEO_CHATKIT_DOMAIN_KEY: ${VITE_ORCHEO_CHATKIT_DOMAIN_KEY:?set VITE_ORCHEO_CHATKIT_DOMAIN_KEY}
+      VITE_ORCHEO_CHATKIT_DOMAIN_KEY: ${VITE_ORCHEO_CHATKIT_DOMAIN_KEY:-domain_pk_replace_me}
       VITE_ORCHEO_ALLOWED_HOSTS: ${VITE_ORCHEO_ALLOWED_HOSTS:-localhost,127.0.0.1}
     depends_on:
       - backend
@@ -196,6 +211,7 @@ services:
 
   caddy:
     image: caddy:2
+    logging: *default-logging
     profiles:
       - public-ingress
     env_file: ${ORCHEO_STACK_ENV_FILE:-.env}

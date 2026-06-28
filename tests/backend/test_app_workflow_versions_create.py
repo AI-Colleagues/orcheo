@@ -68,6 +68,9 @@ async def test_ingest_workflow_version_success() -> None:
             del workflow_ref, include_archived
             return workflow_id
 
+        async def get_latest_version(self, workflow_id):
+            raise WorkflowVersionNotFoundError(str(workflow_id))
+
         async def create_version(
             self,
             wf_id,
@@ -221,6 +224,9 @@ async def test_ingest_workflow_version_not_found() -> None:
             del workflow_ref, include_archived
             return workflow_id
 
+        async def get_latest_version(self, workflow_id):
+            raise WorkflowVersionNotFoundError(str(workflow_id))
+
         async def create_version(
             self,
             wf_id,
@@ -267,6 +273,9 @@ def _build_capturing_repository(workflow_id, captured):
         ):
             del workflow_ref, include_archived, workspace_id
             return workflow_id
+
+        async def get_latest_version(self, workflow_id):
+            raise WorkflowVersionNotFoundError(str(workflow_id))
 
         async def create_version(
             self,

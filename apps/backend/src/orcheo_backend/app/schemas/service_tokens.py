@@ -12,9 +12,9 @@ class CreateServiceTokenRequest(BaseModel):
     does not supply workspace identifiers.
     """
 
-    identifier: str | None = Field(
+    name: str | None = Field(
         default=None,
-        description="Optional identifier for the token (auto-generated if omitted)",
+        description="Optional human-readable name for the token (need not be unique)",
     )
     scopes: list[str] = Field(
         default_factory=list,
@@ -31,6 +31,10 @@ class ServiceTokenResponse(BaseModel):
     """Response payload describing a service token."""
 
     identifier: str = Field(description="Unique identifier for the token")
+    name: str | None = Field(
+        default=None,
+        description="Human-readable name for the token",
+    )
     secret: str | None = Field(
         default=None,
         description="Raw token secret (only shown once on creation)",
@@ -66,21 +70,6 @@ class ServiceTokenResponse(BaseModel):
     message: str | None = Field(default=None, description="Additional information")
 
 
-class RotateServiceTokenRequest(BaseModel):
-    """Request payload for rotating a service token."""
-
-    overlap_seconds: int = Field(
-        default=300,
-        ge=0,
-        description="Grace period where both old and new tokens are valid",
-    )
-    expires_in_seconds: int | None = Field(
-        default=None,
-        ge=60,
-        description="Optional expiration time for new token in seconds",
-    )
-
-
 class RevokeServiceTokenRequest(BaseModel):
     """Request payload for revoking a service token."""
 
@@ -99,5 +88,4 @@ __all__ = [
     "ServiceTokenListResponse",
     "ServiceTokenResponse",
     "RevokeServiceTokenRequest",
-    "RotateServiceTokenRequest",
 ]

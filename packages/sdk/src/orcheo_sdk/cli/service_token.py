@@ -17,7 +17,6 @@ from orcheo_sdk.services.service_tokens import (
     create_service_token_data,
     list_service_tokens_data,
     revoke_service_token_data,
-    rotate_service_token_data,
     show_service_token_data,
 )
 
@@ -32,8 +31,12 @@ def _state(ctx: typer.Context) -> CLIState:
 @app.command("create")
 def create_token(
     ctx: typer.Context,
-    identifier: Annotated[
-        str | None, typer.Option("--id", help="Optional identifier for the token")
+    name: Annotated[
+        str | None,
+        typer.Option(
+            "--name",
+            help="Optional human-readable name for the token (need not be unique)",
+        ),
     ] = None,
     scopes: Annotated[
         list[str] | None,
@@ -67,7 +70,7 @@ def create_token(
 
     data = create_service_token_data(
         state.client,
-        identifier=identifier,
+        name=name,
         scopes=scopes,
         workspace_ids=workspaces,
         expires_in_seconds=expires_in,
@@ -83,6 +86,8 @@ def create_token(
         style="green",
     )
     state.console.print()
+    if data.get("name"):
+        state.console.print(f"[bold]Name:[/] {data['name']}")
     state.console.print(f"[bold]ID:[/] {data['identifier']}")
     state.console.print(
         f"[bold yellow]Secret:[/] [reverse]{data['secret']}[/]",
@@ -114,7 +119,7 @@ def list_tokens(ctx: typer.Context) -> None:
         return
 
     table = Table(title=f"Service Tokens ({data['total']} total)")
-    table.add_column("ID", style="cyan")
+    table.add_column("Name", style="cyan")
     table.add_column("Scopes", style="green")
     table.add_column("Workspaces", style="blue")
     table.add_column("Issued", style="dim")
@@ -139,7 +144,7 @@ def list_tokens(ctx: typer.Context) -> None:
             status = "[green]Active[/]"
 
         table.add_row(
-            token["identifier"],
+            token.get("name") or token["identifier"],
             scopes_str,
             workspaces_str,
             issued_str,
@@ -171,6 +176,9 @@ def show_token(
     table = Table(show_header=False, box=None)
     table.add_column("Field", style="bold")
     table.add_column("Value")
+
+    if data.get("name"):
+        table.add_row("Name", data["name"])
 
     table.add_row("ID", data["identifier"])
 
@@ -205,53 +213,6 @@ def show_token(
 
     state.console.print(table)
     state.console.print()
-
-
-@app.command("rotate")
-def rotate_token(
-    ctx: typer.Context,
-    token_id: str = typer.Argument(..., help="Token identifier to rotate"),
-    overlap: int = typer.Option(
-        300, "--overlap", help="Grace period in seconds where both tokens are valid"
-    ),
-    expires_in: int | None = typer.Option(
-        None,
-        "--expires-in",
-        help="Expiration time for new token in seconds",
-        min=60,
-    ),
-) -> None:
-    """Rotate a service token, generating a new secret.
-
-    The old token remains valid during the overlap period.
-    """
-    state = _state(ctx)
-
-    data = rotate_service_token_data(
-        state.client,
-        token_id,
-        overlap_seconds=overlap,
-        expires_in_seconds=expires_in,
-    )
-
-    if not state.human:
-        print_json(data)
-        return
-
-    state.console.print()
-    state.console.print("[bold green]Token rotated successfully![/]", style="green")
-    state.console.print()
-    state.console.print(f"[bold]New Token ID:[/] {data['identifier']}")
-    state.console.print(
-        f"[bold yellow]New Secret:[/] [reverse]{data['secret']}[/]",
-        style="yellow",
-    )
-    state.console.print()
-    warning("Store this secret securely. It will not be shown again.")
-    state.console.print()
-
-    if data.get("message"):
-        state.console.print(f"[dim]{data['message']}[/]")
 
 
 @app.command("revoke")

@@ -2,6 +2,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
@@ -17,6 +18,7 @@ class ServiceTokenRecord:
 
     identifier: str
     secret_hash: str
+    name: str | None = None
     secret_preview: str | None = None
     scopes: frozenset[str] = field(default_factory=frozenset)
     workspace_ids: frozenset[str] = field(default_factory=frozenset)
@@ -117,7 +119,7 @@ class ServiceTokenManager:
             last_used_at=usage_time,
             use_count=record.use_count + 1,
         )
-        if record.identifier in self._cache:
+        if record.identifier in self._cache:  # pragma: no branch
             self._cache[record.identifier] = updated_record
 
         return updated_record
@@ -125,13 +127,18 @@ class ServiceTokenManager:
     async def mint(
         self,
         *,
-        identifier: str | None = None,
+        name: str | None = None,
         scopes: Iterable[str] = (),
         workspace_ids: Iterable[str] = (),
         expires_in: timedelta | int | None = None,
         workspace_id: str | None = None,
     ) -> tuple[str, ServiceTokenRecord]:
-        """Mint a new service token and return the raw secret and record."""
+        """Mint a new service token and return the raw secret and record.
+
+        The ``name`` is a human-readable, non-unique label; the primary
+        ``identifier`` is always generated server-side so distinct tokens can
+        share the same name.
+        """
         secret = secrets.token_urlsafe(32)
         digest = hashlib.sha256(secret.encode("utf-8")).hexdigest()
         now = self._clock()
@@ -143,7 +150,8 @@ class ServiceTokenManager:
             expires_at = now + timedelta(seconds=int(expires_in))
 
         record = ServiceTokenRecord(
-            identifier=identifier or digest[:8],
+            identifier=uuid.uuid4().hex,
+            name=name,
             secret_hash=digest,
             secret_preview=secret[-4:],
             scopes=frozenset(scopes),
@@ -157,41 +165,6 @@ class ServiceTokenManager:
         self._invalidate_cache()
         auth_telemetry.record_service_token_event("mint", record)
         return secret, record
-
-    async def rotate(
-        self,
-        identifier: str,
-        *,
-        overlap_seconds: int = 300,
-        expires_in: timedelta | int | None = None,
-    ) -> tuple[str, ServiceTokenRecord]:
-        """Rotate ``identifier`` and return the replacement token."""
-        record = await self._repository.find_by_id(identifier)
-        if record is None:
-            raise KeyError(identifier)
-
-        now = self._clock()
-        overlap = max(int(overlap_seconds), 0)
-        secret, new_record = await self.mint(
-            scopes=record.scopes,
-            workspace_ids=record.workspace_ids,
-            expires_in=expires_in,
-            workspace_id=record.workspace_id,
-        )
-        rotation_expires_at = (
-            now + timedelta(seconds=overlap) if overlap else record.rotation_expires_at
-        )
-        updated = replace(
-            record,
-            rotation_expires_at=rotation_expires_at,
-            expires_at=self._calculate_rotation_expiry(record, now, overlap),
-            rotated_to=new_record.identifier,
-        )
-        await self._repository.update(updated)
-        await self._repository.record_audit_event(identifier, "rotated")
-        self._invalidate_cache()
-        auth_telemetry.record_service_token_event("rotate", updated)
-        return secret, new_record
 
     async def revoke(
         self, identifier: str, *, reason: str | None = None
@@ -212,14 +185,3 @@ class ServiceTokenManager:
         self._invalidate_cache()
         auth_telemetry.record_service_token_event("revoke", updated)
         return updated
-
-    @staticmethod
-    def _calculate_rotation_expiry(
-        record: ServiceTokenRecord, now: datetime, overlap_seconds: int
-    ) -> datetime | None:
-        if overlap_seconds == 0:
-            return record.expires_at
-        overlap_expiry = now + timedelta(seconds=overlap_seconds)
-        if record.expires_at is None:
-            return overlap_expiry
-        return min(record.expires_at, overlap_expiry)

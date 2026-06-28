@@ -405,6 +405,7 @@ export async function acceptWorkspaceInvitation(
 
 export interface ServiceToken {
   identifier: string;
+  name?: string | null;
   secret?: string | null;
   secret_preview?: string | null;
   scopes: string[];
@@ -425,7 +426,7 @@ export interface ServiceTokenListResponse {
 }
 
 export interface CreateServiceTokenRequest {
-  identifier?: string;
+  name?: string;
   scopes?: string[];
   expires_in_seconds?: number | null;
 }
@@ -500,22 +501,6 @@ export async function createServiceToken(
     "/api/admin/service-tokens",
     { method: "POST", body: JSON.stringify(request) },
     "Failed to create service token",
-    baseUrl,
-  );
-}
-
-export async function rotateServiceToken(
-  tokenId: string,
-  overlapSeconds: number,
-  baseUrl?: string,
-): Promise<ServiceToken> {
-  return serviceTokenRequest<ServiceToken>(
-    `/api/admin/service-tokens/${encodeURIComponent(tokenId)}/rotate`,
-    {
-      method: "POST",
-      body: JSON.stringify({ overlap_seconds: overlapSeconds }),
-    },
-    "Failed to rotate service token",
     baseUrl,
   );
 }

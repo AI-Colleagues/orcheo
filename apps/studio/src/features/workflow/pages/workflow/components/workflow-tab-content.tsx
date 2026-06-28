@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useUploadsAllowed } from "@/hooks/use-uploads-allowed";
 import {
   AlertTriangle,
+  CheckCircle2,
   Copy,
   ExternalLink,
   LoaderCircle,
   Play,
   RefreshCw,
   UserMinus,
+  XCircle,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Controls, ReactFlow, type Node, type NodeProps } from "@xyflow/react";
@@ -56,6 +58,7 @@ import {
 } from "@features/workflow/lib/mermaid-renderer";
 import { resolveWorkflowVersionMermaidSource } from "@features/workflow/lib/workflow-storage-helpers";
 import { WorkflowConfigSheet } from "@features/workflow/pages/workflow/components/workflow-config-sheet";
+import type { WorkflowExecutionStatus } from "@features/workflow/pages/workflow/helpers/types";
 
 export interface WorkflowTabContentProps {
   workflowId: string | null;
@@ -66,6 +69,7 @@ export interface WorkflowTabContentProps {
   loadError: string | null;
   isRunPending: boolean;
   isRunning: boolean;
+  lastRunStatus?: WorkflowExecutionStatus | null;
   onRunWorkflow: () => Promise<void>;
   onSaveConfig: (nextConfig: WorkflowRunnableConfig | null) => Promise<void>;
   hasCronTriggerNode: boolean;
@@ -189,6 +193,49 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return rawMessage;
 };
 
+interface RunResultBanner {
+  Icon: typeof CheckCircle2;
+  className: string;
+  message: string;
+}
+
+const resolveRunResultBanner = (
+  status: WorkflowExecutionStatus,
+): RunResultBanner => {
+  switch (status) {
+    case "success":
+      return {
+        Icon: CheckCircle2,
+        className:
+          "border-emerald-500/40 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
+        message: "Workflow run succeeded. See the full trace on the Trace tab.",
+      };
+    case "failed":
+      return {
+        Icon: XCircle,
+        className: "border-destructive/40 bg-destructive/5 text-destructive",
+        message: "Workflow run failed. Check the Trace tab for details.",
+      };
+    case "partial":
+      return {
+        Icon: AlertTriangle,
+        className:
+          "border-amber-500/40 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
+        message:
+          "Workflow run finished with partial results. Check the Trace tab for details.",
+      };
+    default:
+      // "running" reaching here means the stream ended without a final status.
+      return {
+        Icon: AlertTriangle,
+        className:
+          "border-amber-500/40 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
+        message:
+          "Workflow run ended without a final status. Check the Trace tab for the latest status.",
+      };
+  }
+};
+
 export function WorkflowTabContent({
   workflowId,
   workflowName,
@@ -197,6 +244,7 @@ export function WorkflowTabContent({
   loadError,
   isRunPending,
   isRunning,
+  lastRunStatus = null,
   onRunWorkflow,
   onSaveConfig,
   hasCronTriggerNode,
@@ -390,6 +438,11 @@ export function WorkflowTabContent({
   }
 
   const canConfigure = Boolean(workflowId);
+  const isRunActive = isRunPending || isRunning;
+  const runResultBanner =
+    !isRunActive && lastRunStatus
+      ? resolveRunResultBanner(lastRunStatus)
+      : null;
   const canRun = Boolean(workflowId && latestVersion);
   const runButtonDisabled = !canRun || isRunPending || isRunning;
   const runButtonLabel = isRunPending || isRunning ? "Running..." : "Run";
@@ -667,13 +720,23 @@ export function WorkflowTabContent({
           </div>
         </div>
 
-        {(isRunPending || isRunning) && (
+        {isRunActive && (
           <div
             role="status"
             className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-primary"
           >
             Workflow run in progress. Check the latest record on the Trace tab
             for live status.
+          </div>
+        )}
+
+        {runResultBanner && (
+          <div
+            role="status"
+            className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${runResultBanner.className}`}
+          >
+            <runResultBanner.Icon className="h-4 w-4 shrink-0" />
+            <span>{runResultBanner.message}</span>
           </div>
         )}
 

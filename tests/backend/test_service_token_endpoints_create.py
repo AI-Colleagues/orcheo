@@ -21,7 +21,7 @@ from orcheo_backend.app.service_token_endpoints import (
 async def test_create_service_token_success(admin_policy, mock_workspace):
     """Endpoint should mint a token scoped to the active workspace."""
     request = CreateServiceTokenRequest(
-        identifier="my-token",
+        name="my-token",
         scopes=["admin:tokens:read", "admin:tokens:write"],
         expires_in_seconds=3600,
     )
@@ -33,7 +33,8 @@ async def test_create_service_token_success(admin_policy, mock_workspace):
         mock_manager = AsyncMock()
         mock_secret = "secret-token-value"
         mock_record = ServiceTokenRecord(
-            identifier="my-token",
+            identifier="generated-id",
+            name="my-token",
             secret_hash="hash123",
             scopes=frozenset(["admin:tokens:read", "admin:tokens:write"]),
             workspace_ids=frozenset([workspace_id]),
@@ -46,12 +47,13 @@ async def test_create_service_token_success(admin_policy, mock_workspace):
 
         response = await create_service_token(request, admin_policy, mock_workspace)
 
-        assert response.identifier == "my-token"
+        assert response.identifier == "generated-id"
+        assert response.name == "my-token"
         assert response.secret == mock_secret
         assert response.workspace_ids == [workspace_id]
         assert "Store this token securely" in response.message
         mock_manager.mint.assert_called_once_with(
-            identifier="my-token",
+            name="my-token",
             scopes=["admin:tokens:read", "admin:tokens:write"],
             workspace_ids=[workspace_id],
             expires_in=3600,
@@ -86,7 +88,7 @@ async def test_create_service_token_with_default_values(admin_policy, mock_works
         assert response.identifier == "auto-generated-id"
         assert response.secret == mock_secret
         mock_manager.mint.assert_called_once_with(
-            identifier=None,
+            name=None,
             scopes=[],
             workspace_ids=[workspace_id],
             expires_in=None,

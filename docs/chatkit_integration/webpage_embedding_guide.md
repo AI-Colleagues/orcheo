@@ -219,10 +219,12 @@ orcheo token list
 # chatkit-embed-proxy chatkit:session    active
 ```
 
-To rotate the token later (e.g. on a 90-day schedule):
+To replace the token later (e.g. on a 90-day schedule), create a new token,
+point your proxy at it, then revoke the old one:
 
 ```bash
-orcheo token rotate chatkit-embed-proxy --overlap 600
+orcheo token create --id chatkit-embed-proxy --scope chatkit:session
+orcheo token revoke <old-token-id> --reason "Scheduled replacement"
 ```
 
 ### Step 2 — Serve a token-vending endpoint from your server

@@ -19,7 +19,7 @@ def test_token_list_empty(runner: CliRunner, env: dict[str, str]) -> None:
 
     assert result.exit_code == 0
     assert "Service Tokens (0 total)" in result.stdout
-    assert "ID" in result.stdout
+    assert "Name" in result.stdout
     assert "Scopes" in result.stdout
 
 
@@ -129,6 +129,24 @@ def test_token_show_basic(runner: CliRunner, env: dict[str, str]) -> None:
     assert "token-123" in result.stdout
     assert "read:workflows" in result.stdout
     assert "ws-1" in result.stdout
+
+
+def test_token_show_with_name(runner: CliRunner, env: dict[str, str]) -> None:
+    """Test showing token details includes the name row when present."""
+    response_data = {
+        "identifier": "token-123",
+        "name": "My Token",
+        "issued_at": "2024-11-01T10:00:00Z",
+    }
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get("http://api.test/api/admin/service-tokens/token-123").mock(
+            return_value=httpx.Response(200, json=response_data)
+        )
+        result = runner.invoke(app, ["token", "show", "token-123"], env=env)
+
+    assert result.exit_code == 0
+    assert "My Token" in result.stdout
 
 
 def test_token_show_without_scopes(runner: CliRunner, env: dict[str, str]) -> None:

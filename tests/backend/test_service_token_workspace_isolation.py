@@ -55,14 +55,3 @@ async def test_service_token_manager_mint_records_workspace_id() -> None:
     assert persisted is not None
     assert persisted.workspace_id == "workspace-q"
     assert secret  # smoke-check: secret was issued
-
-
-@pytest.mark.asyncio
-async def test_service_token_manager_rotation_preserves_workspace_id() -> None:
-    repo = InMemoryServiceTokenRepository()
-    manager = ServiceTokenManager(repo)
-
-    _, record = await manager.mint(workspace_id="workspace-q")
-    _, rotated = await manager.rotate(record.identifier)
-
-    assert rotated.workspace_id == "workspace-q"

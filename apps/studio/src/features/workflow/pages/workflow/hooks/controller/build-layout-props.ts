@@ -75,6 +75,10 @@ export function buildWorkflowLayoutProps(
   resources: WorkflowResources,
   execution: WorkflowExecutionController,
 ): WorkflowLayoutProps {
+  const activeExecution = core.execution.executions.find(
+    (execution) => execution.id === core.execution.activeExecutionId,
+  );
+
   const workflowProps: WorkflowTabContentProps = {
     workflowId: core.metadata.currentWorkflowId,
     workflowRouteRef: core.routeWorkflowRef,
@@ -84,6 +88,7 @@ export function buildWorkflowLayoutProps(
     loadError: core.metadata.workflowLoadError,
     isRunPending: execution.isRunPending,
     isRunning: core.execution.isRunning,
+    lastRunStatus: activeExecution?.status ?? null,
     onRunWorkflow: execution.handleRunPersistedWorkflow,
     onSaveConfig: resources.saver.handleSaveWorkflowConfig,
     hasCronTriggerNode: hasSchedulableCronTrigger(

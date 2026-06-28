@@ -26,10 +26,11 @@ def test_token_create_minimal(runner: CliRunner, env: dict[str, str]) -> None:
     assert "Store this secret securely" in result.stdout
 
 
-def test_token_create_with_identifier(runner: CliRunner, env: dict[str, str]) -> None:
-    """Test creating a token with custom identifier."""
+def test_token_create_with_name(runner: CliRunner, env: dict[str, str]) -> None:
+    """Test creating a token with a custom name."""
     response_data = {
-        "identifier": "my-custom-token",
+        "identifier": "generated-id",
+        "name": "my-custom-token",
         "secret": "secret-123",
     }
 
@@ -38,7 +39,7 @@ def test_token_create_with_identifier(runner: CliRunner, env: dict[str, str]) ->
             return_value=httpx.Response(200, json=response_data)
         )
         result = runner.invoke(
-            app, ["token", "create", "--id", "my-custom-token"], env=env
+            app, ["token", "create", "--name", "my-custom-token"], env=env
         )
 
     assert result.exit_code == 0
@@ -137,7 +138,7 @@ def test_token_create_with_all_options(runner: CliRunner, env: dict[str, str]) -
             [
                 "token",
                 "create",
-                "--id",
+                "--name",
                 "full-token",
                 "--scope",
                 "read:all",
