@@ -316,6 +316,11 @@ def test_extract_nodes_returns_summary_nodes_for_langgraph_format() -> None:
     assert scheduling._extract_nodes(graph) == [{"id": "cron_node"}]
 
 
+def test_extract_configurable_returns_empty_when_configurable_not_mapping() -> None:
+    version = {"runnable_config": {"configurable": "not-a-map"}}
+    assert scheduling._extract_configurable(version) == {}
+
+
 def test_extract_cron_config_from_index_requires_list_entries() -> None:
     graph = {"index": {"cron": "not-a-list"}}
 

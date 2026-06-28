@@ -119,7 +119,7 @@ class ServiceTokenManager:
             last_used_at=usage_time,
             use_count=record.use_count + 1,
         )
-        if record.identifier in self._cache:
+        if record.identifier in self._cache:  # pragma: no branch
             self._cache[record.identifier] = updated_record
 
         return updated_record

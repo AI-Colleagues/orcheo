@@ -3,9 +3,11 @@
 from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any, NoReturn
 from uuid import UUID, uuid4
 import pytest
 from fastapi import HTTPException
+from orcheo.graph.ingestion import ScriptIngestionError
 from orcheo.models import Workflow, WorkflowDraftAccess, WorkflowVersion
 from orcheo_backend.app.candidates_service import CandidateFetchError
 from orcheo_backend.app.routers import candidates as candidates_router
@@ -1188,6 +1190,37 @@ async def test_onboard_candidate_script_error_raises_400(
         )
 
     assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio()
+async def test_onboard_candidate_build_failure_raises_400(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A script that ingests but fails to build in the full env returns 400."""
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [_SAMPLE]
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+
+    def fail_build(*_args: Any, **_kwargs: Any) -> NoReturn:
+        raise ScriptIngestionError("module not found")
+
+    monkeypatch.setattr(
+        candidates_router, "load_graph_from_script_full_env", fail_build
+    )
+
+    repo = _Repository()
+    with pytest.raises(HTTPException) as exc_info:
+        await onboard_candidate(
+            CandidateOnboardRequest(id="insight-analyst"),
+            repo,  # type: ignore[arg-type]
+            _MOCK_WORKSPACE,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "candidate.script_build_failed"
+    assert repo.versions_created == 0
 
 
 @pytest.mark.asyncio()

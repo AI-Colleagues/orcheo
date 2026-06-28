@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import uuid4
 from orcheo.models import WorkflowVersion
 from orcheo_backend.app.configurable_merge import (
@@ -106,6 +107,33 @@ def test_apply_user_configurable_overrides_reads_from_version() -> None:
     assert merged == {"configurable": {"model": "claude"}}
 
 
+def test_merge_returns_new_config_when_configurable_not_dict() -> None:
+    """A non-dict ``configurable`` in the new config is returned untouched."""
+    new_config = {"configurable": "not-a-dict"}
+    assert (
+        merge_user_configurable(
+            new_config,
+            existing_config={"configurable": {"model": "claude"}},
+            previous_defaults=None,
+        )
+        == new_config
+    )
+
+
 def test_apply_user_configurable_overrides_no_existing_version() -> None:
     new_config = {"configurable": {"model": "gpt-5"}}
     assert apply_user_configurable_overrides(new_config, None) == new_config
+
+
+def test_apply_user_configurable_overrides_with_non_dict_metadata() -> None:
+    """A version whose metadata is not a dict falls back to no recorded defaults."""
+    existing = SimpleNamespace(
+        metadata=None,
+        runnable_config={"configurable": {"model": "claude"}},
+    )
+    merged = apply_user_configurable_overrides(
+        {"configurable": {"model": "gpt-5"}},
+        existing,  # type: ignore[arg-type]
+    )
+    # No recorded defaults -> preserve the installed value for the retained field.
+    assert merged == {"configurable": {"model": "claude"}}
