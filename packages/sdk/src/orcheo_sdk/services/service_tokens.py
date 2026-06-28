@@ -68,33 +68,6 @@ def create_service_token_data(
     return client.post("/api/admin/service-tokens", json_body=payload)
 
 
-def rotate_service_token_data(
-    client: ApiClient,
-    token_id: str,
-    overlap_seconds: int = 300,
-    expires_in_seconds: int | None = None,
-) -> dict[str, Any]:
-    """Rotate a service token, generating a new secret.
-
-    Args:
-        client: API client instance
-        token_id: Token identifier to rotate
-        overlap_seconds: Grace period in seconds where both tokens are valid
-        expires_in_seconds: Optional expiration time for new token in seconds
-
-    Returns:
-        New token with identifier and secret
-    """
-    payload: dict[str, int] = {"overlap_seconds": overlap_seconds}
-    if expires_in_seconds:
-        payload["expires_in_seconds"] = expires_in_seconds
-
-    return client.post(
-        f"/api/admin/service-tokens/{token_id}/rotate",
-        json_body=payload,
-    )
-
-
 def revoke_service_token_data(
     client: ApiClient,
     token_id: str,

@@ -15,8 +15,8 @@ from orcheo_backend.app.service_token_repository import (
 
 
 @pytest.mark.asyncio
-async def test_service_token_manager_mint_rotate_revoke() -> None:
-    """ServiceTokenManager should support rotation with overlap and revocation."""
+async def test_service_token_manager_mint_authenticate_revoke() -> None:
+    """ServiceTokenManager should support minting, authentication, and revocation."""
 
     repository = InMemoryServiceTokenRepository()
     manager = ServiceTokenManager(repository)
@@ -28,15 +28,12 @@ async def test_service_token_manager_mint_rotate_revoke() -> None:
     all_tokens = await manager.all()
     assert record.identifier in {item.identifier for item in all_tokens}
 
-    overlap_secret, rotated = await manager.rotate(
-        record.identifier, overlap_seconds=60
-    )
     authenticated = await manager.authenticate(secret)
     assert authenticated.identifier == record.identifier
 
-    await manager.revoke(rotated.identifier, reason="test")
+    await manager.revoke(record.identifier, reason="test")
     with pytest.raises(AuthenticationError):
-        await manager.authenticate(overlap_secret)
+        await manager.authenticate(secret)
 
 
 @pytest.mark.asyncio
@@ -117,55 +114,6 @@ async def test_service_token_manager_mint_without_expiry() -> None:
 
     assert record.matches(secret)
     assert record.expires_at is None
-
-
-@pytest.mark.asyncio
-async def test_service_token_manager_rotate_with_overlap() -> None:
-    """Rotate allows overlap period before old token expires."""
-
-    repository = InMemoryServiceTokenRepository()
-    manager = ServiceTokenManager(repository)
-    original_secret, original_record = await manager.mint()
-
-    new_secret, new_record = await manager.rotate(
-        original_record.identifier,
-        overlap_seconds=300,
-    )
-
-    # Both tokens should work during overlap
-    authenticated_original = await manager.authenticate(original_secret)
-    assert authenticated_original.identifier == original_record.identifier
-    authenticated_new = await manager.authenticate(new_secret)
-    assert authenticated_new.identifier == new_record.identifier
-
-
-@pytest.mark.asyncio
-async def test_service_token_manager_rotate_without_overlap() -> None:
-    """Rotate with overlap_seconds=0 expires old token immediately."""
-
-    repository = InMemoryServiceTokenRepository()
-    manager = ServiceTokenManager(repository)
-    original_secret, original_record = await manager.mint()
-
-    new_secret, new_record = await manager.rotate(
-        original_record.identifier,
-        overlap_seconds=0,
-    )
-
-    # New token should work
-    authenticated = await manager.authenticate(new_secret)
-    assert authenticated.identifier == new_record.identifier
-
-
-@pytest.mark.asyncio
-async def test_service_token_manager_rotate_nonexistent_raises() -> None:
-    """Rotate raises KeyError for nonexistent identifier."""
-
-    repository = InMemoryServiceTokenRepository()
-    manager = ServiceTokenManager(repository)
-
-    with pytest.raises(KeyError):
-        await manager.rotate("nonexistent")
 
 
 @pytest.mark.asyncio

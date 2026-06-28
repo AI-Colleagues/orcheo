@@ -70,21 +70,6 @@ class ServiceTokenResponse(BaseModel):
     message: str | None = Field(default=None, description="Additional information")
 
 
-class RotateServiceTokenRequest(BaseModel):
-    """Request payload for rotating a service token."""
-
-    overlap_seconds: int = Field(
-        default=300,
-        ge=0,
-        description="Grace period where both old and new tokens are valid",
-    )
-    expires_in_seconds: int | None = Field(
-        default=None,
-        ge=60,
-        description="Optional expiration time for new token in seconds",
-    )
-
-
 class RevokeServiceTokenRequest(BaseModel):
     """Request payload for revoking a service token."""
 
@@ -103,5 +88,4 @@ __all__ = [
     "ServiceTokenListResponse",
     "ServiceTokenResponse",
     "RevokeServiceTokenRequest",
-    "RotateServiceTokenRequest",
 ]

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Copy, KeyRound, RotateCw, Trash2 } from "lucide-react";
+import { Copy, KeyRound, Trash2 } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
 import { Input } from "@/design-system/ui/input";
 import { Label } from "@/design-system/ui/label";
@@ -43,7 +43,6 @@ import {
   getActiveWorkspace,
   listServiceTokens,
   revokeServiceToken,
-  rotateServiceToken,
   type ServiceToken,
 } from "@/lib/api";
 
@@ -62,8 +61,6 @@ const EXPIRY_OPTIONS = [
   { value: "7d", label: "7 days", seconds: 604800 },
   { value: "30d", label: "30 days", seconds: 2592000 },
 ] as const;
-
-const ROTATION_OVERLAP_SECONDS = 300;
 
 const formatDate = (value: string | null | undefined): string =>
   value ? new Date(value).toLocaleString() : "—";
@@ -96,7 +93,6 @@ export default function ServiceTokens() {
   const [isMinting, setIsMinting] = useState(false);
 
   const [revealed, setRevealed] = useState<RevealedSecret | null>(null);
-  const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
 
@@ -182,32 +178,6 @@ export default function ServiceTokens() {
       });
     } finally {
       setIsMinting(false);
-    }
-  };
-
-  const handleRotate = async (tokenId: string) => {
-    setRotatingId(tokenId);
-    try {
-      const rotated = await rotateServiceToken(
-        tokenId,
-        ROTATION_OVERLAP_SECONDS,
-      );
-      const tokenList = await listServiceTokens();
-      setTokens(tokenList.tokens);
-      setRevealed({
-        title: "API key rotated",
-        identifier: rotated.name ?? rotated.identifier,
-        secret: rotated.secret ?? "",
-      });
-      toast({ title: "API key rotated" });
-    } catch (err) {
-      toast({
-        title: "Failed to rotate API key",
-        description: err instanceof Error ? err.message : undefined,
-        variant: "destructive",
-      });
-    } finally {
-      setRotatingId(null);
     }
   };
 
@@ -335,27 +305,10 @@ export default function ServiceTokens() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => void handleRotate(token.identifier)}
-                          disabled={
-                            !isActive ||
-                            rotatingId === token.identifier ||
-                            revokingId === token.identifier
-                          }
-                        >
-                          <RotateCw className="mr-2 h-4 w-4" />
-                          {rotatingId === token.identifier
-                            ? "Rotating..."
-                            : "Rotate"}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
                           className="text-destructive hover:text-destructive"
                           onClick={() => setRevokeTarget(token.identifier)}
                           disabled={
-                            !isActive ||
-                            rotatingId === token.identifier ||
-                            revokingId === token.identifier
+                            !isActive || revokingId === token.identifier
                           }
                         >
                           <Trash2 className="mr-2 h-4 w-4" />

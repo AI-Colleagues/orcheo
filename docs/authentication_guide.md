@@ -198,25 +198,16 @@ This displays a table with token IDs, scopes, workspaces, issuance dates, expira
 orcheo token show my-ci-token
 ```
 
-#### Rotating Service Tokens
+#### Replacing Service Tokens
 
-Token rotation generates a new secret while keeping the old token valid for a grace period:
+To replace a token, create a new one, update your services/CI systems to use it,
+then revoke the old token:
 
 ```bash
-# Rotate with default 5-minute overlap
-orcheo token rotate my-ci-token
-
-# Rotate with 30-minute overlap
-orcheo token rotate my-ci-token --overlap 1800
-
-# Rotate with custom expiration for new token
-orcheo token rotate my-ci-token --overlap 600 --expires-in 7776000
+# Create the replacement, then revoke the old token once it is in use
+orcheo token create --name my-ci-token --scope workflows:read
+orcheo token revoke <old-token-id> --reason "Replaced by new token"
 ```
-
-**Rotation workflow**:
-1. Run `orcheo token rotate` to generate a new token
-2. Update your services/CI systems with the new token during the overlap period
-3. The old token automatically expires after the overlap period
 
 #### Revoking Service Tokens
 
@@ -667,7 +658,7 @@ orcheo token list
 **Cause**: JWT `exp` claim or service token expiration date has passed.
 
 **Solution**:
-- For service tokens: Create a new token or rotate the existing one
+- For service tokens: Create a new token and revoke the old one
 - For JWTs: Implement token refresh flow or reauthenticate
 
 #### "Missing required scopes: workflows:write"
@@ -678,9 +669,6 @@ orcheo token list
 ```bash
 # Create a new token with the required scope
 orcheo token create --id new-token --scope workflows:write
-
-# Or add scope when rotating
-orcheo token rotate old-token --scope workflows:write
 ```
 
 #### "Workspace access denied"

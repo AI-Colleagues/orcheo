@@ -12,8 +12,9 @@ from orcheo_sdk.services.workflows.versions import get_latest_workflow_version_d
 
 
 # Matches a value that is exactly a single ``{{config.configurable.<name>}}``
-# placeholder, optionally padded with whitespace inside the braces.
-_CONFIGURABLE_TEMPLATE = re.compile(r"^\{\{\s*config\.configurable\.([^}\s.]+)\s*\}\}$")
+# placeholder, optionally padded with whitespace inside the braces. Anchoring is
+# handled by ``re.fullmatch`` at the call site, so no ``^``/``$`` here.
+_CONFIGURABLE_TEMPLATE = re.compile(r"\{\{\s*config\.configurable\.([^}\s.]+)\s*\}\}")
 
 
 def schedule_workflow_cron(

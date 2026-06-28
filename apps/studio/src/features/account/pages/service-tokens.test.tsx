@@ -15,14 +15,12 @@ const {
   getActiveWorkspaceMock,
   listServiceTokensMock,
   createServiceTokenMock,
-  rotateServiceTokenMock,
   revokeServiceTokenMock,
   toastMock,
 } = vi.hoisted(() => ({
   getActiveWorkspaceMock: vi.fn(),
   listServiceTokensMock: vi.fn(),
   createServiceTokenMock: vi.fn(),
-  rotateServiceTokenMock: vi.fn(),
   revokeServiceTokenMock: vi.fn(),
   toastMock: vi.fn(),
 }));
@@ -31,7 +29,6 @@ vi.mock("@/lib/api", () => ({
   getActiveWorkspace: getActiveWorkspaceMock,
   listServiceTokens: listServiceTokensMock,
   createServiceToken: createServiceTokenMock,
-  rotateServiceToken: rotateServiceTokenMock,
   revokeServiceToken: revokeServiceTokenMock,
 }));
 
@@ -104,7 +101,6 @@ describe("ServiceTokens", () => {
     getActiveWorkspaceMock.mockReset();
     listServiceTokensMock.mockReset();
     createServiceTokenMock.mockReset();
-    rotateServiceTokenMock.mockReset();
     revokeServiceTokenMock.mockReset();
     toastMock.mockReset();
 

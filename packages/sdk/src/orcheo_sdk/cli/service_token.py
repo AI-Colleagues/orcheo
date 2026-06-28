@@ -17,7 +17,6 @@ from orcheo_sdk.services.service_tokens import (
     create_service_token_data,
     list_service_tokens_data,
     revoke_service_token_data,
-    rotate_service_token_data,
     show_service_token_data,
 )
 
@@ -214,53 +213,6 @@ def show_token(
 
     state.console.print(table)
     state.console.print()
-
-
-@app.command("rotate")
-def rotate_token(
-    ctx: typer.Context,
-    token_id: str = typer.Argument(..., help="Token identifier to rotate"),
-    overlap: int = typer.Option(
-        300, "--overlap", help="Grace period in seconds where both tokens are valid"
-    ),
-    expires_in: int | None = typer.Option(
-        None,
-        "--expires-in",
-        help="Expiration time for new token in seconds",
-        min=60,
-    ),
-) -> None:
-    """Rotate a service token, generating a new secret.
-
-    The old token remains valid during the overlap period.
-    """
-    state = _state(ctx)
-
-    data = rotate_service_token_data(
-        state.client,
-        token_id,
-        overlap_seconds=overlap,
-        expires_in_seconds=expires_in,
-    )
-
-    if not state.human:
-        print_json(data)
-        return
-
-    state.console.print()
-    state.console.print("[bold green]Token rotated successfully![/]", style="green")
-    state.console.print()
-    state.console.print(f"[bold]New Token ID:[/] {data['identifier']}")
-    state.console.print(
-        f"[bold yellow]New Secret:[/] [reverse]{data['secret']}[/]",
-        style="yellow",
-    )
-    state.console.print()
-    warning("Store this secret securely. It will not be shown again.")
-    state.console.print()
-
-    if data.get("message"):
-        state.console.print(f"[dim]{data['message']}[/]")
 
 
 @app.command("revoke")

@@ -166,42 +166,6 @@ class ServiceTokenManager:
         auth_telemetry.record_service_token_event("mint", record)
         return secret, record
 
-    async def rotate(
-        self,
-        identifier: str,
-        *,
-        overlap_seconds: int = 300,
-        expires_in: timedelta | int | None = None,
-    ) -> tuple[str, ServiceTokenRecord]:
-        """Rotate ``identifier`` and return the replacement token."""
-        record = await self._repository.find_by_id(identifier)
-        if record is None:
-            raise KeyError(identifier)
-
-        now = self._clock()
-        overlap = max(int(overlap_seconds), 0)
-        secret, new_record = await self.mint(
-            name=record.name,
-            scopes=record.scopes,
-            workspace_ids=record.workspace_ids,
-            expires_in=expires_in,
-            workspace_id=record.workspace_id,
-        )
-        rotation_expires_at = (
-            now + timedelta(seconds=overlap) if overlap else record.rotation_expires_at
-        )
-        updated = replace(
-            record,
-            rotation_expires_at=rotation_expires_at,
-            expires_at=self._calculate_rotation_expiry(record, now, overlap),
-            rotated_to=new_record.identifier,
-        )
-        await self._repository.update(updated)
-        await self._repository.record_audit_event(identifier, "rotated")
-        self._invalidate_cache()
-        auth_telemetry.record_service_token_event("rotate", updated)
-        return secret, new_record
-
     async def revoke(
         self, identifier: str, *, reason: str | None = None
     ) -> ServiceTokenRecord:
@@ -221,14 +185,3 @@ class ServiceTokenManager:
         self._invalidate_cache()
         auth_telemetry.record_service_token_event("revoke", updated)
         return updated
-
-    @staticmethod
-    def _calculate_rotation_expiry(
-        record: ServiceTokenRecord, now: datetime, overlap_seconds: int
-    ) -> datetime | None:
-        if overlap_seconds == 0:
-            return record.expires_at
-        overlap_expiry = now + timedelta(seconds=overlap_seconds)
-        if record.expires_at is None:
-            return overlap_expiry
-        return min(record.expires_at, overlap_expiry)

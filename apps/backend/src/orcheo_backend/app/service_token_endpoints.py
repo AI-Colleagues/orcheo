@@ -19,7 +19,6 @@ from orcheo_backend.app.authentication import (
 from orcheo_backend.app.schemas.service_tokens import (
     CreateServiceTokenRequest,
     RevokeServiceTokenRequest,
-    RotateServiceTokenRequest,
     ServiceTokenListResponse,
     ServiceTokenResponse,
 )
@@ -159,50 +158,6 @@ async def get_service_token(
     record = await _require_workspace_token(token_id, token_manager, workspace)
 
     return _record_to_response(record)
-
-
-@router.post("/{token_id}/rotate", response_model=ServiceTokenResponse)
-async def rotate_service_token(
-    token_id: str,
-    request: RotateServiceTokenRequest,
-    policy: Annotated[AuthorizationPolicy, Depends(get_authorization_policy)],
-    workspace: WorkspaceContextDep,
-) -> ServiceTokenResponse:
-    """Rotate a workspace service token, generating a new secret.
-
-    The old token remains valid during the overlap period. The replacement
-    token stays scoped to the same workspace. The new secret is shown once.
-    """
-    policy.require_authenticated()
-
-    token_manager = get_service_token_manager()
-    await _require_workspace_token(token_id, token_manager, workspace)
-
-    secret, new_record = await token_manager.rotate(
-        token_id,
-        overlap_seconds=request.overlap_seconds,
-        expires_in=request.expires_in_seconds,
-    )
-
-    message = (
-        f"New token created. Old token '{token_id}' "
-        f"valid for {request.overlap_seconds}s."
-    )
-    try:
-        get_workspace_repository().record_audit_event(
-            WorkspaceAuditEvent(
-                workspace_id=workspace.workspace_id,
-                action="service_token.rotated",
-                actor=policy.context.subject,
-                subject=token_id,
-                resource_type="service_token",
-                resource_id=token_id,
-                details={"replacement": new_record.identifier},
-            )
-        )
-    except Exception:  # pragma: no cover - audit is best effort
-        pass
-    return _record_to_response(new_record, secret=secret, message=message)
 
 
 @router.delete("/{token_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -15,7 +15,7 @@
 
 import React from "react";
 import { ChevronDown } from "lucide-react";
-import { RegistryWidgetsType, WidgetProps } from "@rjsf/utils";
+import { WidgetProps } from "@rjsf/utils";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -269,6 +269,12 @@ function CronWidget(props: WidgetProps) {
     const daysOfWeek = checked
       ? [...parts.daysOfWeek, day]
       : parts.daysOfWeek.filter((d) => d !== day);
+    // Keep at least one day selected in "week" mode. An empty list serializes
+    // to a "day" cron, which would round-trip as a different frequency and
+    // bounce the user out to the raw-expression editor.
+    if (daysOfWeek.length === 0) {
+      return;
+    }
     update("week", { ...parts, daysOfWeek });
   };
 
@@ -408,7 +414,7 @@ function CronWidget(props: WidgetProps) {
   );
 }
 
-type CronWidgetMap = Pick<RegistryWidgetsType, never> & { cron: typeof CronWidget };
+type CronWidgetMap = { cron: typeof CronWidget };
 
 export const cronWidgets: CronWidgetMap = { cron: CronWidget };
 
