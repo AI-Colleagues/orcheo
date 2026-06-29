@@ -120,6 +120,22 @@ async def test_restricted_ingest_store_run_roundtrip(
     assert result["results"]["doubled"] == 50
 
 
+def test_restricted_ingest_payload_renders_mermaid(
+    monkeypatch: pytest.MonkeyPatch, isolated_settings: None
+) -> None:
+    """A restricted-mode frozen-IR payload renders a Mermaid diagram on demand."""
+    from orcheo.workflow.mermaid import render_mermaid_from_graph_payload
+
+    _set_mode(monkeypatch, "restricted")
+
+    payload = ingest_workflow(WORKFLOW)
+    mermaid = render_mermaid_from_graph_payload(payload)
+
+    assert mermaid is not None
+    assert "setter" in mermaid
+    assert "doubler" in mermaid
+
+
 def test_unrestricted_ingest_matches_script_path(
     monkeypatch: pytest.MonkeyPatch, isolated_settings: None
 ) -> None:
