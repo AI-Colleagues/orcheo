@@ -81,6 +81,7 @@ services:
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_WORKFLOW_TRUST_MODE: ${ORCHEO_WORKFLOW_TRUST_MODE:-}
+      ORCHEO_WORKFLOW_DEFINITION_MODE: ${ORCHEO_WORKFLOW_DEFINITION_MODE:-unrestricted}
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
       PYTHONUNBUFFERED: "1"
     depends_on:
@@ -136,6 +137,7 @@ services:
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_BACKEND_INTERNAL_URL: http://backend:2025
       ORCHEO_WORKFLOW_TRUST_MODE: ${ORCHEO_WORKFLOW_TRUST_MODE:-}
+      ORCHEO_WORKFLOW_DEFINITION_MODE: ${ORCHEO_WORKFLOW_DEFINITION_MODE:-unrestricted}
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
       PYTHONUNBUFFERED: "1"
     depends_on:
