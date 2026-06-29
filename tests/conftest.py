@@ -85,6 +85,28 @@ def _ensure_vault_encryption_key(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _pin_workflow_definition_mode(monkeypatch):
+    """Pin the workflow definition mode to its documented default for tests.
+
+    The settings loader reads ``.env`` (``load_dotenv=True``). A developer who
+    sets ``ORCHEO_WORKFLOW_DEFINITION_MODE=restricted`` there must not silently
+    flip the whole suite into restricted ingestion. Tests that exercise
+    restricted mode opt in explicitly by overriding this env var and refreshing
+    settings.
+
+    Only the setup-time refresh is needed: every test re-runs this fixture, so
+    the cache is reset at the start of each test. A teardown refresh is avoided
+    because it would trigger a Dynaconf load while import-counting tests still
+    have ``importlib.import_module`` monkeypatched.
+    """
+
+    from orcheo.config import loader as config_loader
+
+    monkeypatch.setenv("ORCHEO_WORKFLOW_DEFINITION_MODE", "unrestricted")
+    config_loader.get_settings(refresh=True)
+
+
+@pytest.fixture(autouse=True)
 def _seed_in_memory_backend_state(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep default backend singletons on in-memory implementations during tests."""
 

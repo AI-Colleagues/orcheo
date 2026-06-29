@@ -133,6 +133,73 @@ def test_ingest_workflow_version_invalid_script_returns_400(
     assert "detail" in response.json()
 
 
+def test_ingest_workflow_version_restricted_mode_rejects_disallowed_script(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Restricted mode rejects a script that escapes the allowlist grammar.
+
+    Regression: the ingest route honours ``ORCHEO_WORKFLOW_DEFINITION_MODE``.
+    A workflow importing ``langgraph.graph`` directly (non-Orcheo import) must
+    be blocked at upload with a line-referenced 400 instead of being stored.
+    """
+
+    from orcheo.config import loader as config_loader
+
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "allow_client_uploads")
+    monkeypatch.setenv("ORCHEO_WORKFLOW_DEFINITION_MODE", "restricted")
+    config_loader.get_settings(refresh=True)
+    reset_authentication_state()
+
+    repository = InMemoryWorkflowRepository()
+    workflow = asyncio.run(
+        repository.create_workflow(
+            name="Disallowed",
+            slug=None,
+            description=None,
+            tags=[],
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="tester",
+        )
+    )
+
+    app = create_app(repository)
+    workspace_context = WorkspaceContext(
+        workspace_id=uuid4(),
+        workspace_slug="default",
+        user_id="tester",
+        role=Role.OWNER,
+    )
+    app.dependency_overrides[resolve_workspace_context] = lambda: workspace_context
+    client = TestClient(app)
+
+    disallowed_script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+
+        async def orcheo_workflow() -> StateGraph:
+            graph = StateGraph(State)
+            graph.add_edge(START, END)
+            return graph
+        """
+    )
+
+    response = client.post(
+        f"/api/workflows/{workflow.id}/versions/ingest",
+        json={
+            "script": disallowed_script,
+            "entrypoint": "orcheo_workflow",
+            "created_by": "tester",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "langgraph.graph" in str(response.json()["detail"])
+    # The rejection must happen before any version is persisted.
+    assert asyncio.run(repository.list_versions(workflow.id)) == []
+
+
 def test_ingest_workflow_version_missing_workflow_returns_404(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

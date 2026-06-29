@@ -7,8 +7,9 @@ from typing import Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from orcheo.config import get_settings
-from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
+from orcheo.graph.ingestion import ScriptIngestionError, ingest_workflow
 from orcheo.graph.ingestion.sandbox import uploads_allowed
+from orcheo.graph.ir.exceptions import WorkflowValidationError
 from orcheo.models import (
     Workflow,
     WorkflowDraftAccess,
@@ -881,11 +882,11 @@ async def ingest_workflow_version(
             ),
         )
     try:
-        graph_payload = ingest_langgraph_script(
+        graph_payload = ingest_workflow(
             request.script,
             entrypoint=request.entrypoint,
         )
-    except ScriptIngestionError as exc:
+    except (WorkflowValidationError, ScriptIngestionError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),

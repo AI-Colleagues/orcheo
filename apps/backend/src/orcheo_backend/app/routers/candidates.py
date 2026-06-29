@@ -8,9 +8,11 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ValidationError
 from orcheo.graph.ingestion import (
     ScriptIngestionError,
-    ingest_langgraph_script,
+    ingest_workflow,
     load_graph_from_script_full_env,
 )
+from orcheo.graph.ir.definition_mode import is_restricted_mode
+from orcheo.graph.ir.exceptions import WorkflowValidationError
 from orcheo.models import Workflow, WorkflowDraftAccess, WorkflowVersion
 from orcheo.runtime.configurable_schema import (
     ConfigurableSchemaError,
@@ -153,11 +155,11 @@ def _prepare_candidate_version_payload(
         metadata = {**metadata, CONFIGURABLE_DEFAULTS_KEY: defaults}
 
     try:
-        graph_payload = ingest_langgraph_script(
+        graph_payload = ingest_workflow(
             candidate.script,
             entrypoint=candidate.entrypoint,
         )
-    except ScriptIngestionError as exc:
+    except (WorkflowValidationError, ScriptIngestionError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -166,24 +168,27 @@ def _prepare_candidate_version_payload(
             },
         ) from exc
 
-    # ``ingest_langgraph_script`` only compiles the source (a syntax check); it
-    # never executes it, so import errors and other runtime build failures slip
-    # through.  Build the graph in the full environment here so a broken
-    # candidate fails onboarding loudly instead of silently producing a workflow
-    # that only errors at execution time.
-    try:
-        load_graph_from_script_full_env(
-            candidate.script,
-            entrypoint=candidate.entrypoint,
-        )
-    except ScriptIngestionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "message": f"Candidate script failed to build: {exc}",
-                "code": "candidate.script_build_failed",
-            },
-        ) from exc
+    # In unrestricted mode ``ingest_workflow`` only compiles the source (a syntax
+    # check); it never executes it, so import errors and other runtime build
+    # failures slip through.  Build the graph in the full environment here so a
+    # broken candidate fails onboarding loudly instead of silently producing a
+    # workflow that only errors at execution time.  Restricted mode compiles to
+    # the frozen IR with full validation and must not execute author code, so the
+    # full-environment build is skipped there.
+    if not is_restricted_mode():
+        try:
+            load_graph_from_script_full_env(
+                candidate.script,
+                entrypoint=candidate.entrypoint,
+            )
+        except ScriptIngestionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "message": f"Candidate script failed to build: {exc}",
+                    "code": "candidate.script_build_failed",
+                },
+            ) from exc
 
     mermaid = render_mermaid_from_graph_payload_full_env(graph_payload)
     if mermaid and isinstance(graph_payload.get("index"), dict):
