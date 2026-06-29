@@ -9,7 +9,7 @@ original ``workflow.py`` is never re-executed.
 """
 
 from __future__ import annotations
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 from langgraph.graph import END, START, StateGraph
 from pydantic import ValidationError
@@ -18,10 +18,13 @@ from orcheo.graph.ir.exceptions import IRValidationError
 from orcheo.graph.ir.models import (
     CURRENT_SCHEMA_VERSION,
     END_VERTEX,
+    IR_CONFIG_KIND_KEY,
     START_VERTEX,
+    WORKFLOW_TOOL_CONFIG_KIND,
     BuiltinNodeSpec,
     CodeNodeSpec,
     GraphIR,
+    SubgraphNodeSpec,
 )
 from orcheo.graph.state import State
 from orcheo.nodes.registry import registry
@@ -81,46 +84,76 @@ def validate_ir(ir: GraphIR | Mapping[str, Any]) -> GraphIR:
     model = coerce_ir(ir)
     _ensure_builtin_nodes_registered()
 
+    _validate_graph_model(model)
+    return model
+
+
+def _validate_graph_model(model: GraphIR, *, path: str = "IR") -> None:
+    """Validate one graph model and all nested subgraph models."""
     if model.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
         msg = (
-            f"Unsupported IR schema_version {model.schema_version}; "
+            f"Unsupported {path} schema_version {model.schema_version}; "
             f"supported versions: {sorted(SUPPORTED_SCHEMA_VERSIONS)}"
         )
         raise IRValidationError(msg)
 
-    node_ids = _validate_nodes(model)
-    _validate_entrypoint(model, node_ids)
-    _validate_edges(model, node_ids)
-    _validate_conditional_edges(model, node_ids)
-    return model
+    node_ids = _validate_nodes(model, path=path)
+    _validate_entrypoint(model, node_ids, path=path)
+    _validate_edges(model, node_ids, path=path)
+    _validate_conditional_edges(model, node_ids, path=path)
+    for spec in model.nodes:
+        if isinstance(spec, BuiltinNodeSpec):
+            _validate_config_graphs(spec.config, path=f"{path} node '{spec.id}' config")
+        if isinstance(spec, SubgraphNodeSpec):
+            _validate_graph_model(spec.graph, path=f"{path} subgraph '{spec.id}'")
 
 
-def _validate_nodes(model: GraphIR) -> set[str]:
+def _validate_config_graphs(value: Any, *, path: str) -> None:
+    """Validate nested graph IR carried inside built-in config values."""
+    if isinstance(value, Mapping):
+        if value.get(IR_CONFIG_KIND_KEY) == WORKFLOW_TOOL_CONFIG_KIND:
+            graph_value = value.get("graph")
+            if not isinstance(graph_value, Mapping | GraphIR):
+                msg = f"{path} workflow tool requires a nested graph IR mapping"
+                raise IRValidationError(msg)
+            _validate_graph_model(coerce_ir(graph_value), path=f"{path} workflow tool")
+            return
+        for key, nested in value.items():
+            _validate_config_graphs(nested, path=f"{path}.{key}")
+        return
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        for index, nested in enumerate(value):
+            _validate_config_graphs(nested, path=f"{path}[{index}]")
+
+
+def _validate_nodes(model: GraphIR, *, path: str) -> set[str]:
     """Validate node ids/types and return the set of declared node ids."""
     node_ids: set[str] = set()
     for spec in model.nodes:
         if not spec.id or not spec.id.strip():
-            msg = f"Node id must be a non-empty string: {spec!r}"
+            msg = f"{path} node id must be a non-empty string: {spec!r}"
             raise IRValidationError(msg)
         if spec.id in node_ids:
-            msg = f"Duplicate node id '{spec.id}' in IR"
+            msg = f"Duplicate node id '{spec.id}' in {path}"
             raise IRValidationError(msg)
         if spec.id in _SENTINELS:
-            msg = f"Node id '{spec.id}' collides with a reserved sentinel"
+            msg = f"{path} node id '{spec.id}' collides with a reserved sentinel"
             raise IRValidationError(msg)
         if isinstance(spec, BuiltinNodeSpec) and registry.get_node(spec.type) is None:
-            msg = f"Unknown built-in node type '{spec.type}' for node '{spec.id}'"
+            msg = (
+                f"Unknown built-in node type '{spec.type}' for {path} node '{spec.id}'"
+            )
             raise IRValidationError(msg)
         node_ids.add(spec.id)
     return node_ids
 
 
-def _validate_entrypoint(model: GraphIR, node_ids: set[str]) -> None:
+def _validate_entrypoint(model: GraphIR, node_ids: set[str], *, path: str) -> None:
     """Ensure the entrypoint references a declared node."""
     if not model.entrypoint:
-        raise IRValidationError("IR entrypoint must be a non-empty node id")
+        raise IRValidationError(f"{path} entrypoint must be a non-empty node id")
     if model.entrypoint not in node_ids:
-        msg = f"IR entrypoint '{model.entrypoint}' does not reference a known node"
+        msg = f"{path} entrypoint '{model.entrypoint}' does not reference a known node"
         raise IRValidationError(msg)
 
 
@@ -129,37 +162,45 @@ def _is_known_vertex(name: str, node_ids: set[str]) -> bool:
     return name in node_ids or name in _SENTINELS
 
 
-def _validate_edges(model: GraphIR, node_ids: set[str]) -> None:
+def _validate_edges(model: GraphIR, node_ids: set[str], *, path: str) -> None:
     """Ensure every edge endpoint references a known vertex."""
     for edge in model.edges:
         if not _is_known_vertex(edge.source, node_ids):
-            msg = f"Edge source '{edge.source}' references an unknown node"
+            msg = f"{path} edge source '{edge.source}' references an unknown node"
             raise IRValidationError(msg)
         if not _is_known_vertex(edge.target, node_ids):
-            msg = f"Edge target '{edge.target}' references an unknown node"
+            msg = f"{path} edge target '{edge.target}' references an unknown node"
             raise IRValidationError(msg)
 
 
-def _validate_conditional_edges(model: GraphIR, node_ids: set[str]) -> None:
+def _validate_conditional_edges(
+    model: GraphIR, node_ids: set[str], *, path: str
+) -> None:
     """Ensure conditional-edge sources, targets, and defaults are known."""
     for cond in model.conditional_edges:
         if cond.source not in node_ids:
-            msg = f"Conditional edge source '{cond.source}' references an unknown node"
+            msg = (
+                f"{path} conditional edge source '{cond.source}' references an "
+                "unknown node"
+            )
             raise IRValidationError(msg)
         if not cond.mapping:
-            msg = f"Conditional edge from '{cond.source}' requires a non-empty mapping"
+            msg = (
+                f"{path} conditional edge from '{cond.source}' requires a "
+                "non-empty mapping"
+            )
             raise IRValidationError(msg)
         for value, target in cond.mapping.items():
             if not _is_known_vertex(target, node_ids):
                 msg = (
-                    f"Conditional edge from '{cond.source}' maps '{value}' to "
+                    f"{path} conditional edge from '{cond.source}' maps '{value}' to "
                     f"unknown target '{target}'"
                 )
                 raise IRValidationError(msg)
         if cond.default is not None and not _is_known_vertex(cond.default, node_ids):
             msg = (
-                f"Conditional edge from '{cond.source}' has an unknown default "
-                f"target '{cond.default}'"
+                f"{path} conditional edge from '{cond.source}' has an unknown "
+                f"default target '{cond.default}'"
             )
             raise IRValidationError(msg)
 
@@ -186,30 +227,114 @@ def build_state_graph_from_ir(
             constructed from its config.
     """
     model = validate_ir(ir)
+    return _build_graph_model(model, code_node_factory=code_node_factory)
+
+
+def _build_graph_model(
+    model: GraphIR,
+    *,
+    code_node_factory: CodeNodeFactory | None,
+) -> StateGraph:
+    """Build a graph model that has already passed recursive validation."""
     graph: StateGraph = StateGraph(State)
 
     for spec in model.nodes:
         if isinstance(spec, BuiltinNodeSpec):
-            graph.add_node(spec.id, _build_builtin_node(spec))
-        else:
+            graph.add_node(spec.id, _build_builtin_node(spec, code_node_factory))
+        elif isinstance(spec, CodeNodeSpec):
             graph.add_node(spec.id, _build_code_node(spec, code_node_factory))
+        else:
+            graph.add_node(
+                spec.id,
+                _build_graph_model(
+                    spec.graph,
+                    code_node_factory=code_node_factory,
+                ).compile(),
+            )
 
     _wire_edges(graph, model)
     _wire_conditional_edges(graph, model)
     return graph
 
 
-def _build_builtin_node(spec: BuiltinNodeSpec) -> Any:
+def _build_builtin_node(
+    spec: BuiltinNodeSpec,
+    code_node_factory: CodeNodeFactory | None,
+) -> Any:
     """Construct a built-in node instance from its registered constructor."""
     constructor = registry.get_node(spec.type)
     if constructor is None:  # pragma: no cover - guarded by validate_ir
         msg = f"Unknown built-in node type '{spec.type}' for node '{spec.id}'"
         raise IRValidationError(msg)
     try:
-        return constructor(name=spec.id, **spec.config)
+        return constructor(
+            name=spec.id,
+            **_materialise_config_value(
+                spec.config,
+                code_node_factory=code_node_factory,
+            ),
+        )
     except (ValidationError, TypeError, ValueError) as exc:
         msg = f"Failed to construct node '{spec.id}' of type '{spec.type}': {exc}"
         raise IRValidationError(msg) from exc
+
+
+def _materialise_config_value(
+    value: Any,
+    *,
+    code_node_factory: CodeNodeFactory | None,
+) -> Any:
+    """Convert IR-only config markers into runtime objects."""
+    if isinstance(value, Mapping):
+        if value.get(IR_CONFIG_KIND_KEY) == WORKFLOW_TOOL_CONFIG_KIND:
+            return _build_workflow_tool(value, code_node_factory=code_node_factory)
+        return {
+            str(key): _materialise_config_value(
+                nested,
+                code_node_factory=code_node_factory,
+            )
+            for key, nested in value.items()
+        }
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return [
+            _materialise_config_value(nested, code_node_factory=code_node_factory)
+            for nested in value
+        ]
+    return value
+
+
+def _build_workflow_tool(
+    value: Mapping[str, Any],
+    *,
+    code_node_factory: CodeNodeFactory | None,
+) -> Any:
+    """Build an AgentNode ``WorkflowTool`` from its nested IR marker."""
+    from orcheo.nodes.ai import WorkflowTool
+
+    name = value.get("name")
+    description = value.get("description")
+    graph_value = value.get("graph")
+    if not isinstance(name, str) or not isinstance(description, str):
+        msg = "Workflow tool IR config requires string 'name' and 'description'"
+        raise IRValidationError(msg)
+    if not isinstance(graph_value, Mapping | GraphIR):
+        msg = "Workflow tool IR config requires a nested graph IR mapping"
+        raise IRValidationError(msg)
+    kwargs: dict[str, Any] = {
+        "name": name,
+        "description": description,
+        "graph": _build_graph_model(
+            coerce_ir(graph_value),
+            code_node_factory=code_node_factory,
+        ),
+    }
+    output_path = value.get("output_path")
+    if output_path is not None:
+        kwargs["output_path"] = output_path
+    return_direct = value.get("return_direct")
+    if return_direct is not None:
+        kwargs["return_direct"] = return_direct
+    return WorkflowTool(**kwargs)
 
 
 def _build_code_node(

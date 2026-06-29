@@ -58,8 +58,10 @@ Inside `orcheo_workflow` only graph assembly is allowed:
 | Construct | Becomes in the IR |
 | --- | --- |
 | `graph = StateGraph(State)` | the graph (state schema is fixed to `orcheo.graph.state.State`) |
+| `child = StateGraph(State)` plus `graph.add_node("child", child.compile())` | `SubgraphNodeSpec{graph}` |
 | `SomeBuiltinNode(name=..., **config)` | `BuiltinNodeSpec{type, config}` |
 | `MyCodeNode(name=..., **config)` | `CodeNodeSpec{config, injected, body}` |
+| `WorkflowTool(name=..., description=..., graph=child)` inside `workflow_tools=[...]` | an IR-backed workflow-tool config marker |
 | `graph.add_node(id, node)` / `add_node(node)` | a node binding |
 | `graph.add_edge(a, b)` | `EdgeSpec` |
 | `graph.add_conditional_edges(src, {"path", "mapping", "default"})` | `ConditionalEdgeSpec` |
@@ -71,6 +73,11 @@ arbitrary statements, loops, conditionals, decorators, metaclasses,
 `default_factory` callables, comprehensions, lambdas, dunder/underscore
 attribute access (`__class__`, `__subclasses__`, …), dynamic subscripts, starred
 arguments, and raw functions used as nodes.
+
+Restricted workflow tools are intentionally narrow: `WorkflowTool` accepts
+literal `name`, `description`, optional `output_path`, optional `return_direct`,
+and a `graph` that references a `StateGraph` variable declared in the same
+entrypoint. Dynamic `args_schema` classes are not supported in restricted mode.
 
 > The boundary is the **allowlist**, not a denylist: anything not explicitly
 > permitted is rejected, and no author code is executed during ingestion.

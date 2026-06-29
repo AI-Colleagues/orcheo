@@ -6,7 +6,13 @@ import textwrap
 import pytest
 from orcheo.graph.ir.exceptions import WorkflowValidationError
 from orcheo.graph.ir.interpreter import compile_workflow_to_ir
-from orcheo.graph.ir.models import BuiltinNodeSpec, CodeNodeSpec
+from orcheo.graph.ir.models import (
+    IR_CONFIG_KIND_KEY,
+    WORKFLOW_TOOL_CONFIG_KIND,
+    BuiltinNodeSpec,
+    CodeNodeSpec,
+    SubgraphNodeSpec,
+)
 
 
 CONFORMING = '''
@@ -108,6 +114,151 @@ def test_variable_assigned_node_is_resolved() -> None:
 
     assert ir.nodes[0].id == "setter"
     assert ir.nodes[0].type == "SetVariableNode"
+
+
+def test_nested_subgraph_node_is_preserved_in_ir() -> None:
+    """A nested ``StateGraph`` compiles to a subgraph node, not a flattened IR."""
+    ir = _compile(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.logic import SetVariableNode
+
+        def orcheo_workflow():
+            child = StateGraph(State)
+            child.add_node("inner", SetVariableNode(name="inner", variables={"x": 1}))
+            child.add_edge(START, "inner")
+            child.add_edge("inner", END)
+
+            graph = StateGraph(State)
+            graph.add_node("branch", child.compile())
+            graph.add_edge(START, "branch")
+            graph.add_edge("branch", END)
+            return graph
+        """
+    )
+
+    assert ir.entrypoint == "branch"
+    assert len(ir.nodes) == 1
+    branch = ir.nodes[0]
+    assert isinstance(branch, SubgraphNodeSpec)
+    assert branch.id == "branch"
+    assert branch.graph.entrypoint == "inner"
+    assert [node.id for node in branch.graph.nodes] == ["inner"]
+
+
+def test_unreferenced_secondary_graph_is_not_flattened_into_root() -> None:
+    """Only the returned graph becomes the root IR."""
+    ir = _compile(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.logic import SetVariableNode
+
+        def orcheo_workflow():
+            child = StateGraph(State)
+            child.add_node("inner", SetVariableNode(name="inner", variables={"x": 1}))
+            child.add_edge(START, "inner")
+            child.add_edge("inner", END)
+
+            graph = StateGraph(State)
+            graph.add_node("outer", SetVariableNode(name="outer", variables={"y": 2}))
+            graph.add_edge(START, "outer")
+            graph.add_edge("outer", END)
+            return graph
+        """
+    )
+
+    assert [node.id for node in ir.nodes] == ["outer"]
+    assert ir.entrypoint == "outer"
+
+
+def test_agent_workflow_tool_graph_is_preserved_in_builtin_config() -> None:
+    """AgentNode workflow tools can carry restricted nested graph IR."""
+    ir = _compile(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.ai import AgentNode, WorkflowTool
+        from orcheo.nodes.logic import SetVariableNode
+
+        def orcheo_workflow():
+            lookup = StateGraph(State)
+            lookup.add_node(
+                "set_context",
+                SetVariableNode(name="set_context", variables={"answer": "ok"}),
+            )
+            lookup.add_edge(START, "set_context")
+            lookup.add_edge("set_context", END)
+
+            graph = StateGraph(State)
+            graph.add_node(
+                "agent",
+                AgentNode(
+                    name="agent",
+                    ai_model="gpt-4o-mini",
+                    workflow_tools=[
+                        WorkflowTool(
+                            name="lookup",
+                            description="Look up context",
+                            graph=lookup,
+                            return_direct=True,
+                        )
+                    ],
+                ),
+            )
+            graph.add_edge(START, "agent")
+            graph.add_edge("agent", END)
+            return graph
+        """
+    )
+
+    agent = ir.nodes[0]
+    assert isinstance(agent, BuiltinNodeSpec)
+    tool = agent.config["workflow_tools"][0]
+    assert tool[IR_CONFIG_KIND_KEY] == WORKFLOW_TOOL_CONFIG_KIND
+    assert tool["name"] == "lookup"
+    assert tool["return_direct"] is True
+    assert tool["graph"]["entrypoint"] == "set_context"
+
+
+def test_agent_workflow_tool_args_schema_is_rejected() -> None:
+    """Restricted workflow tools intentionally do not support dynamic schemas yet."""
+    with pytest.raises(WorkflowValidationError, match="args_schema"):
+        _compile(
+            """
+            from orcheo.graph import StateGraph, START, END
+            from orcheo.graph.state import State
+            from orcheo.nodes.ai import AgentNode, WorkflowTool
+            from orcheo.nodes.logic import SetVariableNode
+
+            def orcheo_workflow():
+                lookup = StateGraph(State)
+                lookup.add_node("set_context", SetVariableNode(name="set_context"))
+                lookup.add_edge(START, "set_context")
+                lookup.add_edge("set_context", END)
+
+                graph = StateGraph(State)
+                graph.add_node(
+                    "agent",
+                    AgentNode(
+                        name="agent",
+                        ai_model="gpt-4o-mini",
+                        workflow_tools=[
+                            WorkflowTool(
+                                name="lookup",
+                                description="Look up context",
+                                graph=lookup,
+                                args_schema=dict,
+                            )
+                        ],
+                    ),
+                )
+                graph.add_edge(START, "agent")
+                graph.add_edge("agent", END)
+                return graph
+            """
+        )
 
 
 def test_set_entry_point_resolves_entrypoint() -> None:

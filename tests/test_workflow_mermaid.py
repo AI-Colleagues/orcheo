@@ -248,6 +248,87 @@ def test_render_mermaid_from_ir_renders_builtin_and_code_nodes() -> None:
     assert "setter --> doubler" in mermaid
 
 
+def test_render_mermaid_from_ir_expands_nested_subgraph_node() -> None:
+    """Frozen IR Mermaid rendering expands nested graph nodes."""
+    from orcheo.graph.ir import compile_workflow_to_ir
+
+    source = textwrap.dedent(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.logic import SetVariableNode
+
+        def orcheo_workflow():
+            child = StateGraph(State)
+            child.add_node("inner", SetVariableNode(name="inner", variables={"x": 1}))
+            child.add_edge(START, "inner")
+            child.add_edge("inner", END)
+
+            graph = StateGraph(State)
+            graph.add_node("branch", child.compile())
+            graph.add_edge(START, "branch")
+            graph.add_edge("branch", END)
+            return graph
+        """
+    )
+
+    mermaid = render_mermaid_from_ir(compile_workflow_to_ir(source).model_dump())
+
+    assert mermaid is not None
+    assert 'subgraph root__branch__subgraph__subgraph["branch"]' in mermaid
+    assert "root__branch__subgraph__node__inner" in mermaid
+    assert "root__node__branch[" not in mermaid
+
+
+def test_render_mermaid_from_ir_expands_agent_workflow_tool() -> None:
+    """Frozen IR Mermaid rendering expands AgentNode workflow tools."""
+    from orcheo.graph.ir import compile_workflow_to_ir
+
+    source = textwrap.dedent(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.ai import AgentNode, WorkflowTool
+        from orcheo.nodes.logic import SetVariableNode
+
+        def orcheo_workflow():
+            lookup = StateGraph(State)
+            lookup.add_node(
+                "set_context",
+                SetVariableNode(name="set_context", variables={"answer": "ok"}),
+            )
+            lookup.add_edge(START, "set_context")
+            lookup.add_edge("set_context", END)
+
+            graph = StateGraph(State)
+            graph.add_node(
+                "agent",
+                AgentNode(
+                    name="agent",
+                    ai_model="gpt-4o-mini",
+                    workflow_tools=[
+                        WorkflowTool(
+                            name="lookup",
+                            description="Look up context",
+                            graph=lookup,
+                        )
+                    ],
+                ),
+            )
+            graph.add_edge(START, "agent")
+            graph.add_edge("agent", END)
+            return graph
+        """
+    )
+
+    mermaid = render_mermaid_from_ir(compile_workflow_to_ir(source).model_dump())
+
+    assert mermaid is not None
+    assert 'subgraph root__agent__tool__lookup__subgraph["lookup"]' in mermaid
+    assert "root__agent__tool__lookup__node__set_context" in mermaid
+    assert "root__node__agent -.-> root__agent__tool__lookup__start;" in mermaid
+
+
 def test_render_mermaid_from_ir_does_not_execute_code_node_bodies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

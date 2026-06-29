@@ -22,6 +22,12 @@ CURRENT_SCHEMA_VERSION = 1
 # Fixed state schema referenced (never redefined) by every workflow IR.
 DEFAULT_STATE_REF = "orcheo.graph.state.State"
 
+# Marker used inside built-in node config for IR-backed workflow tools.
+WORKFLOW_TOOL_CONFIG_KIND = "workflow_tool"
+
+# Reserved config key that stores internal IR value kinds.
+IR_CONFIG_KIND_KEY = "__orcheo_ir_kind__"
+
 # Sentinel edge endpoint mapping to LangGraph's ``START``.
 START_VERTEX = "__start__"
 
@@ -79,8 +85,26 @@ class CodeNodeSpec(_FrozenSpec):
     """Dedented source of ``run()`` executed in the sandbox."""
 
 
-# Discriminated union of built-in and code node specs.
-NodeSpec = Annotated[BuiltinNodeSpec | CodeNodeSpec, Field(discriminator="kind")]
+class SubgraphNodeSpec(_FrozenSpec):
+    """A nested LangGraph workflow node.
+
+    The nested graph is itself frozen IR, so restricted-mode ingestion can carry
+    sub-workflows without preserving executable author source.
+    """
+
+    kind: Literal["subgraph"] = "subgraph"
+    """Discriminator tag for the node-spec union."""
+    id: str
+    """Unique node identifier; the parent ``add_node`` key."""
+    graph: GraphIR
+    """Nested workflow graph rebuilt recursively by the trusted IR builder."""
+
+
+# Discriminated union of built-in, code, and nested-graph node specs.
+NodeSpec = Annotated[
+    BuiltinNodeSpec | CodeNodeSpec | SubgraphNodeSpec,
+    Field(discriminator="kind"),
+]
 
 
 class EdgeSpec(_FrozenSpec):
@@ -134,11 +158,14 @@ __all__ = [
     "CURRENT_SCHEMA_VERSION",
     "DEFAULT_STATE_REF",
     "END_VERTEX",
+    "IR_CONFIG_KIND_KEY",
     "START_VERTEX",
+    "WORKFLOW_TOOL_CONFIG_KIND",
     "BuiltinNodeSpec",
     "CodeNodeSpec",
     "ConditionalEdgeSpec",
     "EdgeSpec",
     "GraphIR",
     "NodeSpec",
+    "SubgraphNodeSpec",
 ]

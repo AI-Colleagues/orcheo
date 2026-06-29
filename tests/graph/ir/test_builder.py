@@ -10,6 +10,7 @@ from orcheo.graph.ir.models import (
     ConditionalEdgeSpec,
     EdgeSpec,
     GraphIR,
+    SubgraphNodeSpec,
 )
 
 
@@ -64,6 +65,92 @@ async def test_ir_accepts_mapping_input() -> None:
     result = await compiled.ainvoke({"inputs": {}})
 
     assert result["results"]["first"]["message"] == "hello"
+
+
+@pytest.mark.asyncio
+async def test_subgraph_ir_builds_and_runs_nested_graph() -> None:
+    """A subgraph node is rebuilt recursively and executes inline."""
+    ir = GraphIR(
+        entrypoint="branch",
+        nodes=[
+            SubgraphNodeSpec(
+                id="branch",
+                graph=GraphIR(
+                    entrypoint="inner",
+                    nodes=[
+                        BuiltinNodeSpec(
+                            id="inner",
+                            type="SetVariableNode",
+                            config={"variables": {"value": 42}},
+                        )
+                    ],
+                    edges=[
+                        EdgeSpec(source="__start__", target="inner"),
+                        EdgeSpec(source="inner", target="__end__"),
+                    ],
+                ),
+            )
+        ],
+        edges=[
+            EdgeSpec(source="__start__", target="branch"),
+            EdgeSpec(source="branch", target="__end__"),
+        ],
+    )
+
+    compiled = build_state_graph_from_ir(ir).compile()
+    result = await compiled.ainvoke({"inputs": {}})
+
+    assert result["results"]["inner"]["value"] == 42
+
+
+def test_agent_workflow_tool_ir_materialises_workflow_tool() -> None:
+    """Workflow-tool markers in built-in config rebuild to runtime WorkflowTool objects."""
+    from orcheo.graph.ir.models import IR_CONFIG_KIND_KEY, WORKFLOW_TOOL_CONFIG_KIND
+
+    ir = GraphIR(
+        entrypoint="agent",
+        nodes=[
+            BuiltinNodeSpec(
+                id="agent",
+                type="AgentNode",
+                config={
+                    "ai_model": "gpt-4o-mini",
+                    "workflow_tools": [
+                        {
+                            IR_CONFIG_KIND_KEY: WORKFLOW_TOOL_CONFIG_KIND,
+                            "name": "lookup",
+                            "description": "Look up context",
+                            "graph": GraphIR(
+                                entrypoint="inner",
+                                nodes=[
+                                    BuiltinNodeSpec(
+                                        id="inner",
+                                        type="SetVariableNode",
+                                        config={"variables": {"value": 42}},
+                                    )
+                                ],
+                                edges=[
+                                    EdgeSpec(source="__start__", target="inner"),
+                                    EdgeSpec(source="inner", target="__end__"),
+                                ],
+                            ).model_dump(),
+                        }
+                    ],
+                },
+            )
+        ],
+        edges=[
+            EdgeSpec(source="__start__", target="agent"),
+            EdgeSpec(source="agent", target="__end__"),
+        ],
+    )
+
+    graph = build_state_graph_from_ir(ir)
+    agent = graph.nodes["agent"].runnable.afunc
+
+    assert len(agent.workflow_tools) == 1
+    assert agent.workflow_tools[0].name == "lookup"
+    assert agent.workflow_tools[0].graph.nodes.keys() == {"inner"}
 
 
 @pytest.mark.asyncio
