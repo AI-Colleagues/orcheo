@@ -69,7 +69,8 @@ dependencies = [
   "pycryptodome>=3.20.0",
   "rouge-score>=0.1.2",
   "sacrebleu>=2.3.0",
-  "deepagents>=0.4.12"
+  "deepagents>=0.4.12",
+  "micropython-wasm==0.1a2"
 ]
 description = "Add your description here"
 name = "orcheo"

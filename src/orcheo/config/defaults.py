@@ -46,6 +46,9 @@ _DEFAULTS: dict[str, object] = {
     "TRACING_INSECURE": False,
     "TRACING_HIGH_TOKEN_THRESHOLD": 1000,
     "TRACING_PREVIEW_MAX_LENGTH": 512,
+    # Default at this stage is ``unrestricted``; flipping the default to
+    # ``restricted`` is a separate follow-up task.
+    "WORKFLOW_DEFINITION_MODE": "unrestricted",
 }
 
 __all__ = ["_DEFAULTS"]

@@ -113,6 +113,10 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
                 "TRACING_PREVIEW_MAX_LENGTH",
                 _DEFAULTS["TRACING_PREVIEW_MAX_LENGTH"],
             ),
+            workflow_definition_mode=source.get(
+                "WORKFLOW_DEFINITION_MODE",
+                _DEFAULTS["WORKFLOW_DEFINITION_MODE"],
+            ),
         )
     except ValidationError as exc:  # pragma: no cover - defensive
         raise ValueError(str(exc)) from exc
@@ -171,6 +175,7 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
         "TRACING_HIGH_TOKEN_THRESHOLD", settings.tracing_high_token_threshold
     )
     normalized.set("TRACING_PREVIEW_MAX_LENGTH", settings.tracing_preview_max_length)
+    normalized.set("WORKFLOW_DEFINITION_MODE", settings.workflow_definition_mode)
 
     return normalized
 

@@ -11,6 +11,7 @@ from orcheo.nodes.browser import (
     BrowserScriptNode,
     BrowserWaitNode,
 )
+from orcheo.nodes.code import CodeNode
 from orcheo.nodes.connectors.discord import (
     DiscordBotListenerNode,
     DiscordWebhookNode,
@@ -115,6 +116,7 @@ __all__ = [
     "NodeMetadata",
     "NodeRegistry",
     "registry",
+    "CodeNode",
     "AgentNode",
     "AgentReplyExtractorNode",
     "LLMNode",

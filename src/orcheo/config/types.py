@@ -10,6 +10,7 @@ AttachmentBlobBackend = Literal["postgres", "s3"]
 RepositoryBackend = Literal["postgres"]
 WorkspaceBackend = Literal["postgres"]
 VaultBackend = Literal["postgres"]
+WorkflowDefinitionMode = Literal["restricted", "unrestricted"]
 
 __all__ = [
     "AttachmentBlobBackend",
@@ -19,4 +20,5 @@ __all__ = [
     "RepositoryBackend",
     "WorkspaceBackend",
     "VaultBackend",
+    "WorkflowDefinitionMode",
 ]

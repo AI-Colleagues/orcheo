@@ -106,11 +106,13 @@ async def _robots_txt() -> PlainTextResponse:
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifespan with startup and shutdown logic."""
+    from orcheo.graph.ir.definition_mode import log_active_definition_mode
     from orcheo.tracing import configure_tracing
 
     if not _repository_ref.get("repository"):
         _create_repository()
     configure_tracing()
+    log_active_definition_mode(force=True)
     load_auth_settings(refresh=True)
     load_enabled_plugins(force=True)
     workspace_service = get_workspace_service()
