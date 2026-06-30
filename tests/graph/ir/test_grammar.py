@@ -311,3 +311,321 @@ def test_disallowed_loop_rejected() -> None:
                 return graph
             """
         )
+
+
+def test_relative_import_rejected() -> None:
+    """A relative import is rejected."""
+    with pytest.raises(WorkflowValidationError, match="relative imports"):
+        _validate(
+            """
+            from . import helpers
+            def orcheo_workflow():
+                graph = StateGraph(None)
+                return graph
+            """
+        )
+
+
+def test_plain_non_orcheo_import_rejected() -> None:
+    """A plain ``import os`` (non-Orcheo) is rejected."""
+    with pytest.raises(WorkflowValidationError, match="must come from Orcheo"):
+        _validate(
+            """
+            import os
+            def orcheo_workflow():
+                graph = StateGraph(None)
+                return graph
+            """
+        )
+
+
+def test_plain_orcheo_imports_accepted() -> None:
+    """A multi-name plain ``import`` of Orcheo submodules validates."""
+    _validate(
+        """
+        import orcheo.nodes, orcheo.graph
+        def orcheo_workflow():
+            graph = StateGraph(None)
+            return graph
+        """
+    )
+
+
+def test_entrypoint_decorator_rejected() -> None:
+    """A decorator on the ``orcheo_workflow`` entrypoint is rejected."""
+    with pytest.raises(WorkflowValidationError, match="decorators are not allowed"):
+        _validate(
+            """
+            from orcheo.graph import StateGraph
+            @cache
+            def orcheo_workflow():
+                graph = StateGraph(None)
+                return graph
+            """
+        )
+
+
+def test_class_with_disallowed_statement_rejected() -> None:
+    """A class body statement that is neither a field nor a method is rejected."""
+    with pytest.raises(WorkflowValidationError, match="config fields and a 'run'"):
+        _validate(
+            """
+            from orcheo.nodes import CodeNode
+            class X(CodeNode):
+                pass
+            def orcheo_workflow():
+                graph = StateGraph(None)
+                return graph
+            """
+        )
+
+
+def test_class_without_run_method_rejected() -> None:
+    """A CodeNode subclass with no ``run`` method is rejected."""
+    with pytest.raises(WorkflowValidationError, match="must define a 'run' method"):
+        _validate(
+            """
+            from orcheo.nodes import CodeNode
+            class X(CodeNode):
+                threshold: int = 5
+            def orcheo_workflow():
+                graph = StateGraph(None)
+                return graph
+            """
+        )
+
+
+def test_run_method_decorator_rejected() -> None:
+    """A decorator on the ``run`` method is rejected."""
+    with pytest.raises(WorkflowValidationError, match="decorators are not allowed"):
+        _validate(
+            """
+            from orcheo.nodes import CodeNode
+            class X(CodeNode):
+                @property
+                def run(self, state, config):
+                    return {}
+            def orcheo_workflow():
+                graph = StateGraph(None)
+                return graph
+            """
+        )
+
+
+def test_class_field_multiple_targets_rejected() -> None:
+    """A chained class-field assignment (``a = b = ...``) is rejected."""
+    with pytest.raises(WorkflowValidationError, match="simple assignments"):
+        _validate(
+            """
+            from orcheo.nodes import CodeNode
+            class X(CodeNode):
+                a = b = 5
+                def run(self, state, config):
+                    return {}
+            def orcheo_workflow():
+                graph = StateGraph(None)
+                return graph
+            """
+        )
+
+
+def test_class_field_attribute_target_rejected() -> None:
+    """An annotated class field whose target is not a bare name is rejected."""
+    with pytest.raises(WorkflowValidationError, match="simple assignments"):
+        _validate(
+            """
+            from orcheo.nodes import CodeNode
+            class X(CodeNode):
+                obj.attr: int = 5
+                def run(self, state, config):
+                    return {}
+            def orcheo_workflow():
+                graph = StateGraph(None)
+                return graph
+            """
+        )
+
+
+def test_class_underscore_field_rejected() -> None:
+    """A class field whose name starts with ``_`` is rejected."""
+    with pytest.raises(WorkflowValidationError, match="may not start with '_'"):
+        _validate(
+            """
+            from orcheo.nodes import CodeNode
+            class X(CodeNode):
+                _secret: int = 5
+                def run(self, state, config):
+                    return {}
+            def orcheo_workflow():
+                graph = StateGraph(None)
+                return graph
+            """
+        )
+
+
+def test_class_annotation_only_field_is_accepted() -> None:
+    """An annotation-only class field (no default value) validates."""
+    _validate(
+        """
+        from orcheo.nodes import CodeNode
+        class X(CodeNode):
+            threshold: int
+            def run(self, state, config):
+                return {}
+        def orcheo_workflow():
+            graph = StateGraph(None)
+            return graph
+        """
+    )
+
+
+def test_entrypoint_multiple_target_assignment_rejected() -> None:
+    """A multi-target assignment in the entrypoint is rejected."""
+    with pytest.raises(WorkflowValidationError, match="single-name assignments"):
+        _validate(
+            """
+            from orcheo.graph import StateGraph
+            def orcheo_workflow():
+                a = b = StateGraph(None)
+                return a
+            """
+        )
+
+
+def test_entrypoint_non_call_assignment_rejected() -> None:
+    """An entrypoint assignment whose value is not a constructor call is rejected."""
+    with pytest.raises(WorkflowValidationError, match="construct a graph or node"):
+        _validate(
+            """
+            from orcheo.graph import StateGraph
+            def orcheo_workflow():
+                graph = 5
+                return graph
+            """
+        )
+
+
+def test_entrypoint_attribute_constructor_assignment_rejected() -> None:
+    """An assignment calling an attribute (not a bare class) is rejected."""
+    with pytest.raises(
+        WorkflowValidationError, match="call a graph or node class directly"
+    ):
+        _validate(
+            """
+            from orcheo.graph import StateGraph
+            def orcheo_workflow():
+                graph = mod.StateGraph(None)
+                return graph
+            """
+        )
+
+
+def test_entrypoint_bare_call_statement_rejected() -> None:
+    """A bare function-call statement (not ``graph.method(...)``) is rejected."""
+    with pytest.raises(WorkflowValidationError, match="graph-assembly method calls"):
+        _validate(
+            """
+            from orcheo.graph import StateGraph
+            def orcheo_workflow():
+                graph = StateGraph(None)
+                helper()
+                return graph
+            """
+        )
+
+
+def test_entrypoint_unknown_graph_method_rejected() -> None:
+    """A graph method outside the allowed assembly set is rejected."""
+    with pytest.raises(
+        WorkflowValidationError, match="not an allowed graph-assembly method"
+    ):
+        _validate(
+            """
+            from orcheo.graph import StateGraph
+            def orcheo_workflow():
+                graph = StateGraph(None)
+                graph.frobnicate()
+                return graph
+            """
+        )
+
+
+def test_entrypoint_bare_return_rejected() -> None:
+    """An entrypoint with a value-less ``return`` is rejected."""
+    with pytest.raises(
+        WorkflowValidationError, match="must return the assembled graph"
+    ):
+        _validate(
+            """
+            from orcheo.graph import StateGraph
+            def orcheo_workflow():
+                graph = StateGraph(None)
+                return
+            """
+        )
+
+
+def test_entrypoint_returning_compiled_graph_is_accepted() -> None:
+    """Returning ``graph.compile()`` from the entrypoint validates."""
+    _validate(
+        """
+        from orcheo.graph import StateGraph
+        def orcheo_workflow():
+            graph = StateGraph(None)
+            return graph.compile()
+        """
+    )
+
+
+def test_entrypoint_invalid_return_expression_rejected() -> None:
+    """Returning an arbitrary call (not the graph or compile()) is rejected."""
+    with pytest.raises(WorkflowValidationError, match="must return the graph"):
+        _validate(
+            """
+            from orcheo.graph import StateGraph
+            def orcheo_workflow():
+                graph = StateGraph(None)
+                return graph.run()
+            """
+        )
+
+
+def test_entrypoint_starred_argument_rejected() -> None:
+    """A starred / unpacking argument in construction code is rejected."""
+    with pytest.raises(WorkflowValidationError, match="starred / unpacking"):
+        _validate(
+            """
+            from orcheo.graph import StateGraph
+            def orcheo_workflow():
+                graph = StateGraph(*args)
+                return graph
+            """
+        )
+
+
+def test_entrypoint_await_in_construction_rejected() -> None:
+    """An ``await`` inside construction code is rejected by the sweep."""
+    with pytest.raises(WorkflowValidationError, match="await / yield"):
+        _validate(
+            """
+            from orcheo.graph import StateGraph
+            async def orcheo_workflow():
+                graph = StateGraph(None)
+                graph.add_node(await thing())
+                return graph
+            """
+        )
+
+
+def test_entrypoint_underscore_name_rejected() -> None:
+    """A private/underscore name used in construction code is rejected."""
+    with pytest.raises(WorkflowValidationError, match="private/underscore name"):
+        _validate(
+            """
+            from orcheo.graph import StateGraph
+            def orcheo_workflow():
+                graph = StateGraph(None)
+                graph.add_node("x", _secret)
+                return graph
+            """
+        )

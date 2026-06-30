@@ -5,6 +5,7 @@ import textwrap
 import pytest
 from orcheo.graph.ir import compile_workflow_to_ir
 from orcheo.sandbox.code_node import (
+    SandboxCodeNode,
     SandboxMetrics,
     build_sandboxed_state_graph,
     make_code_node_factory,
@@ -183,3 +184,65 @@ def test_factory_matches_builder_contract() -> None:
 
     assert node.name == "c"
     assert callable(node)
+
+
+class _RaisingRunner:
+    """A stand-in runner whose ``run`` always raises a preset error."""
+
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+
+    def run(self, body: str, inputs: dict, *, node_id: str | None = None) -> dict:
+        del body, inputs, node_id
+        raise self._exc
+
+
+def _sandbox_node(runner: object, metrics: SandboxMetrics) -> object:
+    from orcheo.graph.ir.models import CodeNodeSpec
+
+    return SandboxCodeNode(
+        CodeNodeSpec(id="n", body="return {}"), runner, metrics=metrics
+    )  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_runner_output_error_is_counted_and_reraised() -> None:
+    """A ``SandboxOutputError`` from the runner is counted and re-raised."""
+    from orcheo.sandbox.exceptions import SandboxOutputError
+
+    metrics = SandboxMetrics()
+    node = _sandbox_node(
+        _RaisingRunner(SandboxOutputError("bad", node_id="n")), metrics
+    )
+
+    with pytest.raises(SandboxOutputError):
+        await node({"inputs": {}}, {"configurable": {}})
+
+    assert metrics.output_errors == 1
+
+
+@pytest.mark.asyncio
+async def test_runner_generic_sandbox_error_is_counted_and_reraised() -> None:
+    """A generic ``SandboxError`` from the runner is counted and re-raised."""
+    from orcheo.sandbox.exceptions import SandboxError
+
+    metrics = SandboxMetrics()
+    node = _sandbox_node(_RaisingRunner(SandboxError("kaboom", node_id="n")), metrics)
+
+    with pytest.raises(SandboxError):
+        await node({"inputs": {}}, {"configurable": {}})
+
+    assert metrics.execution_errors == 1
+
+
+def test_interpret_outputs_rejects_non_mapping_update() -> None:
+    """An ``update`` envelope that is not a mapping raises an output error."""
+    from orcheo.sandbox.exceptions import SandboxOutputError
+
+    metrics = SandboxMetrics()
+    node = _sandbox_node(_RaisingRunner(RuntimeError("unused")), metrics)
+
+    with pytest.raises(SandboxOutputError, match="must be a JSON object"):
+        node._interpret_outputs({"update": "not-a-mapping"})
+
+    assert metrics.output_errors == 1

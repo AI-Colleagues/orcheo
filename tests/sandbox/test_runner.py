@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 import pytest
-from orcheo.sandbox.exceptions import SandboxLimitError, SandboxOutputError
+from orcheo.sandbox.exceptions import (
+    SandboxExecutionError,
+    SandboxLimitError,
+    SandboxOutputError,
+)
 from orcheo.sandbox.runner import MicroPythonSandboxRunner
 
 
@@ -59,6 +63,30 @@ def test_non_json_output_is_rejected() -> None:
     runner = MicroPythonSandboxRunner()
     with pytest.raises(SandboxOutputError, match="not valid JSON"):
         runner.run("return {'s': set([1, 2])}", _inputs(), node_id="n")
+
+
+def test_runtime_error_without_limit_tokens_is_execution_error() -> None:
+    """A runtime error whose message lacks limit tokens maps to an execution error."""
+    mapped = MicroPythonSandboxRunner._map_runtime_error(
+        RuntimeError("something broke"), "n"
+    )
+
+    assert isinstance(mapped, SandboxExecutionError)
+    assert "sandbox runtime error: something broke" in mapped.raw_message
+
+
+def test_empty_sandbox_output_is_rejected() -> None:
+    """Blank sandbox stdout raises a structured 'no output' error."""
+    runner = MicroPythonSandboxRunner()
+    with pytest.raises(SandboxOutputError, match="no output"):
+        runner._parse_output("   \n", "n")
+
+
+def test_non_object_json_envelope_is_rejected() -> None:
+    """A JSON value that is not an object (e.g. a list) is rejected."""
+    runner = MicroPythonSandboxRunner()
+    with pytest.raises(SandboxOutputError, match="must be a JSON object"):
+        runner._parse_output("[1, 2, 3]", "n")
 
 
 def test_describe_reports_pinned_version() -> None:

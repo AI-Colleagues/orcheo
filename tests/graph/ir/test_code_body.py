@@ -155,3 +155,43 @@ def test_body_requires_return_value() -> None:
 
     with pytest.raises(WorkflowValidationError, match="must return"):
         validate_code_body(func, injected=set(), node_id="x")
+
+
+def test_body_rejects_async_for() -> None:
+    """A body using an ``async for`` loop is rejected as an async construct."""
+    source, func = _run_func(
+        "class X(CodeNode):\n"
+        "    async def run(self, state, config):\n"
+        "        async for item in source():\n"
+        "            pass\n"
+        "        return {'a': 1}\n"
+    )
+
+    with pytest.raises(WorkflowValidationError, match="async constructs"):
+        validate_code_body(func, injected=set(), node_id="x")
+
+
+def test_body_rejects_nested_async_function() -> None:
+    """A body defining a nested ``async def`` is rejected."""
+    source, func = _run_func(
+        "class X(CodeNode):\n"
+        "    async def run(self, state, config):\n"
+        "        async def helper():\n"
+        "            return 1\n"
+        "        return {'a': 1}\n"
+    )
+
+    with pytest.raises(WorkflowValidationError, match="async functions"):
+        validate_code_body(func, injected=set(), node_id="x")
+
+
+def test_body_rejects_generator_yield() -> None:
+    """A body that yields (i.e. is a generator) is rejected."""
+    source, func = _run_func(
+        "class X(CodeNode):\n"
+        "    def run(self, state, config):\n"
+        "        yield {'a': 1}\n"
+    )
+
+    with pytest.raises(WorkflowValidationError, match="generator"):
+        validate_code_body(func, injected=set(), node_id="x")

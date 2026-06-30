@@ -67,12 +67,28 @@ def test_embedded_credential_is_detected() -> None:
         "[x for x in range(3)]",  # comprehension
         "lambda: 1",  # lambda
         "{1, 2, 3}",  # set literal (not JSON)
+        "-some_name",  # unary minus on a non-constant operand
+        "+other",  # unary plus on a non-constant operand
     ],
 )
 def test_rejects_non_literal_values(code: str) -> None:
     """Names, calls, arithmetic, comprehensions, lambdas, and sets are rejected."""
     with pytest.raises(WorkflowValidationError, match="JSON literals"):
         validate_config_value(_expr(code), allow_credentials=True, where="node 'x'")
+
+
+def test_rejects_non_json_constant_literal() -> None:
+    """A constant of an unsupported type (e.g. bytes) is rejected."""
+    with pytest.raises(WorkflowValidationError, match="unsupported config literal"):
+        validate_config_value(_expr('b"raw"'), allow_credentials=True, where="node 'x'")
+
+
+def test_rejects_dict_unpacking() -> None:
+    """``{**other}`` dict unpacking is rejected in config values."""
+    with pytest.raises(WorkflowValidationError, match="dict unpacking is not allowed"):
+        validate_config_value(
+            _expr("{**other}"), allow_credentials=True, where="node 'x'"
+        )
 
 
 def test_rejects_non_string_dict_keys() -> None:

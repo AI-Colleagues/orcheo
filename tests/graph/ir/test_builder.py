@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 import pytest
-from orcheo.graph.ir.builder import build_state_graph_from_ir, validate_ir
+from orcheo.graph.ir.builder import (
+    MAX_GRAPH_DEPTH,
+    _build_workflow_tool,
+    build_state_graph_from_ir,
+    validate_ir,
+)
 from orcheo.graph.ir.exceptions import IRValidationError
 from orcheo.graph.ir.models import (
+    IR_CONFIG_KIND_KEY,
+    WORKFLOW_TOOL_CONFIG_KIND,
     BuiltinNodeSpec,
     CodeNodeSpec,
     ConditionalEdgeSpec,
@@ -294,3 +301,214 @@ def test_code_node_factory_is_invoked() -> None:
     build_state_graph_from_ir(ir, code_node_factory=factory)
 
     assert seen == ["c"]
+
+
+def _leaf_ir() -> GraphIR:
+    """A trivial single-node graph used as a nesting/subgraph leaf."""
+    return GraphIR(
+        entrypoint="leaf",
+        nodes=[BuiltinNodeSpec(id="leaf", type="DebugNode")],
+    )
+
+
+def test_excessive_subgraph_nesting_is_rejected() -> None:
+    """Subgraph nesting beyond the depth limit is rejected, not stack-overflowed."""
+    ir = _leaf_ir()
+    for level in range(MAX_GRAPH_DEPTH + 2):
+        ir = GraphIR(
+            entrypoint=f"n{level}",
+            nodes=[SubgraphNodeSpec(id=f"n{level}", graph=ir)],
+        )
+
+    with pytest.raises(IRValidationError, match="nesting depth exceeds"):
+        validate_ir(ir)
+
+
+def test_empty_node_id_is_rejected() -> None:
+    """A blank node id is rejected."""
+    ir = GraphIR(entrypoint="a", nodes=[BuiltinNodeSpec(id="   ", type="DebugNode")])
+
+    with pytest.raises(IRValidationError, match="non-empty string"):
+        validate_ir(ir)
+
+
+def test_sentinel_node_id_is_rejected() -> None:
+    """A node id colliding with a reserved sentinel is rejected."""
+    ir = GraphIR(
+        entrypoint="__start__",
+        nodes=[BuiltinNodeSpec(id="__start__", type="DebugNode")],
+    )
+
+    with pytest.raises(IRValidationError, match="reserved sentinel"):
+        validate_ir(ir)
+
+
+def test_empty_entrypoint_is_rejected() -> None:
+    """A blank entrypoint is rejected."""
+    ir = GraphIR(entrypoint="", nodes=[BuiltinNodeSpec(id="a", type="DebugNode")])
+
+    with pytest.raises(IRValidationError, match="non-empty node id"):
+        validate_ir(ir)
+
+
+def test_dangling_edge_source_is_rejected() -> None:
+    """An edge whose source names no node is rejected."""
+    ir = GraphIR(
+        entrypoint="a",
+        nodes=[BuiltinNodeSpec(id="a", type="DebugNode")],
+        edges=[EdgeSpec(source="ghost", target="a")],
+    )
+
+    with pytest.raises(IRValidationError, match="edge source"):
+        validate_ir(ir)
+
+
+def test_conditional_edge_unknown_source_is_rejected() -> None:
+    """A conditional edge whose source names no node is rejected."""
+    ir = GraphIR(
+        entrypoint="a",
+        nodes=[BuiltinNodeSpec(id="a", type="DebugNode")],
+        conditional_edges=[
+            ConditionalEdgeSpec(source="ghost", path="p", mapping={"v": "a"})
+        ],
+    )
+
+    with pytest.raises(IRValidationError, match="conditional edge source"):
+        validate_ir(ir)
+
+
+def test_conditional_edge_empty_mapping_is_rejected() -> None:
+    """A conditional edge with an empty mapping is rejected."""
+    ir = GraphIR(
+        entrypoint="a",
+        nodes=[BuiltinNodeSpec(id="a", type="DebugNode")],
+        conditional_edges=[ConditionalEdgeSpec(source="a", path="p", mapping={})],
+    )
+
+    with pytest.raises(IRValidationError, match="non-empty mapping"):
+        validate_ir(ir)
+
+
+def test_conditional_edge_unknown_default_is_rejected() -> None:
+    """A conditional edge with an unknown default target is rejected."""
+    ir = GraphIR(
+        entrypoint="a",
+        nodes=[BuiltinNodeSpec(id="a", type="DebugNode")],
+        conditional_edges=[
+            ConditionalEdgeSpec(
+                source="a", path="p", mapping={"v": "a"}, default="ghost"
+            )
+        ],
+    )
+
+    with pytest.raises(IRValidationError, match="unknown default target"):
+        validate_ir(ir)
+
+
+def test_workflow_tool_config_with_bad_graph_is_rejected() -> None:
+    """A workflow-tool marker carrying a non-mapping graph fails validation."""
+    ir = GraphIR(
+        entrypoint="a",
+        nodes=[
+            BuiltinNodeSpec(
+                id="a",
+                type="AgentNode",
+                config={
+                    "workflow_tools": [
+                        {
+                            IR_CONFIG_KIND_KEY: WORKFLOW_TOOL_CONFIG_KIND,
+                            "name": "t",
+                            "description": "d",
+                            "graph": "not-a-graph",
+                        }
+                    ]
+                },
+            )
+        ],
+    )
+
+    with pytest.raises(
+        IRValidationError, match="workflow tool requires a nested graph"
+    ):
+        validate_ir(ir)
+
+
+def test_builtin_node_construction_failure_is_wrapped() -> None:
+    """A built-in node whose config fails construction surfaces a clear error."""
+    ir = GraphIR(
+        entrypoint="a",
+        nodes=[
+            BuiltinNodeSpec(id="a", type="SetVariableNode", config={"variables": 123})
+        ],
+    )
+
+    with pytest.raises(IRValidationError, match="Failed to construct node"):
+        build_state_graph_from_ir(ir)
+
+
+def test_build_workflow_tool_rejects_non_string_name() -> None:
+    """A workflow-tool marker with a non-string name is rejected during build."""
+    with pytest.raises(IRValidationError, match="string 'name' and 'description'"):
+        _build_workflow_tool(
+            {"name": 123, "description": "d", "graph": _leaf_ir().model_dump()},
+            code_node_factory=None,
+        )
+
+
+def test_build_workflow_tool_rejects_non_mapping_graph() -> None:
+    """A workflow-tool marker with a non-mapping graph is rejected during build."""
+    with pytest.raises(IRValidationError, match="nested graph IR mapping"):
+        _build_workflow_tool(
+            {"name": "t", "description": "d", "graph": "nope"},
+            code_node_factory=None,
+        )
+
+
+def test_workflow_tool_output_path_is_passed_through() -> None:
+    """A workflow-tool ``output_path`` is forwarded to the runtime WorkflowTool."""
+    nested = GraphIR(
+        entrypoint="inner",
+        nodes=[
+            BuiltinNodeSpec(
+                id="inner",
+                type="SetVariableNode",
+                config={"variables": {"value": 1}},
+            )
+        ],
+        edges=[
+            EdgeSpec(source="__start__", target="inner"),
+            EdgeSpec(source="inner", target="__end__"),
+        ],
+    )
+    ir = GraphIR(
+        entrypoint="agent",
+        nodes=[
+            BuiltinNodeSpec(
+                id="agent",
+                type="AgentNode",
+                config={
+                    "ai_model": "gpt-4o-mini",
+                    "workflow_tools": [
+                        {
+                            IR_CONFIG_KIND_KEY: WORKFLOW_TOOL_CONFIG_KIND,
+                            "name": "lookup",
+                            "description": "Look up context",
+                            "graph": nested.model_dump(),
+                            "output_path": "results.lookup",
+                            "return_direct": True,
+                        }
+                    ],
+                },
+            )
+        ],
+        edges=[
+            EdgeSpec(source="__start__", target="agent"),
+            EdgeSpec(source="agent", target="__end__"),
+        ],
+    )
+
+    graph = build_state_graph_from_ir(ir)
+    agent = graph.nodes["agent"].runnable.afunc
+
+    assert agent.workflow_tools[0].output_path == "results.lookup"
+    assert agent.workflow_tools[0].return_direct is True

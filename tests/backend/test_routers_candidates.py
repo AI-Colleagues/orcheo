@@ -446,6 +446,32 @@ async def test_onboard_candidate_resolves_inline_configurable_schema(
 
 
 @pytest.mark.asyncio()
+async def test_onboard_candidate_skips_full_env_build_in_restricted_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """In restricted mode the full-environment build is skipped (IR is authoritative)."""
+
+    async def fake_get_candidates() -> list[CandidateItem]:
+        return [_SAMPLE]
+
+    def _boom(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("full-env build must be skipped in restricted mode")
+
+    monkeypatch.setattr(candidates_router, "get_candidates", fake_get_candidates)
+    monkeypatch.setattr(candidates_router, "is_restricted_mode", lambda: True)
+    monkeypatch.setattr(candidates_router, "load_graph_from_script_full_env", _boom)
+
+    repo = _Repository()
+    await onboard_candidate(
+        CandidateOnboardRequest(id="insight-analyst"),
+        repo,  # type: ignore[arg-type]
+        _MOCK_WORKSPACE,  # type: ignore[arg-type]
+    )
+
+    assert repo.versions_created == 1
+
+
+@pytest.mark.asyncio()
 async def test_onboard_candidate_merges_existing_configurable_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

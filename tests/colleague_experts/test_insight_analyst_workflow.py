@@ -15,6 +15,7 @@ from orcheo.nodes.qualitative.pipeline import ContextPreNode, SetupNode
 _WORKFLOW_PATH = (
     Path(__file__).resolve().parents[2]
     / "colleague-experts"
+    / "colleague-candidates"
     / "colleagues"
     / "insight_analyst"
     / "workflow.py"

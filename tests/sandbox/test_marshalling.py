@@ -47,3 +47,12 @@ def test_injected_config_must_be_serialisable() -> None:
     """Injected configurable fields must always be JSON-serialisable."""
     with pytest.raises(SandboxMarshallingError):
         build_inputs_envelope({}, None, {"bad": object()}, node_id="x")
+
+
+def test_non_mapping_run_configurable_yields_empty_config() -> None:
+    """A non-mapping ``configurable`` in the run config projects to an empty dict."""
+    envelope = build_inputs_envelope(
+        {}, {"configurable": "not-a-mapping"}, {}, node_id="x"
+    )
+
+    assert envelope["config"] == {"configurable": {}}

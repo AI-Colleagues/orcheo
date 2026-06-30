@@ -350,6 +350,17 @@ def test_render_mermaid_from_ir_returns_none_for_malformed_ir() -> None:
     assert render_mermaid_from_ir({"nodes": "not-a-list"}) is None
 
 
+def test_ir_diagram_placeholder_is_an_inert_passthrough() -> None:
+    """The CodeNode diagram placeholder returns state unchanged, ignoring extras."""
+    from orcheo.workflow.mermaid import _ir_diagram_placeholder
+
+    placeholder = _ir_diagram_placeholder(object())
+    state = {"results": {"x": 1}}
+
+    assert placeholder(state) is state
+    assert placeholder(state, {"configurable": {}}, extra="ignored") is state
+
+
 def test_render_mermaid_from_graph_payload_renders_frozen_ir() -> None:
     """A stored frozen-IR payload routes through the IR renderer."""
     payload = {"format": "frozen-ir", "ir": _compile_ir_dict(), "entrypoint": "setter"}
