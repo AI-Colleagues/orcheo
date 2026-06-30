@@ -66,6 +66,7 @@ Inside `orcheo_workflow` only graph assembly is allowed:
 | `graph.add_edge(a, b)` | `EdgeSpec` |
 | `graph.add_conditional_edges(src, {"path", "mapping", "default"})` | `ConditionalEdgeSpec` |
 | `graph.set_entry_point(id)` / `add_edge(START, id)` | the entrypoint |
+| `graph.set_finish_point(id)` | an `EdgeSpec` to `END` (same as `add_edge(id, END)`) |
 | `return graph` / `return graph.compile()` | resolves the graph |
 
 Everything else is rejected with an actionable, line-referenced error:
@@ -127,9 +128,13 @@ async def orcheo_workflow() -> StateGraph:
 Rules enforced at ingestion (line-referenced):
 
 - **No imports** and **no `await`/async** constructs inside the body.
+- **No dunder names or attributes** (`__builtins__`, `__class__`,
+  `__subclasses__`, `__globals__`, …), which would otherwise let a body recover
+  builtins/imports the allowlist blocks.
 - The body **returns a state-update mapping** (merged like a vanilla LangGraph
   node update, respecting the state channel reducers — it is *not* wrapped under
-  `results.<name>`).
+  `results.<name>`). At least one `return <value>` must appear in `run` itself,
+  not only inside a nested helper function.
 - It may reference only its **injected fields** (`self.<field>`) plus the passed
   `state` and `config`.
 - It may use only **supported MicroPython builtins** (see below).

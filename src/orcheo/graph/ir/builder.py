@@ -33,6 +33,12 @@ from orcheo.nodes.registry import registry
 # IR schema versions this builder can rebuild.
 SUPPORTED_SCHEMA_VERSIONS = frozenset({CURRENT_SCHEMA_VERSION})
 
+# Maximum subgraph / workflow-tool-graph nesting depth. Bounds recursion during
+# validation (and, via the validate-before-build contract, the build) so a
+# deeply nested but acyclic IR cannot overflow the Python call stack — a DoS
+# vector for restricted multi-tenant ingestion.
+MAX_GRAPH_DEPTH = 32
+
 # Builds a runnable node from a ``CodeNodeSpec`` (sandbox runner in M3).
 CodeNodeFactory = Callable[[CodeNodeSpec], Any]
 
@@ -88,8 +94,11 @@ def validate_ir(ir: GraphIR | Mapping[str, Any]) -> GraphIR:
     return model
 
 
-def _validate_graph_model(model: GraphIR, *, path: str = "IR") -> None:
+def _validate_graph_model(model: GraphIR, *, path: str = "IR", depth: int = 0) -> None:
     """Validate one graph model and all nested subgraph models."""
+    if depth > MAX_GRAPH_DEPTH:
+        msg = f"{path} nesting depth exceeds the maximum of {MAX_GRAPH_DEPTH}"
+        raise IRValidationError(msg)
     if model.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
         msg = (
             f"Unsupported {path} schema_version {model.schema_version}; "
@@ -103,12 +112,16 @@ def _validate_graph_model(model: GraphIR, *, path: str = "IR") -> None:
     _validate_conditional_edges(model, node_ids, path=path)
     for spec in model.nodes:
         if isinstance(spec, BuiltinNodeSpec):
-            _validate_config_graphs(spec.config, path=f"{path} node '{spec.id}' config")
+            _validate_config_graphs(
+                spec.config, path=f"{path} node '{spec.id}' config", depth=depth
+            )
         if isinstance(spec, SubgraphNodeSpec):
-            _validate_graph_model(spec.graph, path=f"{path} subgraph '{spec.id}'")
+            _validate_graph_model(
+                spec.graph, path=f"{path} subgraph '{spec.id}'", depth=depth + 1
+            )
 
 
-def _validate_config_graphs(value: Any, *, path: str) -> None:
+def _validate_config_graphs(value: Any, *, path: str, depth: int) -> None:
     """Validate nested graph IR carried inside built-in config values."""
     if isinstance(value, Mapping):
         if value.get(IR_CONFIG_KIND_KEY) == WORKFLOW_TOOL_CONFIG_KIND:
@@ -116,14 +129,18 @@ def _validate_config_graphs(value: Any, *, path: str) -> None:
             if not isinstance(graph_value, Mapping | GraphIR):
                 msg = f"{path} workflow tool requires a nested graph IR mapping"
                 raise IRValidationError(msg)
-            _validate_graph_model(coerce_ir(graph_value), path=f"{path} workflow tool")
+            _validate_graph_model(
+                coerce_ir(graph_value),
+                path=f"{path} workflow tool",
+                depth=depth + 1,
+            )
             return
         for key, nested in value.items():
-            _validate_config_graphs(nested, path=f"{path}.{key}")
+            _validate_config_graphs(nested, path=f"{path}.{key}", depth=depth)
         return
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
         for index, nested in enumerate(value):
-            _validate_config_graphs(nested, path=f"{path}[{index}]")
+            _validate_config_graphs(nested, path=f"{path}[{index}]", depth=depth)
 
 
 def _validate_nodes(model: GraphIR, *, path: str) -> set[str]:
@@ -375,6 +392,7 @@ def _wire_conditional_edges(graph: StateGraph, model: GraphIR) -> None:
 
 
 __all__ = [
+    "MAX_GRAPH_DEPTH",
     "SUPPORTED_SCHEMA_VERSIONS",
     "CodeNodeFactory",
     "build_state_graph_from_ir",

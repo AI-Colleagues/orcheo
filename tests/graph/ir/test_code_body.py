@@ -94,15 +94,55 @@ def test_body_rejects_undeclared_self_field() -> None:
 
 
 def test_body_rejects_gadget_self_access() -> None:
-    """A dunder gadget via ``self`` is rejected as an undeclared field."""
+    """A dunder gadget via ``self`` is rejected as a dunder-attribute access."""
     source, func = _run_func(
         "class X(CodeNode):\n"
         "    async def run(self, state, config):\n"
         "        return {'a': self.__class__}\n"
     )
 
-    with pytest.raises(WorkflowValidationError, match="undeclared field"):
+    with pytest.raises(WorkflowValidationError, match="dunder attribute"):
         validate_code_body(func, injected=set(), node_id="x")
+
+
+def test_body_rejects_builtins_dunder_escape() -> None:
+    """A ``__builtins__`` reference is rejected before it can reach the sandbox."""
+    source, func = _run_func(
+        "class X(CodeNode):\n"
+        "    def run(self, state, config):\n"
+        "        imp = __builtins__['__import__']\n"
+        "        return {'a': 1}\n"
+    )
+
+    with pytest.raises(WorkflowValidationError, match="dunder name '__builtins__'"):
+        validate_code_body(func, injected=set(), node_id="x")
+
+
+def test_body_return_inside_nested_function_does_not_satisfy_requirement() -> None:
+    """A ``return`` inside a helper does not count as ``run`` returning a value."""
+    source, func = _run_func(
+        "class X(CodeNode):\n"
+        "    def run(self, state, config):\n"
+        "        def helper():\n"
+        "            return {'a': 1}\n"
+        "        helper()\n"
+    )
+
+    with pytest.raises(WorkflowValidationError, match="must return a state-update"):
+        validate_code_body(func, injected=set(), node_id="x")
+
+
+def test_body_return_inside_conditional_is_accepted() -> None:
+    """A ``return`` nested in control flow (not a function) still satisfies it."""
+    source, func = _run_func(
+        "class X(CodeNode):\n"
+        "    def run(self, state, config):\n"
+        "        if state:\n"
+        "            return {'a': 1}\n"
+        "        return {'b': 2}\n"
+    )
+
+    validate_code_body(func, injected=set(), node_id="x")
 
 
 def test_body_requires_return_value() -> None:

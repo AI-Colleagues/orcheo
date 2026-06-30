@@ -11,6 +11,7 @@ construct is rejected with an actionable, line-referenced message.
 from __future__ import annotations
 import textwrap
 import pytest
+from orcheo.graph.ir.builder import MAX_GRAPH_DEPTH
 from orcheo.graph.ir.exceptions import WorkflowValidationError
 from orcheo.graph.ir.interpreter import compile_workflow_to_ir
 
@@ -177,3 +178,43 @@ def test_builtin_allowlist_error_carries_line_number() -> None:
 
     assert exc_info.value.lineno is not None
     assert "builtin 'eval'" in exc_info.value.raw_message
+
+
+def _nested_graphs_source(depth: int) -> str:
+    """Build a workflow nesting ``depth`` subgraphs, one inside the next."""
+    lines = [
+        "from orcheo.graph import StateGraph, START, END",
+        "from orcheo.graph.state import State",
+        "from orcheo.nodes.logic import SetVariableNode",
+        "",
+        "def orcheo_workflow():",
+        "    g0 = StateGraph(State)",
+        "    g0.add_node('leaf', SetVariableNode(name='leaf', variables={'x': 1}))",
+        "    g0.add_edge(START, 'leaf')",
+        "    g0.add_edge('leaf', END)",
+    ]
+    for level in range(1, depth + 1):
+        prev = level - 1
+        lines += [
+            f"    g{level} = StateGraph(State)",
+            f"    g{level}.add_node('n{level}', g{prev}.compile())",
+            f"    g{level}.add_edge(START, 'n{level}')",
+            f"    g{level}.add_edge('n{level}', END)",
+        ]
+    lines.append(f"    return g{depth}")
+    return "\n".join(lines)
+
+
+def test_deeply_nested_subgraphs_rejected_at_compile() -> None:
+    """Acyclic but excessively nested subgraphs are rejected, not stack-overflowed."""
+    source = _nested_graphs_source(MAX_GRAPH_DEPTH + 2)
+
+    with pytest.raises(WorkflowValidationError, match="nesting|depth exceeds"):
+        compile_workflow_to_ir(source)
+
+
+def test_moderately_nested_subgraphs_compile() -> None:
+    """Nesting within the depth limit still compiles successfully."""
+    ir = compile_workflow_to_ir(_nested_graphs_source(3))
+
+    assert ir.entrypoint == "n3"

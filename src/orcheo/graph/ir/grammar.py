@@ -4,8 +4,9 @@ The validator parses a ``workflow.py`` to an AST and rejects anything outside a
 small declarative grammar, *executing no author code*. The boundary is the
 allowlist, not a denylist: only Orcheo imports, ``CodeNode`` subclasses, node /
 edge instantiation, ``add_node`` / ``add_edge`` / ``add_conditional_edges`` /
-``set_entry_point`` / ``compile``, and a single zero-argument ``orcheo_workflow``
-entrypoint (``def`` or ``async def``) are permitted.
+``set_entry_point`` / ``set_finish_point`` / ``compile``, and a single
+zero-argument ``orcheo_workflow`` entrypoint (``def`` or ``async def``) are
+permitted.
 
 ``CodeNode.run`` method *bodies* are intentionally treated as opaque here — they
 become author code that runs only inside the sandbox, and are validated by

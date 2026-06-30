@@ -281,6 +281,50 @@ def test_set_entry_point_resolves_entrypoint() -> None:
     assert ir.entrypoint == "setter"
 
 
+def test_set_finish_point_emits_end_edge() -> None:
+    """``set_finish_point`` is preserved as a ``node -> END`` edge in the IR."""
+    ir = _compile(
+        """
+        from orcheo.graph import StateGraph, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.logic import SetVariableNode
+
+        def orcheo_workflow():
+            graph = StateGraph(State)
+            graph.add_node("setter", SetVariableNode(name="setter", variables={"x": 1}))
+            graph.set_entry_point("setter")
+            graph.set_finish_point("setter")
+            return graph
+        """
+    )
+
+    assert ir.entrypoint == "setter"
+    assert [(e.source, e.target) for e in ir.edges] == [("setter", "__end__")]
+
+
+def test_statements_after_return_are_ignored() -> None:
+    """Unreachable graph mutations after ``return`` are not folded into the IR."""
+    ir = _compile(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.logic import SetVariableNode
+
+        def orcheo_workflow():
+            graph = StateGraph(State)
+            graph.add_node("setter", SetVariableNode(name="setter", variables={"x": 1}))
+            graph.add_edge(START, "setter")
+            graph.add_edge("setter", END)
+            return graph
+            graph.add_node("hidden", SetVariableNode(name="hidden", variables={"y": 2}))
+            graph.add_edge("setter", "hidden")
+        """
+    )
+
+    assert [node.id for node in ir.nodes] == ["setter"]
+    assert all(edge.target != "hidden" for edge in ir.edges)
+
+
 def test_unknown_node_type_rejected_at_ingest() -> None:
     """An unregistered node type is rejected with a line reference."""
     with pytest.raises(

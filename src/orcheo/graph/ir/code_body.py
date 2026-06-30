@@ -18,7 +18,7 @@ The MicroPython builtin allowlist check is layered on top in Milestone 3.
 from __future__ import annotations
 import ast
 import textwrap
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from orcheo.graph.ir.exceptions import WorkflowValidationError
 
 
@@ -72,11 +72,25 @@ def validate_code_body(
 
 
 def _reject_disallowed_constructs(run_func: RunFunction, *, node_id: str) -> None:
-    """Reject imports, await/async, and yield anywhere in the body."""
+    """Reject imports, await/async, yield, and dunder access anywhere in the body."""
     for sub in ast.walk(run_func):
         if isinstance(sub, ast.Import | ast.ImportFrom):
             raise WorkflowValidationError(
                 f"CodeNode '{node_id}' body may not import modules", lineno=sub.lineno
+            )
+        if isinstance(sub, ast.Name) and sub.id.startswith("__"):
+            raise WorkflowValidationError(
+                f"CodeNode '{node_id}' body may not reference dunder name "
+                f"'{sub.id}'; this closes builtin-allowlist escapes such as "
+                "__builtins__ and __import__",
+                lineno=sub.lineno,
+            )
+        if isinstance(sub, ast.Attribute) and sub.attr.startswith("__"):
+            raise WorkflowValidationError(
+                f"CodeNode '{node_id}' body may not access dunder attribute "
+                f"'{sub.attr}'; this closes introspection gadget chains "
+                "(e.g. __class__/__subclasses__/__globals__)",
+                lineno=sub.lineno,
             )
         if isinstance(sub, ast.Await):
             raise WorkflowValidationError(
@@ -120,16 +134,36 @@ def _check_self_references(
 
 
 def _require_return_value(run_func: RunFunction, *, node_id: str) -> None:
-    """Require at least one ``return <value>`` so the body yields an update."""
+    """Require at least one ``return <value>`` in ``run``'s own scope.
+
+    The walk deliberately stops at nested function boundaries: a ``return``
+    inside a helper defined within ``run`` would leave ``run`` itself returning
+    ``None`` (a runtime ``SandboxOutputError``), so it must not satisfy the
+    ingestion-time check.
+    """
     has_return_value = any(
         isinstance(sub, ast.Return) and sub.value is not None
-        for sub in ast.walk(run_func)
+        for sub in _walk_own_scope(run_func)
     )
     if not has_return_value:
         raise WorkflowValidationError(
             f"CodeNode '{node_id}' body must return a state-update mapping",
             lineno=run_func.lineno,
         )
+
+
+def _walk_own_scope(node: ast.AST) -> Iterator[ast.AST]:
+    """Yield descendants of ``node`` without entering nested function scopes.
+
+    Unlike :func:`ast.walk`, descent stops at nested ``def`` / ``async def`` /
+    ``lambda`` boundaries, so statements belonging to a helper function are not
+    attributed to the enclosing scope.
+    """
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            continue
+        yield child
+        yield from _walk_own_scope(child)
 
 
 __all__ = ["RunFunction", "extract_run_body", "validate_code_body"]

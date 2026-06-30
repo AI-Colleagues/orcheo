@@ -15,7 +15,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass, field
 from typing import Any
-from orcheo.graph.ir.builder import validate_ir
+from orcheo.graph.ir.builder import MAX_GRAPH_DEPTH, validate_ir
 from orcheo.graph.ir.code_body import RunFunction, extract_run_body, validate_code_body
 from orcheo.graph.ir.config_values import literal_from_ast, validate_config_value
 from orcheo.graph.ir.exceptions import WorkflowValidationError
@@ -191,7 +191,12 @@ def _interpret_entrypoint(
                 seen_ids,
             )
         elif isinstance(stmt, ast.Return):
+            # Match Python execution semantics: statements after the entrypoint's
+            # return are unreachable, so stop interpreting here. Folding trailing
+            # add_node/add_edge calls into the IR would make restricted ingestion
+            # persist a graph the authored script would never actually build.
             root_name = _return_graph_name(stmt)
+            break
     if root_name is None:
         raise WorkflowValidationError(
             "workflow entrypoint must return the assembled graph",
@@ -230,6 +235,10 @@ def _workflow_to_ir(
     stack: list[str],
 ) -> GraphIR:
     """Resolve graph references and return frozen IR for one graph variable."""
+    if len(stack) >= MAX_GRAPH_DEPTH:
+        raise WorkflowValidationError(
+            f"nested workflow depth exceeds the maximum of {MAX_GRAPH_DEPTH}"
+        )
     if graph_name in stack:
         cycle = " -> ".join([*stack, graph_name])
         raise WorkflowValidationError(f"nested workflow graph cycle detected: {cycle}")
@@ -340,9 +349,18 @@ def _interpret_graph_call(
         workflow.edges.append(_interpret_add_edge(call))
     elif method == "add_conditional_edges":
         workflow.conditional_edges.append(_interpret_conditional_edge(call))
-    elif method in {"set_entry_point", "set_finish_point"}:
-        if method == "set_entry_point":
-            workflow.entry_override = _string_arg(call, 0, "set_entry_point")
+    elif method == "set_entry_point":
+        workflow.entry_override = _string_arg(call, 0, "set_entry_point")
+    elif method == "set_finish_point":
+        # LangGraph's set_finish_point(n) is sugar for add_edge(n, END); mirror
+        # it as an explicit END edge so the frozen IR carries the authored finish
+        # wiring instead of silently dropping it.
+        workflow.edges.append(
+            EdgeSpec(
+                source=_string_arg(call, 0, "set_finish_point"),
+                target=END_VERTEX,
+            )
+        )
 
 
 def _interpret_add_node(
@@ -777,7 +795,11 @@ def _is_none(expr: ast.expr) -> bool:
 
 
 def _resolve_entrypoint_name(workflow: _Workflow) -> str:
-    """Derive the IR entrypoint from a START edge or ``set_entry_point``."""
+    """Derive the IR entrypoint from a START edge or ``set_entry_point``.
+
+    An explicit ``START`` edge takes precedence over ``set_entry_point`` when
+    both are present, matching LangGraph (the explicit edge wins).
+    """
     for edge in workflow.edges:
         if edge.source == START_VERTEX:
             return edge.target

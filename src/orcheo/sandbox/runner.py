@@ -128,7 +128,16 @@ class MicroPythonSandboxRunner:
 
     @staticmethod
     def _map_runtime_error(exc: Exception, node_id: str | None) -> SandboxError:
-        """Map a wasm runtime error to a structured sandbox error."""
+        """Map a wasm runtime error to a structured sandbox error.
+
+        ``micropython_wasm`` raises a single ``MicroPythonWasmError`` for every
+        runtime failure (no distinct limit-vs-execution subclasses), so limit
+        breaches can only be told apart by message text. This token list is tied
+        to the pinned artifact: re-probe and update it alongside
+        :data:`~orcheo.sandbox.builtins.ARTIFACT_VERSION` when bumping the
+        artifact, or a reworded limit message would be misreported as a generic
+        :class:`SandboxExecutionError`.
+        """
         message = str(exc)
         if any(token in message for token in ("trap", "fuel", "memory", "timed out")):
             return SandboxLimitError(
