@@ -21,6 +21,7 @@ async def test_postgres_checkpointer_round_trip(
 
     monkeypatch.setenv("ORCHEO_CHECKPOINT_BACKEND", "postgres")
     monkeypatch.setenv("ORCHEO_POSTGRES_DSN", dsn)
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_TIMEOUT", "0.1")
 
     settings = config.get_settings(refresh=True)
 

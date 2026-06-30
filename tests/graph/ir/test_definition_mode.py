@@ -12,6 +12,8 @@ from orcheo.graph.builder import (
 )
 from orcheo.graph.ingestion import ingest_langgraph_script, ingest_workflow
 from orcheo.graph.ir.definition_mode import get_definition_mode, is_restricted_mode
+from orcheo.sandbox import code_node as sandbox_code_node
+from orcheo.sandbox.runner import MicroPythonSandboxRunner
 
 
 WORKFLOW = textwrap.dedent(
@@ -113,6 +115,11 @@ async def test_restricted_ingest_store_run_roundtrip(
     _set_mode(monkeypatch, "restricted")
 
     payload = ingest_workflow(WORKFLOW)
+    monkeypatch.setattr(
+        sandbox_code_node,
+        "MicroPythonSandboxRunner",
+        lambda: MicroPythonSandboxRunner(wall_timeout_seconds=5.0),
+    )
     compiled = build_graph(payload).compile()
     result = await compiled.ainvoke({"inputs": {}})
 

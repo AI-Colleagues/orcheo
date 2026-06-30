@@ -91,6 +91,8 @@ async def create_checkpointer(settings: Dynaconf) -> AsyncIterator[Any]:
                     open=False,
                     min_size=int(settings.postgres_pool_min_size),
                     max_size=int(settings.postgres_pool_max_size),
+                    timeout=float(settings.postgres_pool_timeout),
+                    max_idle=float(settings.postgres_pool_max_idle),
                     kwargs={
                         "autocommit": True,
                         "prepare_threshold": 0,

@@ -1,5 +1,6 @@
 """Configure test environment for Orcheo."""
 
+from functools import lru_cache
 import os
 import sys
 import warnings
@@ -13,6 +14,7 @@ for key, value in (
     ("ORCHEO_VAULT_ENCRYPTION_KEY", "test-vault-encryption-key"),
 ):
     os.environ.setdefault(key, value)
+os.environ["ORCHEO_WORKFLOW_DEFINITION_MODE"] = "unrestricted"
 
 from orcheo.models import AesGcmCredentialCipher
 from orcheo.vault import InMemoryCredentialVault
@@ -58,57 +60,52 @@ for path in (BACKEND_SRC, SDK_SRC):
         sys.path.insert(0, str(path))
 
 
-@pytest.fixture(autouse=True)
-def _ensure_openai_api_key(monkeypatch):
-    """Provide a deterministic OpenAI API key for tests when missing."""
-
-    if not os.environ.get("OPENAI_API_KEY"):
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-orcheo")
+from orcheo.config import loader as config_loader
 
 
-@pytest.fixture(autouse=True)
-def _ensure_postgres_dsn(monkeypatch):
-    """Provide a deterministic PostgreSQL DSN for settings-based tests."""
+config_loader._load_settings.cache_clear()
 
-    if not os.environ.get("ORCHEO_POSTGRES_DSN"):
-        monkeypatch.setenv(
-            "ORCHEO_POSTGRES_DSN", "postgresql://test:test@localhost/test"
+
+@lru_cache(maxsize=None)
+def _requires_backend_state(test_file: str) -> bool:
+    """Return whether a test module touches backend singletons."""
+
+    path = Path(test_file)
+    relative = path.relative_to(ROOT)
+    if relative.parts[:2] in {
+        ("tests", "backend"),
+        ("tests", "workspace"),
+        ("tests", "identity"),
+        ("tests", "integration"),
+    }:
+        return True
+
+    contents = path.read_text()
+    return any(
+        token in contents
+        for token in (
+            "orcheo_backend",
+            "create_app(",
+            "backend_dependencies",
+            "workspace_dependencies",
+            "chatkit_runtime",
+            "set_repository(",
+            "set_history_store(",
+            "set_vault(",
+            "set_workspace_repository(",
+            "resolve_workspace_context",
         )
+    )
 
 
 @pytest.fixture(autouse=True)
-def _ensure_vault_encryption_key(monkeypatch):
-    """Provide a deterministic vault encryption key for settings-based tests."""
-
-    if not os.environ.get("ORCHEO_VAULT_ENCRYPTION_KEY"):
-        monkeypatch.setenv("ORCHEO_VAULT_ENCRYPTION_KEY", "test-vault-encryption-key")
-
-
-@pytest.fixture(autouse=True)
-def _pin_workflow_definition_mode(monkeypatch):
-    """Pin the workflow definition mode to its documented default for tests.
-
-    The settings loader reads ``.env`` (``load_dotenv=True``). A developer who
-    sets ``ORCHEO_WORKFLOW_DEFINITION_MODE=restricted`` there must not silently
-    flip the whole suite into restricted ingestion. Tests that exercise
-    restricted mode opt in explicitly by overriding this env var and refreshing
-    settings.
-
-    Only the setup-time refresh is needed: every test re-runs this fixture, so
-    the cache is reset at the start of each test. A teardown refresh is avoided
-    because it would trigger a Dynaconf load while import-counting tests still
-    have ``importlib.import_module`` monkeypatched.
-    """
-
-    from orcheo.config import loader as config_loader
-
-    monkeypatch.setenv("ORCHEO_WORKFLOW_DEFINITION_MODE", "unrestricted")
-    config_loader.get_settings(refresh=True)
-
-
-@pytest.fixture(autouse=True)
-def _seed_in_memory_backend_state(monkeypatch: pytest.MonkeyPatch) -> None:
+def _seed_in_memory_backend_state(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
     """Keep default backend singletons on in-memory implementations during tests."""
+
+    if not _requires_backend_state(str(request.node.path)):
+        return
 
     monkeypatch.setitem(
         workspace_dependencies._workspace_repository_ref,

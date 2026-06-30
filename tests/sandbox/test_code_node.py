@@ -19,6 +19,12 @@ def _ir(source: str):
     return compile_workflow_to_ir(textwrap.dedent(source))
 
 
+def _real_runner() -> MicroPythonSandboxRunner:
+    """Return a real runner with enough headroom for loaded CI workers."""
+
+    return MicroPythonSandboxRunner(wall_timeout_seconds=5.0)
+
+
 TRANSFORM_WORKFLOW = """
     from orcheo.graph import StateGraph, START, END
     from orcheo.graph.state import State
@@ -48,7 +54,9 @@ async def test_end_to_end_transform_and_merge_back() -> None:
     """A CodeNode body runs in the sandbox and merges its update into state."""
     ir = _ir(TRANSFORM_WORKFLOW)
     metrics = SandboxMetrics()
-    compiled = build_sandboxed_state_graph(ir, metrics=metrics).compile()
+    compiled = build_sandboxed_state_graph(
+        ir, runner=_real_runner(), metrics=metrics
+    ).compile()
 
     result = await compiled.ainvoke({"inputs": {}})
 
@@ -63,7 +71,7 @@ async def test_end_to_end_transform_and_merge_back() -> None:
 async def test_merge_back_respects_results_reducer() -> None:
     """Updates from successive nodes merge via the ``results`` dict reducer."""
     ir = _ir(TRANSFORM_WORKFLOW)
-    compiled = build_sandboxed_state_graph(ir).compile()
+    compiled = build_sandboxed_state_graph(ir, runner=_real_runner()).compile()
 
     result = await compiled.ainvoke({"inputs": {}})
 
@@ -101,7 +109,7 @@ async def test_state_template_in_injected_config_is_resolved() -> None:
             return graph
         """
     )
-    compiled = build_sandboxed_state_graph(ir).compile()
+    compiled = build_sandboxed_state_graph(ir, runner=_real_runner()).compile()
 
     result = await compiled.ainvoke({"inputs": {}})
 
@@ -166,7 +174,9 @@ async def test_body_exception_propagates_as_execution_error() -> None:
         """
     )
     metrics = SandboxMetrics()
-    compiled = build_sandboxed_state_graph(ir, metrics=metrics).compile()
+    compiled = build_sandboxed_state_graph(
+        ir, runner=_real_runner(), metrics=metrics
+    ).compile()
 
     with pytest.raises(SandboxExecutionError) as exc_info:
         await compiled.ainvoke({"inputs": {}})

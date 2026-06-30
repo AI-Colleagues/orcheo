@@ -10,6 +10,14 @@ from orcheo.sandbox.exceptions import (
 from orcheo.sandbox.runner import MicroPythonSandboxRunner
 
 
+def _runner(**overrides: object) -> MicroPythonSandboxRunner:
+    """Return a real runner with enough headroom for loaded CI workers."""
+
+    kwargs = {"wall_timeout_seconds": 5.0}
+    kwargs.update(overrides)
+    return MicroPythonSandboxRunner(**kwargs)
+
+
 def _inputs(state: dict | None = None, configurable: dict | None = None) -> dict:
     """Build a minimal inputs envelope."""
     return {
@@ -21,7 +29,7 @@ def _inputs(state: dict | None = None, configurable: dict | None = None) -> dict
 
 def test_runs_body_and_returns_update() -> None:
     """A successful body returns an ``update`` envelope."""
-    runner = MicroPythonSandboxRunner()
+    runner = _runner()
     outputs = runner.run(
         "return {'doubled': self.factor * state['value']}",
         _inputs(state={"value": 21}, configurable={"factor": 2}),
@@ -33,7 +41,7 @@ def test_runs_body_and_returns_update() -> None:
 
 def test_body_exception_becomes_error_envelope() -> None:
     """A body that raises yields a structured ``error`` envelope (no host crash)."""
-    runner = MicroPythonSandboxRunner()
+    runner = _runner()
     outputs = runner.run("raise ValueError('boom')", _inputs(), node_id="n")
 
     assert outputs["error"]["type"] == "ValueError"
@@ -49,7 +57,7 @@ def test_infinite_loop_hits_limit() -> None:
 
 def test_oversized_output_is_rejected() -> None:
     """Output exceeding the size limit raises a structured output error."""
-    runner = MicroPythonSandboxRunner(max_output_bytes=512)
+    runner = _runner(max_output_bytes=512)
     with pytest.raises(SandboxOutputError, match="exceeded the maximum size"):
         runner.run("return {'big': 'x' * 5000}", _inputs(), node_id="n")
 
@@ -60,7 +68,7 @@ def test_non_json_output_is_rejected() -> None:
     MicroPython's ``json.dumps`` leniently emits a set as ``{2, 1}`` (invalid
     JSON), which the host then rejects when parsing the outputs envelope.
     """
-    runner = MicroPythonSandboxRunner()
+    runner = _runner()
     with pytest.raises(SandboxOutputError, match="not valid JSON"):
         runner.run("return {'s': set([1, 2])}", _inputs(), node_id="n")
 

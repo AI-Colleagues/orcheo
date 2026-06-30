@@ -13,6 +13,20 @@ from fastapi.testclient import TestClient
 from orcheo.workspace import InMemoryWorkspaceRepository
 from orcheo.workspace.models import Role, Workspace, WorkspaceContext
 from orcheo_backend.app import create_app
+from orcheo_backend.app.dependencies import (
+    get_checkpoint_store,
+    get_credential_service,
+    get_history_store,
+    get_plugin_installation_store,
+    get_repository,
+    get_vault,
+    set_checkpoint_store,
+    set_credential_service,
+    set_history_store,
+    set_plugin_installation_store,
+    set_repository,
+    set_vault,
+)
 from orcheo_backend.app.authentication import (
     Authenticator,
     ServiceTokenRecord,
@@ -44,6 +58,7 @@ _AUTH_DEPENDENCIES_MODULE = sys.modules[
 ]
 _ORIGINAL_GET_AUTHENTICATOR = _AUTH_MODULE.get_authenticator
 _ORIGINAL_DEP_GET_AUTHENTICATOR = _AUTH_DEPENDENCIES_MODULE.get_authenticator
+_TEST_APP = None
 
 
 def _restore_authenticator_hooks() -> None:
@@ -93,6 +108,8 @@ def reset_auth_state(
 ) -> Generator[None, None, None]:
     """Reset authentication-related environment between tests."""
 
+    global _SERVICE_TOKEN_REPOSITORY  # noqa: PLW0603
+    _SERVICE_TOKEN_REPOSITORY = None
     for key in (
         "ORCHEO_AUTH_SERVICE_TOKENS",
         "ORCHEO_AUTH_JWT_SECRET",
@@ -126,8 +143,18 @@ def reset_auth_state(
         monkeypatch.undo()
         reset_workspace_state()
         _restore_authenticator_hooks()
+        _SERVICE_TOKEN_REPOSITORY = None
     reset_authentication_state()
     _restore_authenticator_hooks()
+
+
+def _get_test_app():
+    """Return the reusable auth-test application."""
+
+    global _TEST_APP  # noqa: PLW0603
+    if _TEST_APP is None:
+        _TEST_APP = create_app()
+    return _TEST_APP
 
 
 def create_test_client() -> TestClient:
@@ -141,6 +168,9 @@ def create_test_client() -> TestClient:
     vault = InMemoryCredentialVault(cipher=cipher)
     service = OAuthCredentialService(vault, token_ttl_seconds=600, providers={})
     repository = InMemoryWorkflowRepository(credential_service=service)
+    history_store = AsyncMock()
+    checkpoint_store = AsyncMock()
+    plugin_installation_store = AsyncMock()
 
     app_auth_module = sys.modules["orcheo_backend.app.authentication"]
     app_auth_dependencies = sys.modules[
@@ -151,13 +181,23 @@ def create_test_client() -> TestClient:
     app_auth_module.get_authenticator = _build_test_authenticator
     app_auth_dependencies.get_authenticator = _build_test_authenticator
 
-    app = create_app(
-        repository=repository,
-        credential_service=service,
-        history_store=AsyncMock(),
-        checkpoint_store=AsyncMock(),
-        plugin_installation_store=AsyncMock(),
+    set_repository(repository)
+    set_history_store(history_store)
+    set_checkpoint_store(checkpoint_store)
+    set_plugin_installation_store(plugin_installation_store)
+    set_credential_service(service)
+    set_vault(vault)
+
+    app = _get_test_app()
+    app.dependency_overrides.clear()
+    app.dependency_overrides[get_repository] = lambda: repository
+    app.dependency_overrides[get_history_store] = lambda: history_store
+    app.dependency_overrides[get_checkpoint_store] = lambda: checkpoint_store
+    app.dependency_overrides[get_plugin_installation_store] = (
+        lambda: plugin_installation_store
     )
+    app.dependency_overrides[get_credential_service] = lambda: service
+    app.dependency_overrides[get_vault] = lambda: vault
     app.state.vault = vault
     app.state.credential_service = service
     app.dependency_overrides[resolve_workspace_context] = lambda: _TEST_WORKSPACE
