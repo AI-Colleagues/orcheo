@@ -45,7 +45,7 @@ def log_active_definition_mode(*, force: bool = False) -> None:
         return
     _log_state["logged"] = True
     if is_restricted_mode():
-        logger.info(
+        logger.info(  # pragma: no cover
             "Workflow definition mode: restricted — uploads compile to a frozen IR "
             "and CodeNode bodies run in the MicroPython-WASM sandbox"
         )
