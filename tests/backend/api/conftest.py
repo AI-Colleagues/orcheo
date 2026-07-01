@@ -6,7 +6,9 @@ from importlib import import_module
 from unittest.mock import AsyncMock
 from uuid import uuid4
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from orcheo.config import get_settings
 from orcheo.models import AesGcmCredentialCipher
 from orcheo.vault import InMemoryCredentialVault
 from orcheo.vault.oauth import OAuthCredentialService
@@ -18,15 +20,32 @@ from orcheo.workspace import (
 )
 from orcheo.workspace.models import WorkspaceContext
 from orcheo_backend.app import create_app
-from orcheo_backend.app.authentication import reset_authentication_state
-from orcheo_backend.app.chatkit_tokens import reset_chatkit_token_state
+from orcheo_backend.app.authentication.dependencies import (
+    _auth_rate_limiter_cache,
+    _authenticator_cache,
+    _token_manager_cache,
+)
+from orcheo_backend.app.chatkit_tokens import _token_issuer_cache
+from orcheo_backend.app.dependencies import (
+    get_credential_service,
+    get_history_store,
+    get_repository,
+    get_vault,
+    set_credential_service,
+    set_history_store,
+    set_listener_runtime_store,
+    set_repository,
+    set_vault,
+)
 from orcheo_backend.app.history import RunHistoryNotFoundError, RunHistoryRecord
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from orcheo_backend.app.listener_runtime import ListenerRuntimeStore
-from orcheo_backend.app.workspace import reset_workspace_state, set_workspace_repository
+from orcheo_backend.app.workspace import set_workspace_repository
 from orcheo_backend.app.workspace.dependencies import resolve_workspace_context
-from orcheo_backend.app.dependencies import set_listener_runtime_store
 from tests.backend.authentication_test_utils import _install_test_authenticator
+
+
+_API_TEST_APP: FastAPI | None = None
 
 
 class _FakeHistoryStore:
@@ -89,6 +108,24 @@ class _FakeHistoryStore:
         self._records.clear()
 
 
+def _get_api_test_app() -> FastAPI:
+    """Return a reusable API app with routes configured once."""
+
+    global _API_TEST_APP
+    if _API_TEST_APP is None:
+        _API_TEST_APP = create_app()
+    return _API_TEST_APP
+
+
+def _reset_fast_test_caches() -> None:
+    """Clear cached app helpers without reloading settings."""
+
+    _authenticator_cache["authenticator"] = None
+    _auth_rate_limiter_cache["limiter"] = None
+    _token_manager_cache["manager"] = None
+    _token_issuer_cache["issuer"] = None
+
+
 @pytest.fixture()
 def api_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """Yield a configured API client backed by a fresh repository."""
@@ -98,10 +135,10 @@ def api_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.delenv("ORCHEO_AUTH_SERVICE_TOKENS", raising=False)
     monkeypatch.delenv("CHATKIT_TOKEN_SIGNING_KEY", raising=False)
     monkeypatch.delenv("ORCHEO_CHATKIT_TOKEN_SIGNING_KEY", raising=False)
-    reset_authentication_state()
-    reset_chatkit_token_state()
-    reset_workspace_state()
-    set_listener_runtime_store(ListenerRuntimeStore())
+    get_settings(refresh=True)
+    _reset_fast_test_caches()
+    listener_runtime_store = ListenerRuntimeStore()
+    set_listener_runtime_store(listener_runtime_store)
     _install_test_authenticator(monkeypatch)
 
     factory_module = import_module("orcheo_backend.app.factory")
@@ -144,16 +181,31 @@ def api_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     vault = InMemoryCredentialVault(cipher=cipher)
     service = OAuthCredentialService(vault, token_ttl_seconds=600, providers={})
     repository = InMemoryWorkflowRepository(credential_service=service)
-    app = create_app(
-        repository, credential_service=service, history_store=_FakeHistoryStore()
-    )
-    app.state.vault = vault
-    app.state.credential_service = service
+    history_store = _FakeHistoryStore()
+
+    set_repository(repository)
+    set_history_store(history_store)
+    set_credential_service(service)
+    set_vault(vault)
+
+    app = _get_api_test_app()
+    app.dependency_overrides.clear()
+    app.dependency_overrides[get_repository] = lambda: repository
+    app.dependency_overrides[get_history_store] = lambda: history_store
+    app.dependency_overrides[get_credential_service] = lambda: service
+    app.dependency_overrides[get_vault] = lambda: vault
     app.dependency_overrides[resolve_workspace_context] = lambda: workspace_context
 
+    app.state.vault = vault
+    app.state.credential_service = service
+    app.state.listener_runtime_store = listener_runtime_store
+
+    client = TestClient(app)
     try:
-        with TestClient(app) as client:
-            yield client
+        yield client
     finally:
+        client.close()
+        app.dependency_overrides.clear()
+        _reset_fast_test_caches()
         set_listener_runtime_store(ListenerRuntimeStore())
-        reset_workspace_state()
+        set_workspace_repository(None)

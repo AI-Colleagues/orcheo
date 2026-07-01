@@ -25,12 +25,21 @@ from orcheo.plugins.models import (
     PluginStoragePaths,
 )
 from orcheo.plugins.state import save_desired_state, save_lock_state
+from tests.plugin_fast_install import install_fast_fixture_plugins
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "plugin_fixtures"
 
 _uv_available = shutil.which("uv") is not None
 requires_uv = pytest.mark.skipif(not _uv_available, reason="uv not installed")
+
+
+@pytest.fixture(autouse=True)
+def _fast_plugin_fixture_installs(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    if request.node.get_closest_marker("skipif") is not None:
+        install_fast_fixture_plugins(monkeypatch)
 
 
 def _copy_fixture(tmp_path: Path, fixture_name: str) -> Path:

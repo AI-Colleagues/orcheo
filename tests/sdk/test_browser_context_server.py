@@ -28,10 +28,16 @@ def context_server() -> tuple[str, HTTPServer]:
     handler = create_request_handler(store)
     server = HTTPServer(("localhost", 0), handler)
     port = server.server_address[1]
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        kwargs={"poll_interval": 0.01},
+        daemon=True,
+    )
     thread.start()
     yield f"http://localhost:{port}", server
     server.shutdown()
+    thread.join(timeout=1)
+    server.server_close()
 
 
 def test_get_context_empty(context_server: tuple[str, HTTPServer]) -> None:

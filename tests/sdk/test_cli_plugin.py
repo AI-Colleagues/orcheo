@@ -15,9 +15,15 @@ from orcheo.plugins.models import PluginImpactSummary
 from orcheo_sdk.cli import plugin as plugin_module
 from orcheo_sdk.cli.main import app
 from orcheo_sdk.cli.state import CLIState
+from tests.plugin_fast_install import install_fast_fixture_plugins
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "plugin_fixtures"
+
+
+@pytest.fixture(autouse=True)
+def _fast_plugin_fixture_installs(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_fast_fixture_plugins(monkeypatch)
 
 
 def _copy_fixture(tmp_path: Path, fixture_name: str) -> Path:

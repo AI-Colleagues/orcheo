@@ -11,6 +11,7 @@ from orcheo.config.types import (
     CheckpointBackend,
     GraphStoreBackend,
     RepositoryBackend,
+    WorkflowDefinitionMode,
     WorkspaceBackend,
 )
 from orcheo.config.vault_settings import VaultSettings
@@ -102,6 +103,9 @@ class AppSettings(BaseModel):
     tracing_preview_max_length: int = Field(
         default=cast(int, _DEFAULTS["TRACING_PREVIEW_MAX_LENGTH"]),
         ge=16,
+    )
+    workflow_definition_mode: WorkflowDefinitionMode = Field(
+        default=cast(WorkflowDefinitionMode, _DEFAULTS["WORKFLOW_DEFINITION_MODE"])
     )
 
     @staticmethod
@@ -398,6 +402,23 @@ class AppSettings(BaseModel):
         except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
             msg = "ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD must be a positive integer."
             raise ValueError(msg) from exc
+
+    @field_validator("workflow_definition_mode", mode="before")
+    @classmethod
+    def _coerce_workflow_definition_mode(cls, value: object) -> WorkflowDefinitionMode:
+        candidate = (
+            cast(str, value).strip().lower()
+            if value is not None
+            else cast(str, _DEFAULTS["WORKFLOW_DEFINITION_MODE"])
+        )
+        allowed = {"restricted", "unrestricted"}
+        if candidate not in allowed:
+            msg = (
+                "ORCHEO_WORKFLOW_DEFINITION_MODE must be 'restricted' or "
+                "'unrestricted'."
+            )
+            raise ValueError(msg)
+        return cast(WorkflowDefinitionMode, candidate)
 
     @field_validator("tracing_preview_max_length", mode="before")
     @classmethod

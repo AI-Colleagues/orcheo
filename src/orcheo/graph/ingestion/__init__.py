@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 import ast
+import logging
 from typing import Any
 from orcheo.graph.ingestion.ast_extraction import extract_graph_index
 from orcheo.graph.ingestion.config import (
     DEFAULT_SCRIPT_SIZE_LIMIT,
+    FROZEN_IR_FORMAT,
     LANGGRAPH_SCRIPT_FORMAT,
 )
 from orcheo.graph.ingestion.exceptions import ScriptIngestionError
@@ -14,6 +16,9 @@ from orcheo.graph.ingestion.loader import (
     load_graph_from_script_full_env,
 )
 from orcheo.graph.ingestion.sandbox import validate_script_size
+
+
+logger = logging.getLogger(__name__)
 
 
 def ingest_langgraph_script(
@@ -44,12 +49,68 @@ def ingest_langgraph_script(
     }
 
 
+def ingest_workflow(
+    source: str,
+    *,
+    entrypoint: str | None = None,
+    max_script_bytes: int | None = DEFAULT_SCRIPT_SIZE_LIMIT,
+) -> dict[str, Any]:
+    """Ingest a ``workflow.py`` per the active definition mode.
+
+    In ``restricted`` mode the source is compiled to the frozen IR (no author
+    code runs) and the IR is the stored graph payload. In ``unrestricted`` mode
+    today's :func:`ingest_langgraph_script` behaviour is preserved and an
+    explicit not-tenant-safe warning is logged.
+
+    Returns:
+        The graph payload to persist: a ``frozen-ir`` payload in restricted mode
+        or a ``langgraph-script`` payload in unrestricted mode.
+    """
+    from orcheo.graph.ir.definition_mode import (
+        is_restricted_mode,
+        log_active_definition_mode,
+    )
+
+    log_active_definition_mode()
+
+    if is_restricted_mode():
+        from orcheo.graph.ir import WorkflowValidationError, compile_workflow_to_ir
+
+        validate_script_size(source, max_script_bytes)
+        try:
+            ir = compile_workflow_to_ir(source)
+        except WorkflowValidationError as exc:
+            # Audit log for ingestion rejections (line-referenced where known).
+            logger.warning(
+                "Rejected restricted-mode workflow ingestion at line %s: %s",
+                exc.lineno,
+                exc.raw_message,
+            )
+            raise
+        return {
+            "format": FROZEN_IR_FORMAT,
+            "ir": ir.model_dump(),
+            "entrypoint": ir.entrypoint,
+            "index": extract_graph_index(source),
+        }
+
+    logger.warning(
+        "Ingesting workflow in unrestricted mode: author code will execute "
+        "in-process at build time with no tenant isolation."
+    )
+    return ingest_langgraph_script(
+        source, entrypoint=entrypoint, max_script_bytes=max_script_bytes
+    )
+
+
 __all__ = [
     "DEFAULT_SCRIPT_SIZE_LIMIT",
+    "FROZEN_IR_FORMAT",
     "LANGGRAPH_SCRIPT_FORMAT",
     "ScriptIngestionError",
     "extract_graph_index",
     "ingest_langgraph_script",
+    "ingest_workflow",
     "load_graph_from_script",
     "load_graph_from_script_full_env",
     "validate_script_size",

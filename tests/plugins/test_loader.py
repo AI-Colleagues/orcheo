@@ -19,12 +19,18 @@ from orcheo.plugins.loader import (
 )
 from orcheo.plugins.manager import PLUGIN_ENTRYPOINT_GROUP, PluginManager
 from orcheo.triggers.registry import trigger_registry
+from tests.plugin_fast_install import install_fast_fixture_plugins
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "plugin_fixtures"
 
 _uv_available = shutil.which("uv") is not None
 requires_uv = pytest.mark.skipif(not _uv_available, reason="uv not installed")
+
+
+@pytest.fixture(autouse=True)
+def _fast_plugin_fixture_installs(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_fast_fixture_plugins(monkeypatch)
 
 
 def _copy_fixture(tmp_path: Path, fixture_name: str) -> Path:

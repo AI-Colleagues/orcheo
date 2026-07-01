@@ -94,6 +94,14 @@ async def test_workflow_websocket_handles_client_disconnect(
         "authenticate_websocket",
         AsyncMock(return_value={"sub": "tester"}),
     )
+    monkeypatch.setattr(
+        backend_app_module,
+        "get_repository",
+        lambda: SimpleNamespace(
+            resolve_workflow_ref=AsyncMock(return_value="workflow-1"),
+            get_workflow_workspace_id=AsyncMock(return_value=None),
+        ),
+    )
     close_mock = AsyncMock()
     monkeypatch.setattr(
         websocket_routes,

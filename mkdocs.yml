@@ -52,6 +52,7 @@ nav:
       - Developer Tooling: developer_tooling.md
       - Plugin Tutorial: plugin_tutorial.md
       - Plugin Reference: custom_nodes_and_tools.md
+      - Sandboxed Custom Workflows: sandboxed_custom_workflows.md
       - MCP Integration: mcp_integration.md
       - Releasing: releasing.md
   - Reference:

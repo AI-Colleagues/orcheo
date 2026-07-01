@@ -33,6 +33,10 @@ async def test_create_checkpointer_postgres(monkeypatch: pytest.MonkeyPatch) -> 
 
     monkeypatch.setenv("ORCHEO_CHECKPOINT_BACKEND", "postgres")
     monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://example")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_MIN_SIZE", "2")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_MAX_SIZE", "9")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_TIMEOUT", "12")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_MAX_IDLE", "60")
 
     settings = config.get_settings(refresh=True)
 
@@ -63,6 +67,19 @@ async def test_create_checkpointer_postgres(monkeypatch: pytest.MonkeyPatch) -> 
     fake_pool.connection.assert_called_once()
     fake_conn_cm.__aenter__.assert_awaited_once()
     fake_pool.open.assert_awaited_once()
+    persistence.AsyncConnectionPool.assert_called_once_with(  # type: ignore[union-attr]
+        "postgresql://example",
+        open=False,
+        min_size=2,
+        max_size=9,
+        timeout=12.0,
+        max_idle=60.0,
+        kwargs={
+            "autocommit": True,
+            "prepare_threshold": 0,
+            "row_factory": persistence.DictRowFactory,
+        },
+    )
 
     # Pool must NOT be closed between calls — it is a process-lifetime singleton.
     fake_pool.close.assert_not_awaited()
@@ -86,6 +103,10 @@ async def test_create_checkpointer_reuses_pool_seeded_inside_lock(
 
     monkeypatch.setenv("ORCHEO_CHECKPOINT_BACKEND", "postgres")
     monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://example")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_MIN_SIZE", "2")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_MAX_SIZE", "9")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_TIMEOUT", "12")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_MAX_IDLE", "60")
 
     settings = config.get_settings(refresh=True)
 
