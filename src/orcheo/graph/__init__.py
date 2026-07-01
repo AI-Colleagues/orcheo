@@ -8,7 +8,8 @@ re-export lets the "Orcheo-only import" rule hold without a ``langgraph``
 exception.
 """
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 
-__all__ = ["END", "START", "StateGraph"]
+__all__ = ["END", "START", "StateGraph", "RunnableConfig"]
