@@ -104,7 +104,7 @@ jobs:
       - name: Run unit tests with coverage
         env:
           COVERAGE_FILE: .coverage.${{ matrix.shard }}
-        run: uv run pytest ${{ matrix.paths }} --cov --cov-report= -n auto
+        run: uv run pytest ${{ matrix.paths }} --cov --cov-context=test --cov-report= -n auto
 
       - name: Store coverage data
         uses: actions/upload-artifact@v4
@@ -142,7 +142,7 @@ jobs:
       - name: Build coverage reports
         run: |
           uv run coverage combine coverage-data
-          uv run coverage html --title "Coverage for ${{ github.sha }}"
+          uv run coverage html --show-contexts --title "Coverage for ${{ github.sha }}"
           uv run coverage xml
           uv run diff-cover coverage.xml --format html:index.html
 
