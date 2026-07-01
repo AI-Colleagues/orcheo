@@ -68,12 +68,55 @@ jobs:
       - name: Check style against standards
         run: uv run make lint
 
-  coverage:
+  coverage-tests:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
+      matrix:
+        include:
+          - shard: backend
+            paths: tests/backend
+          - shard: nodes
+            paths: tests/nodes
+          - shard: sdk
+            paths: tests/sdk
+          - shard: core
+            paths: >-
+              tests/graph tests/listeners tests/triggers tests/triggers_layer
+              tests/runtime tests/sandbox tests/workspace tests/agentensor
+              tests/plugins tests/config tests/edges tests/identity
+              tests/integration tests/widgets tests/test_*.py
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run unit tests with coverage
+        env:
+          COVERAGE_FILE: .coverage.${{ matrix.shard }}
+        run: uv run pytest ${{ matrix.paths }} --cov --cov-context=test --cov-report= -n auto
+
+      - name: Store coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data-${{ matrix.shard }}
+          path: .coverage.${{ matrix.shard }}
+          include-hidden-files: true
+
+  coverage:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: coverage-tests
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
@@ -89,12 +132,19 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-groups
 
-      - name: Run unit tests with coverage
+      - name: Download coverage data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-data-*
+          path: coverage-data
+          merge-multiple: true
+
+      - name: Build coverage reports
         run: |
-          uv run pytest --cov --cov-context=test -n auto
+          uv run coverage combine coverage-data
           uv run coverage html --show-contexts --title "Coverage for ${{ github.sha }}"
           uv run coverage xml
-          uv run diff-cover coverage.xml --html-report index.html
+          uv run diff-cover coverage.xml --format html:index.html
 
       - name: Store coverage html
         uses: actions/upload-artifact@v4
