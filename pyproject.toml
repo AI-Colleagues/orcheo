@@ -123,6 +123,7 @@ filterwarnings = [
 markers = [
   "no_mock_celery: disable the autouse Celery enqueue mock in repository tests"
 ]
+testpaths = ["tests"]
 
 [tool.ruff]
 exclude = ["docs", "build"]
