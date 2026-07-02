@@ -1108,6 +1108,7 @@ async def test_triggers_dispatch_due_cron_runs_skip_missing_version(
                 }
             ]
         },
+        {"row": {"payload": _workflow_payload(workflow_id)}},
     ]
     repo = make_repository(monkeypatch, responses)
 
@@ -1148,6 +1149,7 @@ async def test_triggers_dispatch_due_cron_runs_skip_unhealthy_workflow(
                 }
             ]
         },
+        {"row": {"payload": _workflow_payload(workflow_id)}},
     ]
     repo = make_repository(monkeypatch, responses)
 
@@ -1158,6 +1160,11 @@ async def test_triggers_dispatch_due_cron_runs_skip_unhealthy_workflow(
     version = WorkflowVersion.model_validate(version_payload)
     monkeypatch.setattr(
         repo, "_get_latest_version_locked", AsyncMock(return_value=version)
+    )
+    monkeypatch.setattr(
+        repo,
+        "_get_workflow_locked",
+        AsyncMock(return_value=SimpleNamespace(is_archived=False)),
     )
 
     # Mock _ensure_workflow_health to raise CredentialHealthError
@@ -2278,6 +2285,11 @@ async def test_triggers_dispatch_due_cron_runs_enqueues_runs(
     monkeypatch.setattr(
         repo, "_get_latest_version_locked", AsyncMock(return_value=version)
     )
+    monkeypatch.setattr(
+        repo,
+        "_get_workflow_locked",
+        AsyncMock(return_value=SimpleNamespace(is_archived=False)),
+    )
 
     run_id = uuid4()
     now = datetime.now(tz=UTC)
@@ -2330,6 +2342,11 @@ async def test_triggers_dispatch_due_cron_runs_updates_last_dispatched(
     version = WorkflowVersion.model_validate(version_payload)
     monkeypatch.setattr(
         repo, "_get_latest_version_locked", AsyncMock(return_value=version)
+    )
+    monkeypatch.setattr(
+        repo,
+        "_get_workflow_locked",
+        AsyncMock(return_value=SimpleNamespace(is_archived=False)),
     )
 
     run_id = uuid4()

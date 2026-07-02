@@ -30,6 +30,7 @@ from orcheo.models.workflow_entities import (
     WorkflowDraftAccess,
     WorkflowRun,
     WorkflowRunStatus,
+    WorkflowUploadError,
     WorkflowVersion,
 )
 
@@ -64,5 +65,6 @@ __all__ = [
     "WorkflowDraftAccess",
     "WorkflowRun",
     "WorkflowRunStatus",
+    "WorkflowUploadError",
     "WorkflowVersion",
 ]

@@ -98,6 +98,9 @@ class TestLoadAndValidateRun:
 
         mock_repo = MagicMock()
         mock_repo.get_run = AsyncMock(return_value=mock_run)
+        mock_repo.get_workflow = AsyncMock(
+            return_value=SimpleNamespace(is_archived=False)
+        )
 
         with patch(
             "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
@@ -108,6 +111,72 @@ class TestLoadAndValidateRun:
         assert error is None
         mock_repo.get_run.assert_awaited_once_with(
             mock_run.id, workspace_id="workspace-1"
+        )
+        mock_repo.get_workflow.assert_awaited_once_with(
+            mock_run.workflow_id,
+            workspace_id="workspace-1",
+        )
+
+    @pytest.mark.asyncio
+    async def test_archived_workflow_run_is_cancelled(
+        self, mock_run: MagicMock
+    ) -> None:
+        """Pending runs for archived workflows are skipped before execution."""
+        from orcheo_backend.worker.tasks import _load_and_validate_run
+
+        workflow_id = uuid4()
+        mock_run.workflow_id = workflow_id
+        mock_repo = MagicMock()
+        mock_repo.get_run = AsyncMock(return_value=mock_run)
+        mock_repo.get_workflow = AsyncMock(
+            return_value=SimpleNamespace(is_archived=True)
+        )
+        mock_repo.mark_run_cancelled = AsyncMock()
+
+        with patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
+        ):
+            run, error = await _load_and_validate_run(str(mock_run.id), "workspace-1")
+
+        assert run is None
+        assert error == {"status": "skipped", "reason": "Workflow is archived."}
+        mock_repo.mark_run_cancelled.assert_awaited_once_with(
+            mock_run.id,
+            actor="worker",
+            reason="Workflow is archived.",
+        )
+
+    @pytest.mark.asyncio
+    async def test_unavailable_workflow_run_is_cancelled(
+        self, mock_run: MagicMock
+    ) -> None:
+        """Pending runs are cancelled when their workflow cannot be loaded."""
+        from orcheo_backend.app.repository import WorkflowNotFoundError
+        from orcheo_backend.worker.tasks import _load_and_validate_run
+
+        workflow_id = uuid4()
+        mock_run.workflow_id = workflow_id
+        mock_repo = MagicMock()
+        mock_repo.get_run = AsyncMock(return_value=mock_run)
+        mock_repo.get_workflow = AsyncMock(
+            side_effect=WorkflowNotFoundError(str(workflow_id))
+        )
+        mock_repo.mark_run_cancelled = AsyncMock()
+
+        with patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
+        ):
+            run, error = await _load_and_validate_run(str(mock_run.id), "workspace-1")
+
+        assert run is None
+        assert error == {
+            "status": "skipped",
+            "reason": "Workflow is archived or unavailable.",
+        }
+        mock_repo.mark_run_cancelled.assert_awaited_once_with(
+            mock_run.id,
+            actor="worker",
+            reason="Workflow is archived or unavailable.",
         )
 
     @pytest.mark.asyncio

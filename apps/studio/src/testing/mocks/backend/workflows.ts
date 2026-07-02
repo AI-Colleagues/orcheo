@@ -14,6 +14,10 @@ export type WorkflowRecord = {
     description: string | null;
     tags: string[];
     is_archived: boolean;
+    upload_error?: {
+      message: string;
+      occurred_at: string;
+    } | null;
     created_at: string;
     updated_at: string;
   };

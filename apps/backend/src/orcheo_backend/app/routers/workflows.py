@@ -381,6 +381,18 @@ def _graph_has_cron_trigger(graph: Any) -> bool:
     return _has_cron_trigger_node(summary.get("nodes"))
 
 
+def _http_exception_detail_message(exc: HTTPException) -> str:
+    """Return a readable message from an HTTPException detail payload."""
+    detail = exc.detail
+    if isinstance(detail, str):
+        return detail
+    if isinstance(detail, dict):
+        message = detail.get("message")
+        if isinstance(message, str):
+            return message
+    return str(detail)
+
+
 def _to_workflow_page_version_summary(
     version: WorkflowVersion,
 ) -> WorkflowPageVersionSummary:
@@ -869,17 +881,24 @@ async def ingest_workflow_version(
         workflow_ref,
         workspace_id=tid,
     )
+    actor = request.created_by
     required_plugins = _required_plugins_from_metadata(request.metadata)
     missing_plugins = missing_required_plugins(required_plugins)
     if missing_plugins:
         plugin_list = ", ".join(missing_plugins)
         noun = "plugin" if len(missing_plugins) == 1 else "plugins"
+        message = (
+            f"Missing required {noun} for this template: {plugin_list}. "
+            "Install them into the runtime before importing the template."
+        )
+        await repository.set_workflow_upload_error(
+            workflow.id,
+            message=message,
+            actor=actor,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"Missing required {noun} for this template: {plugin_list}. "
-                "Install them into the runtime before importing the template."
-            ),
+            detail=message,
         )
     try:
         graph_payload = ingest_workflow(
@@ -887,9 +906,15 @@ async def ingest_workflow_version(
             entrypoint=request.entrypoint,
         )
     except (WorkflowValidationError, ScriptIngestionError) as exc:
+        message = str(exc)
+        await repository.set_workflow_upload_error(
+            workflow.id,
+            message=message,
+            actor=actor,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
+            detail=message,
         ) from exc
 
     # Pre-compute mermaid using the full Python environment and store it in the
@@ -898,10 +923,18 @@ async def ingest_workflow_version(
     if mermaid and isinstance(graph_payload.get("index"), dict):
         graph_payload["index"]["mermaid"] = mermaid
 
-    runnable_config, metadata = _resolve_ingest_configurable_schema(
-        request.runnable_config,
-        request.metadata,
-    )
+    try:
+        runnable_config, metadata = _resolve_ingest_configurable_schema(
+            request.runnable_config,
+            request.metadata,
+        )
+    except HTTPException as exc:
+        await repository.set_workflow_upload_error(
+            workflow.id,
+            message=_http_exception_detail_message(exc),
+            actor=actor,
+        )
+        raise
     metadata = _merge_frontmatter_avatar(request.script, metadata)
     metadata = _apply_configurable_schema_order(metadata)
 
@@ -932,6 +965,12 @@ async def ingest_workflow_version(
             created_by=request.created_by,
             runnable_config=serialized_config,
         )
+        if workflow.upload_error is not None:
+            await repository.set_workflow_upload_error(
+                workflow.id,
+                message=None,
+                actor=actor,
+            )
         return _attach_mermaid(version)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)

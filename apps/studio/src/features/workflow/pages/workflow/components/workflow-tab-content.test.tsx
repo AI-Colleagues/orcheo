@@ -173,6 +173,25 @@ describe("WorkflowTabContent", () => {
     );
   });
 
+  it("shows upload failure details and retry instructions", () => {
+    render(
+      <WorkflowTabContent
+        {...baseProps}
+        uploadError={{
+          message: "Invalid script: expected ':'",
+          occurredAt: "2026-07-02T10:00:00Z",
+        }}
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.getByText("Workflow upload failed")).toBeInTheDocument();
+    expect(screen.getByText("Invalid script: expected ':'")).toBeInTheDocument();
+    expect(
+      screen.getByText(/fix the error in the workflow script or config/i),
+    ).toBeInTheDocument();
+  });
+
   it("prefers the in-progress reminder over a prior result while running", () => {
     render(
       <WorkflowTabContent

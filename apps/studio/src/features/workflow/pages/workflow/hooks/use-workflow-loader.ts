@@ -21,6 +21,9 @@ interface UseWorkflowLoaderParams {
   setWorkflowDescription: Dispatch<SetStateAction<string>>;
   setWorkflowTags: Dispatch<SetStateAction<string[]>>;
   setWorkflowVersions: Dispatch<SetStateAction<StoredWorkflow["versions"]>>;
+  setWorkflowUploadError: Dispatch<
+    SetStateAction<StoredWorkflow["uploadError"] | null>
+  >;
   setChatkitStartScreenPrompts: Dispatch<
     SetStateAction<ChatKitStartScreenPrompt[] | null>
   >;
@@ -44,6 +47,7 @@ export function useWorkflowLoader({
   setWorkflowDescription,
   setWorkflowTags,
   setWorkflowVersions,
+  setWorkflowUploadError,
   setChatkitStartScreenPrompts,
   setChatkitSupportedModels,
   setIsWorkflowPublic,
@@ -66,6 +70,7 @@ export function useWorkflowLoader({
       setWorkflowDescription("");
       setWorkflowTags(["draft"]);
       setWorkflowVersions([]);
+      setWorkflowUploadError(null);
       setChatkitStartScreenPrompts(null);
       setChatkitSupportedModels(null);
       setIsWorkflowPublic(false);
@@ -83,6 +88,7 @@ export function useWorkflowLoader({
         setActiveExecutionId(null);
         setChatkitStartScreenPrompts(null);
         setChatkitSupportedModels(null);
+        setWorkflowUploadError(null);
         setIsWorkflowLoading(false);
         setWorkflowLoadError(null);
         return;
@@ -100,6 +106,7 @@ export function useWorkflowLoader({
           setWorkflowDescription(persisted.description ?? "");
           setWorkflowTags(persisted.tags ?? ["draft"]);
           setWorkflowVersions(persisted.versions ?? []);
+          setWorkflowUploadError(persisted.uploadError ?? null);
           setChatkitStartScreenPrompts(
             persisted.chatkitStartScreenPrompts ?? null,
           );
@@ -125,6 +132,7 @@ export function useWorkflowLoader({
           setWorkflowLoadError(
             error instanceof Error ? error.message : "Unknown error occurred",
           );
+          setWorkflowUploadError(null);
           setChatkitStartScreenPrompts(null);
           setChatkitSupportedModels(null);
           setIsWorkflowPublic(false);
@@ -163,6 +171,7 @@ export function useWorkflowLoader({
     setExecutions,
     setActiveExecutionId,
     setWorkflowDescription,
+    setWorkflowUploadError,
     setChatkitStartScreenPrompts,
     setChatkitSupportedModels,
     setIsWorkflowPublic,
@@ -172,6 +181,7 @@ export function useWorkflowLoader({
     setWorkflowShareUrl,
     setWorkflowTags,
     setWorkflowVersions,
+    setWorkflowRequireLogin,
     workflowId,
   ]);
 

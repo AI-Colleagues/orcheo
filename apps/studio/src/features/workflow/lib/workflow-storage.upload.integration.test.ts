@@ -2,13 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   WORKFLOW_STORAGE_EVENT,
+  WorkflowUploadFailedError,
   uploadWorkflowFromFiles,
 } from "./workflow-storage";
-import {
-  emptyResponse,
-  jsonResponse,
-} from "@/testing/mocks/backend/request-utils";
+import { jsonResponse } from "@/testing/mocks/backend/request-utils";
 import { createFetchMockHarness } from "@/testing/mocks/fetch-mock";
+import { readWorkflowUploadError } from "./workflow-upload-errors";
 
 const { getFetchMock, queueResponses, setupFetchMock } =
   createFetchMockHarness();
@@ -145,12 +144,52 @@ describe("uploadWorkflowFromFiles", () => {
     expect(ingestPayload.created_by).toBe("actor-x");
   });
 
-  it("archives the workflow record when ingest fails", async () => {
+  it("keeps the workflow record visible when ingest fails", async () => {
     const mockFetch = getFetchMock();
     queueResponses([
       workflowResponse("uploaded-failed", "Broken"),
       jsonResponse({ detail: "Invalid script" }, { status: 400 }),
-      emptyResponse({ status: 204 }),
+      workflowResponse("uploaded-failed", "Broken"),
+      jsonResponse([]),
+    ]);
+
+    const listener = vi.fn();
+    window.addEventListener(WORKFLOW_STORAGE_EVENT, listener);
+
+    let thrown: unknown;
+    try {
+      await uploadWorkflowFromFiles("Broken", "def broken(:", null, {
+        actor: "actor-x",
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(WorkflowUploadFailedError);
+    expect((thrown as WorkflowUploadFailedError).workflow.id).toBe(
+      "uploaded-failed",
+    );
+    expect((thrown as WorkflowUploadFailedError).workflow.uploadError).toEqual(
+      expect.objectContaining({ message: "Invalid script" }),
+    );
+    expect(readWorkflowUploadError("uploaded-failed")).toEqual(
+      expect.objectContaining({ message: "Invalid script" }),
+    );
+    expect(listener).toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+    expect(
+      mockFetch.mock.calls.some((call) => call[1]?.method === "DELETE"),
+    ).toBe(false);
+
+    window.removeEventListener(WORKFLOW_STORAGE_EVENT, listener);
+  });
+
+  it("throws the server message when ingest fails", async () => {
+    queueResponses([
+      workflowResponse("uploaded-failed-message", "Broken"),
+      jsonResponse({ detail: "Invalid script" }, { status: 400 }),
+      workflowResponse("uploaded-failed-message", "Broken"),
+      jsonResponse([]),
     ]);
 
     await expect(
@@ -158,11 +197,5 @@ describe("uploadWorkflowFromFiles", () => {
         actor: "actor-x",
       }),
     ).rejects.toThrow("Invalid script");
-
-    expect(mockFetch).toHaveBeenCalledTimes(3);
-    expect(String(mockFetch.mock.calls[2]?.[0])).toContain(
-      "/api/workflows/uploaded-failed?actor=actor-x",
-    );
-    expect(mockFetch.mock.calls[2]?.[1]?.method).toBe("DELETE");
   });
 });

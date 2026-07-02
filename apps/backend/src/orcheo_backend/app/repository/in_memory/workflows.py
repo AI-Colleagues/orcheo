@@ -26,6 +26,13 @@ from orcheo_backend.app.repository.in_memory.state import InMemoryRepositoryStat
 class WorkflowCrudMixin(InMemoryRepositoryState):
     """Implements workflow management helpers."""
 
+    def _remove_cron_config_if_archiving(
+        self, workflow_id: UUID, *, is_archived: bool
+    ) -> None:
+        """Drop active cron state when a workflow transitions to archived."""
+        if is_archived:
+            self._trigger_layer.remove_cron_config(workflow_id)
+
     async def _maybe_disable_listener_subscriptions(
         self,
         workflow_id: UUID,
@@ -235,6 +242,10 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
                 if is_archived and workflow.is_public:
                     workflow.revoke_publish(actor=actor)
                 should_disable_listeners = is_archived
+                self._remove_cron_config_if_archiving(
+                    workflow.id,
+                    is_archived=is_archived,
+                )
                 metadata["is_archived"] = {
                     "from": workflow.is_archived,
                     "to": is_archived,
@@ -252,6 +263,24 @@ class WorkflowCrudMixin(InMemoryRepositoryState):
                 actor=actor,
             )
             self._rebuild_handle_indexes_locked()
+            return workflow.model_copy(deep=True)
+
+    async def set_workflow_upload_error(
+        self,
+        workflow_id: UUID,
+        *,
+        message: str | None,
+        actor: str,
+    ) -> Workflow:
+        """Set or clear the latest workflow upload failure."""
+        async with self._lock:
+            workflow = self._workflows.get(workflow_id)
+            if workflow is None or workflow.is_archived:
+                raise WorkflowNotFoundError(str(workflow_id))
+            if message is None:
+                workflow.clear_upload_error(actor=actor)
+            else:
+                workflow.mark_upload_error(message=message, actor=actor)
             return workflow.model_copy(deep=True)
 
     async def archive_workflow(self, workflow_id: UUID, *, actor: str) -> Workflow:

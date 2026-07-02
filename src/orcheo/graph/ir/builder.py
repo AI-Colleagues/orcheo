@@ -345,6 +345,9 @@ def _build_workflow_tool(
             code_node_factory=code_node_factory,
         ),
     }
+    args_schema = value.get("args_schema")
+    if args_schema is not None:
+        kwargs["args_schema"] = args_schema
     output_path = value.get("output_path")
     if output_path is not None:
         kwargs["output_path"] = output_path

@@ -116,6 +116,19 @@ def test_ingest_workflow_version_invalid_script(client: TestClient) -> None:
         json={"script": "def broken(:\n    pass", "created_by": "admin"},
     )
     assert response.status_code == 400
+    detail = response.json()["detail"]
+
+    workflow_response = client.get(f"/api/workflows/{workflow_id}")
+    assert workflow_response.status_code == 200
+    workflow_payload = workflow_response.json()
+    assert workflow_payload["upload_error"]["message"] == detail
+    assert workflow_payload["upload_error"]["occurred_at"]
+
+    _ingest_version(client, workflow_id, script=_langgraph_script())
+
+    recovered_response = client.get(f"/api/workflows/{workflow_id}")
+    assert recovered_response.status_code == 200
+    assert recovered_response.json()["upload_error"] is None
 
 
 def test_update_workflow_version_runnable_config(client: TestClient) -> None:

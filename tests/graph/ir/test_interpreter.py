@@ -3,6 +3,7 @@
 from __future__ import annotations
 import builtins
 import textwrap
+from pathlib import Path
 import pytest
 from orcheo.graph.ir.exceptions import WorkflowValidationError
 from orcheo.graph.ir.interpreter import compile_workflow_to_ir
@@ -12,6 +13,13 @@ from orcheo.graph.ir.models import (
     BuiltinNodeSpec,
     CodeNodeSpec,
     SubgraphNodeSpec,
+)
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_KNOWLEDGE_GUIDE_WORKFLOW = (
+    _REPO_ROOT
+    / "colleague-experts/colleague-candidates/colleagues/knowledge_desk/"
+    / "knowledge_guide/workflow.py"
 )
 
 
@@ -222,43 +230,71 @@ def test_agent_workflow_tool_graph_is_preserved_in_builtin_config() -> None:
     assert tool["graph"]["entrypoint"] == "set_context"
 
 
-def test_agent_workflow_tool_args_schema_is_rejected() -> None:
-    """Restricted workflow tools intentionally do not support dynamic schemas yet."""
-    with pytest.raises(WorkflowValidationError, match="args_schema"):
-        _compile(
-            """
-            from orcheo.graph import StateGraph, START, END
-            from orcheo.graph.state import State
-            from orcheo.nodes.ai import AgentNode, WorkflowTool
-            from orcheo.nodes.logic import SetVariableNode
+def test_workflow_tool_args_schema_is_lowered_to_json_schema() -> None:
+    """Workflow tools may reference restricted schema classes for input shape."""
+    ir = _compile(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.ai import AgentNode, WorkflowTool
+        from orcheo.nodes.logic import SetVariableNode
+        from orcheo.schema import BaseModel, Field
 
-            def orcheo_workflow():
-                lookup = StateGraph(State)
-                lookup.add_node("set_context", SetVariableNode(name="set_context"))
-                lookup.add_edge(START, "set_context")
-                lookup.add_edge("set_context", END)
+        class LookupInput(BaseModel):
+            query: str = Field(description="User question")
 
-                graph = StateGraph(State)
-                graph.add_node(
-                    "agent",
-                    AgentNode(
-                        name="agent",
-                        ai_model="gpt-4o-mini",
-                        workflow_tools=[
-                            WorkflowTool(
-                                name="lookup",
-                                description="Look up context",
-                                graph=lookup,
-                                args_schema=dict,
-                            )
-                        ],
-                    ),
-                )
-                graph.add_edge(START, "agent")
-                graph.add_edge("agent", END)
-                return graph
-            """
-        )
+        def build_lookup():
+            lookup = StateGraph(State)
+            lookup.add_node("set_context", SetVariableNode(name="set_context"))
+            lookup.add_edge(START, "set_context")
+            lookup.add_edge("set_context", END)
+            return lookup
+
+        def orcheo_workflow():
+            graph = StateGraph(State)
+            graph.add_node(
+                "agent",
+                AgentNode(
+                    name="agent",
+                    ai_model="gpt-4o-mini",
+                    workflow_tools=[
+                        {
+                            "name": "lookup",
+                            "description": "Look up context",
+                            "graph": build_lookup(),
+                            "args_schema": LookupInput,
+                            "output_path": "results.set_context",
+                        }
+                    ],
+                ),
+            )
+            graph.add_edge(START, "agent")
+            graph.add_edge("agent", END)
+            return graph
+        """
+    )
+
+    agent = ir.nodes[0]
+    assert isinstance(agent, BuiltinNodeSpec)
+    tool = agent.config["workflow_tools"][0]
+    assert tool["name"] == "lookup"
+    assert tool["output_path"] == "results.set_context"
+    assert tool["graph"]["entrypoint"] == "set_context"
+    assert tool["args_schema"]["type"] == "object"
+    assert tool["args_schema"]["properties"]["query"]["type"] == "string"
+    assert tool["args_schema"]["required"] == ["query"]
+
+
+def test_knowledge_guide_workflow_compiles_in_restricted_mode() -> None:
+    """The Knowledge Guide workflow compiles with helper graphs and schema imports."""
+    ir = compile_workflow_to_ir(_KNOWLEDGE_GUIDE_WORKFLOW.read_text())
+
+    agent = ir.nodes[0]
+    assert isinstance(agent, BuiltinNodeSpec)
+    tool = agent.config["workflow_tools"][0]
+    assert tool["name"] == "mongodb_hybrid_search"
+    assert tool["graph"]["entrypoint"] == "query_embedding"
+    assert tool["args_schema"]["properties"]["query"]["type"] == "string"
 
 
 def test_set_entry_point_resolves_entrypoint() -> None:
@@ -635,12 +671,22 @@ def test_interpret_graph_call_ignores_unhandled_method() -> None:
     """The dispatcher is a silent no-op for a method outside its table."""
     import ast
 
-    from orcheo.graph.ir.interpreter import _Workflow, _interpret_graph_call
+    from orcheo.graph.ir.interpreter import (
+        _CompileContext,
+        _Workflow,
+        _interpret_graph_call,
+    )
 
     call = ast.parse("g.unhandled('x')", mode="eval").body
     graphs = {"g": _Workflow()}
+    ctx = _CompileContext(
+        source="",
+        code_classes={},
+        graph_builders={},
+        schema_classes={},
+    )
 
-    _interpret_graph_call(call, "", {}, graphs, {}, {"g": set()})
+    _interpret_graph_call(call, ctx, graphs, {}, {"g": set()})
 
     assert graphs["g"].nodes == []
     assert graphs["g"].edges == []

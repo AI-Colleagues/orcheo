@@ -33,6 +33,7 @@ from orcheo.graph.ir.models import (
     NodeSpec,
     SubgraphNodeSpec,
 )
+from orcheo.graph.ir.schemas import is_schema_class, schema_json_schema
 
 
 _VERTEX_NAMES = {"START": START_VERTEX, "END": END_VERTEX}
@@ -71,9 +72,21 @@ class _WorkflowToolRef:
 
     name: str
     description: str
-    graph_name: str
+    graph_ref: str | GraphIR
+    args_schema: dict[str, Any] | None = None
     output_path: str | None = None
     return_direct: bool = False
+
+
+@dataclass
+class _CompileContext:
+    """Shared module-level context for restricted AST interpretation."""
+
+    source: str
+    code_classes: dict[str, _CodeNodeClass]
+    graph_builders: dict[str, RunFunction]
+    schema_classes: dict[str, ast.ClassDef]
+    helper_graph_irs: dict[str, GraphIR] = field(default_factory=dict)
 
 
 def compile_workflow_to_ir(source: str) -> GraphIR:
@@ -94,9 +107,17 @@ def compile_workflow_to_ir(source: str) -> GraphIR:
     _ensure_nodes_registered()
 
     code_classes = _collect_code_node_classes(module)
-    entrypoint = _find_entrypoint(module)
+    graph_builders = _collect_graph_builders(module)
+    schema_classes = _collect_schema_classes(module)
+    entrypoint = _find_entrypoint(graph_builders)
+    ctx = _CompileContext(
+        source=source,
+        code_classes=code_classes,
+        graph_builders=graph_builders,
+        schema_classes=schema_classes,
+    )
 
-    root_name, graphs = _interpret_entrypoint(entrypoint, source, code_classes)
+    root_name, graphs = _interpret_graph_builder(entrypoint, ctx)
     ir = _workflow_to_ir(root_name, graphs, stack=[])
     validate_ir(ir)
     return ir
@@ -111,7 +132,7 @@ def _collect_code_node_classes(module: ast.Module) -> dict[str, _CodeNodeClass]:
     """Index ``CodeNode`` subclasses by name with their fields and ``run``."""
     classes: dict[str, _CodeNodeClass] = {}
     for stmt in module.body:
-        if not isinstance(stmt, ast.ClassDef):
+        if not isinstance(stmt, ast.ClassDef) or is_schema_class(stmt):
             continue
         defaults: dict[str, Any] = {}
         declared: set[str] = set()
@@ -141,31 +162,45 @@ def _collect_code_node_classes(module: ast.Module) -> dict[str, _CodeNodeClass]:
     return classes
 
 
-def _find_entrypoint(module: ast.Module) -> RunFunction:
+def _collect_graph_builders(module: ast.Module) -> dict[str, RunFunction]:
+    """Collect all validated zero-argument graph-builder functions."""
+    return {
+        stmt.name: stmt
+        for stmt in module.body
+        if isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+
+
+def _collect_schema_classes(module: ast.Module) -> dict[str, ast.ClassDef]:
+    """Collect restricted-mode ``BaseModel`` schema classes by name."""
+    return {
+        stmt.name: stmt
+        for stmt in module.body
+        if isinstance(stmt, ast.ClassDef) and is_schema_class(stmt)
+    }
+
+
+def _find_entrypoint(graph_builders: dict[str, RunFunction]) -> RunFunction:
     """Return the validated ``orcheo_workflow`` entrypoint function node."""
-    for stmt in module.body:
-        if (
-            isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef)
-            and stmt.name == ENTRYPOINT_NAME
-        ):
-            return stmt
+    entrypoint = graph_builders.get(ENTRYPOINT_NAME)
+    if entrypoint is not None:
+        return entrypoint
     raise WorkflowValidationError(  # pragma: no cover - guarded by grammar
         f"script must define a '{ENTRYPOINT_NAME}' entrypoint"
     )
 
 
-def _interpret_entrypoint(
-    entrypoint: RunFunction,
-    source: str,
-    code_classes: dict[str, _CodeNodeClass],
+def _interpret_graph_builder(
+    builder: RunFunction,
+    ctx: _CompileContext,
 ) -> tuple[str, dict[str, _Workflow]]:
-    """Walk the entrypoint body, lifting each ``StateGraph`` into a workflow."""
+    """Walk one graph-builder body, lifting ``StateGraph`` values into a workflow."""
     graphs: dict[str, _Workflow] = {}
     node_assignments: dict[str, ast.Call] = {}
     seen_ids: dict[str, set[str]] = {}
     root_name: str | None = None
 
-    for stmt in entrypoint.body:
+    for stmt in builder.body:
         if isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call):
             target = stmt.targets[0]
             if not isinstance(target, ast.Name):  # pragma: no cover - grammar guarded
@@ -184,8 +219,7 @@ def _interpret_entrypoint(
         if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
             _interpret_graph_call(
                 stmt.value,
-                source,
-                code_classes,
+                ctx,
                 graphs,
                 node_assignments,
                 seen_ids,
@@ -199,13 +233,13 @@ def _interpret_entrypoint(
             break
     if root_name is None:
         raise WorkflowValidationError(
-            "workflow entrypoint must return the assembled graph",
-            lineno=getattr(entrypoint, "lineno", None),
+            f"graph builder '{builder.name}' must return the assembled graph",
+            lineno=getattr(builder, "lineno", None),
         )
     if root_name not in graphs:
         raise WorkflowValidationError(
             f"returned graph '{root_name}' was not assigned from StateGraph(...)",
-            lineno=getattr(entrypoint, "lineno", None),
+            lineno=getattr(builder, "lineno", None),
         )
     return root_name, graphs
 
@@ -286,8 +320,12 @@ def _resolve_config_graph_refs(
 ) -> Any:
     """Resolve workflow-tool graph references inside built-in node config."""
     if isinstance(value, _WorkflowToolRef):
-        graph = _workflow_to_ir(value.graph_name, graphs, stack=stack).model_dump()
-        return {
+        graph = (
+            _workflow_to_ir(value.graph_ref, graphs, stack=stack).model_dump()
+            if isinstance(value.graph_ref, str)
+            else value.graph_ref.model_dump()
+        )
+        config = {
             IR_CONFIG_KIND_KEY: WORKFLOW_TOOL_CONFIG_KIND,
             "name": value.name,
             "description": value.description,
@@ -295,6 +333,9 @@ def _resolve_config_graph_refs(
             "output_path": value.output_path,
             "return_direct": value.return_direct,
         }
+        if value.args_schema is not None:
+            config["args_schema"] = value.args_schema
+        return config
     if isinstance(value, dict):
         return {
             key: _resolve_config_graph_refs(nested, graphs, stack=stack)
@@ -314,8 +355,7 @@ def _is_state_graph(call: ast.Call) -> bool:
 
 def _interpret_graph_call(
     call: ast.Call,
-    source: str,
-    code_classes: dict[str, _CodeNodeClass],
+    ctx: _CompileContext,
     graphs: dict[str, _Workflow],
     node_assignments: dict[str, ast.Call],
     seen_ids: dict[str, set[str]],
@@ -338,8 +378,7 @@ def _interpret_graph_call(
     if method == "add_node":
         _interpret_add_node(
             call,
-            source,
-            code_classes,
+            ctx,
             graphs,
             node_assignments,
             seen_ids[graph_name],
@@ -365,8 +404,7 @@ def _interpret_graph_call(
 
 def _interpret_add_node(
     call: ast.Call,
-    source: str,
-    code_classes: dict[str, _CodeNodeClass],
+    ctx: _CompileContext,
     graphs: dict[str, _Workflow],
     node_assignments: dict[str, ast.Call],
     seen_ids: set[str],
@@ -403,13 +441,18 @@ def _interpret_add_node(
             lineno=getattr(node_call, "lineno", None),
         )
 
-    if class_name in code_classes:
+    if class_name in ctx.code_classes:
         workflow.nodes.append(
-            _build_code_spec(node_id, node_call, code_classes[class_name], source)
+            _build_code_spec(
+                node_id,
+                node_call,
+                ctx.code_classes[class_name],
+                ctx.source,
+            )
         )
     else:
         workflow.nodes.append(
-            _build_builtin_spec(node_id, class_name, node_call, graphs)
+            _build_builtin_spec(node_id, class_name, node_call, graphs, ctx)
         )
 
 
@@ -490,6 +533,7 @@ def _build_builtin_spec(
     class_name: str,
     node_call: ast.Call,
     graphs: dict[str, _Workflow],
+    ctx: _CompileContext,
 ) -> BuiltinNodeSpec:
     """Build a :class:`BuiltinNodeSpec` from a registered node instantiation."""
     from orcheo.nodes.registry import registry
@@ -504,6 +548,7 @@ def _build_builtin_spec(
         node_id,
         allow_credentials=True,
         graphs=graphs,
+        ctx=ctx,
     )
     return BuiltinNodeSpec(id=node_id, type=class_name, config=config)
 
@@ -522,6 +567,7 @@ def _build_code_spec(
         node_id,
         allow_credentials=False,
         graphs={},
+        ctx=None,
     )
     config = {**code_class.defaults, **kwargs}
     injected = sorted(code_class.declared | set(kwargs))
@@ -537,6 +583,7 @@ def _config_from_kwargs(
     *,
     allow_credentials: bool,
     graphs: dict[str, _Workflow],
+    ctx: _CompileContext | None,
 ) -> dict[str, Any]:
     """Validate and literal-evaluate node constructor kwargs (excluding name)."""
     config: dict[str, Any] = {}
@@ -549,8 +596,17 @@ def _config_from_kwargs(
         if kw.arg == "name":
             continue
         if allow_credentials and kw.arg == "workflow_tools":
-            config[kw.arg] = _workflow_tools_from_ast(kw.value, graphs)
+            if ctx is None:  # pragma: no cover - only built-ins accept workflow tools
+                raise WorkflowValidationError(
+                    f"node '{node_id}' cannot use workflow_tools here",
+                    lineno=getattr(kw, "lineno", None),
+                )
+            config[kw.arg] = _workflow_tools_from_ast(kw.value, graphs, ctx)
             continue
+        if allow_credentials and kw.arg == "response_format":
+            if ctx is not None:
+                config[kw.arg] = _schema_or_literal_from_ast(kw.value, ctx)
+                continue
         validate_config_value(
             kw.value, allow_credentials=allow_credentials, where=f"node '{node_id}'"
         )
@@ -561,53 +617,40 @@ def _config_from_kwargs(
 def _workflow_tools_from_ast(
     expr: ast.expr,
     graphs: dict[str, _Workflow],
+    ctx: _CompileContext,
 ) -> list[_WorkflowToolRef]:
-    """Parse ``workflow_tools=[WorkflowTool(...)]`` without executing it."""
+    """Parse ``workflow_tools=[...]`` without executing workflow author code."""
     if not isinstance(expr, ast.List | ast.Tuple):
         raise WorkflowValidationError(
-            "workflow_tools must be a list of WorkflowTool(...) calls",
+            "workflow_tools must be a list of WorkflowTool(...) calls or dicts",
             lineno=getattr(expr, "lineno", None),
         )
-    return [_workflow_tool_from_ast(item, graphs) for item in expr.elts]
+    return [_workflow_tool_from_ast(item, graphs, ctx) for item in expr.elts]
 
 
 def _workflow_tool_from_ast(
     expr: ast.expr,
     graphs: dict[str, _Workflow],
+    ctx: _CompileContext,
 ) -> _WorkflowToolRef:
-    """Parse one restricted ``WorkflowTool(...)`` constructor."""
-    if not (
-        isinstance(expr, ast.Call)
-        and isinstance(expr.func, ast.Name)
-        and expr.func.id == "WorkflowTool"
-    ):
-        raise WorkflowValidationError(
-            "workflow_tools entries must be WorkflowTool(...) calls",
-            lineno=getattr(expr, "lineno", None),
-        )
-    if expr.args:
-        raise WorkflowValidationError(
-            "WorkflowTool must be constructed with keyword arguments only",
-            lineno=getattr(expr, "lineno", None),
-        )
-
-    allowed = {"name", "description", "graph", "output_path", "return_direct"}
-    kwargs = _keyword_map(expr, allowed=allowed, what="WorkflowTool")
+    """Parse one restricted workflow-tool declaration."""
+    kwargs = _workflow_tool_kwargs(expr)
     name = _required_string_kwarg(kwargs, "name", "WorkflowTool")
     description = _required_string_kwarg(kwargs, "description", "WorkflowTool")
     graph_expr = _required_kwarg(kwargs, "graph", "WorkflowTool")
-    graph_name = _resolve_graph_ref_expr(graph_expr, graphs)
-    if graph_name is None:
-        raise WorkflowValidationError(
-            "WorkflowTool graph must reference a StateGraph variable",
-            lineno=getattr(graph_expr, "lineno", None),
-        )
+    graph_ref = _workflow_tool_graph_ref(graph_expr, graphs, ctx)
 
     output_path_expr = kwargs.get("output_path")
     output_path = (
         None
         if output_path_expr is None or _is_none(output_path_expr)
         else _as_string(output_path_expr, "WorkflowTool output_path")
+    )
+    args_schema_expr = kwargs.get("args_schema")
+    args_schema = (
+        None
+        if args_schema_expr is None or _is_none(args_schema_expr)
+        else _schema_or_literal_from_ast(args_schema_expr, ctx)
     )
     return_direct_expr = kwargs.get("return_direct")
     return_direct = (
@@ -618,10 +661,81 @@ def _workflow_tool_from_ast(
     return _WorkflowToolRef(
         name=name,
         description=description,
-        graph_name=graph_name,
+        graph_ref=graph_ref,
+        args_schema=args_schema,
         output_path=output_path,
         return_direct=return_direct,
     )
+
+
+def _workflow_tool_kwargs(expr: ast.expr) -> dict[str, ast.expr]:
+    """Return workflow-tool keyword mappings from ``WorkflowTool(...)`` or dicts."""
+    allowed = {
+        "name",
+        "description",
+        "graph",
+        "args_schema",
+        "output_path",
+        "return_direct",
+    }
+    if (
+        isinstance(expr, ast.Call)
+        and isinstance(expr.func, ast.Name)
+        and expr.func.id == "WorkflowTool"
+    ):
+        if expr.args:
+            raise WorkflowValidationError(
+                "WorkflowTool must be constructed with keyword arguments only",
+                lineno=getattr(expr, "lineno", None),
+            )
+        return _keyword_map(expr, allowed=allowed, what="WorkflowTool")
+    if isinstance(expr, ast.Dict):
+        return _dict_keyword_map(expr, allowed=allowed, what="WorkflowTool")
+    raise WorkflowValidationError(
+        "workflow_tools entries must be WorkflowTool(...) calls or dict literals",
+        lineno=getattr(expr, "lineno", None),
+    )
+
+
+def _workflow_tool_graph_ref(
+    expr: ast.expr,
+    graphs: dict[str, _Workflow],
+    ctx: _CompileContext,
+) -> str | GraphIR:
+    """Return the graph variable or helper graph IR for a workflow tool."""
+    graph_name = _resolve_graph_ref_expr(expr, graphs)
+    if graph_name is not None:
+        return graph_name
+    if (
+        isinstance(expr, ast.Call)
+        and isinstance(expr.func, ast.Name)
+        and expr.func.id in ctx.graph_builders
+    ):
+        if expr.args or expr.keywords:
+            raise WorkflowValidationError(
+                "workflow-tool graph builder calls may not pass arguments",
+                lineno=getattr(expr, "lineno", None),
+            )
+        return _helper_graph_ir(expr.func.id, ctx)
+    raise WorkflowValidationError(
+        "WorkflowTool graph must reference a StateGraph variable or helper "
+        "graph builder",
+        lineno=getattr(expr, "lineno", None),
+    )
+
+
+def _helper_graph_ir(name: str, ctx: _CompileContext) -> GraphIR:
+    """Compile and cache a helper graph-builder function to nested IR."""
+    cached = ctx.helper_graph_irs.get(name)
+    if cached is not None:
+        return cached
+    builder = ctx.graph_builders.get(name)
+    if builder is None:
+        raise WorkflowValidationError(f"unknown graph builder '{name}'")
+    root_name, graphs = _interpret_graph_builder(builder, ctx)
+    ir = _workflow_to_ir(root_name, graphs, stack=[])
+    ctx.helper_graph_irs[name] = ir
+    return ir
 
 
 def _interpret_add_edge(call: ast.Call) -> EdgeSpec:
@@ -757,6 +871,47 @@ def _keyword_map(
             )
         values[kw.arg] = kw.value
     return values
+
+
+def _dict_keyword_map(
+    expr: ast.Dict,
+    *,
+    allowed: set[str],
+    what: str,
+) -> dict[str, ast.expr]:
+    """Return dict-literal keys as keyword mappings with restricted validation."""
+    values: dict[str, ast.expr] = {}
+    for key, value in zip(expr.keys, expr.values, strict=True):
+        if key is None:
+            raise WorkflowValidationError(
+                f"{what} may not use dict unpacking",
+                lineno=getattr(expr, "lineno", None),
+            )
+        if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+            raise WorkflowValidationError(
+                f"{what} dict keys must be string literals",
+                lineno=getattr(key, "lineno", None),
+            )
+        if key.value not in allowed:
+            raise WorkflowValidationError(
+                f"{what} key '{key.value}' is not supported in restricted mode",
+                lineno=getattr(key, "lineno", None),
+            )
+        if key.value in values:
+            raise WorkflowValidationError(
+                f"{what} key '{key.value}' is duplicated",
+                lineno=getattr(key, "lineno", None),
+            )
+        values[key.value] = value
+    return values
+
+
+def _schema_or_literal_from_ast(expr: ast.expr, ctx: _CompileContext) -> Any:
+    """Return a schema JSON Schema mapping or a validated literal config value."""
+    if isinstance(expr, ast.Name) and expr.id in ctx.schema_classes:
+        return schema_json_schema(expr.id, ctx.schema_classes)
+    validate_config_value(expr, allow_credentials=False, where="schema config")
+    return literal_from_ast(expr)
 
 
 def _required_kwarg(

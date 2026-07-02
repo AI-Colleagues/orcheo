@@ -20,6 +20,7 @@ from __future__ import annotations
 import ast
 from orcheo.graph.ir.config_values import validate_config_value
 from orcheo.graph.ir.exceptions import WorkflowValidationError
+from orcheo.graph.ir.schemas import is_schema_class, validate_schema_class
 
 
 # The single required workflow entrypoint function name.
@@ -28,7 +29,7 @@ ENTRYPOINT_NAME = "orcheo_workflow"
 # The only permitted base class for user-defined node logic.
 CODENODE_BASE = "CodeNode"
 
-# Graph-assembly methods permitted as statements in the entrypoint.
+# Graph-assembly methods permitted as statements in graph-builder functions.
 GRAPH_METHODS = frozenset(
     {
         "add_node",
@@ -57,14 +58,15 @@ def validate_grammar(module: ast.Module) -> None:
         if isinstance(stmt, ast.Import | ast.ImportFrom):
             _validate_import(stmt)
         elif isinstance(stmt, ast.ClassDef):
-            _validate_codenode_class(stmt)
+            _validate_class(stmt)
         elif isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef):
-            _validate_entrypoint(stmt)
-            entrypoints.append(stmt)
+            _validate_graph_builder(stmt)
+            if stmt.name == ENTRYPOINT_NAME:
+                entrypoints.append(stmt)
         else:
             raise WorkflowValidationError(
-                "only Orcheo imports, CodeNode subclasses, and a single "
-                f"'{ENTRYPOINT_NAME}' entrypoint are allowed at module level",
+                "only Orcheo imports, restricted schema / CodeNode classes, and "
+                "graph-builder functions are allowed at module level",
                 lineno=getattr(stmt, "lineno", None),
             )
 
@@ -125,6 +127,14 @@ def _validate_import(stmt: ast.Import | ast.ImportFrom) -> None:
 def _is_orcheo_module(module: str | None) -> bool:
     """Return ``True`` when ``module`` is the ``orcheo`` package or a submodule."""
     return module is not None and (module == "orcheo" or module.startswith("orcheo."))
+
+
+def _validate_class(stmt: ast.ClassDef) -> None:
+    """Validate a restricted-mode class declaration."""
+    if is_schema_class(stmt):
+        validate_schema_class(stmt)
+        return
+    _validate_codenode_class(stmt)
 
 
 def _validate_codenode_class(stmt: ast.ClassDef) -> None:
@@ -215,31 +225,27 @@ def _validate_class_field(
         )
 
 
-def _validate_entrypoint(func: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
-    """Validate the ``orcheo_workflow`` entrypoint signature and body."""
-    if func.name != ENTRYPOINT_NAME:
-        raise WorkflowValidationError(
-            f"the workflow entrypoint must be named '{ENTRYPOINT_NAME}', not "
-            f"'{func.name}'",
-            lineno=func.lineno,
-        )
+def _validate_graph_builder(func: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+    """Validate a zero-argument graph-builder function body."""
     if func.decorator_list:
         raise WorkflowValidationError(
-            f"decorators are not allowed on '{ENTRYPOINT_NAME}'", lineno=func.lineno
+            f"decorators are not allowed on graph builder '{func.name}'",
+            lineno=func.lineno,
         )
     args = func.args
     if args.args or args.posonlyargs or args.kwonlyargs or args.vararg or args.kwarg:
         raise WorkflowValidationError(
-            f"'{ENTRYPOINT_NAME}' must take zero arguments", lineno=func.lineno
+            f"graph builder '{func.name}' must take zero arguments",
+            lineno=func.lineno,
         )
 
     for stmt in func.body:
-        _validate_entrypoint_statement(stmt)
+        _validate_graph_builder_statement(stmt, func_name=func.name)
     _gadget_sweep(func.body)
 
 
-def _validate_entrypoint_statement(stmt: ast.stmt) -> None:
-    """Allow only graph-assembly statements inside the entrypoint."""
+def _validate_graph_builder_statement(stmt: ast.stmt, *, func_name: str) -> None:
+    """Allow only graph-assembly statements inside a graph builder."""
     if _is_docstring(stmt):
         return
     if isinstance(stmt, ast.Assign):
@@ -249,11 +255,11 @@ def _validate_entrypoint_statement(stmt: ast.stmt) -> None:
         _validate_graph_method_call(stmt.value)
         return
     if isinstance(stmt, ast.Return):
-        _validate_entrypoint_return(stmt)
+        _validate_graph_builder_return(stmt, func_name=func_name)
         return
     raise WorkflowValidationError(
-        f"'{ENTRYPOINT_NAME}' may only build and wire the graph; this construct is "
-        "not allowed",
+        f"graph builder '{func_name}' may only build and wire the graph; this "
+        "construct is not allowed",
         lineno=getattr(stmt, "lineno", None),
     )
 
@@ -292,12 +298,13 @@ def _validate_graph_method_call(call: ast.Call) -> None:
         )
 
 
-def _validate_entrypoint_return(stmt: ast.Return) -> None:
+def _validate_graph_builder_return(stmt: ast.Return, *, func_name: str) -> None:
     """Allow ``return <name>`` or ``return <name>.compile()``."""
     value = stmt.value
     if value is None:
         raise WorkflowValidationError(
-            f"'{ENTRYPOINT_NAME}' must return the assembled graph", lineno=stmt.lineno
+            f"graph builder '{func_name}' must return the assembled graph",
+            lineno=stmt.lineno,
         )
     if isinstance(value, ast.Name):
         return
@@ -309,7 +316,7 @@ def _validate_entrypoint_return(stmt: ast.Return) -> None:
     ):
         return
     raise WorkflowValidationError(
-        f"'{ENTRYPOINT_NAME}' must return the graph or 'graph.compile()'",
+        f"graph builder '{func_name}' must return the graph or 'graph.compile()'",
         lineno=stmt.lineno,
     )
 

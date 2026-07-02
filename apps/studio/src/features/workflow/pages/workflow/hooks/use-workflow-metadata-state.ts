@@ -15,6 +15,9 @@ export function useWorkflowMetadataState() {
   const [workflowVersions, setWorkflowVersions] = useState<
     StoredWorkflow["versions"]
   >([]);
+  const [workflowUploadError, setWorkflowUploadError] = useState<
+    StoredWorkflow["uploadError"] | null
+  >(null);
   const [workflowTags, setWorkflowTags] = useState<string[]>(["draft"]);
   const [isWorkflowLoading, setIsWorkflowLoading] = useState(false);
   const [workflowLoadError, setWorkflowLoadError] = useState<string | null>(
@@ -39,6 +42,8 @@ export function useWorkflowMetadataState() {
     setCurrentWorkflowId,
     workflowVersions,
     setWorkflowVersions,
+    workflowUploadError,
+    setWorkflowUploadError,
     workflowTags,
     setWorkflowTags,
     isWorkflowLoading,

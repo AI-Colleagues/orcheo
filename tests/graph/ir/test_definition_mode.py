@@ -3,6 +3,7 @@
 from __future__ import annotations
 import textwrap
 from collections.abc import Generator
+from pathlib import Path
 import pytest
 from dynaconf import Dynaconf
 from orcheo.config import loader as config_loader
@@ -39,6 +40,13 @@ WORKFLOW = textwrap.dedent(
         graph.add_edge("doubler", END)
         return graph
     """
+)
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_KNOWLEDGE_GUIDE_WORKFLOW = (
+    _REPO_ROOT
+    / "colleague-experts/colleague-candidates/colleagues/knowledge_desk/"
+    / "knowledge_guide/workflow.py"
 )
 
 
@@ -141,6 +149,19 @@ def test_restricted_ingest_payload_renders_mermaid(
     assert mermaid is not None
     assert "setter" in mermaid
     assert "doubler" in mermaid
+
+
+def test_restricted_ingest_builds_knowledge_guide_workflow(
+    monkeypatch: pytest.MonkeyPatch, isolated_settings: None
+) -> None:
+    """Restricted mode ingests and rebuilds the Knowledge Guide example workflow."""
+    _set_mode(monkeypatch, "restricted")
+
+    payload = ingest_workflow(_KNOWLEDGE_GUIDE_WORKFLOW.read_text())
+    graph = build_graph(payload)
+
+    assert payload["format"] == "frozen-ir"
+    assert graph is not None
 
 
 def test_unrestricted_ingest_matches_script_path(

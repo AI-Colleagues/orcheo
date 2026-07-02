@@ -5,6 +5,7 @@ import pytest
 from orcheo.models import WorkflowDraftAccess
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo_backend.app.repository import (
+    CronTriggerNotFoundError,
     WorkflowNotFoundError,
     WorkflowRepository,
 )
@@ -125,6 +126,43 @@ async def test_cron_trigger_deletion_removes_schedule(
 
 
 @pytest.mark.asyncio()
+async def test_archiving_workflow_removes_cron_trigger(
+    repository: WorkflowRepository,
+) -> None:
+    """Archived workflows must not keep active cron schedules."""
+
+    workflow = await repository.create_workflow(
+        name="Offboarded Cron",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="owner",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="owner",
+    )
+    await repository.configure_cron_trigger(
+        workflow.id,
+        CronTriggerConfig(expression="0 12 * * *", timezone="UTC"),
+    )
+
+    await repository.archive_workflow(workflow.id, actor="owner")
+
+    with pytest.raises(CronTriggerNotFoundError):
+        await repository.get_cron_trigger_config(workflow.id)
+
+    runs = await repository.dispatch_due_cron_runs(
+        now=datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
+    )
+    assert runs == []
+
+
+@pytest.mark.asyncio()
 async def test_cron_trigger_requires_existing_workflow(
     repository: WorkflowRepository,
 ) -> None:
@@ -135,6 +173,29 @@ async def test_cron_trigger_requires_existing_workflow(
 
     with pytest.raises(WorkflowNotFoundError):
         await repository.get_cron_trigger_config(uuid4())
+
+
+@pytest.mark.asyncio()
+async def test_cron_trigger_rejects_archived_workflow(
+    repository: WorkflowRepository,
+) -> None:
+    """Archived workflows cannot receive new cron schedules."""
+
+    workflow = await repository.create_workflow(
+        name="Archived Cron Config",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="owner",
+    )
+    await repository.archive_workflow(workflow.id, actor="owner")
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.configure_cron_trigger(
+            workflow.id,
+            CronTriggerConfig(expression="0 9 * * *", timezone="UTC"),
+        )
 
 
 @pytest.mark.asyncio()

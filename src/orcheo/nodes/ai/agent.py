@@ -165,7 +165,7 @@ def _create_workflow_tool_func(
     compiled_graph: Runnable,
     name: str,
     description: str,
-    args_schema: type[BaseModel] | None,
+    args_schema: type[BaseModel] | dict[str, Any] | None,
     output_path: str | None = None,
     return_direct: bool = False,
 ) -> StructuredTool:
@@ -178,7 +178,7 @@ def _create_workflow_tool_func(
         compiled_graph: Compiled LangGraph runnable
         name: Tool name
         description: Tool description
-        args_schema: Optional Pydantic model for tool arguments
+        args_schema: Optional Pydantic model or JSON schema for tool arguments
         output_path: Optional dotted path selecting the final tool payload
         return_direct: When True, end the agent loop after this tool runs and
             return its output to the user verbatim
@@ -268,7 +268,7 @@ class WorkflowTool(BaseModel):
     """Description of the tool."""
     graph: SkipJsonSchema[StateGraph]
     """Workflow to be used as tool."""
-    args_schema: type[BaseModel] | None = None
+    args_schema: type[BaseModel] | dict[str, Any] | None = None
     """Input schema for the tool."""
     output_path: str | None = None
     """Optional dotted path selecting the value returned to the caller."""

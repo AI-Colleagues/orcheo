@@ -25,6 +25,10 @@ import {
   persistRunnableConfig,
   primeWorkflowCache,
 } from "./workflow-storage-versioning";
+import {
+  clearWorkflowUploadError,
+  saveWorkflowUploadError,
+} from "./workflow-upload-errors";
 import type {
   ApiWorkflow,
   SaveWorkflowInput,
@@ -52,6 +56,16 @@ const WORKFLOW_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
 let workflowListCache: WorkflowListCacheEntry | undefined;
 let workflowListInflight: Promise<StoredWorkflow[]> | undefined;
 let workflowListRequestId = 0;
+
+export class WorkflowUploadFailedError extends Error {
+  workflow: StoredWorkflow;
+
+  constructor(message: string, workflow: StoredWorkflow) {
+    super(message);
+    this.name = "WorkflowUploadFailedError";
+    this.workflow = workflow;
+  }
+}
 
 const resolveActor = (actor?: string): string => {
   const explicitActor = actor?.trim();
@@ -134,24 +148,6 @@ const buildTemplateWorkflowMetadata = ({
   },
   summary: { added: 0, removed: 0, modified: 0 },
 });
-
-const archiveWorkflowAfterFailedIngest = async (
-  workflowId: string,
-  actor: string,
-): Promise<void> => {
-  try {
-    await request(
-      `${API_BASE}/${workflowId}?actor=${encodeURIComponent(actor)}`,
-      {
-        method: "DELETE",
-      },
-    );
-    invalidateWorkflowListCache();
-    emitUpdate();
-  } catch {
-    // Preserve the original ingest error so callers see why the upload failed.
-  }
-};
 
 const assertTemplatePluginRequirements = async (
   requiredPlugins: string[] | undefined,
@@ -249,6 +245,8 @@ export const saveWorkflow = async (
   if (options?.runnableConfig !== undefined) {
     await persistRunnableConfig(workflowId, actor, options.runnableConfig);
   }
+  clearWorkflowUploadError(workflowId);
+  invalidateWorkflowCache(workflowId);
 
   const stored = await ensureWorkflow(workflowId);
   if (!stored) {
@@ -397,9 +395,27 @@ export const uploadWorkflowFromFiles = async (
       }),
     });
   } catch (error) {
-    await archiveWorkflowAfterFailedIngest(created.id, actor);
-    throw error;
+    const message =
+      error instanceof Error ? error.message : "Upload failed. Please try again.";
+    const uploadError = saveWorkflowUploadError(created.id, message);
+    const stored = await ensureWorkflow(created.id);
+    invalidateWorkflowListCache();
+    if (stored) {
+      const failedWorkflow = {
+        ...stored,
+        uploadError,
+      };
+      primeWorkflowCache(failedWorkflow);
+      emitUpdate();
+      throw new WorkflowUploadFailedError(message, failedWorkflow);
+    }
+    emitUpdate();
+    throw new WorkflowUploadFailedError(message, {
+      ...toStoredWorkflow(created, []),
+      uploadError,
+    });
   }
+  clearWorkflowUploadError(created.id);
 
   const stored = await ensureWorkflow(created.id);
   if (!stored) {
@@ -420,17 +436,28 @@ export const updateWorkflowFromFiles = async (
 ): Promise<StoredWorkflow> => {
   const actor = resolveActor(options?.actor);
 
-  await request(`${API_BASE}/${workflowId}/versions/ingest`, {
-    method: "POST",
-    body: JSON.stringify({
-      script,
-      entrypoint: null,
-      runnable_config: config ?? null,
-      metadata: { source: "studio-update" },
-      notes: null,
-      created_by: actor,
-    }),
-  });
+  try {
+    await request(`${API_BASE}/${workflowId}/versions/ingest`, {
+      method: "POST",
+      body: JSON.stringify({
+        script,
+        entrypoint: null,
+        runnable_config: config ?? null,
+        metadata: { source: "studio-update" },
+        notes: null,
+        created_by: actor,
+      }),
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Update failed. Please try again.";
+    saveWorkflowUploadError(workflowId, message);
+    invalidateWorkflowListCache();
+    invalidateWorkflowCache(workflowId);
+    emitUpdate();
+    throw error;
+  }
+  clearWorkflowUploadError(workflowId);
 
   const stored = await ensureWorkflow(workflowId);
   if (!stored) {

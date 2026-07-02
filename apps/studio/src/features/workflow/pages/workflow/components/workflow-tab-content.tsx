@@ -65,6 +65,10 @@ export interface WorkflowTabContentProps {
   workflowRouteRef?: string | null;
   workflowName: string;
   versions: WorkflowVersionRecord[];
+  uploadError?: {
+    message: string;
+    occurredAt: string;
+  } | null;
   isLoading: boolean;
   loadError: string | null;
   isRunPending: boolean;
@@ -240,6 +244,7 @@ export function WorkflowTabContent({
   workflowId,
   workflowName,
   versions,
+  uploadError,
   isLoading,
   loadError,
   isRunPending,
@@ -438,6 +443,8 @@ export function WorkflowTabContent({
   }
 
   const canConfigure = Boolean(workflowId);
+  const hasUploadError = Boolean(uploadError);
+  const uploadBlocksWorkflow = hasUploadError && !latestVersion;
   const isRunActive = isRunPending || isRunning;
   const runResultBanner =
     !isRunActive && lastRunStatus
@@ -475,6 +482,16 @@ export function WorkflowTabContent({
       toast({
         title: "Save workflow first",
         description: "Publishing requires a saved workflow ID.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (uploadBlocksWorkflow) {
+      setIsPublished(false);
+      toast({
+        title: "Fix upload error first",
+        description: "Fix the error and upload again before publishing.",
         variant: "destructive",
       });
       return;
@@ -548,6 +565,16 @@ export function WorkflowTabContent({
       toast({
         title: "Save workflow first",
         description: "Scheduling requires a saved workflow ID.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (uploadBlocksWorkflow) {
+      setIsScheduled(false);
+      toast({
+        title: "Fix upload error first",
+        description: "Fix the error and upload again before scheduling.",
         variant: "destructive",
       });
       return;
@@ -648,7 +675,7 @@ export function WorkflowTabContent({
                       onCheckedChange={(checked) =>
                         void handlePublishToggle(checked)
                       }
-                      disabled={isPublishPending}
+                      disabled={isPublishPending || uploadBlocksWorkflow}
                     />
                   </div>
                 </TooltipTrigger>
@@ -668,7 +695,9 @@ export function WorkflowTabContent({
                 onCheckedChange={(checked) =>
                   void handleScheduleToggle(checked)
                 }
-                disabled={isSchedulePending || !canToggleSchedule}
+                disabled={
+                  isSchedulePending || !canToggleSchedule || uploadBlocksWorkflow
+                }
               />
             </div>
             {workflowId && uploadsAllowed === true ? (
@@ -738,6 +767,22 @@ export function WorkflowTabContent({
             <runResultBanner.Icon className="h-4 w-4 shrink-0" />
             <span>{runResultBanner.message}</span>
           </div>
+        )}
+
+        {uploadError && (
+          <Alert variant="destructive">
+            <XCircle className="h-4 w-4" />
+            <AlertTitle>Workflow upload failed</AlertTitle>
+            <AlertDescription>
+              <div className="space-y-2">
+                <p>{uploadError.message}</p>
+                <p>
+                  Fix the error in the workflow script or config, then upload
+                  again.
+                </p>
+              </div>
+            </AlertDescription>
+          </Alert>
         )}
 
         {isPublished && shareUrl && (

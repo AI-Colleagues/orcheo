@@ -46,6 +46,10 @@ export interface Workflow {
   name: string;
   description?: string;
   avatarEmoji?: string | null;
+  uploadError?: {
+    message: string;
+    occurredAt: string;
+  };
   draftAccess?: "personal" | "authenticated" | "workspace";
   createdAt: string;
   updatedAt: string;

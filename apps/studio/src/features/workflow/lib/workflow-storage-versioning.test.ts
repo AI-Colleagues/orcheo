@@ -121,6 +121,41 @@ describe("workflow-storage-versioning", () => {
     expect(workflow?.versions[0]?.hasCronTrigger).toBe(true);
   });
 
+  it("maps backend upload errors onto stored workflows", async () => {
+    queueResponses([
+      jsonResponse({
+        workflow: {
+          id: "wf-broken",
+          handle: "wf-broken",
+          name: "Broken Flow",
+          slug: "broken-flow",
+          description: "Test",
+          tags: ["draft"],
+          is_archived: false,
+          is_public: false,
+          require_login: false,
+          published_at: null,
+          published_by: null,
+          created_at: "2026-03-10T09:00:00Z",
+          updated_at: "2026-03-10T10:00:00Z",
+          share_url: null,
+          upload_error: {
+            message: "imports must come from Orcheo",
+            occurred_at: "2026-07-02T10:00:00Z",
+          },
+        },
+        versions: [],
+      }),
+    ]);
+
+    const workflow = await ensureWorkflow("wf-broken");
+
+    expect(workflow?.uploadError).toEqual({
+      message: "imports must come from Orcheo",
+      occurredAt: "2026-07-02T10:00:00Z",
+    });
+  });
+
   it("hydrates configurable schemas from version metadata", async () => {
     queueResponses([
       jsonResponse({

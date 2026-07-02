@@ -170,3 +170,36 @@ async def test_manual_dispatch_rejects_unknown_versions(
                 ],
             )
         )
+
+
+@pytest.mark.asyncio()
+async def test_manual_dispatch_rejects_archived_workflow(
+    repository: WorkflowRepository,
+) -> None:
+    """Archived workflows cannot be manually dispatched."""
+
+    workflow = await repository.create_workflow(
+        name="Archived Manual Flow",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="author",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="author",
+    )
+    await repository.archive_workflow(workflow.id, actor="author")
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.dispatch_manual_runs(
+            ManualDispatchRequest(
+                workflow_id=workflow.id,
+                actor="operator",
+                runs=[ManualDispatchItem()],
+            )
+        )

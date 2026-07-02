@@ -173,3 +173,39 @@ async def test_dispatch_due_cron_runs_respects_overlap_without_creating_runs(
         now=datetime(2025, 1, 1, 7, 0, tzinfo=UTC)
     )
     assert runs == []
+
+
+@pytest.mark.asyncio()
+async def test_dispatch_due_cron_runs_skips_archived_stale_state(
+    repository: WorkflowRepository,
+) -> None:
+    """Cron dispatch drops stale schedules for archived workflows."""
+
+    workflow = await repository.create_workflow(
+        name="Archived Stale Cron",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="owner",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph={},
+        metadata={},
+        notes=None,
+        created_by="owner",
+    )
+    await repository.archive_workflow(workflow.id, actor="owner")
+
+    repository._trigger_layer.configure_cron(  # noqa: SLF001
+        workflow.id,
+        CronTriggerConfig(expression="0 7 * * *", timezone="UTC"),
+    )
+
+    runs = await repository.dispatch_due_cron_runs(
+        now=datetime(2025, 1, 1, 7, 0, tzinfo=UTC)
+    )
+
+    assert runs == []
+    assert workflow.id not in repository._trigger_layer._cron_states  # noqa: SLF001

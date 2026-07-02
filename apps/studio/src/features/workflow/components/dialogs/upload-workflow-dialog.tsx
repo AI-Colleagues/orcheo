@@ -13,7 +13,10 @@ import {
 import { Input } from "@/design-system/ui/input";
 import { Label } from "@/design-system/ui/label";
 import { toast } from "@/hooks/use-toast";
-import { uploadWorkflowFromFiles } from "@features/workflow/lib/workflow-storage";
+import {
+  uploadWorkflowFromFiles,
+  WorkflowUploadFailedError,
+} from "@features/workflow/lib/workflow-storage";
 import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
 import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
 import { getWorkspaceWorkflowPath } from "@/lib/workspace-routing";
@@ -197,9 +200,18 @@ export function UploadWorkflowDialog({
       setError(message);
       toast({
         title: "Upload failed",
-        description: message,
+        description: `${message} Fix the error and upload again.`,
         variant: "destructive",
       });
+      if (err instanceof WorkflowUploadFailedError) {
+        handleOpenChange(false);
+        navigate(
+          getWorkspaceWorkflowPath(
+            getSelectedWorkspaceSlug(),
+            getWorkflowRouteRef(err.workflow),
+          ),
+        );
+      }
     } finally {
       setIsUploading(false);
     }
