@@ -11,7 +11,6 @@ from orcheo.nodes.browser import (
     BrowserScriptNode,
     BrowserWaitNode,
 )
-from orcheo.nodes.code import CodeNode
 from orcheo.nodes.connectors.discord import (
     DiscordBotListenerNode,
     DiscordWebhookNode,
@@ -35,6 +34,7 @@ from orcheo.nodes.connectors.wecom import (
     WeComSendMessageNode,
 )
 from orcheo.nodes.data import (
+    CodeNode,
     DataTransformNode,
     HttpRequestNode,
     JsonProcessingNode,

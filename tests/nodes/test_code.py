@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.code import CodeNode
+from orcheo.nodes.data.code import CodeNode
 
 
 class _Doubler(CodeNode):

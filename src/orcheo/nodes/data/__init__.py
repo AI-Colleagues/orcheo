@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from orcheo.nodes.connectors.http_request import HttpMethod, HttpRequestNode
+from orcheo.nodes.data.code import CodeNode
 from orcheo.nodes.data.json_processing import JsonOperation, JsonProcessingNode
 from orcheo.nodes.data.merge import MergeNode
 from orcheo.nodes.data.transform import (
@@ -28,6 +29,7 @@ from orcheo.nodes.data.utils import (
 
 
 __all__ = [
+    "CodeNode",
     "HttpMethod",
     "HttpRequestNode",
     "JsonOperation",

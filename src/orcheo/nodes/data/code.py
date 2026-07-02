@@ -21,8 +21,20 @@ from typing import Any, cast
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
+from orcheo.nodes.registry import NodeMetadata, registry
 
 
+@registry.register(
+    NodeMetadata(
+        name="CodeNode",
+        description=(
+            "Base class for user-authored node logic; the sole customisation "
+            "port. Do not use this node directly, but inherit from this with "
+            "your own `run` method."
+        ),
+        category="data",
+    )
+)
 class CodeNode(TaskNode):
     """Base class for user-authored node logic; the sole customisation port.
 
