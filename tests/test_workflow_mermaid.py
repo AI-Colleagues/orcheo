@@ -268,8 +268,8 @@ def test_render_mermaid_from_script_renders_conditional_targets() -> None:
     mermaid = _render_mermaid_from_script_full_env(source)
 
     assert mermaid is not None
-    assert "root__node__flag --> root__node__yes;" in mermaid
-    assert "root__node__flag --> root__node__no;" in mermaid
+    assert "root__node__flag -. true .-> root__node__yes;" in mermaid
+    assert "root__node__flag -. false .-> root__node__no;" in mermaid
     assert "root__node__flag --> root__end;" not in mermaid
 
 

@@ -150,6 +150,51 @@ def test_collect_edges_dedups_and_includes_branch_targets() -> None:
     ]
 
 
+def test_collect_edge_specs_preserves_conditional_labels() -> None:
+    summary = {
+        "edges": [{"source": "START", "target": "alpha"}],
+        "conditional_edges": [
+            {
+                "source": "alpha",
+                "mapping": {"true": "beta", "false": "gamma"},
+                "default": "END",
+            }
+        ],
+    }
+
+    edges = mermaid._collect_edge_specs(summary)
+
+    assert edges == [
+        ("START", "alpha", None, False),
+        ("alpha", "beta", "true", True),
+        ("alpha", "gamma", "false", True),
+        ("alpha", "END", "default", True),
+    ]
+
+
+def test_render_summary_mermaid_renders_labeled_conditional_edges() -> None:
+    summary = {
+        "nodes": [
+            {"name": "decision"},
+            {"name": "left"},
+            {"name": "right"},
+        ],
+        "edges": [{"source": "START", "target": "decision"}],
+        "conditional_edges": [
+            {
+                "source": "decision",
+                "mapping": {"true": "left", "false": "right"},
+            }
+        ],
+    }
+
+    diagram = mermaid.render_summary_mermaid(summary)
+
+    assert "root__node__decision -. true .-> root__node__left;" in diagram
+    assert "root__node__decision -. false .-> root__node__right;" in diagram
+    assert "root__node__decision --> root__node__left;" not in diagram
+
+
 def test_branch_targets_returns_mapping_values_then_default() -> None:
     branch = {"mapping": {"case": "delta"}, "default": "epsilon"}
     targets = mermaid._branch_targets(branch)
