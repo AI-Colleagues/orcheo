@@ -25,17 +25,17 @@ from orcheo.sandbox.exceptions import (
 )
 
 
-# Per-invocation linear-memory ceiling (16 MiB).
-DEFAULT_MEMORY_BYTES = 16 * 1024 * 1024
+# Per-invocation linear-memory ceiling (256 MiB).
+DEFAULT_MEMORY_BYTES = 256 * 1024 * 1024
 
 # Per-invocation wasmtime fuel budget (bounds CPU work).
-DEFAULT_FUEL = 20_000_000
+DEFAULT_FUEL = 600_000_000
 
 # Per-invocation wall-clock timeout.
-DEFAULT_WALL_TIMEOUT_SECONDS = 1.0
+DEFAULT_WALL_TIMEOUT_SECONDS = 30.0
 
 # Maximum bytes of sandbox stdout accepted as the outputs envelope.
-DEFAULT_MAX_OUTPUT_BYTES = 65_536
+DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024 * 1024
 
 
 class MicroPythonSandboxRunner:
@@ -116,7 +116,7 @@ class MicroPythonSandboxRunner:
             "    setattr(self, _k, _DATA['configurable'][_k])\n"
             "state = _DATA['state']\n"
             "config = _DATA['config']\n"
-            "def _run():\n"
+            "def _run(self=self, state=state, config=config):\n"
             f"{indented}\n"
             "try:\n"
             "    _out = _run()\n"

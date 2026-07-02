@@ -33,9 +33,12 @@ def add_conditional_edges(
     if path in edge_instances:
         edge = edge_instances[path]
         router = build_edge_router(edge, mapping, default_target)
+        _attach_branch_metadata(router, mapping, default_target)
+        destination_map = _destination_path_map(mapping, default_target)
         graph.add_conditional_edges(
             normalise_vertex(source),
             router,
+            destination_map,
         )
         return
 
@@ -47,11 +50,37 @@ def add_conditional_edges(
         resolved_default = normalise_vertex(default_target)
 
     condition = make_condition(path, normalised_mapping_for_condition, resolved_default)
+    _attach_branch_metadata(condition, mapping, default_target)
+    destination_map = _destination_path_map(mapping, default_target)
 
     graph.add_conditional_edges(
         normalise_vertex(source),
         condition,
+        destination_map,
     )
+
+
+def _destination_path_map(
+    mapping: Mapping[Any, Any],
+    default_target: Any | None,
+) -> dict[Any, Any]:
+    """Return LangGraph path metadata for routers that emit destinations."""
+    destinations = {normalise_vertex(str(target)) for target in mapping.values()}
+    if isinstance(default_target, str) and default_target:
+        destinations.add(normalise_vertex(default_target))
+    else:
+        destinations.add(END)
+    return {destination: destination for destination in destinations}
+
+
+def _attach_branch_metadata(
+    router: Callable[..., Any],
+    mapping: Mapping[Any, Any],
+    default_target: Any | None,
+) -> None:
+    """Attach authored branch metadata for diagram rendering."""
+    router._orcheo_branch_mapping = dict(mapping)  # type: ignore[attr-defined]
+    router._orcheo_branch_default = default_target  # type: ignore[attr-defined]
 
 
 def make_condition(

@@ -95,7 +95,7 @@ def _render_graph_mermaid(graph: Any) -> str | None:
     from orcheo.graph.mermaid import has_workflow_tool_subgraphs, render_summary_mermaid
 
     summary = summarise_state_graph(graph)
-    if has_workflow_tool_subgraphs(summary):
+    if has_workflow_tool_subgraphs(summary) or summary.get("conditional_edges"):
         return render_summary_mermaid(summary)
     return _render_compact_mermaid(graph)
 

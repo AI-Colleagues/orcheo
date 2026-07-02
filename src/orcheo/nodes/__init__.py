@@ -36,6 +36,7 @@ from orcheo.nodes.connectors.wecom import (
 from orcheo.nodes.data import (
     CodeNode,
     DataTransformNode,
+    HtmlTextTransformNode,
     HttpRequestNode,
     JsonProcessingNode,
     MergeNode,
@@ -128,6 +129,7 @@ __all__ = [
     "BrowserCloseNode",
     "AgentensorNode",
     "HttpRequestNode",
+    "HtmlTextTransformNode",
     "JsonProcessingNode",
     "DataTransformNode",
     "MergeNode",
