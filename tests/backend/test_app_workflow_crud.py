@@ -490,6 +490,7 @@ async def test_get_workflow_not_found() -> None:
 async def test_get_workflow_returns_compact_versions() -> None:
     """Workflow-page-open endpoint should avoid returning full version graphs."""
     workflow_id = uuid4()
+    team_id = uuid4()
 
     class Version:
         def __init__(self, version_number: int) -> None:
@@ -521,10 +522,16 @@ async def test_get_workflow_returns_compact_versions() -> None:
             return Workflow(
                 id=wf_id,
                 name="Test Workflow",
+                handle="test-workflow",
+                team_id=str(team_id),
                 slug="test-workflow",
                 created_at=datetime.now(tz=UTC),
                 updated_at=datetime.now(tz=UTC),
             )
+
+        async def get_team(self, requested_team_id, *, workspace_id):
+            assert requested_team_id == team_id
+            return SimpleNamespace(id=team_id, slug="default-team")
 
         async def list_versions(self, wf_id):
             assert wf_id == workflow_id
@@ -534,6 +541,7 @@ async def test_get_workflow_returns_compact_versions() -> None:
 
     assert isinstance(result, WorkflowPagePayload)
     assert result.workflow.id == workflow_id
+    assert result.workflow.team_slug == "default-team"
     assert [version.version for version in result.versions] == [1, 2]
     assert result.versions[0].mermaid == "graph TD; A-->B1"
 

@@ -443,6 +443,7 @@ export const toStoredWorkflow = (
     id: workflow.id,
     handle: workflow.handle ?? undefined,
     teamId: workflow.team_id ?? undefined,
+    teamSlug: workflow.team_slug ?? undefined,
     uploadError,
     name: workflow.name,
     description: workflow.description ?? undefined,

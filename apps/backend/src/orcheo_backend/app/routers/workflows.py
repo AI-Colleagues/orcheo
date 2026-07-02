@@ -66,6 +66,7 @@ from orcheo_backend.app.schemas.workflows import (
     WorkflowPublishRequest,
     WorkflowPublishResponse,
     WorkflowPublishRevokeRequest,
+    WorkflowResponse,
     WorkflowUpdateRequest,
     WorkflowVersionDiffResponse,
     WorkflowVersionIngestRequest,
@@ -162,12 +163,13 @@ async def _apply_share_url_async(
     public_base_url: str | None,
     *,
     workspace_slug: str | None = None,
-) -> Workflow:
+) -> WorkflowResponse:
     """Resolve team slug then apply share URL — use for single-workflow responses."""
     team_slug = await _resolve_team_slug(repository, workflow)
-    return _apply_share_url(
+    workflow = _apply_share_url(
         workflow, public_base_url, team_slug=team_slug, workspace_slug=workspace_slug
     )
+    return WorkflowResponse(**workflow.model_dump(), team_slug=team_slug)
 
 
 def _apply_share_urls(
@@ -504,6 +506,7 @@ async def _get_workflow_schedule_summary(
 async def _build_workflow_list_item(
     repository: RepositoryDep,
     workflow: Workflow,
+    team_slug: str | None = None,
 ) -> WorkflowListItem:
     """Build a list item by fetching workflow summaries concurrently."""
     latest_version, is_scheduled = await asyncio.gather(
@@ -512,6 +515,7 @@ async def _build_workflow_list_item(
     )
     return WorkflowListItem(
         **workflow.model_dump(),
+        team_slug=team_slug,
         latest_version=latest_version,
         is_scheduled=is_scheduled,
     )
@@ -640,7 +644,11 @@ async def list_workflows(
     teams_by_id = {str(team.id): team.slug for team in teams}
     return await asyncio.gather(
         *[
-            _build_workflow_list_item(repository, workflow)
+            _build_workflow_list_item(
+                repository,
+                workflow,
+                teams_by_id.get(workflow.team_id) if workflow.team_id else None,
+            )
             for workflow in _apply_share_urls(
                 workflows,
                 public_base_url,
@@ -653,7 +661,7 @@ async def list_workflows(
 
 @router.post(
     "/workflows",
-    response_model=Workflow,
+    response_model=WorkflowResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def create_workflow(
@@ -661,7 +669,7 @@ async def create_workflow(
     repository: RepositoryDep,
     workspace: WorkspaceContextDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
-) -> Workflow:
+) -> WorkflowResponse:
     """Create a new workflow entry."""
     context = _resolve_authenticated_context(policy)
     actor = _resolve_actor(request.actor, context)
@@ -720,12 +728,12 @@ async def create_workflow(
         raise exc.as_http_exception() from exc
 
 
-@router.get("/workflows/{workflow_ref}", response_model=Workflow)
+@router.get("/workflows/{workflow_ref}", response_model=WorkflowResponse)
 async def get_workflow(
     workflow_ref: str,
     repository: RepositoryDep,
     workspace: WorkspaceContextDep,
-) -> Workflow:
+) -> WorkflowResponse:
     """Fetch a single workflow by its identifier."""
     tid = str(workspace.workspace_id)
     workflow = await _load_workflow_for_request(
@@ -766,14 +774,14 @@ async def get_workflow_page(
     )
 
 
-@router.put("/workflows/{workflow_ref}", response_model=Workflow)
+@router.put("/workflows/{workflow_ref}", response_model=WorkflowResponse)
 async def update_workflow(
     workflow_ref: str,
     request: WorkflowUpdateRequest,
     repository: RepositoryDep,
     workspace: WorkspaceContextDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
-) -> Workflow:
+) -> WorkflowResponse:
     """Update attributes of an existing workflow."""
     tid = str(workspace.workspace_id)
     workflow = await _load_workflow_for_request(
@@ -824,14 +832,14 @@ async def update_workflow(
         ) from exc
 
 
-@router.delete("/workflows/{workflow_ref}", response_model=Workflow)
+@router.delete("/workflows/{workflow_ref}", response_model=WorkflowResponse)
 async def archive_workflow(
     workflow_ref: str,
     repository: RepositoryDep,
     workspace: WorkspaceContextDep,
     actor: str = Query("system"),
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
-) -> Workflow:
+) -> WorkflowResponse:
     """Archive a workflow via the delete verb."""
     tid = str(workspace.workspace_id)
     context = _resolve_authenticated_context(policy)
@@ -1118,7 +1126,7 @@ async def diff_workflow_versions(
 
 
 def _publish_response(
-    workflow: Workflow,
+    workflow: WorkflowResponse,
     *,
     message: str | None = None,
 ) -> WorkflowPublishResponse:
@@ -1187,7 +1195,7 @@ async def publish_workflow(
 
 @router.post(
     "/workflows/{workflow_ref}/publish/revoke",
-    response_model=Workflow,
+    response_model=WorkflowResponse,
 )
 async def revoke_workflow_publish(
     workflow_ref: str,
@@ -1195,7 +1203,7 @@ async def revoke_workflow_publish(
     repository: RepositoryDep,
     workspace: WorkspaceContextDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
-) -> Workflow:
+) -> WorkflowResponse:
     """Revoke public access to the workflow."""
     tid = str(workspace.workspace_id)
     workflow = await _load_workflow_for_request(

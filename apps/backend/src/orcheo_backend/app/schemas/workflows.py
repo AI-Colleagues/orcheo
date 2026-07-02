@@ -140,10 +140,16 @@ class WorkflowPublishRevokeRequest(BaseModel):
     actor: str = Field(default="system")
 
 
+class WorkflowResponse(Workflow):
+    """Workflow response enriched with team display metadata."""
+
+    team_slug: str | None = None
+
+
 class WorkflowPublishResponse(BaseModel):
     """Response payload for publish actions."""
 
-    workflow: Workflow
+    workflow: WorkflowResponse
     message: str | None = None
     share_url: str | None = None
 
@@ -161,7 +167,7 @@ class PublicWorkflow(BaseModel):
     chatkit: WorkflowChatKitConfig | None = None
 
 
-class WorkflowListItem(Workflow):
+class WorkflowListItem(WorkflowResponse):
     """Workflow list item enriched with listing-friendly summary fields."""
 
     latest_version: WorkflowVersion | None = None
@@ -187,5 +193,5 @@ class WorkflowPageVersionSummary(BaseModel):
 class WorkflowPagePayload(BaseModel):
     """Workflow payload optimized for opening the workflow page."""
 
-    workflow: Workflow
+    workflow: WorkflowResponse
     versions: list[WorkflowPageVersionSummary] = Field(default_factory=list)

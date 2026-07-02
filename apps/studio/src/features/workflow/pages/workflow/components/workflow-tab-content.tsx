@@ -66,6 +66,8 @@ export interface WorkflowTabContentProps {
   workflowId: string | null;
   workflowRouteRef?: string | null;
   workflowName: string;
+  workflowHandle?: string | null;
+  workflowTeamSlug?: string | null;
   versions: WorkflowVersionRecord[];
   uploadError?: {
     message: string;
@@ -200,6 +202,29 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return rawMessage;
 };
 
+const formatWorkflowHandle = (
+  handle?: string | null,
+  teamSlug?: string | null,
+): string | null => {
+  const trimmedHandle = handle?.trim().replace(/^@+/, "");
+  if (!trimmedHandle) {
+    return null;
+  }
+
+  if (trimmedHandle.includes("/")) {
+    return `@${trimmedHandle}`;
+  }
+
+  const trimmedTeamSlug = teamSlug
+    ?.trim()
+    .replace(/^@+/, "")
+    .replace(/\/+$/, "");
+
+  return trimmedTeamSlug
+    ? `@${trimmedTeamSlug}/${trimmedHandle}`
+    : `@${trimmedHandle}`;
+};
+
 interface RunResultBanner {
   Icon: typeof CheckCircle2;
   className: string;
@@ -246,6 +271,8 @@ const resolveRunResultBanner = (
 export function WorkflowTabContent({
   workflowId,
   workflowName,
+  workflowHandle,
+  workflowTeamSlug,
   versions,
   uploadError,
   isLoading,
@@ -265,6 +292,8 @@ export function WorkflowTabContent({
   const navigate = useNavigate();
   const uploadsAllowed = useUploadsAllowed();
   const latestVersion = versions.at(-1);
+  const workflowSubtitleLabel =
+    formatWorkflowHandle(workflowHandle, workflowTeamSlug) ?? workflowName;
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isPublished, setIsPublished] = useState(initialIsPublished);
   const [requireLogin, setRequireLogin] = useState(initialRequireLogin);
@@ -684,7 +713,7 @@ export function WorkflowTabContent({
               {workflowName || "Workflow"}
             </h2>
             <p className="text-sm text-muted-foreground">
-              {workflowName}
+              {workflowSubtitleLabel}
               {latestVersion ? ` · ${latestVersion.version}` : ""}
             </p>
           </div>

@@ -17,6 +17,7 @@ export interface ApiWorkflow {
   id: string;
   handle?: string | null;
   team_id?: string | null;
+  team_slug?: string | null;
   name: string;
   slug: string;
   description: string | null;

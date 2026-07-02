@@ -98,6 +98,39 @@ describe("WorkflowTabContent", () => {
     snapshot: { name: "Workflow", description: "", nodes: [], edges: [] },
   };
 
+  it("shows the workflow handle under the workflow name when available", () => {
+    render(
+      <WorkflowTabContent
+        {...baseProps}
+        workflowName="Telegram Paperboy"
+        workflowHandle="telegram-paperboy"
+        workflowTeamSlug="local-company"
+        versions={[{ ...runnableVersion, version: "v01" }]}
+        workflowRouteRef="telegram-paperboy"
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Telegram Paperboy" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("@local-company/telegram-paperboy · v01"),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to the workflow name in the subtitle when no handle exists", () => {
+    render(
+      <WorkflowTabContent
+        {...baseProps}
+        workflowName="Telegram Paperboy"
+        versions={[{ ...runnableVersion, version: "v01" }]}
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.getByText("Telegram Paperboy · v01")).toBeInTheDocument();
+  });
+
   it("shows the offboard action for regular workflows", () => {
     render(<WorkflowTabContent {...baseProps} workflowRouteRef="workflow-1" />);
 

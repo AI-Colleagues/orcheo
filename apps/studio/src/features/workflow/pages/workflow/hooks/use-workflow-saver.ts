@@ -13,6 +13,8 @@ import type { WorkflowRunnableConfig } from "@features/workflow/lib/workflow-sto
 interface WorkflowSaverOptions {
   setWorkflowName: Dispatch<SetStateAction<string>>;
   setWorkflowDescription: Dispatch<SetStateAction<string>>;
+  setWorkflowHandle: Dispatch<SetStateAction<string | null>>;
+  setWorkflowTeamSlug: Dispatch<SetStateAction<string | null>>;
   setWorkflowVersions: Dispatch<SetStateAction<StoredWorkflow["versions"]>>;
   setWorkflowTags: Dispatch<SetStateAction<string[]>>;
   workflowName: string;
@@ -37,6 +39,8 @@ export function useWorkflowSaver(
   const {
     setWorkflowName,
     setWorkflowDescription,
+    setWorkflowHandle,
+    setWorkflowTeamSlug,
     setWorkflowVersions,
     setWorkflowTags,
     workflowName,
@@ -111,6 +115,8 @@ export function useWorkflowSaver(
 
       setWorkflowName(saved.name);
       setWorkflowDescription(saved.description ?? "");
+      setWorkflowHandle(saved.handle ?? null);
+      setWorkflowTeamSlug(saved.teamSlug ?? null);
       setWorkflowTags(saved.tags ?? tagsToPersist);
       setWorkflowVersions(saved.versions ?? []);
 
@@ -131,6 +137,8 @@ export function useWorkflowSaver(
   }, [
     currentWorkflowId,
     setWorkflowDescription,
+    setWorkflowHandle,
+    setWorkflowTeamSlug,
     setWorkflowName,
     setWorkflowTags,
     setWorkflowVersions,

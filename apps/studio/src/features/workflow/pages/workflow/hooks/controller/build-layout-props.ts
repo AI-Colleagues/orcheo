@@ -83,6 +83,8 @@ export function buildWorkflowLayoutProps(
     workflowId: core.metadata.currentWorkflowId,
     workflowRouteRef: core.routeWorkflowRef,
     workflowName: core.metadata.workflowName,
+    workflowHandle: core.metadata.workflowHandle,
+    workflowTeamSlug: core.metadata.workflowTeamSlug,
     versions: core.metadata.workflowVersions ?? [],
     uploadError: core.metadata.workflowUploadError,
     isLoading: core.metadata.isWorkflowLoading,

@@ -15,6 +15,8 @@ interface UseWorkflowStorageListenerParams {
   currentWorkflowId: string | null;
   setWorkflowName: Dispatch<SetStateAction<string>>;
   setWorkflowDescription: Dispatch<SetStateAction<string>>;
+  setWorkflowHandle: Dispatch<SetStateAction<string | null>>;
+  setWorkflowTeamSlug: Dispatch<SetStateAction<string | null>>;
   setWorkflowVersions: Dispatch<SetStateAction<StoredWorkflow["versions"]>>;
   setWorkflowUploadError: Dispatch<
     SetStateAction<StoredWorkflow["uploadError"] | null>
@@ -32,6 +34,8 @@ export function useWorkflowStorageListener({
   currentWorkflowId,
   setWorkflowName,
   setWorkflowDescription,
+  setWorkflowHandle,
+  setWorkflowTeamSlug,
   setWorkflowVersions,
   setWorkflowUploadError,
   setWorkflowTags,
@@ -54,6 +58,8 @@ export function useWorkflowStorageListener({
         if (updated) {
           setWorkflowName(updated.name);
           setWorkflowDescription(updated.description ?? "");
+          setWorkflowHandle(updated.handle ?? null);
+          setWorkflowTeamSlug(updated.teamSlug ?? null);
           setWorkflowVersions(updated.versions ?? []);
           setWorkflowUploadError(updated.uploadError ?? null);
           setWorkflowTags(updated.tags ?? ["draft"]);
@@ -77,6 +83,8 @@ export function useWorkflowStorageListener({
   }, [
     currentWorkflowId,
     setWorkflowDescription,
+    setWorkflowHandle,
+    setWorkflowTeamSlug,
     setChatkitStartScreenPrompts,
     setChatkitSupportedModels,
     setWorkflowName,
