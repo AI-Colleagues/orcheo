@@ -99,7 +99,31 @@ _CANNOT_SEND_AFTER_CLOSE = 'Cannot call "send" once a close message has been sen
 def _sanitize_public_step_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Strip trace-only metadata before sending workflow updates to clients."""
     sanitized = strip_trace_metadata(payload)
-    return sanitized if isinstance(sanitized, dict) else dict(payload)
+    if isinstance(sanitized, Mapping):
+        return _json_safe_payload(sanitized)
+    return _json_safe_payload(dict(payload))
+
+
+def _json_safe_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a JSON-safe copy of a streamed workflow payload."""
+    return {str(key): _json_safe_value(value) for key, value in payload.items()}
+
+
+def _json_safe_value(value: Any) -> Any:  # noqa: PLR0911
+    """Convert runtime-only objects in stream updates into JSON-safe values."""
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, list | tuple | set | frozenset):
+        return [_json_safe_value(item) for item in value]
+    if value.__class__.__name__ == "Interrupt" and hasattr(value, "value"):
+        payload: dict[str, Any] = {"value": _json_safe_value(value.value)}
+        interrupt_id = getattr(value, "id", None)
+        if interrupt_id is not None:
+            payload["id"] = str(interrupt_id)
+        return payload
+    return str(value)
 
 
 async def _safe_send_json(websocket: WebSocket, payload: Any) -> bool:
@@ -150,9 +174,10 @@ async def _forward_node_step(
     tracer: Tracer,
 ) -> None:
     """Persist and stream a single step payload to the connected client."""
-    record_workflow_step(tracer, payload)
-    history_step = await history_store.append_step(execution_id, payload)
-    await _safe_send_json(websocket, _sanitize_public_step_payload(payload))
+    sanitized = _sanitize_public_step_payload(payload)
+    record_workflow_step(tracer, sanitized)
+    history_step = await history_store.append_step(execution_id, sanitized)
+    await _safe_send_json(websocket, sanitized)
     await _emit_trace_update(
         history_store,
         websocket,
@@ -193,10 +218,11 @@ async def _stream_workflow_updates(
             stream_mode="updates",
         ):  # pragma: no cover
             _log_step_debug(step)
-            record_workflow_step(tracer, step)
-            history_step = await history_store.append_step(execution_id, step)
+            sanitized_step = _sanitize_public_step_payload(step)
+            record_workflow_step(tracer, sanitized_step)
+            history_step = await history_store.append_step(execution_id, sanitized_step)
             try:
-                await _safe_send_json(websocket, _sanitize_public_step_payload(step))
+                await _safe_send_json(websocket, sanitized_step)
             except Exception as exc:  # pragma: no cover
                 logger.error("Error processing messages: %s", exc)
                 raise

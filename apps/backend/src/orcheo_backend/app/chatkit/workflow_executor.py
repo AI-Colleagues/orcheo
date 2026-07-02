@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from chatkit.errors import CustomStreamError
 from langchain_core.messages import BaseMessage
 from langchain_core.runnables import RunnableConfig
+from langgraph.types import Command
 from pydantic import BaseModel
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
@@ -42,6 +43,7 @@ from orcheo_backend.app.repository import (
     WorkflowRepository,
     WorkflowRun,
 )
+from orcheo_backend.app.workflow_execution import _sanitize_public_step_payload
 
 
 logger = logging.getLogger(__name__)
@@ -379,9 +381,12 @@ class WorkflowExecutor:
         """Create a callback that persists history then forwards UI progress."""
 
         async def _handle_step(step: Mapping[str, Any]) -> None:
-            await _append_chatkit_history_step(history_store, execution_id, step)
+            sanitized_step = _sanitize_public_step_payload(step)
+            await _append_chatkit_history_step(
+                history_store, execution_id, sanitized_step
+            )
             if progress_callback is not None:
-                await progress_callback(step)
+                await progress_callback(sanitized_step)
 
         return _handle_step
 
@@ -412,7 +417,10 @@ class WorkflowExecutor:
                     checkpointer=checkpointer,
                     store=graph_store,
                 )
-                if workspace_id is None:
+                pending_interrupts = await _pending_interrupts(compiled, config)
+                if pending_interrupts:
+                    payload = Command(resume=_resume_value_from_inputs(inputs))
+                elif workspace_id is None:
                     payload: Any = build_initial_state(
                         graph_config,
                         inputs,
@@ -451,10 +459,18 @@ class WorkflowExecutor:
                             state_snapshot_config = cast(Any, config)
                             snapshot = await compiled.aget_state(state_snapshot_config)
                             values = getattr(snapshot, "values", snapshot)
+                            interrupts = getattr(snapshot, "interrupts", ())
+                            if interrupts:
+                                return _state_with_interrupts(values, interrupts)
                             return _annotate_new_messages(values, prior_count)
 
                     prior_count = await self._checkpoint_message_count(compiled, config)
                     result = await compiled.ainvoke(payload, config=config)
+                    if isinstance(result, Mapping) and result.get("__interrupt__"):
+                        snapshot = await compiled.aget_state(cast(Any, config))
+                        values = getattr(snapshot, "values", result)
+                        interrupts = getattr(snapshot, "interrupts", ())
+                        return _state_with_interrupts(values, interrupts or result)
                     return _annotate_new_messages(result, prior_count)
 
     async def _mark_run_succeeded(
@@ -537,6 +553,73 @@ def _new_messages_from_state(final_state: Any) -> list[BaseMessage] | None:
     if not isinstance(annotated, list):
         return None
     return [message for message in annotated if isinstance(message, BaseMessage)]
+
+
+async def _pending_interrupts(compiled: Any, config: RunnableConfig) -> tuple[Any, ...]:
+    """Return interrupts currently waiting on the graph checkpoint, if any."""
+    aget_state = getattr(compiled, "aget_state", None)
+    if not callable(aget_state):
+        return ()
+    try:
+        snapshot = await aget_state(cast(Any, config))
+    except Exception:  # pragma: no cover - defensive
+        logger.debug("Failed to inspect checkpoint interrupts", exc_info=True)
+        return ()
+    interrupts = getattr(snapshot, "interrupts", ())
+    if isinstance(interrupts, tuple):
+        return interrupts
+    if isinstance(interrupts, list):
+        return tuple(interrupts)
+    return ()
+
+
+def _resume_value_from_inputs(inputs: Mapping[str, Any]) -> Any:
+    """Return the ChatKit human response payload used to resume an interrupt."""
+    message = inputs.get("message")
+    if isinstance(message, str):
+        return message
+    if message is not None:
+        return message
+    action = inputs.get("action")
+    if isinstance(action, Mapping):
+        payload = action.get("payload")
+        if payload is not None:
+            return payload
+    return dict(inputs)
+
+
+def _interrupt_value(interrupt: Any) -> Any:
+    """Extract the JSON-serializable payload from a LangGraph interrupt."""
+    if isinstance(interrupt, Mapping):
+        return interrupt.get("value", interrupt)
+    return getattr(interrupt, "value", interrupt)
+
+
+def _interrupt_message(value: Any) -> str:
+    """Return the assistant text to show for an interrupt payload."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, Mapping):
+        for key in ("message", "question", "prompt", "instruction"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate
+    return str(value)
+
+
+def _state_with_interrupts(state: Any, interrupts: Any) -> dict[str, Any]:
+    """Attach interrupt metadata and a user-facing reply to a state snapshot."""
+    if isinstance(state, Mapping):
+        state_view = dict(state)
+    else:
+        state_view = {}
+    interrupt_items = list(interrupts) if isinstance(interrupts, list | tuple) else []
+    interrupt_payloads = [_interrupt_value(item) for item in interrupt_items]
+    if not interrupt_payloads:
+        interrupt_payloads = [_interrupt_value(interrupts)]
+    state_view["__interrupt__"] = interrupt_payloads
+    state_view["assistant_message"] = _interrupt_message(interrupt_payloads[0])
+    return state_view
 
 
 def _build_reply_state(final_state: Any) -> tuple[str, Mapping[str, Any]]:

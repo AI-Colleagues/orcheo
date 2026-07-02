@@ -6,6 +6,7 @@ from uuid import UUID
 import pytest
 from chatkit.errors import CustomStreamError
 from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.types import Command
 from unittest.mock import AsyncMock
 from orcheo_backend.app.chatkit import workflow_executor as workflow_executor_module
 from orcheo_backend.app.chatkit.workflow_executor import (
@@ -549,6 +550,184 @@ async def test_execute_graph_annotates_current_turn_messages(
 
     assert result["messages"] == prior + new
     assert result[_NEW_MESSAGES_KEY] == new
+
+
+@pytest.mark.asyncio
+async def test_execute_graph_surfaces_new_interrupt_as_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A LangGraph interrupt should become a ChatKit assistant prompt."""
+
+    class DummyInterrupt:
+        value = {"message": "What is your guess?"}
+
+    class DummyCompiled:
+        async def astream(self, payload, *, config, stream_mode):
+            yield {"__interrupt__": (DummyInterrupt(),)}
+
+        async def aget_state(self, config):
+            return SimpleNamespace(
+                values={"results": {"agent": {"branch": "human"}}},
+                interrupts=(DummyInterrupt(),),
+            )
+
+    class DummyGraph:
+        def compile(self, *, checkpointer, store):
+            return DummyCompiled()
+
+    class DummyAsyncContext:
+        def __init__(self, value: object) -> None:
+            self._value = value
+
+        async def __aenter__(self) -> object:
+            return self._value
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: {})
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_checkpointer",
+        lambda settings: DummyAsyncContext("checkpointer"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_graph_store",
+        lambda settings: DummyAsyncContext("graph-store"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "build_graph", lambda graph: DummyGraph()
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "build_initial_state",
+        lambda graph_config, inputs, runtime_config=None, workspace_id=None: {
+            "inputs": dict(inputs)
+        },
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "CredentialResolver",
+        lambda vault, context=None: object(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "credential_resolution",
+        lambda resolver: nullcontext(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "tool_progress_context",
+        lambda callback: nullcontext(),
+    )
+
+    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
+    result = await executor._execute_graph(
+        workflow_id=UUID(int=0),
+        graph_config={"nodes": []},
+        inputs={"message": "hello"},
+        config={"configurable": {"thread_id": "thread"}},
+        state_config={"configurable": {"thread_id": "thread"}},
+        step_callback=lambda step: asyncio.sleep(0),
+    )
+
+    assert result["assistant_message"] == "What is your guess?"
+    assert result["__interrupt__"] == [{"message": "What is your guess?"}]
+
+
+@pytest.mark.asyncio
+async def test_execute_graph_resumes_pending_interrupt_with_chatkit_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pending checkpoint interrupt should be resumed with Command(resume=...)."""
+    captured: dict[str, object] = {}
+
+    class DummyInterrupt:
+        value = {"message": "What is your guess?"}
+
+    class DummyCompiled:
+        def __init__(self) -> None:
+            self._streamed = False
+
+        async def astream(self, payload, *, config, stream_mode):
+            captured["payload"] = payload
+            self._streamed = True
+            yield {"finish": {"assistant_message": "Correct."}}
+
+        async def aget_state(self, config):
+            if not self._streamed:
+                return SimpleNamespace(
+                    values={"messages": []}, interrupts=(DummyInterrupt(),)
+                )
+            return SimpleNamespace(
+                values={"assistant_message": "Correct.", "messages": []},
+                interrupts=(),
+            )
+
+    class DummyGraph:
+        def compile(self, *, checkpointer, store):
+            return DummyCompiled()
+
+    class DummyAsyncContext:
+        def __init__(self, value: object) -> None:
+            self._value = value
+
+        async def __aenter__(self) -> object:
+            return self._value
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: {})
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_checkpointer",
+        lambda settings: DummyAsyncContext("checkpointer"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_graph_store",
+        lambda settings: DummyAsyncContext("graph-store"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "build_graph", lambda graph: DummyGraph()
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "build_initial_state",
+        lambda *args, **kwargs: pytest.fail("resume must not build fresh state"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "CredentialResolver",
+        lambda vault, context=None: object(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "credential_resolution",
+        lambda resolver: nullcontext(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "tool_progress_context",
+        lambda callback: nullcontext(),
+    )
+
+    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
+    result = await executor._execute_graph(
+        workflow_id=UUID(int=0),
+        graph_config={"nodes": []},
+        inputs={"message": "42"},
+        config={"configurable": {"thread_id": "thread"}},
+        state_config={"configurable": {"thread_id": "thread"}},
+        step_callback=lambda step: asyncio.sleep(0),
+    )
+
+    payload = captured["payload"]
+    assert isinstance(payload, Command)
+    assert payload.resume == "42"
+    assert result["assistant_message"] == "Correct."
 
 
 @pytest.mark.asyncio
