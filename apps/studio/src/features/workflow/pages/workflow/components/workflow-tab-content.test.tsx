@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -26,6 +27,7 @@ vi.mock("@features/workflow/lib/workflow-storage-api", () => ({
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
 });
 
 vi.mock("react-router-dom", () => ({
@@ -144,7 +146,16 @@ describe("WorkflowTabContent", () => {
   });
 
   it("shows a success result banner once a run finishes", () => {
-    render(
+    const { rerender } = render(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        isRunning
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    rerender(
       <WorkflowTabContent
         {...baseProps}
         versions={[runnableVersion]}
@@ -158,8 +169,100 @@ describe("WorkflowTabContent", () => {
     );
   });
 
+  it("clears the result banner after its transient timeout", () => {
+    vi.useFakeTimers();
+
+    const { rerender } = render(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        isRunning
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    rerender(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        lastRunStatus="success"
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Workflow run succeeded. See the full trace on the Trace tab.",
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(6000);
+    });
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    rerender(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        lastRunStatus="success"
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("does not show a result banner for a run that finished while inactive", () => {
+    const { rerender } = render(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        isRunning
+        isActive={false}
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Workflow run in progress. Check the latest record on the Trace tab for live status.",
+    );
+
+    rerender(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        lastRunStatus="success"
+        isActive={false}
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    rerender(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        lastRunStatus="success"
+        isActive
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("shows a failure result banner once a run fails", () => {
-    render(
+    const { rerender } = render(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        isRunning
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    rerender(
       <WorkflowTabContent
         {...baseProps}
         versions={[runnableVersion]}

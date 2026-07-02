@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useUploadsAllowed } from "@/hooks/use-uploads-allowed";
 import {
   AlertTriangle,
@@ -60,6 +60,8 @@ import { resolveWorkflowVersionMermaidSource } from "@features/workflow/lib/work
 import { WorkflowConfigSheet } from "@features/workflow/pages/workflow/components/workflow-config-sheet";
 import type { WorkflowExecutionStatus } from "@features/workflow/pages/workflow/helpers/types";
 
+const RUN_RESULT_BANNER_TIMEOUT_MS = 6000;
+
 export interface WorkflowTabContentProps {
   workflowId: string | null;
   workflowRouteRef?: string | null;
@@ -73,6 +75,7 @@ export interface WorkflowTabContentProps {
   loadError: string | null;
   isRunPending: boolean;
   isRunning: boolean;
+  isActive?: boolean;
   lastRunStatus?: WorkflowExecutionStatus | null;
   onRunWorkflow: () => Promise<void>;
   onSaveConfig: (nextConfig: WorkflowRunnableConfig | null) => Promise<void>;
@@ -249,6 +252,7 @@ export function WorkflowTabContent({
   loadError,
   isRunPending,
   isRunning,
+  isActive = true,
   lastRunStatus = null,
   onRunWorkflow,
   onSaveConfig,
@@ -276,6 +280,10 @@ export function WorkflowTabContent({
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
   const [isMissingCredentialsDialogOpen, setIsMissingCredentialsDialogOpen] =
     useState(false);
+  const [visibleRunResultStatus, setVisibleRunResultStatus] =
+    useState<WorkflowExecutionStatus | null>(null);
+  const isRunActive = isRunPending || isRunning;
+  const wasRunActiveRef = useRef(isRunActive);
   const hasMissingCredentials = missingCredentials.length > 0;
   const canDeleteWorkflow = Boolean(workflowId);
 
@@ -401,6 +409,26 @@ export function WorkflowTabContent({
     };
   }, [mermaidCacheKey, mermaidRenderId, mermaidSource]);
 
+  useEffect(() => {
+    const didFinishRun =
+      wasRunActiveRef.current && !isRunActive && Boolean(lastRunStatus);
+    wasRunActiveRef.current = isRunActive;
+
+    if (!isActive || isRunActive || !didFinishRun || !lastRunStatus) {
+      setVisibleRunResultStatus(null);
+      return;
+    }
+
+    setVisibleRunResultStatus(lastRunStatus);
+    const timeoutId = window.setTimeout(() => {
+      setVisibleRunResultStatus(null);
+    }, RUN_RESULT_BANNER_TIMEOUT_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isActive, isRunActive, lastRunStatus]);
+
   const diagramNodes = useMemo(() => {
     if (!diagramSvg) {
       return [] as Node[];
@@ -445,10 +473,9 @@ export function WorkflowTabContent({
   const canConfigure = Boolean(workflowId);
   const hasUploadError = Boolean(uploadError);
   const uploadBlocksWorkflow = hasUploadError && !latestVersion;
-  const isRunActive = isRunPending || isRunning;
   const runResultBanner =
-    !isRunActive && lastRunStatus
-      ? resolveRunResultBanner(lastRunStatus)
+    !isRunActive && visibleRunResultStatus
+      ? resolveRunResultBanner(visibleRunResultStatus)
       : null;
   const canRun = Boolean(workflowId && latestVersion);
   const runButtonDisabled = !canRun || isRunPending || isRunning;

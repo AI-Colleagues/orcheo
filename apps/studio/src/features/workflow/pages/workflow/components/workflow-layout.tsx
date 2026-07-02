@@ -88,7 +88,10 @@ export function WorkflowLayout({
             forceMount
             className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden p-0 data-[state=inactive]:hidden"
           >
-            <WorkflowTabContent {...workflowProps} />
+            <WorkflowTabContent
+              {...workflowProps}
+              isActive={tabsProps.activeTab === "workflow"}
+            />
           </TabsContent>
 
           <TabsContent
