@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
-from pydantic import Field
+from pydantic import Field, ValidationError
 from orcheo.graph.state import State
 from orcheo.nodes.base import AINode, TaskNode
 from orcheo.nodes.qualitative.accessors import (
@@ -30,7 +30,6 @@ from orcheo.nodes.qualitative.codebook import (
     escape_markdown_table_cell,
     make_unit_id,
     parse_codebook_csv,
-    recover_exportable_codebook,
 )
 from orcheo.nodes.qualitative.coded_data import (
     build_coded_data_csv,
@@ -38,7 +37,7 @@ from orcheo.nodes.qualitative.coded_data import (
 )
 from orcheo.nodes.qualitative.constants import DEFAULT_BATCH_SIZE, MAX_CODING_BATCHES
 from orcheo.nodes.qualitative.keys import QualitativeResultKeys
-from orcheo.nodes.qualitative.models import Unit
+from orcheo.nodes.qualitative.models import Codebook, Unit
 from orcheo.nodes.qualitative.sources import SourceParser
 from orcheo.nodes.registry import NodeMetadata, registry
 from orcheo.nodes.storage import build_csv, upload_attachment
@@ -626,9 +625,9 @@ class CodebookOutputNode(AINode):
     )
 )
 class ExportCodebookNode(AINode):
-    """Export the current draft codebook as a downloadable CSV."""
+    """Export a configured codebook as a downloadable CSV."""
 
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
+    codebook: Codebook | str
     export_filename: str = "codebook.csv"
     export_mime_type: str = "text/csv"
     export_title: str = "Codebook Export"
@@ -640,11 +639,19 @@ class ExportCodebookNode(AINode):
         "codebook first."
     )
 
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        from orcheo.nodes.qualitative.accessors import get_draft_codebook
+    def _resolved_codebook(self) -> Codebook | None:
+        raw: Any = self.codebook
+        if isinstance(raw, Codebook):
+            return raw
+        if isinstance(raw, Mapping):
+            try:
+                return Codebook.model_validate(raw)
+            except ValidationError:
+                return None
+        return None
 
-        needs_persist = get_draft_codebook(state, self.result_keys) is None
-        codebook = recover_exportable_codebook(state, self.result_keys)
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        codebook = self._resolved_codebook()
         if codebook is None:
             return {"assistant_message": self.missing_codebook_message}
 
@@ -690,16 +697,7 @@ class ExportCodebookNode(AINode):
             f"{summary}\n",
             f"[Download {self.export_filename}]({csv_url})",
         ]
-        result: dict[str, Any] = {"assistant_message": "\n".join(lines)}
-        if needs_persist:
-            result["results"] = {
-                self.name: {
-                    self.result_keys.draft_codebook_field: codebook.model_dump(
-                        mode="json"
-                    )
-                }
-            }
-        return result
+        return {"assistant_message": "\n".join(lines)}
 
 
 @registry.register(

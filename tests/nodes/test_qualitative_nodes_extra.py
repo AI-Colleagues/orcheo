@@ -306,7 +306,9 @@ async def test_validate_files_codebook_and_export_nodes(
     assert "Draft Codebook" in rendered["assistant_message"]
     assert "per-run limit" in rendered["assistant_message"]
 
-    export_codebook = ExportCodebookNode(name="export_codebook")
+    export_codebook = ExportCodebookNode(
+        name="export_codebook", codebook="{{missing.codebook}}"
+    )
     missing = await export_codebook(State({"messages": []}), {})
     assert missing["assistant_message"] == export_codebook.missing_codebook_message
 
@@ -317,21 +319,23 @@ async def test_validate_files_codebook_and_export_nodes(
         "orcheo.nodes.qualitative.pipeline.upload_attachment",
         _upload_ok,
     )
+    export_codebook = ExportCodebookNode(
+        name="export_codebook", codebook="{{results.reviewed.codebook}}"
+    )
     exported = await export_codebook(
         State(
             {
-                "messages": [
-                    {
-                        "role": "assistant",
-                        "content": "## T1: Onboarding\n- `C1` **Clear setup**: Easy\n",
+                "results": {
+                    "reviewed": {
+                        "codebook": codebook.model_dump(mode="json"),
                     }
-                ]
+                }
             }
         ),
         {},
     )
     assert "Download codebook.csv" in exported["assistant_message"]
-    assert "results" in exported
+    assert "results" not in exported
 
 
 @pytest.mark.asyncio
