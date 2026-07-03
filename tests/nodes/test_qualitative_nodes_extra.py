@@ -160,13 +160,8 @@ async def test_context_pre_setup_ingest_and_quality_nodes(
     assert resolved["attachments"][0]["filename"] == "attached.txt"
     assert resolved["attachments"][0]["content"] == "café"
 
-    keys = QualitativeResultKeys(
-        pending_documents_field="attachments",
-        pending_documents_producers=("load_attachments",),
-    )
     setup = SetupNode(
         name="setup",
-        result_keys=keys,
         resolve_codebook=True,
         resolve_seed_codebook=True,
         exclude_codebook_docs=True,
@@ -264,7 +259,7 @@ async def test_ingest_node_uses_loaded_attachments_without_setup() -> None:
 
     result = (await node(state, {}))["results"]["ingest"]
 
-    assert "halt" not in result
+    assert result["halt"] is False
     assert result["source_payload"]["filename"] == "survey.csv"
     assert result["unit_count"] == 1
     assert result["units"][0]["text"] == "Loaded attachment text"

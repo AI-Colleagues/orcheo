@@ -278,7 +278,7 @@ async def test_validate_files_node_accepts_coded_data() -> None:
 
 @pytest.mark.asyncio
 async def test_setup_node_persists_objective_and_source_payload() -> None:
-    node = SetupNode(name="setup", result_keys=QualitativeResultKeys())
+    node = SetupNode(name="setup")
     state = State(
         {
             "inputs": {
@@ -303,13 +303,8 @@ async def test_setup_node_persists_objective_and_source_payload() -> None:
 
 @pytest.mark.asyncio
 async def test_setup_node_resolves_seed_codebook_without_using_it_as_source() -> None:
-    keys = QualitativeResultKeys(
-        pending_documents_field="attachments",
-        pending_documents_producers=("load_attachments",),
-    )
     node = SetupNode(
         name="setup",
-        result_keys=keys,
         resolve_seed_codebook=True,
         exclude_codebook_docs=True,
     )
@@ -344,7 +339,7 @@ async def test_setup_node_resolves_seed_codebook_without_using_it_as_source() ->
 
 @pytest.mark.asyncio
 async def test_ingest_node_parses_survey_rows() -> None:
-    node = IngestNode(name="ingest", result_keys=QualitativeResultKeys())
+    node = IngestNode(name="ingest")
     state = State(
         {
             "results": {
@@ -393,7 +388,6 @@ async def test_router_dispatch_node() -> None:
 async def test_codebook_output_renders_markdown_table() -> None:
     node = CodebookOutputNode(
         name="codebook_output",
-        result_keys=QualitativeResultKeys(),
         title="Theme Analyst",
     )
     codebook = Codebook(

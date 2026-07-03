@@ -1,8 +1,7 @@
 """Setup, ingest, validation, and output nodes for qualitative flows.
 
-These nodes keep a shared shape and are specialised per workflow purely through
-init arguments (result-key wiring, classification mode, messages), so the Theme
-Analyst, Theme Coding Analyst, and Insight Reporter all reuse them.
+These nodes keep a shared shape and are specialised per workflow through init
+arguments for classification mode and user-facing messages.
 """
 
 # ruff: noqa: C901, D102, PLR0912, PLR0915
@@ -11,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
-from pydantic import Field, ValidationError
+from pydantic import ValidationError
 from orcheo.graph.state import State
 from orcheo.nodes.base import AINode, TaskNode
 from orcheo.nodes.qualitative.accessors import (
@@ -21,6 +20,7 @@ from orcheo.nodes.qualitative.accessors import (
     get_approved_codebook,
     get_code_assignments,
     get_configurable,
+    get_draft_codebook,
     get_pending_documents,
     get_quality_report,
     get_research_objective,
@@ -39,12 +39,20 @@ from orcheo.nodes.qualitative.coded_data import (
     parse_coded_data_csv,
 )
 from orcheo.nodes.qualitative.constants import DEFAULT_BATCH_SIZE, MAX_CODING_BATCHES
-from orcheo.nodes.qualitative.keys import QualitativeResultKeys
 from orcheo.nodes.qualitative.models import Codebook, Unit
 from orcheo.nodes.qualitative.sources import SourceParser
 from orcheo.nodes.registry import NodeMetadata, registry
 from orcheo.nodes.storage import build_csv, upload_attachment
 from orcheo.runtime.results import node_result
+
+
+_APPROVED_CODEBOOK_FIELD = "approved_codebook"
+_PENDING_DOCUMENTS_FIELD = "pending_documents"
+_RESEARCH_OBJECTIVE_FIELD = "research_objective"
+_SEED_CODEBOOK_FIELD = "seed_codebook_from_file"
+_SOURCE_PAYLOAD_FIELD = "source_payload"
+_UNITS_FIELD = "units"
+# TODO: consider removing these constants
 
 
 def _decode_attachment_content(raw: bytes) -> str | None:
@@ -70,6 +78,12 @@ class LoadAttachmentNode(TaskNode):
     input_key: str = "documents"
     output_field: str = "attachments"
 
+    def _result(self, attachments: list[dict[str, Any]]) -> dict[str, Any]:
+        result = {self.output_field: attachments}
+        if self.output_field != _PENDING_DOCUMENTS_FIELD:
+            result[_PENDING_DOCUMENTS_FIELD] = attachments
+        return result
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         configurable = get_configurable(config)
         attachment_resolver = configurable.get("attachment_resolver")
@@ -79,7 +93,7 @@ class LoadAttachmentNode(TaskNode):
         attachments: list[dict[str, Any]] = []
 
         if not isinstance(documents, list):
-            return {self.output_field: attachments}
+            return self._result(attachments)
 
         for document in documents:
             if not isinstance(document, Mapping):
@@ -156,7 +170,7 @@ class LoadAttachmentNode(TaskNode):
                 }
             )
 
-        return {self.output_field: attachments}
+        return self._result(attachments)
 
 
 @registry.register(
@@ -338,7 +352,6 @@ class ValidateFilesNode(TaskNode):
 class SetupNode(TaskNode):
     """Resolve the research objective, source payload, and optional codebook."""
 
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
     research_objective_input_key: str = "research_objective"
     research_objective_config_key: str = "research_objective"
     source_config_key: str = "source"
@@ -369,27 +382,26 @@ class SetupNode(TaskNode):
             )
             objective = cfg_objective.strip() if isinstance(cfg_objective, str) else ""
 
-        existing_objective = get_research_objective(state, self.result_keys)
+        existing_objective = get_research_objective(state)
         effective_objective = existing_objective or ""
         if objective and is_vacuous(existing_objective or ""):
             effective_objective = objective
         if effective_objective:
-            result[self.result_keys.research_objective_field] = effective_objective
+            result[_RESEARCH_OBJECTIVE_FIELD] = effective_objective
         result[self.objective_field] = effective_objective or "(not provided)"
 
     def _resolve_source(
         self, state: State, config: RunnableConfig
     ) -> dict[str, Any] | None:
-        keys = self.result_keys
         if self.source_kind == "coded_data":
-            for doc in get_pending_documents(state, keys):
+            for doc in get_pending_documents(state):
                 content = doc.get("content") or ""
                 if content and parse_coded_data_csv(content) is not None:
                     return {"content": content, "filename": doc.get("filename")}
             return None
 
         if self.exclude_codebook_docs:
-            for doc in get_pending_documents(state, keys):  # pragma: no branch
+            for doc in get_pending_documents(state):  # pragma: no branch
                 content = doc.get("content") or ""
                 if not content:
                     continue
@@ -418,7 +430,7 @@ class SetupNode(TaskNode):
             documents_key=self.documents_input_key,
         )
         if candidate is None:
-            for doc in get_pending_documents(state, keys):
+            for doc in get_pending_documents(state):
                 if doc.get("content"):
                     return {
                         "content": doc["content"],
@@ -429,38 +441,32 @@ class SetupNode(TaskNode):
         return candidate
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        keys = self.result_keys
         result: dict[str, Any] = {}
 
         if self.resolve_objective:
             self._resolve_objective(state, config, result)
 
-        if get_source_payload(state, keys) is None:
+        if get_source_payload(state) is None:
             candidate = self._resolve_source(state, config)
             if candidate:
-                result[keys.source_payload_field] = candidate
+                result[_SOURCE_PAYLOAD_FIELD] = candidate
 
-        if self.resolve_codebook and get_approved_codebook(state, keys) is None:
-            for doc in get_pending_documents(state, keys):
+        if self.resolve_codebook and get_approved_codebook(state) is None:
+            for doc in get_pending_documents(state):
                 content = doc.get("content") or ""
                 codebook = parse_codebook_csv(
                     content, reject_coded_data=self.source_kind == "coded_data"
                 )
                 if codebook is not None:
-                    result[keys.approved_codebook_field] = codebook.model_dump(
-                        mode="json"
-                    )
+                    result[_APPROVED_CODEBOOK_FIELD] = codebook.model_dump(mode="json")
                     break
 
-        if (
-            self.resolve_seed_codebook
-            and get_seed_codebook_from_file(state, keys) is None
-        ):
-            for doc in get_pending_documents(state, keys):
+        if self.resolve_seed_codebook and get_seed_codebook_from_file(state) is None:
+            for doc in get_pending_documents(state):
                 content = doc.get("content") or ""
                 codebook = parse_codebook_csv(content, reject_coded_data=True)
                 if codebook is not None:
-                    result[keys.seed_codebook_field] = codebook.model_dump(mode="json")
+                    result[_SEED_CODEBOOK_FIELD] = codebook.model_dump(mode="json")
                     break
 
         return result
@@ -476,7 +482,6 @@ class SetupNode(TaskNode):
 class IngestNode(TaskNode):
     """Parse the source payload into ``Unit`` records."""
 
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
     source_payload: Any | None = None
     pending_documents: Any | None = None
     approved_codebook: Any | None = None
@@ -494,10 +499,9 @@ class IngestNode(TaskNode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        keys = self.result_keys
         approved_codebook = coerce_model(self.approved_codebook, Codebook)
         if approved_codebook is None:
-            approved_codebook = get_approved_codebook(state, keys)
+            approved_codebook = get_approved_codebook(state)
         if self.require_codebook and approved_codebook is None:
             return {"assistant_message": self.missing_codebook_message, "halt": True}
 
@@ -507,7 +511,7 @@ class IngestNode(TaskNode):
             else None
         )
         if source_payload is None:
-            source_payload = get_source_payload(state, keys)
+            source_payload = get_source_payload(state)
         if source_payload is None:
             source_payload = SourceParser.normalise_payload(
                 state, config, documents_key=self.documents_input_key
@@ -520,7 +524,7 @@ class IngestNode(TaskNode):
         if not records:
             pending_documents = coerce_pending_documents(self.pending_documents)
             if not pending_documents:
-                pending_documents = get_pending_documents(state, keys)
+                pending_documents = get_pending_documents(state)
             for doc in pending_documents:
                 content = doc.get("content") or ""
                 if not content:
@@ -559,10 +563,10 @@ class IngestNode(TaskNode):
             "halt": False,
             "unit_count": len(units),
             self.source_type_field: source_type,
-            keys.units_field: [u.model_dump(mode="json") for u in units],
+            _UNITS_FIELD: [u.model_dump(mode="json") for u in units],
         }
         if source_payload is not None:
-            result[keys.source_payload_field] = {
+            result[_SOURCE_PAYLOAD_FIELD] = {
                 **dict(source_payload),
                 "source_type": source_type,
             }
@@ -579,7 +583,6 @@ class IngestNode(TaskNode):
 class CodebookOutputNode(AINode):
     """Render the produced draft codebook as a Markdown table for review."""
 
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
     codebook: Any | None = None
     research_objective: str | None = None
     units: Any | None = None
@@ -598,8 +601,6 @@ class CodebookOutputNode(AINode):
     max_coding_batches: int = MAX_CODING_BATCHES
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        from orcheo.nodes.qualitative.accessors import get_draft_codebook
-
         early_halt = node_result(state, self.ingest_node_name)
         if early_halt.get("halt"):
             msg = early_halt.get("assistant_message", self.failed_ingest_message)
@@ -607,13 +608,13 @@ class CodebookOutputNode(AINode):
 
         codebook = coerce_model(self.codebook, Codebook)
         if codebook is None:
-            codebook = get_draft_codebook(state, self.result_keys)
+            codebook = get_draft_codebook(state)
         if codebook is None:
             return {"assistant_message": self.no_codebook_message}
 
         research_objective = self.research_objective
         if not research_objective:
-            research_objective = get_research_objective(state, self.result_keys)
+            research_objective = get_research_objective(state)
         lines = [f"# {self.title} - Draft Codebook\n"]
         if research_objective:
             lines.append(f"**Research objective:** {research_objective}\n")
@@ -647,7 +648,7 @@ class CodebookOutputNode(AINode):
 
         units = coerce_model_list(self.units, Unit)
         if not units:
-            units = get_units(state, self.result_keys)
+            units = get_units(state)
         unit_total = len(units)
         batch_size = get_configurable(config).get(
             self.batch_size_config_key, self.default_batch_size
@@ -758,7 +759,6 @@ class ExportCodebookNode(AINode):
 class RecodeOutputNode(AINode):
     """Render the recoded data as the workflow output with a CSV download."""
 
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
     ingest_node_name: str = "ingest"
     recoder_finalize_node: str = "recoder_finalize"
     export_filename: str = "coded_data.csv"
@@ -768,7 +768,6 @@ class RecodeOutputNode(AINode):
     default_batch_size: int = DEFAULT_BATCH_SIZE
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        keys = self.result_keys
         early = node_result(state, self.ingest_node_name)
         if early.get("halt"):
             return {
@@ -777,8 +776,8 @@ class RecodeOutputNode(AINode):
                 )
             }
 
-        codebook = get_approved_codebook(state, keys)
-        assignments = get_code_assignments(state, keys)
+        codebook = get_approved_codebook(state)
+        assignments = get_code_assignments(state)
         if not assignments:
             return {
                 "assistant_message": (
@@ -787,7 +786,7 @@ class RecodeOutputNode(AINode):
                 )
             }
 
-        units = get_units(state, keys)
+        units = get_units(state)
         csv_content, total_assignments = (
             build_coded_data_csv(units, assignments, codebook)
             if codebook is not None
@@ -814,7 +813,7 @@ class RecodeOutputNode(AINode):
         elif export_error:
             lines.append(f"_Could not generate the download link: {export_error}_\n")
 
-        report = get_quality_report(state, keys)
+        report = get_quality_report(state)
         if report:
             lines.append(
                 f"**Quality:** {report.flagged_units}/{report.total_units}"
@@ -854,7 +853,6 @@ class RecodeOutputNode(AINode):
 class ExportCodedDataNode(AINode):
     """Serialise coded units and code assignments to a CSV download link."""
 
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
     export_filename: str = "coded_data.csv"
     export_mime_type: str = "text/csv"
     export_title: str = "Coded Data Export"
@@ -863,10 +861,9 @@ class ExportCodedDataNode(AINode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        keys = self.result_keys
-        codebook = get_approved_codebook(state, keys)
-        units = get_units(state, keys)
-        assignments = get_code_assignments(state, keys)
+        codebook = get_approved_codebook(state)
+        units = get_units(state)
+        assignments = get_code_assignments(state)
         if codebook is None or not units or not assignments:
             return {"assistant_message": self.missing_data_message}
 

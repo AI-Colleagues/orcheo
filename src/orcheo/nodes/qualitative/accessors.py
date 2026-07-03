@@ -122,6 +122,10 @@ def get_pending_documents(
     value = first_result_field(
         state, keys.pending_documents_field, keys.pending_documents_producers
     )
+    if value is None:
+        value = first_result_field(
+            state, "attachments", keys.pending_documents_producers
+        )
     return coerce_pending_documents(value)
 
 
