@@ -29,6 +29,20 @@ if TYPE_CHECKING:  # pragma: no cover - typing-only import
 logger = logging.getLogger(__name__)
 _SINGLE_TEMPLATE_PATTERN = re.compile(r"^\s*\{\{\s*([^{}]+?)\s*\}\}\s*$")
 _TEMPLATE_PATTERN = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
+_TASK_NODE_STATE_FIELDS = frozenset({"inputs", "messages"})
+
+
+def build_task_state_update(name: str, serialized_result: Any) -> dict[str, Any]:
+    """Return the graph state update for a TaskNode result payload."""
+    output: dict[str, Any] = {}
+    result_payload = serialized_result
+    if isinstance(serialized_result, Mapping):
+        result_payload = dict(serialized_result)
+        for field in _TASK_NODE_STATE_FIELDS:
+            if field in result_payload:
+                output[field] = result_payload.pop(field)
+    output["results"] = {name: result_payload}
+    return output
 
 
 class BaseRunnable(BaseModel):
@@ -464,7 +478,7 @@ class TaskNode(BaseNode):
             runnable._clear_trace_metadata_for_run()
             raise
         serialized_result = runnable._serialize_result(result)
-        output: dict[str, Any] = {"results": {self.name: serialized_result}}
+        output = build_task_state_update(runnable.name, serialized_result)
         return cast(dict[str, Any], runnable._attach_trace_metadata(output))
 
     @abstractmethod

@@ -8,7 +8,11 @@ from langchain_core.messages import AIMessage
 from pydantic import BaseModel
 
 from orcheo.graph.state import State
-from orcheo.nodes.logic import FinalReplyNode, StructuredRouterDispatchNode
+from orcheo.nodes.logic import (
+    ExtractAIMessageNode,
+    FinalReplyNode,
+    StructuredRouterDispatchNode,
+)
 from orcheo.nodes.qualitative.accessors import (
     _coerce_model,
     _coerce_models,
@@ -369,6 +373,16 @@ async def test_routing_nodes_route_and_respond() -> None:
     assert (await reply(State({"assistant_message": "  hi  "}), {}))[
         "assistant_message"
     ] == "  hi  "
+
+    extractor = ExtractAIMessageNode(
+        name="extract_ai_message",
+        fallback_message="fallback",
+    )
+    assert (
+        await extractor(
+            State({"structured_response": {"assistant_message": "done"}}), {}
+        )
+    )["assistant_message"] == "done"
 
 
 def test_accessor_helpers_and_report_data_cover_all_accessors() -> None:

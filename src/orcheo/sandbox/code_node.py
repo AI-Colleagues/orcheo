@@ -3,8 +3,8 @@
 In restricted mode the trusted IR graph builder binds each ``CodeNodeSpec`` to a
 :class:`SandboxCodeNode`. At run time the node resolves ``{{state}}`` templates in
 its injected config (host-side), marshals the JSON inputs envelope, executes the
-body in the MicroPython-WASM sandbox off the event loop, and merges the returned
-update back like a vanilla LangGraph node update. Limit breaches, non-JSON
+body in the MicroPython-WASM sandbox off the event loop, and wraps the returned
+payload under ``results.<node_id>`` like ``TaskNode``. Limit breaches, non-JSON
 outputs, and in-sandbox exceptions surface as structured, node-attributed errors
 and are counted in :class:`SandboxMetrics`.
 """
@@ -19,7 +19,7 @@ from langchain_core.runnables import RunnableConfig
 from orcheo.graph.ir.builder import CodeNodeFactory, build_state_graph_from_ir
 from orcheo.graph.ir.models import CodeNodeSpec, GraphIR
 from orcheo.graph.state import State
-from orcheo.nodes.base import BaseRunnable
+from orcheo.nodes.base import BaseRunnable, build_task_state_update
 from orcheo.sandbox.exceptions import (
     SandboxError,
     SandboxExecutionError,
@@ -63,7 +63,7 @@ class SandboxCodeNode:
         self.name = spec.id
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Execute the CodeNode body in the sandbox and return its update."""
+        """Execute the CodeNode body in the sandbox and return its state update."""
         self.metrics.invocations += 1
         inputs = self._marshal_inputs(state, config)
         try:
@@ -102,7 +102,7 @@ class SandboxCodeNode:
         )
 
     def _interpret_outputs(self, outputs: Mapping[str, Any]) -> dict[str, Any]:
-        """Translate the outputs envelope into a state update or raise."""
+        """Translate the outputs envelope into a TaskNode-shaped state update."""
         if "error" in outputs:
             self.metrics.execution_errors += 1
             error = outputs["error"]
@@ -121,14 +121,14 @@ class SandboxCodeNode:
             raise SandboxExecutionError(
                 str(message), node_id=self.spec.id, error_type=error_type
             )
-        update = outputs.get("update")
-        if not isinstance(update, Mapping):
+        payload = outputs.get("update")
+        if not isinstance(payload, Mapping):
             self.metrics.output_errors += 1
             raise SandboxOutputError(
                 "sandbox 'update' must be a JSON object", node_id=self.spec.id
             )
         self.metrics.successes += 1
-        return dict(update)
+        return build_task_state_update(self.spec.id, dict(payload))
 
 
 def make_code_node_factory(

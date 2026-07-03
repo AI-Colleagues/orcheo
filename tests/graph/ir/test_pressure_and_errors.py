@@ -35,7 +35,7 @@ CONFORMED = """
         async def run(self, state, config):
             score = state["results"]["score"]["value"]
             verdict = "pass" if score >= self.threshold else "fail"
-            return {"results": {"verdict": verdict}}
+            return {"verdict": verdict}
 
     async def orcheo_workflow() -> StateGraph:
         graph = StateGraph(State)
@@ -45,7 +45,10 @@ CONFORMED = """
         graph.add_edge("score", "grade")
         graph.add_conditional_edges(
             "grade",
-            {"path": "results.verdict", "mapping": {"pass": "score", "fail": END}},
+            {
+                "path": "results.grade.verdict",
+                "mapping": {"pass": "score", "fail": END},
+            },
         )
         return graph
     """
@@ -136,7 +139,7 @@ def test_config_value_error_carries_line_number() -> None:
 
         class Secret(CodeNode):
             async def run(self, state, config):
-                return {"results": {"x": self.token}}
+                return {"x": self.token}
 
         async def orcheo_workflow():
             graph = StateGraph(State)
@@ -163,7 +166,7 @@ def test_builtin_allowlist_error_carries_line_number() -> None:
 
         class Bad(CodeNode):
             async def run(self, state, config):
-                return {"results": {"x": eval("1+1")}}
+                return {"x": eval("1+1")}
 
         async def orcheo_workflow():
             graph = StateGraph(State)

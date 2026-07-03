@@ -28,7 +28,7 @@ class Verdict(CodeNode):
     threshold: int = 8
 
     async def run(self, state, config):
-        return {"results": {"v": self.threshold}}
+        return {"v": self.threshold}
 
 
 async def orcheo_workflow() -> StateGraph:

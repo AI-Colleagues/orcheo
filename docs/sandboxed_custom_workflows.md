@@ -114,7 +114,7 @@ class Grade(CodeNode):
     async def run(self, state, config):
         score = state["results"]["score"]["value"]
         verdict = "pass" if score >= self.threshold else "fail"
-        return {"results": {"verdict": verdict}}   # vanilla state update
+        return {"verdict": verdict}   # stored under results.grade
 
 
 async def orcheo_workflow() -> StateGraph:
@@ -131,10 +131,9 @@ Rules enforced at ingestion (line-referenced):
 - **No dunder names or attributes** (`__builtins__`, `__class__`,
   `__subclasses__`, `__globals__`, …), which would otherwise let a body recover
   builtins/imports the allowlist blocks.
-- The body **returns a state-update mapping** (merged like a vanilla LangGraph
-  node update, respecting the state channel reducers — it is *not* wrapped under
-  `results.<name>`). At least one `return <value>` must appear in `run` itself,
-  not only inside a nested helper function.
+- The body **returns this node's result payload**. Runtime execution wraps it
+  under `results.<name>`, matching `TaskNode`. At least one `return <value>` must
+  appear in `run` itself, not only inside a nested helper function.
 - It may reference only its **injected fields** (`self.<field>`) plus the passed
   `state` and `config`.
 - It may use only **supported MicroPython builtins** (see below).

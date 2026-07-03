@@ -36,7 +36,7 @@ TRANSFORM_WORKFLOW = """
 
         async def run(self, state, config):
             value = state["results"]["setter"]["value"]
-            return {"results": {"doubled": value * self.factor}}
+            return {"doubled": value * self.factor}
 
     async def orcheo_workflow() -> StateGraph:
         graph = StateGraph(State)
@@ -61,7 +61,7 @@ async def test_end_to_end_transform_and_merge_back() -> None:
     result = await compiled.ainvoke({"inputs": {}})
 
     # factor=3 (constructor kwarg) overrides the class default of 2.
-    assert result["results"]["doubled"] == 63
+    assert result["results"]["doubler"] == {"doubled": 63}
     assert result["results"]["setter"] == {"value": 21}
     assert metrics.invocations == 1
     assert metrics.successes == 1
@@ -76,7 +76,7 @@ async def test_merge_back_respects_results_reducer() -> None:
     result = await compiled.ainvoke({"inputs": {}})
 
     # Both the built-in setter result and the CodeNode result coexist.
-    assert set(result["results"]) >= {"setter", "doubled"}
+    assert set(result["results"]) >= {"setter", "doubler"}
 
 
 @pytest.mark.asyncio
@@ -93,7 +93,7 @@ async def test_state_template_in_injected_config_is_resolved() -> None:
             label: str = "x"
 
             async def run(self, state, config):
-                return {"results": {"echo": self.label}}
+                return {"echo": self.label}
 
         async def orcheo_workflow() -> StateGraph:
             graph = StateGraph(State)
@@ -113,7 +113,7 @@ async def test_state_template_in_injected_config_is_resolved() -> None:
 
     result = await compiled.ainvoke({"inputs": {}})
 
-    assert result["results"]["echo"] == "world"
+    assert result["results"]["echo"] == {"echo": "world"}
 
 
 @pytest.mark.asyncio
@@ -130,7 +130,7 @@ async def test_limit_breach_raises_node_attributed_error() -> None:
                 x = 0
                 while True:
                     x = x + 1
-                return {"results": {"x": x}}
+                return {"x": x}
 
         async def orcheo_workflow() -> StateGraph:
             graph = StateGraph(State)
@@ -163,7 +163,7 @@ async def test_body_exception_propagates_as_execution_error() -> None:
         class Boom(CodeNode):
             async def run(self, state, config):
                 raise ValueError("nope")
-                return {"results": {}}
+                return {}
 
         async def orcheo_workflow() -> StateGraph:
             graph = StateGraph(State)
@@ -194,6 +194,32 @@ def test_factory_matches_builder_contract() -> None:
 
     assert node.name == "c"
     assert callable(node)
+
+
+def test_interpret_outputs_hoists_reserved_state_fields() -> None:
+    """Sandboxed CodeNode state updates match TaskNode reserved-field handling."""
+    from orcheo.graph.ir.models import CodeNodeSpec
+
+    node = SandboxCodeNode(
+        CodeNodeSpec(id="code", body="return {}"),
+        object(),  # type: ignore[arg-type]
+    )
+
+    result = node._interpret_outputs(
+        {
+            "update": {
+                "inputs": {"message": "hello"},
+                "messages": [{"role": "user", "content": "hello"}],
+                "value": 1,
+            }
+        }
+    )
+
+    assert result == {
+        "inputs": {"message": "hello"},
+        "messages": [{"role": "user", "content": "hello"}],
+        "results": {"code": {"value": 1}},
+    }
 
 
 class _RaisingRunner:

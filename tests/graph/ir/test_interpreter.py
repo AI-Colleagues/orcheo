@@ -37,7 +37,7 @@ class Verdict(CodeNode):
 
     async def run(self, state, config):
         score = state["results"]["setter"]["value"]
-        return {"results": {"verdict": "pass" if score >= self.threshold else "fail"}}
+        return {"verdict": "pass" if score >= self.threshold else "fail"}
 
 
 async def orcheo_workflow() -> StateGraph:
@@ -48,7 +48,7 @@ async def orcheo_workflow() -> StateGraph:
     graph.add_edge("setter", "verdict")
     graph.add_conditional_edges(
         "verdict",
-        {"path": "results.verdict", "mapping": {"pass": "setter", "fail": END}},
+        {"path": "results.verdict.verdict", "mapping": {"pass": "setter", "fail": END}},
     )
     return graph
 '''
@@ -393,7 +393,7 @@ def test_credential_in_code_node_config_rejected() -> None:
 
             class Secret(CodeNode):
                 async def run(self, state, config):
-                    return {"results": {"x": self.token}}
+                    return {"x": self.token}
 
             def orcheo_workflow():
                 graph = StateGraph(State)
@@ -467,7 +467,7 @@ def test_code_body_unsupported_construct_rejected() -> None:
             class Bad(CodeNode):
                 async def run(self, state, config):
                     data = await fetch()
-                    return {"results": {"x": data}}
+                    return {"x": data}
 
             def orcheo_workflow():
                 graph = StateGraph(State)
@@ -502,7 +502,7 @@ def test_collects_all_class_field_kinds_and_trailing_members() -> None:
             c = 3
 
             async def run(self, state, config):
-                return {"results": {"v": self.a}}
+                return {"v": self.a}
 
             d: int = 4
 

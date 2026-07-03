@@ -252,6 +252,28 @@ async def test_task_node_call() -> None:
 
 
 @pytest.mark.asyncio
+async def test_task_node_call_hoists_reserved_state_fields() -> None:
+    class StateUpdatingNode(TaskNode):
+        async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+            del state, config
+            return {
+                "inputs": {"message": "hello"},
+                "messages": [{"role": "user", "content": "hello"}],
+                "result": "kept",
+            }
+
+    node = StateUpdatingNode(name="state_updater")
+
+    result = await node(State({"results": {}}), RunnableConfig())
+
+    assert result == {
+        "inputs": {"message": "hello"},
+        "messages": [{"role": "user", "content": "hello"}],
+        "results": {"state_updater": {"result": "kept"}},
+    }
+
+
+@pytest.mark.asyncio
 async def test_task_node_call_re_resolves_templates_per_invocation() -> None:
     node = MockTaskNode(name="test_task", input_var="{{payload.value}}")
 

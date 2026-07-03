@@ -43,8 +43,10 @@ from orcheo.nodes.data import (
 )
 from orcheo.nodes.logic import (
     DelayNode,
+    ExtractAIMessageNode,
     FinalReplyNode,
     ForLoopNode,
+    HumanInputNode,
     SetVariableNode,
     StructuredRouterDispatchNode,
 )
@@ -136,6 +138,8 @@ __all__ = [
     "SetVariableNode",
     "DelayNode",
     "ForLoopNode",
+    "HumanInputNode",
+    "ExtractAIMessageNode",
     "StructuredRouterDispatchNode",
     "FinalReplyNode",
     "QualitativeResultKeys",

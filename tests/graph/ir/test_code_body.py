@@ -25,12 +25,12 @@ def test_extract_body_dedents_multiline() -> None:
         "class X(CodeNode):\n"
         "    async def run(self, state, config):\n"
         "        score = state['x']\n"
-        "        return {'results': {'y': score}}\n"
+        "        return {'y': score}\n"
     )
 
     body = extract_run_body(source, func)
 
-    assert body == "score = state['x']\nreturn {'results': {'y': score}}"
+    assert body == "score = state['x']\nreturn {'y': score}"
 
 
 def test_extract_body_handles_single_line_def() -> None:
@@ -49,7 +49,7 @@ def test_valid_body_passes() -> None:
     source, func = _run_func(
         "class X(CodeNode):\n"
         "    async def run(self, state, config):\n"
-        "        return {'results': {'v': self.threshold}}\n"
+        "        return {'v': self.threshold}\n"
     )
 
     validate_code_body(func, injected={"threshold"}, node_id="x")
@@ -128,7 +128,7 @@ def test_body_return_inside_nested_function_does_not_satisfy_requirement() -> No
         "        helper()\n"
     )
 
-    with pytest.raises(WorkflowValidationError, match="must return a state-update"):
+    with pytest.raises(WorkflowValidationError, match="must return a node result"):
         validate_code_body(func, injected=set(), node_id="x")
 
 

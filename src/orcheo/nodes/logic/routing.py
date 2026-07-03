@@ -112,4 +112,43 @@ class FinalReplyNode(AINode):
         return {"assistant_message": reply, "messages": [AIMessage(content=reply)]}
 
 
-__all__ = ["FinalReplyNode", "StructuredRouterDispatchNode"]
+@registry.register(
+    NodeMetadata(
+        name="ExtractAIMessageNode",
+        description="Extract a text AI message from a structured response",
+        category="logic",
+    )
+)
+class ExtractAIMessageNode(AINode):
+    """Extract a text assistant message from structured agent output."""
+
+    structured_response_key: str = Field(
+        default="structured_response",
+        description="State key carrying the structured response",
+    )
+    message_field: str = Field(
+        default="assistant_message",
+        description="Structured response field carrying the assistant text",
+    )
+    fallback_message: str = Field(
+        default="Sorry, something went wrong. Please try again later.",
+        description="Reply used when the structured response omits text",
+    )
+
+    def _response_value(self, response: Any, field: str) -> Any:
+        if isinstance(response, Mapping):
+            return response.get(field)
+        if isinstance(response, BaseModel) and hasattr(response, field):
+            return getattr(response, field)
+        return getattr(response, field, None)
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Return extracted text as both state and an assistant message."""
+        response = state.get(self.structured_response_key)
+        reply = self._response_value(response, self.message_field)
+        if not isinstance(reply, str) or not reply.strip():
+            reply = self.fallback_message
+        return {"assistant_message": reply, "messages": [AIMessage(content=reply)]}
+
+
+__all__ = ["ExtractAIMessageNode", "FinalReplyNode", "StructuredRouterDispatchNode"]

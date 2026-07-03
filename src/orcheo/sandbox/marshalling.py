@@ -1,4 +1,4 @@
-"""Marshal CodeNode sandbox inputs and merge outputs back into state.
+"""Marshal CodeNode sandbox inputs and outputs.
 
 The sandbox receives a JSON-coercible envelope ``{state, config, configurable}``:
 
@@ -9,9 +9,8 @@ The sandbox receives a JSON-coercible envelope ``{state, config, configurable}``
 * ``configurable`` — the node's injected ``self.<field>`` values (credential-free
   and expected to be JSON-coercible).
 
-The returned update is merged back like a vanilla LangGraph node update: the
-``CodeNode`` runnable returns the mapping and LangGraph applies the state channel
-reducers.
+The returned payload is wrapped by the sandbox ``CodeNode`` runnable under
+``results.<node_id>``, matching the unrestricted ``TaskNode`` execution path.
 """
 
 from __future__ import annotations

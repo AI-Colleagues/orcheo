@@ -15,19 +15,18 @@ class _Doubler(CodeNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         value = state["results"]["setter"]["value"]
-        return {"results": {"doubled": value * self.factor}}
+        return {"doubled": value * self.factor}
 
 
 @pytest.mark.asyncio
-async def test_call_runs_in_process_and_returns_vanilla_update() -> None:
-    """Calling a CodeNode in-process returns ``run()``'s update unwrapped."""
+async def test_call_wraps_run_payload_under_results_node_name() -> None:
+    """Calling a CodeNode stores ``run()``'s payload under results.<name>."""
     node = _Doubler(name="doubler", factor=3)
     state = State({"results": {"setter": {"value": 21}}})
 
     result = await node(state, {})
 
-    # The update is merged straight through, not wrapped under results.<name>.
-    assert result == {"results": {"doubled": 63}}
+    assert result == {"results": {"doubler": {"doubled": 63}}}
 
 
 @pytest.mark.asyncio
@@ -38,14 +37,14 @@ async def test_call_resolves_templated_injected_config() -> None:
         label: str = "x"
 
         async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-            return {"results": {"echo": self.label}}
+            return {"echo": self.label}
 
     node = _Echo(name="echo", label="{{results.setter.who}}")
     state = State({"results": {"setter": {"who": "world"}}})
 
     result = await node(state, {})
 
-    assert result == {"results": {"echo": "world"}}
+    assert result == {"results": {"echo": {"echo": "world"}}}
 
 
 @pytest.mark.asyncio

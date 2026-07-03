@@ -9,7 +9,7 @@ sandbox:
 * no ``import`` statements,
 * no ``await`` / async constructs (the body is a pure synchronous transform),
 * no generator ``yield``,
-* at least one ``return`` of a value (the state-update mapping), and
+* at least one ``return`` of a value (the node result payload), and
 * ``self.<field>`` access restricted to the node's injected fields.
 
 The MicroPython builtin allowlist check is layered on top in Milestone 3.
@@ -147,7 +147,7 @@ def _require_return_value(run_func: RunFunction, *, node_id: str) -> None:
     )
     if not has_return_value:
         raise WorkflowValidationError(
-            f"CodeNode '{node_id}' body must return a state-update mapping",
+            f"CodeNode '{node_id}' body must return a node result payload",
             lineno=run_func.lineno,
         )
 

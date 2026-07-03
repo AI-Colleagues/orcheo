@@ -28,7 +28,7 @@ _IR_WORKFLOW = textwrap.dedent(
 
         async def run(self, state, config):
             value = state["results"]["setter"]["value"]
-            return {"results": {"doubled": value * self.factor}}
+            return {"doubled": value * self.factor}
 
     async def orcheo_workflow() -> StateGraph:
         graph = StateGraph(State)

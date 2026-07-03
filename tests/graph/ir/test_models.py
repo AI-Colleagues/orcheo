@@ -28,7 +28,7 @@ def _sample_ir() -> GraphIR:
                 id="verdict",
                 config={"threshold": 8},
                 injected=["threshold"],
-                body='return {"results": {"verdict": "pass"}}',
+                body='return {"verdict": "pass"}',
             ),
         ],
         edges=[
@@ -38,7 +38,7 @@ def _sample_ir() -> GraphIR:
         conditional_edges=[
             ConditionalEdgeSpec(
                 source="verdict",
-                path="results.verdict",
+                path="results.verdict.verdict",
                 mapping={"pass": "approve", "fail": "__end__"},
             )
         ],
