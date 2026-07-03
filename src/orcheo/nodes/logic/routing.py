@@ -87,33 +87,6 @@ class StructuredRouterDispatchNode(AINode):
 
 @registry.register(
     NodeMetadata(
-        name="FinalReplyNode",
-        description="Surface the final assistant message for a workflow turn",
-        category="logic",
-    )
-)
-class FinalReplyNode(AINode):
-    """Return the current assistant message, with a fallback if needed."""
-
-    assistant_message_key: str = Field(
-        default="assistant_message",
-        description="State key that carries the reply text",
-    )
-    fallback_message: str = Field(
-        default="Sorry, something went wrong. Please try again later.",
-        description="Reply used when no assistant message is present",
-    )
-
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Return the reply as both state and an appended assistant message."""
-        reply = state.get(self.assistant_message_key)
-        if not isinstance(reply, str) or not reply.strip():
-            reply = self.fallback_message
-        return {"assistant_message": reply, "messages": [AIMessage(content=reply)]}
-
-
-@registry.register(
-    NodeMetadata(
         name="ExtractAIMessageNode",
         description="Extract a text AI message from a structured response",
         category="logic",
@@ -151,4 +124,4 @@ class ExtractAIMessageNode(AINode):
         return {"assistant_message": reply, "messages": [AIMessage(content=reply)]}
 
 
-__all__ = ["ExtractAIMessageNode", "FinalReplyNode", "StructuredRouterDispatchNode"]
+__all__ = ["ExtractAIMessageNode", "StructuredRouterDispatchNode"]

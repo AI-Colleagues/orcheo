@@ -1,4 +1,4 @@
-"""Context, setup, ingest, validation, and output nodes for qualitative flows.
+"""Setup, ingest, validation, and output nodes for qualitative flows.
 
 These nodes keep a shared shape and are specialised per workflow purely through
 init arguments (result-key wiring, classification mode, messages), so the Theme
@@ -38,107 +38,292 @@ from orcheo.nodes.qualitative.coded_data import (
 )
 from orcheo.nodes.qualitative.constants import DEFAULT_BATCH_SIZE, MAX_CODING_BATCHES
 from orcheo.nodes.qualitative.keys import QualitativeResultKeys
-from orcheo.nodes.qualitative.models import Codebook, Unit
+from orcheo.nodes.qualitative.models import Unit
 from orcheo.nodes.qualitative.sources import SourceParser
 from orcheo.nodes.registry import NodeMetadata, registry
 from orcheo.nodes.storage import build_csv, upload_attachment
 from orcheo.runtime.results import node_result
 
 
+def _decode_attachment_content(raw: bytes) -> str | None:
+    """Decode attachment bytes using the text encodings supported by workflows."""
+    for encoding in ("utf-8", "latin-1"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return None
+
+
 @registry.register(
     NodeMetadata(
-        name="ContextPreNode",
-        description="Load file content and build a source hint for the router",
+        name="LoadAttachmentNode",
+        description="Resolve uploaded attachments into readable payloads",
         category="workflow",
     )
 )
-class ContextPreNode(TaskNode):
-    """Load uploaded documents and provide a short source hint."""
+class LoadAttachmentNode(TaskNode):
+    """Load attachment content from inputs, storage paths, or attachment resolver."""
 
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
-    documents_input_key: str = "documents"
-    source_hint_field: str = "source_hint"
-    pending_documents_field: str = "pending_documents"
+    input_key: str = "documents"
+    output_field: str = "attachments"
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        configurable = (config or {}).get("configurable") or {}
+        configurable = get_configurable(config)
         attachment_resolver = configurable.get("attachment_resolver")
         attachment_scope = configurable.get("attachment_scope")
         inputs = state.get("inputs") if isinstance(state, Mapping) else {}
-        result: dict[str, Any] = {}
+        documents = inputs.get(self.input_key) if isinstance(inputs, Mapping) else []
+        attachments: list[dict[str, Any]] = []
 
-        pending_docs = get_pending_documents(state, self.result_keys)
-        if not pending_docs:
-            documents = (
-                inputs.get(self.documents_input_key)
-                if isinstance(inputs, Mapping)
-                else []
+        if not isinstance(documents, list):
+            return {self.output_field: attachments}
+
+        for document in documents:
+            if not isinstance(document, Mapping):
+                continue
+            filename_value = (
+                document.get("filename")
+                or document.get("name")
+                or document.get("source")
+                or ""
             )
-            if isinstance(documents, list) and documents:
-                pending: list[dict[str, Any]] = []
-                for doc in documents:
-                    if not isinstance(doc, Mapping):
-                        continue
-                    content: str = doc.get("content") or ""
-                    filename = (
-                        doc.get("filename")
-                        or doc.get("name")
-                        or doc.get("source")
-                        or ""
-                    )
-                    storage_path = doc.get("storage_path")
-                    attachment_id = doc.get("attachment_id")
+            filename = str(filename_value) if filename_value else ""
+            attachment_id = document.get("attachment_id")
+            storage_path = document.get("storage_path")
+            errors: list[str] = []
+            source = "input"
+            raw_content = document.get("content")
+            content = raw_content if isinstance(raw_content, str) else ""
+            content_type = document.get("content_type") or document.get("mime_type")
 
-                    if attachment_id and attachment_resolver and attachment_scope:
-                        try:
-                            payload = await attachment_resolver.load_attachment_bytes(
-                                attachment_id, attachment_scope
-                            )
-                            for enc in ("utf-8", "latin-1"):  # pragma: no branch
-                                try:
-                                    content = payload.content.decode(enc)
-                                    break
-                                except UnicodeDecodeError:
-                                    continue
-                            if not filename:
-                                filename = getattr(payload, "name", "") or ""
-                        except Exception:  # noqa: BLE001
-                            pass
-
-                    if not content and storage_path:
-                        try:
-                            with open(storage_path, "rb") as fh:
-                                raw = fh.read()
-                            for enc in ("utf-8", "latin-1"):  # pragma: no branch
-                                try:
-                                    content = raw.decode(enc)
-                                    break
-                                except UnicodeDecodeError:
-                                    continue
-                        except Exception:  # noqa: BLE001
-                            pass
-
-                    if content:
-                        pending.append(
-                            {
-                                "content": content,
-                                "filename": filename or None,
-                                "source_type": doc.get("source_type"),
-                            }
+            if not content and attachment_id:
+                if attachment_resolver is None or not attachment_scope:
+                    errors.append("attachment resolver is unavailable")
+                else:
+                    try:
+                        payload = await attachment_resolver.load_attachment_bytes(
+                            attachment_id, attachment_scope
                         )
-                if pending:
-                    pending_docs = pending
-                    result[self.pending_documents_field] = pending
+                        raw = getattr(payload, "content", b"")
+                        decoded = (
+                            _decode_attachment_content(raw)
+                            if isinstance(raw, bytes)
+                            else None
+                        )
+                        if decoded is None:
+                            errors.append("attachment content is not readable text")
+                        else:
+                            content = decoded
+                            source = "attachment_resolver"
+                        filename = filename or getattr(payload, "name", "") or ""
+                        content_type = (
+                            content_type
+                            or getattr(payload, "content_type", None)
+                            or getattr(payload, "mime_type", None)
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        errors.append(str(exc) or "failed to load attachment")
 
-        if not pending_docs:
-            result[self.source_hint_field] = "No files loaded yet."
-            return result
+            if not content and storage_path:
+                try:
+                    with open(storage_path, "rb") as fh:
+                        raw = fh.read()
+                    decoded = _decode_attachment_content(raw)
+                    if decoded is None:
+                        errors.append("stored attachment is not readable text")
+                    else:
+                        content = decoded
+                        source = "storage"
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(str(exc) or "failed to load stored attachment")
 
-        filenames = [d.get("filename") or "unnamed" for d in pending_docs]
-        result[self.source_hint_field] = (
-            f"{len(pending_docs)} file(s) loaded: {', '.join(filenames)}"
+            if not content and not errors:
+                errors.append("no readable content found")
+
+            attachments.append(
+                {
+                    "filename": filename or "unnamed",
+                    "content": content,
+                    "content_type": content_type,
+                    "source_type": document.get("source_type"),
+                    "source": source,
+                    "attachment_id": attachment_id,
+                    "storage_path": storage_path,
+                    "errors": errors,
+                }
+            )
+
+        return {self.output_field: attachments}
+
+
+@registry.register(
+    NodeMetadata(
+        name="ValidateFilesNode",
+        description="Validate qualitative data files and optional codebooks",
+        category="workflow",
+    )
+)
+class ValidateFilesNode(TaskNode):
+    """Validate loaded qualitative files and return a minimal normalized payload."""
+
+    attachments_node_name: str = "load_attachments"
+    attachments_field: str = "attachments"
+    data_kind: Literal["raw", "coded"] = "raw"
+    require_codebook: bool = False
+    flexible_columns: bool = False
+
+    def _attachments(self, state: State) -> list[dict[str, Any]]:
+        result = node_result(state, self.attachments_node_name)
+        attachments = result.get(self.attachments_field)
+        if not isinstance(attachments, list):
+            return []
+        return [dict(item) for item in attachments if isinstance(item, Mapping)]
+
+    def _classify_raw_data(
+        self, content: str, filename: str, source_type: str | None
+    ) -> dict[str, Any] | None:
+        payload = {
+            "filename": filename,
+            "content": content,
+            "source_type": source_type,
+            "storage_path": None,
+        }
+        records, source_type = SourceParser.parse_payload(
+            payload,
+            allow_additional_sources=True,
+            flexible_columns=self.flexible_columns,
         )
-        return result
+        if not records:
+            return None
+        return {
+            "filename": filename,
+            "kind": "raw",
+            "source_type": source_type,
+            "record_count": len(records),
+        }
+
+    def _classify_coded_data(
+        self, content: str, filename: str
+    ) -> dict[str, Any] | None:
+        parsed = parse_coded_data_csv(content)
+        if parsed is None:
+            return None
+        units, assignments, _ = parsed
+        assignment_count = sum(len(item.assignments) for item in assignments)
+        return {
+            "filename": filename,
+            "kind": "coded",
+            "unit_count": len(units),
+            "assignment_count": assignment_count,
+        }
+
+    def _assistant_message(self, nested: Mapping[str, Any]) -> str:
+        errors = nested.get("errors")
+        if isinstance(errors, list) and errors:
+            lines = ["File validation failed."]
+            lines.extend(f"- {error}" for error in errors)
+            return "\n".join(lines)
+
+        data_file = nested.get("data_file")
+        codebook_file = nested.get("codebook_file")
+        parts: list[str] = []
+        if isinstance(data_file, Mapping):
+            filename = str(data_file.get("filename") or "data file")
+            kind = data_file.get("kind")
+            if kind == "raw":
+                source_type = data_file.get("source_type")
+                record_count = data_file.get("record_count")
+                detail = f"{record_count} record(s)"
+                if source_type:
+                    detail = f"{detail}, {source_type}"
+                parts.append(f"data file `{filename}` ({detail})")
+            elif kind == "coded":
+                unit_count = data_file.get("unit_count")
+                assignment_count = data_file.get("assignment_count")
+                parts.append(
+                    f"coded data file `{filename}` "
+                    f"({unit_count} unit(s), {assignment_count} assignment(s))"
+                )
+            else:
+                parts.append(f"data file `{filename}`")
+        if isinstance(codebook_file, Mapping):
+            filename = str(codebook_file.get("filename") or "codebook")
+            parts.append(f"codebook `{filename}`")
+
+        if not parts:
+            return "Files look valid."
+        return f"Files look valid: found {' and '.join(parts)}."
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        attachments = self._attachments(state)
+        errors: list[str] = []
+        data_files: list[dict[str, Any]] = []
+        codebook_files: list[dict[str, Any]] = []
+
+        if not attachments:
+            errors.append("No attachments were loaded.")
+
+        for attachment in attachments:
+            filename = str(attachment.get("filename") or "unnamed")
+            attachment_errors = attachment.get("errors")
+            if isinstance(attachment_errors, list) and attachment_errors:
+                errors.extend(f"{filename}: {err}" for err in attachment_errors)
+                continue
+
+            content = attachment.get("content")
+            if not isinstance(content, str) or not content.strip():
+                errors.append(f"{filename}: no readable content found")
+                continue
+
+            coded_file = self._classify_coded_data(content, filename)
+            if coded_file is not None:
+                if self.data_kind == "coded":
+                    data_files.append(coded_file)
+                else:
+                    errors.append(
+                        f"{filename}: coded data was uploaded, but raw data is expected"
+                    )
+                continue
+
+            codebook = parse_codebook_csv(content, reject_coded_data=True)
+            if codebook is not None:
+                codebook_files.append({"filename": filename, "present": True})
+                continue
+
+            if self.data_kind == "raw":
+                raw_source_type = attachment.get("source_type")
+                raw_file = self._classify_raw_data(
+                    content,
+                    filename,
+                    raw_source_type if isinstance(raw_source_type, str) else None,
+                )
+                if raw_file is not None:
+                    data_files.append(raw_file)
+                    continue
+
+            expected = "coded data CSV" if self.data_kind == "coded" else "raw data"
+            errors.append(f"{filename}: could not parse as {expected} or codebook CSV")
+
+        if not data_files:
+            errors.append("No valid data file found.")
+        elif len(data_files) > 1:
+            errors.append("Multiple data files found; provide exactly one.")
+
+        if len(codebook_files) > 1:
+            errors.append("Multiple codebook files found; provide at most one.")
+        if self.require_codebook and not codebook_files:
+            errors.append("No valid codebook CSV found.")
+
+        ok = not errors
+        nested: dict[str, Any] = {"ok": ok, "errors": errors}
+        if len(data_files) == 1:
+            nested["data_file"] = data_files[0]
+        if len(codebook_files) == 1:
+            nested["codebook_file"] = codebook_files[0]
+        nested["assistant_message"] = self._assistant_message(nested)
+
+        return nested
 
 
 @registry.register(
@@ -344,192 +529,6 @@ class IngestNode(TaskNode):
                 **dict(source_payload),
                 "source_type": source_type,
             }
-        return result
-
-
-@registry.register(
-    NodeMetadata(
-        name="FileValidatorNode",
-        description="Validate uploaded source files and codebooks",
-        category="workflow",
-    )
-)
-class FileValidatorNode(AINode):
-    """Validate uploaded files and classify them by role."""
-
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
-    data_file_kind: Literal["raw", "coded", "auto"] = "raw"
-    require_codebook: bool = False
-    single_data_file: bool = False
-    flexible_columns: bool = False
-    codebook_result_field: str | None = None
-    coded_data_result_field: str | None = None
-    seed_codebook_result_field: str | None = None
-    codebook_role_label: str = "seed codebook"
-    announce_seed_codebook: bool = True
-    no_files_message: str = (
-        "No files are loaded. Please upload your data file (CSV or transcript) "
-        "before validating."
-    )
-    missing_data_message: str = ""
-    ready_message: str = "Ready — call the next step."
-    error_message: str = "Issues found — please fix the errors above before proceeding."
-    seed_codebook_message: str = (
-        "Seed codebook detected — the pipeline will run in hybrid mode, merging "
-        "your codebook with emergent codes."
-    )
-
-    def _classify(
-        self, content: str, filename: str
-    ) -> tuple[str, dict[str, Any] | None, Codebook | None, str]:
-        """Return (kind, data_payload, codebook, line) for one document."""
-        if self.data_file_kind in {"coded", "auto"}:
-            coded = parse_coded_data_csv(content)
-            if coded is not None:
-                units, assignments, _ = coded
-                total = sum(len(a.assignments) for a in assignments)
-                payload: dict[str, Any] = {"content": content, "filename": filename}
-                line = (
-                    f"✓ `{filename}` — coded data "
-                    f"({len(units)} units, {total} assignments)"
-                )
-                kind = "coded_data" if self.data_file_kind == "auto" else "data"
-                return kind, payload, None, line
-
-        codebook = parse_codebook_csv(
-            content, reject_coded_data=self.data_file_kind in {"coded", "auto"}
-        )
-        if codebook is not None:
-            theme_count = len(codebook.themes)
-            code_count = sum(len(t.subthemes) for t in codebook.themes)
-            line = (
-                f"✓ `{filename}` — {self.codebook_role_label} "
-                f"({theme_count} themes, {code_count} codes)"
-            )
-            return "codebook", None, codebook, line
-
-        if self.data_file_kind in {"raw", "auto"}:  # pragma: no branch
-            payload = {
-                "content": content,
-                "filename": filename,
-                "source_type": None,
-                "storage_path": None,
-            }
-            records, source_type = SourceParser.parse_payload(
-                payload,
-                allow_additional_sources=True,
-                flexible_columns=self.flexible_columns,
-            )
-            if records:
-                line = (
-                    f"✓ `{filename}` — {source_type} data file ({len(records)} records)"
-                )
-                kind = "raw_data" if self.data_file_kind == "auto" else "data"
-                return kind, {**payload, "source_type": source_type}, None, line
-
-        line = f"✗ `{filename}` — unrecognised format"
-        return "unknown", None, None, line
-
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        keys = self.result_keys
-        pending = get_pending_documents(state, keys)
-        if not pending:
-            return {"assistant_message": self.no_files_message}
-
-        result_lines: list[str] = ["## File Validation\n"]
-        errors: list[str] = []
-        data_payload: dict[str, Any] | None = None
-        coded_data_payload: dict[str, Any] | None = None
-        codebook_data: Codebook | None = None
-        data_count = 0
-        coded_data_count = 0
-        codebook_count = 0
-
-        for doc in pending:
-            content = doc.get("content", "")
-            filename = doc.get("filename") or "unnamed"
-            if not content:
-                reason = doc.get("load_error") or "no readable content found"
-                errors.append(f"'{filename}' — {reason}")
-                result_lines.append(f"✗ `{filename}` — {reason}")
-                continue
-            kind, payload, codebook, line = self._classify(content, filename)
-            result_lines.append(line)
-            if kind == "data":
-                data_payload = payload
-                data_count += 1
-            elif kind == "raw_data":
-                data_payload = payload
-                data_count += 1
-            elif kind == "coded_data":
-                coded_data_payload = payload
-                coded_data_count += 1
-            elif kind == "codebook":
-                codebook_data = codebook
-                codebook_count += 1
-            else:
-                errors.append(
-                    f"'{filename}' — could not parse as a data file or codebook"
-                )
-
-        has_data = data_count > 0 or coded_data_count > 0
-        if not has_data and self.missing_data_message:
-            errors.append(self.missing_data_message)
-        if self.single_data_file and data_count > 1:
-            errors.append("Multiple data files were uploaded; please provide one.")
-        if self.single_data_file and coded_data_count > 1:
-            errors.append(
-                "Multiple coded data files were uploaded; please provide one."
-            )
-        if codebook_count > 1:
-            errors.append(
-                "Multiple codebook CSV files were uploaded; please provide one."
-            )
-        if self.require_codebook and codebook_data is None:
-            errors.append("No valid codebook CSV was found.")
-
-        is_valid = (
-            has_data
-            and not errors
-            and (codebook_data is not None or not self.require_codebook)
-        )
-
-        nested: dict[str, Any] = {}
-        if data_payload is not None and get_source_payload(state, keys) is None:
-            nested[keys.source_payload_field] = data_payload
-        if coded_data_payload is not None:
-            nested[self.coded_data_result_field or keys.source_payload_field] = (
-                coded_data_payload
-            )
-        if codebook_data is not None:
-            target = self.codebook_result_field or keys.seed_codebook_field
-            already = (
-                get_seed_codebook_from_file(state, keys)
-                if target == keys.seed_codebook_field
-                else get_approved_codebook(state, keys)
-            )
-            if already is None:
-                nested[target] = codebook_data.model_dump(mode="json")
-            seed_target = self.seed_codebook_result_field
-            if (
-                seed_target is not None
-                and get_seed_codebook_from_file(state, keys) is None
-            ):
-                nested[seed_target] = codebook_data.model_dump(mode="json")
-
-        if errors:
-            result_lines.append("\n**Errors:**")
-            for err in errors:
-                result_lines.append(f"- {err}")
-        result_lines.append(
-            f"\n**Status:** {self.ready_message if is_valid else self.error_message}"
-        )
-        if codebook_data is not None and self.announce_seed_codebook:
-            result_lines.append(f"\n**{self.seed_codebook_message}**")
-
-        result: dict[str, Any] = {"assistant_message": "\n".join(result_lines)}
-        if nested:
-            result["results"] = {self.name: nested}
         return result
 
 
@@ -849,11 +848,11 @@ class ExportCodedDataNode(AINode):
 
 __all__ = [
     "CodebookOutputNode",
-    "ContextPreNode",
     "ExportCodebookNode",
     "ExportCodedDataNode",
-    "FileValidatorNode",
     "IngestNode",
+    "LoadAttachmentNode",
     "RecodeOutputNode",
     "SetupNode",
+    "ValidateFilesNode",
 ]

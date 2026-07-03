@@ -348,6 +348,8 @@ class LLMStageFinalizeNode(TaskNode):
                     )
                 except Exception:  # noqa: BLE001
                     pass
+            if structured is not None and response_schema is None:
+                return structured
             messages = raw.get("messages")
             if isinstance(messages, list):
                 for msg in reversed(messages):
@@ -401,11 +403,13 @@ class LLMStageFinalizeNode(TaskNode):
                 "done": True,
             }
         direct = self._extract_llm_response(state, self.response_schema)
-        result = (
-            direct
-            if isinstance(direct, OpenCodingBatchResponse)
-            else OpenCodingBatchResponse()
-        )
+        if isinstance(direct, OpenCodingBatchResponse):
+            result = direct
+        else:
+            try:
+                result = OpenCodingBatchResponse.model_validate(direct)
+            except Exception:  # noqa: BLE001
+                result = OpenCodingBatchResponse()
         for a in result.assignments:
             if a.assignments:
                 existing_by_unit[a.unit_id] = a
@@ -433,13 +437,15 @@ class LLMStageFinalizeNode(TaskNode):
             codebook = None
         else:
             direct = self._extract_llm_response(state, self.response_schema)
-            result = (
-                direct
-                if isinstance(direct, CodebookConsolidationResponse)
-                else CodebookConsolidationResponse(
-                    codebook=fallback_codebook(get_code_assignments(state, keys))
-                )
-            )
+            if isinstance(direct, CodebookConsolidationResponse):
+                result = direct
+            else:
+                try:
+                    result = CodebookConsolidationResponse.model_validate(direct)
+                except Exception:  # noqa: BLE001
+                    result = CodebookConsolidationResponse(
+                        codebook=fallback_codebook(get_code_assignments(state, keys))
+                    )
             codebook = normalise_codebook_ids(result.codebook)
             seed_codebook = get_seed_codebook(config, state, keys)
             if seed_codebook is not None:

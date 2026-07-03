@@ -109,13 +109,13 @@ from orcheo.nodes.qualitative.models import (
 )
 from orcheo.nodes.qualitative.pipeline import (
     CodebookOutputNode,
-    ContextPreNode,
     ExportCodebookNode,
     ExportCodedDataNode,
-    FileValidatorNode,
     IngestNode,
+    LoadAttachmentNode,
     RecodeOutputNode,
     SetupNode,
+    ValidateFilesNode,
 )
 from orcheo.nodes.qualitative.quality import (
     DataQualityNode,
@@ -265,11 +265,11 @@ __all__ = [
     "LLMStagePrepareNode",
     # pipeline
     "CodebookOutputNode",
-    "ContextPreNode",
     "ExportCodebookNode",
     "ExportCodedDataNode",
-    "FileValidatorNode",
     "IngestNode",
+    "LoadAttachmentNode",
     "RecodeOutputNode",
     "SetupNode",
+    "ValidateFilesNode",
 ]

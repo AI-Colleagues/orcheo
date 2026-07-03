@@ -10,7 +10,6 @@ from pydantic import BaseModel
 from orcheo.graph.state import State
 from orcheo.nodes.logic import (
     ExtractAIMessageNode,
-    FinalReplyNode,
     StructuredRouterDispatchNode,
 )
 from orcheo.nodes.qualitative.accessors import (
@@ -368,16 +367,11 @@ async def test_routing_nodes_route_and_respond() -> None:
     assert responded["assistant_message"] == "fallback"
     assert responded["results"]["router"]["routing"] == "respond"
 
-    reply = FinalReplyNode(name="reply", fallback_message="fallback")
-    assert (await reply(State({}), {}))["assistant_message"] == "fallback"
-    assert (await reply(State({"assistant_message": "  hi  "}), {}))[
-        "assistant_message"
-    ] == "  hi  "
-
     extractor = ExtractAIMessageNode(
         name="extract_ai_message",
         fallback_message="fallback",
     )
+    assert (await extractor(State({}), {}))["assistant_message"] == "fallback"
     assert (
         await extractor(
             State({"structured_response": {"assistant_message": "done"}}), {}

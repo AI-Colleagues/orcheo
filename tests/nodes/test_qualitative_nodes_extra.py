@@ -27,13 +27,13 @@ from orcheo.nodes.qualitative.models import (
 )
 from orcheo.nodes.qualitative.pipeline import (
     CodebookOutputNode,
-    ContextPreNode,
     ExportCodebookNode,
     ExportCodedDataNode,
-    FileValidatorNode,
     IngestNode,
+    LoadAttachmentNode,
     RecodeOutputNode,
     SetupNode,
+    ValidateFilesNode,
 )
 from orcheo.nodes.qualitative.quality import DataQualityNode
 from orcheo.nodes.qualitative.quantify import CodedDataIngestNode
@@ -133,9 +133,9 @@ async def test_context_pre_setup_ingest_and_quality_nodes(
         async def load_attachment_bytes(self, attachment_id, attachment_scope):  # noqa: ARG002
             return _Attachment(b"caf\xe9", "attached.txt")
 
-    context_pre = ContextPreNode(name="context_pre")
+    load_attachments = LoadAttachmentNode(name="load_attachments")
     resolved = (
-        await context_pre(
+        await load_attachments(
             State(
                 {
                     "inputs": {
@@ -156,16 +156,17 @@ async def test_context_pre_setup_ingest_and_quality_nodes(
                 }
             },
         )
-    )["results"]["context_pre"]
-    assert "attached.txt" in resolved["source_hint"]
+    )["results"]["load_attachments"]
+    assert resolved["attachments"][0]["filename"] == "attached.txt"
+    assert resolved["attachments"][0]["content"] == "café"
 
-    pending = (await context_pre(State({"results": {"context_pre": resolved}}), {}))[
-        "results"
-    ]["context_pre"]
-    assert "file(s) loaded" in pending["source_hint"]
-
+    keys = QualitativeResultKeys(
+        pending_documents_field="attachments",
+        pending_documents_producers=("load_attachments",),
+    )
     setup = SetupNode(
         name="setup",
+        result_keys=keys,
         resolve_codebook=True,
         resolve_seed_codebook=True,
         exclude_codebook_docs=True,
@@ -174,8 +175,8 @@ async def test_context_pre_setup_ingest_and_quality_nodes(
         {
             "inputs": {"research_objective": "Understand onboarding"},
             "results": {
-                "context_pre": {
-                    "pending_documents": [
+                "load_attachments": {
+                    "attachments": [
                         {
                             "filename": "codebook.csv",
                             "content": (
@@ -225,34 +226,29 @@ async def test_context_pre_setup_ingest_and_quality_nodes(
 
 
 @pytest.mark.asyncio
-async def test_file_validator_codebook_and_export_nodes(
+async def test_validate_files_codebook_and_export_nodes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    validator = FileValidatorNode(
+    validator = ValidateFilesNode(
         name="validate_files",
-        data_file_kind="auto",
-        single_data_file=True,
         require_codebook=True,
-        codebook_result_field="approved_codebook",
-        coded_data_result_field="coded_payload",
-        seed_codebook_result_field="seed_codebook_from_file",
-        announce_seed_codebook=False,
     )
     no_files = await validator(State({"results": {}}), {})
-    assert "No files are loaded" in no_files["assistant_message"]
+    assert "assistant_message" not in no_files
+    assert no_files["results"]["validate_files"]["assistant_message"].startswith(
+        "File validation failed."
+    )
+    assert (
+        "No attachments were loaded." in no_files["results"]["validate_files"]["errors"]
+    )
 
     codebook = _codebook()
-    csv_text, _ = build_coded_data_csv(
-        _units(),
-        _assignments(),
-        codebook,
-    )
     validation_state = State(
         {
             "results": {
-                "context_pre": {
-                    "pending_documents": [
+                "load_attachments": {
+                    "attachments": [
                         {"filename": "survey.csv", "content": "id,text\n1,Hello\n"},
                         {
                             "filename": "codebook.csv",
@@ -261,11 +257,6 @@ async def test_file_validator_codebook_and_export_nodes(
                                 "T1,Onboarding,C1,Clear setup,Easy\n"
                             ),
                         },
-                        {"filename": "coded_data.csv", "content": csv_text},
-                        {
-                            "filename": "survey-2.csv",
-                            "content": "id,text\n2,Another response\n",
-                        },
                     ]
                 }
             }
@@ -273,10 +264,19 @@ async def test_file_validator_codebook_and_export_nodes(
     )
     validated_result = await validator(validation_state, {})
     validated = validated_result["results"]["validate_files"]
-    assert "Multiple data files" in validated_result["assistant_message"]
-    assert validated["source_payload"]["filename"] in {"survey.csv", "survey-2.csv"}
-    assert validated["coded_payload"]["filename"] == "coded_data.csv"
-    assert validated["approved_codebook"]["themes"][0]["theme_id"] == "T1"
+    assert "assistant_message" not in validated_result
+    assert validated["assistant_message"] == (
+        "Files look valid: found data file `survey.csv` "
+        "(1 record(s), survey_csv) and codebook `codebook.csv`."
+    )
+    assert validated["ok"] is True
+    assert validated["data_file"]["filename"] == "survey.csv"
+    assert "content" not in validated["data_file"]
+    assert "codebook" not in validated
+    assert validated["codebook_file"] == {
+        "filename": "codebook.csv",
+        "present": True,
+    }
 
     codebook_output = CodebookOutputNode(
         name="codebook_output",

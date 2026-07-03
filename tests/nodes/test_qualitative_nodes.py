@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import pytest
+from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 
 from orcheo.graph.state import State
-from orcheo.nodes.logic import FinalReplyNode, StructuredRouterDispatchNode
+from orcheo.nodes.logic import StructuredRouterDispatchNode
 from orcheo.nodes.qualitative import (
     CodeAssignment,
     CodeAssignmentEntry,
@@ -12,15 +13,16 @@ from orcheo.nodes.qualitative import (
     CodebookOutputNode,
     CodedDataIngestNode,
     DataQualityNode,
-    FileValidatorNode,
     IngestNode,
     LLMStageFinalizeNode,
+    LoadAttachmentNode,
     QualitativeResultKeys,
     RecodingBatchResponse,
     SetupNode,
     Subtheme,
     Theme,
     Unit,
+    ValidateFilesNode,
     build_coded_data_csv,
     merge_codebooks,
     parse_coded_data_csv,
@@ -65,6 +67,216 @@ _CHAINED_REPORT_KEYS = QualitativeResultKeys(
 
 
 @pytest.mark.asyncio
+async def test_load_attachment_node_loads_inline_documents() -> None:
+    node = LoadAttachmentNode(name="load_attachments")
+    state = State(
+        {
+            "inputs": {
+                "documents": [
+                    {
+                        "filename": "survey.csv",
+                        "content": "id,text\n1,Clear setup.\n",
+                        "content_type": "text/csv",
+                    }
+                ]
+            }
+        }
+    )
+
+    result = await node(state, RunnableConfig())
+
+    attachments = result["results"]["load_attachments"]["attachments"]
+    assert attachments == [
+        {
+            "filename": "survey.csv",
+            "content": "id,text\n1,Clear setup.\n",
+            "content_type": "text/csv",
+            "source_type": None,
+            "source": "input",
+            "attachment_id": None,
+            "storage_path": None,
+            "errors": [],
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_validate_files_node_accepts_raw_data_and_codebook() -> None:
+    load_result = await LoadAttachmentNode(name="load_attachments")(
+        State(
+            {
+                "inputs": {
+                    "documents": [
+                        {
+                            "filename": "survey.csv",
+                            "content": "id,text\n1,Clear setup.\n",
+                        },
+                        {
+                            "filename": "codebook.csv",
+                            "content": (
+                                "theme_id,theme_title,code_id,code_title,definition\n"
+                                "T1,Onboarding,C1,Clear setup,Easy setup\n"
+                            ),
+                        },
+                    ]
+                }
+            }
+        ),
+        RunnableConfig(),
+    )
+    node = ValidateFilesNode(name="validate_files")
+
+    result = await node(State(load_result), RunnableConfig())
+
+    validated = result["results"]["validate_files"]
+    assert "assistant_message" not in result
+    assert validated["assistant_message"] == (
+        "Files look valid: found data file `survey.csv` "
+        "(1 record(s), survey_csv) and codebook `codebook.csv`."
+    )
+    assert validated["ok"] is True
+    assert validated["errors"] == []
+    assert validated["data_file"]["filename"] == "survey.csv"
+    assert validated["data_file"]["kind"] == "raw"
+    assert validated["data_file"]["source_type"] == "survey_csv"
+    assert "content" not in validated["data_file"]
+    assert validated["data_file"]["record_count"] == 1
+    assert "codebook" not in validated
+    assert validated["codebook_file"] == {
+        "filename": "codebook.csv",
+        "present": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_validate_files_node_rejects_coded_data_when_raw_expected() -> None:
+    codebook = _simple_codebook()
+    csv_text, _ = build_coded_data_csv(
+        [
+            Unit(
+                unit_id="U0001",
+                record_id="R1",
+                source="survey",
+                text="Clear setup.",
+                original_text="Clear setup.",
+            )
+        ],
+        [
+            CodeAssignment(
+                unit_id="U0001",
+                assignments=[CodeAssignmentEntry(code_id="C1", confidence=0.9)],
+            )
+        ],
+        codebook,
+    )
+    state = State(
+        {
+            "results": {
+                "load_attachments": {
+                    "attachments": [
+                        {
+                            "filename": "coded_data.csv",
+                            "content": csv_text,
+                            "errors": [],
+                        }
+                    ]
+                }
+            }
+        }
+    )
+
+    result = await ValidateFilesNode(name="validate_files")(state, RunnableConfig())
+
+    validated = result["results"]["validate_files"]
+    assert "assistant_message" not in result
+    assert validated["assistant_message"].startswith("File validation failed.")
+    assert "raw data is expected" in validated["assistant_message"]
+    assert validated["ok"] is False
+    assert "No valid data file found." in validated["errors"]
+    assert any("raw data is expected" in error for error in validated["errors"])
+
+
+@pytest.mark.asyncio
+async def test_validate_files_node_ignores_legacy_data_field_override() -> None:
+    state = State(
+        {
+            "results": {
+                "load_attachments": {
+                    "attachments": [
+                        {
+                            "filename": "survey.csv",
+                            "content": "id,text\n1,Clear setup.\n",
+                            "errors": [],
+                        }
+                    ]
+                }
+            }
+        }
+    )
+    node = ValidateFilesNode(name="validate_files", data_field="source_payload")
+
+    result = await node(state, RunnableConfig())
+
+    validated = result["results"]["validate_files"]
+    assert "source_payload" not in validated
+    assert validated["data_file"]["filename"] == "survey.csv"
+    assert "Files look valid" in validated["assistant_message"]
+
+
+@pytest.mark.asyncio
+async def test_validate_files_node_accepts_coded_data() -> None:
+    csv_text, _ = build_coded_data_csv(
+        [
+            Unit(
+                unit_id="U0001",
+                record_id="R1",
+                source="survey",
+                text="Clear setup.",
+                original_text="Clear setup.",
+            )
+        ],
+        [
+            CodeAssignment(
+                unit_id="U0001",
+                assignments=[CodeAssignmentEntry(code_id="C1", confidence=0.9)],
+            )
+        ],
+        _simple_codebook(),
+    )
+    state = State(
+        {
+            "results": {
+                "load_attachments": {
+                    "attachments": [
+                        {
+                            "filename": "coded_data.csv",
+                            "content": csv_text,
+                            "errors": [],
+                        }
+                    ]
+                }
+            }
+        }
+    )
+    node = ValidateFilesNode(name="validate_files", data_kind="coded")
+
+    result = await node(state, RunnableConfig())
+
+    validated = result["results"]["validate_files"]
+    assert validated["assistant_message"] == (
+        "Files look valid: found coded data file `coded_data.csv` "
+        "(1 unit(s), 1 assignment(s))."
+    )
+    assert validated["ok"] is True
+    assert validated["errors"] == []
+    assert validated["data_file"]["filename"] == "coded_data.csv"
+    assert validated["data_file"]["kind"] == "coded"
+    assert "content" not in validated["data_file"]
+    assert validated["data_file"]["unit_count"] == 1
+    assert validated["data_file"]["assignment_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_setup_node_persists_objective_and_source_payload() -> None:
     node = SetupNode(name="setup", result_keys=QualitativeResultKeys())
     state = State(
@@ -91,7 +303,10 @@ async def test_setup_node_persists_objective_and_source_payload() -> None:
 
 @pytest.mark.asyncio
 async def test_setup_node_resolves_seed_codebook_without_using_it_as_source() -> None:
-    keys = QualitativeResultKeys()
+    keys = QualitativeResultKeys(
+        pending_documents_field="attachments",
+        pending_documents_producers=("load_attachments",),
+    )
     node = SetupNode(
         name="setup",
         result_keys=keys,
@@ -101,8 +316,8 @@ async def test_setup_node_resolves_seed_codebook_without_using_it_as_source() ->
     state = State(
         {
             "results": {
-                "context_pre": {
-                    "pending_documents": [
+                "load_attachments": {
+                    "attachments": [
                         {
                             "filename": "codebook.csv",
                             "content": (
@@ -152,14 +367,12 @@ async def test_ingest_node_parses_survey_rows() -> None:
 
 
 @pytest.mark.asyncio
-async def test_router_dispatch_and_final_reply_nodes() -> None:
+async def test_router_dispatch_node() -> None:
     router = StructuredRouterDispatchNode(
         name="router_dispatch",
         carried_fields=["research_objective"],
         assistant_message_fallback="fallback",
     )
-    reply = FinalReplyNode(name="final_reply", fallback_message="fallback")
-
     routed_state = State(
         {
             "structured_response": {
@@ -174,11 +387,6 @@ async def test_router_dispatch_and_final_reply_nodes() -> None:
     assert (
         routed["results"]["router_dispatch"]["research_objective"] == "Understand trust"
     )
-
-    reply_state = State({})
-    final = await reply(reply_state, RunnableConfig())
-    assert final["assistant_message"] == "fallback"
-    assert final["messages"][0]["content"] == "fallback"
 
 
 @pytest.mark.asyncio
@@ -223,6 +431,51 @@ async def test_codebook_output_renders_markdown_table() -> None:
     assert "# Theme Analyst - Draft Codebook" in message
     assert "| Theme ID | Theme Title |" in message
     assert "Understand onboarding" in message
+
+
+@pytest.mark.asyncio
+async def test_open_coder_finalize_prefers_structured_response_dict() -> None:
+    node = LLMStageFinalizeNode(name="open_coder_finalize", stage="open_coder")
+    unit = Unit(
+        unit_id="u1",
+        record_id="r1",
+        source="survey.csv",
+        text="The setup was clear.",
+        original_text="The setup was clear.",
+    )
+    state = State(
+        {
+            "results": {
+                "ingest": {"units": [unit.model_dump(mode="json")]},
+                "open_coder_prepare": {
+                    "batch_index": 0,
+                    "total_batches": 1,
+                    "batch_size": 25,
+                },
+            },
+            "structured_response": {
+                "assignments": [
+                    {
+                        "unit_id": "u1",
+                        "assignments": [
+                            {
+                                "code_id": "clear setup",
+                                "evidence": "setup was clear",
+                                "confidence": 0.9,
+                            }
+                        ],
+                    }
+                ]
+            },
+            "messages": [AIMessage(content="unstructured fallback")],
+        }
+    )
+
+    result = await node(state, RunnableConfig())
+
+    assignments = result["results"]["open_coder_finalize"]["code_assignments_pass1"]
+    assert assignments[0]["unit_id"] == "u1"
+    assert assignments[0]["assignments"][0]["code_id"] == "clear setup"
 
 
 @pytest.mark.asyncio
@@ -509,112 +762,3 @@ async def test_recoder_finalize_merges_assignments() -> None:
     saved = result["assignments"][0]["assignments"]
     # Invented code "ZZZ" is filtered; only the valid C1 survives.
     assert [e["code_id"] for e in saved] == ["C1"]
-
-
-@pytest.mark.asyncio
-async def test_file_validator_recognises_coded_data() -> None:
-    codebook = _simple_codebook()
-    units = [
-        Unit(
-            unit_id="U0001",
-            record_id="R1",
-            source="s",
-            text="clear",
-            original_text="clear",
-        ),
-    ]
-    assignments = [
-        CodeAssignment(
-            unit_id="U0001",
-            assignments=[CodeAssignmentEntry(code_id="C1", confidence=0.9)],
-        )
-    ]
-    csv_text, _ = build_coded_data_csv(units, assignments, codebook)
-
-    node = FileValidatorNode(
-        name="validate_files",
-        result_keys=_REPORT_KEYS,
-        data_file_kind="coded",
-        single_data_file=True,
-        codebook_result_field=_REPORT_KEYS.approved_codebook_field,
-        announce_seed_codebook=False,
-        missing_data_message="No coded data CSV was found.",
-        ready_message="Ready",
-    )
-    state = State(
-        {
-            "results": {
-                "context_pre": {
-                    "pending_documents": [
-                        {"content": csv_text, "filename": "coded_data.csv"}
-                    ]
-                }
-            }
-        }
-    )
-
-    result = await node(state, RunnableConfig())
-
-    assert "coded data" in result["assistant_message"]
-    assert "Ready" in result["assistant_message"]
-
-
-@pytest.mark.asyncio
-async def test_file_validator_auto_classifies_raw_codebook_and_coded_data() -> None:
-    keys = QualitativeResultKeys(source_payload_field="source_payload")
-    codebook = _simple_codebook()
-    units = [
-        Unit(
-            unit_id="U0001",
-            record_id="R1",
-            source="s",
-            text="clear",
-            original_text="clear",
-        ),
-    ]
-    assignments = [
-        CodeAssignment(
-            unit_id="U0001",
-            assignments=[CodeAssignmentEntry(code_id="C1", confidence=0.9)],
-        )
-    ]
-    coded_csv, _ = build_coded_data_csv(units, assignments, codebook)
-    node = FileValidatorNode(
-        name="validate_files",
-        result_keys=keys,
-        data_file_kind="auto",
-        codebook_result_field="approved_codebook",
-        seed_codebook_result_field="seed_codebook_from_file",
-        coded_data_result_field="coded_data_payload",
-        ready_message="Ready",
-    )
-    state = State(
-        {
-            "results": {
-                "context_pre": {
-                    "pending_documents": [
-                        {"filename": "survey.csv", "content": "id,text\n1,Clear.\n"},
-                        {
-                            "filename": "codebook.csv",
-                            "content": (
-                                "theme_id,theme_title,code_id,code_title\n"
-                                "T1,Onboarding,C1,Clear setup\n"
-                            ),
-                        },
-                        {"filename": "coded_data.csv", "content": coded_csv},
-                    ]
-                }
-            }
-        }
-    )
-
-    result = await node(state, RunnableConfig())
-    validate_result = result["results"]["validate_files"]
-
-    assert "survey.csv" in result["assistant_message"]
-    assert "codebook.csv" in result["assistant_message"]
-    assert "coded_data.csv" in result["assistant_message"]
-    assert validate_result["source_payload"]["filename"] == "survey.csv"
-    assert validate_result["coded_data_payload"]["filename"] == "coded_data.csv"
-    assert validate_result["approved_codebook"]["themes"][0]["theme_id"] == "T1"
-    assert validate_result["seed_codebook_from_file"]["themes"][0]["theme_id"] == "T1"

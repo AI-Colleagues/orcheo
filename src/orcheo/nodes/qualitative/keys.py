@@ -35,9 +35,9 @@ class QualitativeResultKeys(BaseModel):
 
     # --- producers ----------------------------------------------------------
     research_objective_producers: tuple[str, ...] = ("setup", "router_dispatch")
-    source_payload_producers: tuple[str, ...] = ("ingest", "setup", "validate_files")
-    pending_documents_producers: tuple[str, ...] = ("context_pre",)
-    seed_codebook_producers: tuple[str, ...] = ("validate_files",)
+    source_payload_producers: tuple[str, ...] = ("ingest", "setup")
+    pending_documents_producers: tuple[str, ...] = ()
+    seed_codebook_producers: tuple[str, ...] = ()
     approved_codebook_producers: tuple[str, ...] = ("setup",)
     units_producers: tuple[str, ...] = ("ingest",)
     assignments_producers: tuple[str, ...] = ("open_coder_finalize",)

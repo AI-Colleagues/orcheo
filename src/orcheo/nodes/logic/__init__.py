@@ -4,7 +4,6 @@ from orcheo.nodes.logic.debug import DebugNode
 from orcheo.nodes.logic.human_input import HumanInputNode
 from orcheo.nodes.logic.routing import (
     ExtractAIMessageNode,
-    FinalReplyNode,
     StructuredRouterDispatchNode,
 )
 from orcheo.nodes.logic.sub_workflow import SubWorkflowNode
@@ -23,7 +22,6 @@ __all__ = [
     "HumanInputNode",
     "ExtractAIMessageNode",
     "StructuredRouterDispatchNode",
-    "FinalReplyNode",
     "_build_nested",
     "DebugNode",
     "SubWorkflowNode",
