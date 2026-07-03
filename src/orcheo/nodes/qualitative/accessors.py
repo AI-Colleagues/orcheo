@@ -67,6 +67,27 @@ def _coerce_model[ModelT: BaseModel](value: Any, model: type[ModelT]) -> ModelT 
         return None
 
 
+def coerce_model_list[ModelT: BaseModel](
+    value: Any, model: type[ModelT]
+) -> list[ModelT]:
+    """Coerce a raw or template-resolved value into a list of model instances."""
+    return _coerce_models(value, model)
+
+
+def coerce_model[ModelT: BaseModel](value: Any, model: type[ModelT]) -> ModelT | None:
+    """Coerce a raw or template-resolved value into a model instance."""
+    return _coerce_model(value, model)
+
+
+def coerce_pending_documents(value: Any) -> list[dict[str, Any]]:
+    """Coerce a raw or template-resolved value into loaded document mappings."""
+    return (
+        [dict(doc) for doc in value if isinstance(doc, Mapping)]
+        if isinstance(value, list)
+        else []
+    )
+
+
 def _keys(keys: QualitativeResultKeys | None) -> QualitativeResultKeys:
     return keys or QualitativeResultKeys()
 
@@ -101,11 +122,7 @@ def get_pending_documents(
     value = first_result_field(
         state, keys.pending_documents_field, keys.pending_documents_producers
     )
-    return (
-        [dict(doc) for doc in value if isinstance(doc, Mapping)]
-        if isinstance(value, list)
-        else []
-    )
+    return coerce_pending_documents(value)
 
 
 def get_seed_codebook_from_file(
@@ -283,6 +300,9 @@ def build_report_data(
 
 __all__ = [
     "build_report_data",
+    "coerce_model",
+    "coerce_model_list",
+    "coerce_pending_documents",
     "get_approved_codebook",
     "get_approved_insight_ids",
     "get_candidate_insights",

@@ -20,6 +20,8 @@ from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.qualitative.accessors import (
     build_report_data,
+    coerce_model,
+    coerce_model_list,
     get_approved_codebook,
     get_code_assignments,
     get_configurable,
@@ -33,6 +35,7 @@ from orcheo.nodes.qualitative.codebook import (
     get_seed_codebook,
     merge_codebooks,
     normalise_codebook_ids,
+    parse_codebook_csv,
     render_codebook_for_prompt,
 )
 from orcheo.nodes.qualitative.coding import (
@@ -57,12 +60,16 @@ from orcheo.nodes.qualitative.insights import (
 )
 from orcheo.nodes.qualitative.keys import QualitativeResultKeys
 from orcheo.nodes.qualitative.models import (
+    CodeAssignment,
     Codebook,
     CodebookConsolidationResponse,
     InsightGenerationResponse,
     OpenCodingBatchResponse,
+    QuantificationRow,
+    Quote,
     QuoteSelectionResponse,
     RecodingBatchResponse,
+    Unit,
 )
 from orcheo.nodes.registry import NodeMetadata, registry
 from orcheo.runtime.results import node_result
@@ -113,6 +120,28 @@ _DEFAULT_INSIGHT_GENERATOR_TEMPLATE = (
 )
 
 
+def _codebook_from_value(value: Any) -> Codebook | None:
+    """Coerce a raw/template-resolved value or loaded docs into a codebook."""
+    codebook = coerce_model(value, Codebook)
+    if codebook is not None:
+        return normalise_codebook_ids(codebook)
+    if isinstance(value, str):
+        try:
+            payload = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        return _codebook_from_value(payload)
+    if isinstance(value, list):
+        for item in value:
+            if not isinstance(item, Mapping):
+                continue
+            content = item.get("content") or ""
+            codebook = parse_codebook_csv(content, reject_coded_data=True)
+            if codebook is not None:
+                return codebook
+    return None
+
+
 @registry.register(
     NodeMetadata(
         name="LLMStagePrepareNode",
@@ -125,6 +154,13 @@ class LLMStagePrepareNode(TaskNode):
 
     stage: Stage
     result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
+    research_objective: str | None = None
+    units: Any | None = None
+    code_assignments: Any | None = None
+    approved_codebook: Any | None = None
+    seed_codebook: Any | None = None
+    quantification: Any | None = None
+    selected_quotes: Any | None = None
 
     batch_size_config_key: str = "batch_size"
     default_batch_size: int = DEFAULT_BATCH_SIZE
@@ -146,13 +182,52 @@ class LLMStagePrepareNode(TaskNode):
         )
         return int(value) if value else self.default_batch_size
 
+    def _research_objective(self, state: State, keys: QualitativeResultKeys) -> str:
+        return self.research_objective or get_research_objective(state, keys) or ""
+
+    def _units(self, state: State, keys: QualitativeResultKeys) -> list[Unit]:
+        units = coerce_model_list(self.units, Unit)
+        return units or get_units(state, keys)
+
+    def _code_assignments(
+        self, state: State, keys: QualitativeResultKeys
+    ) -> list[CodeAssignment]:
+        assignments = coerce_model_list(self.code_assignments, CodeAssignment)
+        return assignments or get_code_assignments(state, keys)
+
+    def _approved_codebook(
+        self, state: State, keys: QualitativeResultKeys
+    ) -> Codebook | None:
+        return _codebook_from_value(self.approved_codebook) or get_approved_codebook(
+            state, keys
+        )
+
+    def _seed_codebook(
+        self, config: RunnableConfig, state: State, keys: QualitativeResultKeys
+    ) -> Codebook | None:
+        return _codebook_from_value(self.seed_codebook) or get_seed_codebook(
+            config, state, keys
+        )
+
+    def _quantification(
+        self, state: State, keys: QualitativeResultKeys
+    ) -> list[QuantificationRow]:
+        rows = coerce_model_list(self.quantification, QuantificationRow)
+        return rows or get_quantification(state, keys)
+
+    def _selected_quotes(
+        self, state: State, keys: QualitativeResultKeys
+    ) -> list[Quote]:
+        quotes = coerce_model_list(self.selected_quotes, Quote)
+        return quotes or get_selected_quotes(state, keys)
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Build the next prompt payload for the requested stage."""
         keys = self.result_keys
-        objective = get_research_objective(state, keys) or "(not provided)"
+        objective = self._research_objective(state, keys) or "(not provided)"
 
         if self.stage == "open_coder":
-            units = get_units(state, keys)
+            units = self._units(state, keys)
             if not units:
                 return {"skip_llm": True, "done": True}
             batch_size = self._batch_size(config)
@@ -167,7 +242,7 @@ class LLMStagePrepareNode(TaskNode):
             hints = (
                 "\n".join(
                     f"- {h}"
-                    for h in existing_code_hints(get_code_assignments(state, keys))
+                    for h in existing_code_hints(self._code_assignments(state, keys))
                 )
                 or "(none yet)"
             )
@@ -186,8 +261,8 @@ class LLMStagePrepareNode(TaskNode):
             }
 
         if self.stage == "codebook_consolidator":
-            assignments = get_code_assignments(state, keys)
-            seed_codebook = get_seed_codebook(config, state, keys)
+            assignments = self._code_assignments(state, keys)
+            seed_codebook = self._seed_codebook(config, state, keys)
             if not assignments:
                 action = "use_seed" if seed_codebook is not None else "no_assignments"
                 return {"skip_llm": True, "action": action}
@@ -200,7 +275,7 @@ class LLMStagePrepareNode(TaskNode):
                 "objective": objective,
                 "system_prompt": template.format(objective=objective),
                 "input_text": format_assignments_with_units(
-                    assignments, get_units(state, keys), limit=500
+                    assignments, self._units(state, keys), limit=500
                 ),
                 "seed_codebook": seed_codebook.model_dump(mode="json")
                 if seed_codebook
@@ -208,8 +283,8 @@ class LLMStagePrepareNode(TaskNode):
             }
 
         if self.stage == "recoder":
-            units = get_units(state, keys)
-            codebook = get_approved_codebook(state, keys)
+            units = self._units(state, keys)
+            codebook = self._approved_codebook(state, keys)
             if not units or codebook is None:
                 return {"skip_llm": True, "done": True}
             batch_size = self._batch_size(config)
@@ -241,7 +316,7 @@ class LLMStagePrepareNode(TaskNode):
             }
 
         if self.stage == "quote_selector":
-            codebook = get_approved_codebook(state, keys)
+            codebook = self._approved_codebook(state, keys)
             if codebook is None:
                 return {"skip_llm": True, "done": True}
             quotes_per_theme = get_configurable(config).get(
@@ -266,7 +341,7 @@ class LLMStagePrepareNode(TaskNode):
                         "codebook": codebook.model_dump(mode="json"),
                         "quantification": [
                             row.model_dump(mode="json")
-                            for row in get_quantification(state, keys)
+                            for row in self._quantification(state, keys)
                         ],
                         "candidate_quotes": [
                             q.model_dump(mode="json") for q in fb_quotes
@@ -279,7 +354,7 @@ class LLMStagePrepareNode(TaskNode):
 
         if self.stage == "insight_generator":
             fb_insights = fallback_insights(build_report_data(state, keys))
-            codebook = get_approved_codebook(state, keys)
+            codebook = self._approved_codebook(state, keys)
             template = (
                 self.insight_generator_system_prompt_template
                 or _DEFAULT_INSIGHT_GENERATOR_TEMPLATE
@@ -299,11 +374,11 @@ class LLMStagePrepareNode(TaskNode):
                         ],
                         "assignments": [
                             a.model_dump(mode="json")
-                            for a in get_code_assignments(state, keys)
+                            for a in self._code_assignments(state, keys)
                         ],
                         "quotes": [
                             q.model_dump(mode="json")
-                            for q in get_selected_quotes(state, keys)
+                            for q in self._selected_quotes(state, keys)
                         ],
                     },
                     ensure_ascii=False,
@@ -326,6 +401,10 @@ class LLMStageFinalizeNode(TaskNode):
 
     stage: Stage
     result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
+    units: Any | None = None
+    code_assignments: Any | None = None
+    approved_codebook: Any | None = None
+    seed_codebook: Any | None = None
     response_schema: type[BaseModel] | None = None
     default_batch_size: int = DEFAULT_BATCH_SIZE
     quotes_per_theme_config_key: str = "quotes_per_theme"
@@ -357,6 +436,30 @@ class LLMStageFinalizeNode(TaskNode):
                         return msg.content
         return None
 
+    def _units(self, state: State, keys: QualitativeResultKeys) -> list[Unit]:
+        units = coerce_model_list(self.units, Unit)
+        return units or get_units(state, keys)
+
+    def _code_assignments(
+        self, state: State, keys: QualitativeResultKeys
+    ) -> list[CodeAssignment]:
+        assignments = coerce_model_list(self.code_assignments, CodeAssignment)
+        return assignments or get_code_assignments(state, keys)
+
+    def _approved_codebook(
+        self, state: State, keys: QualitativeResultKeys
+    ) -> Codebook | None:
+        return _codebook_from_value(self.approved_codebook) or get_approved_codebook(
+            state, keys
+        )
+
+    def _seed_codebook(
+        self, config: RunnableConfig, state: State, keys: QualitativeResultKeys
+    ) -> Codebook | None:
+        return _codebook_from_value(self.seed_codebook) or get_seed_codebook(
+            config, state, keys
+        )
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Persist stage output under ``results[node_name]`` keyed by the field."""
         stage_result = node_result(state, f"{self.stage}_prepare")
@@ -379,7 +482,7 @@ class LLMStageFinalizeNode(TaskNode):
         self, state: State, stage_result: Mapping[str, Any]
     ) -> dict[str, Any]:
         keys = self.result_keys
-        units = get_units(state, keys)
+        units = self._units(state, keys)
         if not units:
             return {
                 "next_index": 0,
@@ -390,7 +493,7 @@ class LLMStageFinalizeNode(TaskNode):
         batch_index = int(stage_result.get("batch_index") or 0)
         total_batches = int(stage_result.get("total_batches") or 0)
         batch_size = int(stage_result.get("batch_size") or self.default_batch_size)
-        existing_assignments = get_code_assignments(state, keys)
+        existing_assignments = self._code_assignments(state, keys)
         existing_by_unit = {a.unit_id: a for a in existing_assignments}
         batches = batch_units(units, batch_size)
         if batch_index >= len(batches):
@@ -432,7 +535,7 @@ class LLMStageFinalizeNode(TaskNode):
         action = stage_result.get("action")
         codebook: Codebook | None = None
         if action == "use_seed":
-            codebook = get_seed_codebook(config, state, keys)
+            codebook = self._seed_codebook(config, state, keys)
         elif action == "no_assignments":
             codebook = None
         else:
@@ -444,10 +547,10 @@ class LLMStageFinalizeNode(TaskNode):
                     result = CodebookConsolidationResponse.model_validate(direct)
                 except Exception:  # noqa: BLE001
                     result = CodebookConsolidationResponse(
-                        codebook=fallback_codebook(get_code_assignments(state, keys))
+                        codebook=fallback_codebook(self._code_assignments(state, keys))
                     )
             codebook = normalise_codebook_ids(result.codebook)
-            seed_codebook = get_seed_codebook(config, state, keys)
+            seed_codebook = self._seed_codebook(config, state, keys)
             if seed_codebook is not None:
                 codebook = merge_codebooks(seed_codebook, codebook)
         output: dict[str, Any] = {"done": True}
@@ -459,9 +562,9 @@ class LLMStageFinalizeNode(TaskNode):
         self, state: State, stage_result: Mapping[str, Any]
     ) -> dict[str, Any]:
         keys = self.result_keys
-        units = get_units(state, keys)
-        codebook = get_approved_codebook(state, keys)
-        existing_assignments = get_code_assignments(state, keys)
+        units = self._units(state, keys)
+        codebook = self._approved_codebook(state, keys)
+        existing_assignments = self._code_assignments(state, keys)
         if not units or codebook is None or stage_result.get("skip_llm"):
             return {
                 "next_index": int(stage_result.get("batch_index") or 0),
@@ -515,15 +618,15 @@ class LLMStageFinalizeNode(TaskNode):
         self, state: State, config: RunnableConfig
     ) -> dict[str, Any]:
         keys = self.result_keys
-        codebook = get_approved_codebook(state, keys)
-        units = get_units(state, keys)
+        codebook = self._approved_codebook(state, keys)
+        units = self._units(state, keys)
         quotes_per_theme = get_configurable(config).get(
             self.quotes_per_theme_config_key, self.default_quotes_per_theme
         )
         fb = (
             fallback_quotes(
                 codebook,
-                get_code_assignments(state, keys),
+                self._code_assignments(state, keys),
                 units,
                 quotes_per_theme,
             )

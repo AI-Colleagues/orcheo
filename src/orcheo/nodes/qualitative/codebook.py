@@ -14,6 +14,7 @@ from orcheo.graph.state import State
 from orcheo.nodes.qualitative.accessors import (
     get_configurable,
     get_draft_codebook,
+    get_pending_documents,
     get_seed_codebook_from_file,
 )
 from orcheo.nodes.qualitative.keys import QualitativeResultKeys
@@ -363,6 +364,12 @@ def get_seed_codebook(
     raw: Any = get_configurable(config).get(config_key)
     if raw is None and state is not None:
         raw = get_seed_codebook_from_file(state, keys)
+    if raw is None and state is not None:
+        for doc in get_pending_documents(state, keys):
+            content = doc.get("content") or ""
+            codebook = parse_codebook_csv(content, reject_coded_data=True)
+            if codebook is not None:
+                return codebook
     if raw is None:
         return None
     try:

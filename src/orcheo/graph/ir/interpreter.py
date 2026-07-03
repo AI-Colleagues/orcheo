@@ -14,7 +14,9 @@ and re-validate the IR.
 from __future__ import annotations
 import ast
 from dataclasses import dataclass, field
+from importlib import import_module
 from typing import Any
+from pydantic import BaseModel
 from orcheo.graph.ir.builder import MAX_GRAPH_DEPTH, validate_ir
 from orcheo.graph.ir.code_body import RunFunction, extract_run_body, validate_code_body
 from orcheo.graph.ir.config_values import literal_from_ast, validate_config_value
@@ -86,6 +88,7 @@ class _CompileContext:
     code_classes: dict[str, _CodeNodeClass]
     graph_builders: dict[str, RunFunction]
     schema_classes: dict[str, ast.ClassDef]
+    imported_symbols: dict[str, tuple[str, str]] = field(default_factory=dict)
     helper_graph_irs: dict[str, GraphIR] = field(default_factory=dict)
 
 
@@ -109,12 +112,14 @@ def compile_workflow_to_ir(source: str) -> GraphIR:
     code_classes = _collect_code_node_classes(module)
     graph_builders = _collect_graph_builders(module)
     schema_classes = _collect_schema_classes(module)
+    imported_symbols = _collect_imported_symbols(module)
     entrypoint = _find_entrypoint(graph_builders)
     ctx = _CompileContext(
         source=source,
         code_classes=code_classes,
         graph_builders=graph_builders,
         schema_classes=schema_classes,
+        imported_symbols=imported_symbols,
     )
 
     root_name, graphs = _interpret_graph_builder(entrypoint, ctx)
@@ -178,6 +183,22 @@ def _collect_schema_classes(module: ast.Module) -> dict[str, ast.ClassDef]:
         for stmt in module.body
         if isinstance(stmt, ast.ClassDef) and is_schema_class(stmt)
     }
+
+
+def _collect_imported_symbols(module: ast.Module) -> dict[str, tuple[str, str]]:
+    """Map imported local names to their ``(module, attribute)`` origin.
+
+    Grammar validation already restricts these imports to Orcheo modules, so
+    resolving one here only ever imports trusted first-party code, never
+    author-controlled workflow logic.
+    """
+    imports: dict[str, tuple[str, str]] = {}
+    for stmt in module.body:
+        if not isinstance(stmt, ast.ImportFrom) or stmt.module is None:
+            continue
+        for alias in stmt.names:
+            imports[alias.asname or alias.name] = (stmt.module, alias.name)
+    return imports
 
 
 def _find_entrypoint(graph_builders: dict[str, RunFunction]) -> RunFunction:
@@ -908,10 +929,34 @@ def _dict_keyword_map(
 
 def _schema_or_literal_from_ast(expr: ast.expr, ctx: _CompileContext) -> Any:
     """Return a schema JSON Schema mapping or a validated literal config value."""
-    if isinstance(expr, ast.Name) and expr.id in ctx.schema_classes:
-        return schema_json_schema(expr.id, ctx.schema_classes)
+    if isinstance(expr, ast.Name):
+        if expr.id in ctx.schema_classes:
+            return schema_json_schema(expr.id, ctx.schema_classes)
+        imported_schema = _imported_schema_json_schema(expr.id, ctx)
+        if imported_schema is not None:
+            return imported_schema
     validate_config_value(expr, allow_credentials=False, where="schema config")
     return literal_from_ast(expr)
+
+
+def _imported_schema_json_schema(
+    name: str, ctx: _CompileContext
+) -> dict[str, Any] | None:
+    """Resolve ``name`` to a JSON Schema if it's a ``BaseModel`` imported from Orcheo.
+
+    Only names imported from an Orcheo module are considered (grammar
+    validation already forbids any other import source), so this imports
+    trusted first-party classes only, never tenant-authored code.
+    """
+    origin = ctx.imported_symbols.get(name)
+    if origin is None:
+        return None
+    module_name, attr_name = origin
+    module = import_module(module_name)
+    resolved = getattr(module, attr_name, None)
+    if isinstance(resolved, type) and issubclass(resolved, BaseModel):
+        return resolved.model_json_schema()
+    return None
 
 
 def _required_kwarg(

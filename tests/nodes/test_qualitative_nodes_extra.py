@@ -7,7 +7,7 @@ import pytest
 from langchain_core.runnables import RunnableConfig
 
 from orcheo.graph.state import State
-from orcheo.nodes.qualitative.codebook import parse_codebook_csv
+from orcheo.nodes.qualitative.codebook import get_seed_codebook, parse_codebook_csv
 from orcheo.nodes.qualitative.coded_data import build_coded_data_csv
 from orcheo.nodes.qualitative.insights import (
     InsightCriticNode,
@@ -223,6 +223,84 @@ async def test_context_pre_setup_ingest_and_quality_nodes(
     ]["data_quality"]
     assert quality_result["flagged_units"] == 0
     assert quality_result["quality_report"]["total_units"] == 1
+
+
+@pytest.mark.asyncio
+async def test_ingest_node_uses_loaded_attachments_without_setup() -> None:
+    node = IngestNode(
+        name="ingest",
+        pending_documents="{{results.load_attachments.attachments}}",
+    )
+    state = State(
+        {
+            "inputs": {
+                "documents": [
+                    {
+                        "filename": "codebook.csv",
+                        "content": (
+                            "theme_id,theme_title,code_id,code_title\nT1,A,C1,B\n"
+                        ),
+                    }
+                ]
+            },
+            "results": {
+                "load_attachments": {
+                    "attachments": [
+                        {
+                            "filename": "codebook.csv",
+                            "content": (
+                                "theme_id,theme_title,code_id,code_title\nT1,A,C1,B\n"
+                            ),
+                        },
+                        {
+                            "filename": "survey.csv",
+                            "content": "id,text\n1,Loaded attachment text\n",
+                        },
+                    ]
+                }
+            },
+        }
+    )
+
+    result = (await node(state, {}))["results"]["ingest"]
+
+    assert "halt" not in result
+    assert result["source_payload"]["filename"] == "survey.csv"
+    assert result["unit_count"] == 1
+    assert result["units"][0]["text"] == "Loaded attachment text"
+
+
+def test_get_seed_codebook_uses_loaded_attachments_without_setup() -> None:
+    keys = QualitativeResultKeys(
+        pending_documents_field="attachments",
+        pending_documents_producers=("load_attachments",),
+    )
+    state = State(
+        {
+            "results": {
+                "load_attachments": {
+                    "attachments": [
+                        {
+                            "filename": "survey.csv",
+                            "content": "id,text\n1,Loaded attachment text\n",
+                        },
+                        {
+                            "filename": "codebook.csv",
+                            "content": (
+                                "theme_id,theme_title,code_id,code_title\n"
+                                "T1,Onboarding,C1,Clear setup\n"
+                            ),
+                        },
+                    ]
+                }
+            }
+        }
+    )
+
+    codebook = get_seed_codebook({}, state, keys)
+
+    assert codebook is not None
+    assert codebook.themes[0].theme_id == "T1"
 
 
 @pytest.mark.asyncio
@@ -446,6 +524,27 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
     assert open_prompt["skip_llm"] is False
     assert "Units:" in open_prompt["input_text"]
 
+    direct_prepare = LLMStagePrepareNode(
+        name="open_coder_prepare",
+        stage="open_coder",
+        research_objective="{{results.router_dispatch.research_objective}}",
+        units="{{results.ingest.units}}",
+    )
+    direct_prompt = (
+        await direct_prepare(
+            State(
+                {
+                    "results": {
+                        "router_dispatch": {"research_objective": "Template objective"},
+                        "ingest": {"units": [u.model_dump(mode="json") for u in units]},
+                    }
+                }
+            ),
+            {},
+        )
+    )["results"]["open_coder_prepare"]
+    assert direct_prompt["objective"] == "Template objective"
+
     consolidator = LLMStagePrepareNode(
         name="codebook_consolidator_prepare", stage="codebook_consolidator"
     )
@@ -502,6 +601,62 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
     assert (await finalize(State({"results": {"ingest": {}}}), {}))["results"][
         "open_coder_finalize"
     ]["next_index"] == 0
+
+    direct_finalize = LLMStageFinalizeNode(
+        name="open_coder_finalize",
+        stage="open_coder",
+        units="{{results.ingest.units}}",
+        code_assignments="{{results.open_coder_finalize.code_assignments_pass1}}",
+    )
+    finalized = (
+        await direct_finalize(
+            State(
+                {
+                    "results": {
+                        "ingest": {"units": [u.model_dump(mode="json") for u in units]},
+                        "open_coder_prepare": {
+                            "batch_index": 0,
+                            "total_batches": 1,
+                            "batch_size": 10,
+                        },
+                    },
+                    "structured_response": {
+                        "assignments": [
+                            {
+                                "unit_id": "U0001",
+                                "assignments": [{"code_id": "C1"}],
+                            }
+                        ]
+                    },
+                }
+            ),
+            {},
+        )
+    )["results"]["open_coder_finalize"]
+    assert finalized["done"] is True
+    assert finalized["code_assignments_pass1"][0]["unit_id"] == "U0001"
+
+    output = CodebookOutputNode(
+        name="codebook_output",
+        codebook="{{results.codebook_consolidator_finalize.draft_codebook}}",
+        research_objective="{{results.router_dispatch.research_objective}}",
+        units="{{results.ingest.units}}",
+    )
+    rendered = await output(
+        State(
+            {
+                "results": {
+                    "router_dispatch": {"research_objective": "Template objective"},
+                    "ingest": {"units": [u.model_dump(mode="json") for u in units]},
+                    "codebook_consolidator_finalize": {
+                        "draft_codebook": codebook.model_dump(mode="json")
+                    },
+                }
+            }
+        ),
+        {},
+    )
+    assert "Template objective" in rendered["assistant_message"]
 
     critic = InsightCriticNode(name="insight_critic")
     critiqued = (

@@ -15,6 +15,9 @@ from pydantic import Field, ValidationError
 from orcheo.graph.state import State
 from orcheo.nodes.base import AINode, TaskNode
 from orcheo.nodes.qualitative.accessors import (
+    coerce_model,
+    coerce_model_list,
+    coerce_pending_documents,
     get_approved_codebook,
     get_code_assignments,
     get_configurable,
@@ -474,6 +477,9 @@ class IngestNode(TaskNode):
     """Parse the source payload into ``Unit`` records."""
 
     result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
+    source_payload: Any | None = None
+    pending_documents: Any | None = None
+    approved_codebook: Any | None = None
     source_type_field: str = "source_type"
     documents_input_key: str = "documents"
     allow_additional_sources: bool = True
@@ -489,19 +495,50 @@ class IngestNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         keys = self.result_keys
-        if self.require_codebook and get_approved_codebook(state, keys) is None:
+        approved_codebook = coerce_model(self.approved_codebook, Codebook)
+        if approved_codebook is None:
+            approved_codebook = get_approved_codebook(state, keys)
+        if self.require_codebook and approved_codebook is None:
             return {"assistant_message": self.missing_codebook_message, "halt": True}
 
-        source_payload = get_source_payload(
-            state, keys
-        ) or SourceParser.normalise_payload(
-            state, config, documents_key=self.documents_input_key
+        source_payload = (
+            dict(self.source_payload)
+            if isinstance(self.source_payload, Mapping)
+            else None
         )
+        if source_payload is None:
+            source_payload = get_source_payload(state, keys)
+        if source_payload is None:
+            source_payload = SourceParser.normalise_payload(
+                state, config, documents_key=self.documents_input_key
+            )
         records, source_type = SourceParser.parse_payload(
             source_payload,
             allow_additional_sources=self.allow_additional_sources,
             flexible_columns=self.flexible_columns,
         )
+        if not records:
+            pending_documents = coerce_pending_documents(self.pending_documents)
+            if not pending_documents:
+                pending_documents = get_pending_documents(state, keys)
+            for doc in pending_documents:
+                content = doc.get("content") or ""
+                if not content:
+                    continue
+                payload = {
+                    "source_type": doc.get("source_type"),
+                    "content": content,
+                    "storage_path": None,
+                    "filename": doc.get("filename"),
+                }
+                records, source_type = SourceParser.parse_payload(
+                    payload,
+                    allow_additional_sources=self.allow_additional_sources,
+                    flexible_columns=self.flexible_columns,
+                )
+                if records:
+                    source_payload = {**payload, "source_type": source_type}
+                    break
         if not records:
             return {"assistant_message": self.no_records_message, "halt": True}
 
@@ -519,6 +556,7 @@ class IngestNode(TaskNode):
                 )
             )
         result: dict[str, Any] = {
+            "halt": False,
             "unit_count": len(units),
             self.source_type_field: source_type,
             keys.units_field: [u.model_dump(mode="json") for u in units],
@@ -542,6 +580,9 @@ class CodebookOutputNode(AINode):
     """Render the produced draft codebook as a Markdown table for review."""
 
     result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
+    codebook: Any | None = None
+    research_objective: str | None = None
+    units: Any | None = None
     title: str = "Theme Analyst"
     review_message: str = (
         "Please review the codebook above. You can request revisions by describing "
@@ -564,11 +605,15 @@ class CodebookOutputNode(AINode):
             msg = early_halt.get("assistant_message", self.failed_ingest_message)
             return {"assistant_message": str(msg)}
 
-        codebook = get_draft_codebook(state, self.result_keys)
+        codebook = coerce_model(self.codebook, Codebook)
+        if codebook is None:
+            codebook = get_draft_codebook(state, self.result_keys)
         if codebook is None:
             return {"assistant_message": self.no_codebook_message}
 
-        research_objective = get_research_objective(state, self.result_keys)
+        research_objective = self.research_objective
+        if not research_objective:
+            research_objective = get_research_objective(state, self.result_keys)
         lines = [f"# {self.title} - Draft Codebook\n"]
         if research_objective:
             lines.append(f"**Research objective:** {research_objective}\n")
@@ -600,7 +645,10 @@ class CodebookOutputNode(AINode):
                     + " |"
                 )
 
-        unit_total = len(get_units(state, self.result_keys))
+        units = coerce_model_list(self.units, Unit)
+        if not units:
+            units = get_units(state, self.result_keys)
+        unit_total = len(units)
         batch_size = get_configurable(config).get(
             self.batch_size_config_key, self.default_batch_size
         )
