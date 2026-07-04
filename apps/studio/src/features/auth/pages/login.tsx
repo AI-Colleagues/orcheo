@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Loader2, Mail } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
@@ -15,6 +15,7 @@ import {
   startEmailChallenge,
   verifyEmailCode,
 } from "@features/auth/lib/auth-api";
+import { isAuthenticated } from "@features/auth/lib/auth-session";
 
 // Only allow same-origin relative paths to avoid open-redirect via state/query.
 const sanitizeRedirect = (value: unknown): string | undefined => {
@@ -56,6 +57,12 @@ export default function Login() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isAuthenticated()) {
+      navigate("/", { replace: true });
+    }
+  }, [navigate]);
 
   const handleSendEmail = async (event: FormEvent) => {
     event.preventDefault();

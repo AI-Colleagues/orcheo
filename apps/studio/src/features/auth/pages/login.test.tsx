@@ -19,20 +19,37 @@ vi.mock("react-router-dom", () => ({
 
 const startEmailChallenge = vi.fn(() => Promise.resolve());
 const verifyEmailCode = vi.fn(() => Promise.resolve(undefined));
+const isAuthenticated = vi.fn(() => false);
 
 vi.mock("@features/auth/lib/auth-api", () => ({
   startEmailChallenge: (...args: unknown[]) => startEmailChallenge(...args),
   verifyEmailCode: (...args: unknown[]) => verifyEmailCode(...args),
 }));
 
+vi.mock("@features/auth/lib/auth-session", () => ({
+  isAuthenticated: () => isAuthenticated(),
+}));
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  isAuthenticated.mockReturnValue(false);
   locationMock.state = null;
   locationMock.search = "";
 });
 
 describe("Login", () => {
+  it("redirects authenticated sessions to the landing page", async () => {
+    isAuthenticated.mockReturnValue(true);
+
+    render(<Login />);
+
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith("/", { replace: true }),
+    );
+    expect(startEmailChallenge).not.toHaveBeenCalled();
+  });
+
   it("sends an email challenge then verifies the OTP code", async () => {
     const user = userEvent.setup();
     render(<Login />);
