@@ -374,7 +374,7 @@ async def test_execute_graph_streams_updates_with_step_callback(
     progress_context_events: list[str] = []
 
     class DummyCompiled:
-        async def astream(self, payload, *, config, stream_mode):
+        async def astream(self, payload, *, config, stream_mode, subgraphs=False):
             assert payload == {
                 "inputs": {"message": "hello"},
                 "workspace_id": None,
@@ -475,7 +475,7 @@ async def test_execute_graph_annotates_current_turn_messages(
         def __init__(self) -> None:
             self._streamed = False
 
-        async def astream(self, payload, *, config, stream_mode):
+        async def astream(self, payload, *, config, stream_mode, subgraphs=False):
             self._streamed = True
             yield {"node": {"status": "running"}}
 
@@ -562,7 +562,7 @@ async def test_execute_graph_surfaces_new_interrupt_as_reply(
         value = {"message": "What is your guess?"}
 
     class DummyCompiled:
-        async def astream(self, payload, *, config, stream_mode):
+        async def astream(self, payload, *, config, stream_mode, subgraphs=False):
             yield {"__interrupt__": (DummyInterrupt(),)}
 
         async def aget_state(self, config):
@@ -650,7 +650,7 @@ async def test_execute_graph_resumes_pending_interrupt_with_chatkit_message(
         def __init__(self) -> None:
             self._streamed = False
 
-        async def astream(self, payload, *, config, stream_mode):
+        async def astream(self, payload, *, config, stream_mode, subgraphs=False):
             captured["payload"] = payload
             self._streamed = True
             yield {"finish": {"assistant_message": "Correct."}}

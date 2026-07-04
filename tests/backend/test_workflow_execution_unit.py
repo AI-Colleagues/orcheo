@@ -595,7 +595,14 @@ async def test_stream_workflow_updates_logs_final_state(
     history_store.append_step = AsyncMock(return_value=SimpleNamespace())
 
     class CompiledGraph:
-        async def astream(self, state: object, *, config: object, stream_mode: str):
+        async def astream(
+            self,
+            state: object,
+            *,
+            config: object,
+            stream_mode: str,
+            subgraphs: bool = False,
+        ):
             yield {"node": {"status": "running"}}
 
         async def aget_state(self, config: object) -> object:
@@ -641,7 +648,14 @@ async def test_stream_workflow_updates_forwards_in_node_status(
     from orcheo.nodes.ai.tools.context import get_active_tool_progress_callback
 
     class CompiledGraph:
-        async def astream(self, state: object, *, config: object, stream_mode: str):
+        async def astream(
+            self,
+            state: object,
+            *,
+            config: object,
+            stream_mode: str,
+            subgraphs: bool = False,
+        ):
             captured_callback["callback"] = get_active_tool_progress_callback()
             assert captured_callback["callback"] is not None
             await captured_callback["callback"](

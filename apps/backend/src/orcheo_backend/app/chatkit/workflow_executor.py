@@ -19,6 +19,7 @@ from orcheo.nodes.ai.tools.context import tool_progress_context
 from orcheo.persistence import create_checkpointer, create_graph_store
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import merge_runnable_configs
+from orcheo.tracing import encode_step_namespace, split_subgraph_update
 from orcheo.vault import BaseCredentialVault
 from orcheo_backend.app.chatkit.message_utils import (
     build_initial_state,
@@ -449,13 +450,17 @@ class WorkflowExecutor:
                             prior_count = await self._checkpoint_message_count(
                                 compiled, config
                             )
-                            async for step in compiled.astream(
+                            async for chunk in compiled.astream(
                                 payload,
                                 config=config,  # type: ignore[arg-type]
                                 stream_mode="updates",
+                                subgraphs=True,
                             ):
+                                namespace, step = split_subgraph_update(chunk)
                                 if step_callback is not None:  # pragma: no branch
-                                    await step_callback(step)
+                                    await step_callback(
+                                        encode_step_namespace(step, namespace)
+                                    )
                             state_snapshot_config = cast(Any, config)
                             snapshot = await compiled.aget_state(state_snapshot_config)
                             values = getattr(snapshot, "values", snapshot)

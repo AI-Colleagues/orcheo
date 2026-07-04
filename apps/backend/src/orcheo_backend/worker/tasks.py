@@ -347,13 +347,18 @@ async def _stream_run_history_steps(
     history_error_cls: type[Exception],
 ) -> None:
     """Append streamed node updates to the run history store."""
-    async for step in compiled.astream(
+    from orcheo.tracing import encode_step_namespace, split_subgraph_update
+
+    async for chunk in compiled.astream(
         state,
         config=runtime_config,  # type: ignore[arg-type]
         stream_mode="updates",
+        subgraphs=True,
     ):
+        namespace, step = split_subgraph_update(chunk)
+        tagged_step = encode_step_namespace(step, namespace)
         try:
-            await history_store.append_step(execution_id, step)
+            await history_store.append_step(execution_id, tagged_step)
         except history_error_cls:
             logger.exception(
                 "Failed to append run history step for execution %s",

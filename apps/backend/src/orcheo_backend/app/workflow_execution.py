@@ -24,14 +24,16 @@ from orcheo.runtime.runnable_config import (
 )
 from orcheo.runtime.state_builder import build_initial_state
 from orcheo.tracing import (
+    encode_step_namespace,
     get_tracer,
     record_workflow_cancellation,
     record_workflow_completion,
     record_workflow_failure,
     record_workflow_step,
+    split_subgraph_update,
     workflow_span,
 )
-from orcheo.tracing.model_metadata import strip_trace_metadata
+from orcheo.tracing.model_metadata import NAMESPACE_METADATA_KEY, strip_trace_metadata
 from orcheo_backend.app.dependencies import (
     credential_context_from_workflow,
     get_checkpoint_store,
@@ -77,6 +79,8 @@ def _log_step_debug(step: Mapping[str, Any]) -> None:
     from orcheo_backend.app import logger as app_logger
 
     for node_name, node_output in step.items():
+        if node_name == NAMESPACE_METADATA_KEY:
+            continue
         app_logger.debug("=" * 80)
         app_logger.debug("Node executed: %s", node_name)
         app_logger.debug("Node output: %s", node_output)
@@ -212,13 +216,16 @@ async def _stream_workflow_updates(
         )
 
     with tool_progress_context(in_node_status_callback):
-        async for step in compiled_graph.astream(
+        async for chunk in compiled_graph.astream(
             state,
             config=config,  # type: ignore[arg-type]
             stream_mode="updates",
+            subgraphs=True,
         ):  # pragma: no cover
-            _log_step_debug(step)
-            sanitized_step = _sanitize_public_step_payload(step)
+            namespace, step = split_subgraph_update(chunk)
+            tagged_step = encode_step_namespace(step, namespace)
+            _log_step_debug(tagged_step)
+            sanitized_step = _sanitize_public_step_payload(tagged_step)
             record_workflow_step(tracer, sanitized_step)
             history_step = await history_store.append_step(execution_id, sanitized_step)
             try:

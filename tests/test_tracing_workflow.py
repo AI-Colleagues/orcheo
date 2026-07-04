@@ -13,7 +13,12 @@ from orcheo import config
 from orcheo.agentensor.prompts import TrainablePrompt
 from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo.tracing import workflow as workflow_module
-from orcheo.tracing.workflow import record_workflow_step, workflow_span
+from orcheo.tracing.model_metadata import encode_step_namespace
+from orcheo.tracing.workflow import (
+    record_workflow_step,
+    split_subgraph_update,
+    workflow_span,
+)
 
 
 def _build_tracer() -> tuple[Tracer, InMemorySpanExporter]:
@@ -429,6 +434,61 @@ def test_record_workflow_failure() -> None:
     assert root.status.status_code == StatusCode.ERROR
     event_names = {e.name for e in root.events}
     assert "workflow.failed" in event_names
+
+
+def test_split_subgraph_update_unpacks_namespaced_tuple() -> None:
+    """A ``(namespace, update)`` chunk should split into its two parts."""
+    namespace, update = split_subgraph_update(
+        (("generate_report:task-1",), {"quote_selector": {"status": "success"}})
+    )
+
+    assert namespace == ("generate_report:task-1",)
+    assert update == {"quote_selector": {"status": "success"}}
+
+
+def test_split_subgraph_update_defaults_to_empty_namespace_for_bare_mapping() -> None:
+    """A bare update mapping (no subgraphs) should get an empty namespace."""
+    namespace, update = split_subgraph_update({"ingest": {"status": "success"}})
+
+    assert namespace == ()
+    assert update == {"ingest": {"status": "success"}}
+
+
+def test_split_subgraph_update_rejects_unexpected_shapes() -> None:
+    """Anything that isn't a namespaced tuple or a mapping should raise."""
+    with pytest.raises(TypeError):
+        split_subgraph_update("not-a-chunk")
+
+
+def test_record_workflow_step_tags_namespace_attribute() -> None:
+    """Namespaced steps should surface the subgraph path as a span attribute."""
+    tracer, exporter = _build_tracer()
+    step_payload = encode_step_namespace(
+        {"quote_selector": {"display_name": "Quote Selector", "status": "success"}},
+        ("generate_report:task-1",),
+    )
+
+    with tracer.start_as_current_span("workflow.execution"):
+        record_workflow_step(tracer, step_payload)
+
+    spans = exporter.get_finished_spans()
+    child = next(span for span in spans if span.name != "workflow.execution")
+    assert child.attributes["orcheo.node.namespace"] == "generate_report:task-1"
+
+
+def test_record_workflow_step_skips_namespace_metadata_key() -> None:
+    """The reserved namespace key should never itself become a span."""
+    tracer, exporter = _build_tracer()
+    step_payload = encode_step_namespace(
+        {"ingest": {"status": "success"}}, ("generate_report:task-1",)
+    )
+
+    with tracer.start_as_current_span("workflow.execution"):
+        record_workflow_step(tracer, step_payload)
+
+    spans = exporter.get_finished_spans()
+    child_names = {span.name for span in spans if span.name != "workflow.execution"}
+    assert child_names == {"ingest"}
 
 
 def test_record_workflow_cancellation() -> None:

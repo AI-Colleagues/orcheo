@@ -3,9 +3,12 @@
 from __future__ import annotations
 from types import SimpleNamespace
 from orcheo.tracing.model_metadata import (
+    NAMESPACE_METADATA_KEY,
     TRACE_METADATA_KEY,
     _extract_model_name_from_mapping,
+    encode_step_namespace,
     extract_ai_trace_attributes,
+    extract_step_namespace,
     infer_chat_result_model_name,
     infer_model_name_from_instance,
     split_model_identifier,
@@ -185,3 +188,43 @@ def test_extract_model_name_from_mapping_skips_empty_string_values() -> None:
 
 def test_extract_model_name_from_mapping_returns_none_for_no_match() -> None:
     assert _extract_model_name_from_mapping({"other": "x"}) is None
+
+
+# ---------------------------------------------------------------------------
+# encode_step_namespace / extract_step_namespace
+# ---------------------------------------------------------------------------
+
+
+def test_encode_step_namespace_tags_step_with_namespace() -> None:
+    step = {"quote_selector": {"status": "success"}}
+
+    encoded = encode_step_namespace(step, ("generate_report:task-1",))
+
+    assert encoded[NAMESPACE_METADATA_KEY] == ["generate_report:task-1"]
+    assert encoded["quote_selector"] == {"status": "success"}
+    # original mapping is untouched
+    assert NAMESPACE_METADATA_KEY not in step
+
+
+def test_encode_step_namespace_omits_key_for_empty_namespace() -> None:
+    step = {"ingest": {"status": "success"}}
+
+    encoded = encode_step_namespace(step, ())
+
+    assert NAMESPACE_METADATA_KEY not in encoded
+
+
+def test_extract_step_namespace_round_trips_encoded_step() -> None:
+    step = encode_step_namespace(
+        {"inner": {}}, ("generate_report:task-1", "child:task-2")
+    )
+
+    assert extract_step_namespace(step) == ("generate_report:task-1", "child:task-2")
+
+
+def test_extract_step_namespace_returns_empty_tuple_when_absent() -> None:
+    assert extract_step_namespace({"ingest": {}}) == ()
+
+
+def test_extract_step_namespace_ignores_non_sequence_value() -> None:
+    assert extract_step_namespace({NAMESPACE_METADATA_KEY: "not-a-list"}) == ()

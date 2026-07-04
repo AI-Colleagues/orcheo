@@ -551,3 +551,17 @@ def test_progress_texts_for_step_skips_empty_key() -> None:
 
     texts = _progress_texts_for_step({"  ": "value", "node_a": "data"})
     assert texts == ["Running node_a"]
+
+
+def test_progress_texts_for_step_skips_namespace_metadata_key() -> None:
+    """Subgraph namespace metadata must not be announced as a fake node."""
+    from orcheo.tracing.model_metadata import encode_step_namespace
+    from orcheo_backend.app.chatkit.server import _progress_texts_for_step
+
+    step = encode_step_namespace(
+        {"quote_selector": {"status": "success"}}, ("generate_report:task-1",)
+    )
+
+    texts = _progress_texts_for_step(step)
+
+    assert texts == ["Running quote_selector"]
