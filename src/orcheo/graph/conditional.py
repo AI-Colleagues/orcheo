@@ -3,7 +3,7 @@
 from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
-from langgraph.graph import END, StateGraph
+from langgraph.graph import StateGraph
 from orcheo.graph.edges import build_edge_router
 from orcheo.graph.normalization import normalise_vertex
 from orcheo.graph.state import State
@@ -68,8 +68,6 @@ def _destination_path_map(
     destinations = {normalise_vertex(str(target)) for target in mapping.values()}
     if isinstance(default_target, str) and default_target:
         destinations.add(normalise_vertex(default_target))
-    else:
-        destinations.add(END)
     return {destination: destination for destination in destinations}
 
 
@@ -111,6 +109,12 @@ def make_condition(
             return destination
         if default_target is not None:
             return default_target
-        return END
+        msg = (
+            f"Conditional edge on state path {path!r} produced value "
+            f"{condition_key!r}, which is not in mapping {sorted(mapping)} and no "
+            "'default' target was configured. Add a 'default' (use 'END' to end "
+            "the run intentionally)."
+        )
+        raise ValueError(msg)
 
     return resolve

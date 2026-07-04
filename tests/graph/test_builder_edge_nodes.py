@@ -134,8 +134,8 @@ async def test_state_graph_accepts_declarative_conditional_edge() -> None:
     assert "flag -.-> target" in mermaid
 
 
-def test_add_conditional_edges_without_default_returns_end() -> None:
-    """When no default is provided, unmatched conditions resolve to END."""
+def test_add_conditional_edges_without_default_raises() -> None:
+    """When no default is provided, unmatched conditions raise a clear error."""
 
     graph = DummyGraph()
 
@@ -151,7 +151,8 @@ def test_add_conditional_edges_without_default_returns_end() -> None:
 
     call = graph.conditional_calls[0]
     condition = call["args"][1]
-    assert condition({"payload": {"flag": "unknown"}}) is END
+    with pytest.raises(ValueError, match="no 'default' target was configured"):
+        condition({"payload": {"flag": "unknown"}})
 
 
 def test_add_conditional_edges_preserves_default_for_edges() -> None:
@@ -199,8 +200,8 @@ def test_add_conditional_edges_normalises_default_edges() -> None:
     assert asyncio.run(router({}, {})) is END
 
 
-def test_add_conditional_edges_edge_without_default_routes_to_end() -> None:
-    """Edges without defaults fall back to END when unmatched."""
+def test_add_conditional_edges_edge_without_default_raises() -> None:
+    """Edges without defaults raise a clear error when unmatched."""
 
     graph = DummyGraph()
     edge = StubDecision(["unknown"])
@@ -216,7 +217,8 @@ def test_add_conditional_edges_edge_without_default_routes_to_end() -> None:
     )
 
     router = graph.conditional_calls[0]["args"][1]
-    assert asyncio.run(router({}, {})) is END
+    with pytest.raises(ValueError, match="no 'default' target was configured"):
+        asyncio.run(router({}, {}))
 
 
 def test_add_conditional_edges_edge_handles_sequence_results() -> None:

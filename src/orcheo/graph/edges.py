@@ -4,7 +4,6 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import Any
 from langchain_core.runnables import RunnableConfig
-from langgraph.graph import END
 from langgraph.types import Send
 from orcheo.edges.registry import edge_registry
 from orcheo.graph.normalization import normalise_vertex
@@ -71,4 +70,9 @@ def _coerce_edge_destination(
         return normalised
     if default_target is not None:
         return default_target
-    return END
+    msg = (
+        f"Conditional edge produced value {value!r}, which is not in mapping "
+        f"{sorted(mapping)} and no 'default' target was configured. Add a "
+        "'default' (use 'END' to end the run intentionally)."
+    )
+    raise ValueError(msg)
