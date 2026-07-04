@@ -318,6 +318,7 @@ class CodedDataIngestNode(TaskNode):
         comparisons = compare_segments(breakdowns)
         keys = self.result_keys
         return {
+            "halt": False,
             "unit_count": len(units),
             "assignment_count": sum(len(a.assignments) for a in assignments),
             (self.units_field or keys.units_field): [

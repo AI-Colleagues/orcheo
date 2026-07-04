@@ -624,6 +624,7 @@ async def test_coded_data_ingest_node_quantifies() -> None:
 
     result = (await node(state, RunnableConfig()))["results"]["ingest"]
 
+    assert result["halt"] is False
     assert result["unit_count"] == 2
     assert result["assignment_count"] == 2
     quant = {row["theme_id"]: row for row in result["quantification"]}
