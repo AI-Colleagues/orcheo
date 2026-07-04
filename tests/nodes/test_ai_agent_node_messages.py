@@ -395,10 +395,30 @@ def test_build_messages_respects_max_messages_limit() -> None:
     assert messages[0].content == "last"
 
 
-def test_build_messages_appends_current_input_when_checkpointed() -> None:
+def test_build_messages_keeps_existing_messages_when_checkpointed() -> None:
     node = AgentNode(name="agent", ai_model="test-model")
     state = State(
         messages=[{"role": "assistant", "content": "Previous answer"}],
+        inputs={"message": "Ignored graph input"},
+        results={},
+        structured_response=None,
+        config=None,
+    )
+    messages = node._build_messages(
+        state,
+        config={"configurable": {"thread_id": "thread-1", "__pregel_checkpointer": {}}},
+    )
+    assert len(messages) == 1
+    assert messages[0].content == "Previous answer"
+
+
+def test_build_messages_does_not_readd_checkpointed_input() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    state = State(
+        messages=[
+            {"role": "assistant", "content": "Previous answer"},
+            {"role": "user", "content": "New user turn"},
+        ],
         inputs={"message": "New user turn"},
         results={},
         structured_response=None,
@@ -411,6 +431,58 @@ def test_build_messages_appends_current_input_when_checkpointed() -> None:
     assert len(messages) == 2
     assert messages[0].content == "Previous answer"
     assert messages[1].content == "New user turn"
+
+
+def test_build_messages_ignores_stale_checkpointed_input_after_human_turn() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    state = State(
+        messages=[
+            {"role": "user", "content": "Original request"},
+            {"role": "assistant", "content": "Review this result."},
+            {"role": "user", "content": "redo the process"},
+        ],
+        inputs={"message": "Original request"},
+        results={},
+        structured_response=None,
+        config=None,
+    )
+    messages = node._build_messages(
+        state,
+        config={"configurable": {"thread_id": "thread-1", "__pregel_checkpointer": {}}},
+    )
+    assert [message.content for message in messages] == [
+        "Original request",
+        "Review this result.",
+        "redo the process",
+    ]
+
+
+def test_build_messages_ignores_checkpointed_inputs_when_messages_exist() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    state = State(
+        messages=[
+            {"role": "user", "content": "Old question"},
+            {"role": "assistant", "content": "Old answer"},
+        ],
+        inputs={
+            "history": [
+                {"role": "user", "content": "Old question"},
+                {"role": "assistant", "content": "Old answer"},
+            ],
+            "message": "New question",
+        },
+        results={},
+        structured_response=None,
+        config=None,
+    )
+    messages = node._build_messages(
+        state,
+        config={"configurable": {"thread_id": "thread-1", "__pregel_checkpointer": {}}},
+    )
+    assert [message.content for message in messages] == [
+        "Old question",
+        "Old answer",
+    ]
 
 
 def test_build_messages_keeps_existing_messages_without_checkpointer() -> None:

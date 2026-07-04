@@ -30,7 +30,7 @@ from orcheo.nodes.qualitative.pipeline import (
     ExportCodebookNode,
     ExportCodedDataNode,
     IngestNode,
-    LoadAttachmentNode,
+    LoadAttachmentsNode,
     RecodeOutputNode,
     SetupNode,
     ValidateFilesNode,
@@ -133,7 +133,7 @@ async def test_context_pre_setup_ingest_and_quality_nodes(
         async def load_attachment_bytes(self, attachment_id, attachment_scope):  # noqa: ARG002
             return _Attachment(b"caf\xe9", "attached.txt")
 
-    load_attachments = LoadAttachmentNode(name="load_attachments")
+    load_attachments = LoadAttachmentsNode(name="load_attachments")
     resolved = (
         await load_attachments(
             State(

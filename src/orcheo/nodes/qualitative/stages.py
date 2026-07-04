@@ -406,6 +406,7 @@ class LLMStageFinalizeNode(TaskNode):
     approved_codebook: Any | None = None
     seed_codebook: Any | None = None
     response_schema: type[BaseModel] | None = None
+    code_assignments_field: str | None = None
     default_batch_size: int = DEFAULT_BATCH_SIZE
     quotes_per_theme_config_key: str = "quotes_per_theme"
     default_quotes_per_theme: int = DEFAULT_QUOTES_PER_THEME
@@ -453,6 +454,9 @@ class LLMStageFinalizeNode(TaskNode):
             state, keys
         )
 
+    def _code_assignments_field(self, keys: QualitativeResultKeys) -> str:
+        return self.code_assignments_field or keys.assignments_field
+
     def _seed_codebook(
         self, config: RunnableConfig, state: State, keys: QualitativeResultKeys
     ) -> Codebook | None:
@@ -482,11 +486,12 @@ class LLMStageFinalizeNode(TaskNode):
         self, state: State, stage_result: Mapping[str, Any]
     ) -> dict[str, Any]:
         keys = self.result_keys
+        assignments_field = self._code_assignments_field(keys)
         units = self._units(state, keys)
         if not units:
             return {
                 "next_index": 0,
-                keys.assignments_field: [],
+                assignments_field: [],
                 "continue_llm": False,
                 "done": True,
             }
@@ -499,7 +504,7 @@ class LLMStageFinalizeNode(TaskNode):
         if batch_index >= len(batches):
             return {
                 "next_index": batch_index,
-                keys.assignments_field: [
+                assignments_field: [
                     a.model_dump(mode="json") for a in existing_assignments
                 ],
                 "continue_llm": False,
@@ -521,7 +526,7 @@ class LLMStageFinalizeNode(TaskNode):
         more = next_index < total_batches
         return {
             "next_index": next_index,
-            keys.assignments_field: [
+            assignments_field: [
                 a.model_dump(mode="json") for a in existing_assignments
             ],
             "continue_llm": more,
@@ -562,13 +567,14 @@ class LLMStageFinalizeNode(TaskNode):
         self, state: State, stage_result: Mapping[str, Any]
     ) -> dict[str, Any]:
         keys = self.result_keys
+        assignments_field = self._code_assignments_field(keys)
         units = self._units(state, keys)
         codebook = self._approved_codebook(state, keys)
         existing_assignments = self._code_assignments(state, keys)
         if not units or codebook is None or stage_result.get("skip_llm"):
             return {
                 "next_index": int(stage_result.get("batch_index") or 0),
-                keys.assignments_field: [
+                assignments_field: [
                     a.model_dump(mode="json") for a in existing_assignments
                 ],
                 "continue_llm": False,
@@ -582,7 +588,7 @@ class LLMStageFinalizeNode(TaskNode):
         if batch_index >= len(batches):
             return {
                 "next_index": batch_index,
-                keys.assignments_field: [
+                assignments_field: [
                     a.model_dump(mode="json") for a in existing_assignments
                 ],
                 "continue_llm": False,
@@ -590,11 +596,13 @@ class LLMStageFinalizeNode(TaskNode):
             }
         units_by_id = {unit.unit_id: unit for unit in units}
         direct = self._extract_llm_response(state, self.response_schema)
-        result = (
-            direct
-            if isinstance(direct, RecodingBatchResponse)
-            else RecodingBatchResponse()
-        )
+        if isinstance(direct, RecodingBatchResponse):
+            result = direct
+        else:
+            try:
+                result = RecodingBatchResponse.model_validate(direct)
+            except Exception:  # noqa: BLE001
+                result = RecodingBatchResponse()
         existing_by_unit = {a.unit_id: a for a in existing_assignments}
         for assignment in filter_assignments_to_codebook(
             result.assignments, codebook, units_by_id, infer_sentiment=True
@@ -605,7 +613,7 @@ class LLMStageFinalizeNode(TaskNode):
         more = next_index < batch_end_index
         return {
             "next_index": next_index,
-            keys.assignments_field: [
+            assignments_field: [
                 a.model_dump(mode="json") for a in existing_assignments
             ],
             "continue_llm": more,

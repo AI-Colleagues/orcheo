@@ -620,13 +620,6 @@ class AgentNode(AINode):
         existing_messages = self._normalize_messages(state.get("messages"))
         if existing_messages:
             messages = self._apply_reset_command(existing_messages)
-
-            if self._check_has_checkpointer(config):
-                inputs = state.get("inputs", {}) if isinstance(state, Mapping) else {}
-                new_messages = self._messages_from_inputs(inputs)
-                if new_messages:
-                    messages.extend(new_messages)
-
             return self._trim_messages(messages)
 
         inputs = state.get("inputs", {}) if isinstance(state, Mapping) else {}

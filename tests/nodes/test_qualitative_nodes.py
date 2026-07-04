@@ -15,7 +15,7 @@ from orcheo.nodes.qualitative import (
     DataQualityNode,
     IngestNode,
     LLMStageFinalizeNode,
-    LoadAttachmentNode,
+    LoadAttachmentsNode,
     QualitativeResultKeys,
     RecodingBatchResponse,
     SetupNode,
@@ -68,7 +68,7 @@ _CHAINED_REPORT_KEYS = QualitativeResultKeys(
 
 @pytest.mark.asyncio
 async def test_load_attachment_node_loads_inline_documents() -> None:
-    node = LoadAttachmentNode(name="load_attachments")
+    node = LoadAttachmentsNode(name="load_attachments")
     state = State(
         {
             "inputs": {
@@ -102,7 +102,7 @@ async def test_load_attachment_node_loads_inline_documents() -> None:
 
 @pytest.mark.asyncio
 async def test_validate_files_node_accepts_raw_data_and_codebook() -> None:
-    load_result = await LoadAttachmentNode(name="load_attachments")(
+    load_result = await LoadAttachmentsNode(name="load_attachments")(
         State(
             {
                 "inputs": {
@@ -197,7 +197,7 @@ async def test_validate_files_node_rejects_coded_data_when_raw_expected() -> Non
 
 
 @pytest.mark.asyncio
-async def test_validate_files_node_ignores_legacy_data_field_override() -> None:
+async def test_validate_files_node_emits_configured_data_field() -> None:
     state = State(
         {
             "results": {
@@ -218,7 +218,12 @@ async def test_validate_files_node_ignores_legacy_data_field_override() -> None:
     result = await node(state, RunnableConfig())
 
     validated = result["results"]["validate_files"]
-    assert "source_payload" not in validated
+    assert validated["source_payload"] == {
+        "filename": "survey.csv",
+        "content": "id,text\n1,Clear setup.\n",
+        "source_type": "survey_csv",
+        "storage_path": None,
+    }
     assert validated["data_file"]["filename"] == "survey.csv"
     assert "Files look valid" in validated["assistant_message"]
 

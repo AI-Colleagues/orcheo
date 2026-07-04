@@ -36,7 +36,7 @@ class HumanInputNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Interrupt with a configured prompt and store the human input."""
-        del config
+        del state, config
         payload: dict[str, Any] = {"message": self.prompt, "kind": self.kind}
         if self.expected is not None:
             payload["expected"] = self.expected
@@ -45,10 +45,7 @@ class HumanInputNode(TaskNode):
 
         message = _response_message_text(response)
         if message is not None:
-            raw_inputs = state.get("inputs")
-            inputs = dict(raw_inputs) if isinstance(raw_inputs, Mapping) else {}
-            inputs["message"] = message
-            result["inputs"] = inputs
+            result["messages"] = [{"role": "user", "content": message}]
 
         return result
 

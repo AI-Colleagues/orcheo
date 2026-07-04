@@ -39,7 +39,12 @@ from orcheo.nodes.qualitative.coded_data import (
     parse_coded_data_csv,
 )
 from orcheo.nodes.qualitative.constants import DEFAULT_BATCH_SIZE, MAX_CODING_BATCHES
-from orcheo.nodes.qualitative.models import Codebook, Unit
+from orcheo.nodes.qualitative.models import (
+    CodeAssignment,
+    Codebook,
+    QualityReport,
+    Unit,
+)
 from orcheo.nodes.qualitative.sources import SourceParser
 from orcheo.nodes.registry import NodeMetadata, registry
 from orcheo.nodes.storage import build_csv, upload_attachment
@@ -67,12 +72,12 @@ def _decode_attachment_content(raw: bytes) -> str | None:
 
 @registry.register(
     NodeMetadata(
-        name="LoadAttachmentNode",
+        name="LoadAttachmentsNode",
         description="Resolve uploaded attachments into readable payloads",
         category="workflow",
     )
 )
-class LoadAttachmentNode(TaskNode):
+class LoadAttachmentsNode(TaskNode):
     """Load attachment content from inputs, storage paths, or attachment resolver."""
 
     input_key: str = "documents"
@@ -185,6 +190,8 @@ class ValidateFilesNode(TaskNode):
 
     attachments_node_name: str = "load_attachments"
     attachments_field: str = "attachments"
+    data_field: str | None = None
+    codebook_field: str | None = None
     data_kind: Literal["raw", "coded"] = "raw"
     require_codebook: bool = False
     flexible_columns: bool = False
@@ -275,7 +282,9 @@ class ValidateFilesNode(TaskNode):
         attachments = self._attachments(state)
         errors: list[str] = []
         data_files: list[dict[str, Any]] = []
+        data_payloads: list[dict[str, Any]] = []
         codebook_files: list[dict[str, Any]] = []
+        codebooks: list[Codebook] = []
 
         if not attachments:
             errors.append("No attachments were loaded.")
@@ -296,6 +305,14 @@ class ValidateFilesNode(TaskNode):
             if coded_file is not None:
                 if self.data_kind == "coded":
                     data_files.append(coded_file)
+                    data_payloads.append(
+                        {
+                            "filename": filename,
+                            "content": content,
+                            "source_type": "coded_data_csv",
+                            "storage_path": attachment.get("storage_path"),
+                        }
+                    )
                 else:
                     errors.append(
                         f"{filename}: coded data was uploaded, but raw data is expected"
@@ -305,6 +322,7 @@ class ValidateFilesNode(TaskNode):
             codebook = parse_codebook_csv(content, reject_coded_data=True)
             if codebook is not None:
                 codebook_files.append({"filename": filename, "present": True})
+                codebooks.append(codebook)
                 continue
 
             if self.data_kind == "raw":
@@ -316,6 +334,14 @@ class ValidateFilesNode(TaskNode):
                 )
                 if raw_file is not None:
                     data_files.append(raw_file)
+                    data_payloads.append(
+                        {
+                            "filename": filename,
+                            "content": content,
+                            "source_type": raw_file.get("source_type"),
+                            "storage_path": attachment.get("storage_path"),
+                        }
+                    )
                     continue
 
             expected = "coded data CSV" if self.data_kind == "coded" else "raw data"
@@ -335,8 +361,12 @@ class ValidateFilesNode(TaskNode):
         nested: dict[str, Any] = {"ok": ok, "errors": errors}
         if len(data_files) == 1:
             nested["data_file"] = data_files[0]
+            if self.data_field and data_payloads:
+                nested[self.data_field] = data_payloads[0]
         if len(codebook_files) == 1:
             nested["codebook_file"] = codebook_files[0]
+            if self.codebook_field and codebooks:
+                nested[self.codebook_field] = codebooks[0].model_dump(mode="json")
         nested["assistant_message"] = self._assistant_message(nested)
 
         return nested
@@ -761,6 +791,10 @@ class RecodeOutputNode(AINode):
 
     ingest_node_name: str = "ingest"
     recoder_finalize_node: str = "recoder_finalize"
+    codebook: Any | None = None
+    units: Any | None = None
+    assignments: Any | None = None
+    quality_report: Any | None = None
     export_filename: str = "coded_data.csv"
     export_mime_type: str = "text/csv"
     title: str = "Theme Coding Analyst"
@@ -776,8 +810,12 @@ class RecodeOutputNode(AINode):
                 )
             }
 
-        codebook = get_approved_codebook(state)
-        assignments = get_code_assignments(state)
+        codebook = coerce_model(self.codebook, Codebook)
+        if codebook is None:
+            codebook = get_approved_codebook(state)
+        assignments = coerce_model_list(self.assignments, CodeAssignment)
+        if not assignments:
+            assignments = get_code_assignments(state)
         if not assignments:
             return {
                 "assistant_message": (
@@ -786,7 +824,9 @@ class RecodeOutputNode(AINode):
                 )
             }
 
-        units = get_units(state)
+        units = coerce_model_list(self.units, Unit)
+        if not units:
+            units = get_units(state)
         csv_content, total_assignments = (
             build_coded_data_csv(units, assignments, codebook)
             if codebook is not None
@@ -813,7 +853,9 @@ class RecodeOutputNode(AINode):
         elif export_error:
             lines.append(f"_Could not generate the download link: {export_error}_\n")
 
-        report = get_quality_report(state)
+        report = coerce_model(self.quality_report, QualityReport)
+        if report is None:
+            report = get_quality_report(state)
         if report:
             lines.append(
                 f"**Quality:** {report.flagged_units}/{report.total_units}"
@@ -853,6 +895,9 @@ class RecodeOutputNode(AINode):
 class ExportCodedDataNode(AINode):
     """Serialise coded units and code assignments to a CSV download link."""
 
+    codebook: Any | None = None
+    units: Any | None = None
+    assignments: Any | None = None
     export_filename: str = "coded_data.csv"
     export_mime_type: str = "text/csv"
     export_title: str = "Coded Data Export"
@@ -861,9 +906,15 @@ class ExportCodedDataNode(AINode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        codebook = get_approved_codebook(state)
-        units = get_units(state)
-        assignments = get_code_assignments(state)
+        codebook = coerce_model(self.codebook, Codebook)
+        if codebook is None:
+            codebook = get_approved_codebook(state)
+        units = coerce_model_list(self.units, Unit)
+        if not units:
+            units = get_units(state)
+        assignments = coerce_model_list(self.assignments, CodeAssignment)
+        if not assignments:
+            assignments = get_code_assignments(state)
         if codebook is None or not units or not assignments:
             return {"assistant_message": self.missing_data_message}
 
@@ -894,7 +945,7 @@ __all__ = [
     "ExportCodebookNode",
     "ExportCodedDataNode",
     "IngestNode",
-    "LoadAttachmentNode",
+    "LoadAttachmentsNode",
     "RecodeOutputNode",
     "SetupNode",
     "ValidateFilesNode",

@@ -8,7 +8,7 @@ from orcheo.nodes.logic import human_input as human_input_module
 
 @pytest.mark.asyncio
 async def test_human_input_node_interrupts_with_configured_payload(monkeypatch):
-    """HumanInputNode should wrap the interrupt response in TaskNode results."""
+    """HumanInputNode should publish the interrupt response as user state."""
     observed_payloads = []
 
     def fake_interrupt(payload):
@@ -33,8 +33,8 @@ async def test_human_input_node_interrupts_with_configured_payload(monkeypatch):
             "expected": {"type": "integer", "minimum": 0, "maximum": 100},
         }
     ]
-    assert result["inputs"] == {"message": "42"}
-    assert "messages" not in result
+    assert "inputs" not in result
+    assert result["messages"] == [{"role": "user", "content": "42"}]
     assert result["results"] == {"ask_human": {"response": "42"}}
 
 
@@ -52,14 +52,14 @@ async def test_human_input_node_omits_expected_when_not_configured(monkeypatch):
     result = await HumanInputNode(name="ask_human", prompt="Continue?")({}, {})
 
     assert observed_payloads == [{"message": "Continue?", "kind": "human"}]
-    assert result["inputs"] == {"message": "continue"}
-    assert "messages" not in result
+    assert "inputs" not in result
+    assert result["messages"] == [{"role": "user", "content": "continue"}]
     assert result["results"] == {"ask_human": {"response": "continue"}}
 
 
 @pytest.mark.asyncio
-async def test_human_input_node_preserves_existing_inputs(monkeypatch):
-    """HumanInputNode should replace only the current message input on resume."""
+async def test_human_input_node_does_not_mutate_graph_inputs(monkeypatch):
+    """HumanInputNode should publish resumed input without rewriting graph inputs."""
     observed_payloads = []
 
     def fake_interrupt(payload):
@@ -74,6 +74,6 @@ async def test_human_input_node_preserves_existing_inputs(monkeypatch):
     )
 
     assert observed_payloads == [{"message": "Guess?", "kind": "human"}]
-    assert result["inputs"] == {"message": "7", "thread_id": "thread-1"}
-    assert "messages" not in result
+    assert "inputs" not in result
+    assert result["messages"] == [{"role": "user", "content": "7"}]
     assert result["results"] == {"ask_human": {"response": 7}}
