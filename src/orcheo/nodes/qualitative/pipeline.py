@@ -382,6 +382,11 @@ class ValidateFilesNode(TaskNode):
 class SetupNode(TaskNode):
     """Resolve the research objective, source payload, and optional codebook."""
 
+    research_objective: str | None = None
+    source_payload: Any | None = None
+    pending_documents: Any | None = None
+    approved_codebook: Any | None = None
+
     research_objective_input_key: str = "research_objective"
     research_objective_config_key: str = "research_objective"
     source_config_key: str = "source"
@@ -389,6 +394,11 @@ class SetupNode(TaskNode):
     source_filename_config_key: str = "source_filename"
     documents_input_key: str = "documents"
     objective_field: str = "objective"
+    research_objective_field: str = _RESEARCH_OBJECTIVE_FIELD
+    source_payload_field: str = _SOURCE_PAYLOAD_FIELD
+    pending_documents_field: str = _PENDING_DOCUMENTS_FIELD
+    approved_codebook_field: str = _APPROVED_CODEBOOK_FIELD
+    seed_codebook_field: str = _SEED_CODEBOOK_FIELD
 
     resolve_objective: bool = True
     resolve_codebook: bool = False
@@ -401,11 +411,16 @@ class SetupNode(TaskNode):
         self, state: State, config: RunnableConfig, result: dict[str, Any]
     ) -> None:
         objective = ""
-        inputs = state.get("inputs") or {}
-        if isinstance(inputs, Mapping):
-            cand = inputs.get(self.research_objective_input_key)
-            if isinstance(cand, str) and not is_vacuous(cand):
-                objective = cand.strip()
+        if isinstance(self.research_objective, str):
+            explicit_objective = self.research_objective.strip()
+            if explicit_objective and not explicit_objective.startswith("{{"):
+                objective = explicit_objective
+        if not objective:
+            inputs = state.get("inputs") or {}
+            if isinstance(inputs, Mapping):
+                cand = inputs.get(self.research_objective_input_key)
+                if isinstance(cand, str) and not is_vacuous(cand):
+                    objective = cand.strip()
         if not objective:
             cfg_objective = get_configurable(config).get(
                 self.research_objective_config_key
@@ -417,7 +432,7 @@ class SetupNode(TaskNode):
         if objective and is_vacuous(existing_objective or ""):
             effective_objective = objective
         if effective_objective:
-            result[_RESEARCH_OBJECTIVE_FIELD] = effective_objective
+            result[self.research_objective_field] = effective_objective
         result[self.objective_field] = effective_objective or "(not provided)"
 
     def _resolve_source(
@@ -473,22 +488,38 @@ class SetupNode(TaskNode):
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         result: dict[str, Any] = {}
 
+        pending_documents = coerce_pending_documents(self.pending_documents)
+        if pending_documents:
+            result[self.pending_documents_field] = pending_documents
+
         if self.resolve_objective:
             self._resolve_objective(state, config, result)
 
-        if get_source_payload(state) is None:
+        source_payload = (
+            dict(self.source_payload)
+            if isinstance(self.source_payload, Mapping)
+            else None
+        )
+        if source_payload is not None:
+            result[self.source_payload_field] = source_payload
+        elif get_source_payload(state) is None:
             candidate = self._resolve_source(state, config)
             if candidate:
-                result[_SOURCE_PAYLOAD_FIELD] = candidate
+                result[self.source_payload_field] = candidate
 
-        if self.resolve_codebook and get_approved_codebook(state) is None:
+        codebook = coerce_model(self.approved_codebook, Codebook)
+        if codebook is not None:
+            result[self.approved_codebook_field] = codebook.model_dump(mode="json")
+        elif self.resolve_codebook and get_approved_codebook(state) is None:
             for doc in get_pending_documents(state):
                 content = doc.get("content") or ""
                 codebook = parse_codebook_csv(
                     content, reject_coded_data=self.source_kind == "coded_data"
                 )
                 if codebook is not None:
-                    result[_APPROVED_CODEBOOK_FIELD] = codebook.model_dump(mode="json")
+                    result[self.approved_codebook_field] = codebook.model_dump(
+                        mode="json"
+                    )
                     break
 
         if self.resolve_seed_codebook and get_seed_codebook_from_file(state) is None:
@@ -496,7 +527,7 @@ class SetupNode(TaskNode):
                 content = doc.get("content") or ""
                 codebook = parse_codebook_csv(content, reject_coded_data=True)
                 if codebook is not None:
-                    result[_SEED_CODEBOOK_FIELD] = codebook.model_dump(mode="json")
+                    result[self.seed_codebook_field] = codebook.model_dump(mode="json")
                     break
 
         return result

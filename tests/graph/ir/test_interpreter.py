@@ -9,6 +9,7 @@ from orcheo.graph.ir.exceptions import WorkflowValidationError
 from orcheo.graph.ir.interpreter import compile_workflow_to_ir
 from orcheo.graph.ir.models import (
     IR_CONFIG_KIND_KEY,
+    PYDANTIC_MODEL_CONFIG_KIND,
     WORKFLOW_TOOL_CONFIG_KIND,
     BuiltinNodeSpec,
     CodeNodeSpec,
@@ -283,6 +284,55 @@ def test_workflow_tool_args_schema_is_lowered_to_json_schema() -> None:
     assert tool["args_schema"]["type"] == "object"
     assert tool["args_schema"]["properties"]["query"]["type"] == "string"
     assert tool["args_schema"]["required"] == ["query"]
+
+
+def test_imported_orcheo_pydantic_model_is_allowed_in_builtin_config() -> None:
+    """Trusted Orcheo Pydantic model classes may be referenced by built-in config."""
+    ir = _compile(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.ai import AgentNode
+        from orcheo.nodes.qualitative import LLMStageFinalizeNode, QuoteSelectionResponse
+
+        def orcheo_workflow():
+            graph = StateGraph(State)
+            graph.add_node(
+                "agent",
+                AgentNode(
+                    name="agent",
+                    ai_model="gpt-4o-mini",
+                    model_kwargs={"schema": QuoteSelectionResponse},
+                ),
+            )
+            graph.add_node(
+                "finalize",
+                LLMStageFinalizeNode(
+                    name="finalize",
+                    stage="quote_selector",
+                    response_schema=QuoteSelectionResponse,
+                ),
+            )
+            graph.add_edge(START, "agent")
+            graph.add_edge("agent", "finalize")
+            graph.add_edge("finalize", END)
+            return graph
+        """
+    )
+
+    agent, finalize = ir.nodes
+    assert isinstance(agent, BuiltinNodeSpec)
+    assert agent.config["model_kwargs"]["schema"] == {
+        IR_CONFIG_KIND_KEY: PYDANTIC_MODEL_CONFIG_KIND,
+        "module": "orcheo.nodes.qualitative",
+        "name": "QuoteSelectionResponse",
+    }
+    assert isinstance(finalize, BuiltinNodeSpec)
+    assert finalize.config["response_schema"] == {
+        IR_CONFIG_KIND_KEY: PYDANTIC_MODEL_CONFIG_KIND,
+        "module": "orcheo.nodes.qualitative",
+        "name": "QuoteSelectionResponse",
+    }
 
 
 def test_knowledge_guide_workflow_compiles_in_restricted_mode() -> None:

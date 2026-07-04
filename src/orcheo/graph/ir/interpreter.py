@@ -25,6 +25,7 @@ from orcheo.graph.ir.grammar import ENTRYPOINT_NAME, validate_grammar
 from orcheo.graph.ir.models import (
     END_VERTEX,
     IR_CONFIG_KIND_KEY,
+    PYDANTIC_MODEL_CONFIG_KIND,
     START_VERTEX,
     WORKFLOW_TOOL_CONFIG_KIND,
     BuiltinNodeSpec,
@@ -628,10 +629,12 @@ def _config_from_kwargs(
             if ctx is not None:
                 config[kw.arg] = _schema_or_literal_from_ast(kw.value, ctx)
                 continue
-        validate_config_value(
-            kw.value, allow_credentials=allow_credentials, where=f"node '{node_id}'"
+        config[kw.arg] = _config_value_from_ast(
+            kw.value,
+            allow_credentials=allow_credentials,
+            where=f"node '{node_id}'",
+            ctx=ctx,
         )
-        config[kw.arg] = literal_from_ast(kw.value)
     return config
 
 
@@ -957,6 +960,103 @@ def _imported_schema_json_schema(
     if isinstance(resolved, type) and issubclass(resolved, BaseModel):
         return resolved.model_json_schema()
     return None
+
+
+def _imported_model_ref_from_ast(
+    expr: ast.expr, ctx: _CompileContext
+) -> dict[str, str] | None:
+    """Return an IR marker for a trusted Orcheo-imported Pydantic model class."""
+    if not isinstance(expr, ast.Name):
+        return None
+    origin = ctx.imported_symbols.get(expr.id)
+    if origin is None:
+        return None
+    module_name, attr_name = origin
+    module = import_module(module_name)
+    resolved = getattr(module, attr_name, None)
+    if (
+        isinstance(resolved, type)
+        and resolved is not BaseModel
+        and issubclass(resolved, BaseModel)
+    ):
+        return {
+            IR_CONFIG_KIND_KEY: PYDANTIC_MODEL_CONFIG_KIND,
+            "module": module_name,
+            "name": attr_name,
+        }
+    return None
+
+
+def _config_value_from_ast(
+    expr: ast.expr,
+    *,
+    allow_credentials: bool,
+    where: str,
+    ctx: _CompileContext | None,
+) -> Any:
+    """Return a config value, allowing trusted model refs in built-in config."""
+    if allow_credentials and ctx is not None:
+        model_ref = _imported_model_ref_from_ast(expr, ctx)
+        if model_ref is not None:
+            return model_ref
+    if isinstance(expr, ast.List):
+        return [
+            _config_value_from_ast(
+                element,
+                allow_credentials=allow_credentials,
+                where=where,
+                ctx=ctx,
+            )
+            for element in expr.elts
+        ]
+    if isinstance(expr, ast.Tuple):
+        return tuple(
+            _config_value_from_ast(
+                element,
+                allow_credentials=allow_credentials,
+                where=where,
+                ctx=ctx,
+            )
+            for element in expr.elts
+        )
+    if isinstance(expr, ast.Dict):
+        return _config_dict_from_ast(
+            expr,
+            allow_credentials=allow_credentials,
+            where=where,
+            ctx=ctx,
+        )
+    validate_config_value(expr, allow_credentials=allow_credentials, where=where)
+    return literal_from_ast(expr)
+
+
+def _config_dict_from_ast(
+    expr: ast.Dict,
+    *,
+    allow_credentials: bool,
+    where: str,
+    ctx: _CompileContext | None,
+) -> dict[str, Any]:
+    """Return a config dict, preserving validator errors for unsupported keys."""
+    config: dict[str, Any] = {}
+    for key, value in zip(expr.keys, expr.values, strict=True):
+        if key is None:
+            validate_config_value(
+                expr, allow_credentials=allow_credentials, where=where
+            )
+            raise AssertionError("unreachable")
+        if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+            validate_config_value(
+                expr, allow_credentials=allow_credentials, where=where
+            )
+            raise AssertionError("unreachable")
+        config[key.value] = _config_value_from_ast(
+            value,
+            allow_credentials=allow_credentials,
+            where=where,
+            ctx=ctx,
+        )
+    return config
 
 
 def _required_kwarg(

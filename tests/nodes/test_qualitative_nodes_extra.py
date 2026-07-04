@@ -726,6 +726,7 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
         {},
     )
     assert early["assistant_message"] == "halt"
+    assert early["results"]["report_output"]["assistant_message"] == "halt"
 
     async def _upload_ok(*args, **kwargs):  # noqa: ARG001
         return (None, "https://example.test/report.md")
@@ -738,6 +739,10 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
         {},
     )
     assert "Download insight_report.md" in report_result["assistant_message"]
+    assert (
+        report_result["results"]["report_output"]["assistant_message"]
+        == report_result["assistant_message"]
+    )
 
     export_report = ExportReportNode(name="export_report")
     missing = await export_report(State({"results": {}}), {})

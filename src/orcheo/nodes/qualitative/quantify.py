@@ -10,6 +10,8 @@ from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.qualitative.accessors import (
+    coerce_model,
+    coerce_model_list,
     get_approved_codebook,
     get_code_assignments,
     get_configurable,
@@ -248,6 +250,17 @@ class CodedDataIngestNode(TaskNode):
     """Reconstruct a coded dataset and compute theme frequencies and segments."""
 
     result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
+    source_payload: Any | None = None
+    units: Any | None = None
+    code_assignments: Any | None = None
+    approved_codebook: Any | None = None
+    units_field: str | None = None
+    assignments_field: str | None = None
+    approved_codebook_field: str | None = None
+    quantification_field: str | None = None
+    cooccurrence_field: str | None = None
+    segment_breakdowns_field: str | None = None
+    segment_comparisons_field: str | None = None
     segment_variables_config_key: str = "segment_variables"
     allow_chained_results: bool = False
     missing_data_message: str = (
@@ -261,20 +274,32 @@ class CodedDataIngestNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Parse the coded-data CSV and emit quantification artefacts."""
-        source = get_source_payload(state, self.result_keys) or {}
+        source = (
+            dict(self.source_payload)
+            if isinstance(self.source_payload, dict)
+            else get_source_payload(state, self.result_keys) or {}
+        )
         content = source.get("content") or ""
         parsed = parse_coded_data_csv(content) if content else None
         if parsed is None and self.allow_chained_results:
-            units = get_units(state, self.result_keys)
-            assignments = get_code_assignments(state, self.result_keys)
-            codebook = get_approved_codebook(state, self.result_keys)
+            units = coerce_model_list(self.units, Unit) or get_units(
+                state, self.result_keys
+            )
+            assignments = coerce_model_list(
+                self.code_assignments, CodeAssignment
+            ) or get_code_assignments(state, self.result_keys)
+            codebook = coerce_model(
+                self.approved_codebook, Codebook
+            ) or get_approved_codebook(state, self.result_keys)
             if units and assignments and codebook is not None:
                 parsed = (units, assignments, codebook)
         if parsed is None:
             return {"assistant_message": self.missing_data_message, "halt": True}
         units, assignments, reconstructed_codebook = parsed
         codebook = (
-            get_approved_codebook(state, self.result_keys) or reconstructed_codebook
+            coerce_model(self.approved_codebook, Codebook)
+            or get_approved_codebook(state, self.result_keys)
+            or reconstructed_codebook
         )
         if codebook is None or not assignments:
             return {"assistant_message": self.missing_assignments_message, "halt": True}
@@ -295,17 +320,25 @@ class CodedDataIngestNode(TaskNode):
         return {
             "unit_count": len(units),
             "assignment_count": sum(len(a.assignments) for a in assignments),
-            keys.units_field: [u.model_dump(mode="json") for u in units],
-            keys.assignments_field: [a.model_dump(mode="json") for a in assignments],
-            keys.approved_codebook_field: codebook.model_dump(mode="json"),
-            keys.quantification_field: [
+            (self.units_field or keys.units_field): [
+                u.model_dump(mode="json") for u in units
+            ],
+            (self.assignments_field or keys.assignments_field): [
+                a.model_dump(mode="json") for a in assignments
+            ],
+            (self.approved_codebook_field or keys.approved_codebook_field): (
+                codebook.model_dump(mode="json")
+            ),
+            (self.quantification_field or keys.quantification_field): [
                 r.model_dump(mode="json") for r in quantification
             ],
-            keys.cooccurrence_field: [r.model_dump(mode="json") for r in cooccurrence],
-            keys.segment_breakdowns_field: [
+            (self.cooccurrence_field or keys.cooccurrence_field): [
+                r.model_dump(mode="json") for r in cooccurrence
+            ],
+            (self.segment_breakdowns_field or keys.segment_breakdowns_field): [
                 r.model_dump(mode="json") for r in breakdowns
             ],
-            keys.segment_comparisons_field: [
+            (self.segment_comparisons_field or keys.segment_comparisons_field): [
                 r.model_dump(mode="json") for r in comparisons
             ],
         }

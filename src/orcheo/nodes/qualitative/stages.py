@@ -19,7 +19,6 @@ from pydantic import BaseModel, Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.qualitative.accessors import (
-    build_report_data,
     coerce_model,
     coerce_model_list,
     get_approved_codebook,
@@ -69,6 +68,7 @@ from orcheo.nodes.qualitative.models import (
     Quote,
     QuoteSelectionResponse,
     RecodingBatchResponse,
+    ReportData,
     Unit,
 )
 from orcheo.nodes.registry import NodeMetadata, registry
@@ -319,13 +319,15 @@ class LLMStagePrepareNode(TaskNode):
             codebook = self._approved_codebook(state, keys)
             if codebook is None:
                 return {"skip_llm": True, "done": True}
+            assignments = self._code_assignments(state, keys)
+            units = self._units(state, keys)
             quotes_per_theme = get_configurable(config).get(
                 self.quotes_per_theme_config_key, self.default_quotes_per_theme
             )
             fb_quotes = fallback_quotes(
                 codebook,
-                get_code_assignments(state, keys),
-                get_units(state, keys),
+                assignments,
+                units,
                 quotes_per_theme,
             )
             template = (
@@ -353,7 +355,14 @@ class LLMStagePrepareNode(TaskNode):
             }
 
         if self.stage == "insight_generator":
-            fb_insights = fallback_insights(build_report_data(state, keys))
+            report_data = ReportData(
+                approved_codebook=self._approved_codebook(state, keys),
+                units=self._units(state, keys),
+                code_assignments_pass2=self._code_assignments(state, keys),
+                quantification=self._quantification(state, keys),
+                selected_quotes=self._selected_quotes(state, keys),
+            )
+            fb_insights = fallback_insights(report_data)
             codebook = self._approved_codebook(state, keys)
             template = (
                 self.insight_generator_system_prompt_template
@@ -370,7 +379,7 @@ class LLMStagePrepareNode(TaskNode):
                         else {},
                         "quantification": [
                             row.model_dump(mode="json")
-                            for row in get_quantification(state, keys)
+                            for row in self._quantification(state, keys)
                         ],
                         "assignments": [
                             a.model_dump(mode="json")
@@ -405,8 +414,11 @@ class LLMStageFinalizeNode(TaskNode):
     code_assignments: Any | None = None
     approved_codebook: Any | None = None
     seed_codebook: Any | None = None
+    quantification: Any | None = None
     response_schema: type[BaseModel] | None = None
     code_assignments_field: str | None = None
+    selected_quotes_field: str | None = None
+    candidate_insights_field: str | None = None
     default_batch_size: int = DEFAULT_BATCH_SIZE
     quotes_per_theme_config_key: str = "quotes_per_theme"
     default_quotes_per_theme: int = DEFAULT_QUOTES_PER_THEME
@@ -457,12 +469,24 @@ class LLMStageFinalizeNode(TaskNode):
     def _code_assignments_field(self, keys: QualitativeResultKeys) -> str:
         return self.code_assignments_field or keys.assignments_field
 
+    def _selected_quotes_field(self, keys: QualitativeResultKeys) -> str:
+        return self.selected_quotes_field or keys.selected_quotes_field
+
+    def _candidate_insights_field(self, keys: QualitativeResultKeys) -> str:
+        return self.candidate_insights_field or keys.candidate_insights_field
+
     def _seed_codebook(
         self, config: RunnableConfig, state: State, keys: QualitativeResultKeys
     ) -> Codebook | None:
         return _codebook_from_value(self.seed_codebook) or get_seed_codebook(
             config, state, keys
         )
+
+    def _quantification(
+        self, state: State, keys: QualitativeResultKeys
+    ) -> list[QuantificationRow]:
+        rows = coerce_model_list(self.quantification, QuantificationRow)
+        return rows or get_quantification(state, keys)
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Persist stage output under ``results[node_name]`` keyed by the field."""
@@ -645,21 +669,29 @@ class LLMStageFinalizeNode(TaskNode):
         quotes = result.quotes if isinstance(result, QuoteSelectionResponse) else fb
         selected = filter_grounded_quotes(quotes, codebook or Codebook(), units) or fb
         return {
-            keys.selected_quotes_field: [q.model_dump(mode="json") for q in selected],
+            self._selected_quotes_field(keys): [
+                q.model_dump(mode="json") for q in selected
+            ],
             "quotes": len(selected),
             "halt": False,
         }
 
     def _finalize_insight_generator(self, state: State) -> dict[str, Any]:
         keys = self.result_keys
-        fb = fallback_insights(build_report_data(state, keys))
+        report_data = ReportData(
+            approved_codebook=self._approved_codebook(state, keys),
+            units=self._units(state, keys),
+            code_assignments_pass2=self._code_assignments(state, keys),
+            quantification=self._quantification(state, keys),
+        )
+        fb = fallback_insights(report_data)
         result = self._extract_llm_response(state, InsightGenerationResponse)
         insights = (
             result.insights if isinstance(result, InsightGenerationResponse) else fb
         )
         normalised = normalise_candidate_insights(insights) or fb
         return {
-            keys.candidate_insights_field: [
+            self._candidate_insights_field(keys): [
                 i.model_dump(mode="json") for i in normalised
             ],
             "halt": False,

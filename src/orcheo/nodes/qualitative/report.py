@@ -9,10 +9,27 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import AINode
-from orcheo.nodes.qualitative.accessors import build_report_data
+from orcheo.nodes.qualitative.accessors import (
+    build_report_data,
+    coerce_model,
+    coerce_model_list,
+    coerce_pending_documents,
+)
 from orcheo.nodes.qualitative.codebook import code_to_theme_map
 from orcheo.nodes.qualitative.keys import QualitativeResultKeys
-from orcheo.nodes.qualitative.models import Codebook, ReportData
+from orcheo.nodes.qualitative.models import (
+    CandidateInsight,
+    CodeAssignment,
+    Codebook,
+    CooccurrenceRow,
+    QuantificationRow,
+    Quote,
+    Recommendation,
+    ReportData,
+    SegmentBreakdownRow,
+    SegmentComparison,
+    Unit,
+)
 from orcheo.nodes.registry import NodeMetadata, registry
 from orcheo.nodes.storage import upload_attachment
 from orcheo.runtime.results import node_result
@@ -190,6 +207,61 @@ def render_markdown_report(thread_state: ReportData) -> str:
     return "\n".join(line for line in lines if line is not None).strip()
 
 
+def _report_data_from_values(
+    *,
+    state: State,
+    keys: QualitativeResultKeys,
+    research_objective: str | None = None,
+    pending_documents: Any | None = None,
+    source_payload: Any | None = None,
+    units: Any | None = None,
+    approved_codebook: Any | None = None,
+    code_assignments: Any | None = None,
+    quantification: Any | None = None,
+    cooccurrence: Any | None = None,
+    segment_breakdowns: Any | None = None,
+    segment_comparisons: Any | None = None,
+    selected_quotes: Any | None = None,
+    candidate_insights: Any | None = None,
+    recommendations: Any | None = None,
+    approved_insight_ids: Any | None = None,
+) -> ReportData:
+    """Build report data from explicit node inputs, falling back to result keys."""
+    fallback = build_report_data(state, keys)
+    explicit_source = dict(source_payload) if isinstance(source_payload, dict) else None
+    explicit_approved_ids = (
+        [str(item) for item in approved_insight_ids]
+        if isinstance(approved_insight_ids, list)
+        else None
+    )
+    return ReportData(
+        research_objective=research_objective or fallback.research_objective,
+        pending_documents=coerce_pending_documents(pending_documents)
+        or fallback.pending_documents,
+        source_payload=explicit_source or fallback.source_payload,
+        units=coerce_model_list(units, Unit) or fallback.units,
+        approved_codebook=coerce_model(approved_codebook, Codebook)
+        or fallback.approved_codebook,
+        code_assignments_pass2=coerce_model_list(code_assignments, CodeAssignment)
+        or fallback.code_assignments_pass2,
+        quantification=coerce_model_list(quantification, QuantificationRow)
+        or fallback.quantification,
+        cooccurrence=coerce_model_list(cooccurrence, CooccurrenceRow)
+        or fallback.cooccurrence,
+        segment_breakdowns=coerce_model_list(segment_breakdowns, SegmentBreakdownRow)
+        or fallback.segment_breakdowns,
+        segment_comparisons=coerce_model_list(segment_comparisons, SegmentComparison)
+        or fallback.segment_comparisons,
+        selected_quotes=coerce_model_list(selected_quotes, Quote)
+        or fallback.selected_quotes,
+        candidate_insights=coerce_model_list(candidate_insights, CandidateInsight)
+        or fallback.candidate_insights,
+        recommendations=coerce_model_list(recommendations, Recommendation)
+        or fallback.recommendations,
+        approved_insight_ids=explicit_approved_ids or fallback.approved_insight_ids,
+    )
+
+
 @registry.register(
     NodeMetadata(
         name="ReportOutputNode",
@@ -201,6 +273,20 @@ class ReportOutputNode(AINode):
     """Render the final report and return it with a download link."""
 
     result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
+    research_objective: str | None = None
+    pending_documents: Any | None = None
+    source_payload: Any | None = None
+    units: Any | None = None
+    approved_codebook: Any | None = None
+    code_assignments: Any | None = None
+    quantification: Any | None = None
+    cooccurrence: Any | None = None
+    segment_breakdowns: Any | None = None
+    segment_comparisons: Any | None = None
+    selected_quotes: Any | None = None
+    candidate_insights: Any | None = None
+    recommendations: Any | None = None
+    approved_insight_ids: Any | None = None
     ingest_node_name: str = "ingest"
     export_filename: str = "insight_report.md"
     export_mime_type: str = "text/markdown"
@@ -210,13 +296,30 @@ class ReportOutputNode(AINode):
         """Validate grounding, render the report, and upload it for download."""
         early = node_result(state, self.ingest_node_name)
         if early.get("halt"):
+            message = str(early.get("assistant_message", self.failed_ingest_message))
             return {
-                "assistant_message": str(
-                    early.get("assistant_message", self.failed_ingest_message)
-                )
+                "assistant_message": message,
+                "results": {self.name: {"assistant_message": message}},
             }
 
-        data = build_report_data(state, self.result_keys)
+        data = _report_data_from_values(
+            state=state,
+            keys=self.result_keys,
+            research_objective=self.research_objective,
+            pending_documents=self.pending_documents,
+            source_payload=self.source_payload,
+            units=self.units,
+            approved_codebook=self.approved_codebook,
+            code_assignments=self.code_assignments,
+            quantification=self.quantification,
+            cooccurrence=self.cooccurrence,
+            segment_breakdowns=self.segment_breakdowns,
+            segment_comparisons=self.segment_comparisons,
+            selected_quotes=self.selected_quotes,
+            candidate_insights=self.candidate_insights,
+            recommendations=self.recommendations,
+            approved_insight_ids=self.approved_insight_ids,
+        )
         errors = validate_final_state(data)
         report = render_markdown_report(data)
 
@@ -244,10 +347,16 @@ class ReportOutputNode(AINode):
         lines.append("---\n")
         lines.append(report)
 
+        assistant_message = "\n".join(lines).strip()
         return {
-            "assistant_message": "\n".join(lines).strip(),
+            "assistant_message": assistant_message,
             "results": {
-                self.name: {"report_markdown": report, "report_url": report_url}
+                self.name: {
+                    "assistant_message": assistant_message,
+                    "research_objective": data.research_objective,
+                    "report_markdown": report,
+                    "report_url": report_url,
+                }
             },
         }
 
@@ -263,6 +372,20 @@ class ExportReportNode(AINode):
     """Regenerate the downloadable Markdown report link."""
 
     result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
+    research_objective: str | None = None
+    pending_documents: Any | None = None
+    source_payload: Any | None = None
+    units: Any | None = None
+    approved_codebook: Any | None = None
+    code_assignments: Any | None = None
+    quantification: Any | None = None
+    cooccurrence: Any | None = None
+    segment_breakdowns: Any | None = None
+    segment_comparisons: Any | None = None
+    selected_quotes: Any | None = None
+    candidate_insights: Any | None = None
+    recommendations: Any | None = None
+    approved_insight_ids: Any | None = None
     export_filename: str = "insight_report.md"
     export_mime_type: str = "text/markdown"
     export_title: str = "Insight Report Export"
@@ -272,7 +395,24 @@ class ExportReportNode(AINode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Re-render the report from the results channel and upload it."""
-        data = build_report_data(state, self.result_keys)
+        data = _report_data_from_values(
+            state=state,
+            keys=self.result_keys,
+            research_objective=self.research_objective,
+            pending_documents=self.pending_documents,
+            source_payload=self.source_payload,
+            units=self.units,
+            approved_codebook=self.approved_codebook,
+            code_assignments=self.code_assignments,
+            quantification=self.quantification,
+            cooccurrence=self.cooccurrence,
+            segment_breakdowns=self.segment_breakdowns,
+            segment_comparisons=self.segment_comparisons,
+            selected_quotes=self.selected_quotes,
+            candidate_insights=self.candidate_insights,
+            recommendations=self.recommendations,
+            approved_insight_ids=self.approved_insight_ids,
+        )
         if data.approved_codebook is None or not data.candidate_insights:
             return {"assistant_message": self.missing_report_message}
         report = render_markdown_report(data)

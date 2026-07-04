@@ -11,6 +11,7 @@ from orcheo.graph.ir.builder import (
 from orcheo.graph.ir.exceptions import IRValidationError
 from orcheo.graph.ir.models import (
     IR_CONFIG_KIND_KEY,
+    PYDANTIC_MODEL_CONFIG_KIND,
     WORKFLOW_TOOL_CONFIG_KIND,
     BuiltinNodeSpec,
     CodeNodeSpec,
@@ -158,6 +159,62 @@ def test_agent_workflow_tool_ir_materialises_workflow_tool() -> None:
     assert len(agent.workflow_tools) == 1
     assert agent.workflow_tools[0].name == "lookup"
     assert agent.workflow_tools[0].graph.nodes.keys() == {"inner"}
+
+
+def test_pydantic_model_ir_materialises_to_runtime_class() -> None:
+    """Pydantic model markers rebuild to trusted Orcheo model classes."""
+    from orcheo.nodes.qualitative import QuoteSelectionResponse
+
+    ir = GraphIR(
+        entrypoint="finalize",
+        nodes=[
+            BuiltinNodeSpec(
+                id="finalize",
+                type="LLMStageFinalizeNode",
+                config={
+                    "stage": "quote_selector",
+                    "response_schema": {
+                        IR_CONFIG_KIND_KEY: PYDANTIC_MODEL_CONFIG_KIND,
+                        "module": "orcheo.nodes.qualitative",
+                        "name": "QuoteSelectionResponse",
+                    },
+                },
+            )
+        ],
+        edges=[
+            EdgeSpec(source="__start__", target="finalize"),
+            EdgeSpec(source="finalize", target="__end__"),
+        ],
+    )
+
+    graph = build_state_graph_from_ir(ir)
+    node = graph.nodes["finalize"].runnable.afunc
+
+    assert node.response_schema is QuoteSelectionResponse
+
+
+def test_pydantic_model_ir_rejects_non_orcheo_module() -> None:
+    """Tampered Pydantic model markers cannot import outside Orcheo modules."""
+    ir = GraphIR(
+        entrypoint="first",
+        nodes=[
+            BuiltinNodeSpec(
+                id="first",
+                type="DebugNode",
+                config={
+                    "message": {
+                        IR_CONFIG_KIND_KEY: PYDANTIC_MODEL_CONFIG_KIND,
+                        "module": "pydantic",
+                        "name": "BaseModel",
+                    }
+                },
+            )
+        ],
+        edges=[EdgeSpec(source="__start__", target="first")],
+    )
+
+    with pytest.raises(IRValidationError, match="non-Orcheo module"):
+        build_state_graph_from_ir(ir)
 
 
 @pytest.mark.asyncio
