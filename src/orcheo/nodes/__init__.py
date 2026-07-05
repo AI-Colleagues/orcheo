@@ -52,9 +52,6 @@ from orcheo.nodes.logic import (
 from orcheo.nodes.logic.debug import DebugNode
 from orcheo.nodes.logic.sub_workflow import SubWorkflowNode
 from orcheo.nodes.qualitative import (
-    CodeAssignment,
-    CodeAssignmentEntry,
-    Codebook,
     CodebookConsolidationResponse,
     CodebookOutputNode,
     CodedDataIngestNode,
@@ -67,17 +64,22 @@ from orcheo.nodes.qualitative import (
     LLMStageFinalizeNode,
     LLMStagePrepareNode,
     LoadAttachmentsNode,
-    ParsedRecord,
-    QualitativeResultKeys,
     RecodeOutputNode,
     RecommendationGeneratorNode,
     ReportOutputNode,
-    SourceParser,
+    ValidateFilesNode,
+)
+from orcheo.nodes.qualitative.keys import QualitativeResultKeys
+from orcheo.nodes.qualitative.models import (
+    CodeAssignment,
+    CodeAssignmentEntry,
+    Codebook,
+    ParsedRecord,
     Subtheme,
     Theme,
     Unit,
-    ValidateFilesNode,
 )
+from orcheo.nodes.qualitative.sources import SourceParser
 from orcheo.nodes.rag import (
     ChunkEmbeddingNode,
     ChunkingStrategyNode,

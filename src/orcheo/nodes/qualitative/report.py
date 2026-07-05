@@ -100,7 +100,7 @@ def render_markdown_report(thread_state: ReportData) -> str:
         if iid in candidate_by_id
     ]
     lines = [
-        "# Insight Reporter — Final Report",
+        "# Theme Reporter — Final Report",
         "",
         "## Research objective",
         thread_state.research_objective or "(not provided)",
@@ -330,7 +330,7 @@ class ReportOutputNode(TaskNode):
             export_error = str(exc)
 
         approved = len(data.approved_insight_ids or [])
-        lines = ["# Insight Reporter — Report Complete\n"]
+        lines = ["# Theme Reporter — Report Complete\n"]
         lines.append(
             f"✅ Synthesised **{approved} insight(s)** from "
             f"**{len(data.units or [])} coded unit(s)**.\n"
@@ -380,7 +380,7 @@ class ExportReportNode(TaskNode):
     approved_insight_ids: Any | None = None
     export_filename: str = "insight_report.md"
     export_mime_type: str = "text/markdown"
-    export_title: str = "Insight Report Export"
+    export_title: str = "Theme Report Export"
     missing_report_message: str = (
         "No report is available to export. Please run `generate_report` first."
     )

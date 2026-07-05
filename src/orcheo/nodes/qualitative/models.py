@@ -194,10 +194,6 @@ class CandidateInsight(BaseModel):
     recommendation: Recommendation | None = None
 
 
-class Insight(CandidateInsight):
-    """A reported insight — same shape as a candidate."""
-
-
 # ---------------------------------------------------------------------------
 # LLM structured-response schemas
 # ---------------------------------------------------------------------------
@@ -271,7 +267,6 @@ __all__ = [
     "Codebook",
     "CodebookConsolidationResponse",
     "CooccurrenceRow",
-    "Insight",
     "InsightGenerationResponse",
     "OpenCodingBatchResponse",
     "ParsedRecord",

@@ -49,14 +49,6 @@ from orcheo.nodes.storage import build_csv, upload_attachment
 from orcheo.runtime.results import node_result
 
 
-_APPROVED_CODEBOOK_FIELD = "approved_codebook"
-_PENDING_DOCUMENTS_FIELD = "pending_documents"
-_RESEARCH_OBJECTIVE_FIELD = "research_objective"
-_SOURCE_PAYLOAD_FIELD = "source_payload"
-_UNITS_FIELD = "units"
-# TODO: consider removing these constants
-
-
 def _decode_attachment_content(raw: bytes) -> str | None:
     """Decode attachment bytes using the text encodings supported by workflows."""
     for encoding in ("utf-8", "latin-1"):
@@ -82,8 +74,8 @@ class LoadAttachmentsNode(TaskNode):
 
     def _result(self, attachments: list[dict[str, Any]]) -> dict[str, Any]:
         result = {self.output_field: attachments}
-        if self.output_field != _PENDING_DOCUMENTS_FIELD:
-            result[_PENDING_DOCUMENTS_FIELD] = attachments
+        if self.output_field != "pending_documents":
+            result["pending_documents"] = attachments
         return result
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -460,10 +452,10 @@ class IngestNode(TaskNode):
             "halt": False,
             "unit_count": len(units),
             self.source_type_field: source_type,
-            _UNITS_FIELD: [u.model_dump(mode="json") for u in units],
+            "units": [u.model_dump(mode="json") for u in units],
         }
         if source_payload is not None:
-            result[_SOURCE_PAYLOAD_FIELD] = {
+            result["source_payload"] = {
                 **dict(source_payload),
                 "source_type": source_type,
             }
@@ -664,7 +656,7 @@ class RecodeOutputNode(TaskNode):
     quality_report: Any | None = None
     export_filename: str = "coded_data.csv"
     export_mime_type: str = "text/csv"
-    title: str = "Theme Coding Analyst"
+    title: str = "Theme Coder"
     batch_size_config_key: str = "batch_size"
     default_batch_size: int = DEFAULT_BATCH_SIZE
 

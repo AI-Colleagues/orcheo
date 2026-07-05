@@ -974,7 +974,7 @@ def test_report_helpers_render_and_validate() -> None:
     assert validate_final_state(invalid)[0] == "Missing codebook."
 
     report = render_markdown_report(data)
-    assert "# Insight Reporter" in report
+    assert "# Theme Reporter" in report
     assert "## Recommendations" in report
     assert "## Evidence Index" in report
 

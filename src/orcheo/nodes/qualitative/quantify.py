@@ -254,22 +254,15 @@ class CodedDataIngestNode(TaskNode):
     units: Any | None = None
     code_assignments: Any | None = None
     approved_codebook: Any | None = None
-    units_field: str | None = None
-    assignments_field: str | None = None
-    approved_codebook_field: str | None = None
-    quantification_field: str | None = None
-    cooccurrence_field: str | None = None
-    segment_breakdowns_field: str | None = None
-    segment_comparisons_field: str | None = None
     segment_variables_config_key: str = "segment_variables"
     allow_chained_results: bool = False
     missing_data_message: str = (
         "No coded data file was found. Please upload the `coded_data.csv` "
-        "exported by the Theme Coding Analyst."
+        "exported by the Theme Coder."
     )
     missing_assignments_message: str = (
         "The coded data file did not contain any code assignments. Please "
-        "re-run the Theme Coding Analyst and upload its output."
+        "re-run the Theme Coder and upload its output."
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
@@ -316,32 +309,17 @@ class CodedDataIngestNode(TaskNode):
         )
         breakdowns = compute_segment_breakdowns(variables, units, assignments, codebook)
         comparisons = compare_segments(breakdowns)
-        keys = self.result_keys
         return {
             "halt": False,
             "unit_count": len(units),
             "assignment_count": sum(len(a.assignments) for a in assignments),
-            (self.units_field or keys.units_field): [
-                u.model_dump(mode="json") for u in units
-            ],
-            (self.assignments_field or keys.assignments_field): [
-                a.model_dump(mode="json") for a in assignments
-            ],
-            (self.approved_codebook_field or keys.approved_codebook_field): (
-                codebook.model_dump(mode="json")
-            ),
-            (self.quantification_field or keys.quantification_field): [
-                r.model_dump(mode="json") for r in quantification
-            ],
-            (self.cooccurrence_field or keys.cooccurrence_field): [
-                r.model_dump(mode="json") for r in cooccurrence
-            ],
-            (self.segment_breakdowns_field or keys.segment_breakdowns_field): [
-                r.model_dump(mode="json") for r in breakdowns
-            ],
-            (self.segment_comparisons_field or keys.segment_comparisons_field): [
-                r.model_dump(mode="json") for r in comparisons
-            ],
+            "units": [u.model_dump(mode="json") for u in units],
+            "code_assignments": [a.model_dump(mode="json") for a in assignments],
+            "approved_codebook": codebook.model_dump(mode="json"),
+            "quantification": [r.model_dump(mode="json") for r in quantification],
+            "cooccurrence": [r.model_dump(mode="json") for r in cooccurrence],
+            "segment_breakdowns": [r.model_dump(mode="json") for r in breakdowns],
+            "segment_comparisons": [r.model_dump(mode="json") for r in comparisons],
         }
 
 
