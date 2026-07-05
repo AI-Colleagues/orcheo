@@ -147,10 +147,14 @@ We welcome contributions from the community:
 If you use Orcheo in your research, please cite it as:
 
 ```bibtex
-@article{jiang2026orcheo,
+@inproceedings{jiang2026orcheo,
   author       = {Jiang, Shaojie and Vakulenko, Svitlana and de Rijke, Maarten},
   title        = {Orcheo: A Modular Full-Stack Platform for Conversational Search},
-  journal      = {arXiv preprint arXiv:2602.14710},
-  year         = {2026}
+  booktitle    = {Proceedings of the 49th International ACM SIGIR Conference on Research and Development in Information Retrieval},
+  series       = {SIGIR '26},
+  year         = {2026},
+  publisher    = {ACM},
+  address      = {Melbourne, VIC, Australia},
+  doi          = {10.1145/3805712.3808613}
 }
 ```
