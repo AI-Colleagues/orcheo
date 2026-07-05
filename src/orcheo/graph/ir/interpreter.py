@@ -627,7 +627,7 @@ def _config_from_kwargs(
             config[kw.arg] = _workflow_tools_from_ast(kw.value, graphs, ctx)
             continue
         if allow_credentials and kw.arg == "response_format":
-            if ctx is not None:
+            if ctx is not None:  # pragma: no branch - allow_credentials implies ctx
                 config[kw.arg] = _schema_or_literal_from_ast(kw.value, ctx)
                 continue
         config[kw.arg] = _config_value_from_ast(
@@ -755,7 +755,7 @@ def _helper_graph_ir(name: str, ctx: _CompileContext) -> GraphIR:
     if cached is not None:
         return cached
     builder = ctx.graph_builders.get(name)
-    if builder is None:
+    if builder is None:  # pragma: no cover - guarded by caller's membership check
         raise WorkflowValidationError(f"unknown graph builder '{name}'")
     # Guard against self- or mutually-referencing helper builders: without an
     # in-progress marker the cache is only populated after interpretation
@@ -1058,12 +1058,12 @@ def _config_dict_from_ast(
             validate_config_value(
                 expr, allow_credentials=allow_credentials, where=where
             )
-            raise AssertionError("unreachable")
+            raise AssertionError("unreachable")  # pragma: no cover - defensive
         if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
             validate_config_value(
                 expr, allow_credentials=allow_credentials, where=where
             )
-            raise AssertionError("unreachable")
+            raise AssertionError("unreachable")  # pragma: no cover - defensive
         config[key.value] = _config_value_from_ast(
             value,
             allow_credentials=allow_credentials,

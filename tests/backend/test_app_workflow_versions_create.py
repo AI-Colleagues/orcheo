@@ -144,6 +144,9 @@ async def test_ingest_workflow_version_script_error() -> None:
                 updated_at=datetime.now(tz=UTC),
             )
 
+        async def set_workflow_upload_error(self, workflow_id, *, message, actor):
+            del workflow_id, message, actor
+
     request = WorkflowVersionIngestRequest(
         script="invalid python code {",
         entrypoint="graph",
@@ -184,6 +187,9 @@ async def test_ingest_workflow_version_rejects_missing_required_plugins(
         ):
             del wf_id, graph, metadata, notes, created_by, runnable_config
             raise AssertionError("create_version should not be called")
+
+        async def set_workflow_upload_error(self, workflow_id, *, message, actor):
+            del workflow_id, message, actor
 
     monkeypatch.setattr(
         workflow_routes,
@@ -297,6 +303,9 @@ def _build_capturing_repository(workflow_id, captured):
                 created_at=datetime.now(tz=UTC),
                 updated_at=datetime.now(tz=UTC),
             )
+
+        async def set_workflow_upload_error(self, workflow_id, *, message, actor):
+            del workflow_id, message, actor
 
     return Repository()
 

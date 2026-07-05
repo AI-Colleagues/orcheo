@@ -45,7 +45,7 @@ WORKFLOW = textwrap.dedent(
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _KNOWLEDGE_GUIDE_WORKFLOW = (
     _REPO_ROOT
-    / "colleague-experts/colleague-candidates/colleagues/knowledge_desk/"
+    / "colleague-candidates/colleagues/knowledge_desk/"
     / "knowledge_guide/workflow.py"
 )
 

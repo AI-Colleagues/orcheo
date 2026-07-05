@@ -14,6 +14,7 @@ from orcheo_backend.app.routers import workflows
 from orcheo_backend.app.schemas.workflows import (
     WorkflowPublishRequest,
     WorkflowPublishRevokeRequest,
+    WorkflowResponse,
 )
 
 
@@ -120,7 +121,7 @@ _MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4(), workspace_slug="test")
 
 
 def test_publish_response_uses_message_helper() -> None:
-    workflow = Workflow(name="Responder")
+    workflow = WorkflowResponse(name="Responder")
     workflow.share_url = "https://studio.example/chat/wf-1"
     response = workflows._publish_response(workflow, message="ok")
     assert response.workflow is workflow
@@ -208,5 +209,5 @@ async def test_revoke_publish_logs_without_previous_token(
         _MOCK_WORKSPACE,
     )
 
-    assert result is repo.workflow
+    assert result.id == repo.workflow.id
     assert captured["workflow_id"] == str(repo.workflow.id)

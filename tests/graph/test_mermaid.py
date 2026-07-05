@@ -239,6 +239,59 @@ def test_ensure_entry_edges_covers_all_branches() -> None:
     ]
 
 
+def test_branch_edge_specs_returns_empty_without_a_source() -> None:
+    assert mermaid._branch_edge_specs({"mapping": {"true": "beta"}}) == []
+
+
+def test_branch_edge_specs_skips_non_mapping_mapping_and_unresolvable_default() -> None:
+    branch = {
+        "source": "alpha",
+        "mapping": ["not", "a", "mapping"],
+        "default": None,
+    }
+    assert mermaid._branch_edge_specs(branch) == []
+
+
+def test_branch_edge_specs_skips_unresolvable_mapping_entries() -> None:
+    branch = {
+        "source": "alpha",
+        "mapping": {"true": None, "false": "beta"},
+    }
+    assert mermaid._branch_edge_specs(branch) == [("alpha", "beta", "false", True)]
+
+
+def test_ensure_entry_edge_specs_covers_all_branches() -> None:
+    assert mermaid._ensure_entry_edge_specs([], {"b", "a"}) == [
+        ("START", "a", None, False)
+    ]
+    assert mermaid._ensure_entry_edge_specs([], set()) == [
+        ("START", "END", None, False)
+    ]
+
+    edges_with_start = [("START", "A", None, False)]
+    assert mermaid._ensure_entry_edge_specs(edges_with_start, {"A"}) == edges_with_start
+
+    edges_missing_start = [("A", "B", None, False)]
+    assert mermaid._ensure_entry_edge_specs(edges_missing_start, {"A", "B", "C"}) == [
+        ("A", "B", None, False),
+        ("START", "A", None, False),
+    ]
+
+    edges_all_targeted = [("A", "B", None, False), ("B", "A", None, False)]
+    assert mermaid._ensure_entry_edge_specs(edges_all_targeted, {"A", "B"}) == [
+        ("A", "B", None, False),
+        ("B", "A", None, False),
+        ("START", "A", None, False),
+    ]
+
+
+def test_edge_line_renders_bare_conditional_arrow_without_a_label() -> None:
+    assert (
+        mermaid._edge_line("a", "b", "\t", label=None, conditional=True)
+        == "\ta -.-> b;"
+    )
+
+
 def test_vertex_node_and_sentinel_ids_use_start_and_end() -> None:
     start_id = mermaid._sentinel_id("prefix", "start")
     end_id = mermaid._sentinel_id("prefix", "end")

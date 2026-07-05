@@ -55,7 +55,7 @@ def _decode_attachment_content(raw: bytes) -> str | None:
             return raw.decode(encoding)
         except UnicodeDecodeError:
             continue
-    return None
+    return None  # pragma: no cover - latin-1 maps every byte, so this never runs
 
 
 @registry.register(
@@ -431,7 +431,10 @@ class IngestNode(TaskNode):
             "source_type": source_type,
             "units": [u.model_dump(mode="json") for u in units],
         }
-        if source_payload is not None:
+        if source_payload is not None:  # pragma: no branch - SourceParser.parse_payload
+            # only returns non-empty records for a truthy payload (directly, or via
+            # the pending_documents loop reassigning source_payload before break),
+            # so by this point source_payload is never None while records is truthy.
             result["source_payload"] = {
                 **dict(source_payload),
                 "source_type": source_type,

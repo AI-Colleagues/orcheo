@@ -6,7 +6,12 @@ import pytest
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, computed_field
 from orcheo.graph.state import State
-from orcheo.nodes.base import BaseNode, BaseRunnable, NoOpTaskNode
+from orcheo.nodes.base import (
+    BaseNode,
+    BaseRunnable,
+    NoOpTaskNode,
+    build_task_state_update,
+)
 from orcheo.runtime.credentials import (
     CredentialReference,
     CredentialResolverUnavailableError,
@@ -93,6 +98,28 @@ def test_decode_string_value_traverses_base_model_attributes() -> None:
     decoded = runnable._decode_string_value("{{model.value}}", state)
 
     assert decoded == "from-model"
+
+
+def test_decode_dict_and_frozenset_helpers_cover_remaining_branches() -> None:
+    runnable = MinimalRunnable(name="demo")
+    state = cast(State, {"node_results": {}})
+
+    decoded_dict = runnable._decode_dict_value({"a": "x"}, state)
+    assert decoded_dict == {"a": "x"}
+
+    decoded_set = runnable._decode_frozenset_value(
+        frozenset({1, 2}), cast(State, {"node_results": {}})
+    )
+    assert decoded_set == frozenset({1, 2})
+
+    update = build_task_state_update(
+        "demo",
+        {"node_results": {"demo": {"existing": 1}}},
+    )
+    assert update["node_results"]["demo"] == {"existing": 1}
+
+    no_merge_update = build_task_state_update("demo", {"node_results": {"demo": "raw"}})
+    assert no_merge_update["node_results"]["demo"] == "raw"
 
 
 def test_fallback_to_node_results_skips_explicit_node_results_path() -> None:

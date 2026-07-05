@@ -268,7 +268,7 @@ def _branch_edge_specs(
     default_target = branch.get("default") or branch.get("then")
     if default_target is not None:
         resolved = _resolve_edge({"source": source, "target": default_target})
-        if resolved is not None:
+        if resolved is not None:  # pragma: no branch - source/target are non-None here
             edge_specs.append((resolved[0], resolved[1], "default", True))
 
     return edge_specs

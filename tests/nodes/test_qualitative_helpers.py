@@ -325,6 +325,20 @@ def test_routing_node_decision_paths() -> None:
     assert router._decision_value(Decision(), "branch") == "fallback"
     assert router._decision_value(SimpleNamespace(message="x"), "message") == "x"
 
+    extractor = ExtractAIMessageNode(name="extractor")
+
+    class PlainResponse:
+        assistant_message = "done"
+
+    assert extractor._response_value(PlainResponse(), "assistant_message") == "done"
+
+    class ModelResponse(BaseModel):
+        assistant_message: str = "model-done"
+
+    assert (
+        extractor._response_value(ModelResponse(), "assistant_message") == "model-done"
+    )
+
 
 @pytest.mark.asyncio
 async def test_routing_nodes_route_and_respond() -> None:

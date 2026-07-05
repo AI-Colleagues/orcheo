@@ -530,6 +530,78 @@ async def test_postgres_repository_archive_workflow_disables_listeners(
 
 
 @pytest.mark.asyncio
+async def test_postgres_repository_set_workflow_upload_error_records_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Setting a non-null message marks the workflow's upload error.
+
+    Covers apps/backend/src/orcheo_backend/app/repository_postgres/_workflows.py
+    lines 380-388, 398-402 (the mark_upload_error branch).
+    """
+    workflow_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},
+        {},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    workflow = await repo.set_workflow_upload_error(
+        workflow_id, message="boom: invalid graph", actor="uploader"
+    )
+
+    assert workflow.upload_error is not None
+    assert workflow.upload_error.message == "boom: invalid graph"
+    assert workflow.audit_log[-1].action == "workflow_upload_failed"
+
+
+@pytest.mark.asyncio
+async def test_postgres_repository_set_workflow_upload_error_clears_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Setting message=None clears a previously recorded upload error.
+
+    Covers the clear_upload_error branch (line 386) of set_workflow_upload_error.
+    """
+    workflow_id = uuid4()
+    payload = _workflow_payload(
+        workflow_id,
+        upload_error={"message": "old failure", "occurred_at": "2024-01-01T00:00:00Z"},
+    )
+    responses: list[Any] = [
+        {"row": {"payload": payload}},
+        {},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    workflow = await repo.set_workflow_upload_error(
+        workflow_id, message=None, actor="uploader"
+    )
+
+    assert workflow.upload_error is None
+    assert workflow.audit_log[-1].action == "workflow_upload_recovered"
+
+
+@pytest.mark.asyncio
+async def test_postgres_repository_set_workflow_upload_error_rejects_archived(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """set_workflow_upload_error raises for archived workflows.
+
+    Covers lines 383-384: workflow.is_archived is True.
+    """
+    workflow_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id, is_archived=True)}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repo.set_workflow_upload_error(
+            workflow_id, message="boom", actor="uploader"
+        )
+
+
+@pytest.mark.asyncio
 async def test_postgres_repository_archive_revokes_publish(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

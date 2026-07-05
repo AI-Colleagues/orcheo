@@ -15,10 +15,15 @@ from orcheo_backend.app.chatkit.workflow_executor import (
     _annotate_new_messages,
     _append_chatkit_history_step,
     _build_reply_state,
+    _interrupt_message,
+    _interrupt_value,
     _mark_chatkit_history_completed,
     _mark_chatkit_history_failed,
+    _pending_interrupts,
     _resolve_runtime_thread_id,
+    _resume_value_from_inputs,
     _start_chatkit_history,
+    _state_with_interrupts,
     _with_chatkit_model,
     _with_thread_id,
 )
@@ -1186,3 +1191,122 @@ async def test_checkpoint_message_count_returns_zero_when_no_aget_state() -> Non
         CompiledWithoutState(), {}
     )
     assert result == 0
+
+
+# ---------------------------------------------------------------------------
+# _pending_interrupts (workflow_executor.py lines 581-583)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pending_interrupts_returns_tuple_when_interrupts_is_list() -> None:
+    """Covers line 581-583: snapshot.interrupts is a list, not a tuple."""
+
+    class ListInterruptsSnapshot:
+        interrupts = ["interrupt-a", "interrupt-b"]
+
+    class CompiledWithListInterrupts:
+        async def aget_state(self, config: object) -> ListInterruptsSnapshot:
+            return ListInterruptsSnapshot()
+
+    result = await _pending_interrupts(CompiledWithListInterrupts(), {})
+    assert result == ("interrupt-a", "interrupt-b")
+    assert isinstance(result, tuple)
+
+
+@pytest.mark.asyncio
+async def test_pending_interrupts_returns_empty_tuple_for_other_types() -> None:
+    """Covers line 583: snapshot.interrupts is neither tuple nor list."""
+
+    class WeirdInterruptsSnapshot:
+        interrupts = "not-a-sequence"
+
+    class CompiledWithWeirdInterrupts:
+        async def aget_state(self, config: object) -> WeirdInterruptsSnapshot:
+            return WeirdInterruptsSnapshot()
+
+    result = await _pending_interrupts(CompiledWithWeirdInterrupts(), {})
+    assert result == ()
+
+
+# ---------------------------------------------------------------------------
+# _resume_value_from_inputs (workflow_executor.py lines 591-598)
+# ---------------------------------------------------------------------------
+
+
+def test_resume_value_from_inputs_returns_non_string_message() -> None:
+    """Covers line 591-592: message present but not a str is returned as-is."""
+    payload = {"count": 3}
+    assert _resume_value_from_inputs({"message": payload}) is payload
+
+
+def test_resume_value_from_inputs_uses_action_payload() -> None:
+    """Covers line 593-597: no message, falls back to action.payload."""
+    result = _resume_value_from_inputs({"action": {"payload": {"choice": "yes"}}})
+    assert result == {"choice": "yes"}
+
+
+def test_resume_value_from_inputs_falls_back_to_dict_of_inputs() -> None:
+    """Covers line 598: no message, no usable action payload."""
+    inputs = {"action": {"payload": None}, "other": "value"}
+    assert _resume_value_from_inputs(inputs) == inputs
+
+
+def test_resume_value_from_inputs_falls_back_when_action_not_mapping() -> None:
+    """Covers line 594 false branch: action present but not a Mapping."""
+    inputs = {"action": "not-a-mapping"}
+    assert _resume_value_from_inputs(inputs) == inputs
+
+
+def test_resume_value_from_inputs_falls_back_when_no_action() -> None:
+    """Covers line 598: neither message nor action present at all."""
+    inputs = {"unrelated": True}
+    assert _resume_value_from_inputs(inputs) == inputs
+
+
+# ---------------------------------------------------------------------------
+# _interrupt_message (workflow_executor.py lines 611, 615->613, 617)
+# ---------------------------------------------------------------------------
+
+
+def test_interrupt_message_returns_string_value_directly() -> None:
+    """Covers line 611: value is already a plain string."""
+    assert _interrupt_message("please confirm") == "please confirm"
+
+
+def test_interrupt_message_skips_blank_candidates_then_finds_valid_key() -> None:
+    """Covers line 615->613: loop continues past a blank candidate."""
+    value = {"message": "   ", "question": "Are you sure?"}
+    assert _interrupt_message(value) == "Are you sure?"
+
+
+def test_interrupt_message_falls_back_to_str_when_no_recognized_key() -> None:
+    """Covers line 617: Mapping with no matching/valid key falls back to str()."""
+    value = {"unrelated_key": "value"}
+    assert _interrupt_message(value) == str(value)
+
+
+def test_interrupt_message_falls_back_to_str_for_non_mapping_non_string() -> None:
+    """Covers line 617: value is neither a str nor a Mapping."""
+    assert _interrupt_message(42) == "42"
+
+
+# ---------------------------------------------------------------------------
+# _state_with_interrupts (workflow_executor.py lines 625, 629)
+# ---------------------------------------------------------------------------
+
+
+def test_state_with_interrupts_uses_empty_dict_for_non_mapping_state() -> None:
+    """Covers line 625: state is not a Mapping, starts from an empty dict."""
+    result = _state_with_interrupts("not-a-mapping", ["only-interrupt"])
+    assert result["__interrupt__"] == [_interrupt_value("only-interrupt")]
+    assert result["assistant_message"] == _interrupt_message(
+        _interrupt_value("only-interrupt")
+    )
+
+
+def test_state_with_interrupts_falls_back_to_single_interrupt_payload() -> None:
+    """Covers line 629: interrupts is not a list/tuple, so falls back to itself."""
+    result = _state_with_interrupts({"existing": "value"}, "single-interrupt")
+    assert result["existing"] == "value"
+    assert result["__interrupt__"] == [_interrupt_value("single-interrupt")]

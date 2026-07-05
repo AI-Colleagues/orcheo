@@ -79,8 +79,8 @@ def test_conformed_representative_workflow_compiles() -> None:
             "def orcheo_workflow():\n    graph = StateGraph(None)\n    return graph\n",
             "must come from Orcheo",
         ),
-        # Legacy: raw function used as a node — the helper def cannot exist at
-        # module level (only ``orcheo_workflow`` and CodeNode classes may).
+        # Legacy: raw function used as a node — module-level defs are
+        # graph-builder functions and must take zero arguments.
         (
             "from orcheo.graph import StateGraph, START\n"
             "def greet(state):\n    return state\n"
@@ -89,13 +89,13 @@ def test_conformed_representative_workflow_compiles() -> None:
             "    graph.add_node('g', greet)\n"
             "    graph.add_edge(START, 'g')\n"
             "    return graph\n",
-            "named 'orcheo_workflow'",
+            "must take zero arguments",
         ),
-        # Legacy: entrypoint not named orcheo_workflow.
+        # Legacy: no function named orcheo_workflow defined.
         (
             "from orcheo.graph import StateGraph\n"
             "def build_graph():\n    graph = StateGraph(None)\n    return graph\n",
-            "must be named 'orcheo_workflow'",
+            "'orcheo_workflow' entrypoint",
         ),
         # Legacy: __main__ guard / top-level statement.
         (

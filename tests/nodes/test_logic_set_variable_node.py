@@ -176,6 +176,17 @@ async def test_for_loop_node_prev_results_not_mapping() -> None:
 
 
 @pytest.mark.asyncio
+async def test_for_loop_node_node_results_not_mapping() -> None:
+    """A non-mapping node_results value also falls back to index 0."""
+    node = ForLoopNode(name="loop", items=["x", "y"])
+
+    result = await node.run({"node_results": "not_a_dict"}, RunnableConfig())
+
+    assert result["current_item"] == "x"
+    assert result["index"] == 1
+
+
+@pytest.mark.asyncio
 async def test_for_loop_node_loop_state_not_mapping() -> None:
     """When the node's own previous state is not a Mapping the index defaults to 0."""
     node = ForLoopNode(name="loop", items=["x", "y"])

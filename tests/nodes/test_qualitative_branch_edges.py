@@ -47,6 +47,7 @@ from orcheo.nodes.qualitative.insights import (
 from orcheo.nodes.qualitative.models import (
     CodeAssignment,
     CodeAssignmentEntry,
+    CodebookConsolidationResponse,
     CooccurrenceRow,
     QuantificationRow,
     Quote,
@@ -84,6 +85,7 @@ from orcheo.nodes.qualitative.sources import SourceParser
 from orcheo.nodes.qualitative.stages import (
     LLMStageFinalizeNode,
     LLMStagePrepareNode,
+    _codebook_from_value,
 )
 from orcheo.runtime.results import assistant_message_texts
 
@@ -163,6 +165,17 @@ def test_summary_helpers_cover_false_paths() -> None:
         "branch": "branch",
     }
 
+    class AuthoredDefaultPath:
+        func = lambda: None  # noqa: E731
+
+    AuthoredDefaultPath.func._orcheo_branch_default = "authored_target"
+
+    class AuthoredDefaultBranch:
+        path = AuthoredDefaultPath()
+
+    authored_payload = _serialise_branch("source", "branch", AuthoredDefaultBranch())
+    assert authored_payload["default"] == "authored_target"
+
     graph = StateGraph(State)
     graph.add_node("noop", lambda state: state)
     graph.add_edge(START, "noop")
@@ -193,6 +206,13 @@ def test_codebook_helpers_cover_edge_branches(monkeypatch: pytest.MonkeyPatch) -
     parsed = parse_codebook_csv(csv_text)
     assert parsed is not None
     assert parsed.themes[0].subthemes[0].code_id == "C1"
+    repeated = parse_codebook_csv(
+        "theme_id,theme_title,code_id,code_title,definition,include,exclude\n"
+        "T1,Theme,C1,Alpha,Desc,keep; also,drop\n"
+        "T1,Theme,C2,Beta,Desc,,\n"
+    )
+    assert repeated is not None
+    assert [sub.code_id for sub in repeated.themes[0].subthemes] == ["C1", "C2"]
 
     assert (
         parse_codebook_csv(
@@ -396,6 +416,23 @@ def test_quantify_helpers_cover_branching() -> None:
         max_values=5,
     )
     assert variables[0].name == "plan"
+    blank_breakdowns = compute_segment_breakdowns(
+        [SegmentVariable(name="plan", values=["pro"], source="override")],
+        units
+        + [
+            Unit(
+                unit_id="U5",
+                record_id="R5",
+                source="s",
+                text="blank",
+                original_text="blank",
+                metadata={"plan": ""},
+            )
+        ],
+        assignments,
+        codebook,
+    )
+    assert all(row.value != "" for row in blank_breakdowns)
     breakdowns = compute_segment_breakdowns([], units, assignments, codebook)
     assert breakdowns == []
     breakdowns = compute_segment_breakdowns(
@@ -470,27 +507,146 @@ def test_report_helpers_cover_validation_and_rendering_branches() -> None:
     assert "## Evidence Index" in rendered
 
 
-def test_source_parser_covers_fallback_and_support_types() -> None:
+def test_report_helpers_cover_remaining_validation_and_rendering_branches() -> None:
+    codebook = Codebook(
+        themes=[
+            Theme(
+                theme_id="T1",
+                title="Onboarding",
+                subthemes=[Subtheme(code_id="C1", title="Clear setup")],
+            ),
+            Theme(
+                theme_id="T9",
+                title="Other",
+                subthemes=[Subtheme(code_id="C9", title="Unassigned")],
+            ),
+        ]
+    )
+    data = ReportData(
+        approved_codebook=codebook,
+        units=_units(),
+        code_assignments_pass2=_assignments(),
+        quantification=[
+            QuantificationRow(
+                theme_id="T1",
+                title="Onboarding",
+                mentions=1,
+                respondents=1,
+                pct_respondents=100.0,
+            ),
+            QuantificationRow(
+                theme_id="missing",
+                title="Missing",
+                mentions=1,
+                respondents=1,
+                pct_respondents=100.0,
+            ),
+        ],
+        selected_quotes=[
+            Quote(theme_id="missing", unit_id="missing", text="bad"),
+        ],
+        candidate_insights=[
+            CandidateInsight(
+                insight_id="I1",
+                observation="Needs attention",
+                supporting_codes=[],
+                supporting_units=[],
+            ),
+            CandidateInsight(
+                insight_id="I2",
+                observation="Mixed",
+                critic_notes=["Needs more evidence."],
+                supporting_codes=["missing", "C9"],
+                supporting_units=["missing"],
+                recommendation=Recommendation(
+                    insight_id="I2",
+                    finding="f",
+                    action="a",
+                    expected_impact="e",
+                ),
+            ),
+        ],
+        recommendations=[
+            Recommendation(
+                insight_id="I2",
+                finding="f",
+                action="a",
+                expected_impact="e",
+            )
+        ],
+        approved_insight_ids=["I1", "I2", "missing"],
+    )
+
+    errors = validate_final_state(data)
+    assert "Insight I1 has no supporting unit_id." in errors
+    assert "Insight I1 has no supporting code_id." in errors
+    assert "Insight I2 references unknown unit_id missing." in errors
+    assert "Insight I2 references unknown code_id missing." in errors
+    assert "Insight I2 references unreportable code_id C9." in errors
+    assert "Reported insight id missing is missing." in errors
+
+    rendered = render_markdown_report(data)
+    assert "Critic notes:" in rendered
+    assert "## Recommendations" in rendered
+    assert "Expected impact: e" in rendered
+
+
+def test_source_parser_covers_fallback_and_support_types(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     assert (
         SourceParser.sniff_type("support_ticket.csv", "a,b\n1,2") == "support_tickets"
     )
     assert SourceParser.sniff_type("chat.json", "[{}]") == "chat_log"
     assert SourceParser.sniff_type(None, "x,y\n1,2") == "survey_csv"
+    assert SourceParser.sniff_type(None, '{"foo": 1}') == "transcript"
+    assert SourceParser.sniff_type(None, "subject,body\nx,y") == "support_tickets"
 
     rows = SourceParser.parse_survey_csv("id,text\n1,hello\n", flexible_columns=False)
     assert rows[0].record_id == "1"
+    assert SourceParser.parse_survey_csv("") == []
+    generated = SourceParser.parse_survey_csv(
+        "text,score\nhello,1\n", flexible_columns=False
+    )
+    assert generated[0].record_id == "R00001"
+    assert generated[0].metadata == {"score": "1"}
 
     assert SourceParser.parse_transcript_json("not-json") == []
+    assert SourceParser.parse_transcript('[{"text": "Hi"}]')[0].text == "Hi"
     assert SourceParser.parse_transcript("hello\nspeaker: world")  # plain path
     assert SourceParser.parse_chat_log(
         "not-json"
     ) == SourceParser.parse_transcript_plain("not-json")
+    assert (
+        SourceParser.parse_chat_log(
+            '{"messages": [1, {"text": "Hello", "role": "agent"}]}'
+        )[0].source
+        == "chat_log:agent"
+    )
 
+    assert SourceParser.parse_support_tickets("not-json") == []
     support = SourceParser.parse_support_tickets(
-        '{"tickets": [{"id": "T1", "text": "Help", "requester": "A"}]}'
+        '{"tickets": [1, {"id": "T1", "text": "Help", "requester": "A"}, {"message": " ", "requester": "B"}]}'
     )
     assert support[0].record_id == "T1"
     assert SourceParser.normalise_payload(State({})) is None
+    assert SourceParser.normalise_payload(State({"inputs": {"documents": []}})) is None
+    assert (
+        SourceParser.normalise_payload(State({"inputs": {"documents": [None]}})) is None
+    )
+    assert (
+        SourceParser.normalise_payload(
+            State({"inputs": {"documents": [{"filename": "missing.txt"}]}})
+        )
+        is None
+    )
+
+    monkeypatch.setattr(SourceParser, "sniff_type", lambda *_args, **_kwargs: "other")
+    parsed, source_type = SourceParser.parse_payload(
+        {"content": "x", "source_type": "unsupported", "filename": "x.bin"}
+    )
+    assert parsed == []
+    assert source_type == "other"
 
 
 def test_codebook_helpers_cover_remaining_branches(
@@ -572,6 +728,17 @@ def test_codebook_and_coded_data_helpers_cover_parsing_edges() -> None:
         is None
     )
 
+    no_metadata_csv = (
+        "unit_id,record_id,source,speaker,text,original_text,metadata,quality_flags,"
+        "assignment_index,code_id,theme_id,theme_title,code_title,definition,evidence,"
+        "confidence,sentiment\n"
+        "U2,R2,src,,hello,hello,,,"
+        "1,C2,T2,Theme2,Code2,Def2,Ev2,1.0,positive\n"
+    )
+    parsed_no_metadata = parse_coded_data_csv(no_metadata_csv)
+    assert parsed_no_metadata is not None
+    assert parsed_no_metadata[0][0].metadata == {}
+
 
 def test_insights_helpers_cover_branching() -> None:
     codebook = _codebook()
@@ -605,7 +772,15 @@ def test_insights_helpers_cover_branching() -> None:
 
 def test_insights_helpers_cover_remaining_branches() -> None:
     codebook = _codebook()
-    units = _units()
+    units = _units() + [
+        Unit(
+            unit_id="U0004",
+            record_id="R4",
+            source="survey",
+            text="A calm observation.",
+            original_text="A calm observation.",
+        )
+    ]
     assignments = [
         CodeAssignment(
             unit_id="U0001",
@@ -628,6 +803,10 @@ def test_insights_helpers_cover_remaining_branches() -> None:
         CodeAssignment(
             unit_id="MISSING",
             assignments=[CodeAssignmentEntry(code_id="C1", evidence="ghost")],
+        ),
+        CodeAssignment(
+            unit_id="U0004",
+            assignments=[CodeAssignmentEntry(code_id="C1", evidence="plain")],
         ),
     ]
     quotes = fallback_quotes(codebook, assignments, units, quotes_per_theme=1)
@@ -653,10 +832,34 @@ def test_insights_helpers_cover_remaining_branches() -> None:
         == "I99"
     )
     assert fallback_insights(ReportData(approved_codebook=None)) == []
+    assert (
+        critique_insights(
+            ReportData(
+                candidate_insights=[
+                    CandidateInsight(
+                        insight_id="I0",
+                        observation="obs",
+                        supporting_codes=["C1"],
+                        supporting_units=["U0001"],
+                    )
+                ]
+            )
+        )[0].insight_id
+        == "I0"
+    )
 
     report_data = ReportData(
         approved_codebook=codebook,
-        units=units,
+        units=units
+        + [
+            Unit(
+                unit_id="U0003",
+                record_id="R3",
+                source="survey",
+                text="A neutral observation.",
+                original_text="A neutral observation.",
+            )
+        ],
         code_assignments_pass2=assignments,
         quantification=[
             QuantificationRow(
@@ -720,13 +923,24 @@ def test_insights_helpers_cover_remaining_branches() -> None:
                 supporting_units=["U0001"],
                 evidence_strength="medium",
             ),
+            CandidateInsight(
+                insight_id="I3",
+                observation="No counter evidence",
+                interpretation="Plain",
+                implication="Maybe",
+                supporting_codes=["C1"],
+                supporting_units=["U0001", "U0002"],
+                evidence_strength="medium",
+            ),
         ],
+        approved_insight_ids=["I1", "I2", "I3"],
     )
     fallback = fallback_insights(report_data)
     assert [insight.insight_id for insight in fallback] == ["I02", "I03"]
     critiqued = critique_insights(report_data)
     assert critiqued[0].evidence_strength == "medium"
     assert critiqued[1].evidence_strength == "low"
+    assert critiqued[2].critic_notes == ["Weak segment difference: Weak split"]
     assert any("Counter-evidence" in note for note in critiqued[0].critic_notes)
     assert any("Weak segment difference" in note for note in critiqued[0].critic_notes)
     assert recommend_action(
@@ -798,9 +1012,17 @@ def test_source_parser_covers_remaining_branches(
     assert SourceParser.parse_chat_log(
         "not-json"
     ) == SourceParser.parse_transcript_plain("not-json")
+    assert (
+        SourceParser.parse_chat_log(
+            '{"conversations": [1, {"messages": [{"text": "Hi", "role": "agent"}]}]}'
+        )[0].source
+        == "chat_log:agent"
+    )
+    assert SourceParser.parse_support_tickets("not-json") == []
+    assert SourceParser.parse_support_tickets('{"tickets": [}') == []
 
     support_json = SourceParser.parse_support_tickets(
-        '{"tickets": [{"description": "Help", "requester": "A", "id": "T1"}, {"message": "More", "requester": null}]}'
+        '{"tickets": [1, {"description": "Help", "requester": "A", "id": "T1"}, {"message": " ", "requester": null}]}'
     )
     assert support_json[0].record_id == "T1"
     support_csv = SourceParser.parse_support_tickets(
@@ -828,6 +1050,12 @@ def test_source_parser_covers_remaining_branches(
     )
     assert source_type == "transcript"
     assert parsed
+    monkeypatch.setattr(SourceParser, "sniff_type", lambda *_args, **_kwargs: "other")
+    parsed, source_type = SourceParser.parse_payload(
+        {"content": "hello", "source_type": "unsupported", "filename": "x.txt"}
+    )
+    assert parsed == []
+    assert source_type == "other"
 
     state = State(
         {
@@ -844,6 +1072,17 @@ def test_source_parser_covers_remaining_branches(
         }
     )
     assert SourceParser.normalise_payload(state)["filename"] == "file.txt"
+    assert SourceParser.normalise_payload(State({"inputs": {"documents": []}})) is None
+    assert (
+        SourceParser.normalise_payload(State({"inputs": {"documents": [None]}})) is None
+    )
+    assert (
+        SourceParser.normalise_payload(
+            State({"inputs": {"documents": [{"filename": "missing.txt"}]}})
+        )
+        is None
+    )
+    assert SourceParser.normalise_payload(State({"inputs": "bad"})) is None
 
 
 @pytest.mark.asyncio()
@@ -1000,6 +1239,7 @@ async def test_stage_nodes_cover_remaining_branches(
     assert (
         extractor._extract_llm_response({"structured_response": "bad"}, Payload) is None
     )
+    assert extractor._extract_llm_response(object(), None) is None
 
     consolidator_finalize = LLMStageFinalizeNode(
         name="codebook_consolidator_finalize",
@@ -1100,3 +1340,358 @@ async def test_stage_nodes_cover_remaining_branches(
     assert (await unknown(State({"node_results": {}}), {}))["node_results"]["unknown"][
         "halt"
     ] is True
+
+
+def test_codebook_from_value_covers_json_string_and_document_list() -> None:
+    codebook = _codebook()
+
+    # A JSON string that parses into a valid codebook payload recurses through
+    # the Mapping branch (lines 125-129).
+    from_json = _codebook_from_value(codebook.model_dump_json())
+    assert from_json is not None
+    assert from_json.themes[0].theme_id == codebook.themes[0].theme_id
+
+    # An invalid JSON string returns None without raising.
+    assert _codebook_from_value("not json at all {") is None
+
+    # A list of loaded documents where one item's content is a parseable
+    # codebook CSV (lines 131-137).
+    csv_text = (
+        "theme_id,theme_title,code_id,code_title,definition,include,exclude\n"
+        "T1,Theme,C1,Alpha,Desc,,\n"
+    )
+    from_docs = _codebook_from_value(
+        [
+            "not-a-mapping",
+            {"filename": "empty.txt"},
+            {"filename": "codebook.csv", "content": csv_text},
+        ]
+    )
+    assert from_docs is not None
+    assert from_docs.themes[0].subthemes[0].code_id == "C1"
+
+    # A list where no document contains a parseable codebook falls through to
+    # None.
+    assert (
+        _codebook_from_value([{"filename": "x.txt", "content": "not a codebook"}])
+        is None
+    )
+
+    # Values that are neither a model, string, nor list return None directly.
+    assert _codebook_from_value(42) is None
+
+
+@pytest.mark.asyncio()
+async def test_prepare_node_covers_consolidator_and_recoder_main_paths() -> None:
+    codebook = _codebook()
+    units = _units()
+    assignments = _assignments()
+
+    # codebook_consolidator stage with assignments present builds the actual
+    # prompt payload instead of the early no_assignments/use_seed return
+    # (lines 229-233).
+    consolidator = LLMStagePrepareNode(
+        name="codebook_consolidator_prepare", stage="codebook_consolidator"
+    )
+    consolidator_prompt = (
+        await consolidator(
+            State(
+                {
+                    "node_results": {
+                        "open_coder_finalize": {
+                            "code_assignments_pass1": [
+                                a.model_dump(mode="json") for a in assignments
+                            ]
+                        },
+                        "ingest": {"units": [u.model_dump(mode="json") for u in units]},
+                    }
+                }
+            ),
+            {},
+        )
+    )["node_results"]["codebook_consolidator_prepare"]
+    assert consolidator_prompt["skip_llm"] is False
+    assert "consolidating open codes" in consolidator_prompt["system_prompt"]
+    assert consolidator_prompt["seed_codebook"] is None
+
+    # recoder stage with both units and an approved codebook builds the batch
+    # prompt (lines 250-265).
+    recoder = LLMStagePrepareNode(
+        name="recoder_prepare",
+        stage="recoder",
+        approved_codebook=codebook.model_dump(mode="json"),
+    )
+    recoder_prompt = (
+        await recoder(
+            State(
+                {
+                    "node_results": {
+                        "ingest": {"units": [u.model_dump(mode="json") for u in units]},
+                    }
+                }
+            ),
+            {"configurable": {"batch_size": 1, "per_turn_batch_budget": 1}},
+        )
+    )["node_results"]["recoder_prepare"]
+    assert recoder_prompt["skip_llm"] is False
+    assert recoder_prompt["total_batches"] == len(units)
+    assert recoder_prompt["batch_end_index"] == 1
+    assert "approved qualitative codebook" in recoder_prompt["system_prompt"]
+
+    # An unknown stage falls through to the generic skip_llm/done return
+    # (line 357).
+    unknown_prepare = LLMStagePrepareNode.model_construct(
+        name="unknown_prepare", stage="unknown"
+    )
+    unknown_result = (await unknown_prepare(State({"node_results": {}}), {}))[
+        "node_results"
+    ]["unknown_prepare"]
+    assert unknown_result == {"skip_llm": True, "done": True}
+
+
+@pytest.mark.asyncio()
+async def test_extract_llm_response_covers_message_loop_branches() -> None:
+    node = LLMStageFinalizeNode(name="finalize", stage="open_coder")
+
+    # A Mapping with no structured_response and no messages list at all falls
+    # all the way through to `return None` (line 387->405 taking the "skip
+    # structured" path, and the messages check being absent/non-list).
+    assert node._extract_llm_response({"other": "value"}, None) is None
+
+    # Messages present, but the loop iterates over non-BaseMessage entries and
+    # never finds a BaseMessage before exhausting -> falls through to
+    # `return None` (line 402->405).
+    assert (
+        node._extract_llm_response(
+            {"messages": ["not-a-message", {"role": "assistant"}]}, None
+        )
+        is None
+    )
+
+    # Messages present with a BaseMessage, but a response_schema is requested
+    # (so the `response_schema is None` guard fails) -> the loop must continue
+    # past that message rather than returning it (line 403->402).
+    assert (
+        node._extract_llm_response(
+            {"messages": [AIMessage(content="ignored")]},
+            OpenCodingBatchResponse,
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio()
+async def test_finalize_node_dispatches_recoder_quote_and_insight_stages() -> None:
+    codebook = _codebook()
+    units = _units()
+    assignments = _assignments()
+
+    # Direct dispatch through `run` (not the private _finalize_* helpers) for
+    # recoder/quote_selector/insight_generator (lines 426, 430, 432).
+    recoder_finalize = LLMStageFinalizeNode(
+        name="recoder_finalize",
+        stage="recoder",
+        approved_codebook=codebook.model_dump(mode="json"),
+    )
+    recoder_result = (
+        await recoder_finalize(
+            State(
+                {
+                    "node_results": {
+                        "ingest": {"units": [u.model_dump(mode="json") for u in units]},
+                        "recoder_prepare": {"skip_llm": True, "batch_index": 0},
+                    }
+                }
+            ),
+            {},
+        )
+    )["node_results"]["recoder_finalize"]
+    assert recoder_result["done"] is True
+
+    quote_finalize = LLMStageFinalizeNode(
+        name="quote_selector_finalize",
+        stage="quote_selector",
+        approved_codebook=codebook.model_dump(mode="json"),
+    )
+    quote_result = (
+        await quote_finalize(
+            State(
+                {
+                    "node_results": {
+                        "open_coder_finalize": {
+                            "code_assignments_pass1": [
+                                a.model_dump(mode="json") for a in assignments
+                            ],
+                        },
+                        "ingest": {"units": [u.model_dump(mode="json") for u in units]},
+                    }
+                }
+            ),
+            {},
+        )
+    )["node_results"]["quote_selector_finalize"]
+    assert quote_result["halt"] is False
+
+    insight_finalize = LLMStageFinalizeNode(
+        name="insight_generator_finalize",
+        stage="insight_generator",
+        approved_codebook=codebook.model_dump(mode="json"),
+    )
+    insight_result = (
+        await insight_finalize(
+            State(
+                {
+                    "node_results": {
+                        "ingest": {
+                            "units": [u.model_dump(mode="json") for u in units],
+                            "quantification": [],
+                        },
+                        "open_coder_finalize": {
+                            "code_assignments_pass1": [
+                                a.model_dump(mode="json") for a in assignments
+                            ],
+                        },
+                    }
+                }
+            ),
+            {},
+        )
+    )["node_results"]["insight_generator_finalize"]
+    assert insight_result["halt"] is False
+
+
+@pytest.mark.asyncio()
+async def test_finalize_open_coder_covers_batch_overflow_and_direct_response() -> None:
+    units = _units()
+    node = LLMStageFinalizeNode(
+        name="open_coder_finalize",
+        stage="open_coder",
+        units=units,
+        response_schema=OpenCodingBatchResponse,
+    )
+
+    # batch_index already past the number of batches -> early "done" return
+    # with existing assignments preserved (line 456).
+    overflow_state = State(
+        {
+            "node_results": {
+                "open_coder_prepare": {
+                    "batch_index": 99,
+                    "total_batches": 1,
+                    "batch_size": 25,
+                },
+            }
+        }
+    )
+    overflow_result = node._finalize_open_coder(
+        overflow_state, {"batch_index": 99, "total_batches": 1, "batch_size": 25}
+    )
+    assert overflow_result["done"] is True
+    assert overflow_result["continue_llm"] is False
+    assert overflow_result["next_index"] == 99
+
+    # `direct` is already an `OpenCodingBatchResponse` instance, so the
+    # finalizer should take the fast path and preserve its assignments.
+    direct_response = OpenCodingBatchResponse(
+        assignments=[
+            CodeAssignment(
+                unit_id=units[0].unit_id,
+                assignments=[CodeAssignmentEntry(code_id="C9", evidence="ev")],
+            )
+        ]
+    )
+    assert node._extract_llm_response(direct_response, OpenCodingBatchResponse) is (
+        direct_response
+    )
+    direct_result = node._finalize_open_coder(
+        direct_response, {"batch_index": 0, "total_batches": 1, "batch_size": 25}
+    )
+    assert direct_result["code_assignments_pass1"][0]["unit_id"] == units[0].unit_id
+
+    # An assignment entry with an empty `assignments` list must be skipped
+    # (473->472 continuing the loop rather than storing it).
+    skip_response = OpenCodingBatchResponse(
+        assignments=[
+            CodeAssignment(unit_id=units[0].unit_id, assignments=[]),
+        ]
+    )
+    skip_result = node._finalize_open_coder(
+        skip_response, {"batch_index": 0, "total_batches": 1, "batch_size": 25}
+    )
+    assert skip_result["code_assignments_pass1"] == []
+
+
+def test_finalize_consolidator_covers_llm_response_and_seed_merge() -> None:
+    codebook = _codebook()
+    assignments = _assignments()
+
+    # No "action" key (neither use_seed nor no_assignments) -> take the
+    # default LLM-response branch (lines 497-510), where model validation
+    # succeeds directly against CodebookConsolidationResponse.
+    finalize = LLMStageFinalizeNode(
+        name="codebook_consolidator_finalize",
+        stage="codebook_consolidator",
+        code_assignments=[a.model_dump(mode="json") for a in assignments],
+    )
+    llm_state = State(
+        {
+            "structured_response": CodebookConsolidationResponse(codebook=codebook),
+            "node_results": {},
+        }
+    )
+    result = finalize._finalize_consolidator(llm_state, {})
+    assert result["done"] is True
+    assert result["draft_codebook"]["themes"][0]["theme_id"] == "T1"
+
+    # Same, but with a seed codebook configured: the emitted codebook merges
+    # with the seed (still lines 497-510, seed_codebook branch of the merge).
+    seed_finalize = LLMStageFinalizeNode(
+        name="codebook_consolidator_finalize",
+        stage="codebook_consolidator",
+        code_assignments=[a.model_dump(mode="json") for a in assignments],
+        seed_codebook=codebook.model_dump(mode="json"),
+    )
+    seed_result = seed_finalize._finalize_consolidator(llm_state, {})
+    assert seed_result["done"] is True
+    assert seed_result["draft_codebook"]["themes"]
+
+    # Invalid structured_response (fails validation entirely) -> falls back to
+    # the `fallback_codebook` construction path.
+    bad_state = State({"structured_response": "not-a-codebook", "node_results": {}})
+    bad_result = finalize._finalize_consolidator(bad_state, {})
+    assert bad_result["done"] is True
+    assert "draft_codebook" in bad_result
+
+
+def test_finalize_recoder_covers_invalid_llm_response_fallback() -> None:
+    codebook = _codebook()
+    units = _units()
+    finalize = LLMStageFinalizeNode(
+        name="recoder_finalize",
+        stage="recoder",
+        units=units,
+        approved_codebook=codebook.model_dump(mode="json"),
+    )
+
+    # `direct` fails RecodingBatchResponse validation entirely, so the
+    # fallback `RecodingBatchResponse()` (empty assignments) is used
+    # (lines 551-554).
+    bad_state = State(
+        {
+            "structured_response": "not-a-recoding-response",
+            "node_results": {
+                "ingest": {"units": [u.model_dump(mode="json") for u in units]},
+            },
+        }
+    )
+    result = finalize._finalize_recoder(
+        bad_state,
+        {
+            "batch_index": 0,
+            "batch_end_index": 1,
+            "total_batches": 1,
+            "batch_size": len(units),
+        },
+    )
+    assert result["done"] is True
+    assert result["code_assignments_pass1"] == []

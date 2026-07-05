@@ -77,3 +77,36 @@ async def test_human_input_node_does_not_mutate_graph_inputs(monkeypatch):
     assert "inputs" not in result
     assert result["messages"] == [{"role": "user", "content": "7"}]
     assert result["node_results"] == {"ask_human": {"response": 7}}
+
+
+@pytest.mark.asyncio
+async def test_human_input_node_omits_messages_when_response_has_no_text(
+    monkeypatch,
+):
+    """No chat message is published when the response carries no text content."""
+
+    def fake_interrupt(payload):
+        del payload
+        return {"choice": "approve"}
+
+    monkeypatch.setattr(human_input_module, "interrupt", fake_interrupt)
+
+    result = await HumanInputNode(name="ask_human", prompt="Approve?")({}, {})
+
+    assert "messages" not in result
+    assert result["node_results"] == {"ask_human": {"response": {"choice": "approve"}}}
+
+
+@pytest.mark.asyncio
+async def test_human_input_node_extracts_message_from_mapping_response(monkeypatch):
+    """A mapping response nesting a text field is surfaced as a chat message."""
+
+    def fake_interrupt(payload):
+        del payload
+        return {"content": "  looks good  "}
+
+    monkeypatch.setattr(human_input_module, "interrupt", fake_interrupt)
+
+    result = await HumanInputNode(name="ask_human", prompt="Approve?")({}, {})
+
+    assert result["messages"] == [{"role": "user", "content": "looks good"}]

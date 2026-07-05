@@ -188,3 +188,121 @@ def test_schema_field_rejects_multiple_positional_defaults() -> None:
 
     with pytest.raises(WorkflowValidationError, match="at most one positional default"):
         schema_json_schema("Query", classes)
+
+
+def test_schema_json_schema_skips_class_docstring() -> None:
+    """A schema class docstring is skipped, not treated as a field."""
+    classes = _classes(
+        '''
+        class Query(BaseModel):
+            """Describes a search query."""
+
+            text: str
+        '''
+    )
+
+    schema = schema_json_schema("Query", classes)
+
+    assert list(schema["properties"]) == ["text"]
+
+
+def test_schema_json_schema_reuses_cached_model_for_repeated_reference() -> None:
+    """A schema referenced from two fields is only built once (cache hit)."""
+    classes = _classes(
+        """
+        class Inner(BaseModel):
+            value: int
+
+        class Outer(BaseModel):
+            first: Inner
+            second: Inner
+        """
+    )
+
+    schema = schema_json_schema("Outer", classes)
+
+    assert (
+        schema["properties"]["first"]["$ref"] == schema["properties"]["second"]["$ref"]
+    )
+    assert list(schema["$defs"]) == ["Inner"]
+
+
+def test_schema_field_accepts_single_positional_default() -> None:
+    """``Field(<default>)`` with one positional argument is a valid default."""
+    classes = _classes(
+        """
+        class Query(BaseModel):
+            text: str = Field("hello")
+        """
+    )
+
+    schema = schema_json_schema("Query", classes)
+
+    assert schema["properties"]["text"]["default"] == "hello"
+
+
+def test_schema_field_rejects_keyword_unpacking() -> None:
+    classes = _classes(
+        """
+        class Query(BaseModel):
+            text: str = Field(**extra)
+        """
+    )
+
+    with pytest.raises(WorkflowValidationError, match="may not use \\*\\* unpacking"):
+        schema_json_schema("Query", classes)
+
+
+def test_schema_json_schema_rejects_unsupported_annotation_shape() -> None:
+    """A non-Name/Constant/BinOp/Subscript annotation node is unsupported."""
+    classes = _classes(
+        """
+        class Query(BaseModel):
+            value: "str"
+        """
+    )
+
+    with pytest.raises(WorkflowValidationError, match="unsupported schema annotation"):
+        schema_json_schema("Query", classes)
+
+
+def test_schema_json_schema_rejects_subscript_on_non_name_base() -> None:
+    """A subscript whose base isn't a bare name (e.g. ``a.b[int]``) is rejected."""
+    classes = _classes(
+        """
+        class Query(BaseModel):
+            value: a.b[int]
+        """
+    )
+
+    with pytest.raises(WorkflowValidationError, match="unsupported schema annotation"):
+        schema_json_schema("Query", classes)
+
+
+def test_schema_json_schema_rejects_unsupported_subscript_base() -> None:
+    """A subscript with an unsupported base type (e.g. ``tuple[int]``) is rejected."""
+    classes = _classes(
+        """
+        class Query(BaseModel):
+            value: tuple[int]
+        """
+    )
+
+    with pytest.raises(
+        WorkflowValidationError,
+        match=r"unsupported schema annotation 'tuple\[\.\.\.\]'",
+    ):
+        schema_json_schema("Query", classes)
+
+
+def test_schema_json_schema_rejects_malformed_dict_subscript() -> None:
+    """``dict[...]`` without exactly two type arguments is rejected."""
+    classes = _classes(
+        """
+        class Query(BaseModel):
+            value: dict[str]
+        """
+    )
+
+    with pytest.raises(WorkflowValidationError, match="unsupported schema annotation"):
+        schema_json_schema("Query", classes)

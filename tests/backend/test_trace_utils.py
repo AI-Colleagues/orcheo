@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from orcheo.tracing.model_metadata import encode_step_namespace
 from orcheo_backend.app import trace_utils
-from orcheo_backend.app.history.models import RunHistoryRecord
+from orcheo_backend.app.history.models import RunHistoryRecord, RunHistoryStep
 from orcheo_backend.app.schemas.traces import TraceSpanResponse
 from orcheo_backend.app.trace_utils import build_trace_response, build_trace_update
 
@@ -167,6 +167,60 @@ def test_build_trace_update_complete_without_spans_emits_message() -> None:
         f"{record.execution_id}:root".encode(), digest_size=8
     ).hexdigest()
     assert update.trace_id == expected_trace_id
+
+
+def test_build_trace_update_breaks_on_current_step_index() -> None:
+    """build_trace_update should stop replaying once it reaches the target step."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf-break",
+        execution_id="exec-break",
+        status="running",
+    )
+    first = record.append_step({"node_a": {"status": "running"}}, at=_timestamp())
+    record.append_step({"node_b": {"status": "running"}}, at=_timestamp(1))
+
+    update = build_trace_update(record, step=first)
+
+    assert update is not None
+    assert update.spans
+
+
+def test_build_trace_update_replays_prior_steps_before_target() -> None:
+    """Earlier steps should be observed before building the requested step."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf-replay",
+        execution_id="exec-replay",
+        status="running",
+    )
+    record.append_step({"node_a": {"status": "running"}}, at=_timestamp())
+    target = record.append_step({"node_b": {"status": "running"}}, at=_timestamp(1))
+
+    update = build_trace_update(record, step=target)
+
+    assert update is not None
+    assert update.spans
+
+
+def test_build_trace_update_handles_target_without_prior_steps() -> None:
+    """A step can still be rendered when the history has no earlier steps."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf-empty",
+        execution_id="exec-empty",
+        status="running",
+    )
+    step = RunHistoryStep(
+        index=0,
+        at=_timestamp(),
+        payload={"node_a": {"status": "running"}},
+    )
+
+    update = build_trace_update(record, step=step)
+
+    assert update is not None
+    assert update.spans
 
 
 def test_trace_update_root_span_uses_digest_when_missing_trace_id() -> None:

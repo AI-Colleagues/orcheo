@@ -172,15 +172,14 @@ def test_default_factory_callable_field_rejected() -> None:
 
 
 def test_wrong_entrypoint_name_rejected() -> None:
-    """An entrypoint not named ``orcheo_workflow`` is rejected."""
-    with pytest.raises(
-        WorkflowValidationError, match="must be named 'orcheo_workflow'"
-    ):
+    """A script with no function named ``orcheo_workflow`` is rejected."""
+    with pytest.raises(WorkflowValidationError, match="'orcheo_workflow' entrypoint"):
         _validate(
             """
             from orcheo.graph import StateGraph
             def build():
-                return StateGraph(None)
+                graph = StateGraph(None)
+                return graph
             """
         )
 
