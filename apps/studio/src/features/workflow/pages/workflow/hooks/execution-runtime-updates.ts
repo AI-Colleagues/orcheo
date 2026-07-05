@@ -43,7 +43,7 @@ export function collectRuntimeUpdates(
       return;
     }
 
-    const resultsCandidate = value["results"];
+    const resultsCandidate = value["node_results"];
     let candidatePayload: unknown;
 
     if (isRecord(resultsCandidate)) {

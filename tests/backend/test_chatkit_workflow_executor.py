@@ -637,6 +637,93 @@ async def test_execute_graph_surfaces_new_interrupt_as_reply(
 
 
 @pytest.mark.asyncio
+async def test_execute_graph_invoke_interrupt_fallback_does_not_leak_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ``ainvoke`` interrupt fallback must not leak raw state as the reply.
+
+    When ``snapshot.interrupts`` comes back empty alongside a truthy
+    ``__interrupt__`` in the invoke result, the executor should fall back to the
+    result's own ``__interrupt__`` list rather than the whole state mapping.
+    """
+
+    interrupt_payload = {"message": "Need your input"}
+
+    class DummyCompiled:
+        async def ainvoke(self, payload, *, config):
+            return {
+                "__interrupt__": ({"value": interrupt_payload},),
+                "secret_state": "must-not-leak",
+                "node_results": {"agent": {"branch": "human"}},
+            }
+
+        async def aget_state(self, config):
+            # No interrupts surfaced on the snapshot -> exercise the fallback.
+            return SimpleNamespace(values={"messages": []}, interrupts=())
+
+    class DummyGraph:
+        def compile(self, *, checkpointer, store):
+            return DummyCompiled()
+
+    class DummyAsyncContext:
+        def __init__(self, value: object) -> None:
+            self._value = value
+
+        async def __aenter__(self) -> object:
+            return self._value
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: {})
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_checkpointer",
+        lambda settings: DummyAsyncContext("checkpointer"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_graph_store",
+        lambda settings: DummyAsyncContext("graph-store"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "build_graph", lambda graph: DummyGraph()
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "build_initial_state",
+        lambda graph_config, inputs, runtime_config=None, workspace_id=None: {
+            "inputs": dict(inputs)
+        },
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "CredentialResolver",
+        lambda vault, context=None: object(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "credential_resolution",
+        lambda resolver: nullcontext(),
+    )
+
+    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
+    result = await executor._execute_graph(
+        workflow_id=UUID(int=0),
+        graph_config={"nodes": []},
+        inputs={"message": "hello"},
+        config={"configurable": {"thread_id": "thread"}},
+        state_config={"configurable": {"thread_id": "thread"}},
+        step_callback=None,  # force the non-streaming ainvoke path
+    )
+
+    assert result["__interrupt__"] == [interrupt_payload]
+    assert result["assistant_message"] == "Need your input"
+    # The raw graph state must not have leaked into the interrupt payload.
+    assert "secret_state" not in result["__interrupt__"][0]
+
+
+@pytest.mark.asyncio
 async def test_execute_graph_resumes_pending_interrupt_with_chatkit_message(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -12,6 +12,7 @@ from orcheo.nodes.qualitative.accessors import (
     build_report_data,
     coerce_model,
     coerce_model_list,
+    ingest_halt_message,
 )
 from orcheo.nodes.qualitative.codebook import code_to_theme_map
 from orcheo.nodes.qualitative.models import (
@@ -29,7 +30,6 @@ from orcheo.nodes.qualitative.models import (
 )
 from orcheo.nodes.registry import NodeMetadata, registry
 from orcheo.nodes.storage import upload_attachment
-from orcheo.runtime.results import node_result
 
 
 def validate_final_state(thread_state: ReportData) -> list[str]:
@@ -281,10 +281,9 @@ class ReportOutputNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Validate grounding, render the report, and upload it for download."""
-        early = node_result(state, self.ingest_node_name)
-        if early.get("halt"):
-            message = str(early.get("assistant_message", "Ingest failed."))
-            return {"assistant_message": message}
+        halt_message = ingest_halt_message(state, self.ingest_node_name)
+        if halt_message is not None:
+            return {"assistant_message": halt_message}
 
         data = _report_data_from_values(
             state=state,

@@ -480,6 +480,34 @@ async def _load_workflow_for_request(
     return workflow
 
 
+async def _clear_workflow_upload_error(
+    repository: RepositoryDep,
+    workflow: Workflow,
+    *,
+    actor: str,
+) -> None:
+    """Best-effort clear of a stale ``upload_error`` after a successful ingest.
+
+    The workflow version was already created, so a failure here must not surface
+    as a 500 for what is otherwise a successful ingest.
+    """
+    if workflow.upload_error is None:
+        return
+    try:
+        await repository.set_workflow_upload_error(
+            workflow.id,
+            message=None,
+            actor=actor,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Failed to clear stale upload_error for workflow %s after a "
+            "successful ingest",
+            workflow.id,
+            exc_info=True,
+        )
+
+
 async def _get_workflow_latest_version_summary(
     repository: RepositoryDep,
     workflow_id: UUID,
@@ -973,15 +1001,11 @@ async def ingest_workflow_version(
             created_by=request.created_by,
             runnable_config=serialized_config,
         )
-        if workflow.upload_error is not None:
-            await repository.set_workflow_upload_error(
-                workflow.id,
-                message=None,
-                actor=actor,
-            )
-        return _attach_mermaid(version)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
+
+    await _clear_workflow_upload_error(repository, workflow, actor=actor)
+    return _attach_mermaid(version)
 
 
 @router.put(

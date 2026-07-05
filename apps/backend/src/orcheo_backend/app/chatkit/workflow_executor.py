@@ -475,7 +475,12 @@ class WorkflowExecutor:
                         snapshot = await compiled.aget_state(cast(Any, config))
                         values = getattr(snapshot, "values", result)
                         interrupts = getattr(snapshot, "interrupts", ())
-                        return _state_with_interrupts(values, interrupts or result)
+                        # Fall back to the invoke result's own interrupt list rather
+                        # than the whole state mapping, which would otherwise leak
+                        # raw graph state into ``__interrupt__`` / the reply text.
+                        return _state_with_interrupts(
+                            values, interrupts or result.get("__interrupt__", ())
+                        )
                     return _annotate_new_messages(result, prior_count)
 
     async def _mark_run_succeeded(

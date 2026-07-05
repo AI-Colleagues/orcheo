@@ -91,6 +91,7 @@ class _CompileContext:
     schema_classes: dict[str, ast.ClassDef]
     imported_symbols: dict[str, tuple[str, str]] = field(default_factory=dict)
     helper_graph_irs: dict[str, GraphIR] = field(default_factory=dict)
+    helper_graph_stack: list[str] = field(default_factory=list)
 
 
 def compile_workflow_to_ir(source: str) -> GraphIR:
@@ -756,8 +757,21 @@ def _helper_graph_ir(name: str, ctx: _CompileContext) -> GraphIR:
     builder = ctx.graph_builders.get(name)
     if builder is None:
         raise WorkflowValidationError(f"unknown graph builder '{name}'")
-    root_name, graphs = _interpret_graph_builder(builder, ctx)
-    ir = _workflow_to_ir(root_name, graphs, stack=[])
+    # Guard against self- or mutually-referencing helper builders: without an
+    # in-progress marker the cache is only populated after interpretation
+    # returns, so a cycle would recurse until an uncaught ``RecursionError``
+    # instead of a clean validation error on the untrusted ingestion path.
+    if name in ctx.helper_graph_stack:
+        cycle = " -> ".join([*ctx.helper_graph_stack, name])
+        raise WorkflowValidationError(
+            f"recursive workflow-tool graph builder cycle detected: {cycle}"
+        )
+    ctx.helper_graph_stack.append(name)
+    try:
+        root_name, graphs = _interpret_graph_builder(builder, ctx)
+        ir = _workflow_to_ir(root_name, graphs, stack=[])
+    finally:
+        ctx.helper_graph_stack.pop()
     ctx.helper_graph_irs[name] = ir
     return ir
 

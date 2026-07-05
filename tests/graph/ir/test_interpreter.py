@@ -286,6 +286,64 @@ def test_workflow_tool_args_schema_is_lowered_to_json_schema() -> None:
     assert tool["args_schema"]["required"] == ["query"]
 
 
+def test_recursive_helper_graph_builder_is_rejected() -> None:
+    """A self-referencing workflow-tool graph builder fails validation cleanly.
+
+    Without an in-progress guard this recurses to an uncaught ``RecursionError``
+    on the untrusted ingestion path instead of a ``WorkflowValidationError``.
+    """
+    with pytest.raises(
+        WorkflowValidationError, match="recursive workflow-tool graph builder"
+    ):
+        _compile(
+            """
+            from orcheo.graph import StateGraph, START, END
+            from orcheo.graph.state import State
+            from orcheo.nodes.ai import AgentNode, WorkflowTool
+
+            def build_lookup():
+                lookup = StateGraph(State)
+                lookup.add_node(
+                    "agent",
+                    AgentNode(
+                        name="agent",
+                        ai_model="gpt-4o-mini",
+                        workflow_tools=[
+                            {
+                                "name": "lookup",
+                                "description": "Recurse",
+                                "graph": build_lookup(),
+                            }
+                        ],
+                    ),
+                )
+                lookup.add_edge(START, "agent")
+                lookup.add_edge("agent", END)
+                return lookup
+
+            def orcheo_workflow():
+                graph = StateGraph(State)
+                graph.add_node(
+                    "agent",
+                    AgentNode(
+                        name="agent",
+                        ai_model="gpt-4o-mini",
+                        workflow_tools=[
+                            {
+                                "name": "lookup",
+                                "description": "Look up context",
+                                "graph": build_lookup(),
+                            }
+                        ],
+                    ),
+                )
+                graph.add_edge(START, "agent")
+                graph.add_edge("agent", END)
+                return graph
+            """
+        )
+
+
 def test_imported_orcheo_pydantic_model_is_allowed_in_builtin_config() -> None:
     """Trusted Orcheo Pydantic model classes may be referenced by built-in config."""
     ir = _compile(

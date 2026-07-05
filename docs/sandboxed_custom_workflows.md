@@ -49,9 +49,15 @@ allowed at module level:
   `json`, …) are rejected.
 - **`CodeNode` subclasses** — `class X(CodeNode): ...` with a single `run`
   method and optional configurable fields (see below).
-- **A single entrypoint** — exactly one zero-argument function named
-  `orcheo_workflow` (`def` or `async def`). An `async def` entrypoint is
-  *interpreted, not awaited*.
+- **`BaseModel` schema classes** — `class X(BaseModel): ...` (from
+  `from orcheo.schema import BaseModel, Field`) declaring workflow-tool input
+  schemas. Field declarations are extracted with `ast.literal_eval` and lowered
+  to JSON Schema; no author code is executed (see *Workflow tools* below).
+- **The `orcheo_workflow` entrypoint** — a zero-argument function named
+  `orcheo_workflow` (`def` or `async def`) is required. Additional zero-argument
+  *graph-builder* functions may also be declared and referenced from a
+  `WorkflowTool(graph=...)` (see below). An `async def` builder is *interpreted,
+  not awaited*.
 
 Inside `orcheo_workflow` only graph assembly is allowed:
 
@@ -77,8 +83,12 @@ arguments, and raw functions used as nodes.
 
 Restricted workflow tools are intentionally narrow: `WorkflowTool` accepts
 literal `name`, `description`, optional `output_path`, optional `return_direct`,
-and a `graph` that references a `StateGraph` variable declared in the same
-entrypoint. Dynamic `args_schema` classes are not supported in restricted mode.
+a `graph` that references either a `StateGraph` variable declared in the same
+builder or a zero-argument graph-builder function called inline (e.g.
+`graph=build_lookup()`), and an optional `args_schema` referencing a restricted
+`BaseModel` schema class. The schema class is validated and lowered to JSON
+Schema without executing author code; recursive/mutually-recursive graph-builder
+references are rejected with a `WorkflowValidationError`.
 
 > The boundary is the **allowlist**, not a denylist: anything not explicitly
 > permitted is rejected, and no author code is executed during ingestion.

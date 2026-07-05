@@ -50,6 +50,20 @@ describe("Login", () => {
     expect(startEmailChallenge).not.toHaveBeenCalled();
   });
 
+  it("preserves the sanitized redirect target for authenticated sessions", async () => {
+    isAuthenticated.mockReturnValue(true);
+    locationMock.search = "?redirect=/workflows/abc";
+
+    render(<Login />);
+
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith("/workflows/abc", {
+        replace: true,
+      }),
+    );
+    expect(startEmailChallenge).not.toHaveBeenCalled();
+  });
+
   it("sends an email challenge then verifies the OTP code", async () => {
     const user = userEvent.setup();
     render(<Login />);

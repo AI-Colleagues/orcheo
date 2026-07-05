@@ -26,13 +26,36 @@ from orcheo.nodes.qualitative.models import (
     SegmentComparison,
     Unit,
 )
-from orcheo.runtime.results import first_result_field
+from orcheo.runtime.results import first_result_field, node_result
 
 
 def get_configurable(config: RunnableConfig | None) -> Mapping[str, Any]:
     """Return the ``configurable`` mapping from the runnable config."""
     block = config.get("configurable") if isinstance(config, Mapping) else None
     return block if isinstance(block, Mapping) else {}
+
+
+def ingest_halt_message(
+    state: State,
+    ingest_node_name: str,
+    *,
+    default: str = "Ingest failed.",
+) -> str | None:
+    """Return the ingest node's early-halt message, or ``None`` if it did not halt.
+
+    ``IngestNode`` sets ``assistant_message`` (a declared ``State`` field) on an
+    early halt, which ``build_task_state_update`` hoists to the top level instead
+    of nesting it under ``node_results``. Prefer the node-scoped value (older
+    runs / other producers), then the hoisted top-level field, and only fall back
+    to a generic message when neither is present.
+    """
+    early = node_result(state, ingest_node_name)
+    if not early.get("halt"):
+        return None
+    message = early.get("assistant_message") or (
+        state.get("assistant_message") if isinstance(state, Mapping) else None
+    )
+    return str(message) if message else default
 
 
 def coerce_model_list[ModelT: BaseModel](
@@ -200,4 +223,5 @@ __all__ = [
     "get_selected_quotes",
     "get_source_payload",
     "get_units",
+    "ingest_halt_message",
 ]

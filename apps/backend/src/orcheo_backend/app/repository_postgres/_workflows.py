@@ -322,10 +322,6 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                 if is_archived and workflow.is_public:
                     workflow.revoke_publish(actor=actor)
                 should_disable_listeners = is_archived
-                self._remove_cron_config_if_archiving(
-                    workflow.id,
-                    is_archived=is_archived,
-                )
                 metadata["is_archived"] = {
                     "from": workflow.is_archived,
                     "to": is_archived,
@@ -364,6 +360,13 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                         str(workflow.id),
                     ),
                 )
+            # Drop the in-process cron cache only after the DB transaction has
+            # committed, so a rollback cannot leave the live scheduler out of
+            # sync with Postgres truth until the next reconciliation cycle.
+            self._remove_cron_config_if_archiving(
+                workflow.id,
+                is_archived=should_disable_listeners,
+            )
             return workflow.model_copy(deep=True)
 
     async def set_workflow_upload_error(

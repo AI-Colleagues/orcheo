@@ -482,6 +482,49 @@ def test_sanitize_public_step_payload_strips_trace_metadata() -> None:
     }
 
 
+@pytest.mark.asyncio
+async def test_forward_node_step_keeps_trace_metadata_for_tracing_and_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``__trace`` must reach tracing/history but be stripped from the websocket."""
+    payload = {
+        "draft": {
+            "messages": [{"role": "assistant", "content": "done"}],
+            "__trace": {"ai": {"kind": "llm", "requested_model": "openai:gpt-4o-mini"}},
+        }
+    }
+
+    recorded: list[Any] = []
+    monkeypatch.setattr(
+        workflow_execution,
+        "record_workflow_step",
+        lambda tracer, step: recorded.append(step),
+    )
+    monkeypatch.setattr(workflow_execution, "_emit_trace_update", AsyncMock())
+
+    history_store = SimpleNamespace(append_step=AsyncMock(return_value=None))
+    websocket = SimpleNamespace(send_json=AsyncMock())
+
+    await workflow_execution._forward_node_step(
+        payload,
+        history_store=history_store,
+        execution_id="exec",
+        websocket=websocket,
+        tracer=object(),
+    )
+
+    # Tracing and history retain the AI metadata carried on ``__trace``.
+    assert recorded[0]["draft"]["__trace"]["ai"]["requested_model"] == (
+        "openai:gpt-4o-mini"
+    )
+    persisted = history_store.append_step.await_args.args[1]
+    assert "__trace" in persisted["draft"]
+
+    # The websocket copy sent to the client is stripped of trace-only metadata.
+    sent = websocket.send_json.await_args.args[0]
+    assert "__trace" not in sent["draft"]
+
+
 def test_sensitive_debug_helpers_log_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

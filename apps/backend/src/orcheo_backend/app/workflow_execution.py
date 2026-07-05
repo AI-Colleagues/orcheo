@@ -178,10 +178,12 @@ async def _forward_node_step(
     tracer: Tracer,
 ) -> None:
     """Persist and stream a single step payload to the connected client."""
-    sanitized = _sanitize_public_step_payload(payload)
-    record_workflow_step(tracer, sanitized)
-    history_step = await history_store.append_step(execution_id, sanitized)
-    await _safe_send_json(websocket, sanitized)
+    # Tracing and history need the unsanitized payload: ``__trace`` carries the
+    # AI model/provider metadata that ``record_workflow_step`` and later trace
+    # responses read. Only the client-facing websocket copy is stripped.
+    record_workflow_step(tracer, payload)
+    history_step = await history_store.append_step(execution_id, payload)
+    await _safe_send_json(websocket, _sanitize_public_step_payload(payload))
     await _emit_trace_update(
         history_store,
         websocket,
@@ -225,11 +227,14 @@ async def _stream_workflow_updates(
             namespace, step = split_subgraph_update(chunk)
             tagged_step = encode_step_namespace(step, namespace)
             _log_step_debug(tagged_step)
-            sanitized_step = _sanitize_public_step_payload(tagged_step)
-            record_workflow_step(tracer, sanitized_step)
-            history_step = await history_store.append_step(execution_id, sanitized_step)
+            # Keep ``__trace`` on the tracing/history copies (used to surface AI
+            # model/provider metadata); strip it only from the websocket payload.
+            record_workflow_step(tracer, tagged_step)
+            history_step = await history_store.append_step(execution_id, tagged_step)
             try:
-                await _safe_send_json(websocket, sanitized_step)
+                await _safe_send_json(
+                    websocket, _sanitize_public_step_payload(tagged_step)
+                )
             except Exception as exc:  # pragma: no cover
                 logger.error("Error processing messages: %s", exc)
                 raise

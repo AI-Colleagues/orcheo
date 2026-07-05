@@ -32,7 +32,7 @@ async def test_webhook_trigger_node_run_normalizes_config() -> None:
     result = await node.run({}, RunnableConfig())
 
     assert result["trigger_type"] == "webhook"
-    config = WebhookTriggerConfig.model_validate(result["config"])
+    config = WebhookTriggerConfig.model_validate(result["trigger_config"])
     assert config.allowed_methods == ["GET", "POST"]
     assert config.required_headers == {"x-signature": "abc123"}
     assert config.shared_secret_header == "x-secret"
@@ -51,7 +51,7 @@ async def test_cron_trigger_node_run_returns_expected_config() -> None:
     result = await node.run({}, RunnableConfig())
 
     assert result["trigger_type"] == "cron"
-    config = CronTriggerConfig.model_validate(result["config"])
+    config = CronTriggerConfig.model_validate(result["trigger_config"])
     assert config.expression == "0 9 * * *"
     assert config.allow_overlapping is True
 
@@ -75,7 +75,7 @@ async def test_manual_trigger_node_deduplicates_actors() -> None:
     result = await node.run({}, RunnableConfig())
 
     assert result["trigger_type"] == "manual"
-    config = ManualTriggerConfig.model_validate(result["config"])
+    config = ManualTriggerConfig.model_validate(result["trigger_config"])
     assert config.allowed_actors == ["Alice", "Bob"]
     assert config.default_payload == {"foo": "bar"}
 
@@ -102,7 +102,7 @@ async def test_http_polling_trigger_node_builds_config() -> None:
     result = await node.run({}, RunnableConfig())
 
     assert result["trigger_type"] == "http_polling"
-    config = HttpPollingTriggerConfig.model_validate(result["config"])
+    config = HttpPollingTriggerConfig.model_validate(result["trigger_config"])
     assert config.method == "POST"
     assert config.interval_seconds == 600
     assert config.deduplicate_on == "/id"
@@ -114,6 +114,25 @@ async def test_http_polling_trigger_node_invalid_method() -> None:
 
     with pytest.raises(HttpPollingValidationError):
         await node.run({}, RunnableConfig())
+
+
+@pytest.mark.asyncio
+async def test_trigger_node_call_preserves_runtime_state_config() -> None:
+    """``__call__`` must not clobber the runtime ``state['config']`` field.
+
+    ``config`` is a declared ``State`` field, so the trigger dump has to stay
+    namespaced under ``node_results`` rather than being hoisted to the top level.
+    """
+    node = CronTriggerNode(name="cron", expression="0 9 * * *")
+    runtime_config = {"credentials": {"token": "secret"}}
+
+    update = await node({"config": runtime_config}, RunnableConfig())
+
+    # The runtime config field is untouched (not overwritten by the trigger dump).
+    assert "config" not in update
+    trigger_payload = update["node_results"]["cron"]
+    assert trigger_payload["trigger_type"] == "cron"
+    assert trigger_payload["trigger_config"]["expression"] == "0 9 * * *"
 
 
 def test_trigger_nodes_registered() -> None:

@@ -346,6 +346,35 @@ async def test_codebook_output_renders_markdown_table() -> None:
 
 
 @pytest.mark.asyncio
+async def test_codebook_output_surfaces_ingest_halt_message() -> None:
+    """A halted ingest's specific message must survive the node_results contract.
+
+    ``IngestNode`` sets ``assistant_message`` (a ``State`` field) on halt, which
+    ``build_task_state_update`` hoists to the top level while ``halt`` stays under
+    ``node_results``. The downstream output node has to surface that specific
+    message rather than the generic ``"Ingest failed."`` fallback.
+    """
+    ingest = IngestNode(name="ingest", require_codebook=True)
+    ingest_update = await ingest(State({}), RunnableConfig())
+
+    # Emulate LangGraph merging the ingest update into shared state.
+    merged_state = State(
+        {
+            "assistant_message": ingest_update["assistant_message"],
+            "node_results": ingest_update["node_results"],
+        }
+    )
+    assert merged_state["node_results"]["ingest"]["halt"] is True
+    assert "assistant_message" not in merged_state["node_results"]["ingest"]
+
+    output = CodebookOutputNode(name="codebook_output", ingest_node_name="ingest")
+    result = await output(merged_state, RunnableConfig())
+
+    assert result["assistant_message"] == ingest.missing_codebook_message
+    assert result["assistant_message"] != "Ingest failed."
+
+
+@pytest.mark.asyncio
 async def test_open_coder_finalize_prefers_structured_response_dict() -> None:
     node = LLMStageFinalizeNode(name="open_coder_finalize", stage="open_coder")
     unit = Unit(

@@ -26,9 +26,13 @@ class TriggerNode(TaskNode):
         except ValidationError as exc:
             raise self._unwrap_validation_error(exc) from exc
 
+        # NB: use ``trigger_config`` rather than ``config`` — ``config`` is a
+        # declared ``State`` field, so returning it here would hoist the trigger
+        # dump to the top level and clobber the runtime ``state["config"]`` used
+        # for credential/ChatKit resolution (see ``build_task_state_update``).
         return {
             "trigger_type": self.trigger_type,
-            "config": config_model.model_dump(mode="json"),
+            "trigger_config": config_model.model_dump(mode="json"),
         }
 
     def build_config(self) -> Any:

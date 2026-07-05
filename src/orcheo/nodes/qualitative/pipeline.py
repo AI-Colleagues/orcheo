@@ -24,6 +24,7 @@ from orcheo.nodes.qualitative.accessors import (
     get_quality_report,
     get_source_payload,
     get_units,
+    ingest_halt_message,
 )
 from orcheo.nodes.qualitative.codebook import (
     escape_markdown_table_cell,
@@ -459,10 +460,9 @@ class CodebookOutputNode(TaskNode):
     ingest_node_name: str = "ingest"
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        early_halt = node_result(state, self.ingest_node_name)
-        if early_halt.get("halt"):
-            msg = early_halt.get("assistant_message", "Ingest failed.")
-            return {"assistant_message": str(msg)}
+        halt_message = ingest_halt_message(state, self.ingest_node_name)
+        if halt_message is not None:
+            return {"assistant_message": halt_message}
 
         codebook = coerce_model(self.codebook, Codebook)
         if codebook is None:
@@ -621,13 +621,9 @@ class RecodeOutputNode(TaskNode):
     title: str = "Theme Coder"
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        early = node_result(state, self.ingest_node_name)
-        if early.get("halt"):
-            return {
-                "assistant_message": str(
-                    early.get("assistant_message", "Ingest failed.")
-                )
-            }
+        halt_message = ingest_halt_message(state, self.ingest_node_name)
+        if halt_message is not None:
+            return {"assistant_message": halt_message}
 
         codebook = coerce_model(self.codebook, Codebook)
         assignments = coerce_model_list(self.assignments, CodeAssignment)
