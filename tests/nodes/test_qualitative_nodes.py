@@ -21,7 +21,6 @@ from orcheo.nodes.qualitative.coded_data import (
     build_coded_data_csv,
     parse_coded_data_csv,
 )
-from orcheo.nodes.qualitative.keys import QualitativeResultKeys
 from orcheo.nodes.qualitative.models import (
     CodeAssignment,
     CodeAssignmentEntry,
@@ -46,27 +45,6 @@ def _simple_codebook() -> Codebook:
             )
         ]
     )
-
-
-# Result-key wiring mirroring the recoding / reporting colleague workflows.
-_RECODE_KEYS = QualitativeResultKeys(
-    assignments_field="assignments",
-    assignments_producers=("recoder_finalize",),
-    approved_codebook_producers=("setup",),
-)
-_REPORT_KEYS = QualitativeResultKeys(
-    assignments_field="code_assignments",
-    assignments_producers=("ingest",),
-    approved_codebook_producers=("ingest", "setup"),
-    source_payload_producers=("setup", "ingest"),
-)
-_CHAINED_REPORT_KEYS = QualitativeResultKeys(
-    assignments_field="code_assignments_pass2",
-    assignments_producers=("ingest", "recoder_finalize"),
-    approved_codebook_producers=("ingest", "setup"),
-    source_payload_producers=("setup", "ingest"),
-    units_producers=("ingest", "data_quality"),
-)
 
 
 @pytest.mark.asyncio
@@ -284,22 +262,16 @@ async def test_validate_files_node_accepts_coded_data() -> None:
 
 @pytest.mark.asyncio
 async def test_ingest_node_parses_survey_rows() -> None:
-    node = IngestNode(name="ingest")
-    state = State(
-        {
-            "node_results": {
-                "setup": {
-                    "source_payload": {
-                        "filename": "survey.csv",
-                        "source_type": "survey_csv",
-                        "content": "id,text\n1,The setup was clear.\n",
-                    }
-                }
-            }
-        }
+    node = IngestNode(
+        name="ingest",
+        source_payload={
+            "filename": "survey.csv",
+            "source_type": "survey_csv",
+            "content": "id,text\n1,The setup was clear.\n",
+        },
     )
 
-    result = await node(state, RunnableConfig())
+    result = await node(State({}), RunnableConfig())
 
     ingest_result = result["node_results"]["ingest"]
     assert ingest_result["unit_count"] == 1
@@ -335,6 +307,7 @@ async def test_codebook_output_renders_markdown_table() -> None:
     node = CodebookOutputNode(
         name="codebook_output",
         title="Theme Analyst",
+        research_objective="Understand onboarding",
     )
     codebook = Codebook(
         themes=[
@@ -357,7 +330,6 @@ async def test_codebook_output_renders_markdown_table() -> None:
         {
             "node_results": {
                 "ingest": {},
-                "setup": {"research_objective": "Understand onboarding"},
                 "codebook_consolidator_finalize": {
                     "draft_codebook": codebook.model_dump(mode="json")
                 },
@@ -422,7 +394,7 @@ async def test_open_coder_finalize_prefers_structured_response_dict() -> None:
 
 @pytest.mark.asyncio
 async def test_data_quality_node_flags_and_reports() -> None:
-    node = DataQualityNode(name="data_quality", result_keys=QualitativeResultKeys())
+    node = DataQualityNode(name="data_quality")
     units = [
         Unit(
             unit_id="U0001", record_id="R1", source="s", text="n/a", original_text="n/a"
@@ -566,12 +538,9 @@ async def test_coded_data_ingest_node_quantifies() -> None:
     ]
     csv_text, _ = build_coded_data_csv(units, assignments, codebook)
 
-    node = CodedDataIngestNode(name="ingest", result_keys=_REPORT_KEYS)
-    state = State(
-        {"node_results": {"setup": {"source_payload": {"content": csv_text}}}}
-    )
+    node = CodedDataIngestNode(name="ingest", source_payload={"content": csv_text})
 
-    result = (await node(state, RunnableConfig()))["node_results"]["ingest"]
+    result = (await node(State({}), RunnableConfig()))["node_results"]["ingest"]
 
     assert result["halt"] is False
     assert result["unit_count"] == 2
@@ -593,17 +562,14 @@ async def test_coded_data_ingest_node_halts_without_assignments() -> None:
         )
     ]
     csv_text, total = build_coded_data_csv(units, [], codebook)
-    node = CodedDataIngestNode(name="ingest", result_keys=_REPORT_KEYS)
-    state = State(
-        {"node_results": {"setup": {"source_payload": {"content": csv_text}}}}
-    )
+    node = CodedDataIngestNode(name="ingest", source_payload={"content": csv_text})
 
-    output = await node(state, RunnableConfig())
+    output = await node(State({}), RunnableConfig())
     result = output["node_results"]["ingest"]
 
     assert total == 0
     assert result["halt"] is True
-    assert output["assistant_message"] == node.missing_assignments_message
+    assert "did not contain any code assignments" in output["assistant_message"]
 
 
 @pytest.mark.asyncio
@@ -637,24 +603,13 @@ async def test_coded_data_ingest_node_quantifies_chained_results() -> None:
     ]
     node = CodedDataIngestNode(
         name="ingest",
-        result_keys=_CHAINED_REPORT_KEYS,
         allow_chained_results=True,
-    )
-    state = State(
-        {
-            "node_results": {
-                "setup": {"approved_codebook": codebook.model_dump(mode="json")},
-                "data_quality": {"units": [u.model_dump(mode="json") for u in units]},
-                "recoder_finalize": {
-                    "code_assignments_pass2": [
-                        a.model_dump(mode="json") for a in assignments
-                    ]
-                },
-            }
-        }
+        units=[u.model_dump(mode="json") for u in units],
+        code_assignments=[a.model_dump(mode="json") for a in assignments],
+        approved_codebook=codebook.model_dump(mode="json"),
     )
 
-    result = (await node(state, RunnableConfig()))["node_results"]["ingest"]
+    result = (await node(State({}), RunnableConfig()))["node_results"]["ingest"]
 
     assert result["unit_count"] == 2
     assert result["assignment_count"] == 2
@@ -664,13 +619,14 @@ async def test_coded_data_ingest_node_quantifies_chained_results() -> None:
 
 @pytest.mark.asyncio
 async def test_recoder_finalize_merges_assignments() -> None:
+    codebook = _simple_codebook()
     node = LLMStageFinalizeNode(
         name="recoder_finalize",
         stage="recoder",
-        result_keys=_RECODE_KEYS,
+        code_assignments_field="assignments",
+        approved_codebook=codebook.model_dump(mode="json"),
         response_schema=RecodingBatchResponse,
     )
-    codebook = _simple_codebook()
     units = [
         Unit(
             unit_id="U0001",
@@ -696,7 +652,6 @@ async def test_recoder_finalize_merges_assignments() -> None:
             "structured_response": structured,
             "node_results": {
                 "ingest": {"units": [u.model_dump(mode="json") for u in units]},
-                "setup": {"approved_codebook": codebook.model_dump(mode="json")},
                 "recoder_prepare": {
                     "batch_index": 0,
                     "batch_end_index": 1,

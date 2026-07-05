@@ -6,17 +6,14 @@ from __future__ import annotations
 import json
 from typing import Any
 from langchain_core.runnables import RunnableConfig
-from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.qualitative.accessors import (
     build_report_data,
     coerce_model,
     coerce_model_list,
-    coerce_pending_documents,
 )
 from orcheo.nodes.qualitative.codebook import code_to_theme_map
-from orcheo.nodes.qualitative.keys import QualitativeResultKeys
 from orcheo.nodes.qualitative.models import (
     CandidateInsight,
     CodeAssignment,
@@ -210,9 +207,7 @@ def render_markdown_report(thread_state: ReportData) -> str:
 def _report_data_from_values(
     *,
     state: State,
-    keys: QualitativeResultKeys,
     research_objective: str | None = None,
-    pending_documents: Any | None = None,
     source_payload: Any | None = None,
     units: Any | None = None,
     approved_codebook: Any | None = None,
@@ -226,8 +221,8 @@ def _report_data_from_values(
     recommendations: Any | None = None,
     approved_insight_ids: Any | None = None,
 ) -> ReportData:
-    """Build report data from explicit node inputs, falling back to result keys."""
-    fallback = build_report_data(state, keys)
+    """Build report data from explicit node inputs, falling back to node results."""
+    fallback = build_report_data(state)
     explicit_source = dict(source_payload) if isinstance(source_payload, dict) else None
     explicit_approved_ids = (
         [str(item) for item in approved_insight_ids]
@@ -235,13 +230,10 @@ def _report_data_from_values(
         else None
     )
     return ReportData(
-        research_objective=research_objective or fallback.research_objective,
-        pending_documents=coerce_pending_documents(pending_documents)
-        or fallback.pending_documents,
+        research_objective=research_objective,
         source_payload=explicit_source or fallback.source_payload,
         units=coerce_model_list(units, Unit) or fallback.units,
-        approved_codebook=coerce_model(approved_codebook, Codebook)
-        or fallback.approved_codebook,
+        approved_codebook=coerce_model(approved_codebook, Codebook),
         code_assignments_pass2=coerce_model_list(code_assignments, CodeAssignment)
         or fallback.code_assignments_pass2,
         quantification=coerce_model_list(quantification, QuantificationRow)
@@ -272,9 +264,7 @@ def _report_data_from_values(
 class ReportOutputNode(TaskNode):
     """Render the final report and return it with a download link."""
 
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
     research_objective: str | None = None
-    pending_documents: Any | None = None
     source_payload: Any | None = None
     units: Any | None = None
     approved_codebook: Any | None = None
@@ -288,22 +278,17 @@ class ReportOutputNode(TaskNode):
     recommendations: Any | None = None
     approved_insight_ids: Any | None = None
     ingest_node_name: str = "ingest"
-    export_filename: str = "insight_report.md"
-    export_mime_type: str = "text/markdown"
-    failed_ingest_message: str = "Ingest failed."
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Validate grounding, render the report, and upload it for download."""
         early = node_result(state, self.ingest_node_name)
         if early.get("halt"):
-            message = str(early.get("assistant_message", self.failed_ingest_message))
+            message = str(early.get("assistant_message", "Ingest failed."))
             return {"assistant_message": message}
 
         data = _report_data_from_values(
             state=state,
-            keys=self.result_keys,
             research_objective=self.research_objective,
-            pending_documents=self.pending_documents,
             source_payload=self.source_payload,
             units=self.units,
             approved_codebook=self.approved_codebook,
@@ -324,7 +309,7 @@ class ReportOutputNode(TaskNode):
         export_error: str | None = None
         try:
             _, report_url = await upload_attachment(
-                config, report, self.export_filename, self.export_mime_type
+                config, report, "insight_report.md", "text/markdown"
             )
         except RuntimeError as exc:
             export_error = str(exc)
@@ -336,7 +321,7 @@ class ReportOutputNode(TaskNode):
             f"**{len(data.units or [])} coded unit(s)**.\n"
         )
         if report_url:
-            lines.append(f"**[⬇ Download {self.export_filename}]({report_url})**\n")
+            lines.append(f"**[⬇ Download insight_report.md]({report_url})**\n")
         elif export_error:
             lines.append(f"_Could not generate the download link: {export_error}_\n")
         if errors:
@@ -363,9 +348,7 @@ class ReportOutputNode(TaskNode):
 class ExportReportNode(TaskNode):
     """Regenerate the downloadable Markdown report link."""
 
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
     research_objective: str | None = None
-    pending_documents: Any | None = None
     source_payload: Any | None = None
     units: Any | None = None
     approved_codebook: Any | None = None
@@ -378,20 +361,12 @@ class ExportReportNode(TaskNode):
     candidate_insights: Any | None = None
     recommendations: Any | None = None
     approved_insight_ids: Any | None = None
-    export_filename: str = "insight_report.md"
-    export_mime_type: str = "text/markdown"
-    export_title: str = "Theme Report Export"
-    missing_report_message: str = (
-        "No report is available to export. Please run `generate_report` first."
-    )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Re-render the report from the node_results channel and upload it."""
         data = _report_data_from_values(
             state=state,
-            keys=self.result_keys,
             research_objective=self.research_objective,
-            pending_documents=self.pending_documents,
             source_payload=self.source_payload,
             units=self.units,
             approved_codebook=self.approved_codebook,
@@ -406,17 +381,22 @@ class ExportReportNode(TaskNode):
             approved_insight_ids=self.approved_insight_ids,
         )
         if data.approved_codebook is None or not data.candidate_insights:
-            return {"assistant_message": self.missing_report_message}
+            return {
+                "assistant_message": (
+                    "No report is available to export. Please run "
+                    "`generate_report` first."
+                )
+            }
         report = render_markdown_report(data)
         try:
             _, report_url = await upload_attachment(
-                config, report, self.export_filename, self.export_mime_type
+                config, report, "insight_report.md", "text/markdown"
             )
         except RuntimeError as exc:
             return {"assistant_message": f"Export failed: {exc}"}
         lines = [
-            f"## {self.export_title}\n",
-            f"[Download {self.export_filename}]({report_url})",
+            "## Theme Report Export\n",
+            f"[Download insight_report.md]({report_url})",
         ]
         return {
             "assistant_message": "\n".join(lines),

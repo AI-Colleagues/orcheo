@@ -25,10 +25,7 @@ from orcheo.nodes.qualitative.codebook import (
     Theme,
     fallback_codebook,
     merge_codebooks,
-    recover_exportable_codebook,
     parse_codebook_csv,
-    parse_codebook_markdown,
-    parse_markdown_table_row,
     render_codebook_for_prompt,
 )
 from orcheo.nodes.qualitative.coded_data import (
@@ -47,7 +44,6 @@ from orcheo.nodes.qualitative.insights import (
     recommend_impact,
     critique_insights,
 )
-from orcheo.nodes.qualitative.keys import QualitativeResultKeys
 from orcheo.nodes.qualitative.models import (
     CodeAssignment,
     CodeAssignmentEntry,
@@ -189,9 +185,6 @@ def test_codebook_helpers_cover_edge_branches(monkeypatch: pytest.MonkeyPatch) -
     )
     assert fallback.themes[0].subthemes[0].example_quotes[0]["text"] == "Alpha"
 
-    assert parse_markdown_table_row("   ") is None
-    assert parse_markdown_table_row(r"| a \| b | c |") == ["a | b", "c"]
-
     csv_text = (
         "theme_id,theme_title,code_id,code_title,definition,include,exclude\n"
         "T1,Theme,,Missing,Desc,,\n"
@@ -224,22 +217,6 @@ def test_codebook_helpers_cover_edge_branches(monkeypatch: pytest.MonkeyPatch) -
         )
         is None
     )
-
-    markdown = parse_codebook_markdown(
-        """
-| Theme ID | Theme Title | Code ID | Code Title | Definition | Include | Exclude |
-| --- | --- | --- | --- | --- | --- | --- |
-| T1 | Theme | C1 | Alpha | Desc | keep | drop |
-| T1 | Theme |  | Missing | Desc | keep | drop |
-| T1 | Theme | C3 |
-"""
-    )
-    assert markdown is not None
-    assert [theme.theme_id for theme in markdown.themes] == ["T1"]
-
-    headings = parse_codebook_markdown("## T2: Heading\n\n- `C2` **Beta**: Beta def\n")
-    assert headings is not None
-    assert [theme.theme_id for theme in headings.themes] == ["T2"]
 
 
 def test_coded_data_helpers_cover_branch_paths() -> None:
@@ -513,7 +490,7 @@ def test_source_parser_covers_fallback_and_support_types() -> None:
         '{"tickets": [{"id": "T1", "text": "Help", "requester": "A"}]}'
     )
     assert support[0].record_id == "T1"
-    assert SourceParser.normalise_payload(State({}), None) is None
+    assert SourceParser.normalise_payload(State({})) is None
 
 
 def test_codebook_helpers_cover_remaining_branches(
@@ -561,38 +538,6 @@ def test_codebook_helpers_cover_remaining_branches(
         )
         is None
     )
-
-    parsed = parse_codebook_markdown(
-        """
-| Theme ID | Theme Title | Code ID | Code Title | Definition | Include | Exclude |
-| --- | --- | --- | --- | --- | --- | --- |
-| T1 | Theme &amp; One | C1 | Alpha | Desc | keep | drop |
-| T1 | Theme &amp; One |  | Skip | Desc | keep | drop |
-| T2 | Theme Two | C2 | Beta | Desc | stay | leave |
-| T2 | Theme Two |
-"""
-    )
-    assert parsed is not None
-    assert [theme.theme_id for theme in parsed.themes] == ["T1", "T2"]
-    assert parsed.themes[0].subthemes[0].title == "Alpha"
-
-    headings = parse_codebook_markdown("## T3: Heading\n\n- `C4` **Beta**: Body\n")
-    assert headings is not None
-    assert headings.themes[0].subthemes[0].code_id == "C4"
-    assert parse_codebook_markdown("| a | b |\n| - | - |\n") is None
-
-    state = State(
-        {
-            "messages": [
-                {
-                    "role": "assistant",
-                    "content": "## T5: Recovered\n- `C9` **Beta**: Body\n",
-                }
-            ]
-        }
-    )
-    recovered = recover_exportable_codebook(state)
-    assert recovered is not None
 
     assert code_to_theme_map(merged)["C001"] == ("T1", "Seed")
     assert render_codebook_for_prompt(merged).startswith("T1: Seed")
@@ -875,7 +820,6 @@ def test_source_parser_covers_remaining_branches(
             "source_type": "chat_log",
             "filename": "x.json",
         },
-        allow_additional_sources=True,
     )
     assert source_type == "chat_log"
     assert parsed == []
@@ -899,19 +843,7 @@ def test_source_parser_covers_remaining_branches(
             }
         }
     )
-    assert SourceParser.normalise_payload(state, None)["filename"] == "file.txt"
-    assert (
-        SourceParser.normalise_payload(
-            State({}),
-            {
-                "configurable": {
-                    "source": "id,text\n1,hello\n",
-                    "source_filename": "x.csv",
-                }
-            },
-        )["filename"]
-        == "x.csv"
-    )
+    assert SourceParser.normalise_payload(state)["filename"] == "file.txt"
 
 
 @pytest.mark.asyncio()
@@ -921,12 +853,10 @@ async def test_stage_nodes_cover_remaining_branches(
     codebook = _codebook()
     units = _units()
     assignments = _assignments()
-    keys = QualitativeResultKeys()
 
     prepare = LLMStagePrepareNode(
         name="open_coder_prepare",
         stage="open_coder",
-        max_coding_batches=1,
     )
     assert (await prepare(State({"node_results": {}}), {}))["node_results"][
         "open_coder_prepare"
@@ -934,10 +864,7 @@ async def test_stage_nodes_cover_remaining_branches(
     open_state = State(
         {
             "node_results": {
-                "setup": {keys.research_objective_field: "Objective"},
-                "ingest": {
-                    keys.units_field: [u.model_dump(mode="json") for u in units]
-                },
+                "ingest": {"units": [u.model_dump(mode="json") for u in units]},
                 "open_coder_finalize": {"next_index": 5},
             }
         }
@@ -954,26 +881,19 @@ async def test_stage_nodes_cover_remaining_branches(
         "node_results"
     ]["codebook_consolidator_prepare"]
     assert no_assignments["action"] == "no_assignments"
-    use_seed = (
-        await consolidator(
-            State(
-                {
-                    "node_results": {
-                        "validate_files": {
-                            keys.seed_codebook_field: codebook.model_dump(mode="json")
-                        }
-                    }
-                }
-            ),
-            {"configurable": {"seed_codebook": codebook.model_dump(mode="json")}},
-        )
-    )["node_results"]["codebook_consolidator_prepare"]
+    seeded_consolidator = LLMStagePrepareNode(
+        name="codebook_consolidator_prepare",
+        stage="codebook_consolidator",
+        seed_codebook=codebook.model_dump(mode="json"),
+    )
+    use_seed = (await seeded_consolidator(State({"node_results": {}}), {}))[
+        "node_results"
+    ]["codebook_consolidator_prepare"]
     assert use_seed["action"] == "use_seed"
 
     recoder = LLMStagePrepareNode(
         name="recoder_prepare",
         stage="recoder",
-        max_coding_batches=1,
     )
     assert (await recoder(State({"node_results": {}}), {}))["node_results"][
         "recoder_prepare"
@@ -985,27 +905,24 @@ async def test_stage_nodes_cover_remaining_branches(
     assert (await quote_selector(State({"node_results": {}}), {}))["node_results"][
         "quote_selector_prepare"
     ]["skip_llm"]
+    quote_selector_with_codebook = LLMStagePrepareNode(
+        name="quote_selector_prepare",
+        stage="quote_selector",
+        approved_codebook=codebook.model_dump(mode="json"),
+    )
     quote_prompt = (
-        await quote_selector(
+        await quote_selector_with_codebook(
             State(
                 {
                     "node_results": {
-                        "setup": {
-                            keys.research_objective_field: "Objective",
-                            keys.approved_codebook_field: codebook.model_dump(
-                                mode="json"
-                            ),
-                        },
                         "open_coder_finalize": {
-                            keys.assignments_field: [
+                            "code_assignments_pass1": [
                                 a.model_dump(mode="json") for a in assignments
                             ],
                         },
                         "ingest": {
-                            keys.units_field: [
-                                u.model_dump(mode="json") for u in units
-                            ],
-                            keys.quantification_field: [],
+                            "units": [u.model_dump(mode="json") for u in units],
+                            "quantification": [],
                         },
                     }
                 }
@@ -1024,20 +941,14 @@ async def test_stage_nodes_cover_remaining_branches(
             State(
                 {
                     "node_results": {
-                        "setup": {
-                            keys.research_objective_field: "Objective",
-                            keys.approved_codebook_field: codebook.model_dump(
-                                mode="json"
-                            ),
-                        },
                         "open_coder_finalize": {
-                            keys.assignments_field: [
+                            "code_assignments_pass1": [
                                 a.model_dump(mode="json") for a in assignments
                             ],
                         },
                         "ingest": {
-                            keys.quantification_field: [],
-                            keys.selected_quotes_field: [],
+                            "quantification": [],
+                            "selected_quotes": [],
                         },
                     }
                 }
@@ -1093,10 +1004,10 @@ async def test_stage_nodes_cover_remaining_branches(
     consolidator_finalize = LLMStageFinalizeNode(
         name="codebook_consolidator_finalize",
         stage="codebook_consolidator",
+        seed_codebook=codebook.model_dump(mode="json"),
     )
     assert consolidator_finalize._finalize_consolidator(
         State({"node_results": {"open_coder_finalize": {}}}),
-        {},
         {"action": "no_assignments"},
     ) == {"done": True}
     seed_result = consolidator_finalize._finalize_consolidator(
@@ -1111,7 +1022,6 @@ async def test_stage_nodes_cover_remaining_branches(
                 }
             }
         ),
-        {"configurable": {"seed_codebook": codebook.model_dump(mode="json")}},
         {"action": "use_seed"},
     )
     assert "draft_codebook" in seed_result
@@ -1119,10 +1029,10 @@ async def test_stage_nodes_cover_remaining_branches(
     recoder_finalize = LLMStageFinalizeNode(
         name="recoder_finalize",
         stage="recoder",
-        default_batch_size=1,
+        approved_codebook=codebook.model_dump(mode="json"),
     )
     assert recoder_finalize._finalize_recoder(
-        State({"node_results": {"ingest": {}, "setup": {}}}),
+        State({"node_results": {"ingest": {}}}),
         {"skip_llm": True, "batch_index": 0},
     )["done"]
     assert recoder_finalize._finalize_recoder(
@@ -1130,7 +1040,6 @@ async def test_stage_nodes_cover_remaining_branches(
             {
                 "node_results": {
                     "ingest": {"units": [u.model_dump(mode="json") for u in units]},
-                    "setup": {"approved_codebook": codebook.model_dump(mode="json")},
                 }
             }
         ),
@@ -1138,27 +1047,22 @@ async def test_stage_nodes_cover_remaining_branches(
     )["done"]
 
     quote_finalize = LLMStageFinalizeNode(
-        name="quote_selector_finalize", stage="quote_selector"
+        name="quote_selector_finalize",
+        stage="quote_selector",
+        approved_codebook=codebook.model_dump(mode="json"),
     )
     assert (
         quote_finalize._finalize_quote_selector(
             State(
                 {
                     "node_results": {
-                        "setup": {
-                            keys.approved_codebook_field: codebook.model_dump(
-                                mode="json"
-                            ),
-                        },
                         "open_coder_finalize": {
-                            keys.assignments_field: [
+                            "code_assignments_pass1": [
                                 a.model_dump(mode="json") for a in assignments
                             ],
                         },
                         "ingest": {
-                            keys.units_field: [
-                                u.model_dump(mode="json") for u in units
-                            ],
+                            "units": [u.model_dump(mode="json") for u in units],
                         },
                     }
                 }
@@ -1171,19 +1075,21 @@ async def test_stage_nodes_cover_remaining_branches(
     insight_finalize = LLMStageFinalizeNode(
         name="insight_generator_finalize",
         stage="insight_generator",
+        approved_codebook=codebook.model_dump(mode="json"),
     )
     insight_result = insight_finalize._finalize_insight_generator(
         State(
             {
                 "node_results": {
                     "ingest": {
-                        keys.approved_codebook_field: codebook.model_dump(mode="json"),
-                        keys.units_field: [u.model_dump(mode="json") for u in units],
-                        keys.assignments_field: [
+                        "units": [u.model_dump(mode="json") for u in units],
+                        "quantification": [],
+                    },
+                    "open_coder_finalize": {
+                        "code_assignments_pass1": [
                             a.model_dump(mode="json") for a in assignments
                         ],
-                        keys.selected_quotes_field: [],
-                    }
+                    },
                 }
             }
         )

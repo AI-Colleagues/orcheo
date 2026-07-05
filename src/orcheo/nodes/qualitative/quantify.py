@@ -6,13 +6,11 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 from langchain_core.runnables import RunnableConfig
-from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.qualitative.accessors import (
     coerce_model,
     coerce_model_list,
-    get_approved_codebook,
     get_code_assignments,
     get_configurable,
     get_source_payload,
@@ -20,7 +18,6 @@ from orcheo.nodes.qualitative.accessors import (
 )
 from orcheo.nodes.qualitative.codebook import code_to_theme_map, normalise_codebook_ids
 from orcheo.nodes.qualitative.coded_data import parse_coded_data_csv
-from orcheo.nodes.qualitative.keys import QualitativeResultKeys
 from orcheo.nodes.qualitative.models import (
     CodeAssignment,
     Codebook,
@@ -249,53 +246,49 @@ def compare_segments(
 class CodedDataIngestNode(TaskNode):
     """Reconstruct a coded dataset and compute theme frequencies and segments."""
 
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
     source_payload: Any | None = None
     units: Any | None = None
     code_assignments: Any | None = None
     approved_codebook: Any | None = None
-    segment_variables_config_key: str = "segment_variables"
     allow_chained_results: bool = False
-    missing_data_message: str = (
-        "No coded data file was found. Please upload the `coded_data.csv` "
-        "exported by the Theme Coder."
-    )
-    missing_assignments_message: str = (
-        "The coded data file did not contain any code assignments. Please "
-        "re-run the Theme Coder and upload its output."
-    )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Parse the coded-data CSV and emit quantification artefacts."""
         source = (
             dict(self.source_payload)
             if isinstance(self.source_payload, dict)
-            else get_source_payload(state, self.result_keys) or {}
+            else get_source_payload(state) or {}
         )
         content = source.get("content") or ""
         parsed = parse_coded_data_csv(content) if content else None
         if parsed is None and self.allow_chained_results:
-            units = coerce_model_list(self.units, Unit) or get_units(
-                state, self.result_keys
-            )
+            units = coerce_model_list(self.units, Unit) or get_units(state)
             assignments = coerce_model_list(
                 self.code_assignments, CodeAssignment
-            ) or get_code_assignments(state, self.result_keys)
-            codebook = coerce_model(
-                self.approved_codebook, Codebook
-            ) or get_approved_codebook(state, self.result_keys)
+            ) or get_code_assignments(state)
+            codebook = coerce_model(self.approved_codebook, Codebook)
             if units and assignments and codebook is not None:
                 parsed = (units, assignments, codebook)
         if parsed is None:
-            return {"assistant_message": self.missing_data_message, "halt": True}
+            return {
+                "assistant_message": (
+                    "No coded data file was found. Please upload the "
+                    "`coded_data.csv` exported by the Theme Coder."
+                ),
+                "halt": True,
+            }
         units, assignments, reconstructed_codebook = parsed
         codebook = (
-            coerce_model(self.approved_codebook, Codebook)
-            or get_approved_codebook(state, self.result_keys)
-            or reconstructed_codebook
+            coerce_model(self.approved_codebook, Codebook) or reconstructed_codebook
         )
         if codebook is None or not assignments:
-            return {"assistant_message": self.missing_assignments_message, "halt": True}
+            return {
+                "assistant_message": (
+                    "The coded data file did not contain any code assignments. "
+                    "Please re-run the Theme Coder and upload its output."
+                ),
+                "halt": True,
+            }
         codebook = normalise_codebook_ids(codebook)
 
         quantification, cooccurrence = compute_quantification(
@@ -303,9 +296,7 @@ class CodedDataIngestNode(TaskNode):
         )
         variables = plan_segments(
             units,
-            parse_str_list(
-                get_configurable(config).get(self.segment_variables_config_key)
-            ),
+            parse_str_list(get_configurable(config).get("segment_variables")),
         )
         breakdowns = compute_segment_breakdowns(variables, units, assignments, codebook)
         comparisons = compare_segments(breakdowns)

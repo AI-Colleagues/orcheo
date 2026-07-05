@@ -7,9 +7,7 @@ import csv
 import json
 from collections.abc import Mapping
 from typing import Any
-from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
-from orcheo.nodes.qualitative.accessors import get_configurable
 from orcheo.nodes.qualitative.models import ParsedRecord
 
 
@@ -322,7 +320,6 @@ class SourceParser:
         cls,
         source_payload: Mapping[str, Any] | None,
         *,
-        allow_additional_sources: bool = False,
         flexible_columns: bool = False,
     ) -> tuple[list[ParsedRecord], str]:
         if not source_payload:
@@ -331,9 +328,7 @@ class SourceParser:
         if not isinstance(content, str) or not content.strip():
             return [], str(source_payload.get("source_type") or "survey_csv")
         declared = source_payload.get("source_type")
-        supported_types = {"survey_csv", "transcript"}
-        if allow_additional_sources:
-            supported_types.update({"chat_log", "support_tickets"})
+        supported_types = {"survey_csv", "transcript", "chat_log", "support_tickets"}
         if declared not in supported_types:
             declared = cls.sniff_type(source_payload.get("filename"), content)
         if declared not in supported_types:
@@ -357,18 +352,10 @@ class SourceParser:
         return cls.parse_transcript(content), "transcript"
 
     @staticmethod
-    def normalise_payload(
-        state: State,
-        config: RunnableConfig | None = None,
-        *,
-        source_config_key: str = "source",
-        source_type_key: str = "source_type",
-        source_filename_key: str = "source_filename",
-        documents_key: str = "documents",
-    ) -> dict[str, Any] | None:
+    def normalise_payload(state: State) -> dict[str, Any] | None:
         inputs = state.get("inputs") or {}
         if isinstance(inputs, Mapping):
-            documents = inputs.get(documents_key)
+            documents = inputs.get("documents")
             if isinstance(documents, list) and documents:
                 first = documents[0]
                 if isinstance(first, Mapping):
@@ -378,22 +365,13 @@ class SourceParser:
                         isinstance(storage_path, str) and storage_path.strip()
                     ):
                         return {
-                            "source_type": first.get(source_type_key),
+                            "source_type": first.get("source_type"),
                             "content": content if isinstance(content, str) else "",
                             "storage_path": storage_path,
                             "filename": first.get("filename")
                             or first.get("name")
                             or first.get("source"),
                         }
-        configurable = get_configurable(config)
-        inline = configurable.get(source_config_key)
-        if isinstance(inline, str) and inline.strip():
-            return {
-                "source_type": configurable.get(source_type_key),
-                "content": inline,
-                "storage_path": None,
-                "filename": configurable.get(source_filename_key),
-            }
         return None
 
 

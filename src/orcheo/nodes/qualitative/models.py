@@ -245,7 +245,6 @@ class ReportData:
     """
 
     research_objective: str | None = None
-    pending_documents: list[dict[str, Any]] | None = None
     source_payload: dict[str, Any] | None = None
     units: list[Unit] | None = None
     approved_codebook: Codebook | None = None

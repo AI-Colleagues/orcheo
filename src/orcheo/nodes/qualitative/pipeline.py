@@ -17,13 +17,11 @@ from orcheo.nodes.qualitative.accessors import (
     coerce_model,
     coerce_model_list,
     coerce_pending_documents,
-    get_approved_codebook,
     get_code_assignments,
     get_configurable,
     get_draft_codebook,
     get_pending_documents,
     get_quality_report,
-    get_research_objective,
     get_source_payload,
     get_units,
 )
@@ -69,25 +67,16 @@ def _decode_attachment_content(raw: bytes) -> str | None:
 class LoadAttachmentsNode(TaskNode):
     """Load attachment content from inputs, storage paths, or attachment resolver."""
 
-    input_key: str = "documents"
-    output_field: str = "attachments"
-
-    def _result(self, attachments: list[dict[str, Any]]) -> dict[str, Any]:
-        result = {self.output_field: attachments}
-        if self.output_field != "pending_documents":
-            result["pending_documents"] = attachments
-        return result
-
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         configurable = get_configurable(config)
         attachment_resolver = configurable.get("attachment_resolver")
         attachment_scope = configurable.get("attachment_scope")
         inputs = state.get("inputs") if isinstance(state, Mapping) else {}
-        documents = inputs.get(self.input_key) if isinstance(inputs, Mapping) else []
+        documents = inputs.get("documents") if isinstance(inputs, Mapping) else []
         attachments: list[dict[str, Any]] = []
 
         if not isinstance(documents, list):
-            return self._result(attachments)
+            return {"attachments": attachments}
 
         for document in documents:
             if not isinstance(document, Mapping):
@@ -164,7 +153,7 @@ class LoadAttachmentsNode(TaskNode):
                 }
             )
 
-        return self._result(attachments)
+        return {"attachments": attachments}
 
 
 @registry.register(
@@ -177,8 +166,6 @@ class LoadAttachmentsNode(TaskNode):
 class ValidateFilesNode(TaskNode):
     """Validate loaded qualitative files and return a minimal normalized payload."""
 
-    attachments_node_name: str = "load_attachments"
-    attachments_field: str = "attachments"
     data_field: str | None = None
     codebook_field: str | None = None
     data_kind: Literal["raw", "coded"] = "raw"
@@ -186,8 +173,7 @@ class ValidateFilesNode(TaskNode):
     flexible_columns: bool = False
 
     def _attachments(self, state: State) -> list[dict[str, Any]]:
-        result = node_result(state, self.attachments_node_name)
-        attachments = result.get(self.attachments_field)
+        attachments = node_result(state, "load_attachments").get("attachments")
         if not isinstance(attachments, list):
             return []
         return [dict(item) for item in attachments if isinstance(item, Mapping)]
@@ -203,7 +189,6 @@ class ValidateFilesNode(TaskNode):
         }
         records, source_type = SourceParser.parse_payload(
             payload,
-            allow_additional_sources=True,
             flexible_columns=self.flexible_columns,
         )
         if not records:
@@ -374,9 +359,6 @@ class IngestNode(TaskNode):
     source_payload: Any | None = None
     pending_documents: Any | None = None
     approved_codebook: Any | None = None
-    source_type_field: str = "source_type"
-    documents_input_key: str = "documents"
-    allow_additional_sources: bool = True
     flexible_columns: bool = False
     require_codebook: bool = False
     missing_codebook_message: str = (
@@ -389,8 +371,6 @@ class IngestNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         approved_codebook = coerce_model(self.approved_codebook, Codebook)
-        if approved_codebook is None:
-            approved_codebook = get_approved_codebook(state)
         if self.require_codebook and approved_codebook is None:
             return {"assistant_message": self.missing_codebook_message, "halt": True}
 
@@ -402,12 +382,9 @@ class IngestNode(TaskNode):
         if source_payload is None:
             source_payload = get_source_payload(state)
         if source_payload is None:
-            source_payload = SourceParser.normalise_payload(
-                state, config, documents_key=self.documents_input_key
-            )
+            source_payload = SourceParser.normalise_payload(state)
         records, source_type = SourceParser.parse_payload(
             source_payload,
-            allow_additional_sources=self.allow_additional_sources,
             flexible_columns=self.flexible_columns,
         )
         if not records:
@@ -426,7 +403,6 @@ class IngestNode(TaskNode):
                 }
                 records, source_type = SourceParser.parse_payload(
                     payload,
-                    allow_additional_sources=self.allow_additional_sources,
                     flexible_columns=self.flexible_columns,
                 )
                 if records:
@@ -451,7 +427,7 @@ class IngestNode(TaskNode):
         result: dict[str, Any] = {
             "halt": False,
             "unit_count": len(units),
-            self.source_type_field: source_type,
+            "source_type": source_type,
             "units": [u.model_dump(mode="json") for u in units],
         }
         if source_payload is not None:
@@ -480,30 +456,26 @@ class CodebookOutputNode(TaskNode):
         "Please review the codebook above. You can request revisions by describing "
         "what to change, or approve it to proceed to export."
     )
-    no_codebook_message: str = (
-        "No codebook could be produced. Please check the source data and try again."
-    )
-    failed_ingest_message: str = "Ingest failed."
     ingest_node_name: str = "ingest"
-    batch_size_config_key: str = "batch_size"
-    default_batch_size: int = DEFAULT_BATCH_SIZE
-    max_coding_batches: int = MAX_CODING_BATCHES
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         early_halt = node_result(state, self.ingest_node_name)
         if early_halt.get("halt"):
-            msg = early_halt.get("assistant_message", self.failed_ingest_message)
+            msg = early_halt.get("assistant_message", "Ingest failed.")
             return {"assistant_message": str(msg)}
 
         codebook = coerce_model(self.codebook, Codebook)
         if codebook is None:
             codebook = get_draft_codebook(state)
         if codebook is None:
-            return {"assistant_message": self.no_codebook_message}
+            return {
+                "assistant_message": (
+                    "No codebook could be produced. Please check the source data "
+                    "and try again."
+                )
+            }
 
         research_objective = self.research_objective
-        if not research_objective:
-            research_objective = get_research_objective(state)
         lines = [f"# {self.title} - Draft Codebook\n"]
         if research_objective:
             lines.append(f"**Research objective:** {research_objective}\n")
@@ -539,11 +511,9 @@ class CodebookOutputNode(TaskNode):
         if not units:
             units = get_units(state)
         unit_total = len(units)
-        batch_size = get_configurable(config).get(
-            self.batch_size_config_key, self.default_batch_size
-        )
-        batch_size = int(batch_size) if batch_size else self.default_batch_size
-        coded_unit_cap = self.max_coding_batches * batch_size
+        batch_size = get_configurable(config).get("batch_size", DEFAULT_BATCH_SIZE)
+        batch_size = int(batch_size) if batch_size else DEFAULT_BATCH_SIZE
+        coded_unit_cap = MAX_CODING_BATCHES * batch_size
         if unit_total > coded_unit_cap:
             lines.append(
                 f"\n> **Note:** {unit_total} units were ingested but only the first "
@@ -568,14 +538,6 @@ class ExportCodebookNode(TaskNode):
     codebook: Codebook | str
     export_filename: str = "codebook.csv"
     export_mime_type: str = "text/csv"
-    export_title: str = "Codebook Export"
-    export_summary_template: str = (
-        "Your codebook has **{total_themes} themes** and **{total_codes} codes**."
-    )
-    missing_codebook_message: str = (
-        "No codebook is available to export. Please generate and approve a "
-        "codebook first."
-    )
 
     def _resolved_codebook(self) -> Codebook | None:
         raw: Any = self.codebook
@@ -591,7 +553,12 @@ class ExportCodebookNode(TaskNode):
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         codebook = self._resolved_codebook()
         if codebook is None:
-            return {"assistant_message": self.missing_codebook_message}
+            return {
+                "assistant_message": (
+                    "No codebook is available to export. Please generate and "
+                    "approve a codebook first."
+                )
+            }
 
         csv_content = build_csv(
             [
@@ -627,12 +594,10 @@ class ExportCodebookNode(TaskNode):
 
         total_themes = len(codebook.themes)
         total_codes = sum(len(t.subthemes) for t in codebook.themes)
-        summary = self.export_summary_template.format(
-            total_themes=total_themes, total_codes=total_codes
-        )
         lines = [
-            f"## {self.export_title}\n",
-            f"{summary}\n",
+            "## Codebook Export\n",
+            f"Your codebook has **{total_themes} themes** and "
+            f"**{total_codes} codes**.\n",
             f"[Download {self.export_filename}]({csv_url})",
         ]
         return {"assistant_message": "\n".join(lines)}
@@ -649,16 +614,11 @@ class RecodeOutputNode(TaskNode):
     """Render the recoded data as the workflow output with a CSV download."""
 
     ingest_node_name: str = "ingest"
-    recoder_finalize_node: str = "recoder_finalize"
     codebook: Any | None = None
     units: Any | None = None
     assignments: Any | None = None
     quality_report: Any | None = None
-    export_filename: str = "coded_data.csv"
-    export_mime_type: str = "text/csv"
     title: str = "Theme Coder"
-    batch_size_config_key: str = "batch_size"
-    default_batch_size: int = DEFAULT_BATCH_SIZE
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         early = node_result(state, self.ingest_node_name)
@@ -670,8 +630,6 @@ class RecodeOutputNode(TaskNode):
             }
 
         codebook = coerce_model(self.codebook, Codebook)
-        if codebook is None:
-            codebook = get_approved_codebook(state)
         assignments = coerce_model_list(self.assignments, CodeAssignment)
         if not assignments:
             assignments = get_code_assignments(state)
@@ -697,7 +655,7 @@ class RecodeOutputNode(TaskNode):
         if csv_content:
             try:
                 _, csv_url = await upload_attachment(
-                    config, csv_content, self.export_filename, self.export_mime_type
+                    config, csv_content, "coded_data.csv", "text/csv"
                 )
             except RuntimeError as exc:
                 export_error = str(exc)
@@ -708,7 +666,7 @@ class RecodeOutputNode(TaskNode):
             f"**{total_assignments} code assignment(s)** against the codebook.\n"
         )
         if csv_url:
-            lines.append(f"**[⬇ Download {self.export_filename}]({csv_url})**\n")
+            lines.append(f"**[⬇ Download coded_data.csv]({csv_url})**\n")
         elif export_error:
             lines.append(f"_Could not generate the download link: {export_error}_\n")
 
@@ -721,7 +679,7 @@ class RecodeOutputNode(TaskNode):
                 " units flagged.\n"
             )
 
-        finalize = node_result(state, self.recoder_finalize_node)
+        finalize = node_result(state, "recoder_finalize")
         total_batches = finalize.get("total_batches")
         batch_end_index = finalize.get("batch_end_index")
         if (
@@ -729,9 +687,7 @@ class RecodeOutputNode(TaskNode):
             and isinstance(batch_end_index, int)
             and batch_end_index < total_batches
         ):
-            batch_size = get_configurable(config).get(
-                self.batch_size_config_key, self.default_batch_size
-            )
+            batch_size = get_configurable(config).get("batch_size", DEFAULT_BATCH_SIZE)
             lines.append(
                 f"\n> **Note:** only the first {batch_end_index * batch_size} unit(s) "
                 "were coded this run (per-turn limit). Call `recode_data` again to "
@@ -757,17 +713,9 @@ class ExportCodedDataNode(TaskNode):
     codebook: Any | None = None
     units: Any | None = None
     assignments: Any | None = None
-    export_filename: str = "coded_data.csv"
-    export_mime_type: str = "text/csv"
-    export_title: str = "Coded Data Export"
-    missing_data_message: str = (
-        "No coded data is available to export. Please run `recode_data` first."
-    )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         codebook = coerce_model(self.codebook, Codebook)
-        if codebook is None:
-            codebook = get_approved_codebook(state)
         units = coerce_model_list(self.units, Unit)
         if not units:
             units = get_units(state)
@@ -775,23 +723,28 @@ class ExportCodedDataNode(TaskNode):
         if not assignments:
             assignments = get_code_assignments(state)
         if codebook is None or not units or not assignments:
-            return {"assistant_message": self.missing_data_message}
+            return {
+                "assistant_message": (
+                    "No coded data is available to export. Please run "
+                    "`recode_data` first."
+                )
+            }
 
         csv_content, total_assignments = build_coded_data_csv(
             units, assignments, codebook
         )
         try:
             _, csv_url = await upload_attachment(
-                config, csv_content, self.export_filename, self.export_mime_type
+                config, csv_content, "coded_data.csv", "text/csv"
             )
         except RuntimeError as exc:
             return {"assistant_message": f"Export failed: {exc}"}
 
         lines = [
-            f"## {self.export_title}\n",
+            "## Coded Data Export\n",
             f"Your coded data includes **{len(units)} units** and "
             f"**{total_assignments} code assignment(s)**.\n",
-            f"[Download {self.export_filename}]({csv_url})",
+            f"[Download coded_data.csv]({csv_url})",
         ]
         return {
             "assistant_message": "\n".join(lines),

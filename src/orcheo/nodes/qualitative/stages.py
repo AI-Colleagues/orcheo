@@ -15,23 +15,20 @@ from collections.abc import Mapping
 from typing import Any, Literal
 from langchain_core.messages import BaseMessage
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.qualitative.accessors import (
     coerce_model,
     coerce_model_list,
-    get_approved_codebook,
     get_code_assignments,
     get_configurable,
     get_quantification,
-    get_research_objective,
     get_selected_quotes,
     get_units,
 )
 from orcheo.nodes.qualitative.codebook import (
     fallback_codebook,
-    get_seed_codebook,
     merge_codebooks,
     normalise_codebook_ids,
     parse_codebook_csv,
@@ -57,7 +54,6 @@ from orcheo.nodes.qualitative.insights import (
     filter_grounded_quotes,
     normalise_candidate_insights,
 )
-from orcheo.nodes.qualitative.keys import QualitativeResultKeys
 from orcheo.nodes.qualitative.models import (
     CodeAssignment,
     Codebook,
@@ -153,7 +149,6 @@ class LLMStagePrepareNode(TaskNode):
     """Prepare the next prompt payload for the configured LLM stage."""
 
     stage: Stage
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
     research_objective: str | None = None
     units: Any | None = None
     code_assignments: Any | None = None
@@ -162,14 +157,6 @@ class LLMStagePrepareNode(TaskNode):
     quantification: Any | None = None
     selected_quotes: Any | None = None
 
-    batch_size_config_key: str = "batch_size"
-    default_batch_size: int = DEFAULT_BATCH_SIZE
-    max_coding_batches: int = MAX_CODING_BATCHES
-    per_turn_batch_budget_config_key: str = "per_turn_batch_budget"
-    default_per_turn_batch_budget: int = DEFAULT_PER_TURN_BATCH_BUDGET
-    quotes_per_theme_config_key: str = "quotes_per_theme"
-    default_quotes_per_theme: int = DEFAULT_QUOTES_PER_THEME
-
     open_coding_system_prompt_template: str | None = None
     codebook_consolidator_system_prompt_template: str | None = None
     recoder_system_prompt_template: str | None = None
@@ -177,62 +164,36 @@ class LLMStagePrepareNode(TaskNode):
     insight_generator_system_prompt_template: str | None = None
 
     def _batch_size(self, config: RunnableConfig) -> int:
-        value = get_configurable(config).get(
-            self.batch_size_config_key, self.default_batch_size
-        )
-        return int(value) if value else self.default_batch_size
+        value = get_configurable(config).get("batch_size", DEFAULT_BATCH_SIZE)
+        return int(value) if value else DEFAULT_BATCH_SIZE
 
-    def _research_objective(self, state: State, keys: QualitativeResultKeys) -> str:
-        return self.research_objective or get_research_objective(state, keys) or ""
-
-    def _units(self, state: State, keys: QualitativeResultKeys) -> list[Unit]:
+    def _units(self, state: State) -> list[Unit]:
         units = coerce_model_list(self.units, Unit)
-        return units or get_units(state, keys)
+        return units or get_units(state)
 
-    def _code_assignments(
-        self, state: State, keys: QualitativeResultKeys
-    ) -> list[CodeAssignment]:
+    def _code_assignments(self, state: State) -> list[CodeAssignment]:
         assignments = coerce_model_list(self.code_assignments, CodeAssignment)
-        return assignments or get_code_assignments(state, keys)
+        return assignments or get_code_assignments(state)
 
-    def _approved_codebook(
-        self, state: State, keys: QualitativeResultKeys
-    ) -> Codebook | None:
-        return _codebook_from_value(self.approved_codebook) or get_approved_codebook(
-            state, keys
-        )
-
-    def _seed_codebook(
-        self, config: RunnableConfig, state: State, keys: QualitativeResultKeys
-    ) -> Codebook | None:
-        return _codebook_from_value(self.seed_codebook) or get_seed_codebook(
-            config, state, keys
-        )
-
-    def _quantification(
-        self, state: State, keys: QualitativeResultKeys
-    ) -> list[QuantificationRow]:
+    def _quantification(self, state: State) -> list[QuantificationRow]:
         rows = coerce_model_list(self.quantification, QuantificationRow)
-        return rows or get_quantification(state, keys)
+        return rows or get_quantification(state)
 
-    def _selected_quotes(
-        self, state: State, keys: QualitativeResultKeys
-    ) -> list[Quote]:
+    def _selected_quotes(self, state: State) -> list[Quote]:
         quotes = coerce_model_list(self.selected_quotes, Quote)
-        return quotes or get_selected_quotes(state, keys)
+        return quotes or get_selected_quotes(state)
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Build the next prompt payload for the requested stage."""
-        keys = self.result_keys
-        objective = self._research_objective(state, keys) or "(not provided)"
+        objective = self.research_objective or "(not provided)"
 
         if self.stage == "open_coder":
-            units = self._units(state, keys)
+            units = self._units(state)
             if not units:
                 return {"skip_llm": True, "done": True}
             batch_size = self._batch_size(config)
             batches = batch_units(units, batch_size)
-            total_batches = min(len(batches), self.max_coding_batches)
+            total_batches = min(len(batches), MAX_CODING_BATCHES)
             start_index = 0
             previous_index = node_result(state, "open_coder_finalize").get("next_index")
             if isinstance(previous_index, int) and previous_index >= 0:
@@ -241,8 +202,7 @@ class LLMStagePrepareNode(TaskNode):
                 return {"skip_llm": True, "done": True}
             hints = (
                 "\n".join(
-                    f"- {h}"
-                    for h in existing_code_hints(self._code_assignments(state, keys))
+                    f"- {h}" for h in existing_code_hints(self._code_assignments(state))
                 )
                 or "(none yet)"
             )
@@ -261,8 +221,8 @@ class LLMStagePrepareNode(TaskNode):
             }
 
         if self.stage == "codebook_consolidator":
-            assignments = self._code_assignments(state, keys)
-            seed_codebook = self._seed_codebook(config, state, keys)
+            assignments = self._code_assignments(state)
+            seed_codebook = _codebook_from_value(self.seed_codebook)
             if not assignments:
                 action = "use_seed" if seed_codebook is not None else "no_assignments"
                 return {"skip_llm": True, "action": action}
@@ -275,7 +235,7 @@ class LLMStagePrepareNode(TaskNode):
                 "objective": objective,
                 "system_prompt": template.format(objective=objective),
                 "input_text": format_assignments_with_units(
-                    assignments, self._units(state, keys), limit=500
+                    assignments, self._units(state), limit=500
                 ),
                 "seed_codebook": seed_codebook.model_dump(mode="json")
                 if seed_codebook
@@ -283,14 +243,13 @@ class LLMStagePrepareNode(TaskNode):
             }
 
         if self.stage == "recoder":
-            units = self._units(state, keys)
-            codebook = self._approved_codebook(state, keys)
+            units = self._units(state)
+            codebook = _codebook_from_value(self.approved_codebook)
             if not units or codebook is None:
                 return {"skip_llm": True, "done": True}
             batch_size = self._batch_size(config)
             per_turn_budget = get_configurable(config).get(
-                self.per_turn_batch_budget_config_key,
-                self.default_per_turn_batch_budget,
+                "per_turn_batch_budget", DEFAULT_PER_TURN_BATCH_BUDGET
             )
             batches = batch_units(units, batch_size)
             total_batches = len(batches)
@@ -300,7 +259,7 @@ class LLMStagePrepareNode(TaskNode):
                 start_index = previous_index
             if start_index >= total_batches:
                 return {"skip_llm": True, "done": True}
-            cap = min(int(per_turn_budget), self.max_coding_batches)
+            cap = min(int(per_turn_budget), MAX_CODING_BATCHES)
             end_index = min(start_index + cap, total_batches)
             template = self.recoder_system_prompt_template or _DEFAULT_RECODER_TEMPLATE
             return {
@@ -316,13 +275,13 @@ class LLMStagePrepareNode(TaskNode):
             }
 
         if self.stage == "quote_selector":
-            codebook = self._approved_codebook(state, keys)
+            codebook = _codebook_from_value(self.approved_codebook)
             if codebook is None:
                 return {"skip_llm": True, "done": True}
-            assignments = self._code_assignments(state, keys)
-            units = self._units(state, keys)
+            assignments = self._code_assignments(state)
+            units = self._units(state)
             quotes_per_theme = get_configurable(config).get(
-                self.quotes_per_theme_config_key, self.default_quotes_per_theme
+                "quotes_per_theme", DEFAULT_QUOTES_PER_THEME
             )
             fb_quotes = fallback_quotes(
                 codebook,
@@ -343,7 +302,7 @@ class LLMStagePrepareNode(TaskNode):
                         "codebook": codebook.model_dump(mode="json"),
                         "quantification": [
                             row.model_dump(mode="json")
-                            for row in self._quantification(state, keys)
+                            for row in self._quantification(state)
                         ],
                         "candidate_quotes": [
                             q.model_dump(mode="json") for q in fb_quotes
@@ -355,15 +314,15 @@ class LLMStagePrepareNode(TaskNode):
             }
 
         if self.stage == "insight_generator":
+            codebook = _codebook_from_value(self.approved_codebook)
             report_data = ReportData(
-                approved_codebook=self._approved_codebook(state, keys),
-                units=self._units(state, keys),
-                code_assignments_pass2=self._code_assignments(state, keys),
-                quantification=self._quantification(state, keys),
-                selected_quotes=self._selected_quotes(state, keys),
+                approved_codebook=codebook,
+                units=self._units(state),
+                code_assignments_pass2=self._code_assignments(state),
+                quantification=self._quantification(state),
+                selected_quotes=self._selected_quotes(state),
             )
             fb_insights = fallback_insights(report_data)
-            codebook = self._approved_codebook(state, keys)
             template = (
                 self.insight_generator_system_prompt_template
                 or _DEFAULT_INSIGHT_GENERATOR_TEMPLATE
@@ -379,15 +338,15 @@ class LLMStagePrepareNode(TaskNode):
                         else {},
                         "quantification": [
                             row.model_dump(mode="json")
-                            for row in self._quantification(state, keys)
+                            for row in self._quantification(state)
                         ],
                         "assignments": [
                             a.model_dump(mode="json")
-                            for a in self._code_assignments(state, keys)
+                            for a in self._code_assignments(state)
                         ],
                         "quotes": [
                             q.model_dump(mode="json")
-                            for q in self._selected_quotes(state, keys)
+                            for q in self._selected_quotes(state)
                         ],
                     },
                     ensure_ascii=False,
@@ -409,19 +368,15 @@ class LLMStageFinalizeNode(TaskNode):
     """Persist the LLM response for the configured stage onto ``node_results``."""
 
     stage: Stage
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
     units: Any | None = None
     code_assignments: Any | None = None
     approved_codebook: Any | None = None
     seed_codebook: Any | None = None
     quantification: Any | None = None
     response_schema: type[BaseModel] | None = None
-    code_assignments_field: str | None = None
-    selected_quotes_field: str | None = None
-    candidate_insights_field: str | None = None
-    default_batch_size: int = DEFAULT_BATCH_SIZE
-    quotes_per_theme_config_key: str = "quotes_per_theme"
-    default_quotes_per_theme: int = DEFAULT_QUOTES_PER_THEME
+    code_assignments_field: str = "code_assignments_pass1"
+    selected_quotes_field: str = "selected_quotes"
+    candidate_insights_field: str = "candidate_insights"
 
     def _extract_llm_response(
         self, state: State, response_schema: type[BaseModel] | None = None
@@ -449,44 +404,17 @@ class LLMStageFinalizeNode(TaskNode):
                         return msg.content
         return None
 
-    def _units(self, state: State, keys: QualitativeResultKeys) -> list[Unit]:
+    def _units(self, state: State) -> list[Unit]:
         units = coerce_model_list(self.units, Unit)
-        return units or get_units(state, keys)
+        return units or get_units(state)
 
-    def _code_assignments(
-        self, state: State, keys: QualitativeResultKeys
-    ) -> list[CodeAssignment]:
+    def _code_assignments(self, state: State) -> list[CodeAssignment]:
         assignments = coerce_model_list(self.code_assignments, CodeAssignment)
-        return assignments or get_code_assignments(state, keys)
+        return assignments or get_code_assignments(state)
 
-    def _approved_codebook(
-        self, state: State, keys: QualitativeResultKeys
-    ) -> Codebook | None:
-        return _codebook_from_value(self.approved_codebook) or get_approved_codebook(
-            state, keys
-        )
-
-    def _code_assignments_field(self, keys: QualitativeResultKeys) -> str:
-        return self.code_assignments_field or keys.assignments_field
-
-    def _selected_quotes_field(self, keys: QualitativeResultKeys) -> str:
-        return self.selected_quotes_field or keys.selected_quotes_field
-
-    def _candidate_insights_field(self, keys: QualitativeResultKeys) -> str:
-        return self.candidate_insights_field or keys.candidate_insights_field
-
-    def _seed_codebook(
-        self, config: RunnableConfig, state: State, keys: QualitativeResultKeys
-    ) -> Codebook | None:
-        return _codebook_from_value(self.seed_codebook) or get_seed_codebook(
-            config, state, keys
-        )
-
-    def _quantification(
-        self, state: State, keys: QualitativeResultKeys
-    ) -> list[QuantificationRow]:
+    def _quantification(self, state: State) -> list[QuantificationRow]:
         rows = coerce_model_list(self.quantification, QuantificationRow)
-        return rows or get_quantification(state, keys)
+        return rows or get_quantification(state)
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Persist stage output under ``node_results[node_name]`` keyed by the field."""
@@ -495,7 +423,7 @@ class LLMStageFinalizeNode(TaskNode):
         if self.stage == "open_coder":
             return self._finalize_open_coder(state, stage_result)
         if self.stage == "codebook_consolidator":
-            return self._finalize_consolidator(state, config, stage_result)
+            return self._finalize_consolidator(state, stage_result)
         if self.stage == "recoder":
             return self._finalize_recoder(state, stage_result)
         if self.stage == "quote_selector":
@@ -509,9 +437,8 @@ class LLMStageFinalizeNode(TaskNode):
     def _finalize_open_coder(
         self, state: State, stage_result: Mapping[str, Any]
     ) -> dict[str, Any]:
-        keys = self.result_keys
-        assignments_field = self._code_assignments_field(keys)
-        units = self._units(state, keys)
+        assignments_field = self.code_assignments_field
+        units = self._units(state)
         if not units:
             return {
                 "next_index": 0,
@@ -521,8 +448,8 @@ class LLMStageFinalizeNode(TaskNode):
             }
         batch_index = int(stage_result.get("batch_index") or 0)
         total_batches = int(stage_result.get("total_batches") or 0)
-        batch_size = int(stage_result.get("batch_size") or self.default_batch_size)
-        existing_assignments = self._code_assignments(state, keys)
+        batch_size = int(stage_result.get("batch_size") or DEFAULT_BATCH_SIZE)
+        existing_assignments = self._code_assignments(state)
         existing_by_unit = {a.unit_id: a for a in existing_assignments}
         batches = batch_units(units, batch_size)
         if batch_index >= len(batches):
@@ -558,13 +485,12 @@ class LLMStageFinalizeNode(TaskNode):
         }
 
     def _finalize_consolidator(
-        self, state: State, config: RunnableConfig, stage_result: Mapping[str, Any]
+        self, state: State, stage_result: Mapping[str, Any]
     ) -> dict[str, Any]:
-        keys = self.result_keys
         action = stage_result.get("action")
         codebook: Codebook | None = None
         if action == "use_seed":
-            codebook = self._seed_codebook(config, state, keys)
+            codebook = _codebook_from_value(self.seed_codebook)
         elif action == "no_assignments":
             codebook = None
         else:
@@ -576,25 +502,24 @@ class LLMStageFinalizeNode(TaskNode):
                     result = CodebookConsolidationResponse.model_validate(direct)
                 except Exception:  # noqa: BLE001
                     result = CodebookConsolidationResponse(
-                        codebook=fallback_codebook(self._code_assignments(state, keys))
+                        codebook=fallback_codebook(self._code_assignments(state))
                     )
             codebook = normalise_codebook_ids(result.codebook)
-            seed_codebook = self._seed_codebook(config, state, keys)
+            seed_codebook = _codebook_from_value(self.seed_codebook)
             if seed_codebook is not None:
                 codebook = merge_codebooks(seed_codebook, codebook)
         output: dict[str, Any] = {"done": True}
         if codebook is not None:
-            output[keys.draft_codebook_field] = codebook.model_dump(mode="json")
+            output["draft_codebook"] = codebook.model_dump(mode="json")
         return output
 
     def _finalize_recoder(
         self, state: State, stage_result: Mapping[str, Any]
     ) -> dict[str, Any]:
-        keys = self.result_keys
-        assignments_field = self._code_assignments_field(keys)
-        units = self._units(state, keys)
-        codebook = self._approved_codebook(state, keys)
-        existing_assignments = self._code_assignments(state, keys)
+        assignments_field = self.code_assignments_field
+        units = self._units(state)
+        codebook = _codebook_from_value(self.approved_codebook)
+        existing_assignments = self._code_assignments(state)
         if not units or codebook is None or stage_result.get("skip_llm"):
             return {
                 "next_index": int(stage_result.get("batch_index") or 0),
@@ -607,7 +532,7 @@ class LLMStageFinalizeNode(TaskNode):
         batch_index = int(stage_result.get("batch_index") or 0)
         batch_end_index = int(stage_result.get("batch_end_index") or 0)
         total_batches = int(stage_result.get("total_batches") or 0)
-        batch_size = int(stage_result.get("batch_size") or self.default_batch_size)
+        batch_size = int(stage_result.get("batch_size") or DEFAULT_BATCH_SIZE)
         batches = batch_units(units, batch_size)
         if batch_index >= len(batches):
             return {
@@ -649,16 +574,15 @@ class LLMStageFinalizeNode(TaskNode):
     def _finalize_quote_selector(
         self, state: State, config: RunnableConfig
     ) -> dict[str, Any]:
-        keys = self.result_keys
-        codebook = self._approved_codebook(state, keys)
-        units = self._units(state, keys)
+        codebook = _codebook_from_value(self.approved_codebook)
+        units = self._units(state)
         quotes_per_theme = get_configurable(config).get(
-            self.quotes_per_theme_config_key, self.default_quotes_per_theme
+            "quotes_per_theme", DEFAULT_QUOTES_PER_THEME
         )
         fb = (
             fallback_quotes(
                 codebook,
-                self._code_assignments(state, keys),
+                self._code_assignments(state),
                 units,
                 quotes_per_theme,
             )
@@ -669,20 +593,17 @@ class LLMStageFinalizeNode(TaskNode):
         quotes = result.quotes if isinstance(result, QuoteSelectionResponse) else fb
         selected = filter_grounded_quotes(quotes, codebook or Codebook(), units) or fb
         return {
-            self._selected_quotes_field(keys): [
-                q.model_dump(mode="json") for q in selected
-            ],
+            self.selected_quotes_field: [q.model_dump(mode="json") for q in selected],
             "quotes": len(selected),
             "halt": False,
         }
 
     def _finalize_insight_generator(self, state: State) -> dict[str, Any]:
-        keys = self.result_keys
         report_data = ReportData(
-            approved_codebook=self._approved_codebook(state, keys),
-            units=self._units(state, keys),
-            code_assignments_pass2=self._code_assignments(state, keys),
-            quantification=self._quantification(state, keys),
+            approved_codebook=_codebook_from_value(self.approved_codebook),
+            units=self._units(state),
+            code_assignments_pass2=self._code_assignments(state),
+            quantification=self._quantification(state),
         )
         fb = fallback_insights(report_data)
         result = self._extract_llm_response(state, InsightGenerationResponse)
@@ -691,7 +612,7 @@ class LLMStageFinalizeNode(TaskNode):
         )
         normalised = normalise_candidate_insights(insights) or fb
         return {
-            self._candidate_insights_field(keys): [
+            self.candidate_insights_field: [
                 i.model_dump(mode="json") for i in normalised
             ],
             "halt": False,
