@@ -68,7 +68,6 @@ from orcheo.nodes.qualitative.pipeline import (
     ExportCodedDataNode,
     IngestNode,
     RecodeOutputNode,
-    SetupNode,
 )
 from orcheo.nodes.qualitative.quantify import CodedDataIngestNode
 from orcheo.nodes.qualitative.quality import assess_quality

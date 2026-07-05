@@ -58,6 +58,16 @@ class BaseRunnable(BaseModel):
     name: str
     """Unique name of the runnable."""
 
+    @staticmethod
+    def contains_template(value: str) -> bool:
+        """Return whether ``value`` contains Orcheo template syntax."""
+        return "{{" in value and "}}" in value
+
+    @staticmethod
+    def contains_template_delimiter(value: str) -> bool:
+        """Return whether ``value`` contains any Orcheo template delimiter."""
+        return "{{" in value or "}}" in value
+
     def _decode_value(
         self,
         value: Any,
@@ -69,16 +79,24 @@ class BaseRunnable(BaseModel):
         is needed, enabling cheap ``is`` checks for copy-on-write callers.
         """
         if isinstance(value, CredentialReference):
-            return self._resolve_credential_reference(value)
-        if isinstance(value, str):
-            return self._decode_string_value(value, state)
-        if isinstance(value, BaseModel):
-            return self._decode_model_value(value, state)
-        if isinstance(value, dict):
-            return self._decode_dict_value(value, state)
-        if isinstance(value, list):
-            return self._decode_list_value(value, state)
-        return value
+            decoded = self._resolve_credential_reference(value)
+        elif isinstance(value, str):
+            decoded = self._decode_string_value(value, state)
+        elif isinstance(value, BaseModel):
+            decoded = self._decode_model_value(value, state)
+        elif isinstance(value, Mapping):
+            decoded = self._decode_mapping_value(value, state)
+        elif isinstance(value, list):
+            decoded = self._decode_list_value(value, state)
+        elif isinstance(value, tuple):
+            decoded = self._decode_tuple_value(value, state)
+        elif isinstance(value, set):
+            decoded = self._decode_set_value(value, state)
+        elif isinstance(value, frozenset):
+            decoded = self._decode_frozenset_value(value, state)
+        else:
+            decoded = value
+        return decoded
 
     def _decode_model_value(self, value: BaseModel, state: State) -> BaseModel:
         """Decode a nested Pydantic model, returning the same object if unchanged."""
@@ -90,8 +108,10 @@ class BaseRunnable(BaseModel):
                 changed[field_name] = decoded
         return value.model_copy(update=changed) if changed else value
 
-    def _decode_dict_value(self, value: dict[str, Any], state: State) -> dict[str, Any]:
-        """Decode a dict, returning the same object if no values changed."""
+    def _decode_mapping_value(
+        self, value: Mapping[Any, Any], state: State
+    ) -> Mapping[Any, Any]:
+        """Decode a mapping, returning the same object if no values changed."""
         new_dict: dict[str, Any] = {}
         any_changed = False
         for k, v in value.items():
@@ -100,6 +120,10 @@ class BaseRunnable(BaseModel):
             if decoded is not v:
                 any_changed = True
         return new_dict if any_changed else value
+
+    def _decode_dict_value(self, value: dict[str, Any], state: State) -> dict[str, Any]:
+        """Decode a dict, returning the same object if no values changed."""
+        return cast(dict[str, Any], self._decode_mapping_value(value, state))
 
     def _decode_list_value(self, value: list[Any], state: State) -> list[Any]:
         """Decode a list, returning the same object if no items changed."""
@@ -111,6 +135,43 @@ class BaseRunnable(BaseModel):
             if decoded is not item:
                 any_changed = True
         return new_list if any_changed else value
+
+    def _decode_tuple_value(
+        self, value: tuple[Any, ...], state: State
+    ) -> tuple[Any, ...]:
+        """Decode a tuple, returning the same object if no items changed."""
+        new_items: list[Any] = []
+        any_changed = False
+        for item in value:
+            decoded = self._decode_value(item, state)
+            new_items.append(decoded)
+            if decoded is not item:
+                any_changed = True
+        return tuple(new_items) if any_changed else value
+
+    def _decode_set_value(self, value: set[Any], state: State) -> set[Any]:
+        """Decode a set, returning the same object if no items changed."""
+        new_items: list[Any] = []
+        any_changed = False
+        for item in value:
+            decoded = self._decode_value(item, state)
+            new_items.append(decoded)
+            if decoded is not item:
+                any_changed = True
+        return set(new_items) if any_changed else value
+
+    def _decode_frozenset_value(
+        self, value: frozenset[Any], state: State
+    ) -> frozenset[Any]:
+        """Decode a frozenset, returning the same object if no items changed."""
+        new_items: list[Any] = []
+        any_changed = False
+        for item in value:
+            decoded = self._decode_value(item, state)
+            new_items.append(decoded)
+            if decoded is not item:
+                any_changed = True
+        return frozenset(new_items) if any_changed else value
 
     def _decoded_updates(self, state: State) -> dict[str, Any]:
         """Return decoded field values without mutating the runnable."""
@@ -137,7 +198,7 @@ class BaseRunnable(BaseModel):
         reference = parse_credential_reference(value)
         if reference is not None:
             return self._resolve_credential_reference(reference)
-        if "{{" not in value or "}}" not in value:
+        if not self.contains_template(value):
             return value
 
         single_template_match = _SINGLE_TEMPLATE_PATTERN.fullmatch(value)

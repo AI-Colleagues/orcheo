@@ -225,7 +225,7 @@ class GraphStoreAppendMessageNode(TaskNode):
         else:
             key = ""
 
-        if not key or "{{" in key or "}}" in key:
+        if not key or self.contains_template_delimiter(key):
             logger.warning(
                 "GraphStoreAppendMessageNode '%s': invalid key after resolution: %r",
                 self.name,

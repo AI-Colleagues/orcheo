@@ -92,7 +92,7 @@ class ConversationalBatchEvalNode(TaskNode):
         if value is None:
             return value
         if isinstance(value, str):
-            if cls._is_template(value):
+            if cls.contains_template(value):
                 return value
             try:
                 value = int(value)
@@ -107,7 +107,7 @@ class ConversationalBatchEvalNode(TaskNode):
         if value is None:
             return value
         if isinstance(value, str):
-            if cls._is_template(value):
+            if cls.contains_template(value):
                 return value
             try:
                 value = int(value)
@@ -122,7 +122,7 @@ class ConversationalBatchEvalNode(TaskNode):
         if value is None:
             return value
         if isinstance(value, str):
-            if cls._is_template(value):
+            if cls.contains_template(value):
                 return value
             try:
                 value = int(value)
@@ -130,10 +130,6 @@ class ConversationalBatchEvalNode(TaskNode):
                 msg = "history_window_size must be an integer"
                 raise ValueError(msg) from exc
         return value
-
-    @staticmethod
-    def _is_template(value: str) -> bool:
-        return "{{" in value and "}}" in value
 
     def _resolve_max_conversations(self) -> int | None:
         value = self.max_conversations

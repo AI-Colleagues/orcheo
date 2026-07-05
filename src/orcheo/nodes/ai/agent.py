@@ -405,7 +405,7 @@ class AgentNode(AINode):
     def model_post_init(self, __context: Any) -> None:
         """Normalize system prompts into TextTensor for optimization."""
         if isinstance(self.system_prompt, str):
-            if "{{" in self.system_prompt and "}}" in self.system_prompt:
+            if self.contains_template(self.system_prompt):
                 return
             if (
                 isinstance(self.ai_model, str)
@@ -666,7 +666,7 @@ class AgentNode(AINode):
         candidate = key.strip()
         if not candidate:
             return None, "empty"
-        if "{{" in candidate or "}}" in candidate:
+        if self.contains_template_delimiter(candidate):
             return None, "unresolved_template"
         if len(candidate) > self._history_key_max_length:
             return None, "too_long"

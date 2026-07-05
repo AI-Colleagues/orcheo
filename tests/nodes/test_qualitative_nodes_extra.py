@@ -32,7 +32,6 @@ from orcheo.nodes.qualitative.pipeline import (
     IngestNode,
     LoadAttachmentsNode,
     RecodeOutputNode,
-    SetupNode,
     ValidateFilesNode,
 )
 from orcheo.nodes.qualitative.quality import DataQualityNode
@@ -120,7 +119,7 @@ def _report_state() -> ReportData:
 
 
 @pytest.mark.asyncio
-async def test_context_pre_setup_ingest_and_quality_nodes(
+async def test_context_load_ingest_and_quality_nodes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -159,36 +158,6 @@ async def test_context_pre_setup_ingest_and_quality_nodes(
     )["results"]["load_attachments"]
     assert resolved["attachments"][0]["filename"] == "attached.txt"
     assert resolved["attachments"][0]["content"] == "café"
-
-    setup = SetupNode(
-        name="setup",
-        resolve_codebook=True,
-        resolve_seed_codebook=True,
-        exclude_codebook_docs=True,
-    )
-    setup_state = State(
-        {
-            "inputs": {"research_objective": "Understand onboarding"},
-            "results": {
-                "load_attachments": {
-                    "attachments": [
-                        {
-                            "filename": "codebook.csv",
-                            "content": (
-                                "theme_id,theme_title,code_id,code_title,definition\n"
-                                "T1,Onboarding,C1,Clear setup,Easy\n"
-                            ),
-                        },
-                        {"filename": "survey.csv", "content": "id,text\n1,Hello\n"},
-                    ]
-                }
-            },
-        }
-    )
-    setup_result = (await setup(setup_state, {}))["results"]["setup"]
-    assert setup_result["source_payload"]["filename"] == "survey.csv"
-    assert setup_result["approved_codebook"]["themes"][0]["theme_id"] == "T1"
-    assert setup_result["seed_codebook_from_file"]["themes"][0]["theme_id"] == "T1"
 
     ingest = IngestNode(name="ingest", require_codebook=True)
     halted = (await ingest(State({"results": {}}), {}))["results"]["ingest"]

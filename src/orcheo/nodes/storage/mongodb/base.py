@@ -370,7 +370,7 @@ class MongoDBNode(MongoDBClientNode):
         if value is None:
             return value
         if isinstance(value, str):
-            if "{{" in value and "}}" in value:
+            if cls.contains_template(value):
                 return value
             try:
                 value = int(value)
@@ -489,7 +489,7 @@ class MongoDBNode(MongoDBClientNode):
     def _resolve_limit(self) -> int:
         limit = self.limit
         if isinstance(limit, str):
-            if "{{" in limit and "}}" in limit:
+            if self.contains_template(limit):
                 msg = "limit must resolve to an integer before execution"
                 raise ValueError(msg)
             try:

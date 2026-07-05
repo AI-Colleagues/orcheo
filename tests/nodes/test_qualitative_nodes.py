@@ -18,7 +18,6 @@ from orcheo.nodes.qualitative import (
     LoadAttachmentsNode,
     QualitativeResultKeys,
     RecodingBatchResponse,
-    SetupNode,
     Subtheme,
     Theme,
     Unit,
@@ -279,67 +278,6 @@ async def test_validate_files_node_accepts_coded_data() -> None:
     assert "content" not in validated["data_file"]
     assert validated["data_file"]["unit_count"] == 1
     assert validated["data_file"]["assignment_count"] == 1
-
-
-@pytest.mark.asyncio
-async def test_setup_node_persists_objective_and_source_payload() -> None:
-    node = SetupNode(name="setup")
-    state = State(
-        {
-            "inputs": {
-                "research_objective": "Understand onboarding pain points",
-                "documents": [
-                    {
-                        "filename": "survey.csv",
-                        "source_type": "survey_csv",
-                        "content": "id,text\n1,The setup was clear.\n",
-                    }
-                ],
-            }
-        }
-    )
-
-    result = await node(state, RunnableConfig())
-
-    setup_result = result["results"]["setup"]
-    assert setup_result["research_objective"] == "Understand onboarding pain points"
-    assert setup_result["source_payload"]["filename"] == "survey.csv"
-
-
-@pytest.mark.asyncio
-async def test_setup_node_resolves_seed_codebook_without_using_it_as_source() -> None:
-    node = SetupNode(
-        name="setup",
-        resolve_seed_codebook=True,
-        exclude_codebook_docs=True,
-    )
-    state = State(
-        {
-            "results": {
-                "load_attachments": {
-                    "attachments": [
-                        {
-                            "filename": "codebook.csv",
-                            "content": (
-                                "theme_id,theme_title,code_id,code_title\n"
-                                "T1,Onboarding,C1,Clear setup\n"
-                            ),
-                        },
-                        {
-                            "filename": "survey.csv",
-                            "content": "id,text\n1,The setup was clear.\n",
-                        },
-                    ]
-                }
-            }
-        }
-    )
-
-    result = await node(state, RunnableConfig())
-
-    setup_result = result["results"]["setup"]
-    assert setup_result["source_payload"]["filename"] == "survey.csv"
-    assert setup_result["seed_codebook_from_file"]["themes"][0]["theme_id"] == "T1"
 
 
 @pytest.mark.asyncio

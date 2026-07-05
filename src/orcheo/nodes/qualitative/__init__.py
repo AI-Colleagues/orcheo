@@ -114,7 +114,6 @@ from orcheo.nodes.qualitative.pipeline import (
     IngestNode,
     LoadAttachmentsNode,
     RecodeOutputNode,
-    SetupNode,
     ValidateFilesNode,
 )
 from orcheo.nodes.qualitative.quality import (
@@ -270,6 +269,5 @@ __all__ = [
     "IngestNode",
     "LoadAttachmentsNode",
     "RecodeOutputNode",
-    "SetupNode",
     "ValidateFilesNode",
 ]

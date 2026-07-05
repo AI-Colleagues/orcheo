@@ -52,7 +52,7 @@ def _normalize_optional_runtime_value(value: str | None) -> str | None:
     if not value:
         return None
     stripped = value.strip()
-    if not stripped or ("{{" in stripped and "}}" in stripped):
+    if not stripped or TaskNode.contains_template(stripped):
         return None
     return stripped
 

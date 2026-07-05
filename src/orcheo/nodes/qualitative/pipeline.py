@@ -1,4 +1,4 @@
-"""Setup, ingest, validation, and output nodes for qualitative flows.
+"""Ingest, validation, and output nodes for qualitative flows.
 
 These nodes keep a shared shape and are specialised per workflow through init
 arguments for classification mode and user-facing messages.
@@ -24,10 +24,8 @@ from orcheo.nodes.qualitative.accessors import (
     get_pending_documents,
     get_quality_report,
     get_research_objective,
-    get_seed_codebook_from_file,
     get_source_payload,
     get_units,
-    is_vacuous,
 )
 from orcheo.nodes.qualitative.codebook import (
     escape_markdown_table_cell,
@@ -54,7 +52,6 @@ from orcheo.runtime.results import node_result
 _APPROVED_CODEBOOK_FIELD = "approved_codebook"
 _PENDING_DOCUMENTS_FIELD = "pending_documents"
 _RESEARCH_OBJECTIVE_FIELD = "research_objective"
-_SEED_CODEBOOK_FIELD = "seed_codebook_from_file"
 _SOURCE_PAYLOAD_FIELD = "source_payload"
 _UNITS_FIELD = "units"
 # TODO: consider removing these constants
@@ -370,167 +367,6 @@ class ValidateFilesNode(TaskNode):
         nested["assistant_message"] = self._assistant_message(nested)
 
         return nested
-
-
-@registry.register(
-    NodeMetadata(
-        name="SetupNode",
-        description="Resolve research objective, source payload, and codebook",
-        category="workflow",
-    )
-)
-class SetupNode(TaskNode):
-    """Resolve the research objective, source payload, and optional codebook."""
-
-    research_objective: str | None = None
-    source_payload: Any | None = None
-    pending_documents: Any | None = None
-    approved_codebook: Any | None = None
-
-    research_objective_input_key: str = "research_objective"
-    research_objective_config_key: str = "research_objective"
-    source_config_key: str = "source"
-    source_type_config_key: str = "source_type"
-    source_filename_config_key: str = "source_filename"
-    documents_input_key: str = "documents"
-    objective_field: str = "objective"
-    research_objective_field: str = _RESEARCH_OBJECTIVE_FIELD
-    source_payload_field: str = _SOURCE_PAYLOAD_FIELD
-    pending_documents_field: str = _PENDING_DOCUMENTS_FIELD
-    approved_codebook_field: str = _APPROVED_CODEBOOK_FIELD
-    seed_codebook_field: str = _SEED_CODEBOOK_FIELD
-
-    resolve_objective: bool = True
-    resolve_codebook: bool = False
-    resolve_seed_codebook: bool = False
-    source_kind: Literal["raw_data", "coded_data"] = "raw_data"
-    exclude_codebook_docs: bool = False
-    flexible_columns: bool = False
-
-    def _resolve_objective(
-        self, state: State, config: RunnableConfig, result: dict[str, Any]
-    ) -> None:
-        objective = ""
-        if isinstance(self.research_objective, str):
-            explicit_objective = self.research_objective.strip()
-            if explicit_objective and not explicit_objective.startswith("{{"):
-                objective = explicit_objective
-        if not objective:
-            inputs = state.get("inputs") or {}
-            if isinstance(inputs, Mapping):
-                cand = inputs.get(self.research_objective_input_key)
-                if isinstance(cand, str) and not is_vacuous(cand):
-                    objective = cand.strip()
-        if not objective:
-            cfg_objective = get_configurable(config).get(
-                self.research_objective_config_key
-            )
-            objective = cfg_objective.strip() if isinstance(cfg_objective, str) else ""
-
-        existing_objective = get_research_objective(state)
-        effective_objective = existing_objective or ""
-        if objective and is_vacuous(existing_objective or ""):
-            effective_objective = objective
-        if effective_objective:
-            result[self.research_objective_field] = effective_objective
-        result[self.objective_field] = effective_objective or "(not provided)"
-
-    def _resolve_source(
-        self, state: State, config: RunnableConfig
-    ) -> dict[str, Any] | None:
-        if self.source_kind == "coded_data":
-            for doc in get_pending_documents(state):
-                content = doc.get("content") or ""
-                if content and parse_coded_data_csv(content) is not None:
-                    return {"content": content, "filename": doc.get("filename")}
-            return None
-
-        if self.exclude_codebook_docs:
-            for doc in get_pending_documents(state):  # pragma: no branch
-                content = doc.get("content") or ""
-                if not content:
-                    continue
-                if parse_codebook_csv(content, reject_coded_data=True) is not None:
-                    continue
-                payload = {
-                    "source_type": doc.get("source_type"),
-                    "content": content,
-                    "storage_path": None,
-                    "filename": doc.get("filename"),
-                }
-                records, source_type = SourceParser.parse_payload(
-                    payload,
-                    allow_additional_sources=True,
-                    flexible_columns=self.flexible_columns,
-                )
-                if records:  # pragma: no branch
-                    return {**payload, "source_type": source_type}
-
-        candidate = SourceParser.normalise_payload(
-            state,
-            config,
-            source_config_key=self.source_config_key,
-            source_type_key=self.source_type_config_key,
-            source_filename_key=self.source_filename_config_key,
-            documents_key=self.documents_input_key,
-        )
-        if candidate is None:
-            for doc in get_pending_documents(state):
-                if doc.get("content"):
-                    return {
-                        "content": doc["content"],
-                        "filename": doc.get("filename"),
-                        "source_type": doc.get("source_type"),
-                        "storage_path": None,
-                    }
-        return candidate
-
-    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-
-        pending_documents = coerce_pending_documents(self.pending_documents)
-        if pending_documents:
-            result[self.pending_documents_field] = pending_documents
-
-        if self.resolve_objective:
-            self._resolve_objective(state, config, result)
-
-        source_payload = (
-            dict(self.source_payload)
-            if isinstance(self.source_payload, Mapping)
-            else None
-        )
-        if source_payload is not None:
-            result[self.source_payload_field] = source_payload
-        elif get_source_payload(state) is None:
-            candidate = self._resolve_source(state, config)
-            if candidate:
-                result[self.source_payload_field] = candidate
-
-        codebook = coerce_model(self.approved_codebook, Codebook)
-        if codebook is not None:
-            result[self.approved_codebook_field] = codebook.model_dump(mode="json")
-        elif self.resolve_codebook and get_approved_codebook(state) is None:
-            for doc in get_pending_documents(state):
-                content = doc.get("content") or ""
-                codebook = parse_codebook_csv(
-                    content, reject_coded_data=self.source_kind == "coded_data"
-                )
-                if codebook is not None:
-                    result[self.approved_codebook_field] = codebook.model_dump(
-                        mode="json"
-                    )
-                    break
-
-        if self.resolve_seed_codebook and get_seed_codebook_from_file(state) is None:
-            for doc in get_pending_documents(state):
-                content = doc.get("content") or ""
-                codebook = parse_codebook_csv(content, reject_coded_data=True)
-                if codebook is not None:
-                    result[self.seed_codebook_field] = codebook.model_dump(mode="json")
-                    break
-
-        return result
 
 
 @registry.register(
@@ -982,6 +818,5 @@ __all__ = [
     "IngestNode",
     "LoadAttachmentsNode",
     "RecodeOutputNode",
-    "SetupNode",
     "ValidateFilesNode",
 ]

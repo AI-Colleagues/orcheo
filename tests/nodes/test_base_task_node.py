@@ -1,6 +1,7 @@
 """Tests covering TaskNode behavior and variable decoding."""
 
 from __future__ import annotations
+from types import MappingProxyType
 from typing import Any
 import pytest
 from langchain_core.runnables import RunnableConfig
@@ -203,6 +204,32 @@ def test_decode_variables_nested_list() -> None:
     node.decode_variables(state)
 
     assert node.items == ["a", "b", "static_value"]
+
+
+def test_decode_variables_nested_tuple_set_and_mapping() -> None:
+    class MockNodeWithContainers(TaskNode):
+        payload: Any = Field(description="Container payload")
+
+        async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+            return {"result": self.payload}
+
+    state = State({"results": {"prev_node": {"val1": "a", "val2": "b"}}})
+    node = MockNodeWithContainers(
+        name="test",
+        payload={
+            "tuple": ("{{prev_node.val1}}", "{{prev_node.val2}}"),
+            "set": {"{{prev_node.val1}}"},
+            "frozenset": frozenset({"{{prev_node.val2}}"}),
+            "mapping": MappingProxyType({"key": "{{prev_node.val1}}"}),
+        },
+    )
+
+    node.decode_variables(state)
+
+    assert node.payload["tuple"] == ("a", "b")
+    assert node.payload["set"] == {"a"}
+    assert node.payload["frozenset"] == frozenset({"b"})
+    assert node.payload["mapping"] == {"key": "a"}
 
 
 def test_decode_variables_with_pydantic_model() -> None:
