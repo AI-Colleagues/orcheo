@@ -155,18 +155,18 @@ async def test_context_load_ingest_and_quality_nodes(
                 }
             },
         )
-    )["results"]["load_attachments"]
+    )["node_results"]["load_attachments"]
     assert resolved["attachments"][0]["filename"] == "attached.txt"
     assert resolved["attachments"][0]["content"] == "café"
 
     ingest = IngestNode(name="ingest", require_codebook=True)
-    halted = (await ingest(State({"results": {}}), {}))["results"]["ingest"]
+    halted = (await ingest(State({"node_results": {}}), {}))["node_results"]["ingest"]
     assert halted["halt"] is True
 
     ingest_ok = IngestNode(name="ingest")
     ingest_state = State(
         {
-            "results": {
+            "node_results": {
                 "setup": {
                     "source_payload": {
                         "filename": "survey.csv",
@@ -177,13 +177,13 @@ async def test_context_load_ingest_and_quality_nodes(
             }
         }
     )
-    ingested = (await ingest_ok(ingest_state, {}))["results"]["ingest"]
+    ingested = (await ingest_ok(ingest_state, {}))["node_results"]["ingest"]
     assert ingested["unit_count"] == 1
     assert ingested["units"][0]["unit_id"] == "U0001"
 
     quality = DataQualityNode(name="data_quality")
-    quality_result = (await quality(State({"results": {"ingest": ingested}}), {}))[
-        "results"
+    quality_result = (await quality(State({"node_results": {"ingest": ingested}}), {}))[
+        "node_results"
     ]["data_quality"]
     assert quality_result["flagged_units"] == 0
     assert quality_result["quality_report"]["total_units"] == 1
@@ -193,7 +193,7 @@ async def test_context_load_ingest_and_quality_nodes(
 async def test_ingest_node_uses_loaded_attachments_without_setup() -> None:
     node = IngestNode(
         name="ingest",
-        pending_documents="{{results.load_attachments.attachments}}",
+        pending_documents="{{node_results.load_attachments.attachments}}",
     )
     state = State(
         {
@@ -207,7 +207,7 @@ async def test_ingest_node_uses_loaded_attachments_without_setup() -> None:
                     }
                 ]
             },
-            "results": {
+            "node_results": {
                 "load_attachments": {
                     "attachments": [
                         {
@@ -226,7 +226,7 @@ async def test_ingest_node_uses_loaded_attachments_without_setup() -> None:
         }
     )
 
-    result = (await node(state, {}))["results"]["ingest"]
+    result = (await node(state, {}))["node_results"]["ingest"]
 
     assert result["halt"] is False
     assert result["source_payload"]["filename"] == "survey.csv"
@@ -241,7 +241,7 @@ def test_get_seed_codebook_uses_loaded_attachments_without_setup() -> None:
     )
     state = State(
         {
-            "results": {
+            "node_results": {
                 "load_attachments": {
                     "attachments": [
                         {
@@ -276,19 +276,17 @@ async def test_validate_files_codebook_and_export_nodes(
         name="validate_files",
         require_codebook=True,
     )
-    no_files = await validator(State({"results": {}}), {})
-    assert "assistant_message" not in no_files
-    assert no_files["results"]["validate_files"]["assistant_message"].startswith(
-        "File validation failed."
-    )
+    no_files = await validator(State({"node_results": {}}), {})
+    assert no_files["assistant_message"].startswith("File validation failed.")
     assert (
-        "No attachments were loaded." in no_files["results"]["validate_files"]["errors"]
+        "No attachments were loaded."
+        in no_files["node_results"]["validate_files"]["errors"]
     )
 
     codebook = _codebook()
     validation_state = State(
         {
-            "results": {
+            "node_results": {
                 "load_attachments": {
                     "attachments": [
                         {"filename": "survey.csv", "content": "id,text\n1,Hello\n"},
@@ -305,9 +303,8 @@ async def test_validate_files_codebook_and_export_nodes(
         }
     )
     validated_result = await validator(validation_state, {})
-    validated = validated_result["results"]["validate_files"]
-    assert "assistant_message" not in validated_result
-    assert validated["assistant_message"] == (
+    validated = validated_result["node_results"]["validate_files"]
+    assert validated_result["assistant_message"] == (
         "Files look valid: found data file `survey.csv` "
         "(1 record(s), survey_csv) and codebook `codebook.csv`."
     )
@@ -327,13 +324,16 @@ async def test_validate_files_codebook_and_export_nodes(
         default_batch_size=1,
     )
     halted = await codebook_output(
-        State({"results": {"ingest": {"halt": True, "assistant_message": "stop"}}}), {}
+        State(
+            {"node_results": {"ingest": {"halt": True, "assistant_message": "stop"}}}
+        ),
+        {},
     )
     assert halted["assistant_message"] == "stop"
     rendered = await codebook_output(
         State(
             {
-                "results": {
+                "node_results": {
                     "ingest": {"halt": False},
                     "setup": {"research_objective": "Understand onboarding"},
                     "codebook_consolidator_finalize": {
@@ -362,12 +362,12 @@ async def test_validate_files_codebook_and_export_nodes(
         _upload_ok,
     )
     export_codebook = ExportCodebookNode(
-        name="export_codebook", codebook="{{results.reviewed.codebook}}"
+        name="export_codebook", codebook="{{node_results.reviewed.codebook}}"
     )
     exported = await export_codebook(
         State(
             {
-                "results": {
+                "node_results": {
                     "reviewed": {
                         "codebook": codebook.model_dump(mode="json"),
                     }
@@ -390,13 +390,13 @@ async def test_coded_data_ingest_and_recode_export_nodes(
     csv_text, _ = build_coded_data_csv(units, assignments, codebook)
 
     ingest = CodedDataIngestNode(name="ingest", allow_chained_results=False)
-    missing = await ingest(State({"results": {"setup": {}}}), {})
-    assert missing["results"]["ingest"]["halt"] is True
+    missing = await ingest(State({"node_results": {"setup": {}}}), {})
+    assert missing["node_results"]["ingest"]["halt"] is True
 
     chained = CodedDataIngestNode(name="ingest", allow_chained_results=True)
     chained_state = State(
         {
-            "results": {
+            "node_results": {
                 "setup": {"approved_codebook": codebook.model_dump(mode="json")},
                 "ingest": {"units": [u.model_dump(mode="json") for u in units]},
                 "open_coder_finalize": {
@@ -407,17 +407,19 @@ async def test_coded_data_ingest_and_recode_export_nodes(
             }
         }
     )
-    chained_result = (await chained(chained_state, {}))["results"]["ingest"]
+    chained_result = (await chained(chained_state, {}))["node_results"]["ingest"]
     assert chained_result["unit_count"] == 2
 
     recode = RecodeOutputNode(name="recode_data")
     early = await recode(
-        State({"results": {"ingest": {"halt": True, "assistant_message": "halt"}}}),
+        State(
+            {"node_results": {"ingest": {"halt": True, "assistant_message": "halt"}}}
+        ),
         {},
     )
     assert early["assistant_message"] == "halt"
 
-    no_assignments = await recode(State({"results": {"ingest": {}}}), {})
+    no_assignments = await recode(State({"node_results": {"ingest": {}}}), {})
     assert "No code assignments" in no_assignments["assistant_message"]
 
     async def _upload_fail(*args, **kwargs):  # noqa: ARG001
@@ -429,7 +431,7 @@ async def test_coded_data_ingest_and_recode_export_nodes(
     )
     state = State(
         {
-            "results": {
+            "node_results": {
                 "ingest": {"halt": False},
                 "setup": {"approved_codebook": codebook.model_dump(mode="json")},
                 "ingest": {
@@ -455,7 +457,7 @@ async def test_coded_data_ingest_and_recode_export_nodes(
     assert "Could not generate the download link" in failed["assistant_message"]
 
     export_coded = ExportCodedDataNode(name="export_coded_data")
-    missing_export = await export_coded(State({"results": {}}), {})
+    missing_export = await export_coded(State({"node_results": {}}), {})
     assert missing_export["assistant_message"] == export_coded.missing_data_message
 
 
@@ -469,12 +471,12 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
     keys = QualitativeResultKeys()
 
     prepare = LLMStagePrepareNode(name="open_coder_prepare", stage="open_coder")
-    assert (await prepare(State({"results": {}}), {}))["results"]["open_coder_prepare"][
-        "skip_llm"
-    ] is True
+    assert (await prepare(State({"node_results": {}}), {}))["node_results"][
+        "open_coder_prepare"
+    ]["skip_llm"] is True
     open_state = State(
         {
-            "results": {
+            "node_results": {
                 "setup": {keys.research_objective_field: "Objective"},
                 "ingest": {
                     keys.units_field: [u.model_dump(mode="json") for u in units]
@@ -483,7 +485,7 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
         }
     )
     open_prompt = (await prepare(open_state, {"configurable": {"batch_size": 1}}))[
-        "results"
+        "node_results"
     ]["open_coder_prepare"]
     assert open_prompt["skip_llm"] is False
     assert "Units:" in open_prompt["input_text"]
@@ -491,14 +493,14 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
     direct_prepare = LLMStagePrepareNode(
         name="open_coder_prepare",
         stage="open_coder",
-        research_objective="{{results.router_dispatch.research_objective}}",
-        units="{{results.ingest.units}}",
+        research_objective="{{node_results.router_dispatch.research_objective}}",
+        units="{{node_results.ingest.units}}",
     )
     direct_prompt = (
         await direct_prepare(
             State(
                 {
-                    "results": {
+                    "node_results": {
                         "router_dispatch": {"research_objective": "Template objective"},
                         "ingest": {"units": [u.model_dump(mode="json") for u in units]},
                     }
@@ -506,26 +508,26 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
             ),
             {},
         )
-    )["results"]["open_coder_prepare"]
+    )["node_results"]["open_coder_prepare"]
     assert direct_prompt["objective"] == "Template objective"
 
     consolidator = LLMStagePrepareNode(
         name="codebook_consolidator_prepare", stage="codebook_consolidator"
     )
-    no_assign = (await consolidator(State({"results": {}}), {}))["results"][
+    no_assign = (await consolidator(State({"node_results": {}}), {}))["node_results"][
         "codebook_consolidator_prepare"
     ]
     assert no_assign["action"] == "no_assignments"
 
     recoder = LLMStagePrepareNode(name="recoder_prepare", stage="recoder")
-    assert (await recoder(State({"results": {}}), {}))["results"]["recoder_prepare"][
-        "skip_llm"
-    ] is True
+    assert (await recoder(State({"node_results": {}}), {}))["node_results"][
+        "recoder_prepare"
+    ]["skip_llm"] is True
 
     quote_selector = LLMStagePrepareNode(
         name="quote_selector_prepare", stage="quote_selector"
     )
-    assert (await quote_selector(State({"results": {}}), {}))["results"][
+    assert (await quote_selector(State({"node_results": {}}), {}))["node_results"][
         "quote_selector_prepare"
     ]["skip_llm"] is True
 
@@ -536,7 +538,7 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
         await insight_generator(
             State(
                 {
-                    "results": {
+                    "node_results": {
                         "setup": {keys.research_objective_field: "Objective"},
                         "setup_2": {},
                         "ingest": {
@@ -554,7 +556,7 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
             ),
             {},
         )
-    )["results"]["insight_generator_prepare"]
+    )["node_results"]["insight_generator_prepare"]
     assert insight_prompt["skip_llm"] is False
 
     finalize = LLMStageFinalizeNode(
@@ -562,21 +564,21 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
         stage="open_coder",
         response_schema=None,
     )
-    assert (await finalize(State({"results": {"ingest": {}}}), {}))["results"][
-        "open_coder_finalize"
-    ]["next_index"] == 0
+    assert (await finalize(State({"node_results": {"ingest": {}}}), {}))[
+        "node_results"
+    ]["open_coder_finalize"]["next_index"] == 0
 
     direct_finalize = LLMStageFinalizeNode(
         name="open_coder_finalize",
         stage="open_coder",
-        units="{{results.ingest.units}}",
-        code_assignments="{{results.open_coder_finalize.code_assignments_pass1}}",
+        units="{{node_results.ingest.units}}",
+        code_assignments="{{node_results.open_coder_finalize.code_assignments_pass1}}",
     )
     finalized = (
         await direct_finalize(
             State(
                 {
-                    "results": {
+                    "node_results": {
                         "ingest": {"units": [u.model_dump(mode="json") for u in units]},
                         "open_coder_prepare": {
                             "batch_index": 0,
@@ -596,20 +598,20 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
             ),
             {},
         )
-    )["results"]["open_coder_finalize"]
+    )["node_results"]["open_coder_finalize"]
     assert finalized["done"] is True
     assert finalized["code_assignments_pass1"][0]["unit_id"] == "U0001"
 
     output = CodebookOutputNode(
         name="codebook_output",
-        codebook="{{results.codebook_consolidator_finalize.draft_codebook}}",
-        research_objective="{{results.router_dispatch.research_objective}}",
-        units="{{results.ingest.units}}",
+        codebook="{{node_results.codebook_consolidator_finalize.draft_codebook}}",
+        research_objective="{{node_results.router_dispatch.research_objective}}",
+        units="{{node_results.ingest.units}}",
     )
     rendered = await output(
         State(
             {
-                "results": {
+                "node_results": {
                     "router_dispatch": {"research_objective": "Template objective"},
                     "ingest": {"units": [u.model_dump(mode="json") for u in units]},
                     "codebook_consolidator_finalize": {
@@ -627,7 +629,7 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
         await critic(
             State(
                 {
-                    "results": {
+                    "node_results": {
                         "setup": {
                             "approved_codebook": codebook.model_dump(mode="json")
                         },
@@ -668,7 +670,7 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
             ),
             {},
         )
-    )["results"]["insight_critic"]
+    )["node_results"]["insight_critic"]
     assert critiqued["critiqued"] == 1
 
     recommender = RecommendationGeneratorNode(name="recommendation_generator")
@@ -676,7 +678,7 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
         await recommender(
             State(
                 {
-                    "results": {
+                    "node_results": {
                         "recommendation_generator": {
                             "candidate_insights": critiqued["candidate_insights"]
                         }
@@ -685,17 +687,19 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
             ),
             {},
         )
-    )["results"]["recommendation_generator"]
+    )["node_results"]["recommendation_generator"]
     assert recommended["insights"] == 1
     assert recommended["approved_insight_ids"] == ["I1"]
 
     report_output = ReportOutputNode(name="report_output")
     early = await report_output(
-        State({"results": {"ingest": {"halt": True, "assistant_message": "halt"}}}),
+        State(
+            {"node_results": {"ingest": {"halt": True, "assistant_message": "halt"}}}
+        ),
         {},
     )
     assert early["assistant_message"] == "halt"
-    assert early["results"]["report_output"]["assistant_message"] == "halt"
+    assert early["node_results"]["report_output"] == {}
 
     async def _upload_ok(*args, **kwargs):  # noqa: ARG001
         return (None, "https://example.test/report.md")
@@ -703,16 +707,20 @@ async def test_stage_insight_and_report_nodes_cover_main_branches(
     monkeypatch.setattr("orcheo.nodes.qualitative.report.upload_attachment", _upload_ok)
     report_result = await report_output(
         State(
-            {"results": {"ingest": {}, "setup": {"research_objective": "Objective"}}}
+            {
+                "node_results": {
+                    "ingest": {},
+                    "setup": {"research_objective": "Objective"},
+                }
+            }
         ),
         {},
     )
     assert "Download insight_report.md" in report_result["assistant_message"]
-    assert (
-        report_result["results"]["report_output"]["assistant_message"]
-        == report_result["assistant_message"]
+    assert report_result["node_results"]["report_output"]["report_url"] == (
+        "https://example.test/report.md"
     )
 
     export_report = ExportReportNode(name="export_report")
-    missing = await export_report(State({"results": {}}), {})
+    missing = await export_report(State({"node_results": {}}), {})
     assert missing["assistant_message"] == export_report.missing_report_message

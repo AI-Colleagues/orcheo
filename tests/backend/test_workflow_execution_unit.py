@@ -119,7 +119,7 @@ def test_build_initial_state_langgraph_formats() -> None:
         {"format": LANGGRAPH_SCRIPT_FORMAT}, inputs, None, "workspace-1"
     )
     assert state["inputs"] == inputs
-    assert state["results"] == {}
+    assert state["node_results"] == {}
     assert state["messages"] == []
     assert state["workspace_id"] == "workspace-1"
     assert state["config"] == {}
@@ -1103,7 +1103,7 @@ def _patch_agentensor_node(
         async def __call__(self, state: Any, runtime_config: object) -> dict[str, Any]:
             if exc is not None:
                 raise exc
-            return result or {"results": {self.name: {"value": "ok"}}}
+            return result or {"node_results": {self.name: {"value": "ok"}}}
 
     monkeypatch.setattr(workflow_execution, "AgentensorNode", NodeStub)
 
@@ -1142,7 +1142,7 @@ async def test_run_evaluation_node_sends_result(
 ) -> None:
     safe_send, emit_update = _setup_common_mocks(monkeypatch)
     _patch_graph_and_checkpointer(monkeypatch)
-    result_payload = {"results": {"agentensor_evaluator": {"score": 1}}}
+    result_payload = {"node_results": {"agentensor_evaluator": {"score": 1}}}
     _patch_agentensor_node(
         monkeypatch,
         "agentensor_evaluator",
@@ -1338,7 +1338,7 @@ async def test_run_evaluation_node_reports_progress(
         async def __call__(self, state: Any, runtime_config: object) -> dict[str, Any]:
             if self.progress_callback is not None:
                 await self.progress_callback(progress_payload)
-            return {"results": {self.name: {"score": 1}}}
+            return {"node_results": {self.name: {"score": 1}}}
 
     monkeypatch.setattr(workflow_execution, "AgentensorNode", ProgressNode)
     history_store = _make_history_store()
@@ -1396,7 +1396,7 @@ async def test_run_training_node_reports_progress(
         async def __call__(self, state: Any, runtime_config: object) -> dict[str, Any]:
             if self.progress_callback is not None:
                 await self.progress_callback(progress_payload)
-            return {"results": {self.name: {"score": 1}}}
+            return {"node_results": {self.name: {"score": 1}}}
 
     monkeypatch.setattr(workflow_execution, "AgentensorNode", ProgressNode)
     history_store = _make_history_store()
@@ -1442,7 +1442,7 @@ async def test_run_training_node_reports_progress(
 async def test_run_training_node_sends_result(monkeypatch: pytest.MonkeyPatch) -> None:
     safe_send, emit_update = _setup_common_mocks(monkeypatch)
     _patch_graph_and_checkpointer(monkeypatch)
-    result_payload = {"results": {"agentensor_trainer": {"epoch": 1}}}
+    result_payload = {"node_results": {"agentensor_trainer": {"epoch": 1}}}
     _patch_agentensor_node(
         monkeypatch,
         "agentensor_trainer",

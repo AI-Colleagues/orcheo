@@ -153,7 +153,7 @@ class LinkedInPostNode(TaskNode):
             ),
             timeout=self.timeout,
         )(state, config)
-        payload = result["results"]["resolve_organization_request"]
+        payload = result["node_results"]["resolve_organization_request"]
         if payload["status_code"] == 401:
             raise _LinkedInAuthError("organizationAcls returned 401 Unauthorized")
         if payload["status_code"] != 200:
@@ -214,7 +214,7 @@ class LinkedInPostNode(TaskNode):
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=self.timeout,
         )(state, config)
-        payload = result["results"]["resolve_person_request"]
+        payload = result["node_results"]["resolve_person_request"]
         if payload["status_code"] == 401:
             raise _LinkedInAuthError("userinfo returned 401 Unauthorized")
         if payload["status_code"] != 200:
@@ -296,7 +296,7 @@ class LinkedInPostNode(TaskNode):
             },
             timeout=self.timeout,
         )(state, config)
-        payload = result["results"]["refresh_token_request"]
+        payload = result["node_results"]["refresh_token_request"]
         if payload["status_code"] != 200:
             raise ValueError(
                 f"Token refresh failed ({payload['status_code']}): {payload['content']}"
@@ -388,7 +388,7 @@ class LinkedInPostNode(TaskNode):
             json_body=self.create_post_payload(author_urn, commentary, visibility),
             timeout=self.timeout,
         )(state, config)
-        response = result["results"]["create_post_request"]
+        response = result["node_results"]["create_post_request"]
 
         if response["status_code"] == 401:
             raise _LinkedInAuthError("Post creation returned 401 Unauthorized")

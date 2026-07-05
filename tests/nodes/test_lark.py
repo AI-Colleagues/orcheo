@@ -33,7 +33,7 @@ async def test_lark_tenant_access_token_node_returns_normalized_payload() -> Non
 
     with patch("orcheo.nodes.lark.httpx.AsyncClient", return_value=mock_client):
         result = await node.run(
-            State(messages=[], inputs={}, results={}), RunnableConfig()
+            State(messages=[], inputs={}, node_results={}), RunnableConfig()
         )
 
     assert result == {
@@ -65,7 +65,7 @@ async def test_lark_send_message_replies_in_thread() -> None:
     state = State(
         messages=[],
         inputs={},
-        results={
+        node_results={
             "get_lark_tenant_token": {"json": {"tenant_access_token": "tenant_token"}}
         },
     )
@@ -104,7 +104,7 @@ async def test_lark_send_message_fetches_token_for_new_message() -> None:
         message="Hello chat",
     )
 
-    state = State(messages=[], inputs={}, results={})
+    state = State(messages=[], inputs={}, node_results={})
 
     token_response = MagicMock()
     token_response.json.return_value = {
@@ -146,15 +146,15 @@ async def test_lark_send_message_ignores_unresolved_templates() -> None:
         name="send_lark",
         app_id="cli_app_id",
         app_secret="app_secret",
-        receive_id="{{results.lark_listener.reply_target.chat_id}}",
-        reply_to_message_id="{{results.lark_listener.reply_target.message_id}}",
+        receive_id="{{node_results.lark_listener.reply_target.chat_id}}",
+        reply_to_message_id="{{node_results.lark_listener.reply_target.message_id}}",
         message="Hello chat",
     )
 
     state = State(
         messages=[],
         inputs={},
-        results={
+        node_results={
             "get_lark_tenant_token": {"json": {"tenant_access_token": "tenant_token"}}
         },
     )
@@ -234,7 +234,7 @@ async def test_lark_resolve_access_token_results_not_dict() -> None:
         message="Hello",
     )
     # results is a list, not a dict
-    state = State(messages=[], inputs={}, results=[])
+    state = State(messages=[], inputs={}, node_results=[])
 
     token_response = MagicMock()
     token_response.json.return_value = {
@@ -267,7 +267,7 @@ async def test_lark_resolve_access_token_standard_node_result() -> None:
     state = State(
         messages=[],
         inputs={},
-        results={"get_lark_tenant_token": {"tenant_access_token": "node_token"}},
+        node_results={"get_lark_tenant_token": {"tenant_access_token": "node_token"}},
     )
 
     token = await node._resolve_access_token(state)
@@ -289,7 +289,7 @@ async def test_lark_resolve_access_token_token_result_not_dict() -> None:
     state = State(
         messages=[],
         inputs={},
-        results={"get_lark_tenant_token": "not-a-dict"},
+        node_results={"get_lark_tenant_token": "not-a-dict"},
     )
 
     token_response = MagicMock()
@@ -324,7 +324,7 @@ async def test_lark_resolve_access_token_json_payload_not_dict() -> None:
     state = State(
         messages=[],
         inputs={},
-        results={"get_lark_tenant_token": {"json": "not-a-dict"}},
+        node_results={"get_lark_tenant_token": {"json": "not-a-dict"}},
     )
 
     token_response = MagicMock()
@@ -359,7 +359,9 @@ async def test_lark_resolve_access_token_empty_token_string() -> None:
     state = State(
         messages=[],
         inputs={},
-        results={"get_lark_tenant_token": {"json": {"tenant_access_token": "   "}}},
+        node_results={
+            "get_lark_tenant_token": {"json": {"tenant_access_token": "   "}}
+        },
     )
 
     token_response = MagicMock()
@@ -393,7 +395,7 @@ async def test_lark_send_message_delivery_error_code() -> None:
     state = State(
         messages=[],
         inputs={},
-        results={
+        node_results={
             "get_lark_tenant_token": {"json": {"tenant_access_token": "tenant_token"}}
         },
     )

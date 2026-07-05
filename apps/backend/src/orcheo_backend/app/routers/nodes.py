@@ -64,10 +64,10 @@ async def execute_node_endpoint(
         node_result: Any = None
         if (
             isinstance(result, dict)
-            and "results" in result
-            and node_name in result["results"]
+            and "node_results" in result
+            and node_name in result["node_results"]
         ):
-            node_result = result["results"][node_name]
+            node_result = result["node_results"][node_name]
         elif isinstance(result, dict) and "messages" in result:  # pragma: no cover
             node_result = result["messages"]
 

@@ -478,7 +478,7 @@ async def test_run_translates_pymongo_errors(
     message,
 ) -> None:
     node = mongo_context.build_node(operation="find")
-    state = State(messages=[], inputs={}, results={})
+    state = State(messages=[], inputs={}, node_results={})
 
     mongo_context.collection.find.side_effect = exception
 

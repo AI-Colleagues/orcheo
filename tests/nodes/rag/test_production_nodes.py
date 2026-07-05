@@ -72,7 +72,7 @@ async def test_incremental_indexer_retries_and_skips_duplicates() -> None:
     )
     state = State(
         inputs={},
-        results={"chunking_strategy": {"chunks": chunks}},
+        node_results={"chunking_strategy": {"chunks": chunks}},
         structured_response=None,
     )
 
@@ -105,7 +105,7 @@ async def test_incremental_indexer_raises_after_exhausting_retries() -> None:
         max_retries=0,
         backoff_seconds=0.0,
     )
-    state = State(inputs={}, results={"chunks": [chunk]}, structured_response=None)
+    state = State(inputs={}, node_results={"chunks": [chunk]}, structured_response=None)
 
     with pytest.raises(RuntimeError, match="upsert failed after retries"):
         await node.run(state, {})
@@ -118,7 +118,7 @@ async def test_incremental_indexer_validates_inputs() -> None:
         vector_store=InMemoryVectorStore(),
         embed_model="test:fake",
     )
-    empty_state = State(inputs={}, results={}, structured_response=None)
+    empty_state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(
         ValueError, match="IncrementalIndexerNode requires at least one chunk"
@@ -145,7 +145,8 @@ async def test_incremental_indexer_handles_invalid_payloads_and_record_check() -
     )
     with pytest.raises(ValueError, match="chunks payload must be a list"):
         await node.run(
-            State(inputs={}, results={"chunks": "bad"}, structured_response=None), {}
+            State(inputs={}, node_results={"chunks": "bad"}, structured_response=None),
+            {},
         )
 
     chunk = DocumentChunk(
@@ -158,7 +159,7 @@ async def test_incremental_indexer_handles_invalid_payloads_and_record_check() -
         embed_model="test:fake",
     )
     result = await node_skip.run(
-        State(inputs={}, results={"chunks": [chunk]}, structured_response=None), {}
+        State(inputs={}, node_results={"chunks": [chunk]}, structured_response=None), {}
     )
 
     assert result["indexed_count"] == 1
@@ -181,7 +182,7 @@ async def test_incremental_indexer_persists_dense_embeddings() -> None:
         embed_model="test:fake",
         skip_unchanged=False,
     )
-    state = State(inputs={}, results={"chunks": [chunk]}, structured_response=None)
+    state = State(inputs={}, node_results={"chunks": [chunk]}, structured_response=None)
 
     result = await node.run(state, {})
 
@@ -225,7 +226,7 @@ async def test_incremental_indexer_records_trace_metadata(
         batch_size=1,
     )
     node._set_trace_metadata_for_run = MagicMock()
-    state = State(inputs={}, results={"chunks": [chunk]}, structured_response=None)
+    state = State(inputs={}, node_results={"chunks": [chunk]}, structured_response=None)
 
     await node.run(state, {})
 
@@ -255,7 +256,7 @@ async def test_streaming_generator_truncates_and_chunks_tokens(
         chunk_size=2,
         buffer_limit=3,
     )
-    state = State(inputs={"prompt": "start"}, results={}, structured_response=None)
+    state = State(inputs={"prompt": "start"}, node_results={}, structured_response=None)
 
     result = await node.run(state, {})
 
@@ -269,7 +270,7 @@ async def test_streaming_generator_uses_default_llm() -> None:
     node = StreamingGeneratorNode(
         name="stream-default", buffer_limit=None, chunk_size=3
     )
-    state = State(inputs={"prompt": "echo"}, results={}, structured_response=None)
+    state = State(inputs={"prompt": "echo"}, node_results={}, structured_response=None)
 
     result = await node.run(state, {})
 
@@ -282,7 +283,7 @@ async def test_hallucination_guard_blocks_missing_markers() -> None:
     node = HallucinationGuardNode(name="guard")
     state = State(
         inputs={},
-        results={
+        node_results={
             "grounded_generator": {
                 "reply": "answer without markers",
                 "citations": [{"id": "1", "snippet": "snippet"}],
@@ -304,7 +305,7 @@ async def test_hallucination_guard_allows_valid_output() -> None:
     node = HallucinationGuardNode(name="guard-allow")
     state = State(
         inputs={},
-        results={
+        node_results={
             "grounded_generator": {
                 "reply": "answer [1]",
                 "citations": [{"id": "1", "snippet": "snippet"}],
@@ -325,14 +326,16 @@ async def test_hallucination_guard_validates_payload_and_citations() -> None:
     with pytest.raises(ValueError, match="mapping payload"):
         await node.run(
             State(
-                inputs={}, results={"grounded_generator": []}, structured_response=None
+                inputs={},
+                node_results={"grounded_generator": []},
+                structured_response=None,
             ),
             {},
         )
 
     state_missing = State(
         inputs={},
-        results={"grounded_generator": {"reply": "reply", "citations": []}},
+        node_results={"grounded_generator": {"reply": "reply", "citations": []}},
         structured_response=None,
     )
     blocked = await node.run(state_missing, {})
@@ -342,7 +345,7 @@ async def test_hallucination_guard_validates_payload_and_citations() -> None:
 
     state_bad = State(
         inputs={},
-        results={
+        node_results={
             "grounded_generator": {
                 "reply": "reply [1]",
                 "citations": ["not-a-dict"],
@@ -359,7 +362,7 @@ async def test_hallucination_guard_blocks_empty_snippet() -> None:
     node = HallucinationGuardNode(name="guard-snippet")
     state = State(
         inputs={},
-        results={
+        node_results={
             "grounded_generator": {
                 "reply": "content [1]",
                 "citations": [{"id": "1", "snippet": ""}],
@@ -379,7 +382,7 @@ async def test_hallucination_guard_handles_empty_response_and_missing_ids() -> N
     node = HallucinationGuardNode(name="guard-empty-response")
     empty_response_state = State(
         inputs={},
-        results={"grounded_generator": {"reply": "", "citations": []}},
+        node_results={"grounded_generator": {"reply": "", "citations": []}},
         structured_response=None,
     )
     with pytest.raises(ValueError, match="Response payload is missing or empty"):
@@ -389,7 +392,7 @@ async def test_hallucination_guard_handles_empty_response_and_missing_ids() -> N
     allowed = await node.run(
         State(
             inputs={},
-            results={
+            node_results={
                 "grounded_generator": {
                     "reply": "text",
                     "citations": [{"snippet": "s"}],
@@ -405,7 +408,7 @@ async def test_hallucination_guard_handles_empty_response_and_missing_ids() -> N
     allowed_missing = await missing_id_node.run(
         State(
             inputs={},
-            results={
+            node_results={
                 "grounded_generator": {
                     "reply": "ok",
                     "citations": [{"snippet": "s"}],
@@ -446,7 +449,7 @@ async def test_reranker_and_router_prioritize_trusted_results() -> None:
     )
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
 
@@ -474,7 +477,8 @@ async def test_reranker_length_penalty_and_router_validation() -> None:
     ]
     reranker = ReRankerNode(name="rerank-penalty", length_penalty=0.1, top_k=1)
     reranked = await reranker.run(
-        State(inputs={}, results={"retriever": entries}, structured_response=None), {}
+        State(inputs={}, node_results={"retriever": entries}, structured_response=None),
+        {},
     )
 
     assert reranked["results"][0].score < 0.6
@@ -482,7 +486,9 @@ async def test_reranker_length_penalty_and_router_validation() -> None:
     router = SourceRouterNode(name="router-invalid")
     with pytest.raises(ValueError, match="list of retrieval results"):
         await router.run(
-            State(inputs={}, results={"retriever": "bad"}, structured_response=None),
+            State(
+                inputs={}, node_results={"retriever": "bad"}, structured_response=None
+            ),
             {},
         )
 
@@ -490,7 +496,7 @@ async def test_reranker_length_penalty_and_router_validation() -> None:
         await reranker.run(
             State(
                 inputs={},
-                results={"retriever": {"results": "oops"}},
+                node_results={"retriever": {"results": "oops"}},
                 structured_response=None,
             ),
             {},
@@ -552,7 +558,7 @@ async def test_pinecone_rerank_node_calls_inference_and_orders_results() -> None
     ]
     state = State(
         inputs={"query": "legal query"},
-        results={"fusion": {"results": entries}},
+        node_results={"fusion": {"results": entries}},
         structured_response=None,
     )
 
@@ -592,7 +598,7 @@ async def test_citations_formatter_normalizes_entries() -> None:
     node = CitationsFormatterNode(name="formatter")
     state = State(
         inputs={},
-        results={
+        node_results={
             "grounded_generator": {"reply": "Answer base [1]", "citations": citations}
         },
         structured_response=None,
@@ -621,7 +627,7 @@ async def test_citations_formatter_links_snippet_when_metadata_includes_url() ->
     node = CitationsFormatterNode(name="formatter-links")
     state = State(
         inputs={},
-        results={
+        node_results={
             "grounded_generator": {"reply": "Answer base [1]", "citations": citations}
         },
         structured_response=None,
@@ -646,7 +652,7 @@ async def test_citations_formatter_validates_payload() -> None:
         await node.run(
             State(
                 inputs={},
-                results={"grounded_generator": "oops"},
+                node_results={"grounded_generator": "oops"},
                 structured_response=None,
             ),
             {},
@@ -656,7 +662,7 @@ async def test_citations_formatter_validates_payload() -> None:
         await node.run(
             State(
                 inputs={},
-                results={"grounded_generator": {"citations": ["bad"]}},
+                node_results={"grounded_generator": {"citations": ["bad"]}},
                 structured_response=None,
             ),
             {},
@@ -677,7 +683,7 @@ async def test_citations_formatter_handles_source_and_metadata_variations() -> N
     node = CitationsFormatterNode(name="formatter-variations")
     state = State(
         inputs={},
-        results={
+        node_results={
             "grounded_generator": {
                 "reply": "  Base answer [1] [2]  ",
                 "citations": citations,
@@ -698,8 +704,11 @@ async def test_citations_formatter_handles_source_and_metadata_variations() -> N
     assert formatted["reply"].startswith("Base answer [1] [2]")
     assert "- [1] first snippet" in formatted["reply"]
     assert "- [2] second snippet (sources: legacy | [source]" in formatted["reply"]
-    assert state["results"]["grounded_generator"]["reply"] == formatted["reply"]
-    assert state["results"]["grounded_generator"]["citations"] == formatted["citations"]
+    assert state["node_results"]["grounded_generator"]["reply"] == formatted["reply"]
+    assert (
+        state["node_results"]["grounded_generator"]["citations"]
+        == formatted["citations"]
+    )
 
 
 @pytest.mark.asyncio
@@ -716,7 +725,7 @@ async def test_citations_formatter_resolves_url_from_source_metadata_field() -> 
     node = CitationsFormatterNode(name="formatter-source-url")
     state = State(
         inputs={},
-        results={
+        node_results={
             "grounded_generator": {
                 "reply": "Answer text [1]",
                 "citations": citations,
@@ -742,7 +751,7 @@ async def test_citations_formatter_handles_list_payload_without_overwriting_stat
     node = CitationsFormatterNode(name="formatter-list")
     state = State(
         inputs={},
-        results={"grounded_generator": citations},
+        node_results={"grounded_generator": citations},
         structured_response=None,
     )
 
@@ -750,18 +759,18 @@ async def test_citations_formatter_handles_list_payload_without_overwriting_stat
 
     assert formatted["reply"] == "References:\n- [alpha] list snippet"
     assert formatted["citations"][0]["id"] == "alpha"
-    assert state["results"]["grounded_generator"] is citations
+    assert state["node_results"]["grounded_generator"] is citations
 
 
 def test_citations_formatter_overwrite_source_reply_handles_invalid_state() -> None:
     node = CitationsFormatterNode(name="formatter-overwrite")
-    invalid_results = {"results": None}
+    invalid_results = {"node_results": None}
     node._overwrite_source_reply(invalid_results, "reply", [])
-    assert invalid_results["results"] is None
+    assert invalid_results["node_results"] is None
 
-    list_payload_state = {"results": {"grounded_generator": []}}
+    list_payload_state = {"node_results": {"grounded_generator": []}}
     node._overwrite_source_reply(list_payload_state, "reply", [])
-    assert list_payload_state["results"]["grounded_generator"] == []
+    assert list_payload_state["node_results"]["grounded_generator"] == []
 
 
 @pytest.mark.asyncio
@@ -770,7 +779,7 @@ async def test_answer_caching_stores_and_serves_cached_response() -> None:
 
     first_state = State(
         inputs={"query": "What is Orcheo?"},
-        results={"grounded_generator": {"reply": "An orchestration engine."}},
+        node_results={"grounded_generator": {"reply": "An orchestration engine."}},
         structured_response=None,
     )
     first = await node.run(first_state, {})
@@ -778,7 +787,7 @@ async def test_answer_caching_stores_and_serves_cached_response() -> None:
 
     second_state = State(
         inputs={"query": "What is Orcheo?"},
-        results={},
+        node_results={},
         structured_response=None,
     )
     second = await node.run(second_state, {})
@@ -791,25 +800,25 @@ async def test_answer_caching_handles_expiry_and_validation() -> None:
     node = AnswerCachingNode(name="cache-extra", ttl_seconds=1, max_entries=1)
     cache_state = State(
         inputs={"query": "Q1"},
-        results={"grounded_generator": {"reply": "first"}},
+        node_results={"grounded_generator": {"reply": "first"}},
         structured_response=None,
     )
     await node.run(cache_state, {})
     node.cache["q1"] = ("first", time.time() - 1)
 
     expired = await node.run(
-        State(inputs={"query": "Q1"}, results={}, structured_response=None), {}
+        State(inputs={"query": "Q1"}, node_results={}, structured_response=None), {}
     )
     assert expired["cached"] is False
 
     with pytest.raises(ValueError, match="non-empty query"):
         await node.run(
-            State(inputs={"query": ""}, results={}, structured_response=None), {}
+            State(inputs={"query": ""}, node_results={}, structured_response=None), {}
         )
 
     bad_response_state = State(
         inputs={"query": "Q2"},
-        results={"grounded_generator": {"reply": ""}},
+        node_results={"grounded_generator": {"reply": ""}},
         structured_response=None,
     )
     with pytest.raises(ValueError, match="non-empty string"):
@@ -822,7 +831,7 @@ async def test_answer_caching_handles_expiry_and_validation() -> None:
     uncached = await node.run(
         State(
             inputs={"query": "Q5"},
-            results={"grounded_generator": "skip"},
+            node_results={"grounded_generator": "skip"},
             structured_response=None,
         ),
         {},
@@ -843,7 +852,7 @@ async def test_session_management_prunes_history() -> None:
                 {"role": "user", "content": "more"},
             ],
         },
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -857,7 +866,7 @@ async def test_session_management_prunes_history() -> None:
 async def test_session_management_requires_session_id() -> None:
     node = SessionManagementNode(name="session-invalid")
     with pytest.raises(ValueError, match="requires a non-empty session id"):
-        await node.run(State(inputs={}, results={}, structured_response=None), {})
+        await node.run(State(inputs={}, node_results={}, structured_response=None), {})
 
 
 @pytest.mark.asyncio
@@ -865,7 +874,7 @@ async def test_session_management_trims_session_id() -> None:
     node = SessionManagementNode(name="session-trim")
     state = State(
         inputs={"session_id": "  spaced  "},
-        results={},
+        node_results={},
         structured_response=None,
     )
     result = await node.run(state, {})
@@ -878,7 +887,7 @@ async def test_multi_hop_planner_limits_hops() -> None:
     node = MultiHopPlannerNode(name="planner", max_hops=2)
     state = State(
         inputs={"query": "find revenue and summarize profit and share outlook"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -894,11 +903,11 @@ async def test_multi_hop_planner_handles_edge_cases() -> None:
     node = MultiHopPlannerNode(name="planner-edge")
     with pytest.raises(ValueError, match="requires a non-empty query"):
         await node.run(
-            State(inputs={"query": ""}, results={}, structured_response=None), {}
+            State(inputs={"query": ""}, node_results={}, structured_response=None), {}
         )
 
     fallback_plan = await node.run(
-        State(inputs={"query": " and "}, results={}, structured_response=None), {}
+        State(inputs={"query": " and "}, node_results={}, structured_response=None), {}
     )
     assert fallback_plan["hop_count"] == 1
 
@@ -911,7 +920,8 @@ async def test_streaming_generator_validates_prompt_and_llm_output(
     node = StreamingGeneratorNode(name="stream-invalid")
     with pytest.raises(ValueError, match="requires a non-empty prompt"):
         await node.run(
-            State(inputs={"prompt": "   "}, results={}, structured_response=None), {}
+            State(inputs={"prompt": "   "}, node_results={}, structured_response=None),
+            {},
         )
 
     # Mock agent to return empty string
@@ -943,7 +953,7 @@ async def test_search_result_adapter_maps_raw_payloads() -> None:
     )
     state = State(
         inputs={},
-        results={
+        node_results={
             "hybrid_search": {
                 "results": [
                     {
@@ -996,7 +1006,7 @@ async def test_search_result_formatter_renders_markdown() -> None:
     )
     state = State(
         inputs={},
-        results={"adapt_results": {"results": [entry]}},
+        node_results={"adapt_results": {"results": [entry]}},
         structured_response=None,
     )
 

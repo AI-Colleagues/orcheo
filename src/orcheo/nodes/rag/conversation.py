@@ -414,7 +414,7 @@ class AnswerCachingNode(TaskNode):
         return response
 
     def _resolve_response(self, state: State) -> str | None:
-        payload = state.get("results", {}).get(self.source_result_key, {})
+        payload = state.get("node_results", {}).get(self.source_result_key, {})
         if isinstance(payload, dict):
             response = payload.get(self.response_field)
         else:
@@ -449,7 +449,9 @@ class ConversationCompressorNode(TaskNode):
 
     source_result_key: str = Field(
         default="conversation_state",
-        description="Key within ``state.results`` containing conversation payloads.",
+        description=(
+            "Key within ``state.node_results`` containing conversation payloads."
+        ),
     )
     history_key: str = Field(
         default="conversation_history",
@@ -466,7 +468,7 @@ class ConversationCompressorNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Return compressed conversation context within the configured token budget."""
-        source = state.get("results", {}).get(self.source_result_key, {})
+        source = state.get("node_results", {}).get(self.source_result_key, {})
         history_payload = self._extract_history(source)
         turns = [MemoryTurn.model_validate(turn) for turn in history_payload]
         if not turns:
@@ -562,7 +564,7 @@ class TopicShiftDetectorNode(TaskNode):
     )
     source_result_key: str = Field(
         default="conversation_state",
-        description="Key within ``state.results`` providing conversation context.",
+        description="Key within ``state.node_results`` providing conversation context.",
     )
     history_key: str = Field(
         default="conversation_history",
@@ -614,7 +616,7 @@ class TopicShiftDetectorNode(TaskNode):
         recent_turns = self._config_int_value(config, "recent_turns", self.recent_turns)
         stopwords = self._config_stopwords(config)
 
-        history_payload = state.get("results", {}).get(self.source_result_key, {})
+        history_payload = state.get("node_results", {}).get(self.source_result_key, {})
         turns_raw = self._extract_turns(history_payload)
         if not turns_raw:
             return {
@@ -729,7 +731,7 @@ class QueryClarificationNode(TaskNode):
             raise ValueError(msg)
         query = query_raw.strip()
 
-        history = state.get("results", {}).get(self.history_key)
+        history = state.get("node_results", {}).get(self.history_key)
         context_hint = ""
         if isinstance(history, dict) and "summary" in history:
             context_hint = history.get("summary") or ""
@@ -783,7 +785,7 @@ class MemorySummarizerNode(TaskNode):
     )
     source_result_key: str = Field(
         default="conversation_state",
-        description="Key within ``state.results`` providing conversation context.",
+        description="Key within ``state.node_results`` providing conversation context.",
     )
     history_key: str = Field(
         default="conversation_history",
@@ -826,7 +828,7 @@ class MemorySummarizerNode(TaskNode):
             config, "max_summary_tokens", max_summary_tokens_int
         )
 
-        context = state.get("results", {}).get(self.source_result_key, {})
+        context = state.get("node_results", {}).get(self.source_result_key, {})
         summary = None
         if isinstance(context, dict):
             summary = context.get(self.summary_field)

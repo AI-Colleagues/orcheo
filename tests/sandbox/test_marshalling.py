@@ -32,13 +32,13 @@ def test_raise_policy_rejects_non_serialisable() -> None:
 def test_envelope_shape_and_internal_config_filtering() -> None:
     """The envelope has state/config/configurable, with internals filtered out."""
     envelope = build_inputs_envelope(
-        {"results": {"a": 1}, "messages": [object()]},
+        {"node_results": {"a": 1}, "messages": [object()]},
         {"configurable": {"thread_id": "t1", "__pregel_send": object()}},
         {"threshold": 8},
         node_id="x",
     )
 
-    assert envelope["state"] == {"results": {"a": 1}}  # messages dropped
+    assert envelope["state"] == {"node_results": {"a": 1}}  # messages dropped
     assert envelope["config"] == {"configurable": {"thread_id": "t1"}}
     assert envelope["configurable"] == {"threshold": 8}
 

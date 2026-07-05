@@ -10,7 +10,7 @@ The sandbox receives a JSON-coercible envelope ``{state, config, configurable}``
   and expected to be JSON-coercible).
 
 The returned payload is wrapped by the sandbox ``CodeNode`` runnable under
-``results.<node_id>``, matching the unrestricted ``TaskNode`` execution path.
+``node_results.<node_id>``, matching the unrestricted ``TaskNode`` execution path.
 """
 
 from __future__ import annotations

@@ -27,7 +27,7 @@ _IR_WORKFLOW = textwrap.dedent(
         factor: int = 2
 
         async def run(self, state, config):
-            value = state["results"]["setter"]["value"]
+            value = state["node_results"]["setter"]["value"]
             return {"doubled": value * self.factor}
 
     async def orcheo_workflow() -> StateGraph:
@@ -255,7 +255,7 @@ def test_render_mermaid_from_script_renders_conditional_targets() -> None:
             graph.add_conditional_edges(
                 "flag",
                 {
-                    "path": "results.flag.go",
+                    "path": "node_results.flag.go",
                     "mapping": {"true": "yes", "false": "no"},
                 },
             )
@@ -390,7 +390,7 @@ def test_ir_diagram_placeholder_is_an_inert_passthrough() -> None:
     from orcheo.workflow.mermaid import _ir_diagram_placeholder
 
     placeholder = _ir_diagram_placeholder(object())
-    state = {"results": {"x": 1}}
+    state = {"node_results": {"x": 1}}
 
     assert placeholder(state) is state
     assert placeholder(state, {"configurable": {}}, extra="ignored") is state

@@ -50,7 +50,7 @@ async def test_state() -> None:
     assert state.values == {
         "messages": [],
         "inputs": {},
-        "results": {
+        "node_results": {
             "node1": {"a": 1},
             "node2": "b",
             "node3": ["c"],

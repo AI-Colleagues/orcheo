@@ -10,7 +10,7 @@ class State(MessagesState, total=False):
 
     workspace_id: str | None
     inputs: dict[str, Any]
-    results: Annotated[dict[str, Any], dict_reducer]
+    node_results: Annotated[dict[str, Any], dict_reducer]
     structured_response: Any
     config: dict[str, Any] | None
     assistant_message: str | None

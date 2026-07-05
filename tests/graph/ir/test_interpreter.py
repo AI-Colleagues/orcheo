@@ -37,7 +37,7 @@ class Verdict(CodeNode):
     threshold: int = 8
 
     async def run(self, state, config):
-        score = state["results"]["setter"]["value"]
+        score = state["node_results"]["setter"]["value"]
         return {"verdict": "pass" if score >= self.threshold else "fail"}
 
 
@@ -49,7 +49,7 @@ async def orcheo_workflow() -> StateGraph:
     graph.add_edge("setter", "verdict")
     graph.add_conditional_edges(
         "verdict",
-        {"path": "results.verdict.verdict", "mapping": {"pass": "setter", "fail": END}},
+        {"path": "node_results.verdict.verdict", "mapping": {"pass": "setter", "fail": END}},
     )
     return graph
 '''
@@ -264,7 +264,7 @@ def test_workflow_tool_args_schema_is_lowered_to_json_schema() -> None:
                             "description": "Look up context",
                             "graph": build_lookup(),
                             "args_schema": LookupInput,
-                            "output_path": "results.set_context",
+                            "output_path": "node_results.set_context",
                         }
                     ],
                 ),
@@ -279,7 +279,7 @@ def test_workflow_tool_args_schema_is_lowered_to_json_schema() -> None:
     assert isinstance(agent, BuiltinNodeSpec)
     tool = agent.config["workflow_tools"][0]
     assert tool["name"] == "lookup"
-    assert tool["output_path"] == "results.set_context"
+    assert tool["output_path"] == "node_results.set_context"
     assert tool["graph"]["entrypoint"] == "set_context"
     assert tool["args_schema"]["type"] == "object"
     assert tool["args_schema"]["properties"]["query"]["type"] == "string"
@@ -1118,7 +1118,7 @@ def test_conditional_edge_requires_path_and_mapping() -> None:
                 graph = StateGraph(State)
                 graph.add_node("a", SetVariableNode(name="a", variables={"x": 1}))
                 graph.add_edge(START, "a")
-                graph.add_conditional_edges("a", {"path": "results.a.x"})
+                graph.add_conditional_edges("a", {"path": "node_results.a.x"})
                 return graph
             """
         )
@@ -1138,7 +1138,7 @@ def test_conditional_edge_mapping_must_be_dict() -> None:
                 graph.add_node("a", SetVariableNode(name="a", variables={"x": 1}))
                 graph.add_edge(START, "a")
                 graph.add_conditional_edges(
-                    "a", {"path": "results.a.x", "mapping": "notadict"}
+                    "a", {"path": "node_results.a.x", "mapping": "notadict"}
                 )
                 return graph
             """
@@ -1159,7 +1159,7 @@ def test_conditional_edge_mapping_keys_must_be_strings() -> None:
                 graph.add_node("a", SetVariableNode(name="a", variables={"x": 1}))
                 graph.add_edge(START, "a")
                 graph.add_conditional_edges(
-                    "a", {"path": "results.a.x", "mapping": {1: "x"}}
+                    "a", {"path": "node_results.a.x", "mapping": {1: "x"}}
                 )
                 return graph
             """
@@ -1180,7 +1180,7 @@ def test_conditional_edge_default_is_resolved() -> None:
             graph.add_node("b", SetVariableNode(name="b", variables={"y": 2}))
             graph.add_edge(START, "a")
             graph.add_conditional_edges(
-                "a", {"path": "results.a.x", "mapping": {"go": "b"}, "default": "b"}
+                "a", {"path": "node_results.a.x", "mapping": {"go": "b"}, "default": "b"}
             )
             graph.add_edge("b", END)
             return graph

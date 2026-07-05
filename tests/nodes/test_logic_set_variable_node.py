@@ -7,7 +7,7 @@ from orcheo.nodes.logic import DelayNode, ForLoopNode, SetVariableNode, _build_n
 
 @pytest.mark.asyncio
 async def test_set_variable_node_stores_multiple_variables() -> None:
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = SetVariableNode(
         name="assign",
         variables={
@@ -19,7 +19,7 @@ async def test_set_variable_node_stores_multiple_variables() -> None:
     )
 
     result = await node(state, RunnableConfig())
-    payload = result["results"]["assign"]
+    payload = result["node_results"]["assign"]
 
     assert payload == {
         "user_name": "Ada",
@@ -31,7 +31,7 @@ async def test_set_variable_node_stores_multiple_variables() -> None:
 
 @pytest.mark.asyncio
 async def test_set_variable_node_handles_nested_dicts() -> None:
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = SetVariableNode(
         name="assign",
         variables={
@@ -41,7 +41,7 @@ async def test_set_variable_node_handles_nested_dicts() -> None:
     )
 
     result = await node(state, RunnableConfig())
-    payload = result["results"]["assign"]
+    payload = result["node_results"]["assign"]
 
     assert payload["user"]["name"] == "Ada"
     assert payload["settings"]["theme"] == "dark"
@@ -49,7 +49,7 @@ async def test_set_variable_node_handles_nested_dicts() -> None:
 
 @pytest.mark.asyncio
 async def test_set_variable_node_supports_dotted_paths() -> None:
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = SetVariableNode(
         name="assign",
         variables={
@@ -61,7 +61,7 @@ async def test_set_variable_node_supports_dotted_paths() -> None:
     )
 
     result = await node(state, RunnableConfig())
-    payload = result["results"]["assign"]
+    payload = result["node_results"]["assign"]
 
     assert payload["profile"]["role"] == "builder"
     assert payload["profile"]["name"] == "Ada"
@@ -71,7 +71,7 @@ async def test_set_variable_node_supports_dotted_paths() -> None:
 
 @pytest.mark.asyncio
 async def test_set_variable_node_merges_existing_dicts() -> None:
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = SetVariableNode(
         name="assign",
         variables=OrderedDict(
@@ -83,7 +83,7 @@ async def test_set_variable_node_merges_existing_dicts() -> None:
     )
 
     result = await node(state, RunnableConfig())
-    payload = result["results"]["assign"]
+    payload = result["node_results"]["assign"]
 
     assert payload["profile"]["name"] == "Ada"
     assert payload["profile"]["role"] == "builder"
@@ -91,23 +91,23 @@ async def test_set_variable_node_merges_existing_dicts() -> None:
 
 @pytest.mark.asyncio
 async def test_set_variable_node_empty_variables() -> None:
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = SetVariableNode(name="assign", variables={})
 
     result = await node(state, RunnableConfig())
-    payload = result["results"]["assign"]
+    payload = result["node_results"]["assign"]
 
     assert payload == {}
 
 
 @pytest.mark.asyncio
 async def test_delay_node_runs() -> None:
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = DelayNode(name="wait", duration_seconds=0.0)
 
     result = await node(state, RunnableConfig())
 
-    assert result["results"]["wait"]["duration_seconds"] == 0.0
+    assert result["node_results"]["wait"]["duration_seconds"] == 0.0
 
 
 @pytest.mark.asyncio
@@ -115,7 +115,7 @@ async def test_for_loop_node_non_list_items() -> None:
     """Non-list items returns done immediately without iterating."""
     node = ForLoopNode(name="loop", items="not_a_list")
 
-    result = await node.run({"results": {}}, RunnableConfig())
+    result = await node.run({"node_results": {}}, RunnableConfig())
 
     assert result == {"done": True, "index": 0, "total": 0, "current_item": None}
 
@@ -123,11 +123,11 @@ async def test_for_loop_node_non_list_items() -> None:
 @pytest.mark.asyncio
 async def test_for_loop_node_first_iteration() -> None:
     """First invocation yields the item at index 0 and advances index to 1."""
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = ForLoopNode(name="loop", items=["a", "b", "c"])
 
     result = await node(state, RunnableConfig())
-    payload = result["results"]["loop"]
+    payload = result["node_results"]["loop"]
 
     assert payload["done"] is False
     assert payload["current_item"] == "a"
@@ -138,11 +138,11 @@ async def test_for_loop_node_first_iteration() -> None:
 @pytest.mark.asyncio
 async def test_for_loop_node_subsequent_iteration() -> None:
     """Reads the previous index from state and advances through the list."""
-    state = State({"results": {"loop": {"index": 1}}})
+    state = State({"node_results": {"loop": {"index": 1}}})
     node = ForLoopNode(name="loop", items=["a", "b", "c"])
 
     result = await node(state, RunnableConfig())
-    payload = result["results"]["loop"]
+    payload = result["node_results"]["loop"]
 
     assert payload["done"] is False
     assert payload["current_item"] == "b"
@@ -152,11 +152,11 @@ async def test_for_loop_node_subsequent_iteration() -> None:
 @pytest.mark.asyncio
 async def test_for_loop_node_exhausted() -> None:
     """Returns done=True when the stored index has reached or passed the end."""
-    state = State({"results": {"loop": {"index": 3}}})
+    state = State({"node_results": {"loop": {"index": 3}}})
     node = ForLoopNode(name="loop", items=["a", "b", "c"])
 
     result = await node(state, RunnableConfig())
-    payload = result["results"]["loop"]
+    payload = result["node_results"]["loop"]
 
     assert payload["done"] is True
     assert payload["current_item"] is None
@@ -180,7 +180,7 @@ async def test_for_loop_node_loop_state_not_mapping() -> None:
     """When the node's own previous state is not a Mapping the index defaults to 0."""
     node = ForLoopNode(name="loop", items=["x", "y"])
 
-    result = await node.run({"results": {"loop": "not_a_dict"}}, RunnableConfig())
+    result = await node.run({"node_results": {"loop": "not_a_dict"}}, RunnableConfig())
 
     assert result["current_item"] == "x"
     assert result["index"] == 1
@@ -191,7 +191,9 @@ async def test_for_loop_node_raw_index_none() -> None:
     """When the stored index value is None it defaults to 0."""
     node = ForLoopNode(name="loop", items=["x", "y"])
 
-    result = await node.run({"results": {"loop": {"index": None}}}, RunnableConfig())
+    result = await node.run(
+        {"node_results": {"loop": {"index": None}}}, RunnableConfig()
+    )
 
     assert result["current_item"] == "x"
     assert result["index"] == 1
@@ -203,16 +205,16 @@ async def test_for_loop_node_re_resolves_templated_items_per_invocation() -> Non
     node = ForLoopNode(name="loop", items="{{source.items}}")
 
     first = await node(
-        State({"results": {"source": {"items": ["a"]}}}),
+        State({"node_results": {"source": {"items": ["a"]}}}),
         RunnableConfig(),
     )
     second = await node(
-        State({"results": {"source": {"items": ["b"]}}}),
+        State({"node_results": {"source": {"items": ["b"]}}}),
         RunnableConfig(),
     )
 
-    assert first["results"]["loop"]["current_item"] == "a"
-    assert second["results"]["loop"]["current_item"] == "b"
+    assert first["node_results"]["loop"]["current_item"] == "a"
+    assert second["node_results"]["loop"]["current_item"] == "b"
 
 
 def test_build_nested_empty_path_raises() -> None:

@@ -35,7 +35,7 @@ async def test_human_input_node_interrupts_with_configured_payload(monkeypatch):
     ]
     assert "inputs" not in result
     assert result["messages"] == [{"role": "user", "content": "42"}]
-    assert result["results"] == {"ask_human": {"response": "42"}}
+    assert result["node_results"] == {"ask_human": {"response": "42"}}
 
 
 @pytest.mark.asyncio
@@ -54,7 +54,7 @@ async def test_human_input_node_omits_expected_when_not_configured(monkeypatch):
     assert observed_payloads == [{"message": "Continue?", "kind": "human"}]
     assert "inputs" not in result
     assert result["messages"] == [{"role": "user", "content": "continue"}]
-    assert result["results"] == {"ask_human": {"response": "continue"}}
+    assert result["node_results"] == {"ask_human": {"response": "continue"}}
 
 
 @pytest.mark.asyncio
@@ -76,4 +76,4 @@ async def test_human_input_node_does_not_mutate_graph_inputs(monkeypatch):
     assert observed_payloads == [{"message": "Guess?", "kind": "human"}]
     assert "inputs" not in result
     assert result["messages"] == [{"role": "user", "content": "7"}]
-    assert result["results"] == {"ask_human": {"response": 7}}
+    assert result["node_results"] == {"ask_human": {"response": 7}}

@@ -241,10 +241,10 @@ class InsightGenerationResponse(BaseModel):
 
 @dataclass
 class ReportData:
-    """A transient view of the report dataset assembled from ``results``.
+    """A transient view of the report dataset assembled from ``node_results``.
 
     This is *not* persisted graph state — it is rebuilt on each call from the
-    standard ``results`` channel to give the pure report helpers (rendering,
+    standard ``node_results`` channel to give the pure report helpers (rendering,
     validation, critique, fallbacks) a tidy attribute bundle to read from.
     """
 

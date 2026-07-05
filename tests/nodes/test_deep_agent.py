@@ -363,7 +363,7 @@ async def test_prepare_tools_workflow_tools() -> None:
         name="sub_wf",
         description="A sub-workflow tool",
         graph=mock_graph,
-        output_path="results.final.answer",
+        output_path="node_results.final.answer",
     )
 
     with (
@@ -382,7 +382,9 @@ async def test_prepare_tools_workflow_tools() -> None:
         node = DeepAgentNode(name="t", ai_model="m", workflow_tools=[wf_tool])
         tools = await node._prepare_tools()
         mock_create.assert_called_once()
-        assert mock_create.call_args.kwargs["output_path"] == "results.final.answer"
+        assert (
+            mock_create.call_args.kwargs["output_path"] == "node_results.final.answer"
+        )
         assert mock_structured in tools
 
 
@@ -993,7 +995,7 @@ async def test_run_propagates_direct_thread_state_mapping(tmp_path: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_run_propagates_thread_state_from_results(tmp_path: Path) -> None:
-    """state['results']['_thread_state'] Mapping is forwarded (lines 284-286, 288)."""
+    """state['node_results']['_thread_state'] Mapping is forwarded (lines 284-286, 288)."""
     mock_agent = AsyncMock()
     mock_agent.ainvoke.return_value = {"messages": []}
     captured_runtime_config: dict[str, object] = {}
@@ -1018,7 +1020,9 @@ async def test_run_propagates_thread_state_from_results(tmp_path: Path) -> None:
         state = State(
             {
                 "workspace_id": "ws-1",
-                "results": {"_thread_state": {"approved_codebook": {"themes": []}}},
+                "node_results": {
+                    "_thread_state": {"approved_codebook": {"themes": []}}
+                },
             }
         )
         await node.run(state, RunnableConfig())
@@ -1117,7 +1121,9 @@ async def test_run_skips_thread_state_when_results_thread_state_not_mapping(
         mock_mcp.return_value = mock_mcp_instance
 
         node = DeepAgentNode(name="test", ai_model="openai:gpt-4o", input_query="Q.")
-        state = State({"results": {"_thread_state": "not-a-mapping"}})  # line 285->287
+        state = State(
+            {"node_results": {"_thread_state": "not-a-mapping"}}
+        )  # line 285->287
         await node.run(state, RunnableConfig())
 
     assert "thread_state" not in captured_runtime_config.get("configurable", {})

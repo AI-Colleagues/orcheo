@@ -43,7 +43,7 @@ class CodeNode(TaskNode):
     (``self.<field>``).
 
     Like :class:`~orcheo.nodes.base.TaskNode`, the mapping ``run`` returns is
-    stored under ``results.<name>``. This keeps custom node bodies focused on
+    stored under ``node_results.<name>``. This keeps custom node bodies focused on
     their own result payload instead of the graph state update contract.
     """
 

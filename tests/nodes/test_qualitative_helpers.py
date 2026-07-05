@@ -299,7 +299,7 @@ def _report_state() -> ReportData:
 
 
 def test_runtime_result_helpers_cover_empty_and_nested_paths() -> None:
-    state = State({"results": {"a": {"value": 1}, "b": "not-a-mapping"}})
+    state = State({"node_results": {"a": {"value": 1}, "b": "not-a-mapping"}})
 
     assert results_map(state)["a"]["value"] == 1
     assert node_result(state, "a") == {"value": 1}
@@ -349,7 +349,7 @@ async def test_routing_nodes_route_and_respond() -> None:
         ),
         {},
     )
-    assert routed["results"]["router"] == {"topic": "t", "routing": "next"}
+    assert routed["node_results"]["router"] == {"topic": "t", "routing": "next"}
 
     responded = await router(
         State(
@@ -365,7 +365,7 @@ async def test_routing_nodes_route_and_respond() -> None:
         {},
     )
     assert responded["assistant_message"] == "fallback"
-    assert responded["results"]["router"]["routing"] == "respond"
+    assert responded["node_results"]["router"]["routing"] == "respond"
 
     extractor = ExtractAIMessageNode(
         name="extract_ai_message",
@@ -383,7 +383,7 @@ def test_accessor_helpers_and_report_data_cover_all_accessors() -> None:
     keys = QualitativeResultKeys()
     state = State(
         {
-            "results": {
+            "node_results": {
                 "setup": {
                     keys.research_objective_field: "Understand onboarding",
                     keys.source_payload_field: {"filename": "survey.csv"},
@@ -702,7 +702,7 @@ def test_codebook_helpers_cover_generation_and_parsing() -> None:
     recovered = recover_exportable_codebook(
         State(
             {
-                "results": {
+                "node_results": {
                     "codebook_consolidator_finalize": {
                         "draft_codebook": codebook.model_dump(mode="json")
                     }
@@ -738,7 +738,7 @@ def test_codebook_helpers_cover_generation_and_parsing() -> None:
             None,
             state=State(
                 {
-                    "results": {
+                    "node_results": {
                         "validate_files": {
                             "seed_codebook_from_file": codebook.model_dump(mode="json")
                         }

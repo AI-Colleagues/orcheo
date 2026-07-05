@@ -224,7 +224,7 @@ async def test_workflow_tool_respects_graph_output_schema() -> None:
     def test_node(_state):
         return {
             "answer": "compact answer",
-            "results": {"hidden_documents": [{"id": "1"}]},
+            "node_results": {"hidden_documents": [{"id": "1"}]},
         }
 
     workflow_graph.add_node("process", test_node)
@@ -253,7 +253,7 @@ async def test_workflow_tool_output_path_selects_nested_value() -> None:
 
     def test_node(_state):
         return {
-            "results": {
+            "node_results": {
                 "format_results": {
                     "markdown": "formatted answer",
                     "documents": [{"id": "1"}],
@@ -270,7 +270,7 @@ async def test_workflow_tool_output_path_selects_nested_value() -> None:
         name="selector_tool",
         description="Test selector output",
         args_schema=None,
-        output_path="results.format_results.markdown",
+        output_path="node_results.format_results.markdown",
     )
 
     result = await tool.ainvoke({"query": "hello"})
@@ -285,7 +285,7 @@ async def test_workflow_tool_output_path_errors_when_missing() -> None:
     from langgraph.graph import StateGraph
 
     workflow_graph = StateGraph(dict)
-    workflow_graph.add_node("process", lambda _state: {"results": {}})
+    workflow_graph.add_node("process", lambda _state: {"node_results": {}})
     workflow_graph.set_entry_point("process")
     workflow_graph.set_finish_point("process")
 
@@ -294,7 +294,7 @@ async def test_workflow_tool_output_path_errors_when_missing() -> None:
         name="selector_tool",
         description="Test selector output",
         args_schema=None,
-        output_path="results.format_results.markdown",
+        output_path="node_results.format_results.markdown",
     )
 
     with pytest.raises(ValueError, match="output_path"):

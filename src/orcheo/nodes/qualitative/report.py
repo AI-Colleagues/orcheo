@@ -8,7 +8,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
-from orcheo.nodes.base import AINode
+from orcheo.nodes.base import TaskNode
 from orcheo.nodes.qualitative.accessors import (
     build_report_data,
     coerce_model,
@@ -269,8 +269,7 @@ def _report_data_from_values(
         category="workflow",
     )
 )
-# TODO: Reconsider AINode inheritance; this node renders and uploads reports.
-class ReportOutputNode(AINode):
+class ReportOutputNode(TaskNode):
     """Render the final report and return it with a download link."""
 
     result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
@@ -298,10 +297,7 @@ class ReportOutputNode(AINode):
         early = node_result(state, self.ingest_node_name)
         if early.get("halt"):
             message = str(early.get("assistant_message", self.failed_ingest_message))
-            return {
-                "assistant_message": message,
-                "results": {self.name: {"assistant_message": message}},
-            }
+            return {"assistant_message": message}
 
         data = _report_data_from_values(
             state=state,
@@ -351,14 +347,9 @@ class ReportOutputNode(AINode):
         assistant_message = "\n".join(lines).strip()
         return {
             "assistant_message": assistant_message,
-            "results": {
-                self.name: {
-                    "assistant_message": assistant_message,
-                    "research_objective": data.research_objective,
-                    "report_markdown": report,
-                    "report_url": report_url,
-                }
-            },
+            "research_objective": data.research_objective,
+            "report_markdown": report,
+            "report_url": report_url,
         }
 
 
@@ -369,8 +360,7 @@ class ReportOutputNode(AINode):
         category="workflow",
     )
 )
-# TODO: Reconsider AINode inheritance; this node only exports report artifacts.
-class ExportReportNode(AINode):
+class ExportReportNode(TaskNode):
     """Regenerate the downloadable Markdown report link."""
 
     result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
@@ -396,7 +386,7 @@ class ExportReportNode(AINode):
     )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Re-render the report from the results channel and upload it."""
+        """Re-render the report from the node_results channel and upload it."""
         data = _report_data_from_values(
             state=state,
             keys=self.result_keys,
@@ -430,7 +420,7 @@ class ExportReportNode(AINode):
         ]
         return {
             "assistant_message": "\n".join(lines),
-            "results": {self.name: {"report_url": report_url}},
+            "report_url": report_url,
         }
 
 

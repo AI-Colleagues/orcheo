@@ -41,7 +41,7 @@ async def test_query_rewrite_rewrites_with_ai_model(
                 {"role": "assistant", "content": "It supports namespaces"},
             ],
         },
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -64,7 +64,7 @@ async def test_coreference_resolution_replaces_first_pronoun() -> None:
             "query": "How does it work?",
             "history": [{"role": "user", "content": "The retriever pipeline"}],
         },
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -80,7 +80,7 @@ async def test_query_classifier_uses_heuristics() -> None:
     node = QueryClassifierNode(name="classifier")
     state = State(
         inputs={"query": "Can you clarify which one to use?"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -95,7 +95,7 @@ async def test_query_classifier_defaults_to_search() -> None:
     node = QueryClassifierNode(name="classifier-default")
     state = State(
         inputs={"query": "List retrieval options"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -109,7 +109,7 @@ async def test_query_classifier_finalization_branch() -> None:
     node = QueryClassifierNode(name="classifier-finalize")
     state = State(
         inputs={"query": "Thanks for the help!"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -128,7 +128,7 @@ async def test_context_compressor_summarizes_and_deduplicates() -> None:
     ]
     state = State(
         inputs={"query": "demo"},
-        results={"retrieval_results": results},
+        node_results={"retrieval_results": results},
         structured_response=None,
     )
 
@@ -150,7 +150,7 @@ async def test_query_rewrite_skips_model_without_history() -> None:
     node = QueryRewriteNode(name="rewrite-no-context", ai_model="openai:gpt-4o-mini")
     state = State(
         inputs={"query": "Tell me about graphs", "history": []},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -165,7 +165,7 @@ async def test_query_rewrite_validates_history_type() -> None:
     node = QueryRewriteNode(name="rewrite-error", ai_model="openai:gpt-4o-mini")
     state = State(
         inputs={"query": "hello", "history": "not-a-list"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -176,7 +176,7 @@ async def test_query_rewrite_validates_history_type() -> None:
 @pytest.mark.asyncio
 async def test_query_rewrite_requires_query() -> None:
     node = QueryRewriteNode(name="rewrite-empty", ai_model="openai:gpt-4o-mini")
-    state = State(inputs={"query": "   "}, results={}, structured_response=None)
+    state = State(inputs={"query": "   "}, node_results={}, structured_response=None)
 
     with pytest.raises(
         ValueError, match="QueryRewriteNode requires a non-empty query string"
@@ -189,7 +189,7 @@ async def test_coreference_resolver_handles_missing_referent() -> None:
     node = CoreferenceResolverNode(name="coref-none")
     state = State(
         inputs={"query": "Where is it?", "history": []},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -206,7 +206,7 @@ async def test_coreference_resolver_without_matching_pronoun() -> None:
             "query": "Explain the architecture",
             "history": ["Vector store overview"],
         },
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -224,7 +224,7 @@ async def test_coreference_resolver_validates_history_type() -> None:
     node = CoreferenceResolverNode(name="coref-error")
     state = State(
         inputs={"query": "hello", "history": "oops"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -235,7 +235,7 @@ async def test_coreference_resolver_validates_history_type() -> None:
 @pytest.mark.asyncio
 async def test_coreference_resolver_requires_query() -> None:
     node = CoreferenceResolverNode(name="coref-empty")
-    state = State(inputs={"query": ""}, results={}, structured_response=None)
+    state = State(inputs={"query": ""}, node_results={}, structured_response=None)
 
     with pytest.raises(
         ValueError, match="CoreferenceResolverNode requires a non-empty query string"
@@ -246,7 +246,7 @@ async def test_coreference_resolver_requires_query() -> None:
 @pytest.mark.asyncio
 async def test_query_classifier_requires_query() -> None:
     node = QueryClassifierNode(name="classifier-empty")
-    state = State(inputs={"query": ""}, results={}, structured_response=None)
+    state = State(inputs={"query": ""}, node_results={}, structured_response=None)
 
     with pytest.raises(
         ValueError, match="QueryClassifierNode requires a non-empty query string"
@@ -260,7 +260,7 @@ async def test_context_compressor_handles_results_mapping() -> None:
     search_result = SearchResult(id="a", score=0.5, text="small chunk", metadata={})
     state = State(
         inputs={},
-        results={"retrieval_results": {"results": [search_result]}},
+        node_results={"retrieval_results": {"results": [search_result]}},
         structured_response=None,
     )
 
@@ -273,7 +273,7 @@ async def test_context_compressor_handles_results_mapping() -> None:
 @pytest.mark.asyncio
 async def test_context_compressor_requires_results() -> None:
     node = ContextCompressorNode(name="compress-missing")
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(
         ValueError,
@@ -286,7 +286,9 @@ async def test_context_compressor_requires_results() -> None:
 async def test_context_compressor_validates_entries_type() -> None:
     node = ContextCompressorNode(name="compress-type")
     state = State(
-        inputs={}, results={"retrieval_results": "not-a-list"}, structured_response=None
+        inputs={},
+        node_results={"retrieval_results": "not-a-list"},
+        structured_response=None,
     )
 
     with pytest.raises(
@@ -305,7 +307,7 @@ async def test_context_compressor_without_deduplication() -> None:
         SearchResult(id="a", score=0.1, text="gamma delta", metadata={}),
     ]
     state = State(
-        inputs={}, results={"retrieval_results": results}, structured_response=None
+        inputs={}, node_results={"retrieval_results": results}, structured_response=None
     )
 
     result = await node.run(state, {})
@@ -339,7 +341,7 @@ async def test_context_compressor_invokes_ai_model(
     ]
     state = State(
         inputs={"query": "What is context?"},
-        results={"retrieval_results": results},
+        node_results={"retrieval_results": results},
         structured_response=None,
     )
 
@@ -356,7 +358,7 @@ async def test_context_compressor_invokes_ai_model(
 async def test_context_compressor_returns_empty_when_no_entries() -> None:
     node = ContextCompressorNode(name="compress-empty")
     state = State(
-        inputs={}, results={"retrieval_results": []}, structured_response=None
+        inputs={}, node_results={"retrieval_results": []}, structured_response=None
     )
 
     result = await node.run(state, {})
@@ -379,7 +381,7 @@ async def test_context_compressor_handles_blank_context_block() -> None:
     )
     state = State(
         inputs={"query": "question"},
-        results={"retrieval_results": [entry]},
+        node_results={"retrieval_results": [entry]},
         structured_response=None,
     )
 
@@ -429,7 +431,7 @@ async def test_context_compressor_summary_with_model_handles_empty_response(
     )
     state = State(
         inputs={"query": "What is context?"},
-        results={"retrieval_results": [entry]},
+        node_results={"retrieval_results": [entry]},
         structured_response=None,
     )
 
@@ -469,7 +471,7 @@ async def test_query_rewrite_falls_back_on_empty_ai_response(
             "query": "How does it scale?",
             "history": [{"role": "user", "content": "Vector store overview"}],
         },
-        results={},
+        node_results={},
         structured_response=None,
     )
 

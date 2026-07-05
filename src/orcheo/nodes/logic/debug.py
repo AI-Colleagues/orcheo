@@ -30,7 +30,7 @@ class DebugNode(TaskNode):
     )
     tap_path: str | None = Field(
         default=None,
-        description="Dotted path resolved from state['results'] for inspection",
+        description="Dotted path resolved from state['node_results'] for inspection",
     )
     include_state: bool = Field(
         default=False,

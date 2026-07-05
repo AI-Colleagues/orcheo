@@ -723,22 +723,22 @@ def test_handle_generic_update_with_empty_dict_payload() -> None:
     assert any("• node_name" in msg for msg in state.console.messages)
 
 
-def test_handle_generic_update_with_results_payload() -> None:
-    """Test _handle_generic_update with top-level results payload."""
+def test_handle_generic_update_with_node_results_payload() -> None:
+    """Test _handle_generic_update with top-level node_results payload."""
     from orcheo_sdk.cli.workflow.streaming import _handle_generic_update
 
     state = make_state(verbose_results=True)
-    update = {"results": {"node_name": {"value": 1}}}
+    update = {"node_results": {"node_name": {"value": 1}}}
     _handle_generic_update(state, update)
     assert any("Results" in msg for msg in state.console.messages)
 
 
-def test_handle_generic_update_with_node_results_payload() -> None:
-    """Test _handle_generic_update with node-scoped results payload."""
+def test_handle_generic_update_with_node_scoped_node_results_payload() -> None:
+    """Test _handle_generic_update with node-scoped node_results payload."""
     from orcheo_sdk.cli.workflow.streaming import _handle_generic_update
 
     state = make_state(verbose_results=True)
-    update = {"node_name": {"results": {"node_name": {"value": 2}}}}
+    update = {"node_name": {"node_results": {"node_name": {"value": 2}}}}
     _handle_generic_update(state, update)
     assert any("node_name results" in msg for msg in state.console.messages)
 
@@ -801,7 +801,7 @@ def test_handle_single_update_verbose_results_early_return() -> None:
     from orcheo_sdk.cli.workflow.streaming import _handle_single_update
 
     state = make_state(verbose_results=True)
-    payload = {"results": {"my_node": {"score": 0.95}}}
+    payload = {"node_results": {"my_node": {"score": 0.95}}}
     _handle_single_update(state, "my_node", payload)
     # _render_results_payload renders JSON and returns True, so the
     # "• my_node" fallback line should NOT appear.

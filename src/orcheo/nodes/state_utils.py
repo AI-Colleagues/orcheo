@@ -13,11 +13,11 @@ def normalise_state_snapshot(state: State) -> dict[str, Any]:
     if isinstance(state.get("inputs"), Mapping):
         inputs = dict(state["inputs"])
 
-    results: dict[str, Any] = {}
-    if isinstance(state.get("results"), Mapping):
-        results = copy.deepcopy(state["results"])
+    node_results: dict[str, Any] = {}
+    if isinstance(state.get("node_results"), Mapping):
+        node_results = copy.deepcopy(state["node_results"])
 
-    return {"inputs": inputs, "results": results}
+    return {"inputs": inputs, "node_results": node_results}
 
 
 def extract_from_state(state: State, path: str) -> tuple[bool, Any]:
@@ -26,7 +26,7 @@ def extract_from_state(state: State, path: str) -> tuple[bool, Any]:
         msg = "tap_path must be a non-empty string"
         raise ValueError(msg)
 
-    current: Any = state.get("results", {})
+    current: Any = state.get("node_results", {})
     segments = [segment.strip() for segment in path.split(".") if segment.strip()]
     if not segments:
         msg = "tap_path must contain at least one segment"

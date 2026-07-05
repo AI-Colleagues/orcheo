@@ -62,13 +62,13 @@ async def test_multi_turn_flow_handles_topic_shift_and_compression() -> None:
         name="generator", context_result_key="retriever", context_field="results"
     )
 
-    ingest_state = State(inputs={}, results={}, structured_response=None)
-    ingest_state["results"][loader.name] = await loader.run(ingest_state, {})
-    ingest_state["results"][chunker.name] = await chunker.run(ingest_state, {})
-    ingest_state["results"][chunk_embedder.name] = await chunk_embedder.run(
+    ingest_state = State(inputs={}, node_results={}, structured_response=None)
+    ingest_state["node_results"][loader.name] = await loader.run(ingest_state, {})
+    ingest_state["node_results"][chunker.name] = await chunker.run(ingest_state, {})
+    ingest_state["node_results"][chunk_embedder.name] = await chunk_embedder.run(
         ingest_state, {}
     )
-    ingest_state["results"][vector_upsert.name] = await vector_upsert.run(
+    ingest_state["node_results"][vector_upsert.name] = await vector_upsert.run(
         ingest_state, {}
     )
 
@@ -86,30 +86,30 @@ async def test_multi_turn_flow_handles_topic_shift_and_compression() -> None:
 
     turn_state = State(
         inputs={"session_id": "sess-flow", "user_message": "Tell me about Orcheo"},
-        results={},
+        node_results={},
         structured_response=None,
     )
-    turn_state["results"]["ingestion"] = ingest_state["results"]
+    turn_state["node_results"]["ingestion"] = ingest_state["node_results"]
 
     convo_result = await conversation.run(turn_state, {})
-    turn_state["results"][conversation.name] = convo_result
+    turn_state["node_results"][conversation.name] = convo_result
     turn_state["inputs"]["query"] = convo_result["conversation_history"][-1]["content"]
 
     retrieval_result = await retriever.run(turn_state, {})
-    turn_state["results"][retriever.name] = retrieval_result
+    turn_state["node_results"][retriever.name] = retrieval_result
     generation_result = await generator.run(turn_state, {})
     assert generation_result["citations"]
 
     turn_state["inputs"]["assistant_message"] = generation_result["reply"]
     convo_result = await conversation.run(turn_state, {})
-    turn_state["results"][conversation.name] = convo_result
+    turn_state["node_results"][conversation.name] = convo_result
 
     compressed = await compressor.run(turn_state, {})
     assert compressed["summary"]
 
     turn_state["inputs"]["user_message"] = "Now what about pricing?"
     convo_result = await conversation.run(turn_state, {})
-    turn_state["results"][conversation.name] = convo_result
+    turn_state["node_results"][conversation.name] = convo_result
     turn_state["inputs"]["query"] = "What pricing do you offer?"
 
     shift_result = await shift_detector.run(turn_state, {})

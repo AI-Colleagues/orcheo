@@ -769,7 +769,7 @@ class MongoDBInsertManyNode(MongoDBClientNode):
 
     def _resolve_records(self, state: State) -> list[dict[str, Any]]:
         """Extract records from workflow state."""
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         if not isinstance(results, Mapping):
             return []
         source = results.get(self.source_result_key)
@@ -883,7 +883,7 @@ class MongoDBUpsertManyNode(MongoDBNode):
 
     def _resolve_records(self, state: State) -> list[dict[str, Any]]:
         """Extract the list of records to upsert from workflow state."""
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         if not isinstance(results, Mapping):
             return []
 

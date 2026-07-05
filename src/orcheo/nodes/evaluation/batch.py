@@ -296,7 +296,7 @@ class ConversationalBatchEvalNode(TaskNode):
         if isinstance(conversations, list):
             return conversations
 
-        results = state.get("results")
+        results = state.get("node_results")
         if not isinstance(results, Mapping):
             return conversations
 
@@ -338,7 +338,7 @@ class ConversationalBatchEvalNode(TaskNode):
                 "query": str(user_query),
                 "history": list(history),
             },
-            results={},
+            node_results={},
             structured_response=None,
             config=parent_state.get("config"),
         )
@@ -355,7 +355,7 @@ class ConversationalBatchEvalNode(TaskNode):
         if prediction is not None:
             return prediction
 
-        results = result_state.get("results")
+        results = result_state.get("node_results")
         if isinstance(results, Mapping):  # pragma: no branch
             for value in reversed(list(results.values())):
                 if isinstance(value, Mapping):  # pragma: no branch

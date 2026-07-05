@@ -406,7 +406,7 @@ class LLMStagePrepareNode(TaskNode):
     )
 )
 class LLMStageFinalizeNode(TaskNode):
-    """Persist the LLM response for the configured stage onto ``results``."""
+    """Persist the LLM response for the configured stage onto ``node_results``."""
 
     stage: Stage
     result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
@@ -489,7 +489,7 @@ class LLMStageFinalizeNode(TaskNode):
         return rows or get_quantification(state, keys)
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Persist stage output under ``results[node_name]`` keyed by the field."""
+        """Persist stage output under ``node_results[node_name]`` keyed by the field."""
         stage_result = node_result(state, f"{self.stage}_prepare")
 
         if self.stage == "open_coder":

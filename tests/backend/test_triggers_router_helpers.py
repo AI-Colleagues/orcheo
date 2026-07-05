@@ -88,7 +88,7 @@ def test_build_webhook_state_langgraph_dict_adds_defaults() -> None:
 
     assert state["hello"] == "world"
     assert state["inputs"]["hello"] == "world"
-    assert state["results"] == {}
+    assert state["node_results"] == {}
     assert state["messages"] == []
     assert state["config"] == {"exec": "run"}
 
@@ -134,17 +134,17 @@ def test_build_webhook_state_default_shape() -> None:
     state = triggers._build_webhook_state({}, {"key": "value"}, None)
 
     assert state["inputs"] == {"key": "value"}
-    assert state["results"] == {}
+    assert state["node_results"] == {}
     assert state["messages"] == []
     assert state["config"] == {}
 
 
 def test_extract_immediate_response_returns_content() -> None:
-    """Immediate responses are extracted from results."""
+    """Immediate responses are extracted from node_results."""
 
     immediate, should_process = triggers._extract_immediate_response(
         {
-            "results": {
+            "node_results": {
                 "node": {
                     "immediate_response": {"content": "ok"},
                     "should_process": True,
@@ -160,7 +160,9 @@ def test_extract_immediate_response_returns_content() -> None:
 def test_extract_immediate_response_handles_missing() -> None:
     """Missing immediate responses return a default tuple."""
 
-    immediate, should_process = triggers._extract_immediate_response({"results": {}})
+    immediate, should_process = triggers._extract_immediate_response(
+        {"node_results": {}}
+    )
 
     assert immediate is None
     assert should_process is False
@@ -171,7 +173,7 @@ def test_extract_immediate_response_skips_invalid_entries() -> None:
 
     immediate, should_process = triggers._extract_immediate_response(
         {
-            "results": {
+            "node_results": {
                 "node": "not-a-dict",
                 "other": {"immediate_response": {}},
             }
@@ -245,7 +247,7 @@ async def test_try_immediate_response_returns_json_response(
     """Immediate responses can return JSON payloads."""
 
     final_state = {
-        "results": {
+        "node_results": {
             "node": {
                 "immediate_response": {
                     "content": {"ok": True},
@@ -298,7 +300,7 @@ async def test_try_immediate_response_returns_json_string_response(
     """Immediate responses accept JSON-encoded strings."""
 
     final_state = {
-        "results": {
+        "node_results": {
             "node": {
                 "immediate_response": {
                     "content": json.dumps({"ok": True}),
@@ -347,7 +349,7 @@ async def test_try_immediate_response_returns_plain_text(
     """Immediate responses can return plain-text payloads."""
 
     final_state = {
-        "results": {
+        "node_results": {
             "node": {
                 "immediate_response": {"content": "pong"},
                 "should_process": True,
@@ -390,7 +392,7 @@ async def test_try_immediate_response_returns_none_when_no_immediate_response(
 ) -> None:
     """When no immediate response is found, async processing is queued."""
 
-    final_state = {"results": {"node": {"status": "ok"}}}
+    final_state = {"node_results": {"node": {"status": "ok"}}}
     compiled = _DummyCompiled(final_state)
     monkeypatch.setattr(triggers, "get_repository", lambda: _DummyRepository())
     monkeypatch.setattr(triggers, "build_graph", lambda graph: _DummyGraph(compiled))

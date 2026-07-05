@@ -29,19 +29,34 @@ if TYPE_CHECKING:  # pragma: no cover - typing-only import
 logger = logging.getLogger(__name__)
 _SINGLE_TEMPLATE_PATTERN = re.compile(r"^\s*\{\{\s*([^{}]+?)\s*\}\}\s*$")
 _TEMPLATE_PATTERN = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
-_TASK_NODE_STATE_FIELDS = frozenset({"inputs", "messages"})
+_TASK_NODE_STATE_FIELDS = frozenset(State.__annotations__)
 
 
 def build_task_state_update(name: str, serialized_result: Any) -> dict[str, Any]:
     """Return the graph state update for a TaskNode result payload."""
     output: dict[str, Any] = {}
     result_payload = serialized_result
+    node_results_update: dict[str, Any] = {}
     if isinstance(serialized_result, Mapping):
         result_payload = dict(serialized_result)
         for field in _TASK_NODE_STATE_FIELDS:
             if field in result_payload:
-                output[field] = result_payload.pop(field)
-    output["results"] = {name: result_payload}
+                value = result_payload.pop(field)
+                if field == "node_results":
+                    if not isinstance(value, Mapping):
+                        msg = "TaskNode node_results state update must be a mapping"
+                        raise TypeError(msg)
+                    node_results_update.update(dict(value))
+                    continue
+                output[field] = value
+
+    current_payload = node_results_update.get(name)
+    if isinstance(current_payload, Mapping) and isinstance(result_payload, Mapping):
+        node_results_update[name] = {**dict(current_payload), **result_payload}
+    elif name not in node_results_update or result_payload:
+        node_results_update[name] = result_payload
+
+    output["node_results"] = node_results_update
     return output
 
 
@@ -246,7 +261,7 @@ class BaseRunnable(BaseModel):
             if isinstance(result, BaseModel) and hasattr(result, part):
                 result = getattr(result, part)
                 continue
-            fallback = self._fallback_to_results(path_parts, index, state)
+            fallback = self._fallback_to_node_results(path_parts, index, state)
             if fallback is not None:
                 result = fallback
                 continue
@@ -261,18 +276,18 @@ class BaseRunnable(BaseModel):
         return result, True
 
     @staticmethod
-    def _fallback_to_results(
+    def _fallback_to_node_results(
         path_parts: list[str],
         index: int,
         state: State,
     ) -> Any | None:
-        """Return a fallback lookup within ``state['results']`` when applicable."""
-        if index != 0 or path_parts[0] == "results":
+        """Return a fallback lookup within ``state['node_results']`` when applicable."""
+        if index != 0 or path_parts[0] == "node_results":
             return None
-        results = state.get("results")
-        if not isinstance(results, dict):
+        node_results = state.get("node_results")
+        if not isinstance(node_results, dict):
             return None
-        return results.get(path_parts[index])
+        return node_results.get(path_parts[index])
 
     def _resolve_credential_reference(self, reference: CredentialReference) -> Any:
         """Return the materialised value for ``reference`` or raise an error."""
@@ -523,10 +538,16 @@ class AINode(BaseNode):
 
 
 class TaskNode(BaseNode):
-    """Base class for all nodes that need to define their own run method."""
+    """Base class for deterministic task nodes.
+
+    ``run()`` returns a partial graph state update. Keys declared on
+    :class:`orcheo.graph.state.State` are promoted to the top-level state; all
+    remaining keys are stored as this node's payload under ``node_results[name]``.
+    Explicit ``node_results`` updates are merged with that node-scoped payload.
+    """
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Execute the node and wrap the result in a outputs key."""
+        """Execute the node and convert its payload into a graph state update."""
         from orcheo.nodes.ai.tools.context import node_status_context
 
         runnable = self.resolved_for_run(state, config=config)

@@ -95,7 +95,7 @@ def _keys(keys: QualitativeResultKeys | None) -> QualitativeResultKeys:
 def get_research_objective(
     state: State, keys: QualitativeResultKeys | None = None
 ) -> str | None:
-    """Return the research objective carried on the results channel."""
+    """Return the research objective carried on the node_results channel."""
     keys = _keys(keys)
     value = first_result_field(
         state, keys.research_objective_field, keys.research_objective_producers
@@ -106,7 +106,7 @@ def get_research_objective(
 def get_source_payload(
     state: State, keys: QualitativeResultKeys | None = None
 ) -> dict[str, Any] | None:
-    """Return the resolved source payload carried on the results channel."""
+    """Return the resolved source payload carried on the node_results channel."""
     keys = _keys(keys)
     value = first_result_field(
         state, keys.source_payload_field, keys.source_payload_producers
@@ -161,7 +161,7 @@ def get_units(state: State, keys: QualitativeResultKeys | None = None) -> list[U
 def get_code_assignments(
     state: State, keys: QualitativeResultKeys | None = None
 ) -> list[CodeAssignment]:
-    """Return the code assignments reconstructed from the results channel."""
+    """Return the code assignments reconstructed from the node_results channel."""
     keys = _keys(keys)
     value = first_result_field(
         state, keys.assignments_field, keys.assignments_producers
@@ -282,7 +282,7 @@ def get_approved_insight_ids(
 def build_report_data(
     state: State, keys: QualitativeResultKeys | None = None
 ) -> ReportData:
-    """Assemble a :class:`ReportData` view from the ``results`` channel."""
+    """Assemble a :class:`ReportData` view from the ``node_results`` channel."""
     keys = _keys(keys)
     return ReportData(
         research_objective=get_research_objective(state, keys),

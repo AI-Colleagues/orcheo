@@ -1,4 +1,4 @@
-"""Helpers for reading workflow results from state."""
+"""Helpers for reading workflow node results from state."""
 
 from __future__ import annotations
 from collections.abc import Mapping, Sequence
@@ -8,13 +8,13 @@ from orcheo.graph.state import State
 
 
 def results_map(state: State) -> Mapping[str, Any]:
-    """Return the workflow results mapping, or an empty mapping."""
-    results = state.get("results") if isinstance(state, Mapping) else None
-    return results if isinstance(results, Mapping) else {}
+    """Return the workflow node-results mapping, or an empty mapping."""
+    node_results = state.get("node_results") if isinstance(state, Mapping) else None
+    return node_results if isinstance(node_results, Mapping) else {}
 
 
 def node_result(state: State, node_name: str) -> Mapping[str, Any]:
-    """Return a named node result mapping from ``results``."""
+    """Return a named node result mapping from ``node_results``."""
     value = results_map(state).get(node_name)
     return value if isinstance(value, Mapping) else {}
 

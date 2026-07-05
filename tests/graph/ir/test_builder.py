@@ -60,8 +60,8 @@ async def test_builtin_ir_builds_and_runs_without_script(
 
     result = await compiled.ainvoke({"inputs": {}})
 
-    assert result["results"]["first"]["message"] == "hello"
-    assert result["results"]["second"]["message"] == "world"
+    assert result["node_results"]["first"]["message"] == "hello"
+    assert result["node_results"]["second"]["message"] == "world"
 
 
 @pytest.mark.asyncio
@@ -72,7 +72,7 @@ async def test_ir_accepts_mapping_input() -> None:
 
     result = await compiled.ainvoke({"inputs": {}})
 
-    assert result["results"]["first"]["message"] == "hello"
+    assert result["node_results"]["first"]["message"] == "hello"
 
 
 @pytest.mark.asyncio
@@ -108,7 +108,7 @@ async def test_subgraph_ir_builds_and_runs_nested_graph() -> None:
     compiled = build_state_graph_from_ir(ir).compile()
     result = await compiled.ainvoke({"inputs": {}})
 
-    assert result["results"]["inner"]["value"] == 42
+    assert result["node_results"]["inner"]["value"] == 42
 
 
 def test_agent_workflow_tool_ir_materialises_workflow_tool() -> None:
@@ -230,7 +230,7 @@ async def test_conditional_edge_routes_on_state_path() -> None:
         conditional_edges=[
             ConditionalEdgeSpec(
                 source="first",
-                path="results.first.found",
+                path="node_results.first.found",
                 mapping={"false": "second", "true": "__end__"},
             )
         ],
@@ -240,7 +240,7 @@ async def test_conditional_edge_routes_on_state_path() -> None:
     result = await compiled.ainvoke({"inputs": {}})
 
     # DebugNode reports found=False (no tap_path), so we route to "second".
-    assert result["results"]["second"]["message"] == "end"
+    assert result["node_results"]["second"]["message"] == "end"
 
 
 def test_unknown_node_type_is_rejected() -> None:
@@ -551,7 +551,7 @@ def test_workflow_tool_output_path_is_passed_through() -> None:
                             "name": "lookup",
                             "description": "Look up context",
                             "graph": nested.model_dump(),
-                            "output_path": "results.lookup",
+                            "output_path": "node_results.lookup",
                             "return_direct": True,
                         }
                     ],
@@ -567,5 +567,5 @@ def test_workflow_tool_output_path_is_passed_through() -> None:
     graph = build_state_graph_from_ir(ir)
     agent = graph.nodes["agent"].runnable.afunc
 
-    assert agent.workflow_tools[0].output_path == "results.lookup"
+    assert agent.workflow_tools[0].output_path == "node_results.lookup"
     assert agent.workflow_tools[0].return_direct is True

@@ -365,7 +365,7 @@ class SparseSearchNode(TaskNode):
         raise ValueError(msg)
 
     def _resolve_chunks(self, state: State) -> list[DocumentChunk]:
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         source = results.get(self.source_result_key, {})
         if isinstance(source, dict) and self.chunks_field in source:
             chunks = source[self.chunks_field]
@@ -685,7 +685,7 @@ class HybridFusionNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Fuse retriever outputs according to the configured strategy."""
-        results_map = state.get("results", {}).get(self.results_field)
+        results_map = state.get("node_results", {}).get(self.results_field)
         if not isinstance(results_map, dict) or not results_map:
             msg = "HybridFusionNode requires a mapping of retriever results"
             raise ValueError(msg)
@@ -853,7 +853,7 @@ class SourceRouterNode(TaskNode):
         return {"routed": routed}
 
     def _resolve_results(self, state: State) -> list[SearchResult]:
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         payload = results.get(self.source_result_key, {})
         if isinstance(payload, dict) and self.results_field in payload:
             entries = payload[self.results_field]
@@ -921,7 +921,7 @@ class SearchResultAdapterNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Convert raw result mappings into SearchResult items."""
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         payload = results.get(self.source_result_key, {})
         if isinstance(payload, dict) and self.results_field in payload:
             entries = payload[self.results_field]
@@ -1211,7 +1211,7 @@ def _resolve_retrieval_results(
     *,
     error_message: str = "Retrieved results must be provided as a list",
 ) -> list[SearchResult]:
-    results = state.get("results", {})
+    results = state.get("node_results", {})
     payload = results.get(source_result_key, {})
     if isinstance(payload, dict) and results_field in payload:
         entries = payload[results_field]

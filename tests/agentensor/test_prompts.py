@@ -37,7 +37,7 @@ def test_trainable_prompt_decodes_with_state_values() -> None:
         State,
         {
             "inputs": {"prompt_text": "Hello there", "lang": "en"},
-            "results": {},
+            "node_results": {},
             "structured_response": {},
         },
     )
@@ -65,7 +65,7 @@ def test_trainable_prompt_decodes_model_kwargs_credentials() -> None:
         State,
         {
             "inputs": {},
-            "results": {},
+            "node_results": {},
             "structured_response": {},
         },
     )

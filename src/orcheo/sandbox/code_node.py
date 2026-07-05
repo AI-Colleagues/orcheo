@@ -4,7 +4,7 @@ In restricted mode the trusted IR graph builder binds each ``CodeNodeSpec`` to a
 :class:`SandboxCodeNode`. At run time the node resolves ``{{state}}`` templates in
 its injected config (host-side), marshals the JSON inputs envelope, executes the
 body in the MicroPython-WASM sandbox off the event loop, and wraps the returned
-payload under ``results.<node_id>`` like ``TaskNode``. Limit breaches, non-JSON
+payload under ``node_results.<node_id>`` like ``TaskNode``. Limit breaches, non-JSON
 outputs, and in-sandbox exceptions surface as structured, node-attributed errors
 and are counted in :class:`SandboxMetrics`.
 """

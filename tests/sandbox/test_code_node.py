@@ -35,7 +35,7 @@ TRANSFORM_WORKFLOW = """
         factor: int = 2
 
         async def run(self, state, config):
-            value = state["results"]["setter"]["value"]
+            value = state["node_results"]["setter"]["value"]
             return {"doubled": value * self.factor}
 
     async def orcheo_workflow() -> StateGraph:
@@ -61,22 +61,22 @@ async def test_end_to_end_transform_and_merge_back() -> None:
     result = await compiled.ainvoke({"inputs": {}})
 
     # factor=3 (constructor kwarg) overrides the class default of 2.
-    assert result["results"]["doubler"] == {"doubled": 63}
-    assert result["results"]["setter"] == {"value": 21}
+    assert result["node_results"]["doubler"] == {"doubled": 63}
+    assert result["node_results"]["setter"] == {"value": 21}
     assert metrics.invocations == 1
     assert metrics.successes == 1
 
 
 @pytest.mark.asyncio
-async def test_merge_back_respects_results_reducer() -> None:
-    """Updates from successive nodes merge via the ``results`` dict reducer."""
+async def test_merge_back_respects_node_results_reducer() -> None:
+    """Updates from successive nodes merge via the ``node_results`` reducer."""
     ir = _ir(TRANSFORM_WORKFLOW)
     compiled = build_sandboxed_state_graph(ir, runner=_real_runner()).compile()
 
     result = await compiled.ainvoke({"inputs": {}})
 
     # Both the built-in setter result and the CodeNode result coexist.
-    assert set(result["results"]) >= {"setter", "doubler"}
+    assert set(result["node_results"]) >= {"setter", "doubler"}
 
 
 @pytest.mark.asyncio
@@ -101,7 +101,7 @@ async def test_state_template_in_injected_config_is_resolved() -> None:
                 "setter", SetVariableNode(name="setter", variables={"who": "world"})
             )
             graph.add_node(
-                "echo", Echo(name="echo", label="{{results.setter.who}}")
+                "echo", Echo(name="echo", label="{{node_results.setter.who}}")
             )
             graph.add_edge(START, "setter")
             graph.add_edge("setter", "echo")
@@ -113,7 +113,7 @@ async def test_state_template_in_injected_config_is_resolved() -> None:
 
     result = await compiled.ainvoke({"inputs": {}})
 
-    assert result["results"]["echo"] == {"echo": "world"}
+    assert result["node_results"]["echo"] == {"echo": "world"}
 
 
 @pytest.mark.asyncio
@@ -218,7 +218,7 @@ def test_interpret_outputs_hoists_reserved_state_fields() -> None:
     assert result == {
         "inputs": {"message": "hello"},
         "messages": [{"role": "user", "content": "hello"}],
-        "results": {"code": {"value": 1}},
+        "node_results": {"code": {"value": 1}},
     }
 
 

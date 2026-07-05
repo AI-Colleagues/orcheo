@@ -33,7 +33,7 @@ async def test_telegram_listener_node_returns_normalized_payload() -> None:
                     "metadata": {"node_name": "telegram_listener"},
                 }
             },
-            "results": {},
+            "node_results": {},
         }
     )
 
@@ -47,7 +47,7 @@ async def test_telegram_listener_node_returns_normalized_payload() -> None:
 @pytest.mark.asyncio
 async def test_listener_node_skips_mismatched_platform() -> None:
     node = TelegramBotListenerNode(name="telegram_listener")
-    state = State({"inputs": {"listener": {"platform": "discord"}}, "results": {}})
+    state = State({"inputs": {"listener": {"platform": "discord"}}, "node_results": {}})
 
     result = await node.run(state, RunnableConfig())
     assert result["should_process"] is False
@@ -65,7 +65,7 @@ async def test_listener_node_processes_direct_platform_inputs() -> None:
                 "chat_id": "555",
                 "message": {"chat_id": "555", "text": "hi"},
             },
-            "results": {},
+            "node_results": {},
         }
     )
 
@@ -79,7 +79,7 @@ async def test_listener_node_skips_when_inputs_do_not_contain_listener_payload()
     None
 ):
     node = TelegramBotListenerNode(name="telegram_listener")
-    state = State({"inputs": ["invalid-shape"], "results": {}})
+    state = State({"inputs": ["invalid-shape"], "node_results": {}})
 
     result = await node.run(state, RunnableConfig())
     assert result["platform"] == "telegram"
@@ -96,7 +96,7 @@ async def test_listener_node_platform_mismatch_without_listener_dict() -> None:
                 "listener": "invalid-shape",
                 "platform": "discord",
             },
-            "results": {},
+            "node_results": {},
         }
     )
 

@@ -635,7 +635,7 @@ class ChunkingStrategyNode(TaskNode):
         return {"chunks": chunks}
 
     def _resolve_documents(self, state: State) -> list[Document]:
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         source = results.get(self.source_result_key, {})
         if isinstance(source, dict) and self.documents_field in source:
             documents = source[self.documents_field]
@@ -738,7 +738,7 @@ class MetadataExtractorNode(TaskNode):
         return {"documents": enriched}
 
     def _resolve_documents(self, state: State) -> list[Document]:
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         source = results.get(self.source_result_key, {})
         if isinstance(source, dict) and self.documents_field in source:
             documents = source[self.documents_field]
@@ -970,7 +970,7 @@ class ChunkEmbeddingNode(TaskNode):
         return metadata
 
     def _resolve_chunks(self, state: State) -> list[DocumentChunk]:
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         source = results.get(self.source_result_key, {})
         if isinstance(source, dict) and self.chunks_field in source:
             chunks = source[self.chunks_field]
@@ -1217,7 +1217,7 @@ class VectorStoreUpsertNode(TaskNode):
         self,
         state: State,
     ) -> dict[str, list[VectorRecord]]:
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         source = results.get(self.source_result_key, {})
         if isinstance(source, dict) and self.embeddings_field in source:
             payload = source[self.embeddings_field]
@@ -1344,7 +1344,7 @@ class IncrementalIndexerNode(TaskNode):
         }
 
     def _resolve_chunks(self, state: State) -> list[DocumentChunk]:
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         source = results.get(self.source_result_key, {})
         if isinstance(source, dict) and self.chunks_field in source:
             chunks = source[self.chunks_field]

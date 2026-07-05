@@ -81,11 +81,11 @@ def generate_workflow_template_data() -> dict[str, str]:
 Orcheo loads any top-level StateGraph or a `orcheo_workflow` function (sync or async)
 that returns one.
 
-Key points:
-- Build `StateGraph(State)`; `State` provides `inputs`, `results`, `messages`,
+- Build `StateGraph(State)`; `State` provides `inputs`, `node_results`, `messages`,
   `structured_response`, and `config`.
-- Task nodes return `{"results": {node_name: ...}}`; results merge by node name.
-- Template node fields with `{{inputs.foo}}` or `{{results.node_name}}`.
+- Task nodes return ordinary payload fields; non-state fields merge under
+  `node_results.<node_name>`.
+- Template node fields with `{{inputs.foo}}` or `{{node_results.node_name}}`.
 - RestrictedPython: no relative imports or leading-underscore variables.
 """
 

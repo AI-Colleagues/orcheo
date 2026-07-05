@@ -669,7 +669,7 @@ class AgentensorNode(TaskNode):
             return state
         return {
             "messages": [],
-            "results": {},
+            "node_results": {},
             "inputs": dict(inputs),
             "structured_response": None,
             "config": runtime_config,
@@ -678,8 +678,8 @@ class AgentensorNode(TaskNode):
     @staticmethod
     def _extract_output(output_state: Any) -> Any:
         if isinstance(output_state, Mapping):
-            if "results" in output_state:
-                return output_state["results"]
+            if "node_results" in output_state:
+                return output_state["node_results"]
             if "output" in output_state:
                 return output_state["output"]
         return output_state

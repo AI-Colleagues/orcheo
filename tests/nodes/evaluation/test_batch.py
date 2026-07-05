@@ -199,7 +199,7 @@ async def test_batch_eval_reads_conversations_from_results() -> None:
     node = ConversationalBatchEvalNode(name="batch")
     state = State(
         inputs={},
-        results={"dataset": {"conversations": QRECC_CONVERSATIONS}},
+        node_results={"dataset": {"conversations": QRECC_CONVERSATIONS}},
     )
     result = await node.run(state, {})
 
@@ -279,7 +279,7 @@ class PrefixNode(TaskNode):
     """Mock pipeline node that prepends 'PREFIX:' to the query."""
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        query = state.get("results", {}).get("rewrite", {}).get("query", "")
+        query = state.get("node_results", {}).get("rewrite", {}).get("query", "")
         return {"query": f"PREFIX: {query}"}
 
 
@@ -574,7 +574,7 @@ async def test_batch_eval_resolves_conversations_from_direct_results() -> None:
     node = ConversationalBatchEvalNode(name="batch")
     state = State(
         inputs={},
-        results={"conversations": QRECC_CONVERSATIONS},
+        node_results={"conversations": QRECC_CONVERSATIONS},
     )
     result = await node.run(state, {})
 
@@ -588,7 +588,7 @@ async def test_batch_eval_fallback_when_no_conversations_found() -> None:
     node = ConversationalBatchEvalNode(name="batch")
     state = State(
         inputs={},
-        results={"other": {"some_key": "value"}},
+        node_results={"other": {"some_key": "value"}},
     )
     with pytest.raises(ValueError, match="expects conversations list"):
         await node.run(state, {})
@@ -611,7 +611,7 @@ def test_batch_eval_extract_prediction_from_results_values() -> None:
     """_extract_prediction searches reversed results values."""
     node = ConversationalBatchEvalNode(name="batch", prediction_field="query")
     result_state = {
-        "results": {
+        "node_results": {
             "node_a": {"other": "data"},
             "node_b": {"query": "from node_b"},
         }
@@ -624,7 +624,7 @@ def test_batch_eval_extract_prediction_from_inputs() -> None:
     """_extract_prediction falls back to inputs mapping."""
     node = ConversationalBatchEvalNode(name="batch", prediction_field="query")
     result_state = {
-        "results": {"node_a": {"other": "data"}},
+        "node_results": {"node_a": {"other": "data"}},
         "inputs": {"query": "from inputs"},
     }
     result = node._extract_prediction(result_state, "fallback")
@@ -635,7 +635,7 @@ def test_batch_eval_extract_prediction_ultimate_fallback() -> None:
     """_extract_prediction returns fallback when nothing found anywhere."""
     node = ConversationalBatchEvalNode(name="batch", prediction_field="query")
     result_state = {
-        "results": {"node_a": {"other": "data"}},
+        "node_results": {"node_a": {"other": "data"}},
         "inputs": {"other": "data"},
     }
     result = node._extract_prediction(result_state, "fallback")
@@ -648,7 +648,7 @@ async def test_batch_eval_resolves_from_nested_results_iteration() -> None:
     node = ConversationalBatchEvalNode(name="batch")
     state = State(
         inputs={},
-        results={
+        node_results={
             "other_node": {"conversations": QRECC_CONVERSATIONS},
         },
     )
@@ -661,7 +661,7 @@ def test_batch_eval_extract_prediction_skips_non_mapping_results_values() -> Non
     """_extract_prediction skips non-Mapping entries in results values."""
     node = ConversationalBatchEvalNode(name="batch", prediction_field="query")
     result_state: dict[str, Any] = {
-        "results": {
+        "node_results": {
             "node_a": "not_a_mapping",
             "node_b": {"query": "found"},
         },
@@ -674,7 +674,7 @@ def test_batch_eval_extract_prediction_inputs_fallback_no_match() -> None:
     """_extract_prediction checks inputs but field not present, uses fallback."""
     node = ConversationalBatchEvalNode(name="batch", prediction_field="query")
     result_state: dict[str, Any] = {
-        "results": {},
+        "node_results": {},
         "inputs": {"message": "no query field"},
     }
     result = node._extract_prediction(result_state, "fallback")

@@ -55,7 +55,9 @@ async def test_dense_search_node_returns_ranked_results() -> None:
         filter_metadata={"source": "demo"},
     )
     state = State(
-        inputs={"query": "orcheo improves graphs"}, results={}, structured_response=None
+        inputs={"query": "orcheo improves graphs"},
+        node_results={},
+        structured_response=None,
     )
 
     result = await node.run(state, {})
@@ -72,7 +74,7 @@ async def test_dense_search_node_requires_non_empty_query() -> None:
         embed_model="test:fake",
         model_kwargs={},
     )
-    state = State(inputs={"query": ""}, results={}, structured_response=None)
+    state = State(inputs={"query": ""}, node_results={}, structured_response=None)
 
     with pytest.raises(
         ValueError, match="DenseSearchNode requires a non-empty query string"
@@ -171,7 +173,7 @@ async def test_sparse_search_orders_chunks_by_score() -> None:
     ]
     state = State(
         inputs={"query": "bananas"},
-        results={"chunking_strategy": {"chunks": chunks}},
+        node_results={"chunking_strategy": {"chunks": chunks}},
         structured_response=None,
     )
     node = SparseSearchNode(
@@ -188,7 +190,7 @@ async def test_sparse_search_orders_chunks_by_score() -> None:
 @pytest.mark.asyncio
 async def test_sparse_search_requires_non_empty_query() -> None:
     node = SparseSearchNode(name="sparse")
-    state = State(inputs={"query": "   "}, results={}, structured_response=None)
+    state = State(inputs={"query": "   "}, node_results={}, structured_response=None)
 
     with pytest.raises(
         ValueError, match="SparseSearchNode requires a non-empty query string"
@@ -199,7 +201,9 @@ async def test_sparse_search_requires_non_empty_query() -> None:
 @pytest.mark.asyncio
 async def test_sparse_search_requires_chunks() -> None:
     node = SparseSearchNode(name="sparse")
-    state = State(inputs={"query": "bananas"}, results={}, structured_response=None)
+    state = State(
+        inputs={"query": "bananas"}, node_results={}, structured_response=None
+    )
 
     result = await node.run(state, {})
 
@@ -236,7 +240,7 @@ async def test_sparse_search_vector_store_candidates() -> None:
         embed_model="test:fake",
         model_kwargs={},
     )
-    state = State(inputs={"query": "apples"}, results={}, structured_response=None)
+    state = State(inputs={"query": "apples"}, node_results={}, structured_response=None)
 
     result = await node.run(state, {})
 
@@ -393,7 +397,7 @@ async def test_sparse_search_uses_sparse_model_for_vector_store_query() -> None:
         sparse_model="test:fake",
         sparse_kwargs={},
     )
-    state = State(inputs={"query": "apple"}, results={}, structured_response=None)
+    state = State(inputs={"query": "apple"}, node_results={}, structured_response=None)
 
     result = await node.run(state, {})
 
@@ -435,7 +439,7 @@ def test_sparse_resolve_chunks_rejects_non_list_payload() -> None:
     node = SparseSearchNode(name="sparse")
     state = State(
         inputs={},
-        results={"chunking_strategy": {"chunks": {"not": "a list"}}},
+        node_results={"chunking_strategy": {"chunks": {"not": "a list"}}},
         structured_response=None,
     )
 
@@ -488,7 +492,7 @@ async def test_hybrid_fusion_rrf_combines_sources() -> None:
     ]
     state = State(
         inputs={},
-        results={
+        node_results={
             "retrieval_results": {"dense": dense_results, "sparse": sparse_results}
         },
         structured_response=None,
@@ -512,7 +516,9 @@ async def test_hybrid_fusion_weighted_sum_respects_weights() -> None:
         ],
     }
     state = State(
-        inputs={}, results={"retrieval_results": retrievers}, structured_response=None
+        inputs={},
+        node_results={"retrieval_results": retrievers},
+        structured_response=None,
     )
     node = HybridFusionNode(
         name="hybrid-weighted",
@@ -531,7 +537,7 @@ async def test_hybrid_fusion_weighted_sum_respects_weights() -> None:
 async def test_hybrid_fusion_requires_results_mapping() -> None:
     node = HybridFusionNode(name="hybrid")
     state = State(
-        inputs={}, results={"retrieval_results": {}}, structured_response=None
+        inputs={}, node_results={"retrieval_results": {}}, structured_response=None
     )
 
     with pytest.raises(
@@ -545,7 +551,7 @@ async def test_hybrid_fusion_requires_valid_strategy() -> None:
     node = HybridFusionNode(name="hybrid", strategy="bad")
     state = State(
         inputs={},
-        results={
+        node_results={
             "retrieval_results": {
                 "dense": [
                     SearchResult(
@@ -568,7 +574,7 @@ async def test_hybrid_fusion_rejects_non_list_entries() -> None:
     node = HybridFusionNode(name="hybrid")
     state = State(
         inputs={},
-        results={"retrieval_results": {"dense": {"results": "not a list"}}},
+        node_results={"retrieval_results": {"dense": {"results": "not a list"}}},
         structured_response=None,
     )
 
@@ -588,7 +594,9 @@ async def test_hybrid_fusion_handles_payload_with_results_key() -> None:
         }
     }
     state = State(
-        inputs={}, results={"retrieval_results": retrievers}, structured_response=None
+        inputs={},
+        node_results={"retrieval_results": retrievers},
+        structured_response=None,
     )
     node = HybridFusionNode(name="hybrid", strategy="rrf", top_k=1)
 
@@ -602,7 +610,7 @@ async def test_pinecone_rerank_returns_empty_for_missing_entries() -> None:
     node = PineconeRerankNode(name="pinecone")
     state = State(
         inputs={"query": "test"},
-        results={"fusion": []},
+        node_results={"fusion": []},
         structured_response=None,
     )
 
@@ -622,7 +630,9 @@ async def test_pinecone_rerank_requires_inference_interface() -> None:
     node = PineconeRerankNode(name="pinecone")
     node.client = SimpleNamespace()
     state = State(
-        inputs={"query": "what"}, results={"fusion": [entry]}, structured_response=None
+        inputs={"query": "what"},
+        node_results={"fusion": [entry]},
+        structured_response=None,
     )
 
     with pytest.raises(
@@ -659,7 +669,7 @@ async def test_pinecone_rerank_handles_async_inference() -> None:
     )
     state = State(
         inputs={"query": "what"},
-        results={"fusion": [entry]},
+        node_results={"fusion": [entry]},
         structured_response=None,
     )
 
@@ -699,7 +709,7 @@ async def test_pinecone_rerank_handles_sync_inference_with_data_attr() -> None:
     )
     state = State(
         inputs={"query": "what"},
-        results={"fusion": [entry]},
+        node_results={"fusion": [entry]},
         structured_response=None,
     )
 
@@ -717,7 +727,7 @@ def test_pinecone_rerank_requires_query_string() -> None:
         match="PineconeRerankNode requires a non-empty query string",
     ):
         node._resolve_query(
-            State(inputs={"query": "   "}, results={}, structured_response=None)
+            State(inputs={"query": "   "}, node_results={}, structured_response=None)
         )
 
 
@@ -790,7 +800,7 @@ def test_pinecone_rerank_resolve_client_constructs_client(
 
 
 def test_resolve_retrieval_results_returns_empty_for_missing_entries() -> None:
-    state = State(inputs={}, results={"fusion": None}, structured_response=None)
+    state = State(inputs={}, node_results={"fusion": None}, structured_response=None)
     assert _resolve_retrieval_results(state, "fusion", "results") == []
 
 
@@ -805,7 +815,7 @@ def test_resolve_retrieval_results_skips_null_items() -> None:
     }
     state = State(
         inputs={},
-        results={"fusion": [entry_payload, None]},
+        node_results={"fusion": [entry_payload, None]},
         structured_response=None,
     )
 
@@ -825,7 +835,7 @@ def test_resolve_retrieval_results_supports_nested_results_field() -> None:
     }
     state = State(
         inputs={},
-        results={"fusion": {"results": [entry_payload]}},
+        node_results={"fusion": {"results": [entry_payload]}},
         structured_response=None,
     )
 
@@ -838,7 +848,7 @@ def test_resolve_retrieval_results_supports_nested_results_field() -> None:
 def test_resolve_retrieval_results_raises_for_non_list_entries() -> None:
     state = State(
         inputs={},
-        results={"fusion": {"results": "invalid"}},
+        node_results={"fusion": {"results": "invalid"}},
         structured_response=None,
     )
 
@@ -877,7 +887,7 @@ async def test_reranker_node_scores_and_sorts_entries() -> None:
     )
     state = State(
         inputs={},
-        results={"fusion": {"results": entries}},
+        node_results={"fusion": {"results": entries}},
         structured_response=None,
     )
 
@@ -900,7 +910,7 @@ async def test_reranker_node_uses_base_score_without_custom_function() -> None:
     node = ReRankerNode(name="reranker", source_result_key="fusion", length_penalty=0.0)
     state = State(
         inputs={},
-        results={"fusion": {"results": [entry]}},
+        node_results={"fusion": {"results": [entry]}},
         structured_response=None,
     )
 
@@ -944,7 +954,7 @@ async def test_source_router_groups_and_filters_results() -> None:
     )
     state = State(
         inputs={},
-        results={"fusion": {"results": entries}},
+        node_results={"fusion": {"results": entries}},
         structured_response=None,
     )
 
@@ -967,7 +977,7 @@ async def test_source_router_accepts_list_payload_without_results_key() -> None:
     node = SourceRouterNode(name="router", source_result_key="fusion")
     state = State(
         inputs={},
-        results={"fusion": [entry]},
+        node_results={"fusion": [entry]},
         structured_response=None,
     )
 
@@ -980,7 +990,7 @@ def test_source_router_rejects_non_list_entries() -> None:
     node = SourceRouterNode(name="router", source_result_key="fusion")
     state = State(
         inputs={},
-        results={"fusion": {"results": "bad"}},
+        node_results={"fusion": {"results": "bad"}},
         structured_response=None,
     )
 
@@ -1007,7 +1017,7 @@ async def test_adapter_converts_mapping_entries() -> None:
     ]
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter")
@@ -1025,7 +1035,7 @@ async def test_adapter_payload_not_dict_with_results_field() -> None:
     entries = [{"id": "r1", "score": 1.0, "text": "t", "metadata": {}, "source": "s"}]
     state = State(
         inputs={},
-        results={"retriever": entries},
+        node_results={"retriever": entries},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter")
@@ -1039,7 +1049,7 @@ async def test_adapter_payload_not_dict_with_results_field() -> None:
 async def test_adapter_returns_empty_for_none_entries() -> None:
     state = State(
         inputs={},
-        results={"retriever": {"results": None}},
+        node_results={"retriever": {"results": None}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter")
@@ -1053,7 +1063,7 @@ async def test_adapter_returns_empty_for_none_entries() -> None:
 async def test_adapter_rejects_non_list_entries() -> None:
     state = State(
         inputs={},
-        results={"retriever": {"results": "invalid"}},
+        node_results={"retriever": {"results": "invalid"}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter")
@@ -1072,7 +1082,7 @@ async def test_adapter_skips_none_entries() -> None:
     ]
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter")
@@ -1093,7 +1103,7 @@ async def test_adapter_passes_through_search_result_instances() -> None:
     )
     state = State(
         inputs={},
-        results={"retriever": {"results": [sr]}},
+        node_results={"retriever": {"results": [sr]}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter")
@@ -1116,7 +1126,7 @@ async def test_adapter_applies_source_override_to_search_result() -> None:
     )
     state = State(
         inputs={},
-        results={"retriever": {"results": [sr]}},
+        node_results={"retriever": {"results": [sr]}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter", source_name="override")
@@ -1141,7 +1151,7 @@ async def test_adapter_applies_source_override_when_already_present() -> None:
     )
     state = State(
         inputs={},
-        results={"retriever": {"results": [sr]}},
+        node_results={"retriever": {"results": [sr]}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter", source_name="mine")
@@ -1155,7 +1165,7 @@ async def test_adapter_applies_source_override_when_already_present() -> None:
 async def test_adapter_rejects_non_mapping_entry() -> None:
     state = State(
         inputs={},
-        results={"retriever": {"results": [42]}},
+        node_results={"retriever": {"results": [42]}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter")
@@ -1179,7 +1189,7 @@ async def test_adapter_extracts_metadata_from_raw_field() -> None:
     ]
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter", metadata_field=None, raw_field="raw")
@@ -1194,7 +1204,7 @@ async def test_adapter_extract_metadata_returns_empty_when_not_found() -> None:
     entries = [{"id": "r1", "score": 1.0, "text": "t"}]
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter", metadata_field=None, raw_field=None)
@@ -1209,7 +1219,7 @@ async def test_adapter_extract_source_from_entry() -> None:
     entries = [{"id": "r1", "score": 1.0, "text": "t", "source": "my_source"}]
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter")
@@ -1224,7 +1234,7 @@ async def test_adapter_source_name_overrides_mapping_source() -> None:
     entries = [{"id": "r1", "score": 1.0, "text": "t", "source": "from-entry"}]
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter", source_name="override")
@@ -1239,7 +1249,7 @@ async def test_adapter_extract_source_returns_none_for_blank() -> None:
     entries = [{"id": "r1", "score": 1.0, "text": "t", "source": "   "}]
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter")
@@ -1261,7 +1271,7 @@ async def test_adapter_extract_sources_from_list() -> None:
     ]
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter")
@@ -1276,7 +1286,7 @@ async def test_adapter_extract_sources_from_string() -> None:
     entries = [{"id": "r1", "score": 1.0, "text": "t", "sources": "single"}]
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter")
@@ -1292,7 +1302,7 @@ async def test_adapter_extract_sources_falls_back_to_source() -> None:
     entries = [{"id": "r1", "score": 1.0, "text": "t", "source": "fallback"}]
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter")
@@ -1307,7 +1317,7 @@ async def test_adapter_coerce_score_from_string() -> None:
     entries = [{"id": "r1", "score": "0.75", "text": "t"}]
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter")
@@ -1322,7 +1332,7 @@ async def test_adapter_coerce_score_invalid_string_uses_default() -> None:
     entries = [{"id": "r1", "score": "bad", "text": "t"}]
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter", default_score=0.5)
@@ -1337,7 +1347,7 @@ async def test_adapter_coerce_score_none_uses_default() -> None:
     entries = [{"id": "r1", "text": "t"}]
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter", default_score=0.1)
@@ -1373,7 +1383,7 @@ async def test_adapter_extract_metadata_raw_field_not_mapping() -> None:
     entries = [{"id": "r1", "score": 1.0, "text": "t", "raw": "not-a-dict"}]
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter", metadata_field=None, raw_field="raw")
@@ -1397,7 +1407,7 @@ async def test_adapter_extract_sources_neither_list_nor_string() -> None:
     ]
     state = State(
         inputs={},
-        results={"retriever": {"results": entries}},
+        node_results={"retriever": {"results": entries}},
         structured_response=None,
     )
     node = SearchResultAdapterNode(name="adapter")
@@ -1421,7 +1431,7 @@ async def test_sparse_search_requires_embed_model_without_sparse_model() -> None
     )
     state = State(
         inputs={"query": "test query"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 

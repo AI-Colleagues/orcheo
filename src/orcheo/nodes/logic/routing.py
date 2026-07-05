@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 from orcheo.graph.state import State
-from orcheo.nodes.base import AINode
+from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
 
 
@@ -18,8 +18,7 @@ from orcheo.nodes.registry import NodeMetadata, registry
         category="logic",
     )
 )
-# TODO: Reconsider AINode inheritance; this node performs deterministic routing.
-class StructuredRouterDispatchNode(AINode):
+class StructuredRouterDispatchNode(TaskNode):
     """Convert a structured response into a branch route and optional reply."""
 
     structured_response_key: str = Field(
@@ -77,13 +76,13 @@ class StructuredRouterDispatchNode(AINode):
 
         if action == self.route_action_value and branch:
             nested[self.routing_field] = branch
-            return {"results": {self.name: nested}}
+            return nested
 
         message = str(self._decision_value(decision, self.message_field) or "").strip()
         if not message:
             message = self.assistant_message_fallback
         nested[self.routing_field] = self.respond_action_value
-        return {"assistant_message": message, "results": {self.name: nested}}
+        return {"assistant_message": message, **nested}
 
 
 @registry.register(
@@ -93,8 +92,7 @@ class StructuredRouterDispatchNode(AINode):
         category="logic",
     )
 )
-# TODO: Reconsider AINode inheritance; this node only extracts existing text.
-class ExtractAIMessageNode(AINode):
+class ExtractAIMessageNode(TaskNode):
     """Extract a text assistant message from structured agent output."""
 
     structured_response_key: str = Field(

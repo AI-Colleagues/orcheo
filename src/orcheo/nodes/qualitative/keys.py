@@ -8,7 +8,7 @@ class QualitativeResultKeys(BaseModel):
     """Result-channel names used by a qualitative workflow.
 
     Each logical field has a ``*_field`` name (the key written under
-    ``results[<node>]``) and a ``*_producers`` tuple listing the nodes that may
+    ``node_results[<node>]``) and a ``*_producers`` tuple listing the nodes that may
     emit it, most-recent-first. Accessors read the first producer that carries a
     value, so a workflow specialises the shared nodes purely by passing a
     customised instance of this model.

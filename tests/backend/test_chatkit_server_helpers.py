@@ -114,7 +114,7 @@ def test_build_initial_state_langgraph_format() -> None:
     assert result["message"] == "Hello"
     assert result["metadata"] == {"key": "value"}
     assert result["messages"] == []
-    assert result["results"] == {}
+    assert result["node_results"] == {}
     assert result["config"] == {}
 
 
@@ -124,7 +124,7 @@ def test_build_initial_state_standard_format() -> None:
     result = build_initial_state(graph_config, inputs)
 
     assert "messages" in result
-    assert "results" in result
+    assert "node_results" in result
     assert "inputs" in result
     assert "config" in result
     assert result["inputs"] == inputs
@@ -190,15 +190,15 @@ def testextract_reply_from_state_with_none_reply() -> None:
     assert result is not None
 
 
-def testextract_reply_from_state_from_results_dict() -> None:
-    state = {"results": {"node_a": {"reply": "Reply from results"}}}
+def testextract_reply_from_state_from_node_results_dict() -> None:
+    state = {"node_results": {"node_a": {"reply": "Reply from results"}}}
     result = extract_reply_from_state(state)
     assert result == "Reply from results"
 
 
-def testextract_reply_from_state_from_results_assistant_message() -> None:
+def testextract_reply_from_state_from_node_results_assistant_message() -> None:
     state = {
-        "results": {
+        "node_results": {
             "node_a": {
                 "phase": "awaiting_objective",
                 "assistant_message": "Assistant reply from results",
@@ -209,9 +209,9 @@ def testextract_reply_from_state_from_results_assistant_message() -> None:
     assert result == "Assistant reply from results"
 
 
-def testextract_reply_from_state_from_results_none_assistant_message() -> None:
+def testextract_reply_from_state_from_node_results_none_assistant_message() -> None:
     state = {
-        "results": {
+        "node_results": {
             "node_a": {
                 "assistant_message": None,
                 "reply": "Nested reply",
@@ -222,8 +222,8 @@ def testextract_reply_from_state_from_results_none_assistant_message() -> None:
     assert result == "Nested reply"
 
 
-def testextract_reply_from_state_from_results_string() -> None:
-    state = {"results": {"node_a": "String result"}}
+def testextract_reply_from_state_from_node_results_string() -> None:
+    state = {"node_results": {"node_a": "String result"}}
     result = extract_reply_from_state(state)
     assert result == "String result"
 
@@ -240,8 +240,8 @@ def testextract_reply_from_state_returns_none() -> None:
     assert result is None
 
 
-def testextract_reply_from_state_with_results_non_string_value() -> None:
-    state = {"results": {"node_a": {"other": "value"}}}
+def testextract_reply_from_state_with_node_results_non_string_value() -> None:
+    state = {"node_results": {"node_a": {"other": "value"}}}
     result = extract_reply_from_state(state)
     assert result is None
 
@@ -252,8 +252,8 @@ def testextract_reply_from_state_with_empty_messages() -> None:
     assert result is None
 
 
-def testextract_reply_from_state_with_none_reply_in_results() -> None:
-    state = {"results": {"node_a": {"reply": None}, "node_b": "fallback"}}
+def testextract_reply_from_state_with_none_reply_in_node_results() -> None:
+    state = {"node_results": {"node_a": {"reply": None}, "node_b": "fallback"}}
     result = extract_reply_from_state(state)
     assert result == "fallback"
 

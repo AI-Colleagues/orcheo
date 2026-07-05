@@ -34,7 +34,7 @@ def test_decode_string_value_credential_placeholder(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runnable = MinimalRunnable(name="demo")
-    state = cast(State, {"results": {}})
+    state = cast(State, {"node_results": {}})
     reference = CredentialReference(identifier="service", payload_path=("secret",))
 
     monkeypatch.setattr(
@@ -80,7 +80,7 @@ def test_decode_variables_ignores_config_for_non_mapping_state() -> None:
 def test_decode_value_returns_plain_values_unchanged() -> None:
     runnable = MinimalRunnable(name="demo")
 
-    assert runnable._decode_value(123, cast(State, {"results": {}})) == 123
+    assert runnable._decode_value(123, cast(State, {"node_results": {}})) == 123
 
 
 def test_decode_string_value_traverses_base_model_attributes() -> None:
@@ -88,17 +88,17 @@ def test_decode_string_value_traverses_base_model_attributes() -> None:
         value: str
 
     runnable = MinimalRunnable(name="demo")
-    state = cast(State, {"model": NestedModel(value="from-model"), "results": {}})
+    state = cast(State, {"model": NestedModel(value="from-model"), "node_results": {}})
 
     decoded = runnable._decode_string_value("{{model.value}}", state)
 
     assert decoded == "from-model"
 
 
-def test_fallback_to_results_skips_explicit_results_path() -> None:
-    state = cast(State, {"results": {"node1": "value"}})
+def test_fallback_to_node_results_skips_explicit_node_results_path() -> None:
+    state = cast(State, {"node_results": {"node1": "value"}})
 
-    fallback = BaseNode._fallback_to_results(["results", "node1"], 0, state)
+    fallback = BaseNode._fallback_to_node_results(["node_results", "node1"], 0, state)
 
     assert fallback is None
 
@@ -136,6 +136,6 @@ def test_serialize_result_handles_computed_fields_and_collections() -> None:
 async def test_noop_task_node_run_returns_empty_payload() -> None:
     node = NoOpTaskNode(name="noop")
 
-    result = await node.run(cast(State, {"results": {}}), RunnableConfig())
+    result = await node.run(cast(State, {"node_results": {}}), RunnableConfig())
 
     assert result == {}

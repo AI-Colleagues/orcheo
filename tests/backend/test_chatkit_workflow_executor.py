@@ -567,7 +567,7 @@ async def test_execute_graph_surfaces_new_interrupt_as_reply(
 
         async def aget_state(self, config):
             return SimpleNamespace(
-                values={"results": {"agent": {"branch": "human"}}},
+                values={"node_results": {"agent": {"branch": "human"}}},
                 interrupts=(DummyInterrupt(),),
             )
 

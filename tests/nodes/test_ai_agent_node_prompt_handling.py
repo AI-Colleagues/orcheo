@@ -95,7 +95,7 @@ def test_decode_variables_interpolates_mixed_system_prompt_templates() -> None:
     )
     state = State(
         {
-            "results": {
+            "node_results": {
                 "resolve_attendee_id": {
                     "internal_user_id": "alice",
                     "external_userid": "wxid_42",
@@ -123,7 +123,7 @@ def test_compute_run_updates_skips_deferred_fields_and_decodes_others() -> None:
     state = State(
         {
             "inputs": {"ctx": "my-ctx"},
-            "results": {},
+            "node_results": {},
         }
     )
 

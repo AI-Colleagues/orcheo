@@ -160,7 +160,7 @@ class LarkSendMessageNode(TaskNode):
 
     async def _resolve_access_token(self, state: State) -> str:
         """Resolve the tenant access token from prior results or fetch it."""
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         if isinstance(results, dict):
             token = _extract_tenant_access_token(results.get("get_lark_tenant_token"))
             if token is not None:

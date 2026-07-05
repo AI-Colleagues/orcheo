@@ -26,7 +26,7 @@ def _expr(code: str) -> ast.expr:
         "None",
         '["a", 1, {"k": "v"}]',
         '{"nested": {"deep": [1, 2, 3]}}',
-        '"hello {{state.results.x}} world"',
+        '"hello {{state.node_results.x}} world"',
     ],
 )
 def test_accepts_json_literals_and_templates(code: str) -> None:

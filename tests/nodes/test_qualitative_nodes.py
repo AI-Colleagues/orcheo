@@ -84,7 +84,7 @@ async def test_load_attachment_node_loads_inline_documents() -> None:
 
     result = await node(state, RunnableConfig())
 
-    attachments = result["results"]["load_attachments"]["attachments"]
+    attachments = result["node_results"]["load_attachments"]["attachments"]
     assert attachments == [
         {
             "filename": "survey.csv",
@@ -127,9 +127,8 @@ async def test_validate_files_node_accepts_raw_data_and_codebook() -> None:
 
     result = await node(State(load_result), RunnableConfig())
 
-    validated = result["results"]["validate_files"]
-    assert "assistant_message" not in result
-    assert validated["assistant_message"] == (
+    validated = result["node_results"]["validate_files"]
+    assert result["assistant_message"] == (
         "Files look valid: found data file `survey.csv` "
         "(1 record(s), survey_csv) and codebook `codebook.csv`."
     )
@@ -170,7 +169,7 @@ async def test_validate_files_node_rejects_coded_data_when_raw_expected() -> Non
     )
     state = State(
         {
-            "results": {
+            "node_results": {
                 "load_attachments": {
                     "attachments": [
                         {
@@ -186,10 +185,9 @@ async def test_validate_files_node_rejects_coded_data_when_raw_expected() -> Non
 
     result = await ValidateFilesNode(name="validate_files")(state, RunnableConfig())
 
-    validated = result["results"]["validate_files"]
-    assert "assistant_message" not in result
-    assert validated["assistant_message"].startswith("File validation failed.")
-    assert "raw data is expected" in validated["assistant_message"]
+    validated = result["node_results"]["validate_files"]
+    assert result["assistant_message"].startswith("File validation failed.")
+    assert "raw data is expected" in result["assistant_message"]
     assert validated["ok"] is False
     assert "No valid data file found." in validated["errors"]
     assert any("raw data is expected" in error for error in validated["errors"])
@@ -199,7 +197,7 @@ async def test_validate_files_node_rejects_coded_data_when_raw_expected() -> Non
 async def test_validate_files_node_emits_configured_data_field() -> None:
     state = State(
         {
-            "results": {
+            "node_results": {
                 "load_attachments": {
                     "attachments": [
                         {
@@ -216,7 +214,7 @@ async def test_validate_files_node_emits_configured_data_field() -> None:
 
     result = await node(state, RunnableConfig())
 
-    validated = result["results"]["validate_files"]
+    validated = result["node_results"]["validate_files"]
     assert validated["source_payload"] == {
         "filename": "survey.csv",
         "content": "id,text\n1,Clear setup.\n",
@@ -224,7 +222,7 @@ async def test_validate_files_node_emits_configured_data_field() -> None:
         "storage_path": None,
     }
     assert validated["data_file"]["filename"] == "survey.csv"
-    assert "Files look valid" in validated["assistant_message"]
+    assert "Files look valid" in result["assistant_message"]
 
 
 @pytest.mark.asyncio
@@ -249,7 +247,7 @@ async def test_validate_files_node_accepts_coded_data() -> None:
     )
     state = State(
         {
-            "results": {
+            "node_results": {
                 "load_attachments": {
                     "attachments": [
                         {
@@ -266,8 +264,8 @@ async def test_validate_files_node_accepts_coded_data() -> None:
 
     result = await node(state, RunnableConfig())
 
-    validated = result["results"]["validate_files"]
-    assert validated["assistant_message"] == (
+    validated = result["node_results"]["validate_files"]
+    assert result["assistant_message"] == (
         "Files look valid: found coded data file `coded_data.csv` "
         "(1 unit(s), 1 assignment(s))."
     )
@@ -285,7 +283,7 @@ async def test_ingest_node_parses_survey_rows() -> None:
     node = IngestNode(name="ingest")
     state = State(
         {
-            "results": {
+            "node_results": {
                 "setup": {
                     "source_payload": {
                         "filename": "survey.csv",
@@ -299,7 +297,7 @@ async def test_ingest_node_parses_survey_rows() -> None:
 
     result = await node(state, RunnableConfig())
 
-    ingest_result = result["results"]["ingest"]
+    ingest_result = result["node_results"]["ingest"]
     assert ingest_result["unit_count"] == 1
     assert ingest_result["units"][0]["text"] == "The setup was clear."
 
@@ -321,9 +319,10 @@ async def test_router_dispatch_node() -> None:
         }
     )
     routed = await router(routed_state, RunnableConfig())
-    assert routed["results"]["router_dispatch"]["routing"] == "generate_codebook"
+    assert routed["node_results"]["router_dispatch"]["routing"] == "generate_codebook"
     assert (
-        routed["results"]["router_dispatch"]["research_objective"] == "Understand trust"
+        routed["node_results"]["router_dispatch"]["research_objective"]
+        == "Understand trust"
     )
 
 
@@ -352,7 +351,7 @@ async def test_codebook_output_renders_markdown_table() -> None:
     )
     state = State(
         {
-            "results": {
+            "node_results": {
                 "ingest": {},
                 "setup": {"research_objective": "Understand onboarding"},
                 "codebook_consolidator_finalize": {
@@ -382,7 +381,7 @@ async def test_open_coder_finalize_prefers_structured_response_dict() -> None:
     )
     state = State(
         {
-            "results": {
+            "node_results": {
                 "ingest": {"units": [unit.model_dump(mode="json")]},
                 "open_coder_prepare": {
                     "batch_index": 0,
@@ -410,7 +409,9 @@ async def test_open_coder_finalize_prefers_structured_response_dict() -> None:
 
     result = await node(state, RunnableConfig())
 
-    assignments = result["results"]["open_coder_finalize"]["code_assignments_pass1"]
+    assignments = result["node_results"]["open_coder_finalize"][
+        "code_assignments_pass1"
+    ]
     assert assignments[0]["unit_id"] == "u1"
     assert assignments[0]["assignments"][0]["code_id"] == "clear setup"
 
@@ -438,10 +439,14 @@ async def test_data_quality_node_flags_and_reports() -> None:
         ),
     ]
     state = State(
-        {"results": {"ingest": {"units": [u.model_dump(mode="json") for u in units]}}}
+        {
+            "node_results": {
+                "ingest": {"units": [u.model_dump(mode="json") for u in units]}
+            }
+        }
     )
 
-    result = (await node(state, RunnableConfig()))["results"]["data_quality"]
+    result = (await node(state, RunnableConfig()))["node_results"]["data_quality"]
 
     assert result["quality_report"]["total_units"] == 3
     assert "low_effort" in result["quality_report"]["unit_flags"]["U0001"]
@@ -558,9 +563,11 @@ async def test_coded_data_ingest_node_quantifies() -> None:
     csv_text, _ = build_coded_data_csv(units, assignments, codebook)
 
     node = CodedDataIngestNode(name="ingest", result_keys=_REPORT_KEYS)
-    state = State({"results": {"setup": {"source_payload": {"content": csv_text}}}})
+    state = State(
+        {"node_results": {"setup": {"source_payload": {"content": csv_text}}}}
+    )
 
-    result = (await node(state, RunnableConfig()))["results"]["ingest"]
+    result = (await node(state, RunnableConfig()))["node_results"]["ingest"]
 
     assert result["halt"] is False
     assert result["unit_count"] == 2
@@ -583,13 +590,16 @@ async def test_coded_data_ingest_node_halts_without_assignments() -> None:
     ]
     csv_text, total = build_coded_data_csv(units, [], codebook)
     node = CodedDataIngestNode(name="ingest", result_keys=_REPORT_KEYS)
-    state = State({"results": {"setup": {"source_payload": {"content": csv_text}}}})
+    state = State(
+        {"node_results": {"setup": {"source_payload": {"content": csv_text}}}}
+    )
 
-    result = (await node(state, RunnableConfig()))["results"]["ingest"]
+    output = await node(state, RunnableConfig())
+    result = output["node_results"]["ingest"]
 
     assert total == 0
     assert result["halt"] is True
-    assert result["assistant_message"] == node.missing_assignments_message
+    assert output["assistant_message"] == node.missing_assignments_message
 
 
 @pytest.mark.asyncio
@@ -628,7 +638,7 @@ async def test_coded_data_ingest_node_quantifies_chained_results() -> None:
     )
     state = State(
         {
-            "results": {
+            "node_results": {
                 "setup": {"approved_codebook": codebook.model_dump(mode="json")},
                 "data_quality": {"units": [u.model_dump(mode="json") for u in units]},
                 "recoder_finalize": {
@@ -640,7 +650,7 @@ async def test_coded_data_ingest_node_quantifies_chained_results() -> None:
         }
     )
 
-    result = (await node(state, RunnableConfig()))["results"]["ingest"]
+    result = (await node(state, RunnableConfig()))["node_results"]["ingest"]
 
     assert result["unit_count"] == 2
     assert result["assignment_count"] == 2
@@ -680,7 +690,7 @@ async def test_recoder_finalize_merges_assignments() -> None:
     state = State(
         {
             "structured_response": structured,
-            "results": {
+            "node_results": {
                 "ingest": {"units": [u.model_dump(mode="json") for u in units]},
                 "setup": {"approved_codebook": codebook.model_dump(mode="json")},
                 "recoder_prepare": {
@@ -693,7 +703,7 @@ async def test_recoder_finalize_merges_assignments() -> None:
         }
     )
 
-    result = (await node(state, RunnableConfig()))["results"]["recoder_finalize"]
+    result = (await node(state, RunnableConfig()))["node_results"]["recoder_finalize"]
 
     assert result["continue_llm"] is False
     assert result["done"] is True

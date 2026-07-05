@@ -97,7 +97,7 @@ def extract_reply_from_state(  # noqa: C901, PLR0911
         if reply is not None:
             return str(reply)
 
-    results = state.get("results")
+    results = state.get("node_results")
     if isinstance(results, Mapping):
         for value in results.values():
             if isinstance(value, Mapping) and "assistant_message" in value:

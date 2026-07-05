@@ -47,7 +47,7 @@ class SubWorkflowNode(TaskNode):
         sub_state = State(
             {
                 "inputs": dict(state.get("inputs", {})),
-                "results": copy.deepcopy(state.get("results", {})),
+                "node_results": copy.deepcopy(state.get("node_results", {})),
                 "messages": list(state.get("messages", [])),
                 "structured_response": state.get("structured_response"),
                 "config": state.get("config"),
@@ -74,18 +74,18 @@ class SubWorkflowNode(TaskNode):
 
             node_instance = node_class(**params)
             output = await node_instance(sub_state, config)
-            node_payload = output["results"][node_name]
-            sub_state["results"][node_name] = node_payload
+            node_payload = output["node_results"][node_name]
+            sub_state["node_results"][node_name] = node_payload
 
             step_results.append({"name": node_name, "result": node_payload})
             result_lookup[node_name] = node_payload
 
         if self.propagate_to_parent:
-            parent_results = state.setdefault("results", {})
+            parent_results = state.setdefault("node_results", {})
             if isinstance(parent_results, Mapping):
-                parent_results.update(sub_state["results"])
+                parent_results.update(sub_state["node_results"])
             else:
-                state["results"] = sub_state["results"]
+                state["node_results"] = sub_state["node_results"]
 
         final_step = self.result_step or step_results[-1]["name"]
         final_result = result_lookup.get(final_step)

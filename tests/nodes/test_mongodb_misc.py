@@ -34,7 +34,7 @@ def test_run_method(mongo_context: MongoTestContext) -> None:
     mongo_context.collection.find.return_value = [{"_id": "1", "name": "doc1"}]
     node = mongo_context.build_node(operation="find", filter={"status": "active"})
 
-    state = State(messages=[], inputs={}, results={})
+    state = State(messages=[], inputs={}, node_results={})
     config = cast(RunnableConfig, {})
 
     result = asyncio.run(node.run(state, config))

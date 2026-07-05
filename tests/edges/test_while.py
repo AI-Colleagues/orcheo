@@ -13,36 +13,36 @@ async def test_while_node_iterations_and_limit() -> None:
     )
 
     # Iteration 0: 0 < 2 is True, 0 < max_iterations=2, continue
-    state = State({"results": {"loop": {"iteration": 0}}})
+    state = State({"node_results": {"loop": {"iteration": 0}}})
     first = await node(state, RunnableConfig())
     assert first == "continue"
 
     # Iteration 1: 1 < 2 is True, 1 < max_iterations=2, continue
-    state = State({"results": {"loop": {"iteration": 1}}})
+    state = State({"node_results": {"loop": {"iteration": 1}}})
     second = await node(state, RunnableConfig())
     assert second == "continue"
 
     # Iteration 2: at max_iterations=2, exit
-    state = State({"results": {"loop": {"iteration": 2}}})
+    state = State({"node_results": {"loop": {"iteration": 2}}})
     third = await node(state, RunnableConfig())
     assert third == "exit"
 
 
 def test_while_node_current_iteration_reads_state() -> None:
     node = WhileEdge(name="loop")
-    state = {"results": {"loop": {"iteration": 5}}}
+    state = {"node_results": {"loop": {"iteration": 5}}}
     assert node._current_iteration(state) == 5
 
-    empty_state = {"results": {"loop": {"iteration": "x"}}}
+    empty_state = {"node_results": {"loop": {"iteration": "x"}}}
     assert node._current_iteration(empty_state) == 0
 
-    missing_results_state: dict = {}
-    assert node._current_iteration(missing_results_state) == 0
+    missing_node_results_state: dict = {}
+    assert node._current_iteration(missing_node_results_state) == 0
 
 
 @pytest.mark.asyncio
 async def test_while_node_with_or_logic() -> None:
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = WhileEdge(
         name="loop",
         conditions=[
@@ -58,7 +58,7 @@ async def test_while_node_with_or_logic() -> None:
 
 @pytest.mark.asyncio
 async def test_while_node_without_max_iterations() -> None:
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = WhileEdge(
         name="loop",
         conditions=[{"operator": "less_than", "right": 5}],
@@ -69,9 +69,9 @@ async def test_while_node_without_max_iterations() -> None:
 
 
 @pytest.mark.asyncio
-async def test_while_node_missing_results_handled_gracefully() -> None:
-    """Test that While edge handles missing results dict gracefully."""
-    state = State({"inputs": {}})  # No results dict
+async def test_while_node_missing_node_results_handled_gracefully() -> None:
+    """Test that While edge handles missing node_results dict gracefully."""
+    state = State({"inputs": {}})  # No node_results dict
     node = WhileEdge(
         name="loop",
         conditions=[{"operator": "less_than", "right": 5}],

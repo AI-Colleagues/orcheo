@@ -15,7 +15,7 @@ def _empty_state() -> State:
     return State(
         messages=[],
         inputs={},
-        results={},
+        node_results={},
         structured_response=None,
         config=None,
     )

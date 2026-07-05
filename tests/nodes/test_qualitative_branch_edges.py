@@ -132,7 +132,7 @@ async def test_routing_nodes_cover_message_branch() -> None:
     )
 
     assert result["assistant_message"] == "hello"
-    assert result["results"]["router"]["routing"] == "respond"
+    assert result["node_results"]["router"]["routing"] == "respond"
 
 
 def test_summary_helpers_cover_false_paths() -> None:
@@ -928,12 +928,12 @@ async def test_stage_nodes_cover_remaining_branches(
         stage="open_coder",
         max_coding_batches=1,
     )
-    assert (await prepare(State({"results": {}}), {}))["results"]["open_coder_prepare"][
-        "skip_llm"
-    ]
+    assert (await prepare(State({"node_results": {}}), {}))["node_results"][
+        "open_coder_prepare"
+    ]["skip_llm"]
     open_state = State(
         {
-            "results": {
+            "node_results": {
                 "setup": {keys.research_objective_field: "Objective"},
                 "ingest": {
                     keys.units_field: [u.model_dump(mode="json") for u in units]
@@ -942,23 +942,23 @@ async def test_stage_nodes_cover_remaining_branches(
             }
         }
     )
-    assert (await prepare(open_state, {"configurable": {"batch_size": 1}}))["results"][
-        "open_coder_prepare"
-    ]["done"]
+    assert (await prepare(open_state, {"configurable": {"batch_size": 1}}))[
+        "node_results"
+    ]["open_coder_prepare"]["done"]
 
     consolidator = LLMStagePrepareNode(
         name="codebook_consolidator_prepare",
         stage="codebook_consolidator",
     )
-    no_assignments = (await consolidator(State({"results": {}}), {}))["results"][
-        "codebook_consolidator_prepare"
-    ]
+    no_assignments = (await consolidator(State({"node_results": {}}), {}))[
+        "node_results"
+    ]["codebook_consolidator_prepare"]
     assert no_assignments["action"] == "no_assignments"
     use_seed = (
         await consolidator(
             State(
                 {
-                    "results": {
+                    "node_results": {
                         "validate_files": {
                             keys.seed_codebook_field: codebook.model_dump(mode="json")
                         }
@@ -967,7 +967,7 @@ async def test_stage_nodes_cover_remaining_branches(
             ),
             {"configurable": {"seed_codebook": codebook.model_dump(mode="json")}},
         )
-    )["results"]["codebook_consolidator_prepare"]
+    )["node_results"]["codebook_consolidator_prepare"]
     assert use_seed["action"] == "use_seed"
 
     recoder = LLMStagePrepareNode(
@@ -975,21 +975,21 @@ async def test_stage_nodes_cover_remaining_branches(
         stage="recoder",
         max_coding_batches=1,
     )
-    assert (await recoder(State({"results": {}}), {}))["results"]["recoder_prepare"][
-        "skip_llm"
-    ]
+    assert (await recoder(State({"node_results": {}}), {}))["node_results"][
+        "recoder_prepare"
+    ]["skip_llm"]
 
     quote_selector = LLMStagePrepareNode(
         name="quote_selector_prepare", stage="quote_selector"
     )
-    assert (await quote_selector(State({"results": {}}), {}))["results"][
+    assert (await quote_selector(State({"node_results": {}}), {}))["node_results"][
         "quote_selector_prepare"
     ]["skip_llm"]
     quote_prompt = (
         await quote_selector(
             State(
                 {
-                    "results": {
+                    "node_results": {
                         "setup": {
                             keys.research_objective_field: "Objective",
                             keys.approved_codebook_field: codebook.model_dump(
@@ -1012,7 +1012,7 @@ async def test_stage_nodes_cover_remaining_branches(
             ),
             {"configurable": {"quotes_per_theme": 1}},
         )
-    )["results"]["quote_selector_prepare"]
+    )["node_results"]["quote_selector_prepare"]
     assert quote_prompt["fallback_quotes"]
 
     insight_generator = LLMStagePrepareNode(
@@ -1023,7 +1023,7 @@ async def test_stage_nodes_cover_remaining_branches(
         await insight_generator(
             State(
                 {
-                    "results": {
+                    "node_results": {
                         "setup": {
                             keys.research_objective_field: "Objective",
                             keys.approved_codebook_field: codebook.model_dump(
@@ -1044,7 +1044,7 @@ async def test_stage_nodes_cover_remaining_branches(
             ),
             {},
         )
-    )["results"]["insight_generator_prepare"]
+    )["node_results"]["insight_generator_prepare"]
     assert insight_prompt["fallback_insights"] == []
 
     finalize = LLMStageFinalizeNode(
@@ -1052,14 +1052,14 @@ async def test_stage_nodes_cover_remaining_branches(
         stage="open_coder",
         response_schema=None,
     )
-    assert (await finalize(State({"results": {"ingest": {}}}), {}))["results"][
-        "open_coder_finalize"
-    ]["done"] is True
+    assert (await finalize(State({"node_results": {"ingest": {}}}), {}))[
+        "node_results"
+    ]["open_coder_finalize"]["done"] is True
     assert (
         await finalize(
             State(
                 {
-                    "results": {
+                    "node_results": {
                         "ingest": {"units": [u.model_dump(mode="json") for u in units]},
                         "open_coder_finalize": {"next_index": 99},
                     }
@@ -1067,7 +1067,7 @@ async def test_stage_nodes_cover_remaining_branches(
             ),
             {},
         )
-    )["results"]["open_coder_finalize"]["done"]
+    )["node_results"]["open_coder_finalize"]["done"]
 
     class Payload(BaseModel):
         value: int
@@ -1095,14 +1095,14 @@ async def test_stage_nodes_cover_remaining_branches(
         stage="codebook_consolidator",
     )
     assert consolidator_finalize._finalize_consolidator(
-        State({"results": {"open_coder_finalize": {}}}),
+        State({"node_results": {"open_coder_finalize": {}}}),
         {},
         {"action": "no_assignments"},
     ) == {"done": True}
     seed_result = consolidator_finalize._finalize_consolidator(
         State(
             {
-                "results": {
+                "node_results": {
                     "open_coder_finalize": {
                         "code_assignments_pass1": [
                             a.model_dump(mode="json") for a in assignments
@@ -1122,13 +1122,13 @@ async def test_stage_nodes_cover_remaining_branches(
         default_batch_size=1,
     )
     assert recoder_finalize._finalize_recoder(
-        State({"results": {"ingest": {}, "setup": {}}}),
+        State({"node_results": {"ingest": {}, "setup": {}}}),
         {"skip_llm": True, "batch_index": 0},
     )["done"]
     assert recoder_finalize._finalize_recoder(
         State(
             {
-                "results": {
+                "node_results": {
                     "ingest": {"units": [u.model_dump(mode="json") for u in units]},
                     "setup": {"approved_codebook": codebook.model_dump(mode="json")},
                 }
@@ -1144,7 +1144,7 @@ async def test_stage_nodes_cover_remaining_branches(
         quote_finalize._finalize_quote_selector(
             State(
                 {
-                    "results": {
+                    "node_results": {
                         "setup": {
                             keys.approved_codebook_field: codebook.model_dump(
                                 mode="json"
@@ -1175,7 +1175,7 @@ async def test_stage_nodes_cover_remaining_branches(
     insight_result = insight_finalize._finalize_insight_generator(
         State(
             {
-                "results": {
+                "node_results": {
                     "ingest": {
                         keys.approved_codebook_field: codebook.model_dump(mode="json"),
                         keys.units_field: [u.model_dump(mode="json") for u in units],
@@ -1191,6 +1191,6 @@ async def test_stage_nodes_cover_remaining_branches(
     assert insight_result["halt"] is False
 
     unknown = LLMStageFinalizeNode.model_construct(name="unknown", stage="unknown")
-    assert (await unknown(State({"results": {}}), {}))["results"]["unknown"][
+    assert (await unknown(State({"node_results": {}}), {}))["node_results"]["unknown"][
         "halt"
     ] is True

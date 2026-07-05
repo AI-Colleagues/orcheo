@@ -112,9 +112,9 @@ class Grade(CodeNode):
     threshold: int = 5            # a configurable, sandbox-injected field
 
     async def run(self, state, config):
-        score = state["results"]["score"]["value"]
+        score = state["node_results"]["score"]["value"]
         verdict = "pass" if score >= self.threshold else "fail"
-        return {"verdict": verdict}   # stored under results.grade
+        return {"verdict": verdict}   # stored under node_results.grade
 
 
 async def orcheo_workflow() -> StateGraph:
@@ -132,7 +132,7 @@ Rules enforced at ingestion (line-referenced):
   `__subclasses__`, `__globals__`, …), which would otherwise let a body recover
   builtins/imports the allowlist blocks.
 - The body **returns this node's result payload**. Runtime execution wraps it
-  under `results.<name>`, matching `TaskNode`. At least one `return <value>` must
+  under `node_results.<name>`, matching `TaskNode`. At least one `return <value>` must
   appear in `run` itself, not only inside a nested helper function.
 - It may reference only its **injected fields** (`self.<field>`) plus the passed
   `state` and `config`.
@@ -147,7 +147,7 @@ The sandbox receives a JSON envelope and returns one:
 { "state": { ... }, "config": { "configurable": { ... } }, "configurable": { "threshold": 5 } }
 
 // output (sandbox -> host)
-{ "update": { "results": { "verdict": "pass" } } }      // success
+{ "update": { "node_results": { "verdict": "pass" } } }      // success
 { "error":  { "type": "ValueError", "message": "..." } } // body raised
 ```
 

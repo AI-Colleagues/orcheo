@@ -76,8 +76,8 @@ async def test_email_node_sends_message(monkeypatch: pytest.MonkeyPatch) -> None
         password="pass",
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["email"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["email"]
 
     assert dummy.started_tls is True
     assert dummy.logged_in == ("user", "pass")
@@ -109,8 +109,8 @@ async def test_email_node_supports_cc_and_bcc(monkeypatch: pytest.MonkeyPatch) -
         use_tls=False,
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["email"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["email"]
 
     assert dummy.started_tls is False
     assert dummy.logged_in is None
@@ -132,7 +132,7 @@ async def test_email_node_requires_recipients() -> None:
         from_address="sender@example.com",
     )
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     with pytest.raises(ValueError):
         await node(state, RunnableConfig())
 
@@ -141,7 +141,7 @@ async def test_email_node_requires_recipients() -> None:
 async def test_discord_webhook_node_posts_payload() -> None:
     """DiscordWebhookNode should post to the configured webhook URL."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = DiscordWebhookNode(
         name="discord",
         webhook_url="https://discordapp.com/api/webhooks/123",
@@ -151,7 +151,7 @@ async def test_discord_webhook_node_posts_payload() -> None:
 
     with respx.mock(base_url="https://discordapp.com") as router:
         route = router.post("/api/webhooks/123").mock(return_value=httpx.Response(204))
-        payload = (await node(state, RunnableConfig()))["results"]["discord"]
+        payload = (await node(state, RunnableConfig()))["node_results"]["discord"]
 
     assert route.called
     assert payload["status_code"] == 204
@@ -161,7 +161,7 @@ async def test_discord_webhook_node_posts_payload() -> None:
 async def test_discord_webhook_node_supports_optional_fields() -> None:
     """DiscordWebhookNode should include optional payload fields when provided."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = DiscordWebhookNode(
         name="discord",
         webhook_url="https://discordapp.com/api/webhooks/456",
@@ -193,7 +193,7 @@ async def test_discord_webhook_node_supports_optional_fields() -> None:
 async def test_discord_webhook_node_omits_optional_fields_when_none() -> None:
     """DiscordWebhookNode should omit optional fields when they are None."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = DiscordWebhookNode(
         name="discord",
         webhook_url="https://discordapp.com/api/webhooks/789",
@@ -226,7 +226,7 @@ async def test_discord_webhook_node_omits_optional_fields_when_none() -> None:
 async def test_message_discord_posts_bot_message() -> None:
     """MessageDiscord should send a bot-authenticated channel message."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = MessageDiscordNode(
         name="discord_message",
         token="discord_bot_token",
@@ -248,7 +248,9 @@ async def test_message_discord_posts_bot_message() -> None:
             )
 
         route = router.post("/api/v10/channels/123/messages").mock(side_effect=handler)
-        payload = (await node(state, RunnableConfig()))["results"]["discord_message"]
+        payload = (await node(state, RunnableConfig()))["node_results"][
+            "discord_message"
+        ]
 
     assert route.called
     assert captured_headers["authorization"] == "Bot discord_bot_token"
@@ -299,7 +301,7 @@ async def test_message_qq_posts_c2c_message(monkeypatch: pytest.MonkeyPatch) -> 
         fake_token,
     )
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = MessageQQNode(
         name="qq_message",
         app_id="qq-app-id",
@@ -319,7 +321,7 @@ async def test_message_qq_posts_c2c_message(monkeypatch: pytest.MonkeyPatch) -> 
             return httpx.Response(200, json={"id": "reply-1"})
 
         route = router.post("/v2/users/user-openid/messages").mock(side_effect=handler)
-        payload = (await node(state, RunnableConfig()))["results"]["qq_message"]
+        payload = (await node(state, RunnableConfig()))["node_results"]["qq_message"]
 
     assert route.called
     assert captured_headers["authorization"] == "QQBot qq-access-token"
@@ -410,14 +412,14 @@ def test_non_empty_string_trims_and_returns_none_for_blanks() -> None:
 async def test_message_discord_requires_channel_id() -> None:
     node = MessageDiscordNode(name="discord", token="token", message="hello")
     with pytest.raises(ValueError, match="Discord channel_id is required"):
-        await node.run(State({"results": {}}), RunnableConfig())
+        await node.run(State({"node_results": {}}), RunnableConfig())
 
 
 @pytest.mark.asyncio
 async def test_message_discord_requires_message_content() -> None:
     node = MessageDiscordNode(name="discord", token="token", channel_id="123")
     with pytest.raises(ValueError, match="Discord message content is required"):
-        await node.run(State({"results": {}}), RunnableConfig())
+        await node.run(State({"node_results": {}}), RunnableConfig())
 
 
 @pytest.mark.asyncio
@@ -429,7 +431,7 @@ async def test_message_qq_requires_message_content() -> None:
         openid="user",
     )
     with pytest.raises(ValueError, match="QQ message content is required"):
-        await node.run(State({"results": {}}), RunnableConfig())
+        await node.run(State({"node_results": {}}), RunnableConfig())
 
 
 @pytest.mark.asyncio
@@ -452,7 +454,7 @@ async def test_message_qq_requires_target_id(monkeypatch: pytest.MonkeyPatch) ->
     with pytest.raises(
         ValueError, match="QQ openid, group_openid, or channel_id is required"
     ):
-        await node.run(State({"results": {}}), RunnableConfig())
+        await node.run(State({"node_results": {}}), RunnableConfig())
 
 
 @pytest.mark.asyncio
@@ -485,9 +487,9 @@ async def test_message_qq_posts_channel_message_with_event_id(
             return httpx.Response(200, json={"id": "reply-3"})
 
         route = router.post("/channels/channel-123/messages").mock(side_effect=handler)
-        payload = (await node(State({"results": {}}), RunnableConfig()))["results"][
-            "qq_channel_message"
-        ]
+        payload = (await node(State({"node_results": {}}), RunnableConfig()))[
+            "node_results"
+        ]["qq_channel_message"]
 
     assert route.called
     assert captured_body["content"] == "hello channel"

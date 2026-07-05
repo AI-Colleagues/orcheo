@@ -279,7 +279,7 @@ class DeepAgentNode(AINode):
             if isinstance(thread_state, Mapping):
                 thread_state_payload = dict(thread_state)
             else:
-                results = state.get("results")
+                results = state.get("node_results")
                 if isinstance(results, Mapping):
                     maybe_thread_state = results.get("_thread_state")
                     if isinstance(maybe_thread_state, Mapping):

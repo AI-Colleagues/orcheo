@@ -33,7 +33,7 @@ CONFORMED = """
         threshold: int = 5
 
         async def run(self, state, config):
-            score = state["results"]["score"]["value"]
+            score = state["node_results"]["score"]["value"]
             verdict = "pass" if score >= self.threshold else "fail"
             return {"verdict": verdict}
 
@@ -46,7 +46,7 @@ CONFORMED = """
         graph.add_conditional_edges(
             "grade",
             {
-                "path": "results.grade.verdict",
+                "path": "node_results.grade.verdict",
                 "mapping": {"pass": "score", "fail": END},
             },
         )

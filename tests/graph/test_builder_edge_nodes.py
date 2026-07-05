@@ -120,7 +120,7 @@ async def test_state_graph_accepts_declarative_conditional_edge() -> None:
     graph.add_conditional_edges(
         "flag",
         {
-            "path": "results.flag.go",
+            "path": "node_results.flag.go",
             "mapping": {"true": "target", "false": ORCHEO_END},
         },
     )
@@ -130,7 +130,7 @@ async def test_state_graph_accepts_declarative_conditional_edge() -> None:
     result = await compiled.ainvoke({"inputs": {}})
     mermaid = compiled.get_graph().draw_mermaid()
 
-    assert result["results"]["target"]["hit"] is True
+    assert result["node_results"]["target"]["hit"] is True
     assert "flag -.-> target" in mermaid
 
 

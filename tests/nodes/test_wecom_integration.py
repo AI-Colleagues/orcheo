@@ -83,7 +83,7 @@ async def test_message_delivery_integration() -> None:
             },
             "body": {"raw": body_xml},
         },
-        results={},
+        node_results={},
     )
     parser_result = await parser_node.run(parser_state, RunnableConfig())
     assert parser_result["should_process"] is True
@@ -123,13 +123,13 @@ async def test_message_delivery_integration() -> None:
         side_effect=[token_client, send_client],
     ):
         token_result = await access_token_node.run(
-            State(messages=[], inputs={}, results={}),
+            State(messages=[], inputs={}, node_results={}),
             RunnableConfig(),
         )
         send_state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "get_access_token": token_result,
                 "wecom_events_parser": parser_result,
             },

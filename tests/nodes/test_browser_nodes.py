@@ -269,7 +269,7 @@ async def test_browser_nodes_navigate_action_extract_and_close(
 ) -> None:
     """Browser nodes should create sessions, act, extract, and close cleanly."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig(configurable={"thread_id": "exec-1"})
 
     navigate = BrowserNavigateNode(
@@ -281,7 +281,7 @@ async def test_browser_nodes_navigate_action_extract_and_close(
         extra_http_headers={"x-test": "1"},
         trace_path="/tmp/browser-trace.zip",
     )
-    navigate_payload = (await navigate(state, config))["results"]["navigate"]
+    navigate_payload = (await navigate(state, config))["node_results"]["navigate"]
 
     assert navigate_payload["created_session"] is True
     assert navigate_payload["resolved_session_key"] == "exec-1:browser"
@@ -308,7 +308,7 @@ async def test_browser_nodes_navigate_action_extract_and_close(
         locator="#search",
         value="playwright",
     )
-    action_payload = (await action(state, config))["results"]["action"]
+    action_payload = (await action(state, config))["node_results"]["action"]
 
     assert action_payload["action"] == "fill"
     assert fake_browser_runtime.page.actions[-1][0:3] == (
@@ -323,12 +323,12 @@ async def test_browser_nodes_navigate_action_extract_and_close(
         locator="#result",
         attribute_name="href",
     )
-    extract_payload = (await extract(state, config))["results"]["extract"]
+    extract_payload = (await extract(state, config))["node_results"]["extract"]
 
     assert extract_payload["value"] == "https://example.com/item"
 
     close = BrowserCloseNode(name="close")
-    close_payload = (await close(state, config))["results"]["close"]
+    close_payload = (await close(state, config))["node_results"]["close"]
 
     assert close_payload["closed"] is True
     assert fake_browser_runtime.context.tracing.stop_path == "/tmp/browser-trace.zip"
@@ -343,7 +343,7 @@ async def test_browser_wait_and_script_nodes_reuse_existing_session(
 ) -> None:
     """Wait and script nodes should operate on an existing Playwright session."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig(configurable={"thread_id": "exec-2"})
     await BrowserNavigateNode(
         name="navigate",
@@ -356,7 +356,9 @@ async def test_browser_wait_and_script_nodes_reuse_existing_session(
         locator="#result",
         selector_state="visible",
     )
-    selector_payload = (await selector_wait(state, config))["results"]["wait_selector"]
+    selector_payload = (await selector_wait(state, config))["node_results"][
+        "wait_selector"
+    ]
     assert selector_payload["value"] == {"locator": "#result", "state": "visible"}
 
     function_wait = BrowserWaitNode(
@@ -365,7 +367,9 @@ async def test_browser_wait_and_script_nodes_reuse_existing_session(
         expression="() => window.ready === true",
         arg={"expected": True},
     )
-    function_payload = (await function_wait(state, config))["results"]["wait_function"]
+    function_payload = (await function_wait(state, config))["node_results"][
+        "wait_function"
+    ]
     assert function_payload["value"] == {
         "expression": "() => window.ready === true",
         "arg": {"expected": True},
@@ -378,7 +382,9 @@ async def test_browser_wait_and_script_nodes_reuse_existing_session(
         response_match_mode="contains",
         response_status=204,
     )
-    response_payload = (await response_wait(state, config))["results"]["wait_response"]
+    response_payload = (await response_wait(state, config))["node_results"][
+        "wait_response"
+    ]
     assert response_payload["value"] == {
         "url": "https://example.com/api/ready",
         "status": 204,
@@ -390,7 +396,7 @@ async def test_browser_wait_and_script_nodes_reuse_existing_session(
         script="(payload) => payload.answer",
         arg={"answer": 42},
     )
-    script_payload = (await script(state, config))["results"]["script"]
+    script_payload = (await script(state, config))["node_results"]["script"]
     assert script_payload["value"] == {
         "script": "(payload) => payload.answer",
         "arg": {"answer": 42},
@@ -403,7 +409,7 @@ async def test_browser_wait_for_function_serializes_handle(
 ) -> None:
     """Function waits should serialize and dispose returned JSHandle values."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig(configurable={"thread_id": "exec-serialized"})
     fake_browser_runtime.page.function_handle_payload = {
         "expression": "() => window.ready === true",
@@ -421,7 +427,9 @@ async def test_browser_wait_for_function_serializes_handle(
         expression="() => window.ready === true",
         arg={"expected": True},
     )
-    function_payload = (await function_wait(state, config))["results"]["wait_function"]
+    function_payload = (await function_wait(state, config))["node_results"][
+        "wait_function"
+    ]
     assert function_payload["value"] == {
         "expression": "() => window.ready === true",
         "arg": {"expected": True},
@@ -435,7 +443,7 @@ async def test_browser_sessions_are_scoped_by_thread_id(
 ) -> None:
     """The default browser session id should be isolated per workflow run."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config_one = RunnableConfig(configurable={"thread_id": "exec-a"})
     config_two = RunnableConfig(configurable={"thread_id": "exec-b"})
 
@@ -503,7 +511,7 @@ async def test_browser_session_manager_closes_all_sessions_for_scope(
 async def test_browser_nodes_raise_when_session_is_missing() -> None:
     """Browser nodes should fail fast when no matching session exists."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     action = BrowserActionNode(
         name="action",
         action="click",
@@ -749,7 +757,7 @@ async def test_get_or_create_fast_path_returns_existing_session(
     """A second navigate call with the same key hits the no-lock fast path."""
 
     del fake_browser_runtime
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig(configurable={"thread_id": "exec-reuse"})
     first = await BrowserNavigateNode(name="n1", url="https://example.com/1")(
         state, config
@@ -757,8 +765,8 @@ async def test_get_or_create_fast_path_returns_existing_session(
     second = await BrowserNavigateNode(name="n2", url="https://example.com/2")(
         state, config
     )
-    assert first["results"]["n1"]["created_session"] is True
-    assert second["results"]["n2"]["created_session"] is False
+    assert first["node_results"]["n1"]["created_session"] is True
+    assert second["node_results"]["n2"]["created_session"] is False
 
 
 @pytest.mark.asyncio
@@ -828,7 +836,7 @@ async def test_close_session_stops_tracing_without_path(
 ) -> None:
     """Tracing is stopped with no path when neither override nor session has one."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig(configurable={"thread_id": "exec-trace"})
     # Start tracing by enabling trace_path, then close without any override path.
     await BrowserNavigateNode(
@@ -855,7 +863,7 @@ async def test_close_browser_sessions_for_scope_delegates_to_manager(
     """The module-level helper should close all sessions under a scope."""
 
     del fake_browser_runtime
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig(configurable={"thread_id": "exec-helper"})
     await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
 
@@ -870,11 +878,11 @@ async def test_navigate_tolerates_none_response(
     """page.goto returning None must surface as a null response payload."""
 
     fake_browser_runtime.page.goto_returns_none = True  # type: ignore[attr-defined]
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig(configurable={"thread_id": "exec-none"})
     payload = (
         await BrowserNavigateNode(name="navigate", url="about:blank")(state, config)
-    )["results"]["navigate"]
+    )["node_results"]["navigate"]
     assert payload["response"] is None
 
 
@@ -884,7 +892,7 @@ async def test_browser_action_node_exercises_all_actions(
 ) -> None:
     """Every supported action routes through its locator counterpart."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig(configurable={"thread_id": "exec-actions"})
     await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
     page = fake_browser_runtime.page
@@ -933,7 +941,7 @@ async def test_browser_action_node_validates_required_values(
 ) -> None:
     """Actions that need a value raise when one is not provided."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig(configurable={"thread_id": "exec-action-errors"})
     await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
 
@@ -974,44 +982,44 @@ async def test_browser_extract_node_supports_every_mode(
 ) -> None:
     """Every extraction mode produces the expected structured payload."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig(configurable={"thread_id": "exec-extracts"})
     await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
 
     title_payload = (
         await BrowserExtractNode(name="title", mode="title")(state, config)
-    )["results"]["title"]
+    )["node_results"]["title"]
     assert title_payload["value"] == "Title for https://example.com"
 
     url_payload = (await BrowserExtractNode(name="url", mode="url")(state, config))[
-        "results"
+        "node_results"
     ]["url"]
     assert url_payload["value"] == "https://example.com"
 
     content_payload = (
         await BrowserExtractNode(name="content", mode="page_content")(state, config)
-    )["results"]["content"]
+    )["node_results"]["content"]
     assert content_payload["value"] == fake_browser_runtime.page.page_content
 
     text_payload = (
         await BrowserExtractNode(name="text", mode="text", locator="#result")(
             state, config
         )
-    )["results"]["text"]
+    )["node_results"]["text"]
     assert text_payload["value"] == "Orcheo"
 
     all_text_payload = (
         await BrowserExtractNode(name="all_text", mode="all_text", locator="li.item")(
             state, config
         )
-    )["results"]["all_text"]
+    )["node_results"]["all_text"]
     assert all_text_payload["value"] == ["one", "two"]
 
     html_payload = (
         await BrowserExtractNode(name="html", mode="html", locator="#result")(
             state, config
         )
-    )["results"]["html"]
+    )["node_results"]["html"]
     assert html_payload["value"] == "<span>Orcheo</span>"
 
 
@@ -1021,7 +1029,7 @@ async def test_browser_extract_node_validates_locator_and_attribute(
 ) -> None:
     """Element-based extraction modes require locator and attribute arguments."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig(configurable={"thread_id": "exec-extract-errors"})
     await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
 
@@ -1042,7 +1050,7 @@ async def test_browser_wait_node_supports_url_load_state_and_timeout(
 ) -> None:
     """URL, load_state, and timeout waits delegate to Playwright accordingly."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig(configurable={"thread_id": "exec-waits"})
     await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
     page = fake_browser_runtime.page
@@ -1054,7 +1062,7 @@ async def test_browser_wait_node_supports_url_load_state_and_timeout(
             url_pattern="**/dashboard",
             wait_until="load",
         )(state, config)
-    )["results"]["wait_url"]
+    )["node_results"]["wait_url"]
     assert url_payload["value"] == {"url_pattern": "**/dashboard"}
     assert any(
         call[0] == "url" and call[2].get("wait_until") == "load"
@@ -1067,7 +1075,7 @@ async def test_browser_wait_node_supports_url_load_state_and_timeout(
             wait_for="url",
             url_pattern="**/home",
         )(state, config)
-    )["results"]["wait_url_plain"]
+    )["node_results"]["wait_url_plain"]
     assert url_no_wait_until["value"] == {"url_pattern": "**/home"}
     plain_calls = [c for c in page.wait_calls if c[0] == "url" and c[1] == "**/home"]
     assert plain_calls and "wait_until" not in plain_calls[-1][2]
@@ -1076,14 +1084,14 @@ async def test_browser_wait_node_supports_url_load_state_and_timeout(
         await BrowserWaitNode(
             name="wait_load", wait_for="load_state", load_state="networkidle"
         )(state, config)
-    )["results"]["wait_load"]
+    )["node_results"]["wait_load"]
     assert load_state_payload["value"] == {"load_state": "networkidle"}
 
     timeout_payload = (
         await BrowserWaitNode(name="wait_timeout", wait_for="timeout", timeout_ms=12.5)(
             state, config
         )
-    )["results"]["wait_timeout"]
+    )["node_results"]["wait_timeout"]
     assert timeout_payload["value"] == {"timeout_ms": 12.5}
 
 
@@ -1093,7 +1101,7 @@ async def test_browser_wait_node_validates_inputs(
 ) -> None:
     """Wait nodes must raise when their required inputs are missing or blank."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig(configurable={"thread_id": "exec-wait-errors"})
     await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
 
@@ -1124,7 +1132,7 @@ async def test_browser_wait_response_predicate_matches_and_rejects(
 ) -> None:
     """Response predicate honours exact URL matching, status, and mismatches."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig(configurable={"thread_id": "exec-response"})
     await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
 
@@ -1173,12 +1181,12 @@ async def test_browser_script_node_without_arg(
 ) -> None:
     """Scripts with no argument evaluate the expression on its own."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig(configurable={"thread_id": "exec-script-noarg"})
     await BrowserNavigateNode(name="navigate", url="https://example.com")(state, config)
 
     payload = (
         await BrowserScriptNode(name="script", script="() => 42")(state, config)
-    )["results"]["script"]
+    )["node_results"]["script"]
     assert payload["value"] == {"script": "() => 42", "arg": None}
     assert fake_browser_runtime.page.evaluate_calls[-1] == ("() => 42", None)

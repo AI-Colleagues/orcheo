@@ -12,7 +12,7 @@ from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 from orcheo.graph.state import State
-from orcheo.nodes.base import AINode, TaskNode
+from orcheo.nodes.base import TaskNode
 from orcheo.nodes.qualitative.accessors import (
     coerce_model,
     coerce_model_list,
@@ -477,8 +477,7 @@ class IngestNode(TaskNode):
         category="workflow",
     )
 )
-# TODO: Reconsider AINode inheritance; this node only renders codebook output.
-class CodebookOutputNode(AINode):
+class CodebookOutputNode(TaskNode):
     """Render the produced draft codebook as a Markdown table for review."""
 
     codebook: Any | None = None
@@ -571,8 +570,7 @@ class CodebookOutputNode(AINode):
         category="workflow",
     )
 )
-# TODO: Reconsider AINode inheritance; this node only exports codebook artifacts.
-class ExportCodebookNode(AINode):
+class ExportCodebookNode(TaskNode):
     """Export a configured codebook as a downloadable CSV."""
 
     codebook: Codebook | str
@@ -655,8 +653,7 @@ class ExportCodebookNode(AINode):
         category="workflow",
     )
 )
-# TODO: Reconsider AINode inheritance; this node renders and exports coded data.
-class RecodeOutputNode(AINode):
+class RecodeOutputNode(TaskNode):
     """Render the recoded data as the workflow output with a CSV download."""
 
     ingest_node_name: str = "ingest"
@@ -751,7 +748,7 @@ class RecodeOutputNode(AINode):
 
         return {
             "assistant_message": "\n".join(lines).strip(),
-            "results": {self.name: {"coded_data_url": csv_url}},
+            "coded_data_url": csv_url,
         }
 
 
@@ -762,8 +759,7 @@ class RecodeOutputNode(AINode):
         category="workflow",
     )
 )
-# TODO: Reconsider AINode inheritance; this node only exports coded-data artifacts.
-class ExportCodedDataNode(AINode):
+class ExportCodedDataNode(TaskNode):
     """Serialise coded units and code assignments to a CSV download link."""
 
     codebook: Any | None = None
@@ -807,7 +803,7 @@ class ExportCodedDataNode(AINode):
         ]
         return {
             "assistant_message": "\n".join(lines),
-            "results": {self.name: {"coded_data_url": csv_url}},
+            "coded_data_url": csv_url,
         }
 
 

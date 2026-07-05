@@ -75,11 +75,11 @@ async def test_delay_node_sleeps(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(asyncio, "sleep", fake_sleep)
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = DelayNode(name="pause", duration_seconds=0.5)
 
     result = await node(state, RunnableConfig())
-    payload = result["results"]["pause"]
+    payload = result["node_results"]["pause"]
 
     assert called_with == [0.5]
     assert payload["duration_seconds"] == 0.5

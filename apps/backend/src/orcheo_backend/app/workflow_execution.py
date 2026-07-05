@@ -603,8 +603,8 @@ async def _run_evaluation_node(
 
         try:
             result = await node(state, runtime_config)
-            node_payload = result.get("results", {}).get(
-                node.name, result.get("results", result)
+            node_payload = result.get("node_results", {}).get(
+                node.name, result.get("node_results", result)
             )
             final_step = await history_store.append_step(
                 execution_id,
@@ -729,8 +729,8 @@ async def _run_training_node(
 
         try:
             result = await node(state, runtime_config)
-            node_payload = result.get("results", {}).get(
-                node.name, result.get("results", result)
+            node_payload = result.get("node_results", {}).get(
+                node.name, result.get("node_results", result)
             )
             final_step = await history_store.append_step(
                 execution_id,
@@ -1055,7 +1055,7 @@ async def execute_node(
         )
         state: State = {
             "messages": [],
-            "results": {},
+            "node_results": {},
             "inputs": inputs,
             "structured_response": None,
             "workspace_id": workspace_id,

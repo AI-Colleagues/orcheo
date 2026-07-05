@@ -338,7 +338,7 @@ async def upload_attachment(
         description=(
             "Upload a single file to blob storage and return a download URL. "
             "Reads content, filename, and mime_type from state via template "
-            "references and writes attachment_id and download_url to results."
+            "references and writes attachment_id and download_url to node_results."
         ),
         category="storage",
     )
@@ -350,7 +350,7 @@ class FileUploadNode(TaskNode):
 
         FileUploadNode(
             name="upload_report",
-            content="{{results.build_report.csv_content}}",
+            content="{{node_results.build_report.csv_content}}",
             filename="report.csv",
             mime_type="text/csv",
         )

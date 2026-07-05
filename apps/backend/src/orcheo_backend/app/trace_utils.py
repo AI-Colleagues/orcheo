@@ -457,7 +457,7 @@ def _build_workflow_state_snapshots(
 def _initial_workflow_state(inputs: Mapping[str, Any]) -> dict[str, Any]:
     state = _clone_json_like(inputs)
     state.setdefault("inputs", _clone_json_like(inputs))
-    state.setdefault("results", {})
+    state.setdefault("node_results", {})
     state.setdefault("messages", [])
     return state
 

@@ -242,7 +242,7 @@ async def test_qrecc_end_to_end_pipeline() -> None:
         batch_eval_node_name="batch_eval",
     )
     analytics_state: State[str, Any] = State(
-        results={
+        node_results={
             "rouge": rouge_result,
             "batch_eval": batch_result,
         },
@@ -373,7 +373,7 @@ async def test_md2d_end_to_end_pipeline() -> None:
         batch_eval_node_name="batch_eval",
     )
     analytics_state: State[str, Any] = State(
-        results={
+        node_results={
             "token_f1": f1_result,
             "bleu": bleu_result,
             "rouge": rouge_result,
@@ -452,7 +452,7 @@ async def test_combined_qrecc_and_md2d_report() -> None:
         batch_eval_node_name="batch",
     )
     qrecc_analytics_state: State[str, Any] = State(
-        results={"rouge": qrecc_rouge, "batch": qrecc_batch_result},
+        node_results={"rouge": qrecc_rouge, "batch": qrecc_batch_result},
     )
     qrecc_report = await qrecc_analytics_node.run(qrecc_analytics_state, {})
 
@@ -488,7 +488,7 @@ async def test_combined_qrecc_and_md2d_report() -> None:
         batch_eval_node_name="batch",
     )
     md2d_analytics_state: State[str, Any] = State(
-        results={"f1": md2d_f1, "batch": md2d_batch_result},
+        node_results={"f1": md2d_f1, "batch": md2d_batch_result},
     )
     md2d_report = await md2d_analytics_node.run(md2d_analytics_state, {})
 

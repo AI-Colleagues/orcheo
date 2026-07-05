@@ -38,7 +38,7 @@ def _sample_ir() -> GraphIR:
         conditional_edges=[
             ConditionalEdgeSpec(
                 source="verdict",
-                path="results.verdict.verdict",
+                path="node_results.verdict.verdict",
                 mapping={"pass": "approve", "fail": "__end__"},
             )
         ],

@@ -72,7 +72,7 @@ async def test_conversation_state_appends_and_limits_history() -> None:
 
     state = State(
         inputs={"session_id": "sess-1", "user_message": "Hello"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -105,7 +105,7 @@ async def test_conversation_state_prunes_existing_history() -> None:
 
     state = State(
         inputs={"session_id": "sess-prune", "user_message": "newest"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -122,7 +122,7 @@ async def test_conversation_compressor_summarizes_history() -> None:
     )
     state = State(
         inputs={},
-        results={
+        node_results={
             "state": {
                 "conversation_history": [
                     {"role": "user", "content": "short"},
@@ -150,7 +150,7 @@ async def test_conversation_compressor_adds_ellipsis_for_overflow() -> None:
     )
     state = State(
         inputs={},
-        results={
+        node_results={
             "conversation_state": {
                 "conversation_history": [
                     {"role": "user", "content": "one two"},
@@ -225,7 +225,7 @@ async def test_memory_store_enforces_session_and_turn_capacity() -> None:
 @pytest.mark.asyncio
 async def test_conversation_state_requires_session_id() -> None:
     node = ConversationStateNode(name="conversation_state")
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(ValueError, match="requires a non-empty session id"):
         await node.run(state, {})
@@ -236,7 +236,7 @@ async def test_conversation_state_honors_configurable_max_turns() -> None:
     node = ConversationStateNode(name="conversation_state", max_turns=5)
     state = State(
         inputs={"session_id": "cfg", "user_message": "first"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -375,7 +375,7 @@ async def test_conversation_state_tracks_batch_appends_and_skips_empty() -> None
             "user_message": "hello",
             "assistant_message": "reply",
         },
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -385,7 +385,7 @@ async def test_conversation_state_tracks_batch_appends_and_skips_empty() -> None
 
     empty_state = State(
         inputs={"session_id": "batch"},
-        results={},
+        node_results={},
         structured_response=None,
     )
     await node.run(empty_state, {})
@@ -439,7 +439,7 @@ async def test_conversation_compressor_rejects_non_list_history() -> None:
     node = ConversationCompressorNode(name="compressor")
     state = State(
         inputs={},
-        results={"conversation_state": {"conversation_history": "invalid"}},
+        node_results={"conversation_state": {"conversation_history": "invalid"}},
         structured_response=None,
     )
 
@@ -536,7 +536,7 @@ def test_topic_shift_detector_stopwords_override_filters_invalid_entries() -> No
 @pytest.mark.asyncio
 async def test_topic_shift_detector_requires_query() -> None:
     node = TopicShiftDetectorNode(name="topic")
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(ValueError, match="requires a non-empty query"):
         await node.run(state, {})
@@ -547,7 +547,7 @@ async def test_topic_shift_detector_returns_continue_without_history() -> None:
     node = TopicShiftDetectorNode(name="topic")
     state = State(
         inputs={"query": "new question"},
-        results={"conversation_state": []},
+        node_results={"conversation_state": []},
         structured_response=None,
     )
 
@@ -568,7 +568,7 @@ async def test_topic_shift_detector_respects_stopwords_and_window() -> None:
     node = TopicShiftDetectorNode(name="topic")
     state = State(
         inputs={"query": "Different apples"},
-        results={
+        node_results={
             "conversation_state": {
                 "conversation_history": [
                     {"role": "assistant", "content": "apples and bananas"},
@@ -594,7 +594,7 @@ async def test_topic_shift_detector_respects_stopwords_and_window() -> None:
 @pytest.mark.asyncio
 async def test_query_clarification_requires_query() -> None:
     node = QueryClarificationNode(name="clarifier")
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(ValueError, match="requires a non-empty query"):
         await node.run(state, {})
@@ -605,7 +605,7 @@ async def test_query_clarification_falls_back_to_message_input() -> None:
     node = QueryClarificationNode(name="clarifier")
     state = State(
         inputs={"message": "Clarify which option to focus on"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -621,7 +621,7 @@ async def test_query_clarification_falls_back_to_user_message_when_message_missi
     node = QueryClarificationNode(name="clarifier")
     state = State(
         inputs={"user_message": "Clarify which option to focus on"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -635,7 +635,7 @@ async def test_query_clarification_uses_summary_context_hint() -> None:
     node = QueryClarificationNode(name="clarifier")
     state = State(
         inputs={"query": "Clarify this"},
-        results={"conversation_history": {"summary": "latest summary"}},
+        node_results={"conversation_history": {"summary": "latest summary"}},
         structured_response=None,
     )
 
@@ -649,7 +649,7 @@ async def test_query_clarification_builds_questions_from_history_list() -> None:
     node = QueryClarificationNode(name="clarifier")
     state = State(
         inputs={"query": "Tell me more"},
-        results={"conversation_history": ["first turn", "second turn"]},
+        node_results={"conversation_history": ["first turn", "second turn"]},
         structured_response=None,
     )
 
@@ -663,7 +663,7 @@ async def test_query_clarification_limits_questions_for_ambiguous_tokens() -> No
     node = QueryClarificationNode(name="clarifier", max_questions=1)
     state = State(
         inputs={"query": "It or that option"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -682,7 +682,7 @@ async def test_memory_summarizer_uses_existing_summary_and_configured_ttl() -> N
     ]
     state = State(
         inputs={"session_id": "summarize"},
-        results={
+        node_results={
             "conversation_state": {
                 "summary": "existing summary",
                 "conversation_history": [turn.model_dump() for turn in turns],
@@ -744,7 +744,7 @@ async def test_memory_summarizer_rejects_nonpositive_retention() -> None:
     node = MemorySummarizerNode(name="summarizer", retention_seconds=0)
     state = State(
         inputs={"session_id": "summarize"},
-        results={"conversation_state": {"conversation_history": []}},
+        node_results={"conversation_state": {"conversation_history": []}},
         structured_response=None,
     )
 
@@ -756,7 +756,7 @@ async def test_memory_summarizer_rejects_nonpositive_retention() -> None:
 async def test_conversation_compressor_validates_history_payload() -> None:
     node = ConversationCompressorNode(name="compressor")
     state = State(
-        inputs={}, results={"conversation_state": {}}, structured_response=None
+        inputs={}, node_results={"conversation_state": {}}, structured_response=None
     )
 
     with pytest.raises(ValueError, match="conversation_history must be a list"):
@@ -768,7 +768,7 @@ async def test_conversation_compressor_requires_turns() -> None:
     node = ConversationCompressorNode(name="compressor")
     state = State(
         inputs={},
-        results={"conversation_state": {"conversation_history": []}},
+        node_results={"conversation_state": {"conversation_history": []}},
         structured_response=None,
     )
 
@@ -783,7 +783,7 @@ async def test_conversation_compressor_honors_config_overrides() -> None:
     )
     state = State(
         inputs={},
-        results={
+        node_results={
             "conversation_state": {
                 "conversation_history": [
                     {"role": "user", "content": "one two three four"},
@@ -807,7 +807,7 @@ async def test_topic_shift_detector_flags_divergence() -> None:
     node = TopicShiftDetectorNode(name="shift", similarity_threshold=0.4)
     state = State(
         inputs={"query": "Switch to pricing details"},
-        results={
+        node_results={
             "conversation_state": {
                 "conversation_history": [
                     {"role": "user", "content": "Tell me about embedding quality"}
@@ -826,7 +826,7 @@ async def test_topic_shift_detector_flags_divergence() -> None:
 @pytest.mark.asyncio
 async def test_topic_shift_detector_handles_missing_query() -> None:
     node = TopicShiftDetectorNode(name="shift")
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(ValueError, match="requires a non-empty query"):
         await node.run(state, {})
@@ -837,7 +837,7 @@ async def test_topic_shift_detector_handles_missing_history() -> None:
     node = TopicShiftDetectorNode(name="shift")
     state = State(
         inputs={"query": "hello"},
-        results={"conversation_state": None},
+        node_results={"conversation_state": None},
         structured_response=None,
     )
 
@@ -852,7 +852,7 @@ async def test_topic_shift_detector_supports_runtime_overrides() -> None:
     node = TopicShiftDetectorNode(name="shift")
     state = State(
         inputs={"query": "Discuss the project"},
-        results={
+        node_results={
             "conversation_state": {
                 "conversation_history": [
                     {"role": "user", "content": "Tell me about the project"}
@@ -874,7 +874,7 @@ async def test_topic_shift_detector_validates_history_type() -> None:
     node = TopicShiftDetectorNode(name="shift")
     state = State(
         inputs={"query": "hi"},
-        results={"conversation_state": "oops"},
+        node_results={"conversation_state": "oops"},
         structured_response=None,
     )
 
@@ -887,7 +887,7 @@ async def test_topic_shift_detector_handles_empty_tokens() -> None:
     node = TopicShiftDetectorNode(name="shift", similarity_threshold=0.1)
     state = State(
         inputs={"query": "and"},
-        results={
+        node_results={
             "conversation_state": {
                 "conversation_history": [{"role": "user", "content": "the"}]
             }
@@ -906,7 +906,7 @@ async def test_query_clarification_generates_prompts() -> None:
     node = QueryClarificationNode(name="clarify")
     state = State(
         inputs={"query": "How does it work?"},
-        results={
+        node_results={
             "conversation_history": [
                 {"role": "assistant", "content": "It handles retrieval and generation."}
             ]
@@ -925,7 +925,7 @@ async def test_query_clarification_handles_or_branch_and_summary_hint() -> None:
     node = QueryClarificationNode(name="clarify", max_questions=3)
     state = State(
         inputs={"query": "this or that"},
-        results={"conversation_history": {"summary": "previous summary"}},
+        node_results={"conversation_history": {"summary": "previous summary"}},
         structured_response=None,
     )
 
@@ -946,7 +946,7 @@ async def test_memory_summarizer_persists_summary_with_ttl() -> None:
     )
     state = State(
         inputs={"session_id": "sess-99"},
-        results={
+        node_results={
             "conversation_state": {
                 "conversation_history": [
                     {"role": "user", "content": "We discussed retrieval latency"},
@@ -972,7 +972,7 @@ async def test_memory_summarizer_respects_configurable_ttl_and_budget() -> None:
     node = MemorySummarizerNode(name="summarizer", memory_store=store)
     state = State(
         inputs={"session_id": "sess-ttl"},
-        results={
+        node_results={
             "conversation_state": {
                 "conversation_history": [
                     {"role": "user", "content": "short"},
@@ -997,7 +997,7 @@ async def test_memory_summarizer_validates_inputs_and_retention() -> None:
         name="summarizer", memory_store=store, retention_seconds=5
     )
 
-    state_missing_id = State(inputs={}, results={}, structured_response=None)
+    state_missing_id = State(inputs={}, node_results={}, structured_response=None)
     with pytest.raises(ValueError, match="non-empty session id"):
         await node.run(state_missing_id, {})
 
@@ -1005,7 +1005,7 @@ async def test_memory_summarizer_validates_inputs_and_retention() -> None:
         name="summarizer", memory_store=store, retention_seconds=0
     )
     state = State(
-        inputs={"session_id": "sess-100"}, results={}, structured_response=None
+        inputs={"session_id": "sess-100"}, node_results={}, structured_response=None
     )
     with pytest.raises(ValueError, match="retention_seconds must be positive"):
         await invalid_retention.run(state, {})
@@ -1015,7 +1015,7 @@ async def test_memory_summarizer_validates_inputs_and_retention() -> None:
     )
     state = State(
         inputs={"session_id": "sess-200"},
-        results={"conversation_state": []},
+        node_results={"conversation_state": []},
         structured_response=None,
     )
     result = await node_no_history.run(state, {})
@@ -1027,7 +1027,7 @@ async def test_memory_summarizer_validates_inputs_and_retention() -> None:
     )
     state = State(
         inputs={"session_id": "sess-201"},
-        results={
+        node_results={
             "conversation_state": {
                 "conversation_history": [{"role": "user", "content": "short"}]
             }
@@ -1048,7 +1048,7 @@ async def test_memory_summarizer_truncates_long_history() -> None:
     )
     state = State(
         inputs={"session_id": "sess-ellipsis"},
-        results={
+        node_results={
             "conversation_state": {
                 "conversation_history": [
                     {"role": "user", "content": "one two three four"},
@@ -1069,7 +1069,7 @@ async def test_memory_summarizer_uses_existing_summary() -> None:
     node = MemorySummarizerNode(name="summarizer", memory_store=store)
     state = State(
         inputs={"session_id": "sess-summary"},
-        results={
+        node_results={
             "conversation_state": {
                 "summary": "provided",
                 "conversation_history": [{"role": "user", "content": "ignored"}],
