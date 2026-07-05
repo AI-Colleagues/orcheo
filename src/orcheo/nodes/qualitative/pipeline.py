@@ -641,6 +641,7 @@ class IngestNode(TaskNode):
         category="workflow",
     )
 )
+# TODO: Reconsider AINode inheritance; this node only renders codebook output.
 class CodebookOutputNode(AINode):
     """Render the produced draft codebook as a Markdown table for review."""
 
@@ -734,6 +735,7 @@ class CodebookOutputNode(AINode):
         category="workflow",
     )
 )
+# TODO: Reconsider AINode inheritance; this node only exports codebook artifacts.
 class ExportCodebookNode(AINode):
     """Export a configured codebook as a downloadable CSV."""
 
@@ -817,6 +819,7 @@ class ExportCodebookNode(AINode):
         category="workflow",
     )
 )
+# TODO: Reconsider AINode inheritance; this node renders and exports coded data.
 class RecodeOutputNode(AINode):
     """Render the recoded data as the workflow output with a CSV download."""
 
@@ -923,6 +926,7 @@ class RecodeOutputNode(AINode):
         category="workflow",
     )
 )
+# TODO: Reconsider AINode inheritance; this node only exports coded-data artifacts.
 class ExportCodedDataNode(AINode):
     """Serialise coded units and code assignments to a CSV download link."""
 

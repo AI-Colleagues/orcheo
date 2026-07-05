@@ -269,6 +269,7 @@ def _report_data_from_values(
         category="workflow",
     )
 )
+# TODO: Reconsider AINode inheritance; this node renders and uploads reports.
 class ReportOutputNode(AINode):
     """Render the final report and return it with a download link."""
 
@@ -368,6 +369,7 @@ class ReportOutputNode(AINode):
         category="workflow",
     )
 )
+# TODO: Reconsider AINode inheritance; this node only exports report artifacts.
 class ExportReportNode(AINode):
     """Regenerate the downloadable Markdown report link."""
 

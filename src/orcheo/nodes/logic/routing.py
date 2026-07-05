@@ -18,6 +18,7 @@ from orcheo.nodes.registry import NodeMetadata, registry
         category="logic",
     )
 )
+# TODO: Reconsider AINode inheritance; this node performs deterministic routing.
 class StructuredRouterDispatchNode(AINode):
     """Convert a structured response into a branch route and optional reply."""
 
@@ -92,6 +93,7 @@ class StructuredRouterDispatchNode(AINode):
         category="logic",
     )
 )
+# TODO: Reconsider AINode inheritance; this node only extracts existing text.
 class ExtractAIMessageNode(AINode):
     """Extract a text assistant message from structured agent output."""
 
