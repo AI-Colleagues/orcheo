@@ -341,7 +341,7 @@ class MultiDoc2DialCorpusLoaderNode(TaskNode):
         if value is None:
             return value
         if isinstance(value, str):
-            if "{{" in value and "}}" in value:
+            if cls.contains_template(value):
                 return value
             try:
                 value = int(value)
@@ -556,7 +556,7 @@ class QReCCDatasetNode(DatasetNode):
         if value is None:
             return value
         if isinstance(value, str):
-            if "{{" in value and "}}" in value:
+            if cls.contains_template(value):
                 return value
             try:
                 value = int(value)
@@ -676,7 +676,7 @@ class MultiDoc2DialDatasetNode(DatasetNode):
         if value is None:
             return value
         if isinstance(value, str):
-            if "{{" in value and "}}" in value:
+            if cls.contains_template(value):
                 return value
             try:
                 value = int(value)

@@ -39,6 +39,18 @@ def test_runs_body_and_returns_update() -> None:
     assert outputs == {"update": {"doubled": 42}}
 
 
+def test_method_parameters_are_bound_as_locals() -> None:
+    """CodeNode parameters should behave like method locals in the sandbox."""
+    runner = _runner()
+    outputs = runner.run(
+        "del config\nreturn {'inputs': state.get('inputs', {})}",
+        _inputs(state={"inputs": {"listener": True}}),
+        node_id="n",
+    )
+
+    assert outputs == {"update": {"inputs": {"listener": True}}}
+
+
 def test_body_exception_becomes_error_envelope() -> None:
     """A body that raises yields a structured ``error`` envelope (no host crash)."""
     runner = _runner()
@@ -104,4 +116,7 @@ def test_describe_reports_pinned_version() -> None:
 
     assert described["package"] == "micropython-wasm"
     assert described["version"] == "0.1a2"
-    assert described["fuel"] > 0
+    assert described["memory_bytes"] == 256 * 1024 * 1024
+    assert described["fuel"] == 600_000_000
+    assert described["wall_timeout_seconds"] == 30.0
+    assert described["max_output_bytes"] == 64 * 1024 * 1024

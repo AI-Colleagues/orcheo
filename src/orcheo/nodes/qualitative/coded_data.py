@@ -18,7 +18,7 @@ from orcheo.nodes.qualitative.models import (
 from orcheo.nodes.storage import build_csv
 
 
-CODED_DATA_CSV_HEADERS = [
+_CODED_DATA_CSV_HEADERS = [
     "unit_id",
     "record_id",
     "source",
@@ -94,7 +94,7 @@ def build_coded_data_csv(
             )
 
     total_assignments = sum(len(a.assignments) for a in assignments)
-    return build_csv(CODED_DATA_CSV_HEADERS, rows), total_assignments
+    return build_csv(_CODED_DATA_CSV_HEADERS, rows), total_assignments
 
 
 def parse_coded_data_csv(
@@ -208,7 +208,6 @@ def parse_coded_data_csv(
 
 
 __all__ = [
-    "CODED_DATA_CSV_HEADERS",
     "build_coded_data_csv",
     "parse_coded_data_csv",
 ]

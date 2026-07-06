@@ -139,7 +139,7 @@ def _build_state(
         inputs["query_params"] = query_params
     if body is not None:
         inputs["body"] = body
-    return State(messages=[], inputs=inputs, results={})
+    return State(messages=[], inputs=inputs, node_results={})
 
 
 class FakeRedis:
@@ -955,7 +955,7 @@ class TestWeComSendMessageNode:
         state = State(
             messages=[],
             inputs={},
-            results={"get_access_token": {"access_token": "test_token"}},
+            node_results={"get_access_token": {"access_token": "test_token"}},
         )
 
         mock_response = MagicMock()
@@ -992,7 +992,7 @@ class TestWeComSendMessageNode:
         state = State(
             messages=[],
             inputs={},
-            results={"get_access_token": {"access_token": "test_token"}},
+            node_results={"get_access_token": {"access_token": "test_token"}},
         )
 
         mock_response = MagicMock()
@@ -1025,7 +1025,7 @@ class TestWeComSendMessageNode:
         state = State(
             messages=[],
             inputs={},
-            results={"get_access_token": {"access_token": "test_token"}},
+            node_results={"get_access_token": {"access_token": "test_token"}},
         )
 
         mock_response = MagicMock()
@@ -1054,7 +1054,7 @@ class TestWeComSendMessageNode:
             message="Hello!",
         )
 
-        state = State(messages=[], inputs={}, results={})
+        state = State(messages=[], inputs={}, node_results={})
 
         result = await node.run(state, RunnableConfig())
 
@@ -1073,7 +1073,7 @@ class TestWeComSendMessageNode:
         state = State(
             messages=[],
             inputs={},
-            results={"get_access_token": {"access_token": "test_token"}},
+            node_results={"get_access_token": {"access_token": "test_token"}},
         )
 
         result = await node.run(state, RunnableConfig())
@@ -1093,7 +1093,7 @@ class TestWeComSendMessageNode:
         state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "get_access_token": {"access_token": "test_token"},
                 "wecom_events_parser": {"target_user": "parsed_user"},
             },
@@ -1127,7 +1127,7 @@ class TestWeComSendMessageNode:
         state = State(
             messages=[],
             inputs={},
-            results={"get_access_token": {"access_token": "test_token"}},
+            node_results={"get_access_token": {"access_token": "test_token"}},
         )
 
         mock_response = MagicMock()
@@ -1161,7 +1161,7 @@ class TestWeComGroupPushNode:
             content="Daily digest",
         )
 
-        state = State(messages=[], inputs={}, results={})
+        state = State(messages=[], inputs={}, node_results={})
 
         mock_response = MagicMock()
         mock_response.json.return_value = {"errcode": 0, "errmsg": "ok"}
@@ -1190,7 +1190,7 @@ class TestWeComGroupPushNode:
             content="*Digest*",
         )
 
-        state = State(messages=[], inputs={}, results={})
+        state = State(messages=[], inputs={}, node_results={})
 
         mock_response = MagicMock()
         mock_response.json.return_value = {"errcode": 93000, "errmsg": "invalid"}
@@ -1216,7 +1216,7 @@ class TestWeComGroupPushNode:
             content="Digest",
         )
 
-        state = State(messages=[], inputs={}, results={})
+        state = State(messages=[], inputs={}, node_results={})
         result = await node.run(state, RunnableConfig())
 
         assert result["is_error"] is True
@@ -1353,7 +1353,7 @@ class TestWeComCustomerServiceSyncNode:
         state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "get_access_token": {
                     "access_token": "test_token",
                     "expires_in": 7200,
@@ -1416,7 +1416,7 @@ class TestWeComCustomerServiceSyncNode:
             name="wecom_cs_sync",
         )
 
-        state = State(messages=[], inputs={}, results={})
+        state = State(messages=[], inputs={}, node_results={})
 
         result = await node.run(state, RunnableConfig())
 
@@ -1433,7 +1433,7 @@ class TestWeComCustomerServiceSyncNode:
         state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "get_access_token": {
                     "access_token": "test_token",
                     "expires_in": 7200,
@@ -1459,7 +1459,7 @@ class TestWeComCustomerServiceSyncNode:
         state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "get_access_token": {
                     "access_token": "test_token",
                     "expires_in": 7200,
@@ -1507,7 +1507,7 @@ class TestWeComCustomerServiceSyncNode:
         state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "get_access_token": {
                     "access_token": "test_token",
                     "expires_in": 7200,
@@ -1573,7 +1573,7 @@ class TestWeComCustomerServiceSyncNode:
         state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "get_access_token": {
                     "access_token": "test_token",
                     "expires_in": 7200,
@@ -1644,7 +1644,7 @@ class TestWeComCustomerServiceSyncNode:
         state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "get_access_token": {
                     "access_token": "test_token",
                     "expires_in": 7200,
@@ -1687,7 +1687,7 @@ class TestWeComCustomerServiceSendNode:
         state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "get_access_token": {
                     "access_token": "test_token",
                     "expires_in": 7200,
@@ -1733,7 +1733,7 @@ class TestWeComCustomerServiceSendNode:
             message="Hello!",
         )
 
-        state = State(messages=[], inputs={}, results={})
+        state = State(messages=[], inputs={}, node_results={})
 
         result = await node.run(state, RunnableConfig())
 
@@ -1751,7 +1751,7 @@ class TestWeComCustomerServiceSendNode:
         state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "get_access_token": {
                     "access_token": "test_token",
                     "expires_in": 7200,
@@ -1776,7 +1776,7 @@ class TestWeComCustomerServiceSendNode:
         state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "get_access_token": {
                     "access_token": "test_token",
                     "expires_in": 7200,
@@ -1802,7 +1802,7 @@ class TestWeComCustomerServiceSendNode:
         state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "get_access_token": {
                     "access_token": "test_token",
                     "expires_in": 7200,
@@ -1844,7 +1844,7 @@ class TestWeComCustomerServiceSendNode:
         state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "get_access_token": {
                     "access_token": "test_token",
                     "expires_in": 7200,
@@ -1881,7 +1881,7 @@ class TestWeComCustomerServiceSendNode:
         state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "get_access_token": {
                     "access_token": "test_token",
                     "expires_in": 7200,
@@ -1928,7 +1928,7 @@ class TestWeComCustomerServiceSendNode:
         state = State(
             messages=[],
             inputs={},
-            results={"get_access_token": {"access_token": "test_token"}},
+            node_results={"get_access_token": {"access_token": "test_token"}},
         )
 
         send_response = MagicMock()
@@ -1963,7 +1963,7 @@ class TestWeComCustomerServiceSendNode:
         state = State(
             messages=[],
             inputs={},
-            results={"get_access_token": {"access_token": "test_token"}},
+            node_results={"get_access_token": {"access_token": "test_token"}},
         )
 
         send_response = MagicMock()
@@ -1999,7 +1999,7 @@ class TestWeComCustomerServiceSendNode:
         state = State(
             messages=[],
             inputs={},
-            results={"get_access_token": {"access_token": "test_token"}},
+            node_results={"get_access_token": {"access_token": "test_token"}},
         )
 
         send_response = MagicMock()
@@ -2076,10 +2076,10 @@ class TestWeComNodeCallBehaviors:
             new=AsyncMock(return_value=run_result),
         ):
             output = await node.__call__(
-                State(messages=[], inputs={}, results={}), RunnableConfig()
+                State(messages=[], inputs={}, node_results={}), RunnableConfig()
             )
 
-        assert "agent_messages" not in output["results"]["wecom_parser"]
+        assert "agent_messages" not in output["node_results"]["wecom_parser"]
         assert output["messages"] == run_result["agent_messages"]
 
     @pytest.mark.asyncio
@@ -2093,10 +2093,10 @@ class TestWeComNodeCallBehaviors:
             new=AsyncMock(return_value=run_result),
         ):
             output = await node.__call__(
-                State(messages=[], inputs={}, results={}), RunnableConfig()
+                State(messages=[], inputs={}, node_results={}), RunnableConfig()
             )
 
-        assert "agent_messages" not in output["results"]["wecom_cs_sync"]
+        assert "agent_messages" not in output["node_results"]["wecom_cs_sync"]
         assert output["messages"] == run_result["agent_messages"]
 
 
@@ -2576,7 +2576,7 @@ def test_normalize_optional_runtime_value_template_returns_none() -> None:
     """Returns None when value contains template syntax {{...}} (line 56)."""
     from orcheo.nodes.wecom import _normalize_optional_runtime_value
 
-    assert _normalize_optional_runtime_value("{{results.token}}") is None
+    assert _normalize_optional_runtime_value("{{node_results.token}}") is None
     assert _normalize_optional_runtime_value("  {{some.value}}  ") is None
 
 

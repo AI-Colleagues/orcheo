@@ -10,7 +10,11 @@ from typing import Any
 from opentelemetry.trace import Span, Status, StatusCode, Tracer
 from orcheo.config import get_settings
 from orcheo.runtime.runnable_config import RunnableConfigModel
-from orcheo.tracing.model_metadata import extract_ai_trace_attributes
+from orcheo.tracing.model_metadata import (
+    NAMESPACE_METADATA_KEY,
+    extract_ai_trace_attributes,
+    extract_step_namespace,
+)
 
 
 _DEFAULT_MAX_PREVIEW_LENGTH = 512
@@ -89,12 +93,40 @@ def workflow_span(
         yield WorkflowSpanContext(span=span, started_at=started_at)
 
 
+def split_subgraph_update(chunk: Any) -> tuple[tuple[str, ...], Mapping[str, Any]]:
+    """Split a ``subgraphs=True`` stream chunk into its namespace and update.
+
+    With ``stream_mode="updates"`` and ``subgraphs=True``, LangGraph yields
+    ``(namespace, update)`` tuples where ``namespace`` is the path of
+    ``"<node_name>:<task_id>"`` segments leading to the subgraph the update
+    happened in (empty for top-level nodes). Falls back to treating the chunk
+    as a bare update mapping for callers that stream without subgraphs.
+    """
+    if (
+        isinstance(chunk, tuple)
+        and len(chunk) == 2
+        and isinstance(chunk[0], tuple)
+        and isinstance(chunk[1], Mapping)
+    ):
+        namespace, update = chunk
+        return tuple(str(segment) for segment in namespace), update
+    if isinstance(chunk, Mapping):
+        return (), chunk
+    msg = f"Unexpected stream chunk shape: {type(chunk)!r}"
+    raise TypeError(msg)
+
+
 def record_workflow_step(tracer: Tracer, step: Mapping[str, Any]) -> None:
     """Emit child spans that represent node executions within a step payload."""
+    namespace = extract_step_namespace(step)
     for node_name, payload in step.items():
+        if node_name == NAMESPACE_METADATA_KEY:
+            continue
         if not isinstance(payload, Mapping):
             continue
         attributes = _node_attributes(node_name, payload)
+        if namespace:
+            attributes["orcheo.node.namespace"] = ":".join(namespace)
         span_name = attributes.get("orcheo.node.display_name", node_name)
         with tracer.start_as_current_span(
             str(span_name),
@@ -355,5 +387,6 @@ __all__ = [
     "record_workflow_completion",
     "record_workflow_failure",
     "record_workflow_step",
+    "split_subgraph_update",
     "workflow_span",
 ]

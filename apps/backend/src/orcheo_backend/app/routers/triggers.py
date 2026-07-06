@@ -117,7 +117,7 @@ def _extract_immediate_response(
         should_process indicates whether async processing should continue
         after returning the immediate response.
     """
-    results = final_state.get("results", {})
+    results = final_state.get("node_results", {})
     for node_result in results.values():
         if isinstance(node_result, dict) and "immediate_response" in node_result:
             immediate = node_result["immediate_response"]

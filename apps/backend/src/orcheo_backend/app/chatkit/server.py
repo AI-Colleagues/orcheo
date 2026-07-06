@@ -44,6 +44,7 @@ from dynaconf import Dynaconf
 from langchain_core.messages import ToolMessage
 from pydantic import TypeAdapter, ValidationError
 from orcheo.config import get_settings
+from orcheo.tracing.model_metadata import NAMESPACE_METADATA_KEY
 from orcheo.vault import BaseCredentialVault
 from orcheo_backend.app.chatkit.context import ChatKitRequestContext
 from orcheo_backend.app.chatkit.message_utils import (
@@ -309,7 +310,7 @@ def _progress_texts_for_step(step: Mapping[str, Any]) -> list[str]:
 
     texts: list[str] = []
     for node_key, _ in step.items():
-        if node_key is None:
+        if node_key is None or node_key == NAMESPACE_METADATA_KEY:
             continue
         node_name = str(node_key).strip()
         if not node_name:

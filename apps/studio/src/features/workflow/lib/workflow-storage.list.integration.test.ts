@@ -121,6 +121,36 @@ describe("workflow-storage API integration - list workflows", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
+  it("maps upload errors from the workflow list API", async () => {
+    const timestamp = new Date().toISOString();
+    queueResponses([
+      jsonResponse([
+        {
+          id: "workflow-broken",
+          name: "Broken upload",
+          slug: "workflow-broken",
+          description: "Created by CLI.",
+          tags: ["cli-upload"],
+          is_archived: false,
+          created_at: timestamp,
+          updated_at: timestamp,
+          latest_version: null,
+          upload_error: {
+            message: "imports must come from Orcheo",
+            occurred_at: "2026-07-02T10:00:00Z",
+          },
+        },
+      ]),
+    ]);
+
+    const workflows = await listWorkflows();
+
+    expect(workflows[0]?.uploadError).toEqual({
+      message: "imports must come from Orcheo",
+      occurredAt: "2026-07-02T10:00:00Z",
+    });
+  });
+
   it("returns cached workflows when called repeatedly", async () => {
     const mockFetch = getFetchMock();
     const timestamp = new Date().toISOString();

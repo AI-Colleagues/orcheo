@@ -6,6 +6,7 @@ from uuid import UUID
 import pytest
 from chatkit.errors import CustomStreamError
 from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.types import Command
 from unittest.mock import AsyncMock
 from orcheo_backend.app.chatkit import workflow_executor as workflow_executor_module
 from orcheo_backend.app.chatkit.workflow_executor import (
@@ -14,10 +15,15 @@ from orcheo_backend.app.chatkit.workflow_executor import (
     _annotate_new_messages,
     _append_chatkit_history_step,
     _build_reply_state,
+    _interrupt_message,
+    _interrupt_value,
     _mark_chatkit_history_completed,
     _mark_chatkit_history_failed,
+    _pending_interrupts,
     _resolve_runtime_thread_id,
+    _resume_value_from_inputs,
     _start_chatkit_history,
+    _state_with_interrupts,
     _with_chatkit_model,
     _with_thread_id,
 )
@@ -373,7 +379,7 @@ async def test_execute_graph_streams_updates_with_step_callback(
     progress_context_events: list[str] = []
 
     class DummyCompiled:
-        async def astream(self, payload, *, config, stream_mode):
+        async def astream(self, payload, *, config, stream_mode, subgraphs=False):
             assert payload == {
                 "inputs": {"message": "hello"},
                 "workspace_id": None,
@@ -474,7 +480,7 @@ async def test_execute_graph_annotates_current_turn_messages(
         def __init__(self) -> None:
             self._streamed = False
 
-        async def astream(self, payload, *, config, stream_mode):
+        async def astream(self, payload, *, config, stream_mode, subgraphs=False):
             self._streamed = True
             yield {"node": {"status": "running"}}
 
@@ -549,6 +555,271 @@ async def test_execute_graph_annotates_current_turn_messages(
 
     assert result["messages"] == prior + new
     assert result[_NEW_MESSAGES_KEY] == new
+
+
+@pytest.mark.asyncio
+async def test_execute_graph_surfaces_new_interrupt_as_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A LangGraph interrupt should become a ChatKit assistant prompt."""
+
+    class DummyInterrupt:
+        value = {"message": "What is your guess?"}
+
+    class DummyCompiled:
+        async def astream(self, payload, *, config, stream_mode, subgraphs=False):
+            yield {"__interrupt__": (DummyInterrupt(),)}
+
+        async def aget_state(self, config):
+            return SimpleNamespace(
+                values={"node_results": {"agent": {"branch": "human"}}},
+                interrupts=(DummyInterrupt(),),
+            )
+
+    class DummyGraph:
+        def compile(self, *, checkpointer, store):
+            return DummyCompiled()
+
+    class DummyAsyncContext:
+        def __init__(self, value: object) -> None:
+            self._value = value
+
+        async def __aenter__(self) -> object:
+            return self._value
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: {})
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_checkpointer",
+        lambda settings: DummyAsyncContext("checkpointer"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_graph_store",
+        lambda settings: DummyAsyncContext("graph-store"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "build_graph", lambda graph: DummyGraph()
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "build_initial_state",
+        lambda graph_config, inputs, runtime_config=None, workspace_id=None: {
+            "inputs": dict(inputs)
+        },
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "CredentialResolver",
+        lambda vault, context=None: object(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "credential_resolution",
+        lambda resolver: nullcontext(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "tool_progress_context",
+        lambda callback: nullcontext(),
+    )
+
+    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
+    result = await executor._execute_graph(
+        workflow_id=UUID(int=0),
+        graph_config={"nodes": []},
+        inputs={"message": "hello"},
+        config={"configurable": {"thread_id": "thread"}},
+        state_config={"configurable": {"thread_id": "thread"}},
+        step_callback=lambda step: asyncio.sleep(0),
+    )
+
+    assert result["assistant_message"] == "What is your guess?"
+    assert result["__interrupt__"] == [{"message": "What is your guess?"}]
+
+
+@pytest.mark.asyncio
+async def test_execute_graph_invoke_interrupt_fallback_does_not_leak_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ``ainvoke`` interrupt fallback must not leak raw state as the reply.
+
+    When ``snapshot.interrupts`` comes back empty alongside a truthy
+    ``__interrupt__`` in the invoke result, the executor should fall back to the
+    result's own ``__interrupt__`` list rather than the whole state mapping.
+    """
+
+    interrupt_payload = {"message": "Need your input"}
+
+    class DummyCompiled:
+        async def ainvoke(self, payload, *, config):
+            return {
+                "__interrupt__": ({"value": interrupt_payload},),
+                "secret_state": "must-not-leak",
+                "node_results": {"agent": {"branch": "human"}},
+            }
+
+        async def aget_state(self, config):
+            # No interrupts surfaced on the snapshot -> exercise the fallback.
+            return SimpleNamespace(values={"messages": []}, interrupts=())
+
+    class DummyGraph:
+        def compile(self, *, checkpointer, store):
+            return DummyCompiled()
+
+    class DummyAsyncContext:
+        def __init__(self, value: object) -> None:
+            self._value = value
+
+        async def __aenter__(self) -> object:
+            return self._value
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: {})
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_checkpointer",
+        lambda settings: DummyAsyncContext("checkpointer"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_graph_store",
+        lambda settings: DummyAsyncContext("graph-store"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "build_graph", lambda graph: DummyGraph()
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "build_initial_state",
+        lambda graph_config, inputs, runtime_config=None, workspace_id=None: {
+            "inputs": dict(inputs)
+        },
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "CredentialResolver",
+        lambda vault, context=None: object(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "credential_resolution",
+        lambda resolver: nullcontext(),
+    )
+
+    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
+    result = await executor._execute_graph(
+        workflow_id=UUID(int=0),
+        graph_config={"nodes": []},
+        inputs={"message": "hello"},
+        config={"configurable": {"thread_id": "thread"}},
+        state_config={"configurable": {"thread_id": "thread"}},
+        step_callback=None,  # force the non-streaming ainvoke path
+    )
+
+    assert result["__interrupt__"] == [interrupt_payload]
+    assert result["assistant_message"] == "Need your input"
+    # The raw graph state must not have leaked into the interrupt payload.
+    assert "secret_state" not in result["__interrupt__"][0]
+
+
+@pytest.mark.asyncio
+async def test_execute_graph_resumes_pending_interrupt_with_chatkit_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pending checkpoint interrupt should be resumed with Command(resume=...)."""
+    captured: dict[str, object] = {}
+
+    class DummyInterrupt:
+        value = {"message": "What is your guess?"}
+
+    class DummyCompiled:
+        def __init__(self) -> None:
+            self._streamed = False
+
+        async def astream(self, payload, *, config, stream_mode, subgraphs=False):
+            captured["payload"] = payload
+            self._streamed = True
+            yield {"finish": {"assistant_message": "Correct."}}
+
+        async def aget_state(self, config):
+            if not self._streamed:
+                return SimpleNamespace(
+                    values={"messages": []}, interrupts=(DummyInterrupt(),)
+                )
+            return SimpleNamespace(
+                values={"assistant_message": "Correct.", "messages": []},
+                interrupts=(),
+            )
+
+    class DummyGraph:
+        def compile(self, *, checkpointer, store):
+            return DummyCompiled()
+
+    class DummyAsyncContext:
+        def __init__(self, value: object) -> None:
+            self._value = value
+
+        async def __aenter__(self) -> object:
+            return self._value
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    monkeypatch.setattr(workflow_executor_module, "get_settings", lambda: {})
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_checkpointer",
+        lambda settings: DummyAsyncContext("checkpointer"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "create_graph_store",
+        lambda settings: DummyAsyncContext("graph-store"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module, "build_graph", lambda graph: DummyGraph()
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "build_initial_state",
+        lambda *args, **kwargs: pytest.fail("resume must not build fresh state"),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "CredentialResolver",
+        lambda vault, context=None: object(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "credential_resolution",
+        lambda resolver: nullcontext(),
+    )
+    monkeypatch.setattr(
+        workflow_executor_module,
+        "tool_progress_context",
+        lambda callback: nullcontext(),
+    )
+
+    executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
+    result = await executor._execute_graph(
+        workflow_id=UUID(int=0),
+        graph_config={"nodes": []},
+        inputs={"message": "42"},
+        config={"configurable": {"thread_id": "thread"}},
+        state_config={"configurable": {"thread_id": "thread"}},
+        step_callback=lambda step: asyncio.sleep(0),
+    )
+
+    payload = captured["payload"]
+    assert isinstance(payload, Command)
+    assert payload.resume == "42"
+    assert result["assistant_message"] == "Correct."
 
 
 @pytest.mark.asyncio
@@ -920,3 +1191,122 @@ async def test_checkpoint_message_count_returns_zero_when_no_aget_state() -> Non
         CompiledWithoutState(), {}
     )
     assert result == 0
+
+
+# ---------------------------------------------------------------------------
+# _pending_interrupts (workflow_executor.py lines 581-583)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pending_interrupts_returns_tuple_when_interrupts_is_list() -> None:
+    """Covers line 581-583: snapshot.interrupts is a list, not a tuple."""
+
+    class ListInterruptsSnapshot:
+        interrupts = ["interrupt-a", "interrupt-b"]
+
+    class CompiledWithListInterrupts:
+        async def aget_state(self, config: object) -> ListInterruptsSnapshot:
+            return ListInterruptsSnapshot()
+
+    result = await _pending_interrupts(CompiledWithListInterrupts(), {})
+    assert result == ("interrupt-a", "interrupt-b")
+    assert isinstance(result, tuple)
+
+
+@pytest.mark.asyncio
+async def test_pending_interrupts_returns_empty_tuple_for_other_types() -> None:
+    """Covers line 583: snapshot.interrupts is neither tuple nor list."""
+
+    class WeirdInterruptsSnapshot:
+        interrupts = "not-a-sequence"
+
+    class CompiledWithWeirdInterrupts:
+        async def aget_state(self, config: object) -> WeirdInterruptsSnapshot:
+            return WeirdInterruptsSnapshot()
+
+    result = await _pending_interrupts(CompiledWithWeirdInterrupts(), {})
+    assert result == ()
+
+
+# ---------------------------------------------------------------------------
+# _resume_value_from_inputs (workflow_executor.py lines 591-598)
+# ---------------------------------------------------------------------------
+
+
+def test_resume_value_from_inputs_returns_non_string_message() -> None:
+    """Covers line 591-592: message present but not a str is returned as-is."""
+    payload = {"count": 3}
+    assert _resume_value_from_inputs({"message": payload}) is payload
+
+
+def test_resume_value_from_inputs_uses_action_payload() -> None:
+    """Covers line 593-597: no message, falls back to action.payload."""
+    result = _resume_value_from_inputs({"action": {"payload": {"choice": "yes"}}})
+    assert result == {"choice": "yes"}
+
+
+def test_resume_value_from_inputs_falls_back_to_dict_of_inputs() -> None:
+    """Covers line 598: no message, no usable action payload."""
+    inputs = {"action": {"payload": None}, "other": "value"}
+    assert _resume_value_from_inputs(inputs) == inputs
+
+
+def test_resume_value_from_inputs_falls_back_when_action_not_mapping() -> None:
+    """Covers line 594 false branch: action present but not a Mapping."""
+    inputs = {"action": "not-a-mapping"}
+    assert _resume_value_from_inputs(inputs) == inputs
+
+
+def test_resume_value_from_inputs_falls_back_when_no_action() -> None:
+    """Covers line 598: neither message nor action present at all."""
+    inputs = {"unrelated": True}
+    assert _resume_value_from_inputs(inputs) == inputs
+
+
+# ---------------------------------------------------------------------------
+# _interrupt_message (workflow_executor.py lines 611, 615->613, 617)
+# ---------------------------------------------------------------------------
+
+
+def test_interrupt_message_returns_string_value_directly() -> None:
+    """Covers line 611: value is already a plain string."""
+    assert _interrupt_message("please confirm") == "please confirm"
+
+
+def test_interrupt_message_skips_blank_candidates_then_finds_valid_key() -> None:
+    """Covers line 615->613: loop continues past a blank candidate."""
+    value = {"message": "   ", "question": "Are you sure?"}
+    assert _interrupt_message(value) == "Are you sure?"
+
+
+def test_interrupt_message_falls_back_to_str_when_no_recognized_key() -> None:
+    """Covers line 617: Mapping with no matching/valid key falls back to str()."""
+    value = {"unrelated_key": "value"}
+    assert _interrupt_message(value) == str(value)
+
+
+def test_interrupt_message_falls_back_to_str_for_non_mapping_non_string() -> None:
+    """Covers line 617: value is neither a str nor a Mapping."""
+    assert _interrupt_message(42) == "42"
+
+
+# ---------------------------------------------------------------------------
+# _state_with_interrupts (workflow_executor.py lines 625, 629)
+# ---------------------------------------------------------------------------
+
+
+def test_state_with_interrupts_uses_empty_dict_for_non_mapping_state() -> None:
+    """Covers line 625: state is not a Mapping, starts from an empty dict."""
+    result = _state_with_interrupts("not-a-mapping", ["only-interrupt"])
+    assert result["__interrupt__"] == [_interrupt_value("only-interrupt")]
+    assert result["assistant_message"] == _interrupt_message(
+        _interrupt_value("only-interrupt")
+    )
+
+
+def test_state_with_interrupts_falls_back_to_single_interrupt_payload() -> None:
+    """Covers line 629: interrupts is not a list/tuple, so falls back to itself."""
+    result = _state_with_interrupts({"existing": "value"}, "single-interrupt")
+    assert result["existing"] == "value"
+    assert result["__interrupt__"] == [_interrupt_value("single-interrupt")]

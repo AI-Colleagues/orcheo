@@ -11,7 +11,6 @@ from orcheo.nodes.browser import (
     BrowserScriptNode,
     BrowserWaitNode,
 )
-from orcheo.nodes.code import CodeNode
 from orcheo.nodes.connectors.discord import (
     DiscordBotListenerNode,
     DiscordWebhookNode,
@@ -35,48 +34,51 @@ from orcheo.nodes.connectors.wecom import (
     WeComSendMessageNode,
 )
 from orcheo.nodes.data import (
+    CodeNode,
     DataTransformNode,
+    HtmlTextTransformNode,
     HttpRequestNode,
     JsonProcessingNode,
     MergeNode,
 )
 from orcheo.nodes.logic import (
     DelayNode,
-    FinalReplyNode,
+    ExtractAIMessageNode,
     ForLoopNode,
+    HumanInputNode,
     SetVariableNode,
     StructuredRouterDispatchNode,
 )
 from orcheo.nodes.logic.debug import DebugNode
 from orcheo.nodes.logic.sub_workflow import SubWorkflowNode
 from orcheo.nodes.qualitative import (
-    CodeAssignment,
-    CodeAssignmentEntry,
-    Codebook,
     CodebookConsolidationResponse,
     CodebookOutputNode,
     CodedDataIngestNode,
-    ContextPreNode,
     DataQualityNode,
     ExportCodebookNode,
     ExportCodedDataNode,
     ExportReportNode,
-    FileValidatorNode,
     IngestNode,
     InsightCriticNode,
     LLMStageFinalizeNode,
     LLMStagePrepareNode,
-    ParsedRecord,
-    QualitativeResultKeys,
+    LoadAttachmentsNode,
     RecodeOutputNode,
     RecommendationGeneratorNode,
     ReportOutputNode,
-    SetupNode,
-    SourceParser,
+    ValidateFilesNode,
+)
+from orcheo.nodes.qualitative.models import (
+    CodeAssignment,
+    CodeAssignmentEntry,
+    Codebook,
+    ParsedRecord,
     Subtheme,
     Theme,
     Unit,
 )
+from orcheo.nodes.qualitative.sources import SourceParser
 from orcheo.nodes.rag import (
     ChunkEmbeddingNode,
     ChunkingStrategyNode,
@@ -128,15 +130,16 @@ __all__ = [
     "BrowserCloseNode",
     "AgentensorNode",
     "HttpRequestNode",
+    "HtmlTextTransformNode",
     "JsonProcessingNode",
     "DataTransformNode",
     "MergeNode",
     "SetVariableNode",
     "DelayNode",
     "ForLoopNode",
+    "HumanInputNode",
+    "ExtractAIMessageNode",
     "StructuredRouterDispatchNode",
-    "FinalReplyNode",
-    "QualitativeResultKeys",
     "Unit",
     "Subtheme",
     "Theme",
@@ -145,12 +148,11 @@ __all__ = [
     "CodeAssignment",
     "ParsedRecord",
     "SourceParser",
-    "SetupNode",
-    "ContextPreNode",
     "IngestNode",
     "LLMStagePrepareNode",
     "LLMStageFinalizeNode",
-    "FileValidatorNode",
+    "LoadAttachmentsNode",
+    "ValidateFilesNode",
     "ExportCodebookNode",
     "CodebookOutputNode",
     "CodebookConsolidationResponse",

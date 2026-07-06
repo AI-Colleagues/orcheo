@@ -379,3 +379,153 @@ def test_ingest_workflow_version_stores_mermaid_in_index(
     assert response.status_code == 201
     index = response.json()["graph"]["index"]
     assert index.get("mermaid") == "graph TD\n  A --> B"
+
+
+def test_ingest_workflow_version_rejects_missing_required_plugins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Templates that declare unavailable required plugins are rejected.
+
+    Covers routers/workflows.py line 935 (the HTTPException raised when
+    ``missing_required_plugins`` reports at least one unavailable plugin) and
+    verifies the failure is recorded via ``set_workflow_upload_error``.
+    """
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "allow_client_uploads")
+    reset_authentication_state()
+
+    import importlib
+
+    _workflows_module = importlib.import_module("orcheo_backend.app.routers.workflows")
+    monkeypatch.setattr(
+        _workflows_module,
+        "missing_required_plugins",
+        lambda required: list(required),
+    )
+
+    repository = InMemoryWorkflowRepository()
+    workflow = asyncio.run(
+        repository.create_workflow(
+            name="PluginGated",
+            slug=None,
+            description=None,
+            tags=[],
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="tester",
+        )
+    )
+
+    app = create_app(repository)
+    workspace_context = WorkspaceContext(
+        workspace_id=uuid4(),
+        workspace_slug="default",
+        user_id="tester",
+        role=Role.OWNER,
+    )
+    app.dependency_overrides[resolve_workspace_context] = lambda: workspace_context
+    client = TestClient(app)
+
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        def build_graph():
+            graph = StateGraph(State)
+            graph.add_node("noop", lambda state: state)
+            graph.set_entry_point("noop")
+            graph.set_finish_point("noop")
+            return graph
+        """
+    )
+
+    response = client.post(
+        f"/api/workflows/{workflow.id}/versions/ingest",
+        json={
+            "script": script,
+            "entrypoint": "build_graph",
+            "created_by": "tester",
+            "metadata": {"template": {"requiredPlugins": ["wecom_listener"]}},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "wecom_listener" in response.json()["detail"]
+
+    stored = asyncio.run(repository.get_workflow(workflow.id))
+    assert stored.upload_error is not None
+    assert "wecom_listener" in stored.upload_error.message
+
+
+def test_ingest_workflow_version_rejects_invalid_inline_configurable_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An inline configurable schema without a resolvable default is rejected.
+
+    Covers routers/workflows.py line 973 (the ``raise`` re-propagating the
+    HTTPException from ``_resolve_ingest_configurable_schema`` after recording
+    the upload failure).
+    """
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    monkeypatch.setenv("ORCHEO_WORKFLOW_TRUST_MODE", "allow_client_uploads")
+    reset_authentication_state()
+
+    repository = InMemoryWorkflowRepository()
+    workflow = asyncio.run(
+        repository.create_workflow(
+            name="BadInlineSchema",
+            slug=None,
+            description=None,
+            tags=[],
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="tester",
+        )
+    )
+
+    app = create_app(repository)
+    workspace_context = WorkspaceContext(
+        workspace_id=uuid4(),
+        workspace_slug="default",
+        user_id="tester",
+        role=Role.OWNER,
+    )
+    app.dependency_overrides[resolve_workspace_context] = lambda: workspace_context
+    client = TestClient(app)
+
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        def build_graph():
+            graph = StateGraph(State)
+            graph.add_node("noop", lambda state: state)
+            graph.set_entry_point("noop")
+            graph.set_finish_point("noop")
+            return graph
+        """
+    )
+
+    response = client.post(
+        f"/api/workflows/{workflow.id}/versions/ingest",
+        json={
+            "script": script,
+            "entrypoint": "build_graph",
+            "created_by": "tester",
+            "runnable_config": {
+                "configurable": {
+                    # A schema declaration (has a discriminator key: "properties")
+                    # but no "default"/"const"/non-empty "enum" to resolve at
+                    # runtime, so split_configurable raises ConfigurableSchemaError.
+                    "broken_field": {"type": "object", "properties": {}},
+                }
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "broken_field" in response.json()["detail"]
+
+    stored = asyncio.run(repository.get_workflow(workflow.id))
+    assert stored.upload_error is not None
+    assert "broken_field" in stored.upload_error.message

@@ -10,15 +10,17 @@ original ``workflow.py`` is never re-executed.
 
 from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
+from importlib import import_module
 from typing import Any
 from langgraph.graph import END, START, StateGraph
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from orcheo.graph.conditional import add_conditional_edges
 from orcheo.graph.ir.exceptions import IRValidationError
 from orcheo.graph.ir.models import (
     CURRENT_SCHEMA_VERSION,
     END_VERTEX,
     IR_CONFIG_KIND_KEY,
+    PYDANTIC_MODEL_CONFIG_KIND,
     START_VERTEX,
     WORKFLOW_TOOL_CONFIG_KIND,
     BuiltinNodeSpec,
@@ -305,6 +307,8 @@ def _materialise_config_value(
     if isinstance(value, Mapping):
         if value.get(IR_CONFIG_KIND_KEY) == WORKFLOW_TOOL_CONFIG_KIND:
             return _build_workflow_tool(value, code_node_factory=code_node_factory)
+        if value.get(IR_CONFIG_KIND_KEY) == PYDANTIC_MODEL_CONFIG_KIND:
+            return _import_pydantic_model(value)
         return {
             str(key): _materialise_config_value(
                 nested,
@@ -318,6 +322,37 @@ def _materialise_config_value(
             for nested in value
         ]
     return value
+
+
+def _import_pydantic_model(value: Mapping[str, Any]) -> type[BaseModel]:
+    """Restore a trusted Orcheo Pydantic model class from an IR marker."""
+    module_name = value.get("module")
+    attr_name = value.get("name")
+    if not isinstance(module_name, str) or not isinstance(attr_name, str):
+        msg = "Pydantic model IR config requires string 'module' and 'name'"
+        raise IRValidationError(msg)
+    if module_name != "orcheo" and not module_name.startswith("orcheo."):
+        msg = (
+            f"Pydantic model IR config cannot import non-Orcheo module '{module_name}'"
+        )
+        raise IRValidationError(msg)
+    try:
+        module = import_module(module_name)
+    except ImportError as exc:
+        msg = f"Pydantic model IR config could not import '{module_name}'"
+        raise IRValidationError(msg) from exc
+    resolved = getattr(module, attr_name, None)
+    if (
+        not isinstance(resolved, type)
+        or resolved is BaseModel
+        or not issubclass(resolved, BaseModel)
+    ):
+        msg = (
+            "Pydantic model IR config target "
+            f"'{module_name}.{attr_name}' is not a BaseModel subclass"
+        )
+        raise IRValidationError(msg)
+    return resolved
 
 
 def _build_workflow_tool(
@@ -345,6 +380,9 @@ def _build_workflow_tool(
             code_node_factory=code_node_factory,
         ),
     }
+    args_schema = value.get("args_schema")
+    if args_schema is not None:
+        kwargs["args_schema"] = args_schema
     output_path = value.get("output_path")
     if output_path is not None:
         kwargs["output_path"] = output_path

@@ -154,6 +154,15 @@ class WorkflowRepository(Protocol):
     ) -> Workflow:
         """Mutate workflow metadata and return the updated record."""
 
+    async def set_workflow_upload_error(
+        self,
+        workflow_id: UUID,
+        *,
+        message: str | None,
+        actor: str,
+    ) -> Workflow:
+        """Set or clear the latest workflow upload failure."""
+
     async def archive_workflow(self, workflow_id: UUID, *, actor: str) -> Workflow:
         """Archive the specified workflow."""
 

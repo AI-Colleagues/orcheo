@@ -1,9 +1,9 @@
 """Results-channel accessors for the qualitative-analysis workflows.
 
-Each ``get_*`` reads a logical field from the first listed producer node that
-carries it, coercing the serialized payload back into the right model. A
-:class:`QualitativeResultKeys` instance supplies the field names and producer
-order, so the same accessors serve every workflow.
+Each ``get_*`` reads a logical field from the first producer node that carries
+it, coercing the serialized payload back into the right model. The colleague
+workflows wire node inputs explicitly via templates, so these accessors only
+cover the shared fallback wiring with fixed field names and producers.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 from orcheo.graph.state import State
-from orcheo.nodes.qualitative.keys import QualitativeResultKeys
 from orcheo.nodes.qualitative.models import (
     CandidateInsight,
     CodeAssignment,
@@ -27,7 +26,7 @@ from orcheo.nodes.qualitative.models import (
     SegmentComparison,
     Unit,
 )
-from orcheo.runtime.results import first_result_field
+from orcheo.runtime.results import first_result_field, node_result
 
 
 def get_configurable(config: RunnableConfig | None) -> Mapping[str, Any]:
@@ -36,16 +35,33 @@ def get_configurable(config: RunnableConfig | None) -> Mapping[str, Any]:
     return block if isinstance(block, Mapping) else {}
 
 
-def is_vacuous(text: str) -> bool:
-    """Return True when a string is missing or trivially short."""
-    stripped = (text or "").strip()
-    if not stripped:
-        return True
-    return len(stripped.split()) < 3
+def ingest_halt_message(
+    state: State,
+    ingest_node_name: str,
+    *,
+    default: str = "Ingest failed.",
+) -> str | None:
+    """Return the ingest node's early-halt message, or ``None`` if it did not halt.
+
+    ``IngestNode`` sets ``assistant_message`` (a declared ``State`` field) on an
+    early halt, which ``build_task_state_update`` hoists to the top level instead
+    of nesting it under ``node_results``. Prefer the node-scoped value (older
+    runs / other producers), then the hoisted top-level field, and only fall back
+    to a generic message when neither is present.
+    """
+    early = node_result(state, ingest_node_name)
+    if not early.get("halt"):
+        return None
+    message = early.get("assistant_message") or (
+        state.get("assistant_message") if isinstance(state, Mapping) else None
+    )
+    return str(message) if message else default
 
 
-def _coerce_models[ModelT: BaseModel](value: Any, model: type[ModelT]) -> list[ModelT]:
-    """Coerce a list of serialized payloads back into model instances."""
+def coerce_model_list[ModelT: BaseModel](
+    value: Any, model: type[ModelT]
+) -> list[ModelT]:
+    """Coerce a raw or template-resolved value into a list of model instances."""
     if not isinstance(value, list):
         return []
     out: list[ModelT] = []
@@ -57,8 +73,8 @@ def _coerce_models[ModelT: BaseModel](value: Any, model: type[ModelT]) -> list[M
     return out
 
 
-def _coerce_model[ModelT: BaseModel](value: Any, model: type[ModelT]) -> ModelT | None:
-    """Coerce a single serialized payload back into a model instance."""
+def coerce_model[ModelT: BaseModel](value: Any, model: type[ModelT]) -> ModelT | None:
+    """Coerce a raw or template-resolved value into a model instance."""
     if value is None:
         return None
     try:
@@ -67,40 +83,8 @@ def _coerce_model[ModelT: BaseModel](value: Any, model: type[ModelT]) -> ModelT 
         return None
 
 
-def _keys(keys: QualitativeResultKeys | None) -> QualitativeResultKeys:
-    return keys or QualitativeResultKeys()
-
-
-def get_research_objective(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> str | None:
-    """Return the research objective carried on the results channel."""
-    keys = _keys(keys)
-    value = first_result_field(
-        state, keys.research_objective_field, keys.research_objective_producers
-    )
-    return value if isinstance(value, str) and value.strip() else None
-
-
-def get_source_payload(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> dict[str, Any] | None:
-    """Return the resolved source payload carried on the results channel."""
-    keys = _keys(keys)
-    value = first_result_field(
-        state, keys.source_payload_field, keys.source_payload_producers
-    )
-    return dict(value) if isinstance(value, Mapping) else None
-
-
-def get_pending_documents(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> list[dict[str, Any]]:
-    """Return the documents loaded by the context node (may be empty)."""
-    keys = _keys(keys)
-    value = first_result_field(
-        state, keys.pending_documents_field, keys.pending_documents_producers
-    )
+def coerce_pending_documents(value: Any) -> list[dict[str, Any]]:
+    """Coerce a raw or template-resolved value into loaded document mappings."""
     return (
         [dict(doc) for doc in value if isinstance(doc, Mapping)]
         if isinstance(value, list)
@@ -108,182 +92,122 @@ def get_pending_documents(
     )
 
 
-def get_seed_codebook_from_file(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> dict[str, Any] | None:
-    """Return a seed codebook resolved from an uploaded file, if any."""
-    keys = _keys(keys)
-    value = first_result_field(
-        state, keys.seed_codebook_field, keys.seed_codebook_producers
-    )
+def get_source_payload(state: State) -> dict[str, Any] | None:
+    """Return the resolved source payload carried on the node_results channel."""
+    value = first_result_field(state, "source_payload", ("ingest",))
     return dict(value) if isinstance(value, Mapping) else None
 
 
-def get_approved_codebook(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> Codebook | None:
-    """Return the approved (or reconstructed) codebook."""
-    keys = _keys(keys)
-    value = first_result_field(
-        state, keys.approved_codebook_field, keys.approved_codebook_producers
-    )
-    return _coerce_model(value, Codebook)
+def get_pending_documents(state: State) -> list[dict[str, Any]]:
+    """Return the documents loaded by the attachments node (may be empty)."""
+    value = first_result_field(state, "attachments", ("load_attachments",))
+    return coerce_pending_documents(value)
 
 
-def get_units(state: State, keys: QualitativeResultKeys | None = None) -> list[Unit]:
+def get_units(state: State) -> list[Unit]:
     """Return the ingested units, coerced from their serialized form."""
-    keys = _keys(keys)
-    value = first_result_field(state, keys.units_field, keys.units_producers)
-    return _coerce_models(value, Unit)
+    value = first_result_field(state, "units", ("ingest",))
+    return coerce_model_list(value, Unit)
 
 
-def get_code_assignments(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> list[CodeAssignment]:
-    """Return the code assignments reconstructed from the results channel."""
-    keys = _keys(keys)
+def get_code_assignments(state: State) -> list[CodeAssignment]:
+    """Return the code assignments reconstructed from the node_results channel."""
     value = first_result_field(
-        state, keys.assignments_field, keys.assignments_producers
+        state, "code_assignments_pass1", ("open_coder_finalize",)
     )
-    return _coerce_models(value, CodeAssignment)
+    return coerce_model_list(value, CodeAssignment)
 
 
-def get_draft_codebook(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> Codebook | None:
+def get_draft_codebook(state: State) -> Codebook | None:
     """Return the draft codebook produced by the consolidation stage."""
-    keys = _keys(keys)
     value = first_result_field(
-        state, keys.draft_codebook_field, keys.draft_codebook_producers
+        state, "draft_codebook", ("codebook_consolidator_finalize",)
     )
-    return _coerce_model(value, Codebook)
+    return coerce_model(value, Codebook)
 
 
-def get_quality_report(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> QualityReport | None:
+def get_quality_report(state: State) -> QualityReport | None:
     """Return the data-quality report produced by the quality stage."""
-    keys = _keys(keys)
-    value = first_result_field(
-        state, keys.quality_report_field, keys.quality_report_producers
-    )
-    return _coerce_model(value, QualityReport)
+    value = first_result_field(state, "quality_report", ("data_quality",))
+    return coerce_model(value, QualityReport)
 
 
-def get_quantification(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> list[QuantificationRow]:
+def get_quantification(state: State) -> list[QuantificationRow]:
     """Return the per-theme quantification rows."""
-    keys = _keys(keys)
-    value = first_result_field(
-        state, keys.quantification_field, keys.quantification_producers
-    )
-    return _coerce_models(value, QuantificationRow)
+    value = first_result_field(state, "quantification", ("ingest",))
+    return coerce_model_list(value, QuantificationRow)
 
 
-def get_cooccurrence(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> list[CooccurrenceRow]:
+def get_cooccurrence(state: State) -> list[CooccurrenceRow]:
     """Return the pairwise theme co-occurrence rows."""
-    keys = _keys(keys)
-    value = first_result_field(
-        state, keys.cooccurrence_field, keys.cooccurrence_producers
-    )
-    return _coerce_models(value, CooccurrenceRow)
+    value = first_result_field(state, "cooccurrence", ("ingest",))
+    return coerce_model_list(value, CooccurrenceRow)
 
 
-def get_segment_breakdowns(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> list[SegmentBreakdownRow]:
+def get_segment_breakdowns(state: State) -> list[SegmentBreakdownRow]:
     """Return the per-segment breakdown rows."""
-    keys = _keys(keys)
-    value = first_result_field(
-        state, keys.segment_breakdowns_field, keys.segment_breakdowns_producers
-    )
-    return _coerce_models(value, SegmentBreakdownRow)
+    value = first_result_field(state, "segment_breakdowns", ("ingest",))
+    return coerce_model_list(value, SegmentBreakdownRow)
 
 
-def get_segment_comparisons(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> list[SegmentComparison]:
+def get_segment_comparisons(state: State) -> list[SegmentComparison]:
     """Return the segment comparison rows."""
-    keys = _keys(keys)
-    value = first_result_field(
-        state, keys.segment_comparisons_field, keys.segment_comparisons_producers
-    )
-    return _coerce_models(value, SegmentComparison)
+    value = first_result_field(state, "segment_comparisons", ("ingest",))
+    return coerce_model_list(value, SegmentComparison)
 
 
-def get_selected_quotes(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> list[Quote]:
+def get_selected_quotes(state: State) -> list[Quote]:
     """Return the quotes chosen by the quote selector."""
-    keys = _keys(keys)
-    value = first_result_field(
-        state, keys.selected_quotes_field, keys.selected_quotes_producers
-    )
-    return _coerce_models(value, Quote)
+    value = first_result_field(state, "selected_quotes", ("quote_selector_finalize",))
+    return coerce_model_list(value, Quote)
 
 
-def get_candidate_insights(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> list[CandidateInsight]:
+def get_candidate_insights(state: State) -> list[CandidateInsight]:
     """Return the latest candidate insights (generator -> critic -> recommender)."""
-    keys = _keys(keys)
     value = first_result_field(
-        state, keys.candidate_insights_field, keys.candidate_insights_producers
+        state,
+        "candidate_insights",
+        ("recommendation_generator", "insight_critic", "insight_generator_finalize"),
     )
-    return _coerce_models(value, CandidateInsight)
+    return coerce_model_list(value, CandidateInsight)
 
 
-def get_recommendations(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> list[Recommendation]:
+def get_recommendations(state: State) -> list[Recommendation]:
     """Return the generated recommendations."""
-    keys = _keys(keys)
-    value = first_result_field(
-        state, keys.recommendations_field, keys.recommendations_producers
-    )
-    return _coerce_models(value, Recommendation)
+    value = first_result_field(state, "recommendations", ("recommendation_generator",))
+    return coerce_model_list(value, Recommendation)
 
 
-def get_approved_insight_ids(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> list[str]:
+def get_approved_insight_ids(state: State) -> list[str]:
     """Return the approved insight ids selected for the report."""
-    keys = _keys(keys)
     value = first_result_field(
-        state, keys.approved_insight_ids_field, keys.approved_insight_ids_producers
+        state, "approved_insight_ids", ("recommendation_generator",)
     )
     return [str(item) for item in value] if isinstance(value, list) else []
 
 
-def build_report_data(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> ReportData:
-    """Assemble a :class:`ReportData` view from the ``results`` channel."""
-    keys = _keys(keys)
+def build_report_data(state: State) -> ReportData:
+    """Assemble a :class:`ReportData` view from the ``node_results`` channel."""
     return ReportData(
-        research_objective=get_research_objective(state, keys),
-        pending_documents=get_pending_documents(state, keys),
-        source_payload=get_source_payload(state, keys),
-        units=get_units(state, keys),
-        approved_codebook=get_approved_codebook(state, keys),
-        code_assignments_pass2=get_code_assignments(state, keys),
-        quantification=get_quantification(state, keys),
-        cooccurrence=get_cooccurrence(state, keys),
-        segment_breakdowns=get_segment_breakdowns(state, keys),
-        segment_comparisons=get_segment_comparisons(state, keys),
-        selected_quotes=get_selected_quotes(state, keys),
-        candidate_insights=get_candidate_insights(state, keys),
-        recommendations=get_recommendations(state, keys),
-        approved_insight_ids=get_approved_insight_ids(state, keys),
+        source_payload=get_source_payload(state),
+        units=get_units(state),
+        code_assignments_pass2=get_code_assignments(state),
+        quantification=get_quantification(state),
+        cooccurrence=get_cooccurrence(state),
+        segment_breakdowns=get_segment_breakdowns(state),
+        segment_comparisons=get_segment_comparisons(state),
+        selected_quotes=get_selected_quotes(state),
+        candidate_insights=get_candidate_insights(state),
+        recommendations=get_recommendations(state),
+        approved_insight_ids=get_approved_insight_ids(state),
     )
 
 
 __all__ = [
     "build_report_data",
-    "get_approved_codebook",
+    "coerce_model",
+    "coerce_model_list",
+    "coerce_pending_documents",
     "get_approved_insight_ids",
     "get_candidate_insights",
     "get_code_assignments",
@@ -294,12 +218,10 @@ __all__ = [
     "get_quality_report",
     "get_quantification",
     "get_recommendations",
-    "get_research_objective",
-    "get_seed_codebook_from_file",
     "get_segment_breakdowns",
     "get_segment_comparisons",
     "get_selected_quotes",
     "get_source_payload",
     "get_units",
-    "is_vacuous",
+    "ingest_halt_message",
 ]

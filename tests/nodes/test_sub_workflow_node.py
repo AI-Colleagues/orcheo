@@ -21,7 +21,7 @@ async def test_sub_workflow_node_runs_steps_and_propagates() -> None:
                 "type": "SetVariableNode",
                 "name": "derived",
                 "variables": {
-                    "value": "{{ results.initial.value }}",
+                    "value": "{{node_results.initial.value }}",
                     "extra": 9,
                 },
             },
@@ -30,13 +30,13 @@ async def test_sub_workflow_node_runs_steps_and_propagates() -> None:
         propagate_to_parent=True,
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["sub"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["sub"]
 
     assert payload["result"] == {"value": 3, "extra": 9}
     assert [step["name"] for step in payload["steps"]] == ["initial", "derived"]
-    assert state["results"]["derived"] == {"value": 3, "extra": 9}
-    assert payload["state"]["results"]["derived"]["extra"] == 9
+    assert state["node_results"]["derived"] == {"value": 3, "extra": 9}
+    assert payload["state"]["node_results"]["derived"]["extra"] == 9
 
 
 @pytest.mark.asyncio
@@ -48,7 +48,7 @@ async def test_sub_workflow_node_validates_step_configuration() -> None:
         steps=[{"name": "invalid"}],
     )
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     with pytest.raises(ValueError):
         await node(state, RunnableConfig())
 
@@ -62,8 +62,8 @@ async def test_sub_workflow_node_empty_steps() -> None:
         steps=[],
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["sub"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["sub"]
 
     assert payload == {"steps": [], "result": None}
 
@@ -77,7 +77,7 @@ async def test_sub_workflow_node_unknown_node_type() -> None:
         steps=[{"type": "NonExistentNode", "name": "test"}],
     )
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     with pytest.raises(ValueError, match="Unknown node type"):
         await node(state, RunnableConfig())
 
@@ -98,11 +98,11 @@ async def test_sub_workflow_node_propagate_updates_parent() -> None:
         propagate_to_parent=True,
     )
 
-    state = State({"results": {"existing": "data"}})
+    state = State({"node_results": {"existing": "data"}})
     await node(state, RunnableConfig())
 
-    assert state["results"]["step1"] == {"value": 42}
-    assert state["results"]["existing"] == "data"
+    assert state["node_results"]["step1"] == {"value": 42}
+    assert state["node_results"]["existing"] == "data"
 
 
 @pytest.mark.asyncio
@@ -126,8 +126,8 @@ async def test_sub_workflow_node_custom_result_step() -> None:
         result_step="first",
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["sub"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["sub"]
 
     assert payload["result"] == {"value": 1}
 
@@ -148,8 +148,8 @@ async def test_sub_workflow_node_include_state_disabled() -> None:
         include_state=False,
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["sub"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["sub"]
 
     assert "state" not in payload
 
@@ -181,9 +181,9 @@ async def test_sub_workflow_node_propagate_replaces_results(
         propagate_to_parent=True,
     )
 
-    state = State({"results": "not_a_dict"})
+    state = State({"node_results": "not_a_dict"})
 
     await node(state, RunnableConfig())
 
-    assert isinstance(state["results"], dict)
-    assert state["results"]["step1"] == {"value": 42}
+    assert isinstance(state["node_results"], dict)
+    assert state["node_results"]["step1"] == {"value": 42}

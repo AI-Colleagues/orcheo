@@ -1,0 +1,3 @@
+[submodule "colleague-candidates"]
+	path = colleague-candidates
+	url = https://github.com/AI-Colleagues/colleague-candidates.git

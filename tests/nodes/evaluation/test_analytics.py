@@ -71,7 +71,7 @@ async def test_analytics_evaluation_mode_merges_metrics() -> None:
         batch_eval_node_name="batch_eval",
     )
     state = State(
-        results={
+        node_results={
             "rouge": {
                 "metric_name": "rougeL_fmeasure",
                 "corpus_score": 0.75,
@@ -109,7 +109,7 @@ async def test_analytics_evaluation_mode_per_conversation_breakdown() -> None:
         batch_eval_node_name="batch_eval",
     )
     state = State(
-        results={
+        node_results={
             "token_f1": {
                 "metric_name": "token_f1",
                 "corpus_score": 0.5,
@@ -141,7 +141,7 @@ async def test_analytics_evaluation_mode_captures_config() -> None:
         batch_eval_node_name="batch_eval",
     )
     state = State(
-        results={
+        node_results={
             "rouge": {
                 "metric_name": "rouge1_recall",
                 "corpus_score": 0.9,
@@ -168,7 +168,7 @@ async def test_analytics_evaluation_mode_produces_json_and_table() -> None:
         batch_eval_node_name="batch_eval",
     )
     state = State(
-        results={
+        node_results={
             "f1": {
                 "metric_name": "token_f1",
                 "corpus_score": 0.85,
@@ -197,7 +197,7 @@ async def test_analytics_metric_node_names_as_json_string() -> None:
         batch_eval_node_name="batch_eval",
     )
     state = State(
-        results={
+        node_results={
             "rouge": {
                 "metric_name": "rougeL_fmeasure",
                 "corpus_score": 0.5,
@@ -228,7 +228,7 @@ async def test_analytics_metric_node_names_as_plain_string() -> None:
         batch_eval_node_name="batch_eval",
     )
     state = State(
-        results={
+        node_results={
             "rouge": {
                 "metric_name": "rougeL_fmeasure",
                 "corpus_score": 0.5,
@@ -281,7 +281,7 @@ async def test_analytics_skips_non_metric_results() -> None:
         batch_eval_node_name="batch_eval",
     )
     state = State(
-        results={
+        node_results={
             "rouge": {
                 "metric_name": "rougeL_fmeasure",
                 "corpus_score": 0.75,
@@ -308,7 +308,7 @@ async def test_analytics_config_not_dict() -> None:
         batch_eval_node_name="batch_eval",
     )
     state = State(
-        results={
+        node_results={
             "rouge": {
                 "metric_name": "rouge1",
                 "corpus_score": 0.5,
@@ -334,7 +334,7 @@ async def test_analytics_configurable_not_dict() -> None:
         batch_eval_node_name="batch_eval",
     )
     state = State(
-        results={
+        node_results={
             "rouge": {
                 "metric_name": "rouge1",
                 "corpus_score": 0.5,
@@ -360,7 +360,7 @@ async def test_analytics_batch_data_not_dict() -> None:
         batch_eval_node_name="batch_eval",
     )
     state = State(
-        results={
+        node_results={
             "rouge": {
                 "metric_name": "rouge1",
                 "corpus_score": 0.5,
@@ -385,7 +385,7 @@ async def test_analytics_per_conv_data_not_dict() -> None:
         batch_eval_node_name="batch_eval",
     )
     state = State(
-        results={
+        node_results={
             "rouge": {
                 "metric_name": "rouge1",
                 "corpus_score": 0.5,
@@ -410,7 +410,7 @@ async def test_analytics_per_conversation_empty_scores() -> None:
         batch_eval_node_name="batch_eval",
     )
     state = State(
-        results={
+        node_results={
             "f1": {
                 "metric_name": "token_f1",
                 "corpus_score": 0.5,

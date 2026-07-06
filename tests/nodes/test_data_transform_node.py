@@ -11,7 +11,7 @@ from orcheo.nodes.data import DataTransformNode, FieldTransform
 async def test_data_transform_node_applies_mappings() -> None:
     """DataTransformNode should remap fields and apply transforms."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = DataTransformNode(
         name="transform",
         input_data={"user": {"name": "Ada", "age": "37"}},
@@ -29,7 +29,7 @@ async def test_data_transform_node_applies_mappings() -> None:
         ],
     )
 
-    payload = (await node(state, RunnableConfig()))["results"]["transform"]
+    payload = (await node(state, RunnableConfig()))["node_results"]["transform"]
     assert payload["result"] == {"profile": {"full_name": "ADA", "age": 37}}
 
 
@@ -37,7 +37,7 @@ async def test_data_transform_node_applies_mappings() -> None:
 async def test_data_transform_node_supports_conversions() -> None:
     """DataTransformNode should handle conversion transforms."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = DataTransformNode(
         name="convert",
         input_data={"value": "5", "text": "Ada", "items": [1, 2]},
@@ -53,7 +53,7 @@ async def test_data_transform_node_supports_conversions() -> None:
         ],
     )
 
-    payload = (await node(state, RunnableConfig()))["results"]["convert"]
+    payload = (await node(state, RunnableConfig()))["node_results"]["convert"]
     assert payload["result"] == {
         "numeric": {"int": 5, "float": 5.0, "bool": True},
         "text": {"lower": "ada", "upper": "ADA", "title": "Ada"},
@@ -66,7 +66,7 @@ async def test_data_transform_node_supports_conversions() -> None:
 async def test_data_transform_node_skips_missing_values() -> None:
     """Missing fields should be skipped when configured."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = DataTransformNode(
         name="skip",
         input_data={},
@@ -79,7 +79,7 @@ async def test_data_transform_node_skips_missing_values() -> None:
         ],
     )
 
-    payload = (await node(state, RunnableConfig()))["results"]["skip"]
+    payload = (await node(state, RunnableConfig()))["node_results"]["skip"]
     assert payload["result"] == {}
 
 
@@ -87,7 +87,7 @@ async def test_data_transform_node_skips_missing_values() -> None:
 async def test_data_transform_node_uses_default_for_missing_values() -> None:
     """Missing fields should use default when when_missing is 'default'."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = DataTransformNode(
         name="defaults",
         input_data={"existing": "value"},
@@ -101,5 +101,5 @@ async def test_data_transform_node_uses_default_for_missing_values() -> None:
         ],
     )
 
-    payload = (await node(state, RunnableConfig()))["results"]["defaults"]
+    payload = (await node(state, RunnableConfig()))["node_results"]["defaults"]
     assert payload["result"] == {"result": {"value": "default_value"}}

@@ -38,7 +38,7 @@ async def test_llmnode_run_builds_single_message(
         draft_reply="Hello there",
         instruction="Translate to French",
     )
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     result = await node.run(state, {})
 
@@ -55,7 +55,7 @@ async def test_llmnode_run_builds_single_message(
 
 def test_llmnode_build_messages_skips_empty_input() -> None:
     node = LLMNode(name="llm", ai_model="test-model", input_text="  ")
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
     assert node._build_messages(state) == []
 
 
@@ -64,7 +64,7 @@ def test_llmnode_build_messages_no_user_message_no_instruction() -> None:
     branches (lines 493, 499).
     """
     node = LLMNode(name="llm", ai_model="test-model", input_text="plain text")
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
     messages = node._build_messages(state)
     assert len(messages) == 1
     assert isinstance(messages[0], HumanMessage)
@@ -85,7 +85,7 @@ async def test_llmnode_run_returns_empty_when_no_messages(
     monkeypatch.setattr(LLMNode, "_prepare_tools", fake_prepare_tools)
 
     node = LLMNode(name="llm", ai_model="test-model")
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
     result = await node.run(state, {})
     assert result == {"messages": []}
 
@@ -127,7 +127,7 @@ async def test_llmnode_run_with_response_format(
         input_text="hello",
         response_format=Schema,
     )
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
     result = await node.run(state, {})
     assert result == {"messages": [AIMessage(content="done")]}
     assert captured["response_format"] is not None
@@ -164,7 +164,7 @@ async def test_llmnode_call_attaches_actual_model_trace_metadata(
     monkeypatch.setattr(LLMNode, "_prepare_tools", fake_prepare_tools)
 
     node = LLMNode(name="llm", ai_model="openai:gpt-4o-mini", input_text="hello")
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     result = await node(state, RunnableConfig())
 

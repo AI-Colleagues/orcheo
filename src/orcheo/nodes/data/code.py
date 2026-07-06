@@ -12,42 +12,45 @@ model fields. Two execution paths exist:
   builtins only and JSON-coercible state/config/configurable inputs.
 
 Because the body must run unchanged in the sandbox, it is a pure synchronous
-transform: no imports, no ``await``, returning a state-update mapping and
+transform: no imports, no ``await``, returning this node's result payload and
 referencing only its injected fields plus the passed ``state``/``config``.
 """
 
 from __future__ import annotations
-from typing import Any, cast
+from typing import Any
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
+from orcheo.nodes.registry import NodeMetadata, registry
 
 
+@registry.register(
+    NodeMetadata(
+        name="CodeNode",
+        description=(
+            "Base class for user-authored node logic; the sole customisation "
+            "port. Do not use this node directly, but inherit from this with "
+            "your own `run` method."
+        ),
+        category="data",
+    )
+)
 class CodeNode(TaskNode):
     """Base class for user-authored node logic; the sole customisation port.
 
-    Subclasses override :meth:`run` to return a state-update mapping. Declared
+    Subclasses override :meth:`run` to return this node's result payload. Declared
     model fields become the node's configurable, sandbox-injected values
     (``self.<field>``).
 
-    Unlike a generic :class:`~orcheo.nodes.base.TaskNode`, a ``CodeNode`` returns
-    a **vanilla state update**: the mapping ``run`` returns is merged straight
-    through the state channel reducers (it is *not* wrapped under
-    ``results.<name>``). This keeps the in-process (unrestricted) and sandboxed
-    (restricted) execution paths semantically identical, since the sandbox body
-    likewise returns the update directly.
+    Like :class:`~orcheo.nodes.base.TaskNode`, the mapping ``run`` returns is
+    stored under ``node_results.<name>``. This keeps custom node bodies focused on
+    their own result payload instead of the graph state update contract.
     """
-
-    async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Resolve templates and return the run result as a vanilla update."""
-        runnable = self.resolved_for_run(state, config=config)
-        result = await runnable.run(state, config)
-        return cast(dict[str, Any], runnable._serialize_result(result))
 
     async def run(
         self, state: State, config: RunnableConfig
     ) -> dict[str, Any] | list[Any]:
-        """Transform ``state`` and return a state-update mapping.
+        """Transform ``state`` and return this node's result payload.
 
         Subclasses must override this method. The default raises so an
         unimplemented ``CodeNode`` fails loudly rather than silently no-op'ing.

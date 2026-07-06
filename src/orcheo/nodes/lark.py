@@ -24,7 +24,7 @@ def _normalize_optional_value(value: str | None) -> str | None:
     if not value:
         return None
     stripped = value.strip()
-    if not stripped or ("{{" in stripped and "}}" in stripped):
+    if not stripped or TaskNode.contains_template(stripped):
         return None
     return stripped
 
@@ -160,7 +160,7 @@ class LarkSendMessageNode(TaskNode):
 
     async def _resolve_access_token(self, state: State) -> str:
         """Resolve the tenant access token from prior results or fetch it."""
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         if isinstance(results, dict):
             token = _extract_tenant_access_token(results.get("get_lark_tenant_token"))
             if token is not None:

@@ -27,8 +27,8 @@ async def test_postgres_node_fetches_rows(
         fetch="all",
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["pg"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["pg"]
 
     assert payload["rows"] == [
         {"id": 1, "name": "Ada"},
@@ -57,8 +57,8 @@ async def test_postgres_node_fetch_one(monkeypatch: pytest.MonkeyPatch) -> None:
         fetch="one",
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["pg"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["pg"]
     assert payload["rows"] == [{"id": 1, "name": "Ada"}]
 
 
@@ -78,8 +78,8 @@ async def test_postgres_node_fetch_none(monkeypatch: pytest.MonkeyPatch) -> None
         fetch="none",
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["pg"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["pg"]
     assert payload == {"rows": [], "rowcount": connection.cursor_instance.rowcount}
 
 
@@ -103,8 +103,8 @@ async def test_postgres_node_handles_missing_description(
         fetch="all",
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["pg"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["pg"]
     assert payload["rows"] == [(1,), (2,)]
 
 
@@ -127,6 +127,6 @@ async def test_postgres_node_fetch_one_no_rows(
         fetch="one",
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["pg"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["pg"]
     assert payload == {"rows": [], "rowcount": connection.cursor_instance.rowcount}

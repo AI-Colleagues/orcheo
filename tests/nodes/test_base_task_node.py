@@ -1,6 +1,7 @@
 """Tests covering TaskNode behavior and variable decoding."""
 
 from __future__ import annotations
+from types import MappingProxyType
 from typing import Any
 import pytest
 from langchain_core.runnables import RunnableConfig
@@ -31,7 +32,7 @@ class MockTaskNode(TaskNode):
 
 
 def test_decode_variables() -> None:
-    state = State({"results": {"node1": {"data": {"value": "test_value"}}}})
+    state = State({"node_results": {"node1": {"data": {"value": "test_value"}}}})
     node = MockTaskNode(name="test", input_var="{{node1.data.value}}")
     node.decode_variables(state)
     assert node.input_var == "test_value"
@@ -42,14 +43,14 @@ def test_decode_variables() -> None:
 
 
 def test_decode_variables_with_results_prefix() -> None:
-    state = State({"results": {"node1": {"value": "test_from_results"}}})
-    node = MockTaskNode(name="test", input_var="{{results.node1.value}}")
+    state = State({"node_results": {"node1": {"value": "test_from_results"}}})
+    node = MockTaskNode(name="test", input_var="{{node_results.node1.value}}")
     node.decode_variables(state)
     assert node.input_var == "test_from_results"
 
 
 def test_decode_variables_reads_config_state() -> None:
-    state = State({"results": {}, "config": {"threshold": 0.75}})
+    state = State({"node_results": {}, "config": {"threshold": 0.75}})
     node = MockTaskNode(name="test", input_var="{{config.threshold}}")
 
     node.decode_variables(state)
@@ -70,7 +71,7 @@ def test_decode_variables_resolves_credential_placeholder_from_config_state() ->
     resolver = CredentialResolver(vault)
     state = State(
         {
-            "results": {},
+            "node_results": {},
             "messages": [],
             "inputs": {},
             "config": {"configurable": {"telegram_chat_id": "[[telegram_chat_id]]"}},
@@ -88,7 +89,7 @@ def test_decode_variables_resolves_credential_placeholder_from_config_state() ->
 
 
 def test_decode_variables_does_not_inject_config_argument() -> None:
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = MockTaskNode(name="test", input_var="{{config.limit}}")
 
     node.decode_variables(state, config={"limit": 5})
@@ -98,7 +99,7 @@ def test_decode_variables_does_not_inject_config_argument() -> None:
 
 
 def test_decode_variables_keeps_existing_state_config() -> None:
-    state = State({"results": {}, "config": {"limit": 9}})
+    state = State({"node_results": {}, "config": {"limit": 9}})
     node = MockTaskNode(name="test", input_var="{{config.limit}}")
 
     node.decode_variables(state, config={"limit": 5})
@@ -110,7 +111,7 @@ def test_decode_variables_keeps_existing_state_config() -> None:
 def test_decode_variables_non_dict_traversal(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    state = State({"results": {"node1": "simple_string"}})
+    state = State({"node_results": {"node1": "simple_string"}})
     node = MockTaskNode(name="test", input_var="{{node1.nested.value}}")
     with caplog.at_level("WARNING"):
         node.decode_variables(state)
@@ -128,7 +129,7 @@ def test_decode_variables_nested_dict() -> None:
         async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
             return {"result": self.config}
 
-    state = State({"results": {"prev_node": {"key1": "value1", "key2": "value2"}}})
+    state = State({"node_results": {"prev_node": {"key1": "value1", "key2": "value2"}}})
 
     node = MockNodeWithDict(
         name="test",
@@ -148,7 +149,7 @@ def test_decode_variables_nested_dict() -> None:
 
 
 def test_decode_variables_interpolates_multiple_templates_in_string() -> None:
-    state = State({"results": {"user": {"name": "Ada", "id": 7}}})
+    state = State({"node_results": {"user": {"name": "Ada", "id": 7}}})
     node = MockTaskNode(
         name="test",
         input_var="user={{user.name}}, id={{user.id}}",
@@ -160,7 +161,7 @@ def test_decode_variables_interpolates_multiple_templates_in_string() -> None:
 
 
 def test_decode_variables_keeps_unresolved_templates_in_interpolated_string() -> None:
-    state = State({"results": {"user": {"name": "Ada"}}})
+    state = State({"node_results": {"user": {"name": "Ada"}}})
     node = MockTaskNode(
         name="test",
         input_var="user={{user.name}}, org={{user.org}}",
@@ -178,7 +179,7 @@ def test_decode_variables_single_template_keeps_native_type() -> None:
         async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
             return {"result": self.payload}
 
-    state = State({"results": {"data": {"item": {"key": "value"}}}})
+    state = State({"node_results": {"data": {"item": {"key": "value"}}}})
     node = MockNodeWithDictValue(name="test", payload="{{data.item}}")
 
     node.decode_variables(state)
@@ -194,7 +195,7 @@ def test_decode_variables_nested_list() -> None:
         async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
             return {"result": self.items}
 
-    state = State({"results": {"prev_node": {"val1": "a", "val2": "b"}}})
+    state = State({"node_results": {"prev_node": {"val1": "a", "val2": "b"}}})
 
     node = MockNodeWithList(
         name="test",
@@ -203,6 +204,32 @@ def test_decode_variables_nested_list() -> None:
     node.decode_variables(state)
 
     assert node.items == ["a", "b", "static_value"]
+
+
+def test_decode_variables_nested_tuple_set_and_mapping() -> None:
+    class MockNodeWithContainers(TaskNode):
+        payload: Any = Field(description="Container payload")
+
+        async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+            return {"result": self.payload}
+
+    state = State({"node_results": {"prev_node": {"val1": "a", "val2": "b"}}})
+    node = MockNodeWithContainers(
+        name="test",
+        payload={
+            "tuple": ("{{prev_node.val1}}", "{{prev_node.val2}}"),
+            "set": {"{{prev_node.val1}}"},
+            "frozenset": frozenset({"{{prev_node.val2}}"}),
+            "mapping": MappingProxyType({"key": "{{prev_node.val1}}"}),
+        },
+    )
+
+    node.decode_variables(state)
+
+    assert node.payload["tuple"] == ("a", "b")
+    assert node.payload["set"] == {"a"}
+    assert node.payload["frozenset"] == frozenset({"b"})
+    assert node.payload["mapping"] == {"key": "a"}
 
 
 def test_decode_variables_with_pydantic_model() -> None:
@@ -218,7 +245,7 @@ def test_decode_variables_with_pydantic_model() -> None:
         async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
             return {"result": self.model.model_dump()}
 
-    state = State({"results": {"data": {"x": "decoded_x", "y": "decoded_y"}}})
+    state = State({"node_results": {"data": {"x": "decoded_x", "y": "decoded_y"}}})
 
     inner = InnerModel(field1="{{data.x}}", field2="{{data.y}}")
     node = MockNodeWithModel(name="test", model=inner)
@@ -243,12 +270,72 @@ async def test_task_node_tool_arun() -> None:
 
 @pytest.mark.asyncio
 async def test_task_node_call() -> None:
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig()
     node = MockTaskNode(name="test_task", input_var="test_value")
 
     result = await node(state, config)
-    assert result == {"results": {"test_task": {"result": "test_value"}}}
+    assert result == {"node_results": {"test_task": {"result": "test_value"}}}
+
+
+@pytest.mark.asyncio
+async def test_task_node_call_hoists_reserved_state_fields() -> None:
+    class StateUpdatingNode(TaskNode):
+        async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+            del state, config
+            return {
+                "inputs": {"message": "hello"},
+                "messages": [{"role": "user", "content": "hello"}],
+                "result": "kept",
+            }
+
+    node = StateUpdatingNode(name="state_updater")
+
+    result = await node(State({"node_results": {}}), RunnableConfig())
+
+    assert result == {
+        "inputs": {"message": "hello"},
+        "messages": [{"role": "user", "content": "hello"}],
+        "node_results": {"state_updater": {"result": "kept"}},
+    }
+
+
+@pytest.mark.asyncio
+async def test_task_node_call_merges_explicit_node_results_state_field() -> None:
+    class StateUpdatingNode(TaskNode):
+        async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+            del state, config
+            return {
+                "node_results": {
+                    "other": {"value": "preserved"},
+                    "state_updater": {"existing": True},
+                },
+                "result": "kept",
+            }
+
+    node = StateUpdatingNode(name="state_updater")
+
+    result = await node(State({"node_results": {}}), RunnableConfig())
+
+    assert result == {
+        "node_results": {
+            "other": {"value": "preserved"},
+            "state_updater": {"existing": True, "result": "kept"},
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_task_node_call_rejects_invalid_node_results_state_field() -> None:
+    class InvalidStateNode(TaskNode):
+        async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+            del state, config
+            return {"node_results": []}
+
+    node = InvalidStateNode(name="invalid_state")
+
+    with pytest.raises(TypeError, match="node_results state update"):
+        await node(State({"node_results": {}}), RunnableConfig())
 
 
 @pytest.mark.asyncio
@@ -256,14 +343,14 @@ async def test_task_node_call_re_resolves_templates_per_invocation() -> None:
     node = MockTaskNode(name="test_task", input_var="{{payload.value}}")
 
     first = await node(
-        State({"results": {"payload": {"value": "first"}}}),
+        State({"node_results": {"payload": {"value": "first"}}}),
         RunnableConfig(),
     )
     second = await node(
-        State({"results": {"payload": {"value": "second"}}}),
+        State({"node_results": {"payload": {"value": "second"}}}),
         RunnableConfig(),
     )
 
-    assert first == {"results": {"test_task": {"result": "first"}}}
-    assert second == {"results": {"test_task": {"result": "second"}}}
+    assert first == {"node_results": {"test_task": {"result": "first"}}}
+    assert second == {"node_results": {"test_task": {"result": "second"}}}
     assert node.input_var == "{{payload.value}}"

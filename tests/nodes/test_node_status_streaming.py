@@ -96,9 +96,9 @@ async def test_task_node_call_streams_status_through_tool_progress_callback() ->
     node = _StatusReportingTaskNode(name="reporter")
 
     with tool_progress_context(progress):
-        result = await node(State({"results": {}}), RunnableConfig())
+        result = await node(State({"node_results": {}}), RunnableConfig())
 
-    assert result == {"results": {"reporter": {"value": "done"}}}
+    assert result == {"node_results": {"reporter": {"value": "done"}}}
     assert [step["event"] for step in received] == ["node_status"] * 3
     assert all(step["node"] == "reporter" for step in received)
     payloads = [step["payload"] for step in received]
@@ -117,7 +117,7 @@ async def test_ai_node_call_streams_status_through_tool_progress_callback() -> N
     node = _StatusReportingAINode(name="responder")
 
     with tool_progress_context(progress):
-        await node(State({"results": {}}), RunnableConfig())
+        await node(State({"node_results": {}}), RunnableConfig())
 
     assert received == [
         {
@@ -133,8 +133,8 @@ async def test_node_call_does_not_emit_when_no_progress_callback_bound() -> None
     node = _StatusReportingTaskNode(name="reporter")
     # Without a tool progress context, the emitter is None and run() is a no-op
     # for the streaming side effects.
-    result = await node(State({"results": {}}), RunnableConfig())
-    assert result == {"results": {"reporter": {"value": "done"}}}
+    result = await node(State({"node_results": {}}), RunnableConfig())
+    assert result == {"node_results": {"reporter": {"value": "done"}}}
 
 
 @pytest.mark.asyncio
@@ -154,7 +154,7 @@ async def test_node_status_context_resets_after_run_exception() -> None:
 
     with tool_progress_context(progress):
         with pytest.raises(RuntimeError, match="boom"):
-            await node(State({"results": {}}), RunnableConfig())
+            await node(State({"node_results": {}}), RunnableConfig())
         # Emitter must be cleared even when run() raised.
         assert get_active_node_status_emitter() is None
 

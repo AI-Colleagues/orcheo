@@ -11,7 +11,7 @@ from orcheo.nodes.data import MergeNode
 async def test_merge_node_deep_merges_mappings() -> None:
     """MergeNode should merge dictionaries recursively by default."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = MergeNode(
         name="merge",
         items=[
@@ -20,7 +20,7 @@ async def test_merge_node_deep_merges_mappings() -> None:
         ],
     )
 
-    payload = (await node(state, RunnableConfig()))["results"]["merge"]
+    payload = (await node(state, RunnableConfig()))["node_results"]["merge"]
     assert payload["result"] == {"a": 1, "b": 2, "nested": {"x": 1, "y": 2}}
 
 
@@ -28,7 +28,7 @@ async def test_merge_node_deep_merges_mappings() -> None:
 async def test_merge_node_concatenates_lists_with_deduplication() -> None:
     """MergeNode should deduplicate values when requested."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = MergeNode(
         name="merge",
         items=[["alpha", "beta"], ["beta", "gamma"]],
@@ -36,7 +36,7 @@ async def test_merge_node_concatenates_lists_with_deduplication() -> None:
         deduplicate=True,
     )
 
-    payload = (await node(state, RunnableConfig()))["results"]["merge"]
+    payload = (await node(state, RunnableConfig()))["node_results"]["merge"]
     assert payload["result"] == ["alpha", "beta", "gamma"]
 
 
@@ -44,14 +44,14 @@ async def test_merge_node_concatenates_lists_with_deduplication() -> None:
 async def test_merge_node_supports_shallow_updates() -> None:
     """MergeNode should respect the shallow update flag."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = MergeNode(
         name="merge",
         items=[{"nested": {"x": 1}}, {"nested": {"y": 2}}],
         deep=False,
     )
 
-    payload = (await node(state, RunnableConfig()))["results"]["merge"]
+    payload = (await node(state, RunnableConfig()))["node_results"]["merge"]
     assert payload["result"] == {"nested": {"y": 2}}
 
 
@@ -59,7 +59,7 @@ async def test_merge_node_supports_shallow_updates() -> None:
 async def test_merge_node_validates_items_for_lists() -> None:
     """MergeNode should raise when list mode receives invalid items."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = MergeNode(name="merge", items=[{"a": 1}], mode="list")
 
     with pytest.raises(ValueError):
@@ -71,7 +71,7 @@ async def test_merge_node_infers_mode_errors() -> None:
     """MergeNode should error when auto mode cannot infer a strategy."""
 
     node = MergeNode(name="merge", items=["string"], mode="auto")
-    state = State({"results": {}})
+    state = State({"node_results": {}})
 
     with pytest.raises(ValueError):
         await node(state, RunnableConfig())
@@ -81,9 +81,9 @@ async def test_merge_node_infers_mode_errors() -> None:
 async def test_merge_node_auto_detects_list_mode() -> None:
     """MergeNode should infer list mode for sequence inputs."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = MergeNode(name="merge", items=[[1, 2], [3]], mode="auto")
-    payload = (await node(state, RunnableConfig()))["results"]["merge"]
+    payload = (await node(state, RunnableConfig()))["node_results"]["merge"]
     assert payload["result"] == [1, 2, 3]
 
 
@@ -91,7 +91,7 @@ async def test_merge_node_auto_detects_list_mode() -> None:
 async def test_merge_node_validates_dict_items() -> None:
     """MergeNode should raise when dictionary merge receives invalid items."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = MergeNode(name="merge", items=[{"a": 1}, [1, 2]], mode="dict")
 
     with pytest.raises(ValueError):
@@ -102,11 +102,11 @@ async def test_merge_node_validates_dict_items() -> None:
 async def test_merge_node_returns_empty_for_no_items() -> None:
     """MergeNode should return an empty structure when nothing is provided."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = MergeNode(name="merge", items=[], mode="dict")
-    payload = (await node(state, RunnableConfig()))["results"]["merge"]
+    payload = (await node(state, RunnableConfig()))["node_results"]["merge"]
     assert payload["result"] == {}
 
     list_node = MergeNode(name="merge", items=[], mode="list")
-    payload = (await list_node(state, RunnableConfig()))["results"]["merge"]
+    payload = (await list_node(state, RunnableConfig()))["node_results"]["merge"]
     assert payload["result"] == []

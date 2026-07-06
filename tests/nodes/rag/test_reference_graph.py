@@ -59,23 +59,23 @@ async def test_reference_pipeline_generates_grounded_answer() -> None:
 
     state = State(
         inputs={"query": "What does Orcheo deliver?"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
     loader_result = await loader.run(state, {})
-    state["results"][loader.name] = loader_result
+    state["node_results"][loader.name] = loader_result
 
     chunk_result = await chunker.run(state, {})
-    state["results"][chunker.name] = chunk_result
+    state["node_results"][chunker.name] = chunk_result
 
     chunk_embedding_result = await chunk_embedder.run(state, {})
-    state["results"][chunk_embedder.name] = chunk_embedding_result
+    state["node_results"][chunk_embedder.name] = chunk_embedding_result
     upsert_result = await vector_upsert.run(state, {})
-    state["results"][vector_upsert.name] = upsert_result
+    state["node_results"][vector_upsert.name] = upsert_result
 
     retrieval_result = await retriever.run(state, {})
-    state["results"][retriever.name] = retrieval_result
+    state["node_results"][retriever.name] = retrieval_result
 
     generation_result = await generator.run(state, {})
 

@@ -7,11 +7,9 @@ import re
 from collections import Counter
 from typing import Any
 from langchain_core.runnables import RunnableConfig
-from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.qualitative.accessors import get_units
-from orcheo.nodes.qualitative.keys import QualitativeResultKeys
+from orcheo.nodes.qualitative.accessors import coerce_model_list, get_units
 from orcheo.nodes.qualitative.models import (
     QualityFlagSummary,
     QualityReport,
@@ -91,14 +89,17 @@ def assess_quality(units: list[Unit]) -> tuple[list[Unit], QualityReport]:
 class DataQualityNode(TaskNode):
     """Assess data quality and persist unit flags plus a QualityReport."""
 
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
+    units: Any | None = None
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Persist unit-level quality flags and a QualityReport artefact."""
-        units, report = assess_quality(get_units(state, self.result_keys))
+        source_units = coerce_model_list(self.units, Unit)
+        if not source_units:
+            source_units = get_units(state)
+        units, report = assess_quality(source_units)
         return {
-            self.result_keys.units_field: [u.model_dump(mode="json") for u in units],
-            self.result_keys.quality_report_field: report.model_dump(mode="json"),
+            "units": [u.model_dump(mode="json") for u in units],
+            "quality_report": report.model_dump(mode="json"),
             "flagged_units": report.flagged_units,
             "excluded_units": report.excluded_units,
         }

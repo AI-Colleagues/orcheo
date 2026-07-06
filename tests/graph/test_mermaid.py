@@ -150,6 +150,51 @@ def test_collect_edges_dedups_and_includes_branch_targets() -> None:
     ]
 
 
+def test_collect_edge_specs_preserves_conditional_labels() -> None:
+    summary = {
+        "edges": [{"source": "START", "target": "alpha"}],
+        "conditional_edges": [
+            {
+                "source": "alpha",
+                "mapping": {"true": "beta", "false": "gamma"},
+                "default": "END",
+            }
+        ],
+    }
+
+    edges = mermaid._collect_edge_specs(summary)
+
+    assert edges == [
+        ("START", "alpha", None, False),
+        ("alpha", "beta", "true", True),
+        ("alpha", "gamma", "false", True),
+        ("alpha", "END", "default", True),
+    ]
+
+
+def test_render_summary_mermaid_renders_labeled_conditional_edges() -> None:
+    summary = {
+        "nodes": [
+            {"name": "decision"},
+            {"name": "left"},
+            {"name": "right"},
+        ],
+        "edges": [{"source": "START", "target": "decision"}],
+        "conditional_edges": [
+            {
+                "source": "decision",
+                "mapping": {"true": "left", "false": "right"},
+            }
+        ],
+    }
+
+    diagram = mermaid.render_summary_mermaid(summary)
+
+    assert "root__node__decision -. true .-> root__node__left;" in diagram
+    assert "root__node__decision -. false .-> root__node__right;" in diagram
+    assert "root__node__decision --> root__node__left;" not in diagram
+
+
 def test_branch_targets_returns_mapping_values_then_default() -> None:
     branch = {"mapping": {"case": "delta"}, "default": "epsilon"}
     targets = mermaid._branch_targets(branch)
@@ -192,6 +237,59 @@ def test_ensure_entry_edges_covers_all_branches() -> None:
         ("B", "A"),
         ("START", "A"),
     ]
+
+
+def test_branch_edge_specs_returns_empty_without_a_source() -> None:
+    assert mermaid._branch_edge_specs({"mapping": {"true": "beta"}}) == []
+
+
+def test_branch_edge_specs_skips_non_mapping_mapping_and_unresolvable_default() -> None:
+    branch = {
+        "source": "alpha",
+        "mapping": ["not", "a", "mapping"],
+        "default": None,
+    }
+    assert mermaid._branch_edge_specs(branch) == []
+
+
+def test_branch_edge_specs_skips_unresolvable_mapping_entries() -> None:
+    branch = {
+        "source": "alpha",
+        "mapping": {"true": None, "false": "beta"},
+    }
+    assert mermaid._branch_edge_specs(branch) == [("alpha", "beta", "false", True)]
+
+
+def test_ensure_entry_edge_specs_covers_all_branches() -> None:
+    assert mermaid._ensure_entry_edge_specs([], {"b", "a"}) == [
+        ("START", "a", None, False)
+    ]
+    assert mermaid._ensure_entry_edge_specs([], set()) == [
+        ("START", "END", None, False)
+    ]
+
+    edges_with_start = [("START", "A", None, False)]
+    assert mermaid._ensure_entry_edge_specs(edges_with_start, {"A"}) == edges_with_start
+
+    edges_missing_start = [("A", "B", None, False)]
+    assert mermaid._ensure_entry_edge_specs(edges_missing_start, {"A", "B", "C"}) == [
+        ("A", "B", None, False),
+        ("START", "A", None, False),
+    ]
+
+    edges_all_targeted = [("A", "B", None, False), ("B", "A", None, False)]
+    assert mermaid._ensure_entry_edge_specs(edges_all_targeted, {"A", "B"}) == [
+        ("A", "B", None, False),
+        ("B", "A", None, False),
+        ("START", "A", None, False),
+    ]
+
+
+def test_edge_line_renders_bare_conditional_arrow_without_a_label() -> None:
+    assert (
+        mermaid._edge_line("a", "b", "\t", label=None, conditional=True)
+        == "\ta -.-> b;"
+    )
 
 
 def test_vertex_node_and_sentinel_ids_use_start_and_end() -> None:

@@ -32,7 +32,7 @@ def test_extract_listener_payload_prefers_nested_listener_mapping() -> None:
                     "dedupe_key": "nested-1",
                 }
             },
-            "results": {},
+            "node_results": {},
         }
     )
 
@@ -52,7 +52,7 @@ def test_extract_listener_payload_uses_direct_platform_inputs() -> None:
                 "event_type": "message",
                 "chat_id": "direct-1",
             },
-            "results": {},
+            "node_results": {},
         }
     )
 
@@ -71,7 +71,7 @@ def test_extract_listener_payload_returns_empty_for_non_matching_inputs() -> Non
                 "listener": "invalid-shape",
                 "platform": "other-platform",
             },
-            "results": {},
+            "node_results": {},
         }
     )
 
@@ -80,7 +80,7 @@ def test_extract_listener_payload_returns_empty_for_non_matching_inputs() -> Non
 
 def test_extract_listener_payload_returns_empty_for_non_mapping_inputs() -> None:
     node = _TestListenerNode(name="listener")
-    state = State({"inputs": ["invalid-shape"], "results": {}})
+    state = State({"inputs": ["invalid-shape"], "node_results": {}})
 
     assert node._extract_listener_payload(state) == {}
 
@@ -91,7 +91,7 @@ async def test_listener_node_run_skips_when_platform_does_not_match() -> None:
     state = State(
         {
             "inputs": {"listener": {"platform": "other-platform"}},
-            "results": {},
+            "node_results": {},
         }
     )
 
@@ -127,7 +127,7 @@ async def test_listener_node_run_normalizes_mapping_payload() -> None:
                     "metadata": {"source": "tests"},
                 }
             },
-            "results": {},
+            "node_results": {},
         }
     )
 
@@ -170,7 +170,7 @@ async def test_listener_node_run_handles_non_mapping_message_fields() -> None:
                     "metadata": {"source": "tests"},
                 }
             },
-            "results": {},
+            "node_results": {},
         }
     )
 

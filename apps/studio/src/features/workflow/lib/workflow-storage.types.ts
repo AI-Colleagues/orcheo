@@ -17,6 +17,7 @@ export interface ApiWorkflow {
   id: string;
   handle?: string | null;
   team_id?: string | null;
+  team_slug?: string | null;
   name: string;
   slug: string;
   description: string | null;
@@ -31,8 +32,14 @@ export interface ApiWorkflow {
   updated_at: string;
   share_url?: string | null;
   chatkit?: WorkflowChatKitConfig | null;
+  upload_error?: ApiWorkflowUploadError | null;
   latest_version?: ApiWorkflowVersion | null;
   is_scheduled?: boolean;
+}
+
+export interface ApiWorkflowUploadError {
+  message: string;
+  occurred_at: string;
 }
 
 export interface ChatKitStartScreenPrompt {
@@ -262,6 +269,10 @@ export interface WorkflowVersionRecord {
 export interface StoredWorkflow extends Workflow {
   versions: WorkflowVersionRecord[];
   teamId?: string | null;
+  uploadError?: {
+    message: string;
+    occurredAt: string;
+  };
   draftAccess?: "personal" | "authenticated" | "workspace";
   isArchived?: boolean;
   isPublic?: boolean;

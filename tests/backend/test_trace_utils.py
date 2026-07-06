@@ -5,8 +5,9 @@ from datetime import UTC, datetime, timedelta
 from hashlib import blake2b
 from typing import Any
 import pytest
+from orcheo.tracing.model_metadata import encode_step_namespace
 from orcheo_backend.app import trace_utils
-from orcheo_backend.app.history.models import RunHistoryRecord
+from orcheo_backend.app.history.models import RunHistoryRecord, RunHistoryStep
 from orcheo_backend.app.schemas.traces import TraceSpanResponse
 from orcheo_backend.app.trace_utils import build_trace_response, build_trace_update
 
@@ -166,6 +167,60 @@ def test_build_trace_update_complete_without_spans_emits_message() -> None:
         f"{record.execution_id}:root".encode(), digest_size=8
     ).hexdigest()
     assert update.trace_id == expected_trace_id
+
+
+def test_build_trace_update_breaks_on_current_step_index() -> None:
+    """build_trace_update should stop replaying once it reaches the target step."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf-break",
+        execution_id="exec-break",
+        status="running",
+    )
+    first = record.append_step({"node_a": {"status": "running"}}, at=_timestamp())
+    record.append_step({"node_b": {"status": "running"}}, at=_timestamp(1))
+
+    update = build_trace_update(record, step=first)
+
+    assert update is not None
+    assert update.spans
+
+
+def test_build_trace_update_replays_prior_steps_before_target() -> None:
+    """Earlier steps should be observed before building the requested step."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf-replay",
+        execution_id="exec-replay",
+        status="running",
+    )
+    record.append_step({"node_a": {"status": "running"}}, at=_timestamp())
+    target = record.append_step({"node_b": {"status": "running"}}, at=_timestamp(1))
+
+    update = build_trace_update(record, step=target)
+
+    assert update is not None
+    assert update.spans
+
+
+def test_build_trace_update_handles_target_without_prior_steps() -> None:
+    """A step can still be rendered when the history has no earlier steps."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf-empty",
+        execution_id="exec-empty",
+        status="running",
+    )
+    step = RunHistoryStep(
+        index=0,
+        at=_timestamp(),
+        payload={"node_a": {"status": "running"}},
+    )
+
+    update = build_trace_update(record, step=step)
+
+    assert update is not None
+    assert update.spans
 
 
 def test_trace_update_root_span_uses_digest_when_missing_trace_id() -> None:
@@ -583,3 +638,156 @@ def test_status_from_history_returns_error_for_cancelled() -> None:
     status = _status_from_history(record)
 
     assert status.code == "ERROR"
+
+
+# ---------------------------------------------------------------------------
+# Subgraph (namespaced) step nesting
+# ---------------------------------------------------------------------------
+
+
+def _append_subgraph_run(record: RunHistoryRecord) -> None:
+    """Append a four-step sequence simulating a compiled-subgraph node run.
+
+    Mirrors what ``astream(..., subgraphs=True)`` yields for a graph with a
+    top-level leaf node followed by a subgraph node ("sub") that runs two
+    inner nodes before its own aggregate update surfaces at the top level.
+    """
+    record.append_step(
+        encode_step_namespace({"outer_first": {"status": "success"}}, ()),
+        at=_timestamp(0),
+    )
+    record.append_step(
+        encode_step_namespace(
+            {"inner_a": {"status": "success", "token_usage": {"input": 3}}},
+            ("sub:task-1",),
+        ),
+        at=_timestamp(1),
+    )
+    record.append_step(
+        encode_step_namespace(
+            {"inner_b": {"status": "success", "token_usage": {"output": 4}}},
+            ("sub:task-1",),
+        ),
+        at=_timestamp(2),
+    )
+    record.append_step(
+        encode_step_namespace({"sub": {"status": "success"}}, ()),
+        at=_timestamp(3),
+    )
+
+
+def test_build_trace_response_nests_subgraph_inner_nodes_under_container() -> None:
+    """Inner subgraph node updates should nest under a synthetic container span."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf", execution_id="exec-sub", status="completed"
+    )
+    _append_subgraph_run(record)
+
+    response = build_trace_response(record)
+    spans_by_name = {span.name: span for span in response.spans}
+
+    # root + outer_first + sub (container) + inner_a + inner_b, no separate
+    # flat span for the aggregate "sub" update.
+    assert len(response.spans) == 5
+    assert set(spans_by_name) == {
+        "workflow.execution",
+        "outer_first",
+        "sub",
+        "inner_a",
+        "inner_b",
+    }
+
+    root_span = spans_by_name["workflow.execution"]
+    container_span = spans_by_name["sub"]
+    assert container_span.parent_span_id == root_span.span_id
+    assert container_span.attributes["orcheo.node.kind"] == "subgraph"
+    assert container_span.attributes["orcheo.node.namespace"] == "sub:task-1"
+    assert container_span.status.code == "OK"
+
+    assert spans_by_name["inner_a"].parent_span_id == container_span.span_id
+    assert spans_by_name["inner_b"].parent_span_id == container_span.span_id
+    assert spans_by_name["outer_first"].parent_span_id == root_span.span_id
+
+    # Token usage from inner leaves should still roll up into the totals.
+    assert response.execution.token_usage.input == 3
+    assert response.execution.token_usage.output == 4
+
+
+def test_build_trace_response_marks_subgraph_container_error_on_inner_failure() -> None:
+    """A failing inner node should mark its enclosing container span as errored."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf", execution_id="exec-sub-err", status="error"
+    )
+    record.append_step(
+        encode_step_namespace(
+            {"inner_a": {"status": "error", "error": {"message": "boom"}}},
+            ("sub:task-1",),
+        ),
+        at=_timestamp(0),
+    )
+    record.append_step(
+        encode_step_namespace({"sub": {"status": "error"}}, ()),
+        at=_timestamp(1),
+    )
+
+    response = build_trace_response(record)
+    spans_by_name = {span.name: span for span in response.spans}
+
+    assert spans_by_name["sub"].status.code == "ERROR"
+    assert spans_by_name["inner_a"].status.code == "ERROR"
+
+
+def test_build_trace_update_incrementally_matches_full_replay() -> None:
+    """Per-step build_trace_update spans, merged, should match build_trace_response."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf", execution_id="exec-inc", status="completed"
+    )
+    _append_subgraph_run(record)
+
+    merged: dict[str, TraceSpanResponse] = {}
+    for step in record.steps:
+        update = build_trace_update(record, step=step)
+        assert update is not None
+        for span in update.spans:
+            merged[span.span_id] = span
+
+    full = build_trace_response(record)
+    full_by_id = {
+        span.span_id: span for span in full.spans if span.name != "workflow.execution"
+    }
+
+    assert set(merged) == set(full_by_id)
+    for span_id, span in full_by_id.items():
+        assert merged[span_id].name == span.name
+        assert merged[span_id].parent_span_id == span.parent_span_id
+        assert merged[span_id].status.code == span.status.code
+
+
+def test_namespace_span_tracker_parents_two_level_nesting() -> None:
+    """Containers should chain correctly for subgraphs nested two levels deep."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf", execution_id="exec-deep", status="completed"
+    )
+    record.append_step(
+        encode_step_namespace(
+            {"leaf": {"status": "success"}},
+            ("outer:task-1", "inner:task-2"),
+        ),
+        at=_timestamp(0),
+    )
+
+    response = build_trace_response(record)
+    spans_by_name = {span.name: span for span in response.spans}
+
+    root_span = spans_by_name["workflow.execution"]
+    outer_span = spans_by_name["outer"]
+    inner_span = spans_by_name["inner"]
+    leaf_span = spans_by_name["leaf"]
+
+    assert outer_span.parent_span_id == root_span.span_id
+    assert inner_span.parent_span_id == outer_span.span_id
+    assert leaf_span.parent_span_id == inner_span.span_id

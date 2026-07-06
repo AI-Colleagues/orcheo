@@ -28,8 +28,8 @@ async def test_postgres_node_fetch_one_no_description_no_rows(
         fetch="one",
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["pg"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["pg"]
     assert payload == {"rows": [], "rowcount": connection.cursor_instance.rowcount}
 
 
@@ -52,8 +52,8 @@ async def test_postgres_node_fetch_one_no_description_with_row(
         fetch="one",
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["pg"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["pg"]
     assert payload["rows"] == [(42,)]
     assert payload["rowcount"] == connection.cursor_instance.rowcount
 
@@ -77,8 +77,8 @@ async def test_postgres_node_fetch_all_no_description_empty(
         fetch="all",
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["pg"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["pg"]
     assert payload["rows"] == []
     assert payload["rowcount"] == connection.cursor_instance.rowcount
 
@@ -105,8 +105,8 @@ async def test_postgres_node_fetch_one_with_description_no_rows(
         fetch="one",
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["pg"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["pg"]
     assert payload["rows"] == []
     assert payload["rowcount"] == connection.cursor_instance.rowcount
 
@@ -133,7 +133,7 @@ async def test_postgres_node_column_count_mismatch(
         fetch="all",
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["pg"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["pg"]
     assert payload["rows"] == [(1, "Ada", "extra"), (2, "Grace", "data")]
     assert payload["rowcount"] == cursor.rowcount

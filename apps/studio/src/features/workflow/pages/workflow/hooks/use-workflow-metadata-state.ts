@@ -9,12 +9,17 @@ import type {
 export function useWorkflowMetadataState() {
   const [workflowName, setWorkflowName] = useState("New Workflow");
   const [workflowDescription, setWorkflowDescription] = useState("");
+  const [workflowHandle, setWorkflowHandle] = useState<string | null>(null);
+  const [workflowTeamSlug, setWorkflowTeamSlug] = useState<string | null>(null);
   const [currentWorkflowId, setCurrentWorkflowId] = useState<string | null>(
     null,
   );
   const [workflowVersions, setWorkflowVersions] = useState<
     StoredWorkflow["versions"]
   >([]);
+  const [workflowUploadError, setWorkflowUploadError] = useState<
+    StoredWorkflow["uploadError"] | null
+  >(null);
   const [workflowTags, setWorkflowTags] = useState<string[]>(["draft"]);
   const [isWorkflowLoading, setIsWorkflowLoading] = useState(false);
   const [workflowLoadError, setWorkflowLoadError] = useState<string | null>(
@@ -35,10 +40,16 @@ export function useWorkflowMetadataState() {
     setWorkflowName,
     workflowDescription,
     setWorkflowDescription,
+    workflowHandle,
+    setWorkflowHandle,
+    workflowTeamSlug,
+    setWorkflowTeamSlug,
     currentWorkflowId,
     setCurrentWorkflowId,
     workflowVersions,
     setWorkflowVersions,
+    workflowUploadError,
+    setWorkflowUploadError,
     workflowTags,
     setWorkflowTags,
     isWorkflowLoading,

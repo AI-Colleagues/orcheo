@@ -83,7 +83,7 @@ def _render_graph_section(
 ) -> list[str]:
     node_map = _node_map(summary)
     node_names = _collect_node_names(summary, node_map)
-    edges = _ensure_entry_edges(_collect_edges(summary), node_names)
+    edges = _ensure_entry_edge_specs(_collect_edge_specs(summary), node_names)
 
     # Sub-graph nodes are inlined *in place*: the expanded box replaces the plain
     # node box and the outer edges connect to it directly (keyed by node name ->
@@ -168,10 +168,15 @@ def _render_graph_section(
         )
     )
 
-    for source, target in edges:
+    for source, target, label, conditional in edges:
         lines.append(
-            f"{indent}{_vertex_id(prefix, source, start_id, end_id, subgraph_ids)} --> "
-            f"{_vertex_id(prefix, target, start_id, end_id, subgraph_ids)};"
+            _edge_line(
+                _vertex_id(prefix, source, start_id, end_id, subgraph_ids),
+                _vertex_id(prefix, target, start_id, end_id, subgraph_ids),
+                indent,
+                label=label,
+                conditional=conditional,
+            )
         )
     return lines
 
@@ -206,23 +211,67 @@ def _collect_node_names(
 
 
 def _collect_edges(summary: Mapping[str, Any]) -> list[tuple[str, str]]:
-    edges = [_resolve_edge(edge) for edge in _sequence(summary.get("edges"))]
-    edges.extend(
-        _resolve_edge({"source": branch.get("source"), "target": target})
-        for branch in _mapping_sequence(summary.get("conditional_edges"))
-        for target in _branch_targets(branch)
-    )
-
+    edges = [
+        (source, target)
+        for source, target, _label, _conditional in _collect_edge_specs(summary)
+    ]
     deduped: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for edge in edges:
-        if edge is None:
-            continue
         if edge in seen:
             continue
         seen.add(edge)
         deduped.append(edge)
     return deduped
+
+
+def _collect_edge_specs(
+    summary: Mapping[str, Any],
+) -> list[tuple[str, str, str | None, bool]]:
+    edge_specs: list[tuple[str, str, str | None, bool]] = []
+    for edge in _sequence(summary.get("edges")):
+        resolved = _resolve_edge(edge)
+        if resolved is None:
+            continue
+        source, target = resolved
+        edge_specs.append((source, target, None, False))
+
+    for branch in _mapping_sequence(summary.get("conditional_edges")):
+        edge_specs.extend(_branch_edge_specs(branch))
+
+    deduped: list[tuple[str, str, str | None, bool]] = []
+    seen: set[tuple[str, str, str | None, bool]] = set()
+    for edge_spec in edge_specs:
+        if edge_spec in seen:
+            continue
+        seen.add(edge_spec)
+        deduped.append(edge_spec)
+    return deduped
+
+
+def _branch_edge_specs(
+    branch: Mapping[str, Any],
+) -> list[tuple[str, str, str | None, bool]]:
+    source = branch.get("source") or branch.get("from")
+    if source is None:
+        return []
+
+    edge_specs: list[tuple[str, str, str | None, bool]] = []
+    mapping = branch.get("mapping")
+    if isinstance(mapping, Mapping):
+        for label, target in mapping.items():
+            resolved = _resolve_edge({"source": source, "target": target})
+            if resolved is None:
+                continue
+            edge_specs.append((resolved[0], resolved[1], str(label), True))
+
+    default_target = branch.get("default") or branch.get("then")
+    if default_target is not None:
+        resolved = _resolve_edge({"source": source, "target": default_target})
+        if resolved is not None:  # pragma: no branch - source/target are non-None here
+            edge_specs.append((resolved[0], resolved[1], "default", True))
+
+    return edge_specs
 
 
 def _branch_targets(branch: Mapping[str, Any]) -> list[str]:
@@ -283,6 +332,25 @@ def _ensure_entry_edges(
     return [*edges, ("START", edges[0][0])]
 
 
+def _ensure_entry_edge_specs(
+    edges: list[tuple[str, str, str | None, bool]],
+    node_names: set[str],
+) -> list[tuple[str, str, str | None, bool]]:
+    if not edges:
+        if node_names:
+            return [("START", sorted(node_names)[0], None, False)]
+        return [("START", "END", None, False)]
+
+    if any(source.upper() == "START" for source, _, _, _ in edges):
+        return edges
+
+    targets = {target for _, target, _, _ in edges}
+    for candidate in sorted(node_names):
+        if candidate not in targets:
+            return [*edges, ("START", candidate, None, False)]
+    return [*edges, ("START", edges[0][0], None, False)]
+
+
 def _vertex_id(
     prefix: str,
     value: str,
@@ -330,8 +398,34 @@ def _terminal_node_line(node_id: str, label: str, node_class: str, indent: str) 
     return f'{indent}{node_id}(["{_escape_label(label)}"]):::{node_class}'
 
 
+def _edge_line(
+    source_id: str,
+    target_id: str,
+    indent: str,
+    *,
+    label: str | None,
+    conditional: bool,
+) -> str:
+    if conditional:
+        if label:
+            return (
+                f"{indent}{source_id} -. {_escape_edge_label(label)} .-> {target_id};"
+            )
+        return f"{indent}{source_id} -.-> {target_id};"
+    return f"{indent}{source_id} --> {target_id};"
+
+
 def _escape_label(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _escape_edge_label(value: str) -> str:
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
 
 
 __all__ = [

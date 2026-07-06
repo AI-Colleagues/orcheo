@@ -6,6 +6,7 @@ from typing import Any
 
 
 TRACE_METADATA_KEY = "__trace"
+NAMESPACE_METADATA_KEY = "__namespace"
 
 
 def split_model_identifier(identifier: str | None) -> tuple[str | None, str | None]:
@@ -129,6 +130,30 @@ def infer_model_name_from_instance(instance: Any) -> str | None:
     return None
 
 
+def encode_step_namespace(
+    step: Mapping[str, Any], namespace: Sequence[str]
+) -> dict[str, Any]:
+    """Return a copy of a stream step tagged with its subgraph namespace.
+
+    LangGraph's ``subgraphs=True`` streaming mode reports the path to the
+    subgraph invocation a node update belongs to out-of-band from the update
+    dict itself. Stashing it under a reserved sibling key lets it ride along
+    through history persistence and websocket delivery unchanged.
+    """
+    encoded = dict(step)
+    if namespace:
+        encoded[NAMESPACE_METADATA_KEY] = list(namespace)
+    return encoded
+
+
+def extract_step_namespace(step: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return the subgraph namespace segments recorded on a stream step."""
+    namespace = step.get(NAMESPACE_METADATA_KEY)
+    if isinstance(namespace, Sequence) and not isinstance(namespace, str | bytes):
+        return tuple(str(segment) for segment in namespace)
+    return ()
+
+
 def strip_trace_metadata(value: Any) -> Any:
     """Remove trace metadata keys from JSON-like payloads."""
     if isinstance(value, Mapping):
@@ -161,9 +186,12 @@ def _coerce_mapping(value: Any) -> Mapping[str, Any] | None:
 
 
 __all__ = [
+    "NAMESPACE_METADATA_KEY",
     "TRACE_METADATA_KEY",
     "build_ai_trace_metadata",
+    "encode_step_namespace",
     "extract_ai_trace_attributes",
+    "extract_step_namespace",
     "infer_chat_result_model_name",
     "infer_model_name_from_instance",
     "split_model_identifier",

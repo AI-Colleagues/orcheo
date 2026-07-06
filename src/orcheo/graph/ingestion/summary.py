@@ -49,7 +49,7 @@ def summarise_graph_index(
     compact_mermaid = _render_compact_mermaid(graph)
     mermaid = (
         render_summary_mermaid(summary)
-        if has_workflow_tool_subgraphs(summary)
+        if has_workflow_tool_subgraphs(summary) or summary.get("conditional_edges")
         else compact_mermaid
     )
     if mermaid:
@@ -240,13 +240,24 @@ def _unwrap_runnable(runnable: Any) -> Any:
 def _serialise_branch(source: str, name: str, branch: Any) -> dict[str, Any]:
     """Return metadata describing a conditional branch."""
     mapping: dict[str, str] | None = None
+    path_func = getattr(getattr(branch, "path", None), "func", None)
+    authored_mapping = getattr(path_func, "_orcheo_branch_mapping", None)
+    if isinstance(authored_mapping, dict):
+        mapping = {
+            str(key): _normalise_vertex(str(target))
+            for key, target in authored_mapping.items()
+        }
+
     ends = getattr(branch, "ends", None)
-    if isinstance(ends, dict):
+    if mapping is None and isinstance(ends, dict):
         mapping = {str(key): _normalise_vertex(target) for key, target in ends.items()}
 
     default: str | None = None
+    authored_default = getattr(path_func, "_orcheo_branch_default", None)
+    if isinstance(authored_default, str):
+        default = _normalise_vertex(authored_default)
     then_target = getattr(branch, "then", None)
-    if isinstance(then_target, str):
+    if default is None and isinstance(then_target, str):
         default = _normalise_vertex(then_target)
 
     payload: dict[str, Any] = {
@@ -257,8 +268,8 @@ def _serialise_branch(source: str, name: str, branch: Any) -> dict[str, Any]:
         payload["mapping"] = mapping
     if default is not None:
         payload["default"] = default
-    if hasattr(branch, "path") and getattr(branch.path, "func", None):
-        payload["callable"] = getattr(branch.path.func, "__name__", "<lambda>")
+    if path_func is not None:
+        payload["callable"] = getattr(path_func, "__name__", "<lambda>")
 
     return payload
 

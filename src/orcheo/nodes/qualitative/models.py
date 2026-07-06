@@ -194,10 +194,6 @@ class CandidateInsight(BaseModel):
     recommendation: Recommendation | None = None
 
 
-class Insight(CandidateInsight):
-    """A reported insight — same shape as a candidate."""
-
-
 # ---------------------------------------------------------------------------
 # LLM structured-response schemas
 # ---------------------------------------------------------------------------
@@ -241,15 +237,14 @@ class InsightGenerationResponse(BaseModel):
 
 @dataclass
 class ReportData:
-    """A transient view of the report dataset assembled from ``results``.
+    """A transient view of the report dataset assembled from ``node_results``.
 
     This is *not* persisted graph state — it is rebuilt on each call from the
-    standard ``results`` channel to give the pure report helpers (rendering,
+    standard ``node_results`` channel to give the pure report helpers (rendering,
     validation, critique, fallbacks) a tidy attribute bundle to read from.
     """
 
     research_objective: str | None = None
-    pending_documents: list[dict[str, Any]] | None = None
     source_payload: dict[str, Any] | None = None
     units: list[Unit] | None = None
     approved_codebook: Codebook | None = None
@@ -271,7 +266,6 @@ __all__ = [
     "Codebook",
     "CodebookConsolidationResponse",
     "CooccurrenceRow",
-    "Insight",
     "InsightGenerationResponse",
     "OpenCodingBatchResponse",
     "ParsedRecord",

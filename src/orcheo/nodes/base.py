@@ -29,6 +29,35 @@ if TYPE_CHECKING:  # pragma: no cover - typing-only import
 logger = logging.getLogger(__name__)
 _SINGLE_TEMPLATE_PATTERN = re.compile(r"^\s*\{\{\s*([^{}]+?)\s*\}\}\s*$")
 _TEMPLATE_PATTERN = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
+_TASK_NODE_STATE_FIELDS = frozenset(State.__annotations__)
+
+
+def build_task_state_update(name: str, serialized_result: Any) -> dict[str, Any]:
+    """Return the graph state update for a TaskNode result payload."""
+    output: dict[str, Any] = {}
+    result_payload = serialized_result
+    node_results_update: dict[str, Any] = {}
+    if isinstance(serialized_result, Mapping):
+        result_payload = dict(serialized_result)
+        for field in _TASK_NODE_STATE_FIELDS:
+            if field in result_payload:
+                value = result_payload.pop(field)
+                if field == "node_results":
+                    if not isinstance(value, Mapping):
+                        msg = "TaskNode node_results state update must be a mapping"
+                        raise TypeError(msg)
+                    node_results_update.update(dict(value))
+                    continue
+                output[field] = value
+
+    current_payload = node_results_update.get(name)
+    if isinstance(current_payload, Mapping) and isinstance(result_payload, Mapping):
+        node_results_update[name] = {**dict(current_payload), **result_payload}
+    elif name not in node_results_update or result_payload:
+        node_results_update[name] = result_payload
+
+    output["node_results"] = node_results_update
+    return output
 
 
 class BaseRunnable(BaseModel):
@@ -44,6 +73,16 @@ class BaseRunnable(BaseModel):
     name: str
     """Unique name of the runnable."""
 
+    @staticmethod
+    def contains_template(value: str) -> bool:
+        """Return whether ``value`` contains Orcheo template syntax."""
+        return "{{" in value and "}}" in value
+
+    @staticmethod
+    def contains_template_delimiter(value: str) -> bool:
+        """Return whether ``value`` contains any Orcheo template delimiter."""
+        return "{{" in value or "}}" in value
+
     def _decode_value(
         self,
         value: Any,
@@ -55,16 +94,24 @@ class BaseRunnable(BaseModel):
         is needed, enabling cheap ``is`` checks for copy-on-write callers.
         """
         if isinstance(value, CredentialReference):
-            return self._resolve_credential_reference(value)
-        if isinstance(value, str):
-            return self._decode_string_value(value, state)
-        if isinstance(value, BaseModel):
-            return self._decode_model_value(value, state)
-        if isinstance(value, dict):
-            return self._decode_dict_value(value, state)
-        if isinstance(value, list):
-            return self._decode_list_value(value, state)
-        return value
+            decoded = self._resolve_credential_reference(value)
+        elif isinstance(value, str):
+            decoded = self._decode_string_value(value, state)
+        elif isinstance(value, BaseModel):
+            decoded = self._decode_model_value(value, state)
+        elif isinstance(value, Mapping):
+            decoded = self._decode_mapping_value(value, state)
+        elif isinstance(value, list):
+            decoded = self._decode_list_value(value, state)
+        elif isinstance(value, tuple):
+            decoded = self._decode_tuple_value(value, state)
+        elif isinstance(value, set):
+            decoded = self._decode_set_value(value, state)
+        elif isinstance(value, frozenset):
+            decoded = self._decode_frozenset_value(value, state)
+        else:
+            decoded = value
+        return decoded
 
     def _decode_model_value(self, value: BaseModel, state: State) -> BaseModel:
         """Decode a nested Pydantic model, returning the same object if unchanged."""
@@ -76,8 +123,10 @@ class BaseRunnable(BaseModel):
                 changed[field_name] = decoded
         return value.model_copy(update=changed) if changed else value
 
-    def _decode_dict_value(self, value: dict[str, Any], state: State) -> dict[str, Any]:
-        """Decode a dict, returning the same object if no values changed."""
+    def _decode_mapping_value(
+        self, value: Mapping[Any, Any], state: State
+    ) -> Mapping[Any, Any]:
+        """Decode a mapping, returning the same object if no values changed."""
         new_dict: dict[str, Any] = {}
         any_changed = False
         for k, v in value.items():
@@ -86,6 +135,10 @@ class BaseRunnable(BaseModel):
             if decoded is not v:
                 any_changed = True
         return new_dict if any_changed else value
+
+    def _decode_dict_value(self, value: dict[str, Any], state: State) -> dict[str, Any]:
+        """Decode a dict, returning the same object if no values changed."""
+        return cast(dict[str, Any], self._decode_mapping_value(value, state))
 
     def _decode_list_value(self, value: list[Any], state: State) -> list[Any]:
         """Decode a list, returning the same object if no items changed."""
@@ -97,6 +150,43 @@ class BaseRunnable(BaseModel):
             if decoded is not item:
                 any_changed = True
         return new_list if any_changed else value
+
+    def _decode_tuple_value(
+        self, value: tuple[Any, ...], state: State
+    ) -> tuple[Any, ...]:
+        """Decode a tuple, returning the same object if no items changed."""
+        new_items: list[Any] = []
+        any_changed = False
+        for item in value:
+            decoded = self._decode_value(item, state)
+            new_items.append(decoded)
+            if decoded is not item:
+                any_changed = True
+        return tuple(new_items) if any_changed else value
+
+    def _decode_set_value(self, value: set[Any], state: State) -> set[Any]:
+        """Decode a set, returning the same object if no items changed."""
+        new_items: list[Any] = []
+        any_changed = False
+        for item in value:
+            decoded = self._decode_value(item, state)
+            new_items.append(decoded)
+            if decoded is not item:
+                any_changed = True
+        return set(new_items) if any_changed else value
+
+    def _decode_frozenset_value(
+        self, value: frozenset[Any], state: State
+    ) -> frozenset[Any]:
+        """Decode a frozenset, returning the same object if no items changed."""
+        new_items: list[Any] = []
+        any_changed = False
+        for item in value:
+            decoded = self._decode_value(item, state)
+            new_items.append(decoded)
+            if decoded is not item:
+                any_changed = True
+        return frozenset(new_items) if any_changed else value
 
     def _decoded_updates(self, state: State) -> dict[str, Any]:
         """Return decoded field values without mutating the runnable."""
@@ -123,7 +213,7 @@ class BaseRunnable(BaseModel):
         reference = parse_credential_reference(value)
         if reference is not None:
             return self._resolve_credential_reference(reference)
-        if "{{" not in value or "}}" not in value:
+        if not self.contains_template(value):
             return value
 
         single_template_match = _SINGLE_TEMPLATE_PATTERN.fullmatch(value)
@@ -171,7 +261,7 @@ class BaseRunnable(BaseModel):
             if isinstance(result, BaseModel) and hasattr(result, part):
                 result = getattr(result, part)
                 continue
-            fallback = self._fallback_to_results(path_parts, index, state)
+            fallback = self._fallback_to_node_results(path_parts, index, state)
             if fallback is not None:
                 result = fallback
                 continue
@@ -186,18 +276,18 @@ class BaseRunnable(BaseModel):
         return result, True
 
     @staticmethod
-    def _fallback_to_results(
+    def _fallback_to_node_results(
         path_parts: list[str],
         index: int,
         state: State,
     ) -> Any | None:
-        """Return a fallback lookup within ``state['results']`` when applicable."""
-        if index != 0 or path_parts[0] == "results":
+        """Return a fallback lookup within ``state['node_results']`` when applicable."""
+        if index != 0 or path_parts[0] == "node_results":
             return None
-        results = state.get("results")
-        if not isinstance(results, dict):
+        node_results = state.get("node_results")
+        if not isinstance(node_results, dict):
             return None
-        return results.get(path_parts[index])
+        return node_results.get(path_parts[index])
 
     def _resolve_credential_reference(self, reference: CredentialReference) -> Any:
         """Return the materialised value for ``reference`` or raise an error."""
@@ -448,10 +538,16 @@ class AINode(BaseNode):
 
 
 class TaskNode(BaseNode):
-    """Base class for all nodes that need to define their own run method."""
+    """Base class for deterministic task nodes.
+
+    ``run()`` returns a partial graph state update. Keys declared on
+    :class:`orcheo.graph.state.State` are promoted to the top-level state; all
+    remaining keys are stored as this node's payload under ``node_results[name]``.
+    Explicit ``node_results`` updates are merged with that node-scoped payload.
+    """
 
     async def __call__(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Execute the node and wrap the result in a outputs key."""
+        """Execute the node and convert its payload into a graph state update."""
         from orcheo.nodes.ai.tools.context import node_status_context
 
         runnable = self.resolved_for_run(state, config=config)
@@ -464,7 +560,7 @@ class TaskNode(BaseNode):
             runnable._clear_trace_metadata_for_run()
             raise
         serialized_result = runnable._serialize_result(result)
-        output: dict[str, Any] = {"results": {self.name: serialized_result}}
+        output = build_task_state_update(runnable.name, serialized_result)
         return cast(dict[str, Any], runnable._attach_trace_metadata(output))
 
     @abstractmethod

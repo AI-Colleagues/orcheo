@@ -32,7 +32,7 @@ async def _run_mongodb_node(
         config = get_active_tool_config()
     state: State = {
         "inputs": {},
-        "results": {},
+        "node_results": {},
         "structured_response": None,
         "config": None,
         "messages": [],

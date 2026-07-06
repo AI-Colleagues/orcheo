@@ -165,7 +165,7 @@ def _create_workflow_tool_func(
     compiled_graph: Runnable,
     name: str,
     description: str,
-    args_schema: type[BaseModel] | None,
+    args_schema: type[BaseModel] | dict[str, Any] | None,
     output_path: str | None = None,
     return_direct: bool = False,
 ) -> StructuredTool:
@@ -178,7 +178,7 @@ def _create_workflow_tool_func(
         compiled_graph: Compiled LangGraph runnable
         name: Tool name
         description: Tool description
-        args_schema: Optional Pydantic model for tool arguments
+        args_schema: Optional Pydantic model or JSON schema for tool arguments
         output_path: Optional dotted path selecting the final tool payload
         return_direct: When True, end the agent loop after this tool runs and
             return its output to the user verbatim
@@ -194,13 +194,13 @@ def _create_workflow_tool_func(
 
     async def workflow_coroutine(**kwargs: Any) -> Any:
         """Execute the workflow graph asynchronously."""
-        payload = {"inputs": kwargs, "results": {}, "messages": []}
+        payload = {"inputs": kwargs, "node_results": {}, "messages": []}
         result = await _run_tool_graph(compiled_graph, payload)
         return select_output(result)
 
     def workflow_sync(**kwargs: Any) -> Any:
         """Execute the workflow graph synchronously."""
-        payload = {"inputs": kwargs, "results": {}, "messages": []}
+        payload = {"inputs": kwargs, "node_results": {}, "messages": []}
         result = asyncio.run(_run_tool_graph(compiled_graph, payload))
         return select_output(result)
 
@@ -268,7 +268,7 @@ class WorkflowTool(BaseModel):
     """Description of the tool."""
     graph: SkipJsonSchema[StateGraph]
     """Workflow to be used as tool."""
-    args_schema: type[BaseModel] | None = None
+    args_schema: type[BaseModel] | dict[str, Any] | None = None
     """Input schema for the tool."""
     output_path: str | None = None
     """Optional dotted path selecting the value returned to the caller."""
@@ -356,10 +356,10 @@ class AgentNode(AINode):
         default_factory=lambda: [
             "{{inputs.platform}}:{{inputs.message.chat_id}}",
             "{{inputs.listener.platform}}:{{inputs.listener.message.chat_id}}",
-            "telegram:{{results.telegram_events_parser.chat_id}}",
-            "wecom_cs:{{results.wecom_cs_sync.open_kf_id}}:{{results.wecom_cs_sync.external_userid}}",
-            "wecom_aibot:{{results.wecom_ai_bot_events_parser.chat_type}}:{{results.wecom_ai_bot_events_parser.user}}",
-            "wecom_dm:{{results.wecom_events_parser.user}}",
+            "telegram:{{node_results.telegram_events_parser.chat_id}}",
+            "wecom_cs:{{node_results.wecom_cs_sync.open_kf_id}}:{{node_results.wecom_cs_sync.external_userid}}",
+            "wecom_aibot:{{node_results.wecom_ai_bot_events_parser.chat_type}}:{{node_results.wecom_ai_bot_events_parser.user}}",
+            "wecom_dm:{{node_results.wecom_events_parser.user}}",
         ]
     )
     """Ordered key candidates used to resolve stable conversation identity."""
@@ -405,7 +405,7 @@ class AgentNode(AINode):
     def model_post_init(self, __context: Any) -> None:
         """Normalize system prompts into TextTensor for optimization."""
         if isinstance(self.system_prompt, str):
-            if "{{" in self.system_prompt and "}}" in self.system_prompt:
+            if self.contains_template(self.system_prompt):
                 return
             if (
                 isinstance(self.ai_model, str)
@@ -620,13 +620,6 @@ class AgentNode(AINode):
         existing_messages = self._normalize_messages(state.get("messages"))
         if existing_messages:
             messages = self._apply_reset_command(existing_messages)
-
-            if self._check_has_checkpointer(config):
-                inputs = state.get("inputs", {}) if isinstance(state, Mapping) else {}
-                new_messages = self._messages_from_inputs(inputs)
-                if new_messages:
-                    messages.extend(new_messages)
-
             return self._trim_messages(messages)
 
         inputs = state.get("inputs", {}) if isinstance(state, Mapping) else {}
@@ -673,7 +666,7 @@ class AgentNode(AINode):
         candidate = key.strip()
         if not candidate:
             return None, "empty"
-        if "{{" in candidate or "}}" in candidate:
+        if self.contains_template_delimiter(candidate):
             return None, "unresolved_template"
         if len(candidate) > self._history_key_max_length:
             return None, "too_long"
@@ -1051,7 +1044,7 @@ class AgentNode(AINode):
             if isinstance(thread_state, Mapping):
                 thread_state_payload = dict(thread_state)
             else:
-                results = state.get("results")
+                results = state.get("node_results")
                 if isinstance(results, Mapping):
                     maybe_thread_state = results.get("_thread_state")
                     if isinstance(maybe_thread_state, Mapping):

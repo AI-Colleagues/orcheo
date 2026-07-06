@@ -128,6 +128,7 @@ export const WorkflowCard = ({
   const versionToDisplay = isTemplate
     ? (candidateBadge?.version ?? null)
     : (workflow.versions?.at(-1)?.candidateSource?.candidateVersion ?? null);
+  const uploadError = !isTemplate ? workflow.uploadError : undefined;
   const avatarUrl = resolveAvatarUrl(
     workflow.avatarEmoji ?? getWorkflowTemplateAvatar(workflow),
     workflow.id,
@@ -309,10 +310,31 @@ export const WorkflowCard = ({
 
         <CardContent className="flex flex-1 min-h-0 flex-col items-center px-5 py-3 text-center">
           <div className="relative flex w-full shrink-0 items-start justify-center">
-            <div className="absolute left-0 top-0 flex items-center gap-1 rounded-md border border-border/70 bg-muted/60 px-2 py-1 text-muted-foreground shadow-sm dark:bg-slate-950/20">
-              <span className="h-1.5 w-1.5 rounded-full bg-slate-800 shadow-[0_0_6px_rgba(15,23,42,0.32)] dark:bg-slate-200 dark:shadow-[0_0_6px_rgba(226,232,240,0.28)]" />
-              <span className="font-mono text-[9px] font-bold uppercase tracking-[0.1em] text-slate-700 dark:text-slate-300">
-                AI
+            <div
+              className={cn(
+                "absolute left-0 top-0 flex items-center gap-1 rounded-md border px-2 py-1 shadow-sm",
+                uploadError
+                  ? "border-red-500/40 bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                  : "border-border/70 bg-muted/60 text-muted-foreground dark:bg-slate-950/20",
+              )}
+            >
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  uploadError
+                    ? "bg-red-600 shadow-[0_0_6px_rgba(220,38,38,0.45)] dark:bg-red-300"
+                    : "bg-slate-800 shadow-[0_0_6px_rgba(15,23,42,0.32)] dark:bg-slate-200 dark:shadow-[0_0_6px_rgba(226,232,240,0.28)]",
+                )}
+              />
+              <span
+                className={cn(
+                  "font-mono text-[9px] font-bold uppercase tracking-[0.1em]",
+                  uploadError
+                    ? "text-red-700 dark:text-red-300"
+                    : "text-slate-700 dark:text-slate-300",
+                )}
+              >
+                {uploadError ? "Error" : "AI"}
               </span>
             </div>
 

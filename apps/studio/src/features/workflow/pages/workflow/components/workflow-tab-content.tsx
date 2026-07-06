@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useUploadsAllowed } from "@/hooks/use-uploads-allowed";
 import {
   AlertTriangle,
@@ -60,15 +60,24 @@ import { resolveWorkflowVersionMermaidSource } from "@features/workflow/lib/work
 import { WorkflowConfigSheet } from "@features/workflow/pages/workflow/components/workflow-config-sheet";
 import type { WorkflowExecutionStatus } from "@features/workflow/pages/workflow/helpers/types";
 
+const RUN_RESULT_BANNER_TIMEOUT_MS = 6000;
+
 export interface WorkflowTabContentProps {
   workflowId: string | null;
   workflowRouteRef?: string | null;
   workflowName: string;
+  workflowHandle?: string | null;
+  workflowTeamSlug?: string | null;
   versions: WorkflowVersionRecord[];
+  uploadError?: {
+    message: string;
+    occurredAt: string;
+  } | null;
   isLoading: boolean;
   loadError: string | null;
   isRunPending: boolean;
   isRunning: boolean;
+  isActive?: boolean;
   lastRunStatus?: WorkflowExecutionStatus | null;
   onRunWorkflow: () => Promise<void>;
   onSaveConfig: (nextConfig: WorkflowRunnableConfig | null) => Promise<void>;
@@ -193,6 +202,29 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return rawMessage;
 };
 
+const formatWorkflowHandle = (
+  handle?: string | null,
+  teamSlug?: string | null,
+): string | null => {
+  const trimmedHandle = handle?.trim().replace(/^@+/, "");
+  if (!trimmedHandle) {
+    return null;
+  }
+
+  if (trimmedHandle.includes("/")) {
+    return `@${trimmedHandle}`;
+  }
+
+  const trimmedTeamSlug = teamSlug
+    ?.trim()
+    .replace(/^@+/, "")
+    .replace(/\/+$/, "");
+
+  return trimmedTeamSlug
+    ? `@${trimmedTeamSlug}/${trimmedHandle}`
+    : `@${trimmedHandle}`;
+};
+
 interface RunResultBanner {
   Icon: typeof CheckCircle2;
   className: string;
@@ -239,11 +271,15 @@ const resolveRunResultBanner = (
 export function WorkflowTabContent({
   workflowId,
   workflowName,
+  workflowHandle,
+  workflowTeamSlug,
   versions,
+  uploadError,
   isLoading,
   loadError,
   isRunPending,
   isRunning,
+  isActive = true,
   lastRunStatus = null,
   onRunWorkflow,
   onSaveConfig,
@@ -256,6 +292,8 @@ export function WorkflowTabContent({
   const navigate = useNavigate();
   const uploadsAllowed = useUploadsAllowed();
   const latestVersion = versions.at(-1);
+  const workflowSubtitleLabel =
+    formatWorkflowHandle(workflowHandle, workflowTeamSlug) ?? workflowName;
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isPublished, setIsPublished] = useState(initialIsPublished);
   const [requireLogin, setRequireLogin] = useState(initialRequireLogin);
@@ -271,6 +309,10 @@ export function WorkflowTabContent({
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
   const [isMissingCredentialsDialogOpen, setIsMissingCredentialsDialogOpen] =
     useState(false);
+  const [visibleRunResultStatus, setVisibleRunResultStatus] =
+    useState<WorkflowExecutionStatus | null>(null);
+  const isRunActive = isRunPending || isRunning;
+  const wasRunActiveRef = useRef(isRunActive);
   const hasMissingCredentials = missingCredentials.length > 0;
   const canDeleteWorkflow = Boolean(workflowId);
 
@@ -396,6 +438,26 @@ export function WorkflowTabContent({
     };
   }, [mermaidCacheKey, mermaidRenderId, mermaidSource]);
 
+  useEffect(() => {
+    const didFinishRun =
+      wasRunActiveRef.current && !isRunActive && Boolean(lastRunStatus);
+    wasRunActiveRef.current = isRunActive;
+
+    if (!isActive || isRunActive || !didFinishRun || !lastRunStatus) {
+      setVisibleRunResultStatus(null);
+      return;
+    }
+
+    setVisibleRunResultStatus(lastRunStatus);
+    const timeoutId = window.setTimeout(() => {
+      setVisibleRunResultStatus(null);
+    }, RUN_RESULT_BANNER_TIMEOUT_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isActive, isRunActive, lastRunStatus]);
+
   const diagramNodes = useMemo(() => {
     if (!diagramSvg) {
       return [] as Node[];
@@ -438,10 +500,11 @@ export function WorkflowTabContent({
   }
 
   const canConfigure = Boolean(workflowId);
-  const isRunActive = isRunPending || isRunning;
+  const hasUploadError = Boolean(uploadError);
+  const uploadBlocksWorkflow = hasUploadError && !latestVersion;
   const runResultBanner =
-    !isRunActive && lastRunStatus
-      ? resolveRunResultBanner(lastRunStatus)
+    !isRunActive && visibleRunResultStatus
+      ? resolveRunResultBanner(visibleRunResultStatus)
       : null;
   const canRun = Boolean(workflowId && latestVersion);
   const runButtonDisabled = !canRun || isRunPending || isRunning;
@@ -475,6 +538,16 @@ export function WorkflowTabContent({
       toast({
         title: "Save workflow first",
         description: "Publishing requires a saved workflow ID.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (uploadBlocksWorkflow) {
+      setIsPublished(false);
+      toast({
+        title: "Fix upload error first",
+        description: "Fix the error and upload again before publishing.",
         variant: "destructive",
       });
       return;
@@ -548,6 +621,16 @@ export function WorkflowTabContent({
       toast({
         title: "Save workflow first",
         description: "Scheduling requires a saved workflow ID.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (uploadBlocksWorkflow) {
+      setIsScheduled(false);
+      toast({
+        title: "Fix upload error first",
+        description: "Fix the error and upload again before scheduling.",
         variant: "destructive",
       });
       return;
@@ -630,7 +713,7 @@ export function WorkflowTabContent({
               {workflowName || "Workflow"}
             </h2>
             <p className="text-sm text-muted-foreground">
-              {workflowName}
+              {workflowSubtitleLabel}
               {latestVersion ? ` · ${latestVersion.version}` : ""}
             </p>
           </div>
@@ -648,7 +731,7 @@ export function WorkflowTabContent({
                       onCheckedChange={(checked) =>
                         void handlePublishToggle(checked)
                       }
-                      disabled={isPublishPending}
+                      disabled={isPublishPending || uploadBlocksWorkflow}
                     />
                   </div>
                 </TooltipTrigger>
@@ -668,7 +751,9 @@ export function WorkflowTabContent({
                 onCheckedChange={(checked) =>
                   void handleScheduleToggle(checked)
                 }
-                disabled={isSchedulePending || !canToggleSchedule}
+                disabled={
+                  isSchedulePending || !canToggleSchedule || uploadBlocksWorkflow
+                }
               />
             </div>
             {workflowId && uploadsAllowed === true ? (
@@ -738,6 +823,22 @@ export function WorkflowTabContent({
             <runResultBanner.Icon className="h-4 w-4 shrink-0" />
             <span>{runResultBanner.message}</span>
           </div>
+        )}
+
+        {uploadError && (
+          <Alert variant="destructive">
+            <XCircle className="h-4 w-4" />
+            <AlertTitle>Workflow upload failed</AlertTitle>
+            <AlertDescription>
+              <div className="space-y-2">
+                <p>{uploadError.message}</p>
+                <p>
+                  Fix the error in the workflow script or config, then upload
+                  again.
+                </p>
+              </div>
+            </AlertDescription>
+          </Alert>
         )}
 
         {isPublished && shareUrl && (

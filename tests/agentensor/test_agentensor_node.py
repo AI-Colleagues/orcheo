@@ -54,7 +54,7 @@ def _build_state_and_config() -> tuple[State, RunnableConfig]:
         State,
         {
             "inputs": {"lang": "en"},
-            "results": {},
+            "node_results": {},
             "structured_response": {},
             "config": state_config,
         },
@@ -93,7 +93,7 @@ async def test_agentensor_node_resolves_prompts_from_config() -> None:
 
     result = await node(state, runtime_config)
 
-    payload: dict[str, Any] = result["results"]["agentensor"]
+    payload: dict[str, Any] = result["node_results"]["agentensor"]
     candidate = payload["prompts"]["candidate"]
     assert candidate["text"] == "Hello world"
     assert candidate["metadata"]["lang"] == "en"
@@ -105,7 +105,7 @@ async def test_agentensor_node_resolves_prompts_from_config() -> None:
 async def test_agentensor_node_runs_evaluation_with_progress() -> None:
     class DummyGraph:
         async def ainvoke(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-            return {"results": {"echo": state["inputs"]["prompt"]}}
+            return {"node_results": {"echo": state["inputs"]["prompt"]}}
 
     progress_events: list[dict[str, Any]] = []
 
@@ -133,7 +133,7 @@ async def test_agentensor_node_runs_evaluation_with_progress() -> None:
 
     result = await node(state, runtime_config)
 
-    payload: dict[str, Any] = result["results"]["agentensor"]
+    payload: dict[str, Any] = result["node_results"]["agentensor"]
     assert payload["summary"] == {"echo-check": 1.0}
     assert payload["results"][0]["evaluations"]["echo-check"]["passed"] is True
     assert progress_events[0]["event"] == "evaluation_progress"
@@ -149,7 +149,7 @@ async def test_agentensor_node_adopts_state_config_and_tag_payloads() -> None:
     }
 
     result = await node(state, {"tags": [1, 2]})
-    payload = result["results"][node.name]
+    payload = result["node_results"][node.name]
 
     assert node.state_config == state["config"]
     assert payload["tags"] == ["1", "2"]
@@ -161,7 +161,7 @@ async def test_agentensor_node_returns_base_for_non_evaluate_modes() -> None:
     node.mode = "preview"
 
     result = await node({}, {"tags": ["preview"]})
-    payload = result["results"][node.name]
+    payload = result["node_results"][node.name]
 
     assert payload["mode"] == "preview"
     assert "dataset_id" not in payload
@@ -176,7 +176,7 @@ async def test_agentensor_node_run_applies_state_config_and_tags() -> None:
     result = await node(state, {"tags": ["alpha", 2]})
 
     assert node.state_config == state["config"]
-    payload = result["results"][node.name]
+    payload = result["node_results"][node.name]
     assert payload["tags"] == ["alpha", "2"]
     assert payload["summary"] == {}
 
@@ -189,7 +189,7 @@ async def test_agentensor_training_emits_checkpoints_and_best_config() -> None:
             prompt_text = (
                 prompt_obj.text if hasattr(prompt_obj, "text") else prompt_obj["text"]
             )
-            return {"results": {"echo": prompt_text}}
+            return {"node_results": {"echo": prompt_text}}
 
     progress_events: list[dict[str, Any]] = []
 
@@ -225,7 +225,7 @@ async def test_agentensor_training_emits_checkpoints_and_best_config() -> None:
 
     result = await node(state, runtime_config)
 
-    payload: dict[str, Any] = result["results"]["agentensor_trainer"]
+    payload: dict[str, Any] = result["node_results"]["agentensor_trainer"]
     assert payload["summary"]["echo-pass"] == 1.0
     assert payload["best_checkpoint"]["workflow_id"] == "wf-training"
     assert len(payload["checkpoints"]) == 2
@@ -241,7 +241,7 @@ async def test_agentensor_training_requires_trainable_prompts() -> None:
             prompt_text = (
                 prompt_obj.text if hasattr(prompt_obj, "text") else prompt_obj["text"]
             )
-            return {"results": {"echo": prompt_text}}
+            return {"node_results": {"echo": prompt_text}}
 
     state, runtime_config = _build_state_and_config()
     node = AgentensorNode(
@@ -294,7 +294,7 @@ async def test_agentensor_training_adds_best_checkpoint_when_unscheduled() -> No
             prompt_text = (
                 prompt_obj.text if hasattr(prompt_obj, "text") else prompt_obj["text"]
             )
-            return {"results": {"echo": prompt_text}}
+            return {"node_results": {"echo": prompt_text}}
 
     state, runtime_config = _build_state_and_config()
     node = AgentensorNode(
@@ -324,7 +324,7 @@ async def test_agentensor_training_adds_best_checkpoint_when_unscheduled() -> No
 
     result = await node(state, runtime_config)
 
-    payload: dict[str, Any] = result["results"]["agentensor_trainer"]
+    payload: dict[str, Any] = result["node_results"]["agentensor_trainer"]
     epochs_recorded = {cp["metadata"]["epoch"] for cp in payload["checkpoints"]}
     assert 1 in epochs_recorded
     assert 2 in epochs_recorded
@@ -342,7 +342,7 @@ async def test_run_training_enforces_case_limit_and_best_checkpoint(
 
         async def ainvoke(self, state: State, config: RunnableConfig) -> dict[str, Any]:
             self.calls.append(state)
-            return {"results": {"echo": state["inputs"]["prompt"]}}
+            return {"node_results": {"echo": state["inputs"]["prompt"]}}
 
     state, runtime_config = _build_state_and_config()
     graph = LimitedGraph()
@@ -369,7 +369,7 @@ async def test_run_training_enforces_case_limit_and_best_checkpoint(
 
     result = await node(state, runtime_config)
 
-    payload: dict[str, Any] = result["results"]["trainer"]
+    payload: dict[str, Any] = result["node_results"]["trainer"]
     assert len(graph.calls) == node.optimizer.epochs
     assert payload["summary"]["limit-eval"] == 1.0
     assert all(case["case_index"] == 0 for case in payload["results"])
@@ -552,14 +552,14 @@ def test_build_case_state_defaults_structure() -> None:
     default = node._build_case_state({"prompt": "hi"})
 
     assert default["messages"] == []
-    assert default["results"] == {}
+    assert default["node_results"] == {}
     assert default["inputs"]["prompt"] == "hi"
 
 
 def test_extract_output_picks_best_key() -> None:
     node = AgentensorNode(name="extract-node")
 
-    assert node._extract_output({"results": {"foo": 1}}) == {"foo": 1}
+    assert node._extract_output({"node_results": {"foo": 1}}) == {"foo": 1}
     assert node._extract_output({"output": 2}) == 2
     assert node._extract_output("raw") == "raw"
 
@@ -763,7 +763,7 @@ async def test_run_evaluates_cases_with_max_limit() -> None:
         dataset=EvaluationDataset(id="dataset", cases=cases),
         evaluators=[eval_definition],
     )
-    node.compiled_graph = _StubGraph({"results": {"reply": "ok"}})
+    node.compiled_graph = _StubGraph({"node_results": {"reply": "ok"}})
     node.max_cases = 1
 
     result = await node.run({"config": {"foo": "bar"}}, {"tags": ["tag"]})

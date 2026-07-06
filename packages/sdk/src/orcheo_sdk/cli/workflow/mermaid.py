@@ -20,7 +20,7 @@ def _mermaid_from_graph(graph: Mapping[str, Any]) -> str:
                 return normalise_mermaid_sentinels(mermaid)
         summary = graph.get("summary")
         if isinstance(summary, Mapping):
-            if has_workflow_tool_subgraphs(summary):
+            if has_workflow_tool_subgraphs(summary) or summary.get("conditional_edges"):
                 return render_summary_mermaid(summary)
             return _compiled_mermaid(summary)
     return _compiled_mermaid(graph)

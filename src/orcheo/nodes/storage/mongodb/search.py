@@ -230,7 +230,7 @@ class MongoDBEnsureVectorIndexNode(MongoDBClientNode):
         if value is None:
             return value
         if isinstance(value, str):
-            if "{{" in value and "}}" in value:
+            if cls.contains_template(value):
                 return value
             try:
                 value = int(value)
@@ -398,14 +398,14 @@ class MongoDBHybridSearchNode(MongoDBClientNode):
     @field_validator("vector", mode="before")
     @classmethod
     def _allow_template_vector(cls, value: Any) -> Any:
-        if isinstance(value, str) and "{{" in value and "}}" in value:
+        if isinstance(value, str) and cls.contains_template(value):
             return value
         return value
 
     @field_validator("text_paths", mode="before")
     @classmethod
     def _allow_template_text_paths(cls, value: Any) -> Any:
-        if isinstance(value, str) and "{{" in value and "}}" in value:
+        if isinstance(value, str) and cls.contains_template(value):
             return value
         return value
 

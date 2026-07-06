@@ -27,8 +27,8 @@ _IR_WORKFLOW = textwrap.dedent(
         factor: int = 2
 
         async def run(self, state, config):
-            value = state["results"]["setter"]["value"]
-            return {"results": {"doubled": value * self.factor}}
+            value = state["node_results"]["setter"]["value"]
+            return {"doubled": value * self.factor}
 
     async def orcheo_workflow() -> StateGraph:
         graph = StateGraph(State)
@@ -238,6 +238,41 @@ def test_render_mermaid_from_script_full_env_returns_none_on_script_ingestion_er
     assert _render_mermaid_from_script_full_env("bad_script()") is None
 
 
+def test_render_mermaid_from_script_renders_conditional_targets() -> None:
+    """Conditional workflows render authored branch targets, not detached nodes."""
+    source = textwrap.dedent(
+        """
+        from orcheo.graph import END, START, StateGraph
+        from orcheo.graph.state import State
+        from orcheo.nodes.logic import SetVariableNode
+
+        def orcheo_workflow():
+            graph = StateGraph(State)
+            graph.add_node("flag", SetVariableNode(name="flag", variables={"go": True}))
+            graph.add_node("yes", SetVariableNode(name="yes", variables={"hit": True}))
+            graph.add_node("no", SetVariableNode(name="no", variables={"hit": False}))
+            graph.add_edge(START, "flag")
+            graph.add_conditional_edges(
+                "flag",
+                {
+                    "path": "node_results.flag.go",
+                    "mapping": {"true": "yes", "false": "no"},
+                },
+            )
+            graph.add_edge("yes", END)
+            graph.add_edge("no", END)
+            return graph
+        """
+    )
+
+    mermaid = _render_mermaid_from_script_full_env(source)
+
+    assert mermaid is not None
+    assert "root__node__flag -. true .-> root__node__yes;" in mermaid
+    assert "root__node__flag -. false .-> root__node__no;" in mermaid
+    assert "root__node__flag --> root__end;" not in mermaid
+
+
 def test_render_mermaid_from_ir_renders_builtin_and_code_nodes() -> None:
     """A frozen IR renders both built-in and CodeNode nodes plus their edges."""
     mermaid = render_mermaid_from_ir(_compile_ir_dict())
@@ -355,7 +390,7 @@ def test_ir_diagram_placeholder_is_an_inert_passthrough() -> None:
     from orcheo.workflow.mermaid import _ir_diagram_placeholder
 
     placeholder = _ir_diagram_placeholder(object())
-    state = {"results": {"x": 1}}
+    state = {"node_results": {"x": 1}}
 
     assert placeholder(state) is state
     assert placeholder(state, {"configurable": {}}, extra="ignored") is state

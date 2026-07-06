@@ -110,7 +110,7 @@ async def test_execute_workflow() -> None:
             yield step
 
     async def mock_aget_state(*args, **kwargs):
-        return MagicMock(values={"messages": [], "results": {}, "inputs": inputs})
+        return MagicMock(values={"messages": [], "node_results": {}, "inputs": inputs})
 
     mock_compiled_graph = MagicMock()
     mock_compiled_graph.astream = mock_astream

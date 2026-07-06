@@ -25,6 +25,10 @@ DEFAULT_STATE_REF = "orcheo.graph.state.State"
 # Marker used inside built-in node config for IR-backed workflow tools.
 WORKFLOW_TOOL_CONFIG_KIND = "workflow_tool"
 
+# Marker used inside built-in node config for trusted first-party Pydantic model
+# classes that must be restored as runtime class objects.
+PYDANTIC_MODEL_CONFIG_KIND = "pydantic_model"
+
 # Reserved config key that stores internal IR value kinds.
 IR_CONFIG_KIND_KEY = "__orcheo_ir_kind__"
 
@@ -159,6 +163,7 @@ __all__ = [
     "DEFAULT_STATE_REF",
     "END_VERTEX",
     "IR_CONFIG_KIND_KEY",
+    "PYDANTIC_MODEL_CONFIG_KIND",
     "START_VERTEX",
     "WORKFLOW_TOOL_CONFIG_KIND",
     "BuiltinNodeSpec",

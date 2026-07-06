@@ -7,8 +7,13 @@ from typing import Any
 import pytest
 from langgraph.graph import END, START
 from langgraph.types import Send
+from orcheo.graph import END as ORCHEO_END
+from orcheo.graph import START as ORCHEO_START
+from orcheo.graph import StateGraph
 from orcheo.graph.conditional import add_conditional_edges
 from orcheo.graph.edges import build_edges
+from orcheo.graph.state import State
+from orcheo.nodes.logic import SetVariableNode
 from tests.graph._builder_test_helpers import DummyGraph, StubDecision
 
 
@@ -105,8 +110,32 @@ def test_add_conditional_edges_maps_vertices() -> None:
     assert condition({"payload": {}}) is END
 
 
-def test_add_conditional_edges_without_default_returns_end() -> None:
-    """When no default is provided, unmatched conditions resolve to END."""
+@pytest.mark.asyncio
+async def test_state_graph_accepts_declarative_conditional_edge() -> None:
+    """The Orcheo StateGraph export accepts restricted conditional configs."""
+    graph = StateGraph(State)
+    graph.add_node("flag", SetVariableNode(name="flag", variables={"go": True}))
+    graph.add_node("target", SetVariableNode(name="target", variables={"hit": True}))
+    graph.add_edge(ORCHEO_START, "flag")
+    graph.add_conditional_edges(
+        "flag",
+        {
+            "path": "node_results.flag.go",
+            "mapping": {"true": "target", "false": ORCHEO_END},
+        },
+    )
+    graph.add_edge("target", ORCHEO_END)
+
+    compiled = graph.compile()
+    result = await compiled.ainvoke({"inputs": {}})
+    mermaid = compiled.get_graph().draw_mermaid()
+
+    assert result["node_results"]["target"]["hit"] is True
+    assert "flag -.-> target" in mermaid
+
+
+def test_add_conditional_edges_without_default_raises() -> None:
+    """When no default is provided, unmatched conditions raise a clear error."""
 
     graph = DummyGraph()
 
@@ -122,7 +151,8 @@ def test_add_conditional_edges_without_default_returns_end() -> None:
 
     call = graph.conditional_calls[0]
     condition = call["args"][1]
-    assert condition({"payload": {"flag": "unknown"}}) is END
+    with pytest.raises(ValueError, match="no 'default' target was configured"):
+        condition({"payload": {"flag": "unknown"}})
 
 
 def test_add_conditional_edges_preserves_default_for_edges() -> None:
@@ -143,7 +173,7 @@ def test_add_conditional_edges_preserves_default_for_edges() -> None:
     )
 
     call = graph.conditional_calls[0]
-    source, router = call["args"]
+    source, router = call["args"][:2]
     assert source is START
     assert asyncio.run(router({}, {})) is END
     assert asyncio.run(router({}, {})) == "fallback"
@@ -170,8 +200,8 @@ def test_add_conditional_edges_normalises_default_edges() -> None:
     assert asyncio.run(router({}, {})) is END
 
 
-def test_add_conditional_edges_edge_without_default_routes_to_end() -> None:
-    """Edges without defaults fall back to END when unmatched."""
+def test_add_conditional_edges_edge_without_default_raises() -> None:
+    """Edges without defaults raise a clear error when unmatched."""
 
     graph = DummyGraph()
     edge = StubDecision(["unknown"])
@@ -187,7 +217,8 @@ def test_add_conditional_edges_edge_without_default_routes_to_end() -> None:
     )
 
     router = graph.conditional_calls[0]["args"][1]
-    assert asyncio.run(router({}, {})) is END
+    with pytest.raises(ValueError, match="no 'default' target was configured"):
+        asyncio.run(router({}, {}))
 
 
 def test_add_conditional_edges_edge_handles_sequence_results() -> None:

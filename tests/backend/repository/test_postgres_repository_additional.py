@@ -815,6 +815,29 @@ async def test_persistence_create_run_locked_without_workspace_slot_does_not_rel
 
 
 @pytest.mark.asyncio
+async def test_triggers_dispatch_manual_runs_rejects_archived_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Manual dispatch on an archived workflow raises WorkflowNotFoundError.
+
+    Covers line 280: workflow.is_archived is True.
+    """
+    workflow_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id, is_archived=True)}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repo.dispatch_manual_runs(
+            ManualDispatchRequest(
+                workflow_id=workflow_id,
+                runs=[ManualDispatchItem()],
+            )
+        )
+
+
+@pytest.mark.asyncio
 async def test_triggers_dispatch_manual_runs_rejects_version_from_other_workflow(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1090,6 +1113,36 @@ async def test_triggers_handle_webhook_trigger(
 
 
 @pytest.mark.asyncio
+async def test_triggers_handle_webhook_trigger_rejects_archived_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dispatching a webhook trigger on an archived workflow raises.
+
+    Covers line 105: workflow.is_archived is True.
+    """
+    workflow_id = uuid4()
+    workflow_payload = _workflow_payload(workflow_id, is_archived=True)
+
+    responses = [
+        {"row": {"payload": workflow_payload}},  # _get_workflow_locked
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    config = WebhookTriggerConfig(allowed_methods={"POST"})
+    repo._trigger_layer.configure_webhook(workflow_id, config)
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repo.handle_webhook_trigger(
+            workflow_id,
+            method="POST",
+            headers={"content-type": "application/json"},
+            query_params={},
+            payload={"test": "data"},
+            source_ip="127.0.0.1",
+        )
+
+
+@pytest.mark.asyncio
 async def test_triggers_dispatch_due_cron_runs_skip_missing_version(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1108,6 +1161,7 @@ async def test_triggers_dispatch_due_cron_runs_skip_missing_version(
                 }
             ]
         },
+        {"row": {"payload": _workflow_payload(workflow_id)}},
     ]
     repo = make_repository(monkeypatch, responses)
 
@@ -1124,6 +1178,40 @@ async def test_triggers_dispatch_due_cron_runs_skip_missing_version(
     # Should skip the workflow and return empty list
     assert mock_get_version.called
     assert len(runs) == 0
+
+
+@pytest.mark.asyncio
+async def test_triggers_dispatch_due_cron_runs_skip_archived_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cron dispatch removes the cron config and skips archived workflows.
+
+    Covers lines 207-208: workflow.is_archived is True inside the dispatch
+    loop, which removes the cron config and continues to the next plan.
+    """
+    workflow_id = uuid4()
+    config = CronTriggerConfig(expression="0 9 * * *", timezone="UTC")
+
+    # Provide response for _refresh_cron_triggers, then the archived workflow row.
+    responses = [
+        {
+            "rows": [
+                {
+                    "workflow_id": str(workflow_id),
+                    "config": config.model_dump(mode="json"),
+                    "last_dispatched_at": None,
+                }
+            ]
+        },
+        {"row": {"payload": _workflow_payload(workflow_id, is_archived=True)}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    now = datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+    runs = await repo.dispatch_due_cron_runs(now=now)
+
+    assert runs == []
+    assert workflow_id not in repo._trigger_layer._cron_states
 
 
 @pytest.mark.asyncio
@@ -1148,6 +1236,7 @@ async def test_triggers_dispatch_due_cron_runs_skip_unhealthy_workflow(
                 }
             ]
         },
+        {"row": {"payload": _workflow_payload(workflow_id)}},
     ]
     repo = make_repository(monkeypatch, responses)
 
@@ -1158,6 +1247,11 @@ async def test_triggers_dispatch_due_cron_runs_skip_unhealthy_workflow(
     version = WorkflowVersion.model_validate(version_payload)
     monkeypatch.setattr(
         repo, "_get_latest_version_locked", AsyncMock(return_value=version)
+    )
+    monkeypatch.setattr(
+        repo,
+        "_get_workflow_locked",
+        AsyncMock(return_value=SimpleNamespace(is_archived=False)),
     )
 
     # Mock _ensure_workflow_health to raise CredentialHealthError
@@ -1179,30 +1273,30 @@ async def test_triggers_dispatch_due_cron_runs_skip_unhealthy_workflow(
 async def test_triggers_dispatch_due_cron_runs_skip_quota_exceeded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Cron dispatch skips runs when the workspace quota is exceeded."""
+    """Cron dispatch skips runs when the workspace quota is exceeded.
+
+    Covers lines 245-251: WorkspaceQuotaExceededError raised from
+    _create_run_locked during cron dispatch logs a warning and continues
+    to the next plan rather than propagating.
+    """
 
     workflow_id = uuid4()
     version_id = uuid4()
     config = CronTriggerConfig(expression="0 9 * * *", timezone="UTC")
     version = WorkflowVersion.model_validate(_version_payload(version_id, workflow_id))
-    responses = [
-        {
-            "rows": [
-                {
-                    "workflow_id": str(workflow_id),
-                    "config": config.model_dump(mode="json"),
-                    "last_dispatched_at": None,
-                }
-            ]
-        }
-    ]
-    repo = make_repository(monkeypatch, responses)
+    repo = make_repository(monkeypatch, [])
     repo._trigger_layer.configure_cron(workflow_id, config)
     monkeypatch.setattr(
         repo,
         "_get_latest_version_locked",
         AsyncMock(return_value=version),
     )
+    monkeypatch.setattr(
+        repo,
+        "_get_workflow_locked",
+        AsyncMock(return_value=SimpleNamespace(is_archived=False)),
+    )
+    monkeypatch.setattr(repo, "_refresh_cron_triggers", AsyncMock())
 
     async def _raise_quota(*_: object, **__: object) -> WorkflowRun:
         raise WorkspaceQuotaExceededError("quota", code="workspace.quota.runs")
@@ -2278,6 +2372,11 @@ async def test_triggers_dispatch_due_cron_runs_enqueues_runs(
     monkeypatch.setattr(
         repo, "_get_latest_version_locked", AsyncMock(return_value=version)
     )
+    monkeypatch.setattr(
+        repo,
+        "_get_workflow_locked",
+        AsyncMock(return_value=SimpleNamespace(is_archived=False)),
+    )
 
     run_id = uuid4()
     now = datetime.now(tz=UTC)
@@ -2330,6 +2429,11 @@ async def test_triggers_dispatch_due_cron_runs_updates_last_dispatched(
     version = WorkflowVersion.model_validate(version_payload)
     monkeypatch.setattr(
         repo, "_get_latest_version_locked", AsyncMock(return_value=version)
+    )
+    monkeypatch.setattr(
+        repo,
+        "_get_workflow_locked",
+        AsyncMock(return_value=SimpleNamespace(is_archived=False)),
     )
 
     run_id = uuid4()
@@ -2384,6 +2488,27 @@ async def test_triggers_configure_webhook_trigger(
 
 
 @pytest.mark.asyncio
+async def test_triggers_configure_webhook_trigger_rejects_archived_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Configuring a webhook trigger on an archived workflow raises.
+
+    Covers line 70: workflow.is_archived is True.
+    """
+    workflow_id = uuid4()
+    workflow_payload = _workflow_payload(workflow_id, is_archived=True)
+    config = WebhookTriggerConfig(allowed_methods={"POST"})
+
+    responses = [
+        {"row": {"payload": workflow_payload}},  # _get_workflow_locked
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repo.configure_webhook_trigger(workflow_id, config)
+
+
+@pytest.mark.asyncio
 async def test_triggers_configure_cron_trigger(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2400,6 +2525,27 @@ async def test_triggers_configure_cron_trigger(
 
     result = await repo.configure_cron_trigger(workflow_id, config)
     assert result.expression == "0 0 * * *"
+
+
+@pytest.mark.asyncio
+async def test_triggers_configure_cron_trigger_rejects_archived_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Configuring a cron trigger on an archived workflow raises.
+
+    Covers line 148: workflow.is_archived is True.
+    """
+    workflow_id = uuid4()
+    workflow_payload = _workflow_payload(workflow_id, is_archived=True)
+    config = CronTriggerConfig(expression="0 0 * * *", timezone="UTC")
+
+    responses = [
+        {"row": {"payload": workflow_payload}},  # _get_workflow_locked
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repo.configure_cron_trigger(workflow_id, config)
 
 
 @pytest.mark.asyncio
@@ -2673,6 +2819,89 @@ async def test_versions_create_version_without_listener_mixin(
         created_by="author",
     )
     assert version.version == 1
+
+
+@pytest.mark.asyncio
+async def test_workflows_set_workflow_upload_error_marks_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Passing a message records a new upload failure and persists it.
+
+    Covers lines 380-402 (set_workflow_upload_error's success path): the
+    workflow is fetched, ``mark_upload_error`` is applied, and the UPDATE
+    statement is issued with the serialized payload.
+    """
+    workflow_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id)}},  # _get_workflow_locked
+        {},  # UPDATE workflows SET payload = ...
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    workflow = await repo.set_workflow_upload_error(
+        workflow_id, message="Graph failed to parse", actor="uploader"
+    )
+
+    assert workflow.upload_error is not None
+    assert workflow.upload_error.message == "Graph failed to parse"
+    assert any(e.action == "workflow_upload_failed" for e in workflow.audit_log)
+
+    conn = repo._pool._connection  # noqa: SLF001
+    update_query, update_params = conn.queries[-1]
+    assert "UPDATE workflows" in update_query
+    assert update_params[-1] == str(workflow_id)
+
+
+@pytest.mark.asyncio
+async def test_workflows_set_workflow_upload_error_clears_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Passing ``message=None`` clears a previously recorded upload failure.
+
+    Covers the ``clear_upload_error`` branch of set_workflow_upload_error
+    (lines 385-386).
+    """
+    workflow_id = uuid4()
+    existing_payload = _workflow_payload(
+        workflow_id,
+        upload_error={
+            "message": "Old failure",
+            "occurred_at": datetime.now(tz=UTC).isoformat(),
+        },
+    )
+    responses: list[Any] = [
+        {"row": {"payload": existing_payload}},  # _get_workflow_locked
+        {},  # UPDATE workflows SET payload = ...
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    workflow = await repo.set_workflow_upload_error(
+        workflow_id, message=None, actor="uploader"
+    )
+
+    assert workflow.upload_error is None
+    assert any(e.action == "workflow_upload_recovered" for e in workflow.audit_log)
+
+
+@pytest.mark.asyncio
+async def test_workflows_set_workflow_upload_error_rejects_archived_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Archived workflows cannot have their upload error updated.
+
+    Covers lines 383-384: the ``workflow.is_archived`` guard raises
+    WorkflowNotFoundError before any mutation happens.
+    """
+    workflow_id = uuid4()
+    responses: list[Any] = [
+        {"row": {"payload": _workflow_payload(workflow_id, is_archived=True)}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repo.set_workflow_upload_error(
+            workflow_id, message="ignored", actor="uploader"
+        )
 
 
 @pytest.mark.asyncio

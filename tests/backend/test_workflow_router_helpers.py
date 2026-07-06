@@ -182,3 +182,36 @@ async def test_get_workflow_schedule_summary_returns_true_when_config_exists() -
         uuid4(),
     )
     assert result is True
+
+
+def test_http_exception_detail_message_returns_str_detail_directly() -> None:
+    """A plain string detail is returned as-is (line 389-390)."""
+    exc = HTTPException(status_code=400, detail="plain string detail")
+    assert workflows._http_exception_detail_message(exc) == "plain string detail"
+
+
+def test_http_exception_detail_message_extracts_message_from_dict_detail() -> None:
+    """Covers lines 391-394: dict detail with a string "message" key."""
+    exc = HTTPException(status_code=400, detail={"message": "structured failure"})
+    assert workflows._http_exception_detail_message(exc) == "structured failure"
+
+
+def test_http_exception_detail_message_falls_back_when_dict_lacks_message() -> None:
+    """Covers line 395: dict detail without a usable "message" key falls back
+    to str(detail)."""
+    exc = HTTPException(status_code=400, detail={"code": "missing_message"})
+    assert workflows._http_exception_detail_message(exc) == str(
+        {"code": "missing_message"}
+    )
+
+
+def test_http_exception_detail_message_falls_back_when_message_not_str() -> None:
+    """Covers line 395: dict detail whose "message" value is not a string."""
+    exc = HTTPException(status_code=400, detail={"message": 404})
+    assert workflows._http_exception_detail_message(exc) == str({"message": 404})
+
+
+def test_http_exception_detail_message_falls_back_for_non_str_non_dict_detail() -> None:
+    """Covers line 395: detail is neither a string nor a dict."""
+    exc = HTTPException(status_code=400, detail=["not", "a", "dict"])
+    assert workflows._http_exception_detail_message(exc) == str(["not", "a", "dict"])

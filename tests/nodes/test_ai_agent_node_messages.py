@@ -41,7 +41,7 @@ async def test_agentnode_builds_messages_from_inputs(
                 {"role": "user", "content": "Remind me what you can do."},
             ],
         },
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -87,7 +87,7 @@ async def test_agentnode_prefers_existing_messages(
             "message": "This message should not be appended",
             "history": [{"role": "assistant", "content": "ignored"}],
         },
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -134,7 +134,7 @@ async def test_agentnode_propagates_workspace_id_to_tool_runtime(
     state = State(
         workspace_id="workspace-1",
         inputs={"message": "How can you help?"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -186,7 +186,7 @@ async def test_agentnode_propagates_conversation_key_to_tool_runtime(
     state = State(
         workspace_id="workspace-1",
         inputs={"message": "How can you help?"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -239,7 +239,7 @@ def test_build_messages_uses_inputs_when_messages_absent() -> None:
             "message": "Fallback message",
             "history": [{"role": "assistant", "content": "Earlier"}],
         },
-        results={},
+        node_results={},
         messages=[],
         structured_response=None,
     )
@@ -338,7 +338,7 @@ def test_build_messages_prefers_existing_state_messages() -> None:
     state = State(
         messages=[{"role": "assistant", "content": "Existing"}],
         inputs={"message": "ignored"},
-        results={},
+        node_results={},
         structured_response=None,
     )
     messages = node._build_messages(state)
@@ -386,7 +386,7 @@ def test_build_messages_respects_max_messages_limit() -> None:
             {"role": "user", "content": "last"},
         ],
         inputs={},
-        results={},
+        node_results={},
         structured_response=None,
         config=None,
     )
@@ -395,12 +395,32 @@ def test_build_messages_respects_max_messages_limit() -> None:
     assert messages[0].content == "last"
 
 
-def test_build_messages_appends_current_input_when_checkpointed() -> None:
+def test_build_messages_keeps_existing_messages_when_checkpointed() -> None:
     node = AgentNode(name="agent", ai_model="test-model")
     state = State(
         messages=[{"role": "assistant", "content": "Previous answer"}],
+        inputs={"message": "Ignored graph input"},
+        node_results={},
+        structured_response=None,
+        config=None,
+    )
+    messages = node._build_messages(
+        state,
+        config={"configurable": {"thread_id": "thread-1", "__pregel_checkpointer": {}}},
+    )
+    assert len(messages) == 1
+    assert messages[0].content == "Previous answer"
+
+
+def test_build_messages_does_not_readd_checkpointed_input() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    state = State(
+        messages=[
+            {"role": "assistant", "content": "Previous answer"},
+            {"role": "user", "content": "New user turn"},
+        ],
         inputs={"message": "New user turn"},
-        results={},
+        node_results={},
         structured_response=None,
         config=None,
     )
@@ -413,12 +433,64 @@ def test_build_messages_appends_current_input_when_checkpointed() -> None:
     assert messages[1].content == "New user turn"
 
 
+def test_build_messages_ignores_stale_checkpointed_input_after_human_turn() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    state = State(
+        messages=[
+            {"role": "user", "content": "Original request"},
+            {"role": "assistant", "content": "Review this result."},
+            {"role": "user", "content": "redo the process"},
+        ],
+        inputs={"message": "Original request"},
+        node_results={},
+        structured_response=None,
+        config=None,
+    )
+    messages = node._build_messages(
+        state,
+        config={"configurable": {"thread_id": "thread-1", "__pregel_checkpointer": {}}},
+    )
+    assert [message.content for message in messages] == [
+        "Original request",
+        "Review this result.",
+        "redo the process",
+    ]
+
+
+def test_build_messages_ignores_checkpointed_inputs_when_messages_exist() -> None:
+    node = AgentNode(name="agent", ai_model="test-model")
+    state = State(
+        messages=[
+            {"role": "user", "content": "Old question"},
+            {"role": "assistant", "content": "Old answer"},
+        ],
+        inputs={
+            "history": [
+                {"role": "user", "content": "Old question"},
+                {"role": "assistant", "content": "Old answer"},
+            ],
+            "message": "New question",
+        },
+        node_results={},
+        structured_response=None,
+        config=None,
+    )
+    messages = node._build_messages(
+        state,
+        config={"configurable": {"thread_id": "thread-1", "__pregel_checkpointer": {}}},
+    )
+    assert [message.content for message in messages] == [
+        "Old question",
+        "Old answer",
+    ]
+
+
 def test_build_messages_keeps_existing_messages_without_checkpointer() -> None:
     node = AgentNode(name="agent", ai_model="test-model")
     state = State(
         messages=[{"role": "assistant", "content": "Previous answer"}],
         inputs={"message": "Ignored user turn"},
-        results={},
+        node_results={},
         structured_response=None,
         config=None,
     )
@@ -436,7 +508,7 @@ def test_build_messages_checkpointer_with_no_new_inputs() -> None:
     state = State(
         messages=[{"role": "assistant", "content": "Previous answer"}],
         inputs={},
-        results={},
+        node_results={},
         structured_response=None,
         config=None,
     )
@@ -455,14 +527,14 @@ def test_resolve_history_key_supports_literal_and_template_candidates() -> None:
         use_graph_chat_history=True,
         history_key_candidates=[
             "support-room-1",
-            "{{results.resolve_history_key.session_key}}",
+            "{{node_results.resolve_history_key.session_key}}",
         ],
         history_key_template="session:{{conversation_key}}",
     )
     state = State(
         messages=[],
         inputs={},
-        results={"resolve_history_key": {"session_key": "ignored"}},
+        node_results={"resolve_history_key": {"session_key": "ignored"}},
         structured_response=None,
         config=None,
     )
@@ -474,7 +546,8 @@ def test_default_history_key_candidates_exclude_config_input_and_thread() -> Non
     node = AgentNode(name="agent", ai_model="test-model")
 
     assert (
-        "{{results.resolve_history_key.session_key}}" not in node.history_key_candidates
+        "{{node_results.resolve_history_key.session_key}}"
+        not in node.history_key_candidates
     )
     assert "{{configurable.history_key}}" not in node.history_key_candidates
     assert "{{inputs.history_key}}" not in node.history_key_candidates
@@ -490,7 +563,7 @@ def test_resolve_history_key_supports_configurable_candidate() -> None:
     state = State(
         messages=[],
         inputs={},
-        results={},
+        node_results={},
         structured_response=None,
         config={"configurable": {"history_key": "room-1"}},
     )
@@ -505,7 +578,7 @@ def test_resolve_history_key_supports_channel_templates() -> None:
             "platform": "telegram",
             "message": {"chat_id": "12345", "text": "hello"},
         },
-        results={},
+        node_results={},
         structured_response=None,
         config=None,
     )
@@ -520,7 +593,7 @@ def test_resolve_history_key_supports_channel_templates() -> None:
     telegram_state = State(
         messages=[],
         inputs={},
-        results={"telegram_events_parser": {"chat_id": "12345"}},
+        node_results={"telegram_events_parser": {"chat_id": "12345"}},
         structured_response=None,
         config=None,
     )
@@ -535,7 +608,7 @@ def test_resolve_history_key_supports_channel_templates() -> None:
     wecom_cs_state = State(
         messages=[],
         inputs={},
-        results={
+        node_results={
             "wecom_cs_sync": {
                 "open_kf_id": "kf-001",
                 "external_userid": "ext-abc",
@@ -556,12 +629,12 @@ def test_resolve_history_key_rejects_invalid_candidates() -> None:
     unresolved_node = AgentNode(
         name="agent",
         ai_model="test-model",
-        history_key_candidates=["{{results.missing.value}}"],
+        history_key_candidates=["{{node_results.missing.value}}"],
     )
     invalid_state = State(
         messages=[],
         inputs={},
-        results={},
+        node_results={},
         structured_response=None,
         config=None,
     )
@@ -682,7 +755,7 @@ async def test_agentnode_graph_history_merge_trim_and_persist(
     state = State(
         messages=[],
         inputs={"message": "new question"},
-        results={},
+        node_results={},
         structured_response=None,
         config=None,
     )
@@ -733,7 +806,7 @@ async def test_agentnode_graph_history_disabled_skips_store_reads(
     state = State(
         messages=[],
         inputs={"message": "hello"},
-        results={},
+        node_results={},
         structured_response=None,
         config=None,
     )
@@ -772,7 +845,7 @@ async def test_agentnode_graph_history_conflict_retry_fallback(
     state = State(
         messages=[],
         inputs={"message": "hello"},
-        results={},
+        node_results={},
         structured_response=None,
         config=None,
     )
@@ -813,11 +886,11 @@ def test_get_graph_store_handles_mapping_variants() -> None:
 
 def test_resolve_history_key_skips_non_string_and_empty_candidates() -> None:
     node = AgentNode(name="agent", ai_model="test-model")
-    node.history_key_candidates = [123, "{{results.empty.value}}", "room-1"]  # type: ignore[list-item]
+    node.history_key_candidates = [123, "{{node_results.empty.value}}", "room-1"]  # type: ignore[list-item]
     state = State(
         messages=[],
         inputs={},
-        results={"empty": {"value": ""}},
+        node_results={"empty": {"value": ""}},
         structured_response=None,
         config=None,
     )
@@ -832,7 +905,7 @@ def test_resolve_history_key_rejects_invalid_template_result() -> None:
         history_key_template="{{conversation_key}}/{{conversation_key}}",
     )
     state = State(
-        messages=[], inputs={}, results={}, structured_response=None, config=None
+        messages=[], inputs={}, node_results={}, structured_response=None, config=None
     )
     assert node._resolve_history_key(state, None) is None
 
@@ -1102,13 +1175,13 @@ async def test_run_graph_history_fallback_paths(
         name="agent",
         ai_model="test-model",
         use_graph_chat_history=True,
-        history_key_candidates=["{{results.missing.value}}"],
+        history_key_candidates=["{{node_results.missing.value}}"],
     )
     bad_key_node = AgentNode(
         name="agent",
         ai_model="test-model",
         use_graph_chat_history=True,
-        history_key_candidates=["{{results.missing.value}}"],
+        history_key_candidates=["{{node_results.missing.value}}"],
     )
     load_fail_node = AgentNode(
         name="agent",
@@ -1119,7 +1192,7 @@ async def test_run_graph_history_fallback_paths(
     state = State(
         messages=[],
         inputs={"message": "hello"},
-        results={},
+        node_results={},
         structured_response=None,
         config=None,
     )

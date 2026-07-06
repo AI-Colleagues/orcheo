@@ -31,7 +31,7 @@ class MockModelOverrideNode(AINode):
 
 @pytest.mark.asyncio
 async def test_ai_node_call() -> None:
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     config = RunnableConfig()
     node = MockAINode(name="test_ai", input_var="test_value")
 
@@ -45,11 +45,11 @@ async def test_ai_node_call_re_resolves_templates_per_invocation() -> None:
     node = MockAINode(name="test_ai", input_var="{{payload.value}}")
 
     first = await node(
-        State({"results": {"payload": {"value": "first"}}}),
+        State({"node_results": {"payload": {"value": "first"}}}),
         RunnableConfig(),
     )
     second = await node(
-        State({"results": {"payload": {"value": "second"}}}),
+        State({"node_results": {"payload": {"value": "second"}}}),
         RunnableConfig(),
     )
 
@@ -63,7 +63,7 @@ async def test_ai_node_call_applies_chatkit_model_override_per_run() -> None:
     node = MockModelOverrideNode(name="test_ai_model", ai_model="openai:gpt-4o-mini")
 
     result = await node(
-        State({"results": {}}),
+        State({"node_results": {}}),
         RunnableConfig(configurable={"chatkit_model": "openai:gpt-5"}),
     )
 

@@ -370,7 +370,7 @@ class MongoDBNode(MongoDBClientNode):
         if value is None:
             return value
         if isinstance(value, str):
-            if "{{" in value and "}}" in value:
+            if cls.contains_template(value):
                 return value
             try:
                 value = int(value)
@@ -489,7 +489,7 @@ class MongoDBNode(MongoDBClientNode):
     def _resolve_limit(self) -> int:
         limit = self.limit
         if isinstance(limit, str):
-            if "{{" in limit and "}}" in limit:
+            if self.contains_template(limit):
                 msg = "limit must resolve to an integer before execution"
                 raise ValueError(msg)
             try:
@@ -769,7 +769,7 @@ class MongoDBInsertManyNode(MongoDBClientNode):
 
     def _resolve_records(self, state: State) -> list[dict[str, Any]]:
         """Extract records from workflow state."""
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         if not isinstance(results, Mapping):
             return []
         source = results.get(self.source_result_key)
@@ -883,7 +883,7 @@ class MongoDBUpsertManyNode(MongoDBNode):
 
     def _resolve_records(self, state: State) -> list[dict[str, Any]]:
         """Extract the list of records to upsert from workflow state."""
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         if not isinstance(results, Mapping):
             return []
 

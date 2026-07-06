@@ -92,7 +92,7 @@ class ConversationalBatchEvalNode(TaskNode):
         if value is None:
             return value
         if isinstance(value, str):
-            if cls._is_template(value):
+            if cls.contains_template(value):
                 return value
             try:
                 value = int(value)
@@ -107,7 +107,7 @@ class ConversationalBatchEvalNode(TaskNode):
         if value is None:
             return value
         if isinstance(value, str):
-            if cls._is_template(value):
+            if cls.contains_template(value):
                 return value
             try:
                 value = int(value)
@@ -122,7 +122,7 @@ class ConversationalBatchEvalNode(TaskNode):
         if value is None:
             return value
         if isinstance(value, str):
-            if cls._is_template(value):
+            if cls.contains_template(value):
                 return value
             try:
                 value = int(value)
@@ -130,10 +130,6 @@ class ConversationalBatchEvalNode(TaskNode):
                 msg = "history_window_size must be an integer"
                 raise ValueError(msg) from exc
         return value
-
-    @staticmethod
-    def _is_template(value: str) -> bool:
-        return "{{" in value and "}}" in value
 
     def _resolve_max_conversations(self) -> int | None:
         value = self.max_conversations
@@ -300,7 +296,7 @@ class ConversationalBatchEvalNode(TaskNode):
         if isinstance(conversations, list):
             return conversations
 
-        results = state.get("results")
+        results = state.get("node_results")
         if not isinstance(results, Mapping):
             return conversations
 
@@ -342,7 +338,7 @@ class ConversationalBatchEvalNode(TaskNode):
                 "query": str(user_query),
                 "history": list(history),
             },
-            results={},
+            node_results={},
             structured_response=None,
             config=parent_state.get("config"),
         )
@@ -359,7 +355,7 @@ class ConversationalBatchEvalNode(TaskNode):
         if prediction is not None:
             return prediction
 
-        results = result_state.get("results")
+        results = result_state.get("node_results")
         if isinstance(results, Mapping):  # pragma: no branch
             for value in reversed(list(results.values())):
                 if isinstance(value, Mapping):  # pragma: no branch

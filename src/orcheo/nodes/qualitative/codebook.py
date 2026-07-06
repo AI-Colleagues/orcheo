@@ -1,29 +1,16 @@
-"""Codebook utilities: id minting, parsing, rendering, and recovery."""
-
-# ruff: noqa: C901, PLR0912
+"""Codebook utilities: id minting, parsing, and rendering."""
 
 from __future__ import annotations
 import csv
 import html
-import json
 import re
 from collections import Counter
-from typing import Any
-from langchain_core.runnables import RunnableConfig
-from orcheo.graph.state import State
-from orcheo.nodes.qualitative.accessors import (
-    get_configurable,
-    get_draft_codebook,
-    get_seed_codebook_from_file,
-)
-from orcheo.nodes.qualitative.keys import QualitativeResultKeys
 from orcheo.nodes.qualitative.models import (
     CodeAssignment,
     Codebook,
     Subtheme,
     Theme,
 )
-from orcheo.runtime.results import assistant_message_texts
 
 
 def make_unit_id(index: int) -> str:
@@ -210,173 +197,16 @@ def parse_codebook_csv(
     return normalise_codebook_ids(Codebook(themes=list(themes.values())))
 
 
-def parse_markdown_table_row(row: str) -> list[str] | None:
-    """Split one Markdown table row into trimmed cells."""
-    stripped = row.strip().strip("|")
-    if not stripped:
-        return None
-    cells: list[str] = []
-    current: list[str] = []
-    escape = False
-    for char in stripped:
-        if escape:
-            current.append(char)
-            escape = False
-            continue
-        if char == "\\":
-            escape = True
-            continue
-        if char == "|":
-            cells.append("".join(current).strip())
-            current = []
-            continue
-        current.append(char)
-    cells.append("".join(current).strip())
-    return cells
-
-
 def escape_markdown_table_cell(value: str) -> str:
     """Escape a value for safe rendering inside a Markdown table cell."""
     escaped = html.escape(value, quote=False)
     return escaped.replace("|", "&#124;").replace("\n", "<br>")
 
 
-def parse_codebook_markdown(content: str) -> Codebook | None:
-    """Parse a codebook from Markdown table or heading/list form."""
-    table_lines = [
-        line.strip()
-        for line in content.splitlines()
-        if line.strip().startswith("|") and line.strip().endswith("|")
-    ]
-    if len(table_lines) >= 3:
-        header_cells = parse_markdown_table_row(table_lines[0])
-        if header_cells:
-            headers = [cell.strip().lower() for cell in header_cells]
-            required = [
-                "theme id",
-                "theme title",
-                "code id",
-                "code title",
-                "definition",
-                "include",
-                "exclude",
-            ]
-            if all(header in headers for header in required):
-                index = {header: headers.index(header) for header in required}
-                themes: dict[str, Theme] = {}
-                for raw_line in table_lines[2:]:
-                    row = parse_markdown_table_row(raw_line)
-                    if not row or len(row) < len(headers):
-                        continue
-                    theme_id = html.unescape(row[index["theme id"]].strip())
-                    theme_title = html.unescape(row[index["theme title"]].strip())
-                    code_id = html.unescape(row[index["code id"]].strip())
-                    if not code_id:
-                        continue
-                    code_title = html.unescape(row[index["code title"]].strip())
-                    definition = html.unescape(row[index["definition"]].strip())
-                    include = [
-                        html.unescape(item.strip())
-                        for item in html.unescape(row[index["include"]]).split(";")
-                        if item.strip()
-                    ]
-                    exclude = [
-                        html.unescape(item.strip())
-                        for item in html.unescape(row[index["exclude"]]).split(";")
-                        if item.strip()
-                    ]
-                    theme = themes.get(theme_id)
-                    if theme is None:
-                        theme = Theme(theme_id=theme_id, title=theme_title)
-                        themes[theme_id] = theme
-                    theme.subthemes.append(
-                        Subtheme(
-                            code_id=code_id,
-                            title=code_title,
-                            definition=definition,
-                            include=include,
-                            exclude=exclude,
-                        )
-                    )
-                if themes and any(theme.subthemes for theme in themes.values()):
-                    return normalise_codebook_ids(
-                        Codebook(themes=list(themes.values()))
-                    )
-
-    themes_list: list[Theme] = []
-    current_theme: Theme | None = None
-    theme_pattern = re.compile(r"^##\s+(?P<theme_id>T\d+):\s*(?P<title>.+?)\s*$")
-    code_pattern = re.compile(
-        r"^-\s+`(?P<code_id>[^`]+)`\s+\*\*(?P<title>[^*]+)\*\*:\s*(?P<definition>.*)$"
-    )
-    for raw_line in content.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        theme_match = theme_pattern.match(line)
-        if theme_match:
-            current_theme = Theme(
-                theme_id=theme_match.group("theme_id").strip(),
-                title=theme_match.group("title").strip(),
-            )
-            themes_list.append(current_theme)
-            continue
-        code_match = code_pattern.match(line)
-        if code_match and current_theme is not None:
-            current_theme.subthemes.append(
-                Subtheme(
-                    code_id=code_match.group("code_id").strip(),
-                    title=code_match.group("title").strip(),
-                    definition=code_match.group("definition").strip(),
-                )
-            )
-
-    if not themes_list or not any(theme.subthemes for theme in themes_list):
-        return None
-    return normalise_codebook_ids(Codebook(themes=themes_list))
-
-
-def recover_exportable_codebook(
-    state: State, keys: QualitativeResultKeys | None = None
-) -> Codebook | None:
-    """Return the draft codebook, recovering it from chat history if needed."""
-    keys = keys or QualitativeResultKeys()
-    codebook = get_draft_codebook(state, keys)
-    if codebook is not None:
-        return codebook
-    for message_text in assistant_message_texts(state):
-        recovered = parse_codebook_markdown(message_text)
-        if recovered is not None:
-            return recovered
-    return None
-
-
-def get_seed_codebook(
-    config: RunnableConfig | None,
-    state: State | None = None,
-    keys: QualitativeResultKeys | None = None,
-    *,
-    config_key: str = "seed_codebook",
-) -> Codebook | None:
-    """Return a seed codebook from config or an uploaded file, if available."""
-    keys = keys or QualitativeResultKeys()
-    raw: Any = get_configurable(config).get(config_key)
-    if raw is None and state is not None:
-        raw = get_seed_codebook_from_file(state, keys)
-    if raw is None:
-        return None
-    try:
-        payload = json.loads(raw) if isinstance(raw, str) else raw
-        return normalise_codebook_ids(Codebook.model_validate(payload))
-    except Exception:  # noqa: BLE001
-        return None
-
-
 __all__ = [
     "code_to_theme_map",
     "escape_markdown_table_cell",
     "fallback_codebook",
-    "get_seed_codebook",
     "make_code_id",
     "make_insight_id",
     "make_theme_id",
@@ -385,8 +215,5 @@ __all__ = [
     "normalise_codebook_ids",
     "normalise_label",
     "parse_codebook_csv",
-    "parse_codebook_markdown",
-    "parse_markdown_table_row",
-    "recover_exportable_codebook",
     "render_codebook_for_prompt",
 ]

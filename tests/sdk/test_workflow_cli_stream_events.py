@@ -122,7 +122,9 @@ async def test_process_stream_messages_handles_generic_updates() -> None:
     state = make_state()
 
     messages = [
-        json.dumps({"document_loader": {"results": {"document_loader": {"ok": True}}}}),
+        json.dumps(
+            {"document_loader": {"node_results": {"document_loader": {"ok": True}}}}
+        ),
         json.dumps({"status": "completed"}),
     ]
 

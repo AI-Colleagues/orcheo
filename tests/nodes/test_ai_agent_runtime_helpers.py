@@ -114,7 +114,7 @@ def test_build_runtime_config_merges_mapping_and_strips_workspace_id() -> None:
         "inputs": {
             "documents": [{"filename": "survey.csv"}],
         },
-        "results": {
+        "node_results": {
             "_thread_state": {
                 "pending_documents": [{"filename": "survey.csv"}],
             }

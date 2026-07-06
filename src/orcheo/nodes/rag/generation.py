@@ -142,7 +142,7 @@ class GroundedGeneratorNode(TaskNode):
         }
 
     def _resolve_context(self, state: State) -> list[SearchResult]:
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         source = results.get(self.context_result_key, {})
         if isinstance(source, dict) and self.context_field in source:
             entries = source[self.context_field]
@@ -560,7 +560,7 @@ class HallucinationGuardNode(TaskNode):
         }
 
     def _resolve_payload(self, state: State) -> dict[str, Any]:
-        payload = state.get("results", {}).get(self.generator_result_key, {})
+        payload = state.get("node_results", {}).get(self.generator_result_key, {})
         if not isinstance(payload, dict):
             msg = "HallucinationGuardNode requires a mapping payload"
             raise ValueError(msg)
@@ -635,7 +635,7 @@ class CitationsFormatterNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Format citations into human-readable strings."""
-        payload = state.get("results", {}).get(self.source_result_key, {})
+        payload = state.get("node_results", {}).get(self.source_result_key, {})
         if isinstance(payload, dict) and self.citations_field in payload:
             citations = payload[self.citations_field]
         else:
@@ -706,7 +706,7 @@ class CitationsFormatterNode(TaskNode):
         self, state: State, reply: str, citations: list[dict[str, Any]]
     ) -> None:
         """Update the original source payload with the formatted reply."""
-        results = state.get("results")
+        results = state.get("node_results")
         if not isinstance(results, dict):
             return
         source_payload = results.get(self.source_result_key)
@@ -883,7 +883,7 @@ class SearchResultFormatterNode(TaskNode):
         return {self.output_key: "\n".join(lines)}
 
     def _resolve_results(self, state: State) -> list[SearchResult]:
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         payload = results.get(self.source_result_key, {})
         if isinstance(payload, dict) and self.results_field in payload:
             entries = payload[self.results_field]

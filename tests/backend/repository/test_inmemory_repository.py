@@ -276,6 +276,47 @@ async def test_maybe_disable_no_listener_attribute() -> None:
 
 
 @pytest.mark.asyncio()
+async def test_remove_cron_config_only_runs_when_archiving() -> None:
+    """The archiving helper no-ops for non-archived updates."""
+
+    class MinimalRepo(WorkflowCrudMixin, InMemoryRepositoryState):
+        pass
+
+    repo = MinimalRepo()
+    calls: list[UUID] = []
+    repo._trigger_layer.remove_cron_config = calls.append  # type: ignore[method-assign]
+
+    workflow_id = uuid4()
+    repo._remove_cron_config_if_archiving(workflow_id, is_archived=False)  # noqa: SLF001
+    assert calls == []
+    repo._remove_cron_config_if_archiving(workflow_id, is_archived=True)  # noqa: SLF001
+    assert calls == [workflow_id]
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_set_workflow_upload_error_rejects_archived_workflow() -> None:
+    """set_workflow_upload_error raises WorkflowNotFoundError for archived workflows."""
+
+    repository = InMemoryWorkflowRepository()
+    workflow = await repository.create_workflow(
+        name="Upload Error",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+    )
+    await repository.archive_workflow(workflow.id, actor="tester")
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.set_workflow_upload_error(
+            workflow.id,
+            message="boom",
+            actor="tester",
+        )
+
+
+@pytest.mark.asyncio()
 async def test_maybe_disable_with_async_listener_method() -> None:
     """Line 39: awaits the result when
     _disable_listener_subscriptions_locked is async."""

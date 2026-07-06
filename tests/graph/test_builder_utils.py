@@ -96,7 +96,8 @@ def test_make_condition_falls_back_to_default_and_end() -> None:
     assert condition({"payload": 7}) == "fallback"
 
     no_default = make_condition("payload.value", {}, default_target=None)
-    assert no_default({"payload": {"value": 123}}) is END
+    with pytest.raises(ValueError, match="no 'default' target was configured"):
+        no_default({"payload": {"value": 123}})
 
 
 def test_make_condition_null_key_handling() -> None:

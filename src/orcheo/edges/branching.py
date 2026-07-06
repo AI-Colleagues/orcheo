@@ -148,7 +148,7 @@ class SwitchEdge(BaseEdge):
 class WhileEdge(BaseEdge):
     """Evaluate a condition and loop until it fails or a limit is reached.
 
-    The iteration counter is read from ``state["results"][self.name]``
+    The iteration counter is read from ``state["node_results"][self.name]``
     which must be maintained by a node in the loop body (e.g. a
     :class:`~orcheo.nodes.logic.ForLoopNode` or a custom counter node
     whose ``name`` matches this edge's ``name``).
@@ -176,12 +176,12 @@ class WhileEdge(BaseEdge):
     def _current_iteration(self, state: State) -> int:
         """Return the iteration count persisted in the workflow state.
 
-        The value is expected at ``results[self.name]["iteration"]``
+        The value is expected at ``node_results[self.name]["iteration"]``
         (written by a companion node such as :class:`ForLoopNode`).
         """
-        results = state.get("results")
-        if isinstance(results, Mapping):
-            edge_state = results.get(self.name)
+        node_results = state.get("node_results")
+        if isinstance(node_results, Mapping):
+            edge_state = node_results.get(self.name)
             if isinstance(edge_state, Mapping):
                 iteration = edge_state.get("iteration")
                 if isinstance(iteration, int) and iteration >= 0:

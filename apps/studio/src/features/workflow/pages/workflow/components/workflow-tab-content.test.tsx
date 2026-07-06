@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -26,6 +27,7 @@ vi.mock("@features/workflow/lib/workflow-storage-api", () => ({
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
 });
 
 vi.mock("react-router-dom", () => ({
@@ -96,6 +98,39 @@ describe("WorkflowTabContent", () => {
     snapshot: { name: "Workflow", description: "", nodes: [], edges: [] },
   };
 
+  it("shows the workflow handle under the workflow name when available", () => {
+    render(
+      <WorkflowTabContent
+        {...baseProps}
+        workflowName="Telegram Paperboy"
+        workflowHandle="telegram-paperboy"
+        workflowTeamSlug="local-company"
+        versions={[{ ...runnableVersion, version: "v01" }]}
+        workflowRouteRef="telegram-paperboy"
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Telegram Paperboy" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("@local-company/telegram-paperboy · v01"),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to the workflow name in the subtitle when no handle exists", () => {
+    render(
+      <WorkflowTabContent
+        {...baseProps}
+        workflowName="Telegram Paperboy"
+        versions={[{ ...runnableVersion, version: "v01" }]}
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.getByText("Telegram Paperboy · v01")).toBeInTheDocument();
+  });
+
   it("shows the offboard action for regular workflows", () => {
     render(<WorkflowTabContent {...baseProps} workflowRouteRef="workflow-1" />);
 
@@ -144,7 +179,16 @@ describe("WorkflowTabContent", () => {
   });
 
   it("shows a success result banner once a run finishes", () => {
-    render(
+    const { rerender } = render(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        isRunning
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    rerender(
       <WorkflowTabContent
         {...baseProps}
         versions={[runnableVersion]}
@@ -158,8 +202,100 @@ describe("WorkflowTabContent", () => {
     );
   });
 
+  it("clears the result banner after its transient timeout", () => {
+    vi.useFakeTimers();
+
+    const { rerender } = render(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        isRunning
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    rerender(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        lastRunStatus="success"
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Workflow run succeeded. See the full trace on the Trace tab.",
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(6000);
+    });
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    rerender(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        lastRunStatus="success"
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("does not show a result banner for a run that finished while inactive", () => {
+    const { rerender } = render(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        isRunning
+        isActive={false}
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Workflow run in progress. Check the latest record on the Trace tab for live status.",
+    );
+
+    rerender(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        lastRunStatus="success"
+        isActive={false}
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    rerender(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        lastRunStatus="success"
+        isActive
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("shows a failure result banner once a run fails", () => {
-    render(
+    const { rerender } = render(
+      <WorkflowTabContent
+        {...baseProps}
+        versions={[runnableVersion]}
+        isRunning
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    rerender(
       <WorkflowTabContent
         {...baseProps}
         versions={[runnableVersion]}
@@ -171,6 +307,25 @@ describe("WorkflowTabContent", () => {
     expect(screen.getByRole("status")).toHaveTextContent(
       "Workflow run failed. Check the Trace tab for details.",
     );
+  });
+
+  it("shows upload failure details and retry instructions", () => {
+    render(
+      <WorkflowTabContent
+        {...baseProps}
+        uploadError={{
+          message: "Invalid script: expected ':'",
+          occurredAt: "2026-07-02T10:00:00Z",
+        }}
+        workflowRouteRef="workflow-1"
+      />,
+    );
+
+    expect(screen.getByText("Workflow upload failed")).toBeInTheDocument();
+    expect(screen.getByText("Invalid script: expected ':'")).toBeInTheDocument();
+    expect(
+      screen.getByText(/fix the error in the workflow script or config/i),
+    ).toBeInTheDocument();
   });
 
   it("prefers the in-progress reminder over a prior result while running", () => {

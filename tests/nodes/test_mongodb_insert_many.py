@@ -36,7 +36,7 @@ _RECORDS = [
 
 
 def _base_state() -> State:
-    return State(messages=[], inputs={}, results={})
+    return State(messages=[], inputs={}, node_results={})
 
 
 def _state_with_records(
@@ -51,7 +51,7 @@ def _state_with_records(
         payload: Any = {embeddings_field: {embedding_name: recs}}
     else:
         payload = {embeddings_field: recs}
-    return State(messages=[], inputs={}, results={source_key: payload})
+    return State(messages=[], inputs={}, node_results={source_key: payload})
 
 
 def _mock_insert_result() -> Mock:
@@ -183,7 +183,7 @@ async def test_insert_many_missing_embeddings_field_raises(
     state = State(
         messages=[],
         inputs={},
-        results={"chunk_embedding": {"wrong_field": []}},
+        node_results={"chunk_embedding": {"wrong_field": []}},
     )
     node = _build_node(embedding_name="dense")
 
@@ -216,7 +216,7 @@ async def test_insert_many_non_mapping_results_raises(
     mongo_context: MongoTestContext,
 ) -> None:
     """Line 625: results is not a Mapping → returns [] → raises."""
-    state = State(messages=[], inputs={}, results="not-a-mapping")  # type: ignore[arg-type]
+    state = State(messages=[], inputs={}, node_results="not-a-mapping")  # type: ignore[arg-type]
     node = _build_node(embedding_name="dense")
 
     with pytest.raises(ValueError, match="No records available to insert"):
@@ -231,7 +231,7 @@ async def test_insert_many_records_not_list_raises(
     state = State(
         messages=[],
         inputs={},
-        results={
+        node_results={
             "chunk_embedding": {
                 "chunk_embeddings": {"dense": "not-a-list"},
             },

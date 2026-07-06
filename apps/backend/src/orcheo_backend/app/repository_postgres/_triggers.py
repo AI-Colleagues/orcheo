@@ -13,6 +13,7 @@ from orcheo.vault.oauth import CredentialHealthError
 from orcheo_backend.app.errors import WorkspaceQuotaExceededError
 from orcheo_backend.app.repository import (
     CronTriggerNotFoundError,
+    WorkflowNotFoundError,
     WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.repository_postgres._base import logger
@@ -64,7 +65,9 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
     ) -> WebhookTriggerConfig:
         await self._ensure_initialized()
         async with self._lock:
-            await self._get_workflow_locked(workflow_id)
+            workflow = await self._get_workflow_locked(workflow_id)
+            if workflow.is_archived:
+                raise WorkflowNotFoundError(str(workflow_id))
             normalized = self._trigger_layer.configure_webhook(workflow_id, config)
             async with self._connection() as conn:
                 await conn.execute(
@@ -97,7 +100,9 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
     ) -> WorkflowRun:
         await self._ensure_initialized()
         async with self._lock:
-            await self._get_workflow_locked(workflow_id)
+            workflow = await self._get_workflow_locked(workflow_id)
+            if workflow.is_archived:
+                raise WorkflowNotFoundError(str(workflow_id))
             workspace_repo = cast(_WorkflowWorkspaceLookup, self)
             workspace_id = await workspace_repo._get_workflow_workspace_id_locked(
                 workflow_id
@@ -138,7 +143,9 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
     ) -> CronTriggerConfig:
         await self._ensure_initialized()
         async with self._lock:
-            await self._get_workflow_locked(workflow_id)
+            workflow = await self._get_workflow_locked(workflow_id)
+            if workflow.is_archived:
+                raise WorkflowNotFoundError(str(workflow_id))
             normalized = self._trigger_layer.configure_cron(workflow_id, config)
             async with self._connection() as conn:
                 await conn.execute(
@@ -191,6 +198,14 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
             await self._refresh_cron_triggers()
             plans = self._trigger_layer.collect_due_cron_dispatches(now=reference)
             for plan in plans:
+                try:
+                    workflow = await self._get_workflow_locked(plan.workflow_id)
+                except WorkflowNotFoundError:
+                    self._trigger_layer.remove_cron_config(plan.workflow_id)
+                    continue
+                if workflow.is_archived:
+                    self._trigger_layer.remove_cron_config(plan.workflow_id)
+                    continue
                 try:
                     version = await self._get_latest_version_locked(plan.workflow_id)
                 except WorkflowVersionNotFoundError:
@@ -260,7 +275,9 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
     ) -> list[WorkflowRun]:
         await self._ensure_initialized()
         async with self._lock:
-            await self._get_workflow_locked(request.workflow_id)
+            workflow = await self._get_workflow_locked(request.workflow_id)
+            if workflow.is_archived:
+                raise WorkflowNotFoundError(str(request.workflow_id))
             try:
                 latest_version = await self._get_latest_version_locked(
                     request.workflow_id

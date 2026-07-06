@@ -263,7 +263,7 @@ class ContextCompressorNode(TaskNode):
     )
     results_field: str = Field(
         default="retrieval_results",
-        description="Key in ``state.results`` that holds retrieval payloads.",
+        description="Key in ``state.node_results`` that holds retrieval payloads.",
     )
     max_tokens: int | str = Field(
         default=400,
@@ -327,7 +327,7 @@ class ContextCompressorNode(TaskNode):
         }
 
     def _resolve_entries(self, state: State) -> list[SearchResult]:
-        results_payload = state.get("results", {}).get(self.results_field)
+        results_payload = state.get("node_results", {}).get(self.results_field)
         if results_payload is None:
             msg = "ContextCompressorNode requires retrieval results to summarize"
             raise ValueError(msg)

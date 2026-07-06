@@ -28,7 +28,7 @@ async def test_mongodb_aggregate_uses_pipeline(mongo_context) -> None:
         pipeline=[{"$match": {"read": False}}, {"$count": "unread_count"}],
     )
 
-    state = State(messages=[], inputs={}, results={})
+    state = State(messages=[], inputs={}, node_results={})
     result = await node.run(state, RunnableConfig())
 
     mongo_context.collection.aggregate.assert_called_once_with(
@@ -54,7 +54,7 @@ async def test_mongodb_find_uses_sort_and_limit(mongo_context) -> None:
         limit=30,
     )
 
-    state = State(messages=[], inputs={}, results={})
+    state = State(messages=[], inputs={}, node_results={})
     result = await node.run(state, RunnableConfig())
 
     mongo_context.collection.find.assert_called_once_with(
@@ -96,7 +96,7 @@ async def test_mongodb_update_many_uses_filter_and_update(mongo_context) -> None
         update={"$set": {"read": True}},
     )
 
-    state = State(messages=[], inputs={}, results={})
+    state = State(messages=[], inputs={}, node_results={})
     result = await node.run(state, RunnableConfig())
 
     mongo_context.collection.update_many.assert_called_once_with(
@@ -127,7 +127,7 @@ async def test_mongodb_update_many_coerces_object_ids(
         update={"$set": {"read": True}},
     )
 
-    state = State(messages=[], inputs={}, results={})
+    state = State(messages=[], inputs={}, node_results={})
     await node.run(state, RunnableConfig())
 
     mongo_context.collection.update_many.assert_called_once_with(
@@ -148,6 +148,6 @@ async def test_mongodb_update_many_rejects_empty_update(
         update={},
     )
 
-    state = State(messages=[], inputs={}, results={})
+    state = State(messages=[], inputs={}, node_results={})
     with pytest.raises(ValueError, match="update must not be empty"):
         await node.run(state, RunnableConfig())

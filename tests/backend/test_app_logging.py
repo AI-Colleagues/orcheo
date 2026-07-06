@@ -5,6 +5,7 @@ import importlib
 from types import SimpleNamespace
 from typing import Any
 import pytest
+from orcheo.tracing.model_metadata import NAMESPACE_METADATA_KEY
 
 
 backend_app = importlib.import_module("orcheo_backend.app")
@@ -53,6 +54,24 @@ def test_log_step_debug_emits_for_each_node(monkeypatch: pytest.MonkeyPatch) -> 
     assert captured[2][0] == "Node output: %s"
     assert captured[2][1] == ({"status": "ok"},)
     assert captured[3] == ("=" * 80, ())
+
+
+def test_log_step_debug_skips_namespace_metadata_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The namespace metadata entry is ignored while logging step payloads."""
+
+    captured, logger = _capture_logger()
+
+    monkeypatch.setattr(backend_app, "_should_log_sensitive_debug", True)
+    monkeypatch.setattr(backend_app, "logger", logger)
+
+    backend_app._log_step_debug(
+        {NAMESPACE_METADATA_KEY: {"status": "meta"}, "alpha": {"status": "ok"}}
+    )
+
+    assert len(captured) == 4
+    assert all(NAMESPACE_METADATA_KEY not in message for message, _args in captured)
 
 
 def test_log_final_state_debug_emits_summary(

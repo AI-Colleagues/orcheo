@@ -26,6 +26,31 @@ from orcheo_backend.app.repository_postgres._persistence import PostgresPersiste
 class WorkflowRepositoryMixin(PostgresPersistenceMixin):
     """Helpers for managing workflow metadata."""
 
+    def _remove_cron_config_if_archiving(
+        self, workflow_id: UUID, *, is_archived: bool
+    ) -> None:
+        """Drop active cron state when a workflow transitions to archived."""
+        if is_archived:
+            self._trigger_layer.remove_cron_config(workflow_id)
+
+    async def _delete_cron_trigger_if_archiving(
+        self,
+        workflow_id: UUID,
+        *,
+        should_delete: bool,
+        conn: Any,
+    ) -> None:
+        """Delete persisted cron state when a workflow transitions to archived."""
+        if not should_delete:
+            return
+        await conn.execute(
+            """
+            DELETE FROM cron_triggers
+             WHERE workflow_id = %s
+            """,
+            (str(workflow_id),),
+        )
+
     async def _maybe_disable_listener_subscriptions(
         self,
         workflow_id: UUID,
@@ -316,6 +341,11 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                     actor=actor,
                     conn=conn,
                 )
+                await self._delete_cron_trigger_if_archiving(
+                    workflow.id,
+                    should_delete=should_disable_listeners,
+                    conn=conn,
+                )
                 await conn.execute(
                     """
                     UPDATE workflows
@@ -325,6 +355,45 @@ class WorkflowRepositoryMixin(PostgresPersistenceMixin):
                     (
                         workflow.handle,
                         workflow.is_archived,
+                        self._dump_model(workflow),
+                        workflow.updated_at,
+                        str(workflow.id),
+                    ),
+                )
+            # Drop the in-process cron cache only after the DB transaction has
+            # committed, so a rollback cannot leave the live scheduler out of
+            # sync with Postgres truth until the next reconciliation cycle.
+            self._remove_cron_config_if_archiving(
+                workflow.id,
+                is_archived=should_disable_listeners,
+            )
+            return workflow.model_copy(deep=True)
+
+    async def set_workflow_upload_error(
+        self,
+        workflow_id: UUID,
+        *,
+        message: str | None,
+        actor: str,
+    ) -> Workflow:
+        """Set or clear the latest workflow upload failure."""
+        await self._ensure_initialized()
+        async with self._lock:
+            workflow = await self._get_workflow_locked(workflow_id)
+            if workflow.is_archived:
+                raise WorkflowNotFoundError(str(workflow_id))
+            if message is None:
+                workflow.clear_upload_error(actor=actor)
+            else:
+                workflow.mark_upload_error(message=message, actor=actor)
+            async with self._connection() as conn:
+                await conn.execute(
+                    """
+                    UPDATE workflows
+                       SET payload = %s, updated_at = %s
+                     WHERE id = %s
+                    """,
+                    (
                         self._dump_model(workflow),
                         workflow.updated_at,
                         str(workflow.id),

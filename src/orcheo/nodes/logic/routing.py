@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 from orcheo.graph.state import State
-from orcheo.nodes.base import AINode
+from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
 
 
@@ -18,7 +18,7 @@ from orcheo.nodes.registry import NodeMetadata, registry
         category="logic",
     )
 )
-class StructuredRouterDispatchNode(AINode):
+class StructuredRouterDispatchNode(TaskNode):
     """Convert a structured response into a branch route and optional reply."""
 
     structured_response_key: str = Field(
@@ -76,40 +76,52 @@ class StructuredRouterDispatchNode(AINode):
 
         if action == self.route_action_value and branch:
             nested[self.routing_field] = branch
-            return {"results": {self.name: nested}}
+            return nested
 
         message = str(self._decision_value(decision, self.message_field) or "").strip()
         if not message:
             message = self.assistant_message_fallback
         nested[self.routing_field] = self.respond_action_value
-        return {"assistant_message": message, "results": {self.name: nested}}
+        return {"assistant_message": message, **nested}
 
 
 @registry.register(
     NodeMetadata(
-        name="FinalReplyNode",
-        description="Surface the final assistant message for a workflow turn",
+        name="ExtractAIMessageNode",
+        description="Extract a text AI message from a structured response",
         category="logic",
     )
 )
-class FinalReplyNode(AINode):
-    """Return the current assistant message, with a fallback if needed."""
+class ExtractAIMessageNode(TaskNode):
+    """Extract a text assistant message from structured agent output."""
 
-    assistant_message_key: str = Field(
+    structured_response_key: str = Field(
+        default="structured_response",
+        description="State key carrying the structured response",
+    )
+    message_field: str = Field(
         default="assistant_message",
-        description="State key that carries the reply text",
+        description="Structured response field carrying the assistant text",
     )
     fallback_message: str = Field(
         default="Sorry, something went wrong. Please try again later.",
-        description="Reply used when no assistant message is present",
+        description="Reply used when the structured response omits text",
     )
 
+    def _response_value(self, response: Any, field: str) -> Any:
+        if isinstance(response, Mapping):
+            return response.get(field)
+        if isinstance(response, BaseModel) and hasattr(response, field):
+            return getattr(response, field)
+        return getattr(response, field, None)
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
-        """Return the reply as both state and an appended assistant message."""
-        reply = state.get(self.assistant_message_key)
+        """Return extracted text as both state and an assistant message."""
+        response = state.get(self.structured_response_key)
+        reply = self._response_value(response, self.message_field)
         if not isinstance(reply, str) or not reply.strip():
             reply = self.fallback_message
         return {"assistant_message": reply, "messages": [AIMessage(content=reply)]}
 
 
-__all__ = ["FinalReplyNode", "StructuredRouterDispatchNode"]
+__all__ = ["ExtractAIMessageNode", "StructuredRouterDispatchNode"]

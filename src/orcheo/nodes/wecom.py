@@ -52,7 +52,7 @@ def _normalize_optional_runtime_value(value: str | None) -> str | None:
     if not value:
         return None
     stripped = value.strip()
-    if not stripped or ("{{" in stripped and "}}" in stripped):
+    if not stripped or TaskNode.contains_template(stripped):
         return None
     return stripped
 
@@ -520,7 +520,7 @@ class WeComEventsParserNode(TaskNode):
         runnable = self.resolved_for_run(state, config=config)
         result = await runnable.run(state, config)
         serialized = runnable._serialize_result(result)
-        output: dict[str, Any] = {"results": {self.name: serialized}}
+        output: dict[str, Any] = {"node_results": {self.name: serialized}}
         if isinstance(serialized, dict):  # pragma: no branch
             agent_messages = serialized.pop("agent_messages", None)
             if isinstance(agent_messages, list):
@@ -995,7 +995,7 @@ class WeComAIBotResponseNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Send a reply to the AI bot response_url."""
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         parser_result = results.get("wecom_ai_bot_events_parser", {})
         if not isinstance(parser_result, dict):
             parser_result = {}
@@ -1133,7 +1133,7 @@ class WeComSendMessageNode(TaskNode):
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Send message to WeCom chat."""
         # Get access token from previous node result
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         token_result = results.get("get_access_token", {})
         access_token = token_result.get("access_token")
 
@@ -1354,7 +1354,7 @@ class WeComGroupPushNode(TaskNode):
 
 
 def get_access_token_from_state(results: dict[str, Any]) -> str | None:
-    """Extract access token from workflow state results.
+    """Extract access token from workflow state node results.
 
     Looks for access_token in common node result keys.
     """
@@ -1865,7 +1865,7 @@ class WeComCustomerServiceSyncNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Sync messages from Customer Service."""
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         parser_result = results.get("wecom_events_parser", {})
 
         # Get access token from state (requires preceding WeComAccessTokenNode)
@@ -1963,7 +1963,7 @@ class WeComCustomerServiceSyncNode(TaskNode):
         runnable = self.resolved_for_run(state, config=config)
         result = await runnable.run(state, config)
         serialized = runnable._serialize_result(result)
-        output: dict[str, Any] = {"results": {self.name: serialized}}
+        output: dict[str, Any] = {"node_results": {self.name: serialized}}
         if isinstance(serialized, dict):  # pragma: no branch
             agent_messages = serialized.pop("agent_messages", None)
             if isinstance(agent_messages, list):
@@ -2139,7 +2139,7 @@ class WeComCustomerServiceSendNode(TaskNode):
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Send message via Customer Service."""
-        results = state.get("results", {})
+        results = state.get("node_results", {})
         sync_result = results.get("wecom_cs_sync", {})
         parser_result = results.get("wecom_events_parser", {})
 

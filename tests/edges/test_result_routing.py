@@ -9,7 +9,7 @@ from orcheo.graph.state import State
 
 @pytest.mark.asyncio
 async def test_result_flag_edge_routes_on_truthy_flag() -> None:
-    state = State({"results": {"ingest": {"halt": True}}})
+    state = State({"node_results": {"ingest": {"halt": True}}})
     edge = ResultFlagEdge(
         name="after_ingest",
         result_node="ingest",
@@ -25,7 +25,7 @@ async def test_result_flag_edge_routes_on_truthy_flag() -> None:
 
 @pytest.mark.asyncio
 async def test_result_flag_edge_routes_on_false_when_missing() -> None:
-    state = State({"results": {"ingest": {}}})
+    state = State({"node_results": {"ingest": {}}})
     edge = ResultFlagEdge(
         name="after_ingest",
         result_node="ingest",
@@ -41,7 +41,9 @@ async def test_result_flag_edge_routes_on_false_when_missing() -> None:
 
 @pytest.mark.asyncio
 async def test_result_field_route_edge_allows_known_routes() -> None:
-    state = State({"results": {"router_dispatch": {"routing": "generate_codebook"}}})
+    state = State(
+        {"node_results": {"router_dispatch": {"routing": "generate_codebook"}}}
+    )
     edge = ResultFieldRouteEdge(
         name="route_after_dispatch",
         result_node="router_dispatch",
@@ -57,7 +59,7 @@ async def test_result_field_route_edge_allows_known_routes() -> None:
 
 @pytest.mark.asyncio
 async def test_result_field_route_edge_falls_back_for_unexpected_value() -> None:
-    state = State({"results": {"router_dispatch": {"routing": "unknown"}}})
+    state = State({"node_results": {"router_dispatch": {"routing": "unknown"}}})
     edge = ResultFieldRouteEdge(
         name="route_after_dispatch",
         result_node="router_dispatch",

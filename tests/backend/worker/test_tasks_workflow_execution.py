@@ -316,6 +316,37 @@ class TestExecuteWorkflow:
         mock_history.mark_failed.assert_awaited_once()
 
 
+class TestLoadAndValidateRun:
+    """Tests for _load_and_validate_run branches."""
+
+    @pytest.mark.asyncio
+    async def test_resolves_missing_workflow_id_from_version(
+        self, mock_run: MagicMock, mock_version: MagicMock
+    ) -> None:
+        """Runs without workflow_id fall back to the version lookup."""
+
+        from orcheo_backend.worker.tasks import _load_and_validate_run
+
+        mock_run.workflow_id = None
+        mock_repo = AsyncMock()
+        workflow = MagicMock()
+        workflow.is_archived = False
+        mock_repo.get_run = AsyncMock(return_value=mock_run)
+        mock_repo.get_version = AsyncMock(return_value=mock_version)
+        mock_repo.get_workflow = AsyncMock(return_value=workflow)
+
+        with patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
+        ):
+            loaded_run, error = await _load_and_validate_run(
+                str(mock_run.id), mock_run.workspace_id
+            )
+
+        assert loaded_run is mock_run
+        assert error is None
+        mock_repo.get_version.assert_awaited_once_with(mock_run.workflow_version_id)
+
+
 class TestHistoryHelpers:
     """Tests for helper functions that persist run history."""
 

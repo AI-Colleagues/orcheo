@@ -13,6 +13,10 @@ import {
   HISTORY_LIMIT,
 } from "./workflow-storage.constants";
 import {
+  clearWorkflowUploadError,
+  readWorkflowUploadError,
+} from "./workflow-upload-errors";
+import {
   forceMermaidLeftToRight,
   normalizeMermaidPalette,
 } from "./mermaid-renderer";
@@ -419,11 +423,28 @@ export const toStoredWorkflow = (
     versionRecords.at(-1)?.snapshot ??
     emptySnapshot(workflow.name, workflow.description ?? undefined);
   const avatarEmoji = versionRecords.at(-1)?.avatarEmoji ?? undefined;
+  const hasBackendUploadError = Object.prototype.hasOwnProperty.call(
+    workflow,
+    "upload_error",
+  );
+  const uploadError = workflow.upload_error
+    ? {
+        message: workflow.upload_error.message,
+        occurredAt: workflow.upload_error.occurred_at,
+      }
+    : hasBackendUploadError
+      ? undefined
+      : readWorkflowUploadError(workflow.id);
+  if (hasBackendUploadError && workflow.upload_error === null) {
+    clearWorkflowUploadError(workflow.id);
+  }
 
   return {
     id: workflow.id,
     handle: workflow.handle ?? undefined,
     teamId: workflow.team_id ?? undefined,
+    teamSlug: workflow.team_slug ?? undefined,
+    uploadError,
     name: workflow.name,
     description: workflow.description ?? undefined,
     avatarEmoji,

@@ -17,7 +17,7 @@ def test_build_initial_state_langgraph_script_mapping_defaults() -> None:
 
     assert state["message"] == "hello"
     assert state["inputs"] == inputs
-    assert state["results"] == {}
+    assert state["node_results"] == {}
     assert state["messages"] == []
     assert state["config"] == {}
 
@@ -63,7 +63,7 @@ def test_build_initial_state_default_shape() -> None:
     state = build_initial_state({"format": "graph"}, inputs, runtime_config)
 
     assert state["inputs"] == inputs
-    assert state["results"] == {}
+    assert state["node_results"] == {}
     assert state["messages"] == []
     assert state["config"] == runtime_config
 

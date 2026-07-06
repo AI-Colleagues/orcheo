@@ -33,9 +33,9 @@ CONFORMED = """
         threshold: int = 5
 
         async def run(self, state, config):
-            score = state["results"]["score"]["value"]
+            score = state["node_results"]["score"]["value"]
             verdict = "pass" if score >= self.threshold else "fail"
-            return {"results": {"verdict": verdict}}
+            return {"verdict": verdict}
 
     async def orcheo_workflow() -> StateGraph:
         graph = StateGraph(State)
@@ -45,7 +45,10 @@ CONFORMED = """
         graph.add_edge("score", "grade")
         graph.add_conditional_edges(
             "grade",
-            {"path": "results.verdict", "mapping": {"pass": "score", "fail": END}},
+            {
+                "path": "node_results.grade.verdict",
+                "mapping": {"pass": "score", "fail": END},
+            },
         )
         return graph
     """
@@ -76,8 +79,8 @@ def test_conformed_representative_workflow_compiles() -> None:
             "def orcheo_workflow():\n    graph = StateGraph(None)\n    return graph\n",
             "must come from Orcheo",
         ),
-        # Legacy: raw function used as a node — the helper def cannot exist at
-        # module level (only ``orcheo_workflow`` and CodeNode classes may).
+        # Legacy: raw function used as a node — module-level defs are
+        # graph-builder functions and must take zero arguments.
         (
             "from orcheo.graph import StateGraph, START\n"
             "def greet(state):\n    return state\n"
@@ -86,13 +89,13 @@ def test_conformed_representative_workflow_compiles() -> None:
             "    graph.add_node('g', greet)\n"
             "    graph.add_edge(START, 'g')\n"
             "    return graph\n",
-            "named 'orcheo_workflow'",
+            "must take zero arguments",
         ),
-        # Legacy: entrypoint not named orcheo_workflow.
+        # Legacy: no function named orcheo_workflow defined.
         (
             "from orcheo.graph import StateGraph\n"
             "def build_graph():\n    graph = StateGraph(None)\n    return graph\n",
-            "must be named 'orcheo_workflow'",
+            "'orcheo_workflow' entrypoint",
         ),
         # Legacy: __main__ guard / top-level statement.
         (
@@ -136,7 +139,7 @@ def test_config_value_error_carries_line_number() -> None:
 
         class Secret(CodeNode):
             async def run(self, state, config):
-                return {"results": {"x": self.token}}
+                return {"x": self.token}
 
         async def orcheo_workflow():
             graph = StateGraph(State)
@@ -163,7 +166,7 @@ def test_builtin_allowlist_error_carries_line_number() -> None:
 
         class Bad(CodeNode):
             async def run(self, state, config):
-                return {"results": {"x": eval("1+1")}}
+                return {"x": eval("1+1")}
 
         async def orcheo_workflow():
             graph = StateGraph(State)

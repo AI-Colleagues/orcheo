@@ -223,7 +223,7 @@ class GraphTrainer(Trainer):
             return state
         return {
             "messages": [],
-            "results": {},
+            "node_results": {},
             "inputs": dict(inputs),
             "structured_response": None,
             "config": runtime_config | {"prompts": self.runtime_prompts},
@@ -241,7 +241,7 @@ class GraphTrainer(Trainer):
     @staticmethod
     def _extract_output(output_state: Any) -> Any:
         if isinstance(output_state, Mapping):  # pragma: no branch
-            results = output_state.get("results")
+            results = output_state.get("node_results")
             if isinstance(results, Mapping) and results:
                 return results
             if "output" in output_state:

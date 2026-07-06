@@ -12,7 +12,7 @@ from orcheo.nodes.data import JsonProcessingNode
 async def test_json_processing_node_extracts_values() -> None:
     """JsonProcessingNode should extract nested values."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     data = json.dumps({"person": {"name": "Ada", "languages": ["python", "c"]}})
     node = JsonProcessingNode(
         name="json",
@@ -21,7 +21,7 @@ async def test_json_processing_node_extracts_values() -> None:
         path="person.languages.0",
     )
 
-    payload = (await node(state, RunnableConfig()))["results"]["json"]
+    payload = (await node(state, RunnableConfig()))["node_results"]["json"]
     assert payload["result"] == "python"
     assert payload["found"] is True
 
@@ -30,7 +30,7 @@ async def test_json_processing_node_extracts_values() -> None:
 async def test_json_processing_node_handles_missing_path() -> None:
     """Missing paths should emit default values."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = JsonProcessingNode(
         name="json",
         operation="extract",
@@ -39,7 +39,7 @@ async def test_json_processing_node_handles_missing_path() -> None:
         default="fallback",
     )
 
-    payload = (await node(state, RunnableConfig()))["results"]["json"]
+    payload = (await node(state, RunnableConfig()))["node_results"]["json"]
     assert payload["result"] == "fallback"
     assert payload["found"] is False
 
@@ -48,7 +48,7 @@ async def test_json_processing_node_handles_missing_path() -> None:
 async def test_json_processing_node_stringifies_payloads() -> None:
     """Stringify mode should serialise objects with indentation."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = JsonProcessingNode(
         name="json",
         operation="stringify",
@@ -57,7 +57,7 @@ async def test_json_processing_node_stringifies_payloads() -> None:
         ensure_ascii=True,
     )
 
-    payload = (await node(state, RunnableConfig()))["results"]["json"]
+    payload = (await node(state, RunnableConfig()))["node_results"]["json"]
     assert json.loads(payload["result"]) == {"alpha": 1}
 
 
@@ -65,14 +65,14 @@ async def test_json_processing_node_stringifies_payloads() -> None:
 async def test_json_processing_node_parses_inputs() -> None:
     """Parse mode should handle string and native inputs."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node_text = JsonProcessingNode(name="json", operation="parse", input_data="1")
     node_dict = JsonProcessingNode(
         name="json", operation="parse", input_data={"k": "v"}
     )
 
-    text_payload = (await node_text(state, RunnableConfig()))["results"]["json"]
-    dict_payload = (await node_dict(state, RunnableConfig()))["results"]["json"]
+    text_payload = (await node_text(state, RunnableConfig()))["node_results"]["json"]
+    dict_payload = (await node_dict(state, RunnableConfig()))["node_results"]["json"]
 
     assert text_payload["result"] == 1
     assert dict_payload["result"] == {"k": "v"}
@@ -82,7 +82,7 @@ async def test_json_processing_node_parses_inputs() -> None:
 async def test_json_processing_node_requires_path() -> None:
     """Extract mode without a path should raise an error."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = JsonProcessingNode(name="json", operation="extract", input_data={})
 
     with pytest.raises(ValueError):
@@ -95,7 +95,7 @@ async def test_json_processing_node_rejects_unknown_operation() -> None:
 
     node = JsonProcessingNode(name="json", operation="parse", input_data={})
     node.operation = "invalid"  # type: ignore[assignment]
-    state = State({"results": {}})
+    state = State({"node_results": {}})
 
     with pytest.raises(ValueError):
         await node(state, RunnableConfig())

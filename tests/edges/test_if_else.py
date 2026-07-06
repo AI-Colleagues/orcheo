@@ -6,7 +6,7 @@ from orcheo.graph.state import State
 
 @pytest.mark.asyncio
 async def test_if_else_contains_and_membership_operations() -> None:
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     contains_node = IfElseEdge(
         name="contains_list",
         conditions=[
@@ -86,7 +86,7 @@ async def test_if_else_contains_and_membership_operations() -> None:
 async def test_if_else_node(
     left: object, operator: str, right: object, case_sensitive: bool, expected: bool
 ) -> None:
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = IfElseEdge(
         name="condition",
         conditions=[
@@ -106,7 +106,7 @@ async def test_if_else_node(
 
 @pytest.mark.asyncio
 async def test_if_else_node_combines_multiple_conditions() -> None:
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = IfElseEdge(
         name="multi",
         condition_logic="or",
@@ -131,7 +131,7 @@ async def test_if_else_node_combines_multiple_conditions() -> None:
 
 @pytest.mark.asyncio
 async def test_if_else_node_with_and_logic_all_fail() -> None:
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = IfElseEdge(
         name="multi",
         condition_logic="and",
@@ -159,11 +159,11 @@ async def test_if_else_re_resolves_templates_per_invocation() -> None:
     )
 
     first = await node(
-        State({"results": {"loop": {"done": False}}}),
+        State({"node_results": {"loop": {"done": False}}}),
         RunnableConfig(),
     )
     second = await node(
-        State({"results": {"loop": {"done": True}}}),
+        State({"node_results": {"loop": {"done": True}}}),
         RunnableConfig(),
     )
 

@@ -16,6 +16,7 @@ from orcheo.models.workflow_refs import normalize_workflow_handle
 
 __all__ = [
     "WorkflowChatKitConfig",
+    "WorkflowUploadError",
     "ChatKitSupportedModel",
     "ChatKitStartScreenPrompt",
     "WorkflowDraftAccess",
@@ -126,6 +127,13 @@ class WorkflowChatKitConfig(OrcheoBaseModel):
     supported_models: list[ChatKitSupportedModel] | None = None
 
 
+class WorkflowUploadError(OrcheoBaseModel):
+    """Latest workflow upload or ingest failure."""
+
+    message: str = Field(min_length=1, max_length=4000)
+    occurred_at: datetime = Field(default_factory=_utcnow)
+
+
 class Workflow(TimestampedAuditModel):
     """Represents a workflow container with metadata and audit trail."""
 
@@ -144,6 +152,7 @@ class Workflow(TimestampedAuditModel):
     require_login: bool = False
     share_url: str | None = None
     chatkit: WorkflowChatKitConfig | None = None
+    upload_error: WorkflowUploadError | None = None
 
     @field_validator("name", mode="before")
     @classmethod
@@ -234,6 +243,31 @@ class Workflow(TimestampedAuditModel):
             actor=actor,
             action="workflow_unpublished",
             metadata=metadata,
+        )
+
+    # -- Upload status -----------------------------------------------------
+    def mark_upload_error(self, *, message: str, actor: str) -> None:
+        """Record the latest workflow upload failure."""
+        normalized_message = message.strip() or "Workflow upload failed."
+        if len(normalized_message) > 4000:
+            normalized_message = f"{normalized_message[:3997]}..."
+        self.upload_error = WorkflowUploadError(message=normalized_message)
+        self.record_event(
+            actor=actor,
+            action="workflow_upload_failed",
+            metadata={"message": normalized_message},
+        )
+
+    def clear_upload_error(self, *, actor: str) -> None:
+        """Clear a previously recorded workflow upload failure."""
+        if self.upload_error is None:
+            return
+        previous_message = self.upload_error.message
+        self.upload_error = None
+        self.record_event(
+            actor=actor,
+            action="workflow_upload_recovered",
+            metadata={"message": previous_message},
         )
 
 

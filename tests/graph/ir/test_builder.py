@@ -11,6 +11,7 @@ from orcheo.graph.ir.builder import (
 from orcheo.graph.ir.exceptions import IRValidationError
 from orcheo.graph.ir.models import (
     IR_CONFIG_KIND_KEY,
+    PYDANTIC_MODEL_CONFIG_KIND,
     WORKFLOW_TOOL_CONFIG_KIND,
     BuiltinNodeSpec,
     CodeNodeSpec,
@@ -59,8 +60,8 @@ async def test_builtin_ir_builds_and_runs_without_script(
 
     result = await compiled.ainvoke({"inputs": {}})
 
-    assert result["results"]["first"]["message"] == "hello"
-    assert result["results"]["second"]["message"] == "world"
+    assert result["node_results"]["first"]["message"] == "hello"
+    assert result["node_results"]["second"]["message"] == "world"
 
 
 @pytest.mark.asyncio
@@ -71,7 +72,7 @@ async def test_ir_accepts_mapping_input() -> None:
 
     result = await compiled.ainvoke({"inputs": {}})
 
-    assert result["results"]["first"]["message"] == "hello"
+    assert result["node_results"]["first"]["message"] == "hello"
 
 
 @pytest.mark.asyncio
@@ -107,7 +108,7 @@ async def test_subgraph_ir_builds_and_runs_nested_graph() -> None:
     compiled = build_state_graph_from_ir(ir).compile()
     result = await compiled.ainvoke({"inputs": {}})
 
-    assert result["results"]["inner"]["value"] == 42
+    assert result["node_results"]["inner"]["value"] == 42
 
 
 def test_agent_workflow_tool_ir_materialises_workflow_tool() -> None:
@@ -160,6 +161,62 @@ def test_agent_workflow_tool_ir_materialises_workflow_tool() -> None:
     assert agent.workflow_tools[0].graph.nodes.keys() == {"inner"}
 
 
+def test_pydantic_model_ir_materialises_to_runtime_class() -> None:
+    """Pydantic model markers rebuild to trusted Orcheo model classes."""
+    from orcheo.nodes.qualitative import QuoteSelectionResponse
+
+    ir = GraphIR(
+        entrypoint="finalize",
+        nodes=[
+            BuiltinNodeSpec(
+                id="finalize",
+                type="LLMStageFinalizeNode",
+                config={
+                    "stage": "quote_selector",
+                    "response_schema": {
+                        IR_CONFIG_KIND_KEY: PYDANTIC_MODEL_CONFIG_KIND,
+                        "module": "orcheo.nodes.qualitative",
+                        "name": "QuoteSelectionResponse",
+                    },
+                },
+            )
+        ],
+        edges=[
+            EdgeSpec(source="__start__", target="finalize"),
+            EdgeSpec(source="finalize", target="__end__"),
+        ],
+    )
+
+    graph = build_state_graph_from_ir(ir)
+    node = graph.nodes["finalize"].runnable.afunc
+
+    assert node.response_schema is QuoteSelectionResponse
+
+
+def test_pydantic_model_ir_rejects_non_orcheo_module() -> None:
+    """Tampered Pydantic model markers cannot import outside Orcheo modules."""
+    ir = GraphIR(
+        entrypoint="first",
+        nodes=[
+            BuiltinNodeSpec(
+                id="first",
+                type="DebugNode",
+                config={
+                    "message": {
+                        IR_CONFIG_KIND_KEY: PYDANTIC_MODEL_CONFIG_KIND,
+                        "module": "pydantic",
+                        "name": "BaseModel",
+                    }
+                },
+            )
+        ],
+        edges=[EdgeSpec(source="__start__", target="first")],
+    )
+
+    with pytest.raises(IRValidationError, match="non-Orcheo module"):
+        build_state_graph_from_ir(ir)
+
+
 @pytest.mark.asyncio
 async def test_conditional_edge_routes_on_state_path() -> None:
     """A declarative conditional edge routes on a dotted state path."""
@@ -173,7 +230,7 @@ async def test_conditional_edge_routes_on_state_path() -> None:
         conditional_edges=[
             ConditionalEdgeSpec(
                 source="first",
-                path="results.first.found",
+                path="node_results.first.found",
                 mapping={"false": "second", "true": "__end__"},
             )
         ],
@@ -183,7 +240,7 @@ async def test_conditional_edge_routes_on_state_path() -> None:
     result = await compiled.ainvoke({"inputs": {}})
 
     # DebugNode reports found=False (no tap_path), so we route to "second".
-    assert result["results"]["second"]["message"] == "end"
+    assert result["node_results"]["second"]["message"] == "end"
 
 
 def test_unknown_node_type_is_rejected() -> None:
@@ -494,7 +551,7 @@ def test_workflow_tool_output_path_is_passed_through() -> None:
                             "name": "lookup",
                             "description": "Look up context",
                             "graph": nested.model_dump(),
-                            "output_path": "results.lookup",
+                            "output_path": "node_results.lookup",
                             "return_direct": True,
                         }
                     ],
@@ -510,5 +567,126 @@ def test_workflow_tool_output_path_is_passed_through() -> None:
     graph = build_state_graph_from_ir(ir)
     agent = graph.nodes["agent"].runnable.afunc
 
-    assert agent.workflow_tools[0].output_path == "results.lookup"
+    assert agent.workflow_tools[0].output_path == "node_results.lookup"
     assert agent.workflow_tools[0].return_direct is True
+
+
+def test_workflow_tool_args_schema_is_passed_through() -> None:
+    """A workflow-tool ``args_schema`` mapping is forwarded to the runtime tool."""
+    nested = GraphIR(
+        entrypoint="inner",
+        nodes=[
+            BuiltinNodeSpec(
+                id="inner",
+                type="SetVariableNode",
+                config={"variables": {"value": 1}},
+            )
+        ],
+        edges=[
+            EdgeSpec(source="__start__", target="inner"),
+            EdgeSpec(source="inner", target="__end__"),
+        ],
+    )
+    schema = {"type": "object", "properties": {"query": {"type": "string"}}}
+    ir = GraphIR(
+        entrypoint="agent",
+        nodes=[
+            BuiltinNodeSpec(
+                id="agent",
+                type="AgentNode",
+                config={
+                    "ai_model": "gpt-4o-mini",
+                    "workflow_tools": [
+                        {
+                            IR_CONFIG_KIND_KEY: WORKFLOW_TOOL_CONFIG_KIND,
+                            "name": "lookup",
+                            "description": "Look up context",
+                            "graph": nested.model_dump(),
+                            "args_schema": schema,
+                        }
+                    ],
+                },
+            )
+        ],
+        edges=[
+            EdgeSpec(source="__start__", target="agent"),
+            EdgeSpec(source="agent", target="__end__"),
+        ],
+    )
+
+    graph = build_state_graph_from_ir(ir)
+    agent = graph.nodes["agent"].runnable.afunc
+
+    assert agent.workflow_tools[0].args_schema == schema
+
+
+def test_pydantic_model_ir_rejects_non_string_module_or_name() -> None:
+    """A Pydantic model marker missing string 'module'/'name' is rejected."""
+    ir = GraphIR(
+        entrypoint="first",
+        nodes=[
+            BuiltinNodeSpec(
+                id="first",
+                type="DebugNode",
+                config={
+                    "message": {
+                        IR_CONFIG_KIND_KEY: PYDANTIC_MODEL_CONFIG_KIND,
+                        "module": "orcheo.nodes.qualitative",
+                        "name": 123,
+                    }
+                },
+            )
+        ],
+        edges=[EdgeSpec(source="__start__", target="first")],
+    )
+
+    with pytest.raises(IRValidationError, match="requires string 'module' and 'name'"):
+        build_state_graph_from_ir(ir)
+
+
+def test_pydantic_model_ir_rejects_unimportable_module() -> None:
+    """A Pydantic model marker naming a nonexistent Orcheo module is rejected."""
+    ir = GraphIR(
+        entrypoint="first",
+        nodes=[
+            BuiltinNodeSpec(
+                id="first",
+                type="DebugNode",
+                config={
+                    "message": {
+                        IR_CONFIG_KIND_KEY: PYDANTIC_MODEL_CONFIG_KIND,
+                        "module": "orcheo.nodes.does_not_exist_module",
+                        "name": "Whatever",
+                    }
+                },
+            )
+        ],
+        edges=[EdgeSpec(source="__start__", target="first")],
+    )
+
+    with pytest.raises(IRValidationError, match="could not import"):
+        build_state_graph_from_ir(ir)
+
+
+def test_pydantic_model_ir_rejects_non_basemodel_target() -> None:
+    """A Pydantic model marker pointing at a non-BaseModel attribute is rejected."""
+    ir = GraphIR(
+        entrypoint="first",
+        nodes=[
+            BuiltinNodeSpec(
+                id="first",
+                type="DebugNode",
+                config={
+                    "message": {
+                        IR_CONFIG_KIND_KEY: PYDANTIC_MODEL_CONFIG_KIND,
+                        "module": "orcheo.nodes.qualitative",
+                        "name": "not_a_class_or_missing",
+                    }
+                },
+            )
+        ],
+        edges=[EdgeSpec(source="__start__", target="first")],
+    )
+
+    with pytest.raises(IRValidationError, match="is not a BaseModel subclass"):
+        build_state_graph_from_ir(ir)

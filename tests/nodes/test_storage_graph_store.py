@@ -192,7 +192,7 @@ class TestNamespaceTuple:
 @pytest.mark.asyncio
 async def test_no_store_returns_false() -> None:
     node = GraphStoreAppendMessageNode(name="t", key="some_key", content="hello")
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     result = await node.run(state, RunnableConfig())
     assert result == {"history_written": False}
 
@@ -201,7 +201,7 @@ async def test_no_store_returns_false() -> None:
 async def test_empty_key_returns_false() -> None:
     store = MockStore()
     node = GraphStoreAppendMessageNode(name="t", key="", content="hello")
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     result = await node.run(state, _config_with_store(store))
     assert result == {"history_written": False}
 
@@ -210,7 +210,7 @@ async def test_empty_key_returns_false() -> None:
 async def test_empty_content_returns_false() -> None:
     store = MockStore()
     node = GraphStoreAppendMessageNode(name="t", key="some_key", content="")
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     result = await node.run(state, _config_with_store(store))
     assert result == {"history_written": False}
 
@@ -221,7 +221,7 @@ async def test_unresolved_template_in_key_returns_false() -> None:
     node = GraphStoreAppendMessageNode(
         name="t", key="telegram:{{unresolved}}", content="hello"
     )
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     result = await node.run(state, _config_with_store(store))
     assert result == {"history_written": False}
 
@@ -231,7 +231,7 @@ async def test_non_string_key_coerces_to_string() -> None:
     store = MockStore(existing_item=None)
     node = GraphStoreAppendMessageNode(name="t", key="placeholder", content="digest")
     node.key = cast(Any, 123)
-    state = State({"results": {}})
+    state = State({"node_results": {}})
 
     result = await node.run(state, _config_with_store(store))
 
@@ -245,7 +245,7 @@ async def test_none_key_returns_false() -> None:
     store = MockStore()
     node = GraphStoreAppendMessageNode(name="t", key="placeholder", content="hello")
     node.key = cast(Any, None)
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     result = await node.run(state, _config_with_store(store))
     assert result == {"history_written": False}
 
@@ -255,7 +255,7 @@ async def test_non_coercible_key_returns_false() -> None:
     store = MockStore()
     node = GraphStoreAppendMessageNode(name="t", key="placeholder", content="hello")
     node.key = cast(Any, ["not", "a", "string"])
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     result = await node.run(state, _config_with_store(store))
     assert result == {"history_written": False}
 
@@ -264,7 +264,7 @@ async def test_non_coercible_key_returns_false() -> None:
 async def test_creates_new_entry() -> None:
     store = MockStore(existing_item=None)
     node = GraphStoreAppendMessageNode(name="t", key="telegram:123", content="digest")
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     result = await node.run(state, _config_with_store(store))
 
     assert result == {"history_written": True}
@@ -280,7 +280,7 @@ async def test_creates_new_entry() -> None:
 async def test_creates_workspace_namespaced_entry() -> None:
     store = MockStore(existing_item=None)
     node = GraphStoreAppendMessageNode(name="t", key="telegram:123", content="digest")
-    state = State({"results": {}, "workspace_id": "workspace-1"})
+    state = State({"node_results": {}, "workspace_id": "workspace-1"})
     result = await node.run(state, _config_with_store(store))
 
     assert result == {"history_written": True}
@@ -295,7 +295,7 @@ async def test_appends_to_existing_entry() -> None:
     existing = MockItem({"version": 3, "messages": [{"role": "user", "content": "hi"}]})
     store = MockStore(existing_item=existing)
     node = GraphStoreAppendMessageNode(name="t", key="telegram:456", content="news")
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     result = await node.run(state, _config_with_store(store))
 
     assert result == {"history_written": True}
@@ -310,7 +310,7 @@ async def test_appends_to_existing_entry() -> None:
 async def test_custom_role() -> None:
     store = MockStore(existing_item=None)
     node = GraphStoreAppendMessageNode(name="t", key="k", content="msg", role="user")
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     await node.run(state, _config_with_store(store))
 
     _, _, payload = store.put_calls[0]
@@ -323,7 +323,7 @@ async def test_custom_namespace() -> None:
     node = GraphStoreAppendMessageNode(
         name="t", key="k", content="msg", namespace=["my_ns"]
     )
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     await node.run(state, _config_with_store(store))
 
     ns, _, _ = store.put_calls[0]
@@ -334,7 +334,7 @@ async def test_custom_namespace() -> None:
 async def test_aget_exception_returns_false() -> None:
     store = MockStore(aget_error=True)
     node = GraphStoreAppendMessageNode(name="t", key="k", content="msg")
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     result = await node.run(state, _config_with_store(store))
     assert result == {"history_written": False}
     assert len(store.put_calls) == 0
@@ -344,7 +344,7 @@ async def test_aget_exception_returns_false() -> None:
 async def test_aput_exception_returns_false() -> None:
     store = MockStore(aput_error=True)
     node = GraphStoreAppendMessageNode(name="t", key="k", content="msg")
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     result = await node.run(state, _config_with_store(store))
     assert result == {"history_written": False}
 
@@ -354,7 +354,7 @@ async def test_invalid_existing_payload_types_do_not_fail() -> None:
     existing = MockItem({"version": "4", "messages": "bad"})
     store = MockStore(existing_item=existing)
     node = GraphStoreAppendMessageNode(name="t", key="k", content="msg")
-    state = State({"results": {}})
+    state = State({"node_results": {}})
 
     result = await node.run(state, _config_with_store(store))
 

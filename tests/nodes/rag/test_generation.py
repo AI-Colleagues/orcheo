@@ -31,7 +31,9 @@ def _state_with_context(query: str) -> State:
             ]
         }
     }
-    return State(inputs={"query": query}, results=results, structured_response=None)
+    return State(
+        inputs={"query": query}, node_results=results, structured_response=None
+    )
 
 
 @pytest.mark.asyncio
@@ -50,10 +52,10 @@ async def test_grounded_generator_appends_citations() -> None:
 async def test_grounded_generator_resolves_context_from_results_field() -> None:
     node = GroundedGeneratorNode(name="generator", context_result_key="hybrid")
     source_state = _state_with_context("How are citations handled?")
-    retrieval_results = source_state["results"]["retriever"]["results"]
+    retrieval_results = source_state["node_results"]["retriever"]["results"]
     state = State(
         inputs=source_state["inputs"],
-        results={"results": retrieval_results, "hybrid": {}},
+        node_results={"results": retrieval_results, "hybrid": {}},
         structured_response=None,
     )
 
@@ -68,7 +70,7 @@ async def test_grounded_generator_resolves_context_from_results_field() -> None:
 @pytest.mark.asyncio
 async def test_grounded_generator_requires_query_and_context() -> None:
     node = GroundedGeneratorNode(name="generator")
-    empty_state = State(inputs={}, results={}, structured_response=None)
+    empty_state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(
         ValueError, match="GroundedGeneratorNode requires a non-empty query string"
@@ -76,7 +78,7 @@ async def test_grounded_generator_requires_query_and_context() -> None:
         await node.run(empty_state, {})
 
     # Test non-RAG mode: works without context
-    state = State(inputs={"query": "hi"}, results={}, structured_response=None)
+    state = State(inputs={"query": "hi"}, node_results={}, structured_response=None)
     result = await node.run(state, {})
     assert result["mode"] == "non_rag"
     assert result["citations"] == []
@@ -88,7 +90,7 @@ async def test_grounded_generator_rejects_non_list_context_payload() -> None:
     node = GroundedGeneratorNode(name="generator")
     state = State(
         inputs={"query": "hi"},
-        results={"retriever": {"results": "not-a-list"}},
+        node_results={"retriever": {"results": "not-a-list"}},
         structured_response=None,
     )
 
@@ -260,7 +262,7 @@ async def test_grounded_generator_non_rag_mode() -> None:
     node = GroundedGeneratorNode(name="generator")
     state = State(
         inputs={"query": "What is the weather?"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -320,7 +322,7 @@ async def test_streaming_generator_with_history_edge_cases(mock_create_agent) ->
                 {"role": "other", "content": "ignored"},  # Wrong role
             ],
         },
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -345,7 +347,7 @@ async def test_streaming_generator_extract_from_dict_message(mock_create_agent) 
     node = StreamingGeneratorNode(name="streamer", ai_model="gpt-4")
     state = State(
         inputs={"message": "test"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -373,7 +375,7 @@ async def test_streaming_generator_extract_from_non_message_result(
     node = StreamingGeneratorNode(name="streamer", ai_model="gpt-4")
     state = State(
         inputs={"message": "test"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -498,7 +500,7 @@ async def test_streaming_generator_with_valid_assistant_history(
             "message": "query",
             "history": [{"role": "assistant", "content": "previous"}],
         },
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -523,7 +525,7 @@ async def test_streaming_generator_handles_string_message_in_list(
     node = StreamingGeneratorNode(name="streamer", ai_model="gpt-4")
     state = State(
         inputs={"message": "query"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -538,7 +540,7 @@ def _formatter_state(entries: list[SearchResult] | None = None) -> State:
     payload = {"results": entries} if entries is not None else {}
     return State(
         inputs={},
-        results={"retriever": payload},
+        node_results={"retriever": payload},
         structured_response=None,
     )
 
@@ -690,7 +692,7 @@ async def test_formatter_resolve_results_payload_not_dict() -> None:
     """Covers _resolve_results when payload is not a dict with results_field."""
     state = State(
         inputs={},
-        results={"retriever": [{"id": "r1", "score": 0.5, "text": "t"}]},
+        node_results={"retriever": [{"id": "r1", "score": 0.5, "text": "t"}]},
         structured_response=None,
     )
     node = SearchResultFormatterNode(name="formatter", header="")
@@ -704,7 +706,7 @@ async def test_formatter_resolve_results_payload_not_dict() -> None:
 async def test_formatter_resolve_results_none_entries() -> None:
     state = State(
         inputs={},
-        results={"retriever": {"results": None}},
+        node_results={"retriever": {"results": None}},
         structured_response=None,
     )
     node = SearchResultFormatterNode(name="formatter")
@@ -718,7 +720,7 @@ async def test_formatter_resolve_results_none_entries() -> None:
 async def test_formatter_resolve_results_rejects_non_list() -> None:
     state = State(
         inputs={},
-        results={"retriever": {"results": "invalid"}},
+        node_results={"retriever": {"results": "invalid"}},
         structured_response=None,
     )
     node = SearchResultFormatterNode(name="formatter")

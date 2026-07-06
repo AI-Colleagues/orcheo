@@ -18,7 +18,7 @@ async def test_extractor_returns_dict_assistant_content() -> None:
             {"role": "assistant", "content": "Hi there!"},
         ],
         "inputs": {},
-        "results": {},
+        "node_results": {},
         "structured_response": None,
     }
     result = await node.run(state, RunnableConfig())
@@ -34,7 +34,7 @@ async def test_extractor_skips_dict_assistant_with_empty_content() -> None:
     state: State = {
         "messages": [{"role": "assistant", "content": ""}],
         "inputs": {},
-        "results": {},
+        "node_results": {},
         "structured_response": None,
     }
     result = await node.run(state, RunnableConfig())
@@ -48,7 +48,7 @@ async def test_extractor_skips_dict_non_assistant_role() -> None:
     state: State = {
         "messages": [{"role": "user", "content": "Question"}],
         "inputs": {},
-        "results": {},
+        "node_results": {},
         "structured_response": None,
     }
     result = await node.run(state, RunnableConfig())
@@ -64,7 +64,7 @@ async def test_extractor_returns_ai_message_string_content() -> None:
     state: State = {
         "messages": [HumanMessage(content="Q"), AIMessage(content="Answer")],
         "inputs": {},
-        "results": {},
+        "node_results": {},
         "structured_response": None,
     }
     result = await node.run(state, RunnableConfig())
@@ -81,7 +81,7 @@ async def test_extractor_stringifies_ai_message_non_string_content() -> None:
     state: State = {
         "messages": [AIMessage(content=content)],  # type: ignore[list-item]
         "inputs": {},
-        "results": {},
+        "node_results": {},
         "structured_response": None,
     }
     result = await node.run(state, RunnableConfig())
@@ -97,7 +97,7 @@ async def test_extractor_returns_fallback_when_no_assistant_message() -> None:
     state: State = {
         "messages": [HumanMessage(content="Question")],
         "inputs": {},
-        "results": {},
+        "node_results": {},
         "structured_response": None,
     }
     result = await node.run(state, RunnableConfig())
@@ -111,7 +111,7 @@ async def test_extractor_returns_fallback_for_empty_messages() -> None:
     state: State = {
         "messages": [],
         "inputs": {},
-        "results": {},
+        "node_results": {},
         "structured_response": None,
     }
     result = await node.run(state, RunnableConfig())
@@ -129,7 +129,7 @@ async def test_extractor_returns_trailing_tool_message() -> None:
             ToolMessage(content="# Codebook\n...", tool_call_id="c1", name="gen"),
         ],
         "inputs": {},
-        "results": {},
+        "node_results": {},
         "structured_response": None,
     }
     result = await node.run(state, RunnableConfig())
@@ -147,7 +147,7 @@ async def test_extractor_prefers_trailing_ai_over_earlier_tool() -> None:
             AIMessage(content="Here is my summary."),
         ],
         "inputs": {},
-        "results": {},
+        "node_results": {},
         "structured_response": None,
     }
     result = await node.run(state, RunnableConfig())
@@ -164,7 +164,7 @@ async def test_extractor_returns_trailing_dict_tool_message() -> None:
             {"role": "tool", "content": "report text"},
         ],
         "inputs": {},
-        "results": {},
+        "node_results": {},
         "structured_response": None,
     }
     result = await node.run(state, RunnableConfig())

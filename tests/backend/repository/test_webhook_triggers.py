@@ -55,6 +55,29 @@ async def test_webhook_configuration_roundtrip(
 
 
 @pytest.mark.asyncio()
+async def test_webhook_configuration_rejects_archived_workflow(
+    repository: WorkflowRepository,
+) -> None:
+    """Archived workflows cannot receive new webhook triggers."""
+
+    workflow = await repository.create_workflow(
+        name="Archived Webhook Config",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+    )
+    await repository.archive_workflow(workflow.id, actor="tester")
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.configure_webhook_trigger(
+            workflow.id,
+            WebhookTriggerConfig(),
+        )
+
+
+@pytest.mark.asyncio()
 async def test_handle_webhook_trigger_missing_resources(
     repository: WorkflowRepository,
 ) -> None:
@@ -145,3 +168,38 @@ async def test_handle_webhook_trigger_success(
     assert isinstance(run, WorkflowRun)
     assert run.workflow_id == workflow.id
     assert run.triggered_by == "webhook"
+
+
+@pytest.mark.asyncio()
+async def test_handle_webhook_trigger_rejects_archived_workflow(
+    repository: WorkflowRepository,
+) -> None:
+    """Archived workflows cannot be dispatched through webhook triggers."""
+
+    workflow = await repository.create_workflow(
+        name="Archived Webhook",
+        slug=None,
+        description=None,
+        tags=None,
+        draft_access=WorkflowDraftAccess.PERSONAL,
+        actor="tester",
+    )
+    await repository.create_version(
+        workflow.id,
+        graph={"nodes": []},
+        metadata={},
+        notes=None,
+        created_by="tester",
+    )
+    await repository.configure_webhook_trigger(workflow.id, WebhookTriggerConfig())
+    await repository.archive_workflow(workflow.id, actor="tester")
+
+    with pytest.raises(WorkflowNotFoundError):
+        await repository.handle_webhook_trigger(
+            workflow.id,
+            method="POST",
+            headers={},
+            query_params={},
+            payload={},
+            source_ip=None,
+        )

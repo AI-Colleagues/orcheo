@@ -24,14 +24,16 @@ from orcheo.runtime.runnable_config import (
 )
 from orcheo.runtime.state_builder import build_initial_state
 from orcheo.tracing import (
+    encode_step_namespace,
     get_tracer,
     record_workflow_cancellation,
     record_workflow_completion,
     record_workflow_failure,
     record_workflow_step,
+    split_subgraph_update,
     workflow_span,
 )
-from orcheo.tracing.model_metadata import strip_trace_metadata
+from orcheo.tracing.model_metadata import NAMESPACE_METADATA_KEY, strip_trace_metadata
 from orcheo_backend.app.dependencies import (
     credential_context_from_workflow,
     get_checkpoint_store,
@@ -77,6 +79,8 @@ def _log_step_debug(step: Mapping[str, Any]) -> None:
     from orcheo_backend.app import logger as app_logger
 
     for node_name, node_output in step.items():
+        if node_name == NAMESPACE_METADATA_KEY:
+            continue
         app_logger.debug("=" * 80)
         app_logger.debug("Node executed: %s", node_name)
         app_logger.debug("Node output: %s", node_output)
@@ -99,7 +103,31 @@ _CANNOT_SEND_AFTER_CLOSE = 'Cannot call "send" once a close message has been sen
 def _sanitize_public_step_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Strip trace-only metadata before sending workflow updates to clients."""
     sanitized = strip_trace_metadata(payload)
-    return sanitized if isinstance(sanitized, dict) else dict(payload)
+    if isinstance(sanitized, Mapping):
+        return _json_safe_payload(sanitized)
+    return _json_safe_payload(dict(payload))
+
+
+def _json_safe_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a JSON-safe copy of a streamed workflow payload."""
+    return {str(key): _json_safe_value(value) for key, value in payload.items()}
+
+
+def _json_safe_value(value: Any) -> Any:  # noqa: PLR0911
+    """Convert runtime-only objects in stream updates into JSON-safe values."""
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, list | tuple | set | frozenset):
+        return [_json_safe_value(item) for item in value]
+    if value.__class__.__name__ == "Interrupt" and hasattr(value, "value"):
+        payload: dict[str, Any] = {"value": _json_safe_value(value.value)}
+        interrupt_id = getattr(value, "id", None)
+        if interrupt_id is not None:
+            payload["id"] = str(interrupt_id)
+        return payload
+    return str(value)
 
 
 async def _safe_send_json(websocket: WebSocket, payload: Any) -> bool:
@@ -150,6 +178,9 @@ async def _forward_node_step(
     tracer: Tracer,
 ) -> None:
     """Persist and stream a single step payload to the connected client."""
+    # Tracing and history need the unsanitized payload: ``__trace`` carries the
+    # AI model/provider metadata that ``record_workflow_step`` and later trace
+    # responses read. Only the client-facing websocket copy is stripped.
     record_workflow_step(tracer, payload)
     history_step = await history_store.append_step(execution_id, payload)
     await _safe_send_json(websocket, _sanitize_public_step_payload(payload))
@@ -187,16 +218,23 @@ async def _stream_workflow_updates(
         )
 
     with tool_progress_context(in_node_status_callback):
-        async for step in compiled_graph.astream(
+        async for chunk in compiled_graph.astream(
             state,
             config=config,  # type: ignore[arg-type]
             stream_mode="updates",
+            subgraphs=True,
         ):  # pragma: no cover
-            _log_step_debug(step)
-            record_workflow_step(tracer, step)
-            history_step = await history_store.append_step(execution_id, step)
+            namespace, step = split_subgraph_update(chunk)
+            tagged_step = encode_step_namespace(step, namespace)
+            _log_step_debug(tagged_step)
+            # Keep ``__trace`` on the tracing/history copies (used to surface AI
+            # model/provider metadata); strip it only from the websocket payload.
+            record_workflow_step(tracer, tagged_step)
+            history_step = await history_store.append_step(execution_id, tagged_step)
             try:
-                await _safe_send_json(websocket, _sanitize_public_step_payload(step))
+                await _safe_send_json(
+                    websocket, _sanitize_public_step_payload(tagged_step)
+                )
             except Exception as exc:  # pragma: no cover
                 logger.error("Error processing messages: %s", exc)
                 raise
@@ -570,8 +608,8 @@ async def _run_evaluation_node(
 
         try:
             result = await node(state, runtime_config)
-            node_payload = result.get("results", {}).get(
-                node.name, result.get("results", result)
+            node_payload = result.get("node_results", {}).get(
+                node.name, result.get("node_results", result)
             )
             final_step = await history_store.append_step(
                 execution_id,
@@ -696,8 +734,8 @@ async def _run_training_node(
 
         try:
             result = await node(state, runtime_config)
-            node_payload = result.get("results", {}).get(
-                node.name, result.get("results", result)
+            node_payload = result.get("node_results", {}).get(
+                node.name, result.get("node_results", result)
             )
             final_step = await history_store.append_step(
                 execution_id,
@@ -1022,7 +1060,7 @@ async def execute_node(
         )
         state: State = {
             "messages": [],
-            "results": {},
+            "node_results": {},
             "inputs": inputs,
             "structured_response": None,
             "workspace_id": workspace_id,

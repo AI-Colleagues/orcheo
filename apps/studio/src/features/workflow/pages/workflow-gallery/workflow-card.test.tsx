@@ -196,6 +196,30 @@ describe("WorkflowCard", () => {
     expect(handlers.onOpenWorkflow).not.toHaveBeenCalled();
   });
 
+  it("shows a red Error badge for a failed upload", () => {
+    const handlers = createHandlers();
+
+    render(
+      <WorkflowCard
+        workflow={{
+          ...colleagueWorkflow,
+          uploadError: {
+            message: "Invalid script",
+            occurredAt: "2026-07-02T10:00:00Z",
+          },
+        }}
+        isTemplate={false}
+        workspaceLabel="AI Company"
+        {...handlers}
+      />,
+    );
+
+    const badge = screen.getByText("Error");
+
+    expect(badge).toBeInTheDocument();
+    expect(badge.className).toContain("text-red-700");
+  });
+
   it("renders a seeded avatar image for colleague workflows without an explicit avatar", () => {
     const handlers = createHandlers();
 

@@ -40,6 +40,8 @@ export function useWorkflowResources(
   const saver = useWorkflowSaver({
     setWorkflowName: core.metadata.setWorkflowName,
     setWorkflowDescription: core.metadata.setWorkflowDescription,
+    setWorkflowHandle: core.metadata.setWorkflowHandle,
+    setWorkflowTeamSlug: core.metadata.setWorkflowTeamSlug,
     setWorkflowVersions: core.metadata.setWorkflowVersions,
     setWorkflowTags: core.metadata.setWorkflowTags,
     workflowName: core.metadata.workflowName,

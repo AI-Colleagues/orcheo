@@ -1,19 +1,24 @@
 """Tests for the restricted-AST interpreter (Tasks 2.3-2.7)."""
 
 from __future__ import annotations
+import ast
 import builtins
 import textwrap
+from types import SimpleNamespace
 import pytest
+from orcheo.graph.ir.builder import MAX_GRAPH_DEPTH
 from orcheo.graph.ir.exceptions import WorkflowValidationError
+from orcheo.graph.ir import interpreter as ir_interpreter
 from orcheo.graph.ir.interpreter import compile_workflow_to_ir
 from orcheo.graph.ir.models import (
     IR_CONFIG_KIND_KEY,
+    PYDANTIC_MODEL_CONFIG_KIND,
     WORKFLOW_TOOL_CONFIG_KIND,
     BuiltinNodeSpec,
     CodeNodeSpec,
     SubgraphNodeSpec,
 )
-
+from orcheo.nodes.qualitative import QuoteSelectionResponse
 
 CONFORMING = '''
 """A conforming workflow."""
@@ -28,8 +33,8 @@ class Verdict(CodeNode):
     threshold: int = 8
 
     async def run(self, state, config):
-        score = state["results"]["setter"]["value"]
-        return {"results": {"verdict": "pass" if score >= self.threshold else "fail"}}
+        score = state["node_results"]["setter"]["value"]
+        return {"verdict": "pass" if score >= self.threshold else "fail"}
 
 
 async def orcheo_workflow() -> StateGraph:
@@ -40,7 +45,7 @@ async def orcheo_workflow() -> StateGraph:
     graph.add_edge("setter", "verdict")
     graph.add_conditional_edges(
         "verdict",
-        {"path": "results.verdict", "mapping": {"pass": "setter", "fail": END}},
+        {"path": "node_results.verdict.verdict", "mapping": {"pass": "setter", "fail": END}},
     )
     return graph
 '''
@@ -222,22 +227,97 @@ def test_agent_workflow_tool_graph_is_preserved_in_builtin_config() -> None:
     assert tool["graph"]["entrypoint"] == "set_context"
 
 
-def test_agent_workflow_tool_args_schema_is_rejected() -> None:
-    """Restricted workflow tools intentionally do not support dynamic schemas yet."""
-    with pytest.raises(WorkflowValidationError, match="args_schema"):
+def test_workflow_tool_args_schema_is_lowered_to_json_schema() -> None:
+    """Workflow tools may reference restricted schema classes for input shape."""
+    ir = _compile(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.ai import AgentNode, WorkflowTool
+        from orcheo.nodes.logic import SetVariableNode
+        from orcheo.schema import BaseModel, Field
+
+        class LookupInput(BaseModel):
+            query: str = Field(description="User question")
+
+        def build_lookup():
+            lookup = StateGraph(State)
+            lookup.add_node("set_context", SetVariableNode(name="set_context"))
+            lookup.add_edge(START, "set_context")
+            lookup.add_edge("set_context", END)
+            return lookup
+
+        def orcheo_workflow():
+            graph = StateGraph(State)
+            graph.add_node(
+                "agent",
+                AgentNode(
+                    name="agent",
+                    ai_model="gpt-4o-mini",
+                    workflow_tools=[
+                        {
+                            "name": "lookup",
+                            "description": "Look up context",
+                            "graph": build_lookup(),
+                            "args_schema": LookupInput,
+                            "output_path": "node_results.set_context",
+                        }
+                    ],
+                ),
+            )
+            graph.add_edge(START, "agent")
+            graph.add_edge("agent", END)
+            return graph
+        """
+    )
+
+    agent = ir.nodes[0]
+    assert isinstance(agent, BuiltinNodeSpec)
+    tool = agent.config["workflow_tools"][0]
+    assert tool["name"] == "lookup"
+    assert tool["output_path"] == "node_results.set_context"
+    assert tool["graph"]["entrypoint"] == "set_context"
+    assert tool["args_schema"]["type"] == "object"
+    assert tool["args_schema"]["properties"]["query"]["type"] == "string"
+    assert tool["args_schema"]["required"] == ["query"]
+
+
+def test_recursive_helper_graph_builder_is_rejected() -> None:
+    """A self-referencing workflow-tool graph builder fails validation cleanly.
+
+    Without an in-progress guard this recurses to an uncaught ``RecursionError``
+    on the untrusted ingestion path instead of a ``WorkflowValidationError``.
+    """
+    with pytest.raises(
+        WorkflowValidationError, match="recursive workflow-tool graph builder"
+    ):
         _compile(
             """
             from orcheo.graph import StateGraph, START, END
             from orcheo.graph.state import State
             from orcheo.nodes.ai import AgentNode, WorkflowTool
-            from orcheo.nodes.logic import SetVariableNode
+
+            def build_lookup():
+                lookup = StateGraph(State)
+                lookup.add_node(
+                    "agent",
+                    AgentNode(
+                        name="agent",
+                        ai_model="gpt-4o-mini",
+                        workflow_tools=[
+                            {
+                                "name": "lookup",
+                                "description": "Recurse",
+                                "graph": build_lookup(),
+                            }
+                        ],
+                    ),
+                )
+                lookup.add_edge(START, "agent")
+                lookup.add_edge("agent", END)
+                return lookup
 
             def orcheo_workflow():
-                lookup = StateGraph(State)
-                lookup.add_node("set_context", SetVariableNode(name="set_context"))
-                lookup.add_edge(START, "set_context")
-                lookup.add_edge("set_context", END)
-
                 graph = StateGraph(State)
                 graph.add_node(
                     "agent",
@@ -245,12 +325,11 @@ def test_agent_workflow_tool_args_schema_is_rejected() -> None:
                         name="agent",
                         ai_model="gpt-4o-mini",
                         workflow_tools=[
-                            WorkflowTool(
-                                name="lookup",
-                                description="Look up context",
-                                graph=lookup,
-                                args_schema=dict,
-                            )
+                            {
+                                "name": "lookup",
+                                "description": "Look up context",
+                                "graph": build_lookup(),
+                            }
                         ],
                     ),
                 )
@@ -259,6 +338,55 @@ def test_agent_workflow_tool_args_schema_is_rejected() -> None:
                 return graph
             """
         )
+
+
+def test_imported_orcheo_pydantic_model_is_allowed_in_builtin_config() -> None:
+    """Trusted Orcheo Pydantic model classes may be referenced by built-in config."""
+    ir = _compile(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.ai import AgentNode
+        from orcheo.nodes.qualitative import LLMStageFinalizeNode, QuoteSelectionResponse
+
+        def orcheo_workflow():
+            graph = StateGraph(State)
+            graph.add_node(
+                "agent",
+                AgentNode(
+                    name="agent",
+                    ai_model="gpt-4o-mini",
+                    model_kwargs={"schema": QuoteSelectionResponse},
+                ),
+            )
+            graph.add_node(
+                "finalize",
+                LLMStageFinalizeNode(
+                    name="finalize",
+                    stage="quote_selector",
+                    response_schema=QuoteSelectionResponse,
+                ),
+            )
+            graph.add_edge(START, "agent")
+            graph.add_edge("agent", "finalize")
+            graph.add_edge("finalize", END)
+            return graph
+        """
+    )
+
+    agent, finalize = ir.nodes
+    assert isinstance(agent, BuiltinNodeSpec)
+    assert agent.config["model_kwargs"]["schema"] == {
+        IR_CONFIG_KIND_KEY: PYDANTIC_MODEL_CONFIG_KIND,
+        "module": "orcheo.nodes.qualitative",
+        "name": "QuoteSelectionResponse",
+    }
+    assert isinstance(finalize, BuiltinNodeSpec)
+    assert finalize.config["response_schema"] == {
+        IR_CONFIG_KIND_KEY: PYDANTIC_MODEL_CONFIG_KIND,
+        "module": "orcheo.nodes.qualitative",
+        "name": "QuoteSelectionResponse",
+    }
 
 
 def test_set_entry_point_resolves_entrypoint() -> None:
@@ -357,7 +485,7 @@ def test_credential_in_code_node_config_rejected() -> None:
 
             class Secret(CodeNode):
                 async def run(self, state, config):
-                    return {"results": {"x": self.token}}
+                    return {"x": self.token}
 
             def orcheo_workflow():
                 graph = StateGraph(State)
@@ -431,7 +559,7 @@ def test_code_body_unsupported_construct_rejected() -> None:
             class Bad(CodeNode):
                 async def run(self, state, config):
                     data = await fetch()
-                    return {"results": {"x": data}}
+                    return {"x": data}
 
             def orcheo_workflow():
                 graph = StateGraph(State)
@@ -466,7 +594,7 @@ def test_collects_all_class_field_kinds_and_trailing_members() -> None:
             c = 3
 
             async def run(self, state, config):
-                return {"results": {"v": self.a}}
+                return {"v": self.a}
 
             d: int = 4
 
@@ -635,12 +763,22 @@ def test_interpret_graph_call_ignores_unhandled_method() -> None:
     """The dispatcher is a silent no-op for a method outside its table."""
     import ast
 
-    from orcheo.graph.ir.interpreter import _Workflow, _interpret_graph_call
+    from orcheo.graph.ir.interpreter import (
+        _CompileContext,
+        _Workflow,
+        _interpret_graph_call,
+    )
 
     call = ast.parse("g.unhandled('x')", mode="eval").body
     graphs = {"g": _Workflow()}
+    ctx = _CompileContext(
+        source="",
+        code_classes={},
+        graph_builders={},
+        schema_classes={},
+    )
 
-    _interpret_graph_call(call, "", {}, graphs, {}, {"g": set()})
+    _interpret_graph_call(call, ctx, graphs, {}, {"g": set()})
 
     assert graphs["g"].nodes == []
     assert graphs["g"].edges == []
@@ -1022,7 +1160,7 @@ def test_conditional_edge_requires_path_and_mapping() -> None:
                 graph = StateGraph(State)
                 graph.add_node("a", SetVariableNode(name="a", variables={"x": 1}))
                 graph.add_edge(START, "a")
-                graph.add_conditional_edges("a", {"path": "results.a.x"})
+                graph.add_conditional_edges("a", {"path": "node_results.a.x"})
                 return graph
             """
         )
@@ -1042,7 +1180,7 @@ def test_conditional_edge_mapping_must_be_dict() -> None:
                 graph.add_node("a", SetVariableNode(name="a", variables={"x": 1}))
                 graph.add_edge(START, "a")
                 graph.add_conditional_edges(
-                    "a", {"path": "results.a.x", "mapping": "notadict"}
+                    "a", {"path": "node_results.a.x", "mapping": "notadict"}
                 )
                 return graph
             """
@@ -1063,7 +1201,7 @@ def test_conditional_edge_mapping_keys_must_be_strings() -> None:
                 graph.add_node("a", SetVariableNode(name="a", variables={"x": 1}))
                 graph.add_edge(START, "a")
                 graph.add_conditional_edges(
-                    "a", {"path": "results.a.x", "mapping": {1: "x"}}
+                    "a", {"path": "node_results.a.x", "mapping": {1: "x"}}
                 )
                 return graph
             """
@@ -1084,7 +1222,7 @@ def test_conditional_edge_default_is_resolved() -> None:
             graph.add_node("b", SetVariableNode(name="b", variables={"y": 2}))
             graph.add_edge(START, "a")
             graph.add_conditional_edges(
-                "a", {"path": "results.a.x", "mapping": {"go": "b"}, "default": "b"}
+                "a", {"path": "node_results.a.x", "mapping": {"go": "b"}, "default": "b"}
             )
             graph.add_edge("b", END)
             return graph
@@ -1162,4 +1300,431 @@ def test_workflow_without_entrypoint_edge_is_rejected() -> None:
                 graph.add_edge("s", END)
                 return graph
             """
+        )
+
+
+def test_response_format_schema_class_is_lowered_on_builtin_node() -> None:
+    """A ``response_format=SchemaClass`` kwarg on a built-in node lowers to JSON Schema."""
+    ir = _compile(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.ai import AgentNode
+        from orcheo.schema import BaseModel
+
+        class Verdict(BaseModel):
+            passed: bool
+
+        def orcheo_workflow():
+            graph = StateGraph(State)
+            graph.add_node(
+                "agent",
+                AgentNode(name="agent", ai_model="x", response_format=Verdict),
+            )
+            graph.add_edge(START, "agent")
+            graph.add_edge("agent", END)
+            return graph
+        """
+    )
+
+    agent = ir.nodes[0]
+    assert isinstance(agent, BuiltinNodeSpec)
+    assert agent.config["response_format"]["type"] == "object"
+    assert agent.config["response_format"]["properties"]["passed"]["type"] == "boolean"
+
+
+def test_workflow_tool_graph_builder_call_rejects_arguments() -> None:
+    """A helper graph-builder call used as a WorkflowTool graph rejects arguments."""
+    with pytest.raises(WorkflowValidationError, match="may not pass arguments"):
+        _compile(
+            """
+            from orcheo.graph import StateGraph, START, END
+            from orcheo.graph.state import State
+            from orcheo.nodes.ai import AgentNode, WorkflowTool
+            from orcheo.nodes.logic import SetVariableNode
+
+            def build_lookup():
+                lookup = StateGraph(State)
+                lookup.add_node("inner", SetVariableNode(name="inner"))
+                lookup.add_edge(START, "inner")
+                lookup.add_edge("inner", END)
+                return lookup
+
+            def orcheo_workflow():
+                graph = StateGraph(State)
+                graph.add_node(
+                    "agent",
+                    AgentNode(
+                        name="agent",
+                        ai_model="x",
+                        workflow_tools=[
+                            WorkflowTool(
+                                name="lookup",
+                                description="d",
+                                graph=build_lookup(1),
+                            )
+                        ],
+                    ),
+                )
+                graph.add_edge(START, "agent")
+                graph.add_edge("agent", END)
+                return graph
+            """
+        )
+
+
+def test_helper_graph_builder_result_is_cached_across_tool_references() -> None:
+    """A helper graph builder referenced by two workflow tools compiles once (cache hit)."""
+    ir = _compile(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.ai import AgentNode, WorkflowTool
+        from orcheo.nodes.logic import SetVariableNode
+
+        def build_lookup():
+            lookup = StateGraph(State)
+            lookup.add_node("inner", SetVariableNode(name="inner", variables={"x": 1}))
+            lookup.add_edge(START, "inner")
+            lookup.add_edge("inner", END)
+            return lookup
+
+        def orcheo_workflow():
+            graph = StateGraph(State)
+            graph.add_node(
+                "agent",
+                AgentNode(
+                    name="agent",
+                    ai_model="x",
+                    workflow_tools=[
+                        WorkflowTool(
+                            name="lookup_one",
+                            description="d1",
+                            graph=build_lookup(),
+                        ),
+                        WorkflowTool(
+                            name="lookup_two",
+                            description="d2",
+                            graph=build_lookup(),
+                        ),
+                    ],
+                ),
+            )
+            graph.add_edge(START, "agent")
+            graph.add_edge("agent", END)
+            return graph
+        """
+    )
+
+    agent = ir.nodes[0]
+    assert isinstance(agent, BuiltinNodeSpec)
+    tools = agent.config["workflow_tools"]
+    assert tools[0]["graph"] == tools[1]["graph"]
+
+
+def test_workflow_tool_call_rejects_unsupported_keyword() -> None:
+    """A ``WorkflowTool(...)`` call using an unsupported keyword is rejected."""
+    with pytest.raises(
+        WorkflowValidationError, match="is not supported in restricted mode"
+    ):
+        _compile(
+            _agent_tool_workflow(
+                '[WorkflowTool(name="t", description="d", graph=lookup, bogus=1)]'
+            )
+        )
+
+
+def test_workflow_tool_dict_entry_rejects_unpacking() -> None:
+    """A dict-literal workflow-tool entry using ``**`` unpacking is rejected."""
+    with pytest.raises(WorkflowValidationError, match="may not use dict unpacking"):
+        _compile(_agent_tool_workflow("[{**extra}]"))
+
+
+def test_workflow_tool_dict_entry_rejects_non_string_key() -> None:
+    """A dict-literal workflow-tool entry with a non-string key is rejected."""
+    with pytest.raises(
+        WorkflowValidationError, match="dict keys must be string literals"
+    ):
+        _compile(
+            _agent_tool_workflow(
+                '[{1: "x", "name": "t", "description": "d", "graph": lookup}]'
+            )
+        )
+
+
+def test_workflow_tool_dict_entry_rejects_unsupported_key() -> None:
+    """A dict-literal workflow-tool entry with an unsupported key is rejected."""
+    with pytest.raises(
+        WorkflowValidationError, match="is not supported in restricted mode"
+    ):
+        _compile(
+            _agent_tool_workflow(
+                '[{"name": "t", "description": "d", "graph": lookup, "bogus": 1}]'
+            )
+        )
+
+
+def test_workflow_tool_dict_entry_rejects_duplicate_key() -> None:
+    """A dict-literal workflow-tool entry with a duplicated key is rejected."""
+    with pytest.raises(WorkflowValidationError, match="is duplicated"):
+        _compile(
+            _agent_tool_workflow(
+                '[{"name": "a", "name": "b", "description": "d", "graph": lookup}]'
+            )
+        )
+
+
+def test_args_schema_name_not_schema_or_imported_falls_back_to_literal_error() -> None:
+    """A non-schema, non-imported name used as ``args_schema`` is rejected as a literal."""
+    with pytest.raises(
+        WorkflowValidationError, match="config values must be JSON literals"
+    ):
+        _compile(
+            _agent_tool_workflow(
+                '[WorkflowTool(name="t", description="d", graph=lookup, '
+                "args_schema=not_a_schema)]"
+            )
+        )
+
+
+def test_config_value_accepts_tuple_literal() -> None:
+    """A tuple literal nested in built-in node config is lowered element-wise."""
+    ir = _compile(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.logic import SetVariableNode
+
+        def orcheo_workflow():
+            graph = StateGraph(State)
+            graph.add_node(
+                "s", SetVariableNode(name="s", variables={"pair": (1, 2)})
+            )
+            graph.add_edge(START, "s")
+            graph.add_edge("s", END)
+            return graph
+        """
+    )
+
+    node = ir.nodes[0]
+    assert isinstance(node, BuiltinNodeSpec)
+    assert node.config["variables"]["pair"] == (1, 2)
+
+
+def test_config_value_accepts_list_literal() -> None:
+    """A list literal nested in built-in node config is lowered element-wise."""
+    ir = _compile(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.logic import SetVariableNode
+
+        def orcheo_workflow():
+            graph = StateGraph(State)
+            graph.add_node(
+                "s", SetVariableNode(name="s", variables={"items": [1, 2, 3]})
+            )
+            graph.add_edge(START, "s")
+            graph.add_edge("s", END)
+            return graph
+        """
+    )
+
+    node = ir.nodes[0]
+    assert isinstance(node, BuiltinNodeSpec)
+    assert node.config["variables"]["items"] == [1, 2, 3]
+
+
+def test_bare_name_in_builtin_config_not_imported_is_rejected() -> None:
+    """A bare name in built-in config that isn't an imported symbol is rejected."""
+    with pytest.raises(
+        WorkflowValidationError, match="config values must be JSON literals"
+    ):
+        _compile(
+            """
+            from orcheo.graph import StateGraph, START, END
+            from orcheo.graph.state import State
+            from orcheo.nodes.logic import SetVariableNode
+
+            def orcheo_workflow():
+                graph = StateGraph(State)
+                graph.add_node("s", SetVariableNode(name="s", variables=undefined_name))
+                graph.add_edge(START, "s")
+                graph.add_edge("s", END)
+                return graph
+            """
+        )
+
+
+def test_imported_non_basemodel_symbol_falls_back_to_literal_error() -> None:
+    """An imported Orcheo symbol that isn't a BaseModel subclass isn't a model ref."""
+    with pytest.raises(
+        WorkflowValidationError, match="config values must be JSON literals"
+    ):
+        _compile(
+            """
+            from orcheo.graph import StateGraph, START, END
+            from orcheo.graph.state import State
+            from orcheo.nodes.logic import SetVariableNode
+            from orcheo.nodes.registry import registry
+
+            def orcheo_workflow():
+                graph = StateGraph(State)
+                graph.add_node("s", SetVariableNode(name="s", variables=registry))
+                graph.add_edge(START, "s")
+                graph.add_edge("s", END)
+                return graph
+            """
+        )
+
+
+def _deeply_nested_subgraph_source(levels: int) -> str:
+    """Build a script chaining ``levels`` nested subgraphs g0 -> g1 -> ... -> gN."""
+    lines = [
+        "from orcheo.graph import StateGraph, START, END",
+        "from orcheo.graph.state import State",
+        "from orcheo.nodes.logic import SetVariableNode",
+        "",
+        "def orcheo_workflow():",
+        "    g0 = StateGraph(State)",
+        '    g0.add_node("leaf", SetVariableNode(name="leaf", variables={"x": 1}))',
+        '    g0.add_edge(START, "leaf")',
+        '    g0.add_edge("leaf", END)',
+    ]
+    for level in range(1, levels + 1):
+        lines.extend(
+            [
+                f"    g{level} = StateGraph(State)",
+                f'    g{level}.add_node("n{level}", g{level - 1}.compile())',
+                f'    g{level}.add_edge(START, "n{level}")',
+                f'    g{level}.add_edge("n{level}", END)',
+            ]
+        )
+    lines.append(f"    return g{levels}")
+    return "\n".join(lines)
+
+
+def test_excessive_nested_subgraph_depth_is_rejected() -> None:
+    """Subgraph nesting beyond ``MAX_GRAPH_DEPTH`` is rejected during interpretation."""
+    with pytest.raises(WorkflowValidationError, match="nested workflow depth exceeds"):
+        _compile(_deeply_nested_subgraph_source(MAX_GRAPH_DEPTH + 2))
+
+
+def test_response_format_imported_schema_is_lowered_to_json_schema() -> None:
+    """A ``response_format`` referencing an imported Orcheo BaseModel lowers to JSON Schema."""
+    ir = _compile(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.ai import AgentNode
+        from orcheo.nodes.qualitative import QuoteSelectionResponse
+
+        def orcheo_workflow():
+            graph = StateGraph(State)
+            graph.add_node(
+                "agent",
+                AgentNode(
+                    name="agent", ai_model="x", response_format=QuoteSelectionResponse
+                ),
+            )
+            graph.add_edge(START, "agent")
+            graph.add_edge("agent", END)
+            return graph
+        """
+    )
+
+    agent = ir.nodes[0]
+    assert isinstance(agent, BuiltinNodeSpec)
+    assert agent.config["response_format"] == QuoteSelectionResponse.model_json_schema()
+
+
+def test_args_schema_imported_non_basemodel_falls_back_to_literal_error() -> None:
+    """An imported Orcheo name that isn't a BaseModel used as ``args_schema`` is rejected."""
+    with pytest.raises(
+        WorkflowValidationError, match="config values must be JSON literals"
+    ):
+        _compile(
+            """
+            from orcheo.graph import StateGraph, START, END
+            from orcheo.graph.state import State
+            from orcheo.nodes.ai import AgentNode, WorkflowTool
+            from orcheo.nodes.logic import SetVariableNode
+            from orcheo.nodes.registry import registry
+
+            def orcheo_workflow():
+                lookup = StateGraph(State)
+                lookup.add_node("inner", SetVariableNode(name="inner"))
+                lookup.add_edge(START, "inner")
+                lookup.add_edge("inner", END)
+
+                graph = StateGraph(State)
+                graph.add_node(
+                    "agent",
+                    AgentNode(
+                        name="agent",
+                        ai_model="x",
+                        workflow_tools=[
+                            WorkflowTool(
+                                name="t",
+                                description="d",
+                                graph=lookup,
+                                args_schema=registry,
+                            )
+                        ],
+                    ),
+                )
+                graph.add_edge(START, "agent")
+                graph.add_edge("agent", END)
+                return graph
+            """
+        )
+
+
+def test_schema_and_config_ast_helpers_cover_remaining_branches() -> None:
+    """Internal AST helpers should resolve imported schemas and plain literals."""
+
+    ctx = SimpleNamespace(
+        schema_classes={},
+        imported_symbols={
+            "QuoteSelectionResponse": (
+                "orcheo.nodes.qualitative",
+                "QuoteSelectionResponse",
+            )
+        },
+    )
+    assert (
+        ir_interpreter._schema_or_literal_from_ast(
+            ast.Name(id="QuoteSelectionResponse", ctx=ast.Load()),
+            ctx,
+        )
+        == QuoteSelectionResponse.model_json_schema()
+    )
+    assert (
+        ir_interpreter._schema_or_literal_from_ast(
+            ast.Constant(value=3),
+            ctx,
+        )
+        == 3
+    )
+
+
+def test_config_dict_ast_helpers_validate_unsupported_keys() -> None:
+    """Invalid config dict keys should be rejected through validator branches."""
+
+    with pytest.raises(WorkflowValidationError):
+        ir_interpreter._config_dict_from_ast(
+            ast.Dict(keys=[None], values=[ast.Constant(value=1)]),
+            allow_credentials=False,
+            where="test",
+            ctx=None,
+        )
+
+    with pytest.raises(WorkflowValidationError):
+        ir_interpreter._config_dict_from_ast(
+            ast.Dict(
+                keys=[ast.Name(id="x", ctx=ast.Load())], values=[ast.Constant(value=1)]
+            ),
+            allow_credentials=False,
+            where="test",
+            ctx=None,
         )

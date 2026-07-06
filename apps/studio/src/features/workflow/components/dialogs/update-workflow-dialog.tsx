@@ -127,7 +127,7 @@ export function UpdateWorkflowDialog({
       setError(message);
       toast({
         title: "Update failed",
-        description: message,
+        description: `${message} Fix the error and upload again.`,
         variant: "destructive",
       });
     } finally {

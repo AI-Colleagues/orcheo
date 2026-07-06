@@ -31,7 +31,8 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
     ) -> WebhookTriggerConfig:
         """Persist webhook trigger configuration for a workflow."""
         async with self._lock:
-            if workflow_id not in self._workflows:
+            workflow = self._workflows.get(workflow_id)
+            if workflow is None or workflow.is_archived:
                 raise WorkflowNotFoundError(str(workflow_id))
             return self._trigger_layer.configure_webhook(workflow_id, config)
 
@@ -57,7 +58,7 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
         """Validate webhook input and enqueue a workflow run."""
         async with self._lock:
             workflow = self._workflows.get(workflow_id)
-            if workflow is None:
+            if workflow is None or workflow.is_archived:
                 raise WorkflowNotFoundError(str(workflow_id))
             workspace_id = self._workflow_workspaces.get(workflow_id)
 
@@ -100,7 +101,8 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
     ) -> CronTriggerConfig:
         """Persist cron trigger configuration for a workflow."""
         async with self._lock:
-            if workflow_id not in self._workflows:
+            workflow = self._workflows.get(workflow_id)
+            if workflow is None or workflow.is_archived:
                 raise WorkflowNotFoundError(str(workflow_id))
             return self._trigger_layer.configure_cron(workflow_id, config)
 
@@ -136,7 +138,12 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
             plans = self._trigger_layer.collect_due_cron_dispatches(now=reference)
             for plan in plans:
                 workflow_id = plan.workflow_id
-                if workflow_id not in self._workflows:
+                workflow = self._workflows.get(workflow_id)
+                if workflow is None:
+                    self._trigger_layer.remove_cron_config(workflow_id)
+                    continue
+                if workflow.is_archived:
+                    self._trigger_layer.remove_cron_config(workflow_id)
                     continue
                 workspace_id = self._workflow_workspaces.get(workflow_id)
                 try:
@@ -189,7 +196,8 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
     ) -> list[WorkflowRun]:
         """Dispatch one or more manual runs for a workflow."""
         async with self._lock:
-            if request.workflow_id not in self._workflows:
+            workflow = self._workflows.get(request.workflow_id)
+            if workflow is None or workflow.is_archived:
                 raise WorkflowNotFoundError(str(request.workflow_id))
 
             version_ids = self._workflow_versions.get(request.workflow_id)

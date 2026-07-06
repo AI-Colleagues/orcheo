@@ -104,7 +104,10 @@ async def _load_and_validate_run(
     """
     from orcheo.models.workflow_entities import WorkflowRunStatus
     from orcheo_backend.app.dependencies import get_repository
-    from orcheo_backend.app.repository import WorkflowRunNotFoundError
+    from orcheo_backend.app.repository import (
+        WorkflowNotFoundError,
+        WorkflowRunNotFoundError,
+    )
 
     repository = get_repository()
 
@@ -128,6 +131,43 @@ async def _load_and_validate_run(
             "status": "skipped",
             "reason": f"Run already in status: {run.status}",
         }
+
+    workflow_id = getattr(run, "workflow_id", None)
+    if workflow_id is None:
+        version = await repository.get_version(run.workflow_version_id)
+        workflow_id = version.workflow_id
+
+    try:
+        workflow = await repository.get_workflow(workflow_id, workspace_id=workspace_id)
+    except WorkflowNotFoundError:
+        logger.warning(
+            "Run %s rejected because workflow %s is not active in workspace %s",
+            run_id,
+            workflow_id,
+            workspace_id,
+        )
+        await repository.mark_run_cancelled(
+            run.id,
+            actor=WORKER_ACTOR,
+            reason="Workflow is archived or unavailable.",
+        )
+        return None, {
+            "status": "skipped",
+            "reason": "Workflow is archived or unavailable.",
+        }
+
+    if workflow.is_archived:
+        logger.warning(
+            "Run %s rejected because workflow %s is archived",
+            run_id,
+            workflow_id,
+        )
+        await repository.mark_run_cancelled(
+            run.id,
+            actor=WORKER_ACTOR,
+            reason="Workflow is archived.",
+        )
+        return None, {"status": "skipped", "reason": "Workflow is archived."}
 
     return run, None
 
@@ -307,13 +347,18 @@ async def _stream_run_history_steps(
     history_error_cls: type[Exception],
 ) -> None:
     """Append streamed node updates to the run history store."""
-    async for step in compiled.astream(
+    from orcheo.tracing import encode_step_namespace, split_subgraph_update
+
+    async for chunk in compiled.astream(
         state,
         config=runtime_config,  # type: ignore[arg-type]
         stream_mode="updates",
+        subgraphs=True,
     ):
+        namespace, step = split_subgraph_update(chunk)
+        tagged_step = encode_step_namespace(step, namespace)
         try:
-            await history_store.append_step(execution_id, step)
+            await history_store.append_step(execution_id, tagged_step)
         except history_error_cls:
             logger.exception(
                 "Failed to append run history step for execution %s",

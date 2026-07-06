@@ -21,7 +21,7 @@ from orcheo.nodes.storage.mongodb import (
 
 
 def _base_state() -> State:
-    return State(messages=[], inputs={}, results={})
+    return State(messages=[], inputs={}, node_results={})
 
 
 @pytest.mark.asyncio

@@ -16,7 +16,7 @@ from orcheo.nodes.connectors.http_request import HttpRequestNode
 async def test_http_request_node_returns_response_metadata() -> None:
     """HttpRequestNode should surface response details."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = HttpRequestNode(
         name="http",
         method="GET",
@@ -25,7 +25,7 @@ async def test_http_request_node_returns_response_metadata() -> None:
 
     with respx.mock(base_url="https://example.com") as router:
         router.get("/api").respond(200, json={"status": "ok"})
-        payload = (await node(state, RunnableConfig()))["results"]["http"]
+        payload = (await node(state, RunnableConfig()))["node_results"]["http"]
 
     assert payload["status_code"] == 200
     assert payload["json"] == {"status": "ok"}
@@ -36,7 +36,7 @@ async def test_http_request_node_returns_response_metadata() -> None:
 async def test_http_request_node_raises_for_http_errors() -> None:
     """HttpRequestNode should propagate HTTP errors when configured to do so."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = HttpRequestNode(
         name="http",
         method="GET",
@@ -56,7 +56,7 @@ async def test_http_request_node_raises_for_http_errors() -> None:
 async def test_http_request_node_handles_non_json_response() -> None:
     """HttpRequestNode should gracefully handle plain text responses."""
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     node = HttpRequestNode(
         name="http",
         method="POST",
@@ -72,7 +72,7 @@ async def test_http_request_node_handles_non_json_response() -> None:
                 extensions={"elapsed": timedelta(seconds=0.5)},
             )
         )
-        payload = (await node(state, RunnableConfig()))["results"]["http"]
+        payload = (await node(state, RunnableConfig()))["node_results"]["http"]
 
     assert payload["json"] is None
     assert payload["elapsed"] is not None and payload["elapsed"] >= 0
@@ -108,8 +108,8 @@ async def test_http_request_node_sends_json_body(
         json_body={"alpha": 1},
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["http"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["http"]
 
     assert captured == {
         "method": "PUT",
@@ -148,8 +148,8 @@ async def test_http_request_node_sends_form_data(
         data={"field1": "value1", "field2": "value2"},
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["http"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["http"]
 
     assert captured["data"] == {"field1": "value1", "field2": "value2"}
     assert payload["json"] == {"success": True}
@@ -185,8 +185,8 @@ async def test_http_request_node_handles_elapsed_from_response_object(
         url="https://example.com/api",
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["http"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["http"]
 
     assert payload["elapsed"] == 2.5
 
@@ -225,8 +225,8 @@ async def test_http_request_node_uses_extension_elapsed_when_property_fails(
         url="https://example.com/api",
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["http"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["http"]
 
     assert payload["elapsed"] == 3.5
 
@@ -261,8 +261,8 @@ async def test_http_request_node_uses_original_url_when_response_url_fails(
         url="https://example.com/fallback",
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["http"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["http"]
 
     assert payload["url"] == "https://example.com/fallback"
 
@@ -287,6 +287,6 @@ async def test_http_request_node_wraps_http_errors(
         url="https://example.com/error",
     )
 
-    state = State({"results": {}})
+    state = State({"node_results": {}})
     with pytest.raises(ValueError, match="HTTP request failed: boom"):
         await node(state, RunnableConfig())

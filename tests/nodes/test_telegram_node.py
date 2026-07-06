@@ -106,7 +106,7 @@ async def test_telegram_node_uses_latest_ai_message_when_message_missing() -> No
     state = State(
         {
             "messages": [{"role": "assistant", "content": "From agent"}],
-            "results": {},
+            "node_results": {},
             "inputs": {},
         }
     )
@@ -161,7 +161,7 @@ async def test_telegram_node_requires_message_content() -> None:
         chat_id="123456",
     )
     with pytest.raises(ValueError, match="Telegram message content is required"):
-        await telegram_node.run(State({"results": {}}), None)
+        await telegram_node.run(State({"node_results": {}}), None)
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +174,9 @@ def _make_parser(**kwargs) -> TelegramEventsParserNode:
 
 
 def _message_state(body: object, headers: dict | None = None) -> State:
-    return State({"inputs": {"headers": headers or {}, "body": body}, "results": {}})
+    return State(
+        {"inputs": {"headers": headers or {}, "body": body}, "node_results": {}}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +367,7 @@ async def test_parser_run_valid_message() -> None:
     )
     node = _make_parser()
     result = await node(state, None)
-    payload = result["results"]["parser"]
+    payload = result["node_results"]["parser"]
 
     assert payload["should_process"] is True
     assert payload["update_type"] == "message"
@@ -381,7 +383,7 @@ async def test_parser_run_no_update_type() -> None:
     state = _message_state(body={})
     node = _make_parser()
     result = await node(state, None)
-    payload = result["results"]["parser"]
+    payload = result["node_results"]["parser"]
 
     assert payload["should_process"] is False
     assert payload["update_type"] is None
@@ -394,7 +396,7 @@ async def test_parser_run_disallowed_update_type() -> None:
     state = _message_state(body={"channel_post": {"text": "news"}})
     node = _make_parser(allowed_update_types=["message"])
     result = await node(state, None)
-    payload = result["results"]["parser"]
+    payload = result["node_results"]["parser"]
 
     assert payload["should_process"] is False
     assert payload["update_type"] == "channel_post"
@@ -415,7 +417,7 @@ async def test_parser_run_disallowed_chat_type() -> None:
     )
     node = _make_parser(allowed_chat_types=["private"])
     result = await node(state, None)
-    payload = result["results"]["parser"]
+    payload = result["node_results"]["parser"]
 
     assert payload["should_process"] is False
     assert payload["chat_id"] == "99"
@@ -436,7 +438,7 @@ async def test_parser_run_callback_query() -> None:
     )
     node = _make_parser(allowed_update_types=["callback_query"])
     result = await node(state, None)
-    payload = result["results"]["parser"]
+    payload = result["node_results"]["parser"]
 
     assert payload["should_process"] is True
     assert payload["update_type"] == "callback_query"
@@ -471,7 +473,7 @@ async def test_parser_run_body_as_json_string() -> None:
     state = _message_state(body=json.dumps(body))
     node = _make_parser()
     result = await node(state, None)
-    payload = result["results"]["parser"]
+    payload = result["node_results"]["parser"]
 
     assert payload["should_process"] is True
     assert payload["text"] == "Hi"
@@ -483,7 +485,7 @@ async def test_parser_run_invalid_json_body() -> None:
     state = _message_state(body="not json {")
     node = _make_parser()
     result = await node(state, None)
-    payload = result["results"]["parser"]
+    payload = result["node_results"]["parser"]
 
     assert payload["should_process"] is False
     assert payload["update_type"] is None
@@ -495,7 +497,7 @@ async def test_parser_run_body_non_dict_non_string() -> None:
     state = _message_state(body=[1, 2, 3])
     node = _make_parser()
     result = await node(state, None)
-    payload = result["results"]["parser"]
+    payload = result["node_results"]["parser"]
 
     assert payload["should_process"] is False
     assert payload["update_type"] is None
@@ -504,11 +506,11 @@ async def test_parser_run_body_non_dict_non_string() -> None:
 @pytest.mark.asyncio
 async def test_parser_run_non_dict_headers() -> None:
     """Non-dict headers value skips secret-token verification entirely."""
-    state = State({"inputs": {"headers": "not_a_dict", "body": {}}, "results": {}})
+    state = State({"inputs": {"headers": "not_a_dict", "body": {}}, "node_results": {}})
     node = _make_parser(secret_token="s3cr3t")
     # No ValueError raised despite secret_token being set
     result = await node(state, None)
-    assert result["results"]["parser"]["should_process"] is False
+    assert result["node_results"]["parser"]["should_process"] is False
 
 
 @pytest.mark.asyncio
@@ -526,7 +528,7 @@ async def test_parser_run_should_process_false_when_no_text() -> None:
     )
     node = _make_parser()
     result = await node(state, None)
-    payload = result["results"]["parser"]
+    payload = result["node_results"]["parser"]
 
     assert payload["should_process"] is False
     assert payload["text"] == ""
@@ -547,7 +549,7 @@ async def test_parser_run_username_fallback_to_username_field() -> None:
     )
     node = _make_parser()
     result = await node(state, None)
-    payload = result["results"]["parser"]
+    payload = result["node_results"]["parser"]
 
     assert payload["username"] == "alice_bot"
 
@@ -571,4 +573,4 @@ async def test_parser_run_whitespace_text_does_not_inject_message() -> None:
     result = await node(state, None)
 
     assert "messages" not in result
-    assert result["results"]["parser"]["should_process"] is True
+    assert result["node_results"]["parser"]["should_process"] is True

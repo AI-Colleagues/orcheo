@@ -78,7 +78,7 @@ class AnalyticsExportNode(TaskNode):
         node_names: list[str],
     ) -> dict[str, Any]:
         """Collect metric-node outputs and build the design-specified report."""
-        results = state.get("results", {})
+        results = state.get("node_results", {})
 
         # Gather metric results from named nodes.
         metric_results: list[dict[str, Any]] = []

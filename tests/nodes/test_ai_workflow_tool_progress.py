@@ -19,10 +19,10 @@ def _build_tool_graph() -> StateGraph:
     graph = StateGraph(State)
 
     def node_a(_state: State) -> dict[str, Any]:
-        return {"results": {"node_a": {"ok": True}}}
+        return {"node_results": {"node_a": {"ok": True}}}
 
     def node_b(_state: State) -> dict[str, Any]:
-        return {"results": {"node_b": {"ok": True}}}
+        return {"node_results": {"node_b": {"ok": True}}}
 
     graph.add_node("node_a", node_a)
     graph.add_node("node_b", node_b)
@@ -76,7 +76,7 @@ async def test_workflow_tool_streaming_respects_graph_output_schema() -> None:
     def produce_answer(_state: dict[str, Any]) -> dict[str, Any]:
         return {
             "answer": "compact answer",
-            "results": {"hidden_documents": [{"id": "1"}]},
+            "node_results": {"hidden_documents": [{"id": "1"}]},
         }
 
     graph.add_node("produce_answer", produce_answer)
@@ -150,7 +150,9 @@ async def test_run_tool_graph_preserves_attachment_runtime_config() -> None:
     }
 
     with tool_execution_context(config):
-        await _run_tool_graph(compiled, {"inputs": {}, "results": {}, "messages": []})
+        await _run_tool_graph(
+            compiled, {"inputs": {}, "node_results": {}, "messages": []}
+        )
 
     assert "attachment_resolver" in captured["configurable"]
     assert "attachment_scope" in captured["configurable"]
@@ -182,7 +184,9 @@ async def test_run_tool_graph_propagates_config_into_state() -> None:
     }
 
     with tool_execution_context(config):
-        await _run_tool_graph(compiled, {"inputs": {}, "results": {}, "messages": []})
+        await _run_tool_graph(
+            compiled, {"inputs": {}, "node_results": {}, "messages": []}
+        )
 
     assert captured_states, "Node was not executed"
     # Only the configurable portion is stored (full RunnableConfig is not
@@ -216,7 +220,9 @@ async def test_run_tool_graph_propagates_workspace_id_into_state() -> None:
     }
 
     with tool_execution_context(config):
-        await _run_tool_graph(compiled, {"inputs": {}, "results": {}, "messages": []})
+        await _run_tool_graph(
+            compiled, {"inputs": {}, "node_results": {}, "messages": []}
+        )
 
     assert captured_states, "Node was not executed"
     assert captured_states[0]["workspace_id"] == "workspace-123"
@@ -243,12 +249,14 @@ async def test_run_tool_graph_strips_internal_configurable_keys() -> None:
 
     async def capture_ainvoke(payload: Any, **kwargs: Any) -> dict[str, Any]:
         captured_payload.update(payload)
-        return {"inputs": {}, "results": {}, "messages": []}
+        return {"inputs": {}, "node_results": {}, "messages": []}
 
     fake_graph.ainvoke = capture_ainvoke
 
     with tool_execution_context(config):
-        await _run_tool_graph(fake_graph, {"inputs": {}, "results": {}, "messages": []})
+        await _run_tool_graph(
+            fake_graph, {"inputs": {}, "node_results": {}, "messages": []}
+        )
 
     # Only user-facing configurable keys survive; __pregel_* are stripped.
     assert captured_payload["config"] == {"configurable": {"user_key": "keep-me"}}
@@ -277,12 +285,14 @@ async def test_run_tool_graph_strips_attachment_runtime_keys() -> None:
 
     async def capture_ainvoke(payload: Any, **kwargs: Any) -> dict[str, Any]:
         captured_payload.update(payload)
-        return {"inputs": {}, "results": {}, "messages": []}
+        return {"inputs": {}, "node_results": {}, "messages": []}
 
     fake_graph.ainvoke = capture_ainvoke
 
     with tool_execution_context(config):
-        await _run_tool_graph(fake_graph, {"inputs": {}, "results": {}, "messages": []})
+        await _run_tool_graph(
+            fake_graph, {"inputs": {}, "node_results": {}, "messages": []}
+        )
 
     assert captured_payload["config"] == {"configurable": {"user_key": "keep-me"}}
 

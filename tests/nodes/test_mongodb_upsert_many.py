@@ -28,7 +28,7 @@ _RECORDS = [
 
 
 def _base_state() -> State:
-    return State(messages=[], inputs={}, results={})
+    return State(messages=[], inputs={}, node_results={})
 
 
 def _state_with_records(
@@ -43,7 +43,7 @@ def _state_with_records(
         results: dict[str, Any] = {source_key: payload}
     else:
         results = {source_key: {records_field: payload}}
-    return State(messages=[], inputs={}, results=results)
+    return State(messages=[], inputs={}, node_results=results)
 
 
 def _mock_bulk_write_result() -> Mock:
@@ -74,7 +74,7 @@ def _build_node(**overrides: Any) -> MongoDBUpsertManyNode:
 
 def test_upsert_many_resolve_records_returns_empty_for_non_mapping_results() -> None:
     node = _build_node()
-    state = State(messages=[], inputs={}, results="invalid")
+    state = State(messages=[], inputs={}, node_results="invalid")
 
     assert node._resolve_records(state) == []
 
@@ -84,7 +84,7 @@ def test_upsert_many_resolve_records_returns_empty_for_non_list_documents() -> N
     state = State(
         messages=[],
         inputs={},
-        results={"fetch_rss": {"documents": "invalid"}},
+        node_results={"fetch_rss": {"documents": "invalid"}},
     )
 
     assert node._resolve_records(state) == []
@@ -95,7 +95,7 @@ def test_upsert_many_resolve_records_returns_empty_for_non_mapping_record() -> N
     state = State(
         messages=[],
         inputs={},
-        results={
+        node_results={
             "fetch_rss": {"documents": [{"link": "https://example.com/1"}, "bad"]}
         },
     )

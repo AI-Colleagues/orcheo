@@ -302,7 +302,7 @@ class TelegramEventsParserNode(TaskNode):
         runnable = self.resolved_for_run(state, config=config)
         result = await runnable.run(state, config)
         serialized = runnable._serialize_result(result)
-        output: dict[str, Any] = {"results": {self.name: serialized}}
+        output: dict[str, Any] = {"node_results": {self.name: serialized}}
         if isinstance(serialized, dict) and serialized.get("should_process"):
             text = serialized.get("text", "")
             if isinstance(text, str) and text.strip():

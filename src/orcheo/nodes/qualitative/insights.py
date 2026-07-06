@@ -6,15 +6,17 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 from langchain_core.runnables import RunnableConfig
-from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.qualitative.accessors import (
-    build_report_data,
+    coerce_model,
+    coerce_model_list,
     get_candidate_insights,
+    get_code_assignments,
+    get_segment_comparisons,
+    get_units,
 )
 from orcheo.nodes.qualitative.codebook import code_to_theme_map, make_insight_id
-from orcheo.nodes.qualitative.keys import QualitativeResultKeys
 from orcheo.nodes.qualitative.models import (
     CandidateInsight,
     CodeAssignment,
@@ -22,6 +24,7 @@ from orcheo.nodes.qualitative.models import (
     Quote,
     Recommendation,
     ReportData,
+    SegmentComparison,
     Unit,
 )
 from orcheo.nodes.registry import NodeMetadata, registry
@@ -242,13 +245,36 @@ def recommend_impact(insight: CandidateInsight) -> str:
 class InsightCriticNode(TaskNode):
     """Find counter-evidence and annotate candidate insights."""
 
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
+    units: Any | None = None
+    approved_codebook: Any | None = None
+    code_assignments: Any | None = None
+    segment_comparisons: Any | None = None
+    candidate_insights: Any | None = None
+    candidate_insights_field: str = "candidate_insights"
+
+    def _report_data(self, state: State) -> ReportData:
+        return ReportData(
+            units=coerce_model_list(self.units, Unit) or get_units(state),
+            approved_codebook=coerce_model(self.approved_codebook, Codebook),
+            code_assignments_pass2=coerce_model_list(
+                self.code_assignments, CodeAssignment
+            )
+            or get_code_assignments(state),
+            segment_comparisons=coerce_model_list(
+                self.segment_comparisons, SegmentComparison
+            )
+            or get_segment_comparisons(state),
+            candidate_insights=coerce_model_list(
+                self.candidate_insights, CandidateInsight
+            )
+            or get_candidate_insights(state),
+        )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Persist critic notes and downgrade weakly supported claims."""
-        insights = critique_insights(build_report_data(state, self.result_keys))
+        insights = critique_insights(self._report_data(state))
         return {
-            self.result_keys.candidate_insights_field: [
+            self.candidate_insights_field: [
                 i.model_dump(mode="json") for i in insights
             ],
             "critiqued": len(insights),
@@ -265,13 +291,19 @@ class InsightCriticNode(TaskNode):
 class RecommendationGeneratorNode(TaskNode):
     """Generate deterministic Finding -> Action -> Expected impact recommendations."""
 
-    result_keys: QualitativeResultKeys = Field(default_factory=QualitativeResultKeys)
+    candidate_insights: Any | None = None
+    candidate_insights_field: str = "candidate_insights"
+    recommendations_field: str = "recommendations"
+    approved_insight_ids_field: str = "approved_insight_ids"
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Attach recommendations and persist insights for the report renderer."""
         insights: list[CandidateInsight] = []
         recommendations: list[Recommendation] = []
-        for insight in get_candidate_insights(state, self.result_keys):
+        candidates = coerce_model_list(
+            self.candidate_insights, CandidateInsight
+        ) or get_candidate_insights(state)
+        for insight in candidates:
             rec = Recommendation(
                 insight_id=insight.insight_id,
                 finding=insight.observation,
@@ -280,15 +312,14 @@ class RecommendationGeneratorNode(TaskNode):
             )
             recommendations.append(rec)
             insights.append(insight.model_copy(update={"recommendation": rec}))
-        keys = self.result_keys
         return {
-            keys.candidate_insights_field: [
+            self.candidate_insights_field: [
                 i.model_dump(mode="json") for i in insights
             ],
-            keys.recommendations_field: [
+            self.recommendations_field: [
                 r.model_dump(mode="json") for r in recommendations
             ],
-            keys.approved_insight_ids_field: [i.insight_id for i in insights],
+            self.approved_insight_ids_field: [i.insight_id for i in insights],
             "insights": len(insights),
             "halt": False,
         }

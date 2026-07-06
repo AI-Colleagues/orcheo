@@ -126,7 +126,7 @@ async def test_resolve_person_identity_id_token_missing_sub(
 @pytest.mark.asyncio
 async def test_resolve_person_identity_from_userinfo(node: LinkedInPostNode) -> None:
     http_result = {
-        "results": {
+        "node_results": {
             "resolve_person_request": {
                 "status_code": 200,
                 "json": {"sub": "person456"},
@@ -144,7 +144,7 @@ async def test_resolve_person_identity_userinfo_401_raises_auth_error(
     node: LinkedInPostNode,
 ) -> None:
     http_result = {
-        "results": {
+        "node_results": {
             "resolve_person_request": {
                 "status_code": 401,
                 "content": "Unauthorized",
@@ -161,7 +161,7 @@ async def test_resolve_person_identity_userinfo_bad_status(
     node: LinkedInPostNode,
 ) -> None:
     http_result = {
-        "results": {
+        "node_results": {
             "resolve_person_request": {
                 "status_code": 403,
                 "content": "Forbidden",
@@ -178,7 +178,7 @@ async def test_resolve_person_identity_userinfo_non_json(
     node: LinkedInPostNode,
 ) -> None:
     http_result = {
-        "results": {
+        "node_results": {
             "resolve_person_request": {
                 "status_code": 200,
                 "json": None,
@@ -195,7 +195,7 @@ async def test_resolve_person_identity_userinfo_missing_sub(
     node: LinkedInPostNode,
 ) -> None:
     http_result = {
-        "results": {
+        "node_results": {
             "resolve_person_request": {
                 "status_code": 200,
                 "json": {"name": "Alice"},
@@ -215,7 +215,7 @@ async def test_resolve_person_identity_userinfo_missing_sub(
 @pytest.mark.asyncio
 async def test_resolve_organization_urn_success(node: LinkedInPostNode) -> None:
     http_result = {
-        "results": {
+        "node_results": {
             "resolve_organization_request": {
                 "status_code": 200,
                 "json": {
@@ -236,7 +236,7 @@ async def test_resolve_organization_urn_401_raises_auth_error(
     node: LinkedInPostNode,
 ) -> None:
     http_result = {
-        "results": {
+        "node_results": {
             "resolve_organization_request": {
                 "status_code": 401,
                 "content": "Unauthorized",
@@ -251,7 +251,7 @@ async def test_resolve_organization_urn_401_raises_auth_error(
 @pytest.mark.asyncio
 async def test_resolve_organization_urn_bad_status(node: LinkedInPostNode) -> None:
     http_result = {
-        "results": {
+        "node_results": {
             "resolve_organization_request": {
                 "status_code": 403,
                 "content": "Forbidden",
@@ -266,7 +266,7 @@ async def test_resolve_organization_urn_bad_status(node: LinkedInPostNode) -> No
 @pytest.mark.asyncio
 async def test_resolve_organization_urn_no_approved(node: LinkedInPostNode) -> None:
     http_result = {
-        "results": {
+        "node_results": {
             "resolve_organization_request": {
                 "status_code": 200,
                 "json": {"elements": []},
@@ -281,7 +281,7 @@ async def test_resolve_organization_urn_no_approved(node: LinkedInPostNode) -> N
 @pytest.mark.asyncio
 async def test_resolve_organization_urn_multiple(node: LinkedInPostNode) -> None:
     http_result = {
-        "results": {
+        "node_results": {
             "resolve_organization_request": {
                 "status_code": 200,
                 "json": {
@@ -304,7 +304,7 @@ async def test_resolve_organization_urn_non_mapping_element_skipped(
 ) -> None:
     """Elements that are not Mappings should be skipped; a valid element still wins."""
     http_result = {
-        "results": {
+        "node_results": {
             "resolve_organization_request": {
                 "status_code": 200,
                 "json": {
@@ -327,7 +327,7 @@ async def test_resolve_organization_urn_element_wrong_state_skipped(
 ) -> None:
     """Elements with state != 'APPROVED' should not be included in the URN list."""
     http_result = {
-        "results": {
+        "node_results": {
             "resolve_organization_request": {
                 "status_code": 200,
                 "json": {
@@ -347,7 +347,7 @@ async def test_resolve_organization_urn_element_wrong_state_skipped(
 @pytest.mark.asyncio
 async def test_resolve_organization_urn_non_json(node: LinkedInPostNode) -> None:
     http_result = {
-        "results": {
+        "node_results": {
             "resolve_organization_request": {
                 "status_code": 200,
                 "json": None,
@@ -367,7 +367,7 @@ async def test_resolve_organization_urn_non_json(node: LinkedInPostNode) -> None
 @pytest.mark.asyncio
 async def test_resolve_author_urn_organization(node: LinkedInPostNode) -> None:
     http_result = {
-        "results": {
+        "node_results": {
             "resolve_organization_request": {
                 "status_code": 200,
                 "json": {
@@ -431,7 +431,7 @@ async def test_run_person_post_success(node: LinkedInPostNode) -> None:
     node.linkedin_id_token = jwt
 
     create_result = {
-        "results": {
+        "node_results": {
             "create_post_request": {
                 "status_code": 201,
                 "headers": {"x-restli-id": "post-abc"},
@@ -494,7 +494,7 @@ async def test_run_post_creation_failed_raises(node: LinkedInPostNode) -> None:
     node.linkedin_id_token = jwt
 
     create_result = {
-        "results": {
+        "node_results": {
             "create_post_request": {
                 "status_code": 422,
                 "headers": {},
@@ -519,7 +519,7 @@ async def test_refresh_access_token_success(node: LinkedInPostNode) -> None:
     node.linkedin_client_secret = "client-secret"
 
     refresh_result = {
-        "results": {
+        "node_results": {
             "refresh_token_request": {
                 "status_code": 200,
                 "json": {
@@ -546,7 +546,7 @@ async def test_refresh_access_token_no_new_refresh_token(
     node.linkedin_client_secret = "client-secret"
 
     refresh_result = {
-        "results": {
+        "node_results": {
             "refresh_token_request": {
                 "status_code": 200,
                 "json": {"access_token": "new-access-tok"},
@@ -578,7 +578,7 @@ async def test_refresh_access_token_bad_status_raises(node: LinkedInPostNode) ->
     node.linkedin_client_secret = "client-secret"
 
     refresh_result = {
-        "results": {
+        "node_results": {
             "refresh_token_request": {
                 "status_code": 400,
                 "json": None,
@@ -601,7 +601,7 @@ async def test_refresh_access_token_non_json_response_raises(
     node.linkedin_client_secret = "client-secret"
 
     refresh_result = {
-        "results": {
+        "node_results": {
             "refresh_token_request": {
                 "status_code": 200,
                 "json": None,
@@ -624,7 +624,7 @@ async def test_refresh_access_token_missing_access_token_raises(
     node.linkedin_client_secret = "client-secret"
 
     refresh_result = {
-        "results": {
+        "node_results": {
             "refresh_token_request": {
                 "status_code": 200,
                 "json": {"refresh_token": "some-refresh"},
@@ -735,7 +735,7 @@ async def test_run_retries_after_401_on_post_creation(node: LinkedInPostNode) ->
         if call_count == 1:
             # First post attempt → 401
             return {
-                "results": {
+                "node_results": {
                     "create_post_request": {
                         "status_code": 401,
                         "headers": {},
@@ -746,7 +746,7 @@ async def test_run_retries_after_401_on_post_creation(node: LinkedInPostNode) ->
         if call_count == 2:
             # Token refresh call
             return {
-                "results": {
+                "node_results": {
                     "refresh_token_request": {
                         "status_code": 200,
                         "json": {"access_token": "new-tok"},
@@ -756,7 +756,7 @@ async def test_run_retries_after_401_on_post_creation(node: LinkedInPostNode) ->
             }
         # Second post attempt → success
         return {
-            "results": {
+            "node_results": {
                 "create_post_request": {
                     "status_code": 201,
                     "headers": {"x-restli-id": "post-xyz"},
@@ -794,7 +794,7 @@ async def test_run_raises_after_401_persists_on_retry(node: LinkedInPostNode) ->
         call_count += 1
         if call_count == 2:
             return {
-                "results": {
+                "node_results": {
                     "refresh_token_request": {
                         "status_code": 200,
                         "json": {"access_token": "new-tok"},
@@ -803,7 +803,7 @@ async def test_run_raises_after_401_persists_on_retry(node: LinkedInPostNode) ->
                 }
             }
         return {
-            "results": {
+            "node_results": {
                 "create_post_request": {
                     "status_code": 401,
                     "headers": {},

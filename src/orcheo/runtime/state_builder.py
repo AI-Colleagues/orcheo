@@ -21,7 +21,7 @@ def build_initial_state(
             return inputs
         state = dict(inputs)
         state.setdefault("inputs", dict(inputs))
-        state.setdefault("results", {})
+        state.setdefault("node_results", {})
         state.setdefault("messages", [])
         state["workspace_id"] = workspace_id
         state["config"] = runtime_state_config
@@ -31,7 +31,7 @@ def build_initial_state(
     return {
         "workspace_id": workspace_id,
         "messages": [],
-        "results": {},
+        "node_results": {},
         "inputs": normalized_inputs,
         "config": runtime_state_config,
     }

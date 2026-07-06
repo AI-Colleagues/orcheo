@@ -22,7 +22,9 @@ def _sign_slack(secret: str, timestamp: int, body: str) -> str:
 
 def _build_state(raw_body: str, headers: dict[str, str]) -> State:
     return State(
-        messages=[], inputs={"body": {"raw": raw_body}, "headers": headers}, results={}
+        messages=[],
+        inputs={"body": {"raw": raw_body}, "headers": headers},
+        node_results={},
     )
 
 
@@ -86,7 +88,7 @@ def test_extract_inputs_handles_base_model_and_mappings() -> None:
     state = State(
         messages=[],
         inputs={"body": {"raw": "{}"}, "headers": {"x": "y"}},
-        results={},
+        node_results={},
     )
     assert node._extract_inputs(state) == {"body": {"raw": "{}"}, "headers": {"x": "y"}}
 

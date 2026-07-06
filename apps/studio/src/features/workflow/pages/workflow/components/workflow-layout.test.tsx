@@ -20,7 +20,11 @@ vi.mock("@features/chatkit/components/studio-chat-bubble", () => ({
 vi.mock(
   "@features/workflow/pages/workflow/components/workflow-tab-content",
   () => ({
-    WorkflowTabContent: () => <div>workflow-panel</div>,
+    WorkflowTabContent: ({ isActive }: { isActive?: boolean }) => (
+      <div data-testid="workflow-panel" data-active={String(isActive)}>
+        workflow-panel
+      </div>
+    ),
   }),
 );
 
@@ -93,6 +97,10 @@ describe("WorkflowLayout", () => {
     );
 
     expect(screen.getByTestId("chat-bubble")).toBeInTheDocument();
+    expect(screen.getByTestId("workflow-panel")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
     expect(studioChatBubbleMock).toHaveBeenCalledWith(
       expect.objectContaining({
         startScreenPrompts: [
@@ -135,6 +143,10 @@ describe("WorkflowLayout", () => {
 
     expect(workflowPanel).toHaveAttribute("data-state", "inactive");
     expect(workflowPanel).toHaveClass("data-[state=inactive]:hidden");
+    expect(screen.getByTestId("workflow-panel")).toHaveAttribute(
+      "data-active",
+      "false",
+    );
     expect(screen.getByText("trace-panel")).toBeInTheDocument();
   });
 });

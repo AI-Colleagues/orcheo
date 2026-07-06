@@ -130,7 +130,7 @@ async def test_document_loader_combines_inline_and_state_documents() -> None:
                 {"content": "Third", "metadata": {"team": "ml"}},
             ]
         },
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -182,7 +182,7 @@ async def test_document_loader_resolves_attachment_content() -> None:
     scope = type("Scope", (), {"workspace_id": "ws_1"})()
 
     result = await node.run(
-        State(inputs={}, results={}, structured_response=None),
+        State(inputs={}, node_results={}, structured_response=None),
         {"configurable": {"attachment_resolver": resolver, "attachment_scope": scope}},
     )
 
@@ -201,7 +201,7 @@ async def test_document_loader_requires_attachment_resolver_for_attachment_id() 
     )
 
     with pytest.raises(ValueError, match="no attachment resolver is available"):
-        await node.run(State(inputs={}, results={}, structured_response=None), {})
+        await node.run(State(inputs={}, node_results={}, structured_response=None), {})
 
 
 @pytest.mark.asyncio
@@ -209,7 +209,7 @@ async def test_document_loader_rejects_non_list_state_documents() -> None:
     node = DocumentLoaderNode(name="document_loader")
     state = State(
         inputs={"documents": "not-a-list"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -220,7 +220,7 @@ async def test_document_loader_rejects_non_list_state_documents() -> None:
 @pytest.mark.asyncio
 async def test_document_loader_requires_at_least_one_document() -> None:
     node = DocumentLoaderNode(name="document_loader")
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(ValueError, match="No documents provided to DocumentLoaderNode"):
         await node.run(state, {})
@@ -238,7 +238,9 @@ async def test_chunking_strategy_creates_overlapping_chunks() -> None:
         ]
     }
     state = State(
-        inputs={}, results={"document_loader": loader_result}, structured_response=None
+        inputs={},
+        node_results={"document_loader": loader_result},
+        structured_response=None,
     )
     node = ChunkingStrategyNode(name="chunking_strategy", chunk_size=4, chunk_overlap=2)
 
@@ -264,7 +266,7 @@ def test_chunking_strategy_validates_chunk_overlap() -> None:
 @pytest.mark.asyncio
 async def test_chunking_strategy_requires_documents() -> None:
     node = ChunkingStrategyNode(name="chunking_strategy")
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(
         ValueError, match="ChunkingStrategyNode requires at least one document"
@@ -276,7 +278,7 @@ async def test_chunking_strategy_requires_documents() -> None:
 async def test_chunking_strategy_resolves_documents_from_root_results() -> None:
     state = State(
         inputs={},
-        results={
+        node_results={
             "document_loader": {},
             "documents": [
                 {
@@ -301,7 +303,7 @@ async def test_chunking_strategy_resolves_documents_from_root_results() -> None:
 async def test_chunking_strategy_rejects_non_list_document_payload() -> None:
     state = State(
         inputs={},
-        results={"document_loader": {"documents": "invalid"}},
+        node_results={"document_loader": {"documents": "invalid"}},
         structured_response=None,
     )
     node = ChunkingStrategyNode(name="chunking_strategy")
@@ -314,7 +316,7 @@ async def test_chunking_strategy_rejects_non_list_document_payload() -> None:
 async def test_chunking_strategy_preserves_selected_metadata_keys() -> None:
     state = State(
         inputs={},
-        results={
+        node_results={
             "document_loader": {
                 "documents": [
                     {
@@ -345,7 +347,7 @@ async def test_chunking_strategy_preserves_selected_metadata_keys() -> None:
 async def test_chunking_strategy_strips_computed_fields_before_storage() -> None:
     state = State(
         inputs={},
-        results={
+        node_results={
             "document_loader": {
                 "documents": [
                     {
@@ -365,7 +367,7 @@ async def test_chunking_strategy_strips_computed_fields_before_storage() -> None
     )
 
     serialized = await node.__call__(state, {})
-    chunks = serialized["results"][node.name]["chunks"]
+    chunks = serialized["node_results"][node.name]["chunks"]
 
     assert chunks
     assert all("token_count" not in chunk for chunk in chunks)
@@ -373,7 +375,7 @@ async def test_chunking_strategy_strips_computed_fields_before_storage() -> None
 
 @pytest.mark.asyncio
 async def test_chunking_strategy_handles_empty_documents() -> None:
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
     node = ChunkingStrategyNode(name="chunking_strategy")
     fake_doc = _FakeDocument(id="empty-doc", content="", metadata={}, source="empty")
     node._resolve_documents = lambda _: [fake_doc]
@@ -395,7 +397,9 @@ async def test_metadata_extractor_merges_tags_and_title() -> None:
         ]
     }
     state = State(
-        inputs={}, results={"document_loader": loader_result}, structured_response=None
+        inputs={},
+        node_results={"document_loader": loader_result},
+        structured_response=None,
     )
     node = MetadataExtractorNode(
         name="metadata_extractor",
@@ -416,7 +420,7 @@ async def test_metadata_extractor_merges_tags_and_title() -> None:
 @pytest.mark.asyncio
 async def test_metadata_extractor_requires_documents() -> None:
     node = MetadataExtractorNode(name="metadata_extractor")
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(
         ValueError, match="MetadataExtractorNode requires at least one document"
@@ -428,7 +432,7 @@ async def test_metadata_extractor_requires_documents() -> None:
 async def test_metadata_extractor_rejects_non_list_documents_payload() -> None:
     state = State(
         inputs={},
-        results={"document_loader": {"documents": "invalid"}},
+        node_results={"document_loader": {"documents": "invalid"}},
         structured_response=None,
     )
     node = MetadataExtractorNode(name="metadata_extractor")
@@ -441,7 +445,7 @@ async def test_metadata_extractor_rejects_non_list_documents_payload() -> None:
 async def test_metadata_extractor_enforces_required_fields() -> None:
     state = State(
         inputs={},
-        results={
+        node_results={
             "document_loader": {
                 "documents": [
                     {
@@ -469,7 +473,7 @@ def test_metadata_extractor_skips_empty_lines_when_infering_title() -> None:
 
 @pytest.mark.asyncio
 async def test_metadata_extractor_skips_title_inference_when_disabled() -> None:
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
     node = MetadataExtractorNode(
         name="metadata_extractor",
         infer_title_from_first_line=False,
@@ -486,7 +490,7 @@ async def test_metadata_extractor_skips_title_inference_when_disabled() -> None:
 
 @pytest.mark.asyncio
 async def test_metadata_extractor_does_not_add_title_for_blank_content() -> None:
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
     node = MetadataExtractorNode(name="metadata_extractor")
     fake_doc = _FakeDocument(id="doc-blank", content="\n\n", metadata={})
     node._resolve_documents = lambda _: [fake_doc]
@@ -508,7 +512,9 @@ async def test_task_node_serializes_pydantic_models() -> None:
         ]
     }
     state = State(
-        inputs={}, results={"document_loader": loader_result}, structured_response=None
+        inputs={},
+        node_results={"document_loader": loader_result},
+        structured_response=None,
     )
     node = MetadataExtractorNode(
         name="metadata_extractor", required_fields=["team"], tags=["node"]
@@ -516,7 +522,7 @@ async def test_task_node_serializes_pydantic_models() -> None:
 
     result = await node.__call__(state, {})
 
-    documents = result["results"][node.name]["documents"]
+    documents = result["node_results"][node.name]["documents"]
     assert documents
     assert isinstance(documents[0], dict)
     assert documents[0]["metadata"]["team"] == "ingestion"
@@ -536,7 +542,7 @@ async def test_chunk_embedding_node_uses_default_embedder() -> None:
         ]
     }
     state = State(
-        inputs={}, results={"chunking_strategy": chunks}, structured_response=None
+        inputs={}, node_results={"chunking_strategy": chunks}, structured_response=None
     )
     node = ChunkEmbeddingNode(
         name="chunk_embedding",
@@ -574,7 +580,7 @@ async def test_chunk_embedding_node_raises_on_embedding_length_mismatch() -> Non
         ]
     }
     state = State(
-        inputs={}, results={"chunking_strategy": chunks}, structured_response=None
+        inputs={}, node_results={"chunking_strategy": chunks}, structured_response=None
     )
 
     node = ChunkEmbeddingNode(
@@ -593,7 +599,7 @@ async def test_chunk_embedding_node_requires_chunks() -> None:
         name="chunk_embedding",
         dense_embedding_specs={"default": {"embed_model": "test:fake"}},
     )
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(
         ValueError, match="ChunkEmbeddingNode requires at least one chunk"
@@ -605,7 +611,7 @@ async def test_chunk_embedding_node_requires_chunks() -> None:
 async def test_chunk_embedding_node_detects_missing_metadata_key() -> None:
     state = State(
         inputs={},
-        results={
+        node_results={
             "chunking_strategy": {
                 "chunks": [
                     {
@@ -635,7 +641,7 @@ async def test_chunk_embedding_node_detects_missing_metadata_key() -> None:
 async def test_chunk_embedding_node_rejects_non_list_chunks_payload() -> None:
     state = State(
         inputs={},
-        results={"chunking_strategy": {"chunks": "invalid"}},
+        node_results={"chunking_strategy": {"chunks": "invalid"}},
         structured_response=None,
     )
     node = ChunkEmbeddingNode(
@@ -662,7 +668,7 @@ async def test_chunk_embedding_node_handles_multiple_functions() -> None:
     }
     state = State(
         inputs={},
-        results={"chunking_strategy": chunks_payload},
+        node_results={"chunking_strategy": chunks_payload},
         structured_response=None,
     )
 
@@ -696,7 +702,7 @@ async def test_chunk_embedding_node_runs_with_default_dense_spec() -> None:
     }
     state = State(
         inputs={},
-        results={"chunking_strategy": chunks_payload},
+        node_results={"chunking_strategy": chunks_payload},
         structured_response=None,
     )
     node = ChunkEmbeddingNode(
@@ -723,7 +729,7 @@ async def test_chunk_embedding_node_accepts_sparse_payloads() -> None:
     }
     state = State(
         inputs={},
-        results={"chunking_strategy": chunks_payload},
+        node_results={"chunking_strategy": chunks_payload},
         structured_response=None,
     )
 
@@ -755,7 +761,7 @@ async def test_chunk_embedding_node_accepts_async_embedding_function() -> None:
     }
     state = State(
         inputs={},
-        results={"chunking_strategy": chunks_payload},
+        node_results={"chunking_strategy": chunks_payload},
         structured_response=None,
     )
     node = ChunkEmbeddingNode(
@@ -774,7 +780,7 @@ async def test_chunk_embedding_node_rejects_invalid_embedding_response() -> None
     # New API handles validation at the model interface level
     state = State(
         inputs={},
-        results={
+        node_results={
             "chunking_strategy": {
                 "chunks": [
                     {
@@ -803,7 +809,7 @@ async def test_chunk_embedding_node_rejects_invalid_embedding_response() -> None
 async def test_chunk_embedding_node_requires_methods() -> None:
     state = State(
         inputs={},
-        results={
+        node_results={
             "chunking_strategy": {
                 "chunks": [
                     {
@@ -840,7 +846,7 @@ def test_chunk_embedding_node_rejects_unknown_method() -> None:
 async def test_text_embedding_node_embeds_single_text() -> None:
     state = State(
         inputs={"text": "hello"},
-        results={},
+        node_results={},
         structured_response=None,
     )
     node = TextEmbeddingNode(
@@ -866,7 +872,7 @@ async def test_text_embedding_node_embeds_single_text() -> None:
 async def test_text_embedding_node_embeds_list() -> None:
     state = State(
         inputs={"texts": ["hi", "there"]},
-        results={},
+        node_results={},
         structured_response=None,
     )
     node = TextEmbeddingNode(
@@ -888,7 +894,7 @@ async def test_text_embedding_node_embeds_list() -> None:
 
 @pytest.mark.asyncio
 async def test_text_embedding_node_allows_empty_inputs() -> None:
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
     node = TextEmbeddingNode(
         name="text_embedding",
         input_key="text",
@@ -906,7 +912,7 @@ async def test_text_embedding_node_allows_empty_inputs() -> None:
 
 @pytest.mark.asyncio
 async def test_text_embedding_node_rejects_invalid_input() -> None:
-    state = State(inputs={"text": 123}, results={}, structured_response=None)
+    state = State(inputs={"text": 123}, node_results={}, structured_response=None)
     node = TextEmbeddingNode(
         name="text_embedding",
         input_key="text",
@@ -939,7 +945,7 @@ async def test_vector_store_upsert_persists_records() -> None:
     )
     embed_state = State(
         inputs={},
-        results={"chunking_strategy": chunks_payload},
+        node_results={"chunking_strategy": chunks_payload},
         structured_response=None,
     )
     embed_result = await chunk_node.run(embed_state, {})
@@ -951,7 +957,9 @@ async def test_vector_store_upsert_persists_records() -> None:
         vector_store=vector_store,
     )
     upsert_state = State(
-        inputs={}, results={chunk_node.name: embed_result}, structured_response=None
+        inputs={},
+        node_results={chunk_node.name: embed_result},
+        structured_response=None,
     )
 
     result = await upsert_node.run(upsert_state, {})
@@ -982,7 +990,7 @@ async def test_vector_store_upsert_filters_embedding_names() -> None:
     )
     embed_state = State(
         inputs={},
-        results={"chunking_strategy": chunks_payload},
+        node_results={"chunking_strategy": chunks_payload},
         structured_response=None,
     )
     embed_result = await chunk_node.run(embed_state, {})
@@ -995,7 +1003,9 @@ async def test_vector_store_upsert_filters_embedding_names() -> None:
         embedding_names=["dense"],
     )
     upsert_state = State(
-        inputs={}, results={chunk_node.name: embed_result}, structured_response=None
+        inputs={},
+        node_results={chunk_node.name: embed_result},
+        structured_response=None,
     )
 
     result = await upsert_node.run(upsert_state, {})
@@ -1024,7 +1034,7 @@ async def test_vector_store_upsert_rejects_missing_embedding_name() -> None:
     )
     embed_state = State(
         inputs={},
-        results={"chunking_strategy": chunks_payload},
+        node_results={"chunking_strategy": chunks_payload},
         structured_response=None,
     )
     embed_result = await chunk_node.run(embed_state, {})
@@ -1036,7 +1046,9 @@ async def test_vector_store_upsert_rejects_missing_embedding_name() -> None:
         vector_store=InMemoryVectorStore(),
     )
     upsert_state = State(
-        inputs={}, results={chunk_node.name: embed_result}, structured_response=None
+        inputs={},
+        node_results={chunk_node.name: embed_result},
+        structured_response=None,
     )
 
     with pytest.raises(ValueError, match="Embedding names not found in payload"):
@@ -1047,7 +1059,7 @@ async def test_vector_store_upsert_rejects_missing_embedding_name() -> None:
 async def test_vector_store_upsert_rejects_invalid_payload() -> None:
     state = State(
         inputs={},
-        results={"chunk_embedding": {"chunk_embeddings": "invalid"}},
+        node_results={"chunk_embedding": {"chunk_embeddings": "invalid"}},
         structured_response=None,
     )
     node = VectorStoreUpsertNode(name="vector_upsert")
@@ -1060,7 +1072,7 @@ async def test_vector_store_upsert_rejects_invalid_payload() -> None:
 async def test_vector_store_upsert_requires_records() -> None:
     state = State(
         inputs={},
-        results={"chunk_embedding": {"chunk_embeddings": {}}},
+        node_results={"chunk_embedding": {"chunk_embeddings": {}}},
         structured_response=None,
     )
     node = VectorStoreUpsertNode(name="vector_upsert")
@@ -1073,7 +1085,9 @@ async def test_vector_store_upsert_requires_records() -> None:
 async def test_vector_store_upsert_rejects_non_list_entries() -> None:
     state = State(
         inputs={},
-        results={"chunk_embedding": {"chunk_embeddings": {"default": "not-a-list"}}},
+        node_results={
+            "chunk_embedding": {"chunk_embeddings": {"default": "not-a-list"}}
+        },
         structured_response=None,
     )
     node = VectorStoreUpsertNode(name="vector_upsert")
@@ -1088,7 +1102,7 @@ async def test_vector_store_upsert_rejects_non_list_entries() -> None:
 async def test_vector_store_upsert_rejects_empty_records_with_payload() -> None:
     state = State(
         inputs={},
-        results={"chunk_embedding": {"chunk_embeddings": {"default": []}}},
+        node_results={"chunk_embedding": {"chunk_embeddings": {"default": []}}},
         structured_response=None,
     )
     node = VectorStoreUpsertNode(name="vector_upsert")
@@ -1101,7 +1115,7 @@ def test_vector_store_resolves_root_payload() -> None:
     node = VectorStoreUpsertNode(name="vector_upsert")
     state = State(
         inputs={},
-        results={"chunk_embeddings": {"default": []}},
+        node_results={"chunk_embeddings": {"default": []}},
         structured_response=None,
     )
     assert node._resolve_embedding_records(state) == {"default": []}
@@ -1136,7 +1150,7 @@ async def test_document_loader_reads_from_storage_path_utf8(tmp_path) -> None:
         name="document_loader",
         documents=[RawDocumentInput(storage_path=str(test_file))],
     )
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     result = await node.run(state, {})
 
@@ -1159,7 +1173,7 @@ async def test_document_loader_reads_from_storage_path_latin1(tmp_path) -> None:
         name="document_loader",
         documents=[RawDocumentInput(storage_path=str(test_file))],
     )
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     result = await node.run(state, {})
 
@@ -1184,7 +1198,7 @@ async def test_document_loader_expands_directory_paths(tmp_path) -> None:
         documents=[RawDocumentInput(storage_path=str(docs_dir))],
         default_metadata={"demo": "directory"},
     )
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     result = await node.run(state, {})
     documents = result["documents"]
@@ -1219,7 +1233,7 @@ async def test_document_loader_raises_on_missing_storage_path() -> None:
         name="document_loader",
         documents=[RawDocumentInput(storage_path="/nonexistent/path/file.txt")],
     )
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(FileNotFoundError, match="Storage path does not exist"):
         await node.run(state, {})
@@ -1232,7 +1246,7 @@ async def test_document_loader_raises_on_no_content() -> None:
         name="document_loader",
         documents=[RawDocumentInput(content=None)],
     )
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(ValueError, match="has no content"):
         await node.run(state, {})
@@ -1268,7 +1282,7 @@ async def test_web_document_loader_fetches_and_extracts_text(respx_mock) -> None
         urls=[WebDocumentInput(url="https://example.com/doc")],
         default_metadata={"source_type": "web"},
     )
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     result = await node.run(state, {})
 
@@ -1294,7 +1308,7 @@ async def test_web_document_loader_accepts_state_urls(respx_mock) -> None:
     node = WebDocumentLoaderNode(name="web_loader")
     state = State(
         inputs={"urls": ["https://example.com/state-doc"]},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -1325,7 +1339,7 @@ async def test_web_document_loader_combines_inline_and_state_urls(respx_mock) ->
     )
     state = State(
         inputs={"urls": [{"url": "https://example.com/state"}]},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -1340,7 +1354,7 @@ async def test_web_document_loader_requires_urls() -> None:
     from orcheo.nodes.rag.ingestion import WebDocumentLoaderNode
 
     node = WebDocumentLoaderNode(name="web_loader")
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(ValueError, match="No URLs provided"):
         await node.run(state, {})
@@ -1354,7 +1368,7 @@ async def test_web_document_loader_rejects_non_list_state_urls() -> None:
     node = WebDocumentLoaderNode(name="web_loader")
     state = State(
         inputs={"urls": "not-a-list"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -1370,7 +1384,7 @@ async def test_web_document_loader_rejects_invalid_url_type() -> None:
     node = WebDocumentLoaderNode(name="web_loader")
     state = State(
         inputs={"urls": [123]},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -1395,7 +1409,7 @@ async def test_web_document_loader_accepts_web_document_input_in_state(
     node = WebDocumentLoaderNode(name="web_loader")
     state = State(
         inputs={"urls": [WebDocumentInput(url="https://example.com/passthrough")]},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -1421,7 +1435,7 @@ async def test_web_document_loader_raises_on_http_error(respx_mock) -> None:
         name="web_loader",
         urls=[WebDocumentInput(url="https://example.com/error")],
     )
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(ValueError, match="Failed to fetch URL"):
         await node.run(state, {})
@@ -1445,7 +1459,7 @@ async def test_web_document_loader_raises_on_empty_content(respx_mock) -> None:
         name="web_loader",
         urls=[WebDocumentInput(url="https://example.com/empty")],
     )
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     with pytest.raises(ValueError, match="No text content extracted"):
         await node.run(state, {})
@@ -1464,7 +1478,7 @@ def test_text_embedding_node_requires_embed_model() -> None:
 
 @pytest.mark.asyncio
 async def test_text_embedding_node_rejects_empty_text_without_allow_empty() -> None:
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
     node = TextEmbeddingNode(
         name="text_embedding",
         input_key="text",
@@ -1485,7 +1499,7 @@ async def test_text_embedding_node_async_embedder() -> None:
     # New API handles async embedding through the model interface
     state = State(
         inputs={"text": "hello"},
-        results={},
+        node_results={},
         structured_response=None,
     )
     node = TextEmbeddingNode(
@@ -1519,7 +1533,7 @@ async def test_text_embedding_node_rejects_invalid_embedding_output(
     )
     state = State(
         inputs={"text": "hello"},
-        results={},
+        node_results={},
         structured_response=None,
     )
     node = TextEmbeddingNode(
@@ -1540,7 +1554,7 @@ async def test_text_embedding_node_rejects_invalid_embedding_output(
 async def test_text_embedding_node_dense_output_key() -> None:
     state = State(
         inputs={"text": "hello"},
-        results={},
+        node_results={},
         structured_response=None,
     )
     node = TextEmbeddingNode(
@@ -1562,7 +1576,7 @@ async def test_text_embedding_node_reads_from_state_directly() -> None:
     """Covers _extract_input_value when input_key is in state root."""
     state = State(
         inputs={},
-        results={},
+        node_results={},
         structured_response=None,
     )
     state["text"] = "direct"
@@ -1584,7 +1598,7 @@ async def test_text_embedding_node_reads_from_inputs() -> None:
     """Covers _extract_input_value when input_key is in state.inputs."""
     state = State(
         inputs={"query": "from inputs"},
-        results={},
+        node_results={},
         structured_response=None,
     )
     node = TextEmbeddingNode(
@@ -1605,7 +1619,7 @@ async def test_text_embedding_node_blank_string_returns_empty() -> None:
     """Covers _coerce_string returning empty for whitespace-only string."""
     state = State(
         inputs={"text": "   "},
-        results={},
+        node_results={},
         structured_response=None,
     )
     node = TextEmbeddingNode(
@@ -1626,7 +1640,7 @@ async def test_text_embedding_node_empty_list_returns_empty() -> None:
     """Covers _coerce_list returning empty for empty list."""
     state = State(
         inputs={"texts": []},
-        results={},
+        node_results={},
         structured_response=None,
     )
     node = TextEmbeddingNode(
@@ -1647,7 +1661,7 @@ async def test_text_embedding_node_rejects_non_string_in_list() -> None:
     """Covers _validate_text_item rejecting non-string."""
     state = State(
         inputs={"texts": ["valid", 123]},
-        results={},
+        node_results={},
         structured_response=None,
     )
     node = TextEmbeddingNode(
@@ -1669,7 +1683,7 @@ async def test_text_embedding_node_rejects_empty_string_in_list() -> None:
     """Covers _validate_text_item rejecting whitespace-only string."""
     state = State(
         inputs={"texts": ["valid", "   "]},
-        results={},
+        node_results={},
         structured_response=None,
     )
     node = TextEmbeddingNode(
@@ -1693,7 +1707,7 @@ async def test_text_embedding_node_passes_model_kwargs_to_initializer(
     """Ensures model kwargs are forwarded into dense embedding initialization."""
     state = State(
         inputs={"text": "hello"},
-        results={},
+        node_results={},
         structured_response=None,
     )
     captured: dict[str, Any] = {}
@@ -1733,7 +1747,7 @@ async def test_text_embedding_node_call_attaches_trace_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """TextEmbeddingNode.__call__ should expose embedding model trace metadata."""
-    state = State(inputs={"text": "hello"}, results={}, structured_response=None)
+    state = State(inputs={"text": "hello"}, node_results={}, structured_response=None)
 
     class _TrackingEmbeddings:
         model_name = "text-embedding-3-small"
@@ -1757,7 +1771,7 @@ async def test_text_embedding_node_call_attaches_trace_metadata(
 
     result = await node(state, {})
 
-    assert result["results"]["text_embedding"]["embeddings"].values == [
+    assert result["node_results"]["text_embedding"]["embeddings"].values == [
         float(len("hello")),
         0.0,
     ]
@@ -1771,7 +1785,7 @@ async def test_text_embedding_node_call_attaches_trace_metadata(
 @pytest.mark.asyncio
 async def test_text_embedding_node_empty_payload_with_keys() -> None:
     """Covers _empty_payload with dense_output_key and text_output_key (single)."""
-    state = State(inputs={"text": "   "}, results={}, structured_response=None)
+    state = State(inputs={"text": "   "}, node_results={}, structured_response=None)
     node = TextEmbeddingNode(
         name="text_embedding",
         input_key="text",
@@ -1792,7 +1806,7 @@ async def test_text_embedding_node_empty_payload_with_keys() -> None:
 @pytest.mark.asyncio
 async def test_text_embedding_node_empty_payload_list_text_key() -> None:
     """Covers _empty_payload text_output_key with list (not single) input."""
-    state = State(inputs={"texts": []}, results={}, structured_response=None)
+    state = State(inputs={"texts": []}, node_results={}, structured_response=None)
     node = TextEmbeddingNode(
         name="text_embedding",
         input_key="texts",
@@ -1830,7 +1844,7 @@ async def test_web_document_loader_extracts_title_when_not_in_metadata(
         urls=[WebDocumentInput(url="https://example.com/titled")],
         extract_title=True,
     )
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     result = await node.run(state, {})
 
@@ -1894,7 +1908,7 @@ async def test_web_document_loader_skips_title_when_already_in_metadata(
         ],
         extract_title=True,
     )
-    state = State(inputs={}, results={}, structured_response=None)
+    state = State(inputs={}, node_results={}, structured_response=None)
 
     result = await node.run(state, {})
 
@@ -2005,7 +2019,7 @@ async def test_chunk_embedding_node_dense_count_mismatch(
         ]
     }
     state = State(
-        inputs={}, results={"chunking_strategy": chunks}, structured_response=None
+        inputs={}, node_results={"chunking_strategy": chunks}, structured_response=None
     )
     node = ChunkEmbeddingNode(
         name="chunk_embedding",
@@ -2059,7 +2073,7 @@ async def test_chunk_embedding_node_sparse_count_mismatch(
         ]
     }
     state = State(
-        inputs={}, results={"chunking_strategy": chunks}, structured_response=None
+        inputs={}, node_results={"chunking_strategy": chunks}, structured_response=None
     )
     node = ChunkEmbeddingNode(
         name="chunk_embedding",
@@ -2107,7 +2121,7 @@ async def test_text_embedding_node_vector_count_mismatch(
         lambda *a, **kw: MismatchEmbeddings(),
     )
 
-    state = State(inputs={"text": "hello"}, results={}, structured_response=None)
+    state = State(inputs={"text": "hello"}, node_results={}, structured_response=None)
     node = TextEmbeddingNode(
         name="text_embedding",
         input_key="text",

@@ -88,3 +88,22 @@ def test_revoke_publish_rejects_when_not_public() -> None:
 
     with pytest.raises(ValueError, match="not currently published"):
         workflow.revoke_publish(actor="actor")
+
+
+def test_mark_upload_error_truncates_overly_long_messages() -> None:
+    workflow = Workflow(name="Example")
+
+    workflow.mark_upload_error(message="x" * 5000, actor="actor")
+
+    assert workflow.upload_error is not None
+    assert len(workflow.upload_error.message) == 4000
+    assert workflow.upload_error.message.endswith("...")
+
+
+def test_clear_upload_error_is_a_no_op_without_a_prior_error() -> None:
+    workflow = Workflow(name="Example")
+
+    workflow.clear_upload_error(actor="actor")
+
+    assert workflow.upload_error is None
+    assert workflow.audit_log == []

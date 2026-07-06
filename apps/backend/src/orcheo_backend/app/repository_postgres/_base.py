@@ -350,7 +350,12 @@ class PostgresRepositoryBase:
                 self._trigger_layer.configure_webhook(workflow_id, webhook_config)
 
             cursor = await conn.execute(
-                "SELECT workflow_id, config, last_dispatched_at FROM cron_triggers"
+                """
+                SELECT c.workflow_id, c.config, c.last_dispatched_at
+                  FROM cron_triggers c
+                  JOIN workflows w ON w.id = c.workflow_id
+                 WHERE w.is_archived = FALSE
+                """
             )
             rows = await cursor.fetchall()
             for row in rows:
@@ -397,7 +402,12 @@ class PostgresRepositoryBase:
         """Refresh cron trigger configs to reflect the latest persisted state."""
         async with self._connection() as conn:
             cursor = await conn.execute(
-                "SELECT workflow_id, config, last_dispatched_at FROM cron_triggers"
+                """
+                SELECT c.workflow_id, c.config, c.last_dispatched_at
+                  FROM cron_triggers c
+                  JOIN workflows w ON w.id = c.workflow_id
+                 WHERE w.is_archived = FALSE
+                """
             )
             rows = await cursor.fetchall()
 

@@ -19,8 +19,13 @@ interface UseWorkflowLoaderParams {
   setCurrentWorkflowId: Dispatch<SetStateAction<string | null>>;
   setWorkflowName: Dispatch<SetStateAction<string>>;
   setWorkflowDescription: Dispatch<SetStateAction<string>>;
+  setWorkflowHandle: Dispatch<SetStateAction<string | null>>;
+  setWorkflowTeamSlug: Dispatch<SetStateAction<string | null>>;
   setWorkflowTags: Dispatch<SetStateAction<string[]>>;
   setWorkflowVersions: Dispatch<SetStateAction<StoredWorkflow["versions"]>>;
+  setWorkflowUploadError: Dispatch<
+    SetStateAction<StoredWorkflow["uploadError"] | null>
+  >;
   setChatkitStartScreenPrompts: Dispatch<
     SetStateAction<ChatKitStartScreenPrompt[] | null>
   >;
@@ -42,8 +47,11 @@ export function useWorkflowLoader({
   setCurrentWorkflowId,
   setWorkflowName,
   setWorkflowDescription,
+  setWorkflowHandle,
+  setWorkflowTeamSlug,
   setWorkflowTags,
   setWorkflowVersions,
+  setWorkflowUploadError,
   setChatkitStartScreenPrompts,
   setChatkitSupportedModels,
   setIsWorkflowPublic,
@@ -64,8 +72,11 @@ export function useWorkflowLoader({
       setCurrentWorkflowId(null);
       setWorkflowName("New Workflow");
       setWorkflowDescription("");
+      setWorkflowHandle(null);
+      setWorkflowTeamSlug(null);
       setWorkflowTags(["draft"]);
       setWorkflowVersions([]);
+      setWorkflowUploadError(null);
       setChatkitStartScreenPrompts(null);
       setChatkitSupportedModels(null);
       setIsWorkflowPublic(false);
@@ -83,6 +94,9 @@ export function useWorkflowLoader({
         setActiveExecutionId(null);
         setChatkitStartScreenPrompts(null);
         setChatkitSupportedModels(null);
+        setWorkflowHandle(null);
+        setWorkflowTeamSlug(null);
+        setWorkflowUploadError(null);
         setIsWorkflowLoading(false);
         setWorkflowLoadError(null);
         return;
@@ -98,8 +112,11 @@ export function useWorkflowLoader({
           setCurrentWorkflowId(persisted.id);
           setWorkflowName(persisted.name);
           setWorkflowDescription(persisted.description ?? "");
+          setWorkflowHandle(persisted.handle ?? null);
+          setWorkflowTeamSlug(persisted.teamSlug ?? null);
           setWorkflowTags(persisted.tags ?? ["draft"]);
           setWorkflowVersions(persisted.versions ?? []);
+          setWorkflowUploadError(persisted.uploadError ?? null);
           setChatkitStartScreenPrompts(
             persisted.chatkitStartScreenPrompts ?? null,
           );
@@ -125,6 +142,7 @@ export function useWorkflowLoader({
           setWorkflowLoadError(
             error instanceof Error ? error.message : "Unknown error occurred",
           );
+          setWorkflowUploadError(null);
           setChatkitStartScreenPrompts(null);
           setChatkitSupportedModels(null);
           setIsWorkflowPublic(false);
@@ -163,6 +181,9 @@ export function useWorkflowLoader({
     setExecutions,
     setActiveExecutionId,
     setWorkflowDescription,
+    setWorkflowHandle,
+    setWorkflowTeamSlug,
+    setWorkflowUploadError,
     setChatkitStartScreenPrompts,
     setChatkitSupportedModels,
     setIsWorkflowPublic,
@@ -172,6 +193,7 @@ export function useWorkflowLoader({
     setWorkflowShareUrl,
     setWorkflowTags,
     setWorkflowVersions,
+    setWorkflowRequireLogin,
     workflowId,
   ]);
 

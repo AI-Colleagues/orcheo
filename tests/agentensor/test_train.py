@@ -313,7 +313,7 @@ def test_trainer_train_with_no_losses(
 
 def test_graph_trainer_extracts_ai_message() -> None:
     output_state = {
-        "results": {},
+        "node_results": {},
         "messages": [HumanMessage(content="hello"), AIMessage(content="done")],
     }
 
@@ -321,7 +321,10 @@ def test_graph_trainer_extracts_ai_message() -> None:
 
 
 def test_graph_trainer_falls_back_to_last_message() -> None:
-    output_state = {"results": {}, "messages": [{"role": "user", "content": "hello"}]}
+    output_state = {
+        "node_results": {},
+        "messages": [{"role": "user", "content": "hello"}],
+    }
 
     assert GraphTrainer._extract_output(output_state) == "hello"
 
@@ -357,7 +360,7 @@ def test_graph_trainer_build_case_state_default_format() -> None:
     state = trainer._build_case_state({"value": 2})
 
     assert state["messages"] == []
-    assert state["results"] == {}
+    assert state["node_results"] == {}
     assert state["inputs"] == {"value": 2}
     assert state["config"]["prompts"] is prompts
     assert state["structured_response"] is None
@@ -379,8 +382,8 @@ def test_graph_trainer_stringify_output_handles_types() -> None:
     assert GraphTrainer._stringify_output({1}) == str({1})
 
 
-def test_graph_trainer_extract_output_prefers_results_and_output() -> None:
-    results_state = {"results": {"score": 0.99}, "messages": []}
+def test_graph_trainer_extract_output_prefers_node_results_and_output() -> None:
+    results_state = {"node_results": {"score": 0.99}, "messages": []}
     assert GraphTrainer._extract_output(results_state) == {"score": 0.99}
 
     output_state = {"output": "payload", "messages": []}

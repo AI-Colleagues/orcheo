@@ -101,10 +101,16 @@ def test_workflow_mermaid_with_langgraph_conditional_edges() -> None:
     }
 
     mermaid = _mermaid_from_graph(graph)
-    assert "prepare_iteration --> select_current_user" in mermaid
-    assert "prepare_iteration --> __end__" in mermaid
-    assert "increment_counter --> select_current_user" in mermaid
-    assert "increment_counter --> __end__" in mermaid
+    assert (
+        "root__node__prepare_iteration -. continue .-> "
+        "root__node__select_current_user;" in mermaid
+    )
+    assert "root__node__prepare_iteration -. exit .-> root__end;" in mermaid
+    assert (
+        "root__node__increment_counter -. continue .-> "
+        "root__node__select_current_user;" in mermaid
+    )
+    assert "root__node__increment_counter -. exit .-> root__end;" in mermaid
 
 
 def test_workflow_mermaid_with_agent_workflow_tool_subgraph() -> None:

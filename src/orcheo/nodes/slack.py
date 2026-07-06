@@ -310,7 +310,7 @@ class SlackEventsParserNode(TaskNode):
     @classmethod
     def _validate_timestamp_tolerance(cls, value: Any) -> Any:
         if isinstance(value, str):
-            if "{{" in value and "}}" in value:
+            if cls.contains_template(value):
                 return value
             try:
                 value = int(value)

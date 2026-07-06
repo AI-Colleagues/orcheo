@@ -20,7 +20,7 @@ async def test_web_search_node_requests_tavily_and_formats_results() -> None:
     """WebSearchNode should call Tavily and normalize results."""
     state = State(
         inputs={"query": "latest ai news"},
-        results={},
+        node_results={},
         structured_response=None,
     )
     node = WebSearchNode(
@@ -61,7 +61,7 @@ async def test_web_search_node_requests_tavily_and_formats_results() -> None:
         router.post("https://api.tavily.com/search").mock(side_effect=handler)
         result = await node(state, RunnableConfig())
 
-    payload = result["results"]["web"]
+    payload = result["node_results"]["web"]
     request_json = captured["json"]
 
     assert request_json["api_key"] == "tavily-key"
@@ -99,7 +99,7 @@ async def test_web_search_node_rejects_unknown_provider() -> None:
     )
     state = State(
         inputs={"query": "news"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -115,7 +115,7 @@ async def test_web_search_node_requires_query_when_not_suppressed() -> None:
     node = WebSearchNode(name="web", api_key="key", suppress_errors=False)
     state = State(
         inputs={"query": "   "},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -131,7 +131,7 @@ async def test_web_search_node_requires_api_key_when_not_suppressed() -> None:
     node = WebSearchNode(name="web", suppress_errors=False)
     state = State(
         inputs={"query": "hello"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -147,7 +147,7 @@ async def test_web_search_node_rejects_whitespace_api_key_when_not_suppressed() 
     node = WebSearchNode(name="web", api_key="   ", suppress_errors=False)
     state = State(
         inputs={"query": "hello"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -162,7 +162,7 @@ async def test_web_search_node_resolves_api_key_from_credential_vault() -> None:
     """WebSearchNode should resolve api_key placeholders via active resolver."""
     state = State(
         inputs={"query": "latest ai news"},
-        results={},
+        node_results={},
         structured_response=None,
     )
     node = WebSearchNode(
@@ -222,7 +222,7 @@ async def test_web_search_node_handles_http_errors_when_not_suppressed() -> None
     node = WebSearchNode(name="web", api_key="key", suppress_errors=False)
     state = State(
         inputs={"query": "hello"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -240,7 +240,7 @@ async def test_web_search_node_validates_response_shape_when_not_suppressed() ->
     node = WebSearchNode(name="web", api_key="key", suppress_errors=False)
     state = State(
         inputs={"query": "hello"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -278,7 +278,7 @@ async def test_web_search_node_returns_warning_when_query_missing() -> None:
     node = WebSearchNode(name="web", api_key="key")
     state = State(
         inputs={"query": "   "},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -294,7 +294,7 @@ async def test_web_search_node_suppresses_http_errors_by_default() -> None:
     node = WebSearchNode(name="web", api_key="key")
     state = State(
         inputs={"query": "hello"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 
@@ -317,7 +317,7 @@ async def test_web_search_node_suppresses_unexpected_errors_by_default(
     node = WebSearchNode(name="web", api_key="key")
     state = State(
         inputs={"query": "hello"},
-        results={},
+        node_results={},
         structured_response=None,
     )
 

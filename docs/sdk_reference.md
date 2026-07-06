@@ -125,12 +125,12 @@ from langgraph.graph import MessagesState
 
 class State(MessagesState):
     inputs: dict[str, Any]      # Workflow inputs
-    results: dict[str, Any]     # Node outputs (keyed by node name)
+    node_results: dict[str, Any]     # Node outputs (keyed by node name)
     structured_response: Any    # Final output
     config: dict[str, Any]      # Runtime config
 ```
 
-The `results` dictionary accumulates outputs from TaskNodes, enabling downstream nodes to access upstream outputs via variable interpolation (e.g., `{{results.retriever.documents}}`).
+The `node_results` dictionary accumulates outputs from TaskNodes, enabling downstream nodes to access upstream outputs via variable interpolation (e.g., `{{node_results.retriever.documents}}`).
 
 ## Error Handling
 

@@ -8,12 +8,14 @@ from langchain_core.messages import AIMessage
 from pydantic import BaseModel
 
 from orcheo.graph.state import State
-from orcheo.nodes.logic import FinalReplyNode, StructuredRouterDispatchNode
+from orcheo.nodes.logic import (
+    ExtractAIMessageNode,
+    StructuredRouterDispatchNode,
+)
 from orcheo.nodes.qualitative.accessors import (
-    _coerce_model,
-    _coerce_models,
     build_report_data,
-    get_approved_codebook,
+    coerce_model,
+    coerce_model_list,
     get_approved_insight_ids,
     get_candidate_insights,
     get_code_assignments,
@@ -24,20 +26,16 @@ from orcheo.nodes.qualitative.accessors import (
     get_quality_report,
     get_quantification,
     get_recommendations,
-    get_research_objective,
-    get_seed_codebook_from_file,
     get_segment_breakdowns,
     get_segment_comparisons,
     get_selected_quotes,
     get_source_payload,
     get_units,
-    is_vacuous,
 )
 from orcheo.nodes.qualitative.codebook import (
     code_to_theme_map,
     escape_markdown_table_cell,
     fallback_codebook,
-    get_seed_codebook,
     make_code_id,
     make_insight_id,
     make_theme_id,
@@ -46,9 +44,6 @@ from orcheo.nodes.qualitative.codebook import (
     normalise_codebook_ids,
     normalise_label,
     parse_codebook_csv,
-    parse_codebook_markdown,
-    parse_markdown_table_row,
-    recover_exportable_codebook,
     render_codebook_for_prompt,
 )
 from orcheo.nodes.qualitative.coded_data import (
@@ -73,7 +68,6 @@ from orcheo.nodes.qualitative.insights import (
     recommend_action,
     recommend_impact,
 )
-from orcheo.nodes.qualitative.keys import QualitativeResultKeys
 from orcheo.nodes.qualitative.models import (
     CandidateInsight,
     CodeAssignment,
@@ -206,7 +200,6 @@ def _assignments() -> list[CodeAssignment]:
 def _report_state() -> ReportData:
     return ReportData(
         research_objective="Understand onboarding",
-        pending_documents=[{"filename": "survey.csv"}],
         source_payload={"filename": "survey.csv"},
         units=_units(),
         approved_codebook=_codebook(),
@@ -296,7 +289,7 @@ def _report_state() -> ReportData:
 
 
 def test_runtime_result_helpers_cover_empty_and_nested_paths() -> None:
-    state = State({"results": {"a": {"value": 1}, "b": "not-a-mapping"}})
+    state = State({"node_results": {"a": {"value": 1}, "b": "not-a-mapping"}})
 
     assert results_map(state)["a"]["value"] == 1
     assert node_result(state, "a") == {"value": 1}
@@ -332,6 +325,20 @@ def test_routing_node_decision_paths() -> None:
     assert router._decision_value(Decision(), "branch") == "fallback"
     assert router._decision_value(SimpleNamespace(message="x"), "message") == "x"
 
+    extractor = ExtractAIMessageNode(name="extractor")
+
+    class PlainResponse:
+        assistant_message = "done"
+
+    assert extractor._response_value(PlainResponse(), "assistant_message") == "done"
+
+    class ModelResponse(BaseModel):
+        assistant_message: str = "model-done"
+
+    assert (
+        extractor._response_value(ModelResponse(), "assistant_message") == "model-done"
+    )
+
 
 @pytest.mark.asyncio
 async def test_routing_nodes_route_and_respond() -> None:
@@ -346,7 +353,7 @@ async def test_routing_nodes_route_and_respond() -> None:
         ),
         {},
     )
-    assert routed["results"]["router"] == {"topic": "t", "routing": "next"}
+    assert routed["node_results"]["router"] == {"topic": "t", "routing": "next"}
 
     responded = await router(
         State(
@@ -362,110 +369,34 @@ async def test_routing_nodes_route_and_respond() -> None:
         {},
     )
     assert responded["assistant_message"] == "fallback"
-    assert responded["results"]["router"]["routing"] == "respond"
+    assert responded["node_results"]["router"]["routing"] == "respond"
 
-    reply = FinalReplyNode(name="reply", fallback_message="fallback")
-    assert (await reply(State({}), {}))["assistant_message"] == "fallback"
-    assert (await reply(State({"assistant_message": "  hi  "}), {}))[
-        "assistant_message"
-    ] == "  hi  "
+    extractor = ExtractAIMessageNode(
+        name="extract_ai_message",
+        fallback_message="fallback",
+    )
+    assert (await extractor(State({}), {}))["assistant_message"] == "fallback"
+    assert (
+        await extractor(
+            State({"structured_response": {"assistant_message": "done"}}), {}
+        )
+    )["assistant_message"] == "done"
 
 
 def test_accessor_helpers_and_report_data_cover_all_accessors() -> None:
-    keys = QualitativeResultKeys()
     state = State(
         {
-            "results": {
-                "setup": {
-                    keys.research_objective_field: "Understand onboarding",
-                    keys.source_payload_field: {"filename": "survey.csv"},
-                    keys.pending_documents_field: [
+            "node_results": {
+                "load_attachments": {
+                    "attachments": [
                         {"filename": "survey.csv", "content": "hello"},
                         "bad",
-                    ],
-                    keys.approved_codebook_field: _codebook().model_dump(mode="json"),
-                    keys.units_field: [u.model_dump(mode="json") for u in _units()]
-                    + ["bad"],
-                    keys.assignments_field: [
-                        a.model_dump(mode="json") for a in _assignments()
-                    ],
-                    keys.draft_codebook_field: _codebook().model_dump(mode="json"),
-                    keys.quality_report_field: {
-                        "total_units": 1,
-                        "flagged_units": 1,
-                        "excluded_units": 0,
-                    },
-                    keys.quantification_field: [
-                        {
-                            "theme_id": "T1",
-                            "title": "Onboarding",
-                            "mentions": 1,
-                            "respondents": 1,
-                            "pct_respondents": 100.0,
-                        }
-                    ],
-                    keys.cooccurrence_field: [
-                        {
-                            "theme_id_a": "T1",
-                            "theme_id_b": "T2",
-                            "respondents": 1,
-                            "mentions": 1,
-                        }
-                    ],
-                    keys.segment_breakdowns_field: [
-                        {
-                            "segment": "plan",
-                            "value": "pro",
-                            "theme_id": "T1",
-                            "respondents": 1,
-                            "total_respondents": 1,
-                            "pct_respondents": 100.0,
-                            "sample_size_guard": "ok",
-                        }
-                    ],
-                    keys.segment_comparisons_field: [
-                        {
-                            "segment": "plan",
-                            "theme_id": "T1",
-                            "high_value": "pro",
-                            "low_value": "basic",
-                            "high_pct": 100.0,
-                            "low_pct": 0.0,
-                            "delta_pct": 100.0,
-                            "signal": "strong",
-                            "note": "note",
-                        }
-                    ],
-                    keys.selected_quotes_field: [
-                        {"theme_id": "T1", "unit_id": "U0001", "text": "quote"}
-                    ],
-                    keys.candidate_insights_field: [
-                        {
-                            "insight_id": "I01",
-                            "observation": "obs",
-                            "supporting_codes": ["C1"],
-                            "supporting_units": ["U0001"],
-                        }
-                    ],
-                    keys.recommendations_field: [
-                        {
-                            "insight_id": "I01",
-                            "finding": "obs",
-                            "action": "act",
-                            "expected_impact": "impact",
-                        }
-                    ],
-                    keys.approved_insight_ids_field: [1, "I01"],
-                },
-                "context_pre": {
-                    keys.pending_documents_field: [
-                        {"filename": "survey.csv", "content": "hello"}
                     ]
                 },
-                "validate_files": {keys.seed_codebook_field: {"themes": []}},
                 "ingest": {
-                    keys.units_field: [u.model_dump(mode="json") for u in _units()],
-                    keys.quantification_field: [
+                    "source_payload": {"filename": "survey.csv"},
+                    "units": [u.model_dump(mode="json") for u in _units()] + ["bad"],
+                    "quantification": [
                         {
                             "theme_id": "T1",
                             "title": "Onboarding",
@@ -474,7 +405,7 @@ def test_accessor_helpers_and_report_data_cover_all_accessors() -> None:
                             "pct_respondents": 100.0,
                         }
                     ],
-                    keys.cooccurrence_field: [
+                    "cooccurrence": [
                         {
                             "theme_id_a": "T1",
                             "theme_id_b": "T2",
@@ -482,7 +413,7 @@ def test_accessor_helpers_and_report_data_cover_all_accessors() -> None:
                             "mentions": 1,
                         }
                     ],
-                    keys.segment_breakdowns_field: [
+                    "segment_breakdowns": [
                         {
                             "segment": "plan",
                             "value": "pro",
@@ -493,7 +424,7 @@ def test_accessor_helpers_and_report_data_cover_all_accessors() -> None:
                             "sample_size_guard": "ok",
                         }
                     ],
-                    keys.segment_comparisons_field: [
+                    "segment_comparisons": [
                         {
                             "segment": "plan",
                             "theme_id": "T1",
@@ -508,27 +439,27 @@ def test_accessor_helpers_and_report_data_cover_all_accessors() -> None:
                     ],
                 },
                 "open_coder_finalize": {
-                    keys.assignments_field: [
+                    "code_assignments_pass1": [
                         a.model_dump(mode="json") for a in _assignments()
                     ]
                 },
                 "codebook_consolidator_finalize": {
-                    keys.draft_codebook_field: _codebook().model_dump(mode="json")
+                    "draft_codebook": _codebook().model_dump(mode="json")
                 },
                 "data_quality": {
-                    keys.quality_report_field: {
+                    "quality_report": {
                         "total_units": 1,
                         "flagged_units": 1,
                         "excluded_units": 0,
                     }
                 },
                 "quote_selector_finalize": {
-                    keys.selected_quotes_field: [
+                    "selected_quotes": [
                         {"theme_id": "T1", "unit_id": "U0001", "text": "quote"}
                     ]
                 },
                 "recommendation_generator": {
-                    keys.candidate_insights_field: [
+                    "candidate_insights": [
                         {
                             "insight_id": "I01",
                             "observation": "obs",
@@ -536,7 +467,7 @@ def test_accessor_helpers_and_report_data_cover_all_accessors() -> None:
                             "supporting_units": ["U0001"],
                         }
                     ],
-                    keys.recommendations_field: [
+                    "recommendations": [
                         {
                             "insight_id": "I01",
                             "finding": "obs",
@@ -544,7 +475,7 @@ def test_accessor_helpers_and_report_data_cover_all_accessors() -> None:
                             "expected_impact": "impact",
                         }
                     ],
-                    keys.approved_insight_ids_field: [1, "I01"],
+                    "approved_insight_ids": [1, "I01"],
                 },
             }
         }
@@ -552,37 +483,31 @@ def test_accessor_helpers_and_report_data_cover_all_accessors() -> None:
 
     assert get_configurable({"configurable": {"x": 1}}) == {"x": 1}
     assert get_configurable(None) == {}
-    assert is_vacuous(" ") is True
-    assert is_vacuous("one two") is True
-    assert is_vacuous("one two three") is False
-    assert get_research_objective(state, keys) == "Understand onboarding"
-    assert get_source_payload(state, keys) == {"filename": "survey.csv"}
-    assert get_pending_documents(state, keys) == [
+    assert get_source_payload(state) == {"filename": "survey.csv"}
+    assert get_pending_documents(state) == [
         {"filename": "survey.csv", "content": "hello"}
     ]
-    assert get_seed_codebook_from_file(state, keys) == {"themes": []}
-    assert get_approved_codebook(state, keys) is not None
-    assert len(get_units(state, keys)) == 2
-    assert len(get_code_assignments(state, keys)) == 2
-    assert get_draft_codebook(state, keys) is not None
-    assert get_quality_report(state, keys) is not None
-    assert len(get_quantification(state, keys)) == 1
-    assert len(get_cooccurrence(state, keys)) == 1
-    assert len(get_segment_breakdowns(state, keys)) == 1
-    assert len(get_segment_comparisons(state, keys)) == 1
-    assert len(get_selected_quotes(state, keys)) == 1
-    assert len(get_candidate_insights(state, keys)) == 1
-    assert len(get_recommendations(state, keys)) == 1
-    assert get_approved_insight_ids(state, keys) == ["1", "I01"]
-    data = build_report_data(state, keys)
-    assert data.research_objective == "Understand onboarding"
+    assert len(get_units(state)) == 2
+    assert len(get_code_assignments(state)) == 2
+    assert get_draft_codebook(state) is not None
+    assert get_quality_report(state) is not None
+    assert len(get_quantification(state)) == 1
+    assert len(get_cooccurrence(state)) == 1
+    assert len(get_segment_breakdowns(state)) == 1
+    assert len(get_segment_comparisons(state)) == 1
+    assert len(get_selected_quotes(state)) == 1
+    assert len(get_candidate_insights(state)) == 1
+    assert len(get_recommendations(state)) == 1
+    assert get_approved_insight_ids(state) == ["1", "I01"]
+    data = build_report_data(state)
+    assert data.source_payload == {"filename": "survey.csv"}
     assert data.approved_insight_ids == ["1", "I01"]
 
     class Demo(BaseModel):
         value: int
 
-    assert _coerce_models(["bad", {"value": 1}], Demo) == [Demo(value=1)]
-    assert _coerce_model("bad", Demo) is None
+    assert coerce_model_list(["bad", {"value": 1}], Demo) == [Demo(value=1)]
+    assert coerce_model("bad", Demo) is None
 
 
 def test_codebook_helpers_cover_generation_and_parsing() -> None:
@@ -672,74 +597,7 @@ def test_codebook_helpers_cover_generation_and_parsing() -> None:
     )
     assert parse_codebook_csv("theme_id,theme_title\nT1,A\n") is None
 
-    assert parse_markdown_table_row(r"| a \| b | c |") == ["a | b", "c"]
     assert escape_markdown_table_cell("a|b\n<c>") == "a&#124;b<br>&lt;c&gt;"
-
-    markdown_table = (
-        "| Theme ID | Theme Title | Code ID | Code Title | Definition | Include | Exclude |\n"
-        "| --- | --- | --- | --- | --- | --- | --- |\n"
-        "| T1 | Onboarding | C1 | Clear setup | Easy | one; two | three |\n"
-    )
-    markdown = parse_codebook_markdown(markdown_table)
-    assert markdown is not None
-    assert markdown.themes[0].subthemes[0].code_id == "C1"
-
-    headings = parse_codebook_markdown(
-        "## T1: Onboarding\n- `C1` **Clear setup**: Easy to follow\n"
-    )
-    assert headings is not None
-    assert headings.themes[0].subthemes[0].title == "Clear setup"
-    assert parse_codebook_markdown("not a codebook") is None
-
-    recovered = recover_exportable_codebook(
-        State(
-            {
-                "results": {
-                    "codebook_consolidator_finalize": {
-                        "draft_codebook": codebook.model_dump(mode="json")
-                    }
-                },
-                "messages": [],
-            }
-        )
-    )
-    assert recovered is not None
-    markdown_message = "## T1: Onboarding\n- `C1` **Clear setup**: Easy to follow\n"
-    markdown_recovered = recover_exportable_codebook(
-        State({"messages": [{"role": "assistant", "content": markdown_message}]})
-    )
-    assert markdown_recovered is not None
-
-    assert (
-        get_seed_codebook(
-            {
-                "configurable": {
-                    "seed_codebook": json.dumps(codebook.model_dump(mode="json"))
-                }
-            }
-        )
-        is not None
-    )
-    assert (
-        get_seed_codebook({"configurable": {"seed_codebook": {"themes": []}}})
-        is not None
-    )
-    assert get_seed_codebook({"configurable": {"seed_codebook": "not-json"}}) is None
-    assert (
-        get_seed_codebook(
-            None,
-            state=State(
-                {
-                    "results": {
-                        "validate_files": {
-                            "seed_codebook_from_file": codebook.model_dump(mode="json")
-                        }
-                    }
-                }
-            ),
-        )
-        is not None
-    )
 
 
 def test_coded_data_helpers_cover_round_trip_and_branching(
@@ -966,7 +824,7 @@ def test_report_helpers_render_and_validate() -> None:
     assert validate_final_state(invalid)[0] == "Missing codebook."
 
     report = render_markdown_report(data)
-    assert "# Insight Reporter" in report
+    assert "# Theme Reporter" in report
     assert "## Recommendations" in report
     assert "## Evidence Index" in report
 
@@ -1055,7 +913,6 @@ def test_source_parser_and_normalisation_helpers_cover_branch_variants(
     assert records[0].text == "Hello"
     records, source_type = SourceParser.parse_payload(
         {"content": "ticket_id,subject\n1,Help\n", "filename": "tickets.csv"},
-        allow_additional_sources=False,
     )
     assert records == []
     assert source_type == "support_tickets"
@@ -1067,18 +924,4 @@ def test_source_parser_and_normalisation_helpers_cover_branch_variants(
         "storage_path": None,
         "filename": "x.csv",
     }
-    assert SourceParser.normalise_payload(
-        State({}),
-        {
-            "configurable": {
-                "source": "hello",
-                "source_type": "transcript",
-                "source_filename": "x.txt",
-            }
-        },
-    ) == {
-        "source_type": "transcript",
-        "content": "hello",
-        "storage_path": None,
-        "filename": "x.txt",
-    }
+    assert SourceParser.normalise_payload(State({})) is None

@@ -111,7 +111,7 @@ class ForLoopNode(TaskNode):
     """Loop controller that advances through a list one item at a time.
 
     On each invocation the node reads its own previous output from
-    ``state["results"][self.name]`` to determine the current index,
+    ``state["node_results"][self.name]`` to determine the current index,
     exposes the item at that index as ``current_item``, and stores the
     *next* index so subsequent invocations advance automatically.
 
@@ -148,7 +148,7 @@ class ForLoopNode(TaskNode):
         total = len(items)
 
         # Read the index left by the previous invocation.
-        prev = state.get("results", {})
+        prev = state.get("node_results", {})
         if isinstance(prev, Mapping):
             loop_state = prev.get(self.name, {})
         else:

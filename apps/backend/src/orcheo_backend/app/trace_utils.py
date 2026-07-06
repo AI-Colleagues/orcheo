@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 import re
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from hashlib import blake2b
 from typing import Any, TypedDict
 from orcheo.tracing import workflow as tracing_workflow
 from orcheo.tracing.model_metadata import (
+    NAMESPACE_METADATA_KEY,
     TRACE_METADATA_KEY,
     extract_ai_trace_attributes,
+    extract_step_namespace,
 )
 from orcheo_backend.app.history import RunHistoryRecord, RunHistoryStep
 from orcheo_backend.app.schemas.traces import (
@@ -72,22 +75,27 @@ def build_trace_response(record: RunHistoryRecord) -> TraceResponse:
     root_span_id = _derive_root_span_id(record.trace_id, record.execution_id)
     runtime_thread_id = _extract_runtime_thread_id(record)
     root_span = _build_root_span(record, root_span_id, runtime_thread_id)
-    spans: list[TraceSpanResponse] = [root_span]
     state_snapshots = _build_workflow_state_snapshots(record)
+    tracker = _NamespaceSpanTracker(record.execution_id, root_span_id)
 
-    total_input = 0
-    total_output = 0
+    spans_by_id: dict[str, TraceSpanResponse] = {root_span.span_id: root_span}
     for step in record.steps:
-        node_spans = _build_spans_for_step(
+        for span in _build_spans_for_step(
             record,
             step,
             root_span_id,
             state_snapshots=state_snapshots,
-        )
-        spans.extend(node_spans)
-        for span in node_spans:
-            total_input += int(span.attributes.get("orcheo.token.input", 0))
-            total_output += int(span.attributes.get("orcheo.token.output", 0))
+            tracker=tracker,
+        ):
+            spans_by_id[span.span_id] = span
+
+    total_input = 0
+    total_output = 0
+    for span in spans_by_id.values():
+        if span.span_id == root_span.span_id:
+            continue
+        total_input += int(span.attributes.get("orcheo.token.input", 0))
+        total_output += int(span.attributes.get("orcheo.token.output", 0))
 
     execution_metadata = TraceExecutionMetadata(
         id=record.execution_id,
@@ -101,7 +109,7 @@ def build_trace_response(record: RunHistoryRecord) -> TraceResponse:
 
     return TraceResponse(
         execution=execution_metadata,
-        spans=spans,
+        spans=list(spans_by_id.values()),
         page_info=TracePageInfo(has_next_page=False, cursor=None),
     )
 
@@ -121,12 +129,18 @@ def build_trace_update(
     if include_root:
         spans.append(_build_root_span(record, root_span_id, runtime_thread_id))
     if step is not None:
+        tracker = _NamespaceSpanTracker(record.execution_id, root_span_id)
+        for prior_step in record.steps:
+            if prior_step.index >= step.index:
+                break
+            tracker.observe_all(prior_step)
         spans.extend(
             _build_spans_for_step(
                 record,
                 step,
                 root_span_id,
                 state_snapshots=state_snapshots,
+                tracker=tracker,
             )
         )
 
@@ -154,6 +168,123 @@ def _derive_root_span_id(trace_id: str | None, execution_id: str) -> str:
 def _derive_child_span_id(execution_id: str, step_index: int, node_key: str) -> str:
     digest = blake2b(f"{execution_id}:{step_index}:{node_key}".encode(), digest_size=8)
     return digest.hexdigest()
+
+
+def _derive_namespace_span_id(execution_id: str, namespace: tuple[str, ...]) -> str:
+    """Return a deterministic span id for a subgraph invocation's container span."""
+    digest = blake2b(f"{execution_id}:ns:{':'.join(namespace)}".encode(), digest_size=8)
+    return digest.hexdigest()
+
+
+def _namespace_segment_name(segment: str) -> str:
+    """Return the node name portion of a ``"<node_name>:<task_id>"`` segment."""
+    return segment.split(":", 1)[0]
+
+
+class _NamespaceSpanTracker:
+    """Tracks subgraph container spans across a replay of history steps.
+
+    LangGraph's ``subgraphs=True`` streaming mode reports inner-node updates
+    tagged with a namespace (the path of subgraph invocations they happened
+    in), followed later by a single un-namespaced aggregate update for the
+    outer node once the whole subgraph invocation completes. This tracker
+    keeps a synthetic "container" span per subgraph invocation so inner-node
+    spans can nest under it instead of flattening under the workflow root,
+    and folds the closing aggregate update into that same container instead
+    of emitting a second, disconnected span for it.
+
+    Matching an aggregate update back to the container it closes is done by
+    node name on a first-open-first-close basis, since LangGraph does not
+    otherwise correlate the two. This is correct for sequential or looped
+    subgraph invocations (including Theme Reporter's generate-review-regenerate
+    cycle); concurrent fan-out into multiple parallel invocations of the same
+    subgraph node is not disambiguated precisely.
+    """
+
+    def __init__(self, execution_id: str, root_span_id: str) -> None:
+        """Initialise the tracker for one execution's span hierarchy."""
+        self._execution_id = execution_id
+        self._root_span_id = root_span_id
+        self._bounds: dict[tuple[str, ...], dict[str, Any]] = {}
+        self._open_paths_by_node_name: dict[str, list[tuple[str, ...]]] = defaultdict(
+            list
+        )
+
+    def container_span_id(self, path: tuple[str, ...]) -> str:
+        """Return the deterministic span id for a container path."""
+        return _derive_namespace_span_id(self._execution_id, path)
+
+    def parent_span_id(self, path: tuple[str, ...]) -> str:
+        """Return the span id that should parent the container at ``path``."""
+        if len(path) <= 1:
+            return self._root_span_id
+        return self.container_span_id(path[:-1])
+
+    def observe(
+        self,
+        step: RunHistoryStep,
+        node_key: str,
+        payload: Mapping[str, Any],
+        namespace: tuple[str, ...],
+    ) -> tuple[str, tuple[tuple[str, ...], ...]]:
+        """Record one node update and return its parent span id plus touched paths.
+
+        ``touched`` paths are containers whose bounds changed because of this
+        update, in outer-to-inner order, for the caller to (re-)render.
+        """
+        end_time = _compute_end_time(step.at, payload) or step.at
+        is_error = _status_from_payload(payload).code == "ERROR"
+
+        if namespace:
+            touched: list[tuple[str, ...]] = []
+            for depth in range(1, len(namespace) + 1):
+                path = namespace[:depth]
+                bounds = self._bounds.get(path)
+                if bounds is None:
+                    bounds = {"start": step.at, "end": step.at, "status": "OK"}
+                    self._bounds[path] = bounds
+                    node_name = _namespace_segment_name(path[-1])
+                    self._open_paths_by_node_name[node_name].append(path)
+                bounds["end"] = max(bounds["end"], end_time)
+                touched.append(path)
+            if is_error:
+                self._bounds[namespace]["status"] = "ERROR"
+            return self.container_span_id(namespace), tuple(touched)
+
+        queue = self._open_paths_by_node_name.get(node_key)
+        if queue:
+            path = queue.pop(0)
+            bounds = self._bounds[path]
+            bounds["end"] = max(bounds["end"], end_time)
+            if is_error:
+                bounds["status"] = "ERROR"
+            return self._root_span_id, (path,)
+
+        return self._root_span_id, ()
+
+    def observe_all(self, step: RunHistoryStep) -> None:
+        """Replay every node update in ``step`` for bookkeeping only."""
+        namespace = extract_step_namespace(step.payload)
+        for node_key, payload in step.payload.items():
+            if node_key == NAMESPACE_METADATA_KEY or not isinstance(payload, Mapping):
+                continue
+            self.observe(step, node_key, payload, namespace)
+
+    def render_container(self, path: tuple[str, ...]) -> TraceSpanResponse:
+        """Return the current span snapshot for the container at ``path``."""
+        bounds = self._bounds[path]
+        return TraceSpanResponse(
+            span_id=self.container_span_id(path),
+            parent_span_id=self.parent_span_id(path),
+            name=_namespace_segment_name(path[-1]),
+            start_time=bounds["start"],
+            end_time=bounds["end"],
+            attributes={
+                "orcheo.node.kind": "subgraph",
+                "orcheo.node.namespace": ":".join(path),
+            },
+            status=TraceSpanStatus(code=bounds["status"]),
+        )
 
 
 def _build_root_span(
@@ -216,24 +347,38 @@ def _build_spans_for_step(
     root_span_id: str,
     *,
     state_snapshots: Mapping[tuple[int, str], _WorkflowStateSnapshot] | None = None,
+    tracker: _NamespaceSpanTracker | None = None,
 ) -> list[TraceSpanResponse]:
+    tracker = tracker or _NamespaceSpanTracker(record.execution_id, root_span_id)
+    namespace = extract_step_namespace(step.payload)
     spans: list[TraceSpanResponse] = []
     for node_key, payload in step.payload.items():
+        if node_key == NAMESPACE_METADATA_KEY:
+            continue
         if not isinstance(payload, Mapping):
             continue
-        state_snapshot = None
-        if state_snapshots is not None:
-            state_snapshot = state_snapshots.get((step.index, node_key))
-        span = _build_node_span(
-            record,
-            step,
-            node_key,
-            payload,
-            root_span_id,
-            state_snapshot=state_snapshot,
-        )
-        if span is not None:
-            spans.append(span)
+        parent_id, touched_paths = tracker.observe(step, node_key, payload, namespace)
+        for path in touched_paths:
+            spans.append(tracker.render_container(path))
+        if namespace or not touched_paths:
+            # Either an inner-subgraph node, or an ordinary top-level leaf
+            # node with no open container to close - both get a regular
+            # span. Aggregate updates that close an open container (empty
+            # namespace with a touched path) are folded into the container
+            # render above instead of emitting a second, flat span.
+            state_snapshot = None
+            if state_snapshots is not None:
+                state_snapshot = state_snapshots.get((step.index, node_key))
+            span = _build_node_span(
+                record,
+                step,
+                node_key,
+                payload,
+                parent_id,
+                state_snapshot=state_snapshot,
+            )
+            if span is not None:
+                spans.append(span)
     return spans
 
 
@@ -312,7 +457,7 @@ def _build_workflow_state_snapshots(
 def _initial_workflow_state(inputs: Mapping[str, Any]) -> dict[str, Any]:
     state = _clone_json_like(inputs)
     state.setdefault("inputs", _clone_json_like(inputs))
-    state.setdefault("results", {})
+    state.setdefault("node_results", {})
     state.setdefault("messages", [])
     return state
 

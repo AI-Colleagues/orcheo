@@ -19,20 +19,20 @@ async def test_logic_debug_node_covers_message_and_state_branches() -> None:
         include_state=True,
     )
 
-    state = State({"results": {"items": [{"value": 2}, {"value": 5}]}})
-    payload = (await node(state, RunnableConfig()))["results"]["debug"]
+    state = State({"node_results": {"items": [{"value": 2}, {"value": 5}]}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["debug"]
 
     assert payload["found"] is True
     assert payload["value"] == 5
-    assert payload["state"]["results"]["items"][1]["value"] == 5
+    assert payload["state"]["node_results"]["items"][1]["value"] == 5
 
 
 @pytest.mark.asyncio
 async def test_logic_debug_node_covers_empty_message_path() -> None:
     node = LogicDebugNode(name="debug")
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["debug"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["debug"]
 
     assert payload["message"] is None
     assert payload["tap_path"] is None
@@ -53,7 +53,7 @@ async def test_logic_sub_workflow_node_covers_full_execution() -> None:
                 "type": "SetVariableNode",
                 "name": "derived",
                 "variables": {
-                    "value": "{{ results.initial.value }}",
+                    "value": "{{node_results.initial.value }}",
                     "extra": 9,
                 },
             },
@@ -62,20 +62,20 @@ async def test_logic_sub_workflow_node_covers_full_execution() -> None:
         propagate_to_parent=True,
     )
 
-    state = State({"results": {}})
-    payload = (await node(state, RunnableConfig()))["results"]["sub"]
+    state = State({"node_results": {}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["sub"]
 
     assert payload["result"] == {"value": 3, "extra": 9}
     assert [step["name"] for step in payload["steps"]] == ["initial", "derived"]
-    assert state["results"]["derived"] == {"value": 3, "extra": 9}
-    assert payload["state"]["results"]["derived"]["extra"] == 9
+    assert state["node_results"]["derived"] == {"value": 3, "extra": 9}
+    assert payload["state"]["node_results"]["derived"]["extra"] == 9
 
 
 @pytest.mark.asyncio
 async def test_logic_sub_workflow_node_covers_validation_and_empty_paths() -> None:
     empty = LogicSubWorkflowNode(name="sub", steps=[])
-    state = State({"results": {}})
-    assert (await empty(state, RunnableConfig()))["results"]["sub"] == {
+    state = State({"node_results": {}})
+    assert (await empty(state, RunnableConfig()))["node_results"]["sub"] == {
         "steps": [],
         "result": None,
     }
@@ -107,8 +107,8 @@ async def test_logic_sub_workflow_node_covers_no_propagation_and_no_state() -> N
         include_state=False,
     )
 
-    state = State({"results": {"existing": "data"}})
-    payload = (await node(state, RunnableConfig()))["results"]["sub"]
+    state = State({"node_results": {"existing": "data"}})
+    payload = (await node(state, RunnableConfig()))["node_results"]["sub"]
 
     assert payload["result"] == {"value": 42}
     assert "state" not in payload
@@ -139,9 +139,9 @@ async def test_logic_sub_workflow_node_replaces_non_mapping_parent_results(
         propagate_to_parent=True,
     )
 
-    state = State({"results": "not_a_dict"})
+    state = State({"node_results": "not_a_dict"})
 
     await node(state, RunnableConfig())
 
-    assert isinstance(state["results"], dict)
-    assert state["results"]["step1"] == {"value": 42}
+    assert isinstance(state["node_results"], dict)
+    assert state["node_results"]["step1"] == {"value": 42}

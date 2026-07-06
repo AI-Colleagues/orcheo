@@ -62,7 +62,7 @@ def _build_state(
     return State(
         messages=[],
         inputs=inputs,
-        results={},
+        node_results={},
         config=config or {},
         structured_response=None,
     )
@@ -309,7 +309,7 @@ class TestWeComAIBotPassiveReplyNode:
             State(
                 messages=[],
                 inputs={},
-                results={},
+                node_results={},
                 config={},
                 structured_response=None,
             ),
@@ -352,7 +352,7 @@ class TestWeComAIBotResponseNode:
         )
 
         state = State(
-            messages=[], inputs={}, results={}, config={}, structured_response=None
+            messages=[], inputs={}, node_results={}, config={}, structured_response=None
         )
 
         mock_response = MagicMock()
@@ -387,7 +387,7 @@ class TestWeComAIBotResponseNode:
         state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "wecom_ai_bot_events_parser": {
                     "response_url": "https://example.com/from-parser"
                 }
@@ -426,7 +426,7 @@ class TestWeComAIBotResponseNode:
         state = State(
             messages=[],
             inputs={},
-            results={
+            node_results={
                 "wecom_ai_bot_events_parser": {
                     "aibot_response_url": "https://example.com/from-aibot-key"
                 }
@@ -463,7 +463,7 @@ class TestWeComAIBotResponseNode:
         )
 
         state = State(
-            messages=[], inputs={}, results={}, config={}, structured_response=None
+            messages=[], inputs={}, node_results={}, config={}, structured_response=None
         )
 
         result = await node.run(state, RunnableConfig())
@@ -482,7 +482,7 @@ class TestWeComAIBotResponseNode:
         )
 
         state = State(
-            messages=[], inputs={}, results={}, config={}, structured_response=None
+            messages=[], inputs={}, node_results={}, config={}, structured_response=None
         )
 
         result = await node.run(state, RunnableConfig())
@@ -501,7 +501,7 @@ class TestWeComAIBotResponseNode:
         )
 
         state = State(
-            messages=[], inputs={}, results={}, config={}, structured_response=None
+            messages=[], inputs={}, node_results={}, config={}, structured_response=None
         )
 
         result = await node.run(state, RunnableConfig())
@@ -524,7 +524,7 @@ class TestWeComAIBotResponseNode:
         )
 
         state = State(
-            messages=[], inputs={}, results={}, config={}, structured_response=None
+            messages=[], inputs={}, node_results={}, config={}, structured_response=None
         )
 
         mock_response = MagicMock()
@@ -556,7 +556,7 @@ class TestWeComAIBotResponseNode:
         )
 
         state = State(
-            messages=[], inputs={}, results={}, config={}, structured_response=None
+            messages=[], inputs={}, node_results={}, config={}, structured_response=None
         )
 
         mock_response = MagicMock()
@@ -588,7 +588,7 @@ class TestWeComAIBotResponseNode:
         )
 
         state = State(
-            messages=[], inputs={}, results={}, config={}, structured_response=None
+            messages=[], inputs={}, node_results={}, config={}, structured_response=None
         )
 
         result = await node.run(state, RunnableConfig())
@@ -609,7 +609,7 @@ class TestWeComAIBotResponseNode:
         )
 
         state = State(
-            messages=[], inputs={}, results={}, config={}, structured_response=None
+            messages=[], inputs={}, node_results={}, config={}, structured_response=None
         )
 
         mock_client = MagicMock()
@@ -636,7 +636,7 @@ class TestWeComAIBotResponseNode:
         )
 
         state = State(
-            messages=[], inputs={}, results={}, config={}, structured_response=None
+            messages=[], inputs={}, node_results={}, config={}, structured_response=None
         )
 
         mock_response = MagicMock()
@@ -673,7 +673,7 @@ class TestWeComAIBotResponseNode:
         )
 
         state = State(
-            messages=[], inputs={}, results={}, config={}, structured_response=None
+            messages=[], inputs={}, node_results={}, config={}, structured_response=None
         )
 
         mock_client = MagicMock()
@@ -700,7 +700,7 @@ class TestWeComAIBotResponseNode:
         )
 
         state = State(
-            messages=[], inputs={}, results={}, config={}, structured_response=None
+            messages=[], inputs={}, node_results={}, config={}, structured_response=None
         )
 
         mock_response = MagicMock()
@@ -731,7 +731,7 @@ class TestWeComAIBotResponseNode:
         )
 
         state = State(
-            messages=[], inputs={}, results={}, config={}, structured_response=None
+            messages=[], inputs={}, node_results={}, config={}, structured_response=None
         )
 
         mock_response = MagicMock()
@@ -767,7 +767,7 @@ class TestWeComAIBotResponseNode:
         state = State(
             messages=[],
             inputs={},
-            results={"wecom_ai_bot_events_parser": "not_a_dict"},
+            node_results={"wecom_ai_bot_events_parser": "not_a_dict"},
             config={},
             structured_response=None,
         )
@@ -795,7 +795,7 @@ class TestWeComAIBotEventsParserNodeEdgeCases:
         state = State(
             messages=[],
             inputs="not_a_dict",  # type: ignore[typeddict-item]
-            results={},
+            node_results={},
             config={},
             structured_response=None,
         )
@@ -1038,7 +1038,7 @@ class TestWeComAIBotEventsParserNodeEdgeCases:
         state = State(
             messages=[],
             inputs={},
-            results={},
+            node_results={},
             config="not_a_dict",  # type: ignore[typeddict-item]
             structured_response=None,
         )
@@ -1049,7 +1049,7 @@ class TestWeComAIBotEventsParserNodeEdgeCases:
         state2 = State(
             messages=[],
             inputs={},
-            results={},
+            node_results={},
             config={"configurable": "not_a_dict"},
             structured_response=None,
         )
@@ -1231,7 +1231,7 @@ class TestWeComAIBotPassiveReplyNodeEdgeCases:
             State(
                 messages=[],
                 inputs={},
-                results={},
+                node_results={},
                 config={},
                 structured_response=None,
             ),
@@ -1261,7 +1261,7 @@ class TestWeComAIBotPassiveReplyNodeEdgeCases:
             State(
                 messages=[],
                 inputs={},
-                results={},
+                node_results={},
                 config={},
                 structured_response=None,
             ),
@@ -1294,7 +1294,7 @@ class TestWeComAIBotPassiveReplyNodeEdgeCases:
             State(
                 messages=[],
                 inputs={},
-                results={},
+                node_results={},
                 config={},
                 structured_response=None,
             ),
@@ -1335,7 +1335,7 @@ class TestWeComAIBotPassiveReplyNodeEdgeCases:
             State(
                 messages=[],
                 inputs={},
-                results={},
+                node_results={},
                 config={},
                 structured_response=None,
             ),

@@ -27,8 +27,8 @@ WORKFLOW = textwrap.dedent(
         factor: int = 2
 
         async def run(self, state, config):
-            value = state["results"]["setter"]["value"]
-            return {"results": {"doubled": value * self.factor}}
+            value = state["node_results"]["setter"]["value"]
+            return {"doubled": value * self.factor}
 
     async def orcheo_workflow() -> StateGraph:
         graph = StateGraph(State)
@@ -123,8 +123,8 @@ async def test_restricted_ingest_store_run_roundtrip(
     compiled = build_graph(payload).compile()
     result = await compiled.ainvoke({"inputs": {}})
 
-    assert result["results"]["setter"] == {"value": 10}
-    assert result["results"]["doubled"] == 50
+    assert result["node_results"]["setter"] == {"value": 10}
+    assert result["node_results"]["doubler"] == {"doubled": 50}
 
 
 def test_restricted_ingest_payload_renders_mermaid(

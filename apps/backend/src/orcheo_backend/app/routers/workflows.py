@@ -66,6 +66,7 @@ from orcheo_backend.app.schemas.workflows import (
     WorkflowPublishRequest,
     WorkflowPublishResponse,
     WorkflowPublishRevokeRequest,
+    WorkflowResponse,
     WorkflowUpdateRequest,
     WorkflowVersionDiffResponse,
     WorkflowVersionIngestRequest,
@@ -162,12 +163,13 @@ async def _apply_share_url_async(
     public_base_url: str | None,
     *,
     workspace_slug: str | None = None,
-) -> Workflow:
+) -> WorkflowResponse:
     """Resolve team slug then apply share URL — use for single-workflow responses."""
     team_slug = await _resolve_team_slug(repository, workflow)
-    return _apply_share_url(
+    workflow = _apply_share_url(
         workflow, public_base_url, team_slug=team_slug, workspace_slug=workspace_slug
     )
+    return WorkflowResponse(**workflow.model_dump(), team_slug=team_slug)
 
 
 def _apply_share_urls(
@@ -381,6 +383,18 @@ def _graph_has_cron_trigger(graph: Any) -> bool:
     return _has_cron_trigger_node(summary.get("nodes"))
 
 
+def _http_exception_detail_message(exc: HTTPException) -> str:
+    """Return a readable message from an HTTPException detail payload."""
+    detail = exc.detail
+    if isinstance(detail, str):
+        return detail
+    if isinstance(detail, dict):
+        message = detail.get("message")
+        if isinstance(message, str):
+            return message
+    return str(detail)
+
+
 def _to_workflow_page_version_summary(
     version: WorkflowVersion,
 ) -> WorkflowPageVersionSummary:
@@ -466,6 +480,34 @@ async def _load_workflow_for_request(
     return workflow
 
 
+async def _clear_workflow_upload_error(
+    repository: RepositoryDep,
+    workflow: Workflow,
+    *,
+    actor: str,
+) -> None:
+    """Best-effort clear of a stale ``upload_error`` after a successful ingest.
+
+    The workflow version was already created, so a failure here must not surface
+    as a 500 for what is otherwise a successful ingest.
+    """
+    if workflow.upload_error is None:
+        return
+    try:
+        await repository.set_workflow_upload_error(
+            workflow.id,
+            message=None,
+            actor=actor,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Failed to clear stale upload_error for workflow %s after a "
+            "successful ingest",
+            workflow.id,
+            exc_info=True,
+        )
+
+
 async def _get_workflow_latest_version_summary(
     repository: RepositoryDep,
     workflow_id: UUID,
@@ -492,6 +534,7 @@ async def _get_workflow_schedule_summary(
 async def _build_workflow_list_item(
     repository: RepositoryDep,
     workflow: Workflow,
+    team_slug: str | None = None,
 ) -> WorkflowListItem:
     """Build a list item by fetching workflow summaries concurrently."""
     latest_version, is_scheduled = await asyncio.gather(
@@ -500,6 +543,7 @@ async def _build_workflow_list_item(
     )
     return WorkflowListItem(
         **workflow.model_dump(),
+        team_slug=team_slug,
         latest_version=latest_version,
         is_scheduled=is_scheduled,
     )
@@ -628,7 +672,11 @@ async def list_workflows(
     teams_by_id = {str(team.id): team.slug for team in teams}
     return await asyncio.gather(
         *[
-            _build_workflow_list_item(repository, workflow)
+            _build_workflow_list_item(
+                repository,
+                workflow,
+                teams_by_id.get(workflow.team_id) if workflow.team_id else None,
+            )
             for workflow in _apply_share_urls(
                 workflows,
                 public_base_url,
@@ -641,7 +689,7 @@ async def list_workflows(
 
 @router.post(
     "/workflows",
-    response_model=Workflow,
+    response_model=WorkflowResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def create_workflow(
@@ -649,7 +697,7 @@ async def create_workflow(
     repository: RepositoryDep,
     workspace: WorkspaceContextDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
-) -> Workflow:
+) -> WorkflowResponse:
     """Create a new workflow entry."""
     context = _resolve_authenticated_context(policy)
     actor = _resolve_actor(request.actor, context)
@@ -708,12 +756,12 @@ async def create_workflow(
         raise exc.as_http_exception() from exc
 
 
-@router.get("/workflows/{workflow_ref}", response_model=Workflow)
+@router.get("/workflows/{workflow_ref}", response_model=WorkflowResponse)
 async def get_workflow(
     workflow_ref: str,
     repository: RepositoryDep,
     workspace: WorkspaceContextDep,
-) -> Workflow:
+) -> WorkflowResponse:
     """Fetch a single workflow by its identifier."""
     tid = str(workspace.workspace_id)
     workflow = await _load_workflow_for_request(
@@ -754,14 +802,14 @@ async def get_workflow_page(
     )
 
 
-@router.put("/workflows/{workflow_ref}", response_model=Workflow)
+@router.put("/workflows/{workflow_ref}", response_model=WorkflowResponse)
 async def update_workflow(
     workflow_ref: str,
     request: WorkflowUpdateRequest,
     repository: RepositoryDep,
     workspace: WorkspaceContextDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
-) -> Workflow:
+) -> WorkflowResponse:
     """Update attributes of an existing workflow."""
     tid = str(workspace.workspace_id)
     workflow = await _load_workflow_for_request(
@@ -812,14 +860,14 @@ async def update_workflow(
         ) from exc
 
 
-@router.delete("/workflows/{workflow_ref}", response_model=Workflow)
+@router.delete("/workflows/{workflow_ref}", response_model=WorkflowResponse)
 async def archive_workflow(
     workflow_ref: str,
     repository: RepositoryDep,
     workspace: WorkspaceContextDep,
     actor: str = Query("system"),
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
-) -> Workflow:
+) -> WorkflowResponse:
     """Archive a workflow via the delete verb."""
     tid = str(workspace.workspace_id)
     context = _resolve_authenticated_context(policy)
@@ -869,17 +917,24 @@ async def ingest_workflow_version(
         workflow_ref,
         workspace_id=tid,
     )
+    actor = request.created_by
     required_plugins = _required_plugins_from_metadata(request.metadata)
     missing_plugins = missing_required_plugins(required_plugins)
     if missing_plugins:
         plugin_list = ", ".join(missing_plugins)
         noun = "plugin" if len(missing_plugins) == 1 else "plugins"
+        message = (
+            f"Missing required {noun} for this template: {plugin_list}. "
+            "Install them into the runtime before importing the template."
+        )
+        await repository.set_workflow_upload_error(
+            workflow.id,
+            message=message,
+            actor=actor,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"Missing required {noun} for this template: {plugin_list}. "
-                "Install them into the runtime before importing the template."
-            ),
+            detail=message,
         )
     try:
         graph_payload = ingest_workflow(
@@ -887,9 +942,15 @@ async def ingest_workflow_version(
             entrypoint=request.entrypoint,
         )
     except (WorkflowValidationError, ScriptIngestionError) as exc:
+        message = str(exc)
+        await repository.set_workflow_upload_error(
+            workflow.id,
+            message=message,
+            actor=actor,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
+            detail=message,
         ) from exc
 
     # Pre-compute mermaid using the full Python environment and store it in the
@@ -898,10 +959,18 @@ async def ingest_workflow_version(
     if mermaid and isinstance(graph_payload.get("index"), dict):
         graph_payload["index"]["mermaid"] = mermaid
 
-    runnable_config, metadata = _resolve_ingest_configurable_schema(
-        request.runnable_config,
-        request.metadata,
-    )
+    try:
+        runnable_config, metadata = _resolve_ingest_configurable_schema(
+            request.runnable_config,
+            request.metadata,
+        )
+    except HTTPException as exc:
+        await repository.set_workflow_upload_error(
+            workflow.id,
+            message=_http_exception_detail_message(exc),
+            actor=actor,
+        )
+        raise
     metadata = _merge_frontmatter_avatar(request.script, metadata)
     metadata = _apply_configurable_schema_order(metadata)
 
@@ -932,9 +1001,11 @@ async def ingest_workflow_version(
             created_by=request.created_by,
             runnable_config=serialized_config,
         )
-        return _attach_mermaid(version)
     except WorkflowNotFoundError as exc:
         raise_not_found("Workflow not found", exc)
+
+    await _clear_workflow_upload_error(repository, workflow, actor=actor)
+    return _attach_mermaid(version)
 
 
 @router.put(
@@ -1079,7 +1150,7 @@ async def diff_workflow_versions(
 
 
 def _publish_response(
-    workflow: Workflow,
+    workflow: WorkflowResponse,
     *,
     message: str | None = None,
 ) -> WorkflowPublishResponse:
@@ -1148,7 +1219,7 @@ async def publish_workflow(
 
 @router.post(
     "/workflows/{workflow_ref}/publish/revoke",
-    response_model=Workflow,
+    response_model=WorkflowResponse,
 )
 async def revoke_workflow_publish(
     workflow_ref: str,
@@ -1156,7 +1227,7 @@ async def revoke_workflow_publish(
     repository: RepositoryDep,
     workspace: WorkspaceContextDep,
     policy: AuthorizationPolicy = Depends(get_authorization_policy),  # noqa: B008
-) -> Workflow:
+) -> WorkflowResponse:
     """Revoke public access to the workflow."""
     tid = str(workspace.workspace_id)
     workflow = await _load_workflow_for_request(
