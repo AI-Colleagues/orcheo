@@ -5,6 +5,7 @@
 
 import React from "react";
 import { RegistryWidgetsType, WidgetProps } from "@rjsf/utils";
+import { HelpCircle } from "lucide-react";
 import { Input } from "@/design-system/ui/input";
 import { Label } from "@/design-system/ui/label";
 import { Switch } from "@/design-system/ui/switch";
@@ -15,6 +16,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/design-system/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/design-system/ui/tooltip";
 
 function NumberWidget(props: WidgetProps) {
   const {
@@ -49,7 +56,8 @@ function NumberWidget(props: WidgetProps) {
 }
 
 function CheckboxWidget(props: WidgetProps) {
-  const { id, value, onChange, label, disabled, readonly } = props;
+  const { id, value, onChange, label, disabled, readonly, schema } = props;
+  const description = schema.description;
 
   return (
     <div className="flex items-center space-x-2">
@@ -60,6 +68,24 @@ function CheckboxWidget(props: WidgetProps) {
         disabled={disabled || readonly}
       />
       <Label htmlFor={id}>{label}</Label>
+      {description && (
+        <TooltipProvider delayDuration={300}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={`${label} help`}
+                className="inline-flex items-center justify-center rounded-full h-4 w-4 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <HelpCircle className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="max-w-[300px]">
+              <p className="text-xs">{description}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
     </div>
   );
 }
