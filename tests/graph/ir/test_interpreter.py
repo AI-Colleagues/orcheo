@@ -1511,6 +1511,30 @@ def test_config_value_accepts_tuple_literal() -> None:
     assert node.config["variables"]["pair"] == (1, 2)
 
 
+def test_config_value_accepts_list_literal() -> None:
+    """A list literal nested in built-in node config is lowered element-wise."""
+    ir = _compile(
+        """
+        from orcheo.graph import StateGraph, START, END
+        from orcheo.graph.state import State
+        from orcheo.nodes.logic import SetVariableNode
+
+        def orcheo_workflow():
+            graph = StateGraph(State)
+            graph.add_node(
+                "s", SetVariableNode(name="s", variables={"items": [1, 2, 3]})
+            )
+            graph.add_edge(START, "s")
+            graph.add_edge("s", END)
+            return graph
+        """
+    )
+
+    node = ir.nodes[0]
+    assert isinstance(node, BuiltinNodeSpec)
+    assert node.config["variables"]["items"] == [1, 2, 3]
+
+
 def test_bare_name_in_builtin_config_not_imported_is_rejected() -> None:
     """A bare name in built-in config that isn't an imported symbol is rejected."""
     with pytest.raises(
