@@ -1,3 +1,6 @@
 [submodule "colleague-candidates"]
 	path = colleague-candidates
 	url = https://github.com/AI-Colleagues/colleague-candidates.git
+[submodule "agent-skills"]
+	path = agent-skills
+	url = https://github.com/AI-Colleagues/agent-skills.git
