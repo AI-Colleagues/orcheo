@@ -23,7 +23,9 @@ from orcheo.nodes.qualitative.pipeline import (
 )
 from orcheo.nodes.qualitative.quality import DataQualityNode
 from orcheo.nodes.qualitative.quantify import CodedDataIngestNode
+from orcheo.nodes.qualitative.radar_report import TwoTrackThemeReportNode
 from orcheo.nodes.qualitative.report import ExportReportNode, ReportOutputNode
+from orcheo.nodes.qualitative.segment import SegmentRecordsNode
 from orcheo.nodes.qualitative.stages import (
     LLMStageFinalizeNode,
     LLMStagePrepareNode,
@@ -50,5 +52,7 @@ __all__ = [
     "RecodingBatchResponse",
     "RecommendationGeneratorNode",
     "ReportOutputNode",
+    "SegmentRecordsNode",
+    "TwoTrackThemeReportNode",
     "ValidateFilesNode",
 ]

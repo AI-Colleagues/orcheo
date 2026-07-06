@@ -169,6 +169,51 @@ class MessageTelegramNode(TaskNode):
 
 @registry.register(
     NodeMetadata(
+        name="TelegramSendDocumentNode",
+        description="Send a document file to Telegram",
+        category="messaging",
+    )
+)
+class TelegramSendDocumentNode(TaskNode):
+    """Node for sending a document (file attachment) to a Telegram chat.
+
+    The document content is provided inline as text (e.g. a rendered
+    Markdown report) and delivered under the configured filename.
+    """
+
+    token: str = "[[telegram_token]]"
+    chat_id: str | None = None
+    content: str | None = None
+    filename: str = "document.txt"
+    caption: str | None = None
+    parse_mode: str | None = None
+
+    async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        """Send the document to Telegram and return status."""
+        assert self.chat_id is not None
+        if not self.content:
+            msg = "Telegram document content is required"
+            raise ValueError(msg)
+        bot = Bot(token=self.token)
+        try:
+            result = await bot.send_document(
+                chat_id=self.chat_id,
+                document=self.content.encode("utf-8"),
+                filename=self.filename,
+                caption=self.caption,
+                parse_mode=self.parse_mode,
+            )
+            return {
+                "message_id": result.message_id,
+                "filename": self.filename,
+                "status": "sent",
+            }
+        except Exception as e:
+            raise ValueError(f"Telegram API error: {str(e)}") from e
+
+
+@registry.register(
+    NodeMetadata(
         name="TelegramEventsParserNode",
         description="Validate and parse Telegram Bot webhook updates",
         category="telegram",
@@ -317,6 +362,7 @@ __all__ = [
     "MessageTelegram",
     "MessageTelegramNode",
     "TelegramEventsParserNode",
+    "TelegramSendDocumentNode",
     "detect_telegram_update_type",
     "escape_markdown",
     "extract_telegram_update_details",

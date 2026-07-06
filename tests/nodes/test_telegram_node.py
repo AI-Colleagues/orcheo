@@ -10,6 +10,7 @@ from orcheo.graph.state import State
 from orcheo.nodes.connectors.telegram import (
     MessageTelegram,
     TelegramEventsParserNode,
+    TelegramSendDocumentNode,
     escape_markdown,
 )
 
@@ -574,3 +575,63 @@ async def test_parser_run_whitespace_text_does_not_inject_message() -> None:
 
     assert "messages" not in result
     assert result["node_results"]["parser"]["should_process"] is True
+
+
+@pytest.mark.asyncio
+async def test_telegram_send_document_node():
+    """TelegramSendDocumentNode sends the content bytes under the filename."""
+    node = TelegramSendDocumentNode(
+        name="send_report",
+        token="test_token",
+        chat_id="123456",
+        content="# Report\n\nBody",
+        filename="report.md",
+        caption="Fresh report",
+    )
+    mock_message = AsyncMock(spec=Message)
+    mock_message.message_id = 7
+
+    mock_bot = AsyncMock()
+    mock_bot.send_document = AsyncMock(return_value=mock_message)
+
+    with patch("orcheo.nodes.telegram.Bot", return_value=mock_bot):
+        result = await node.run(State(), None)
+
+    assert result == {"message_id": 7, "filename": "report.md", "status": "sent"}
+    mock_bot.send_document.assert_called_once_with(
+        chat_id="123456",
+        document="# Report\n\nBody".encode("utf-8"),
+        filename="report.md",
+        caption="Fresh report",
+        parse_mode=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_telegram_send_document_node_requires_content():
+    """Missing document content raises a ValueError."""
+    node = TelegramSendDocumentNode(
+        name="send_report",
+        token="test_token",
+        chat_id="123456",
+        content=None,
+    )
+    with pytest.raises(ValueError, match="document content is required"):
+        await node.run(State(), None)
+
+
+@pytest.mark.asyncio
+async def test_telegram_send_document_node_api_error():
+    """Telegram API failures are wrapped in a ValueError."""
+    node = TelegramSendDocumentNode(
+        name="send_report",
+        token="test_token",
+        chat_id="123456",
+        content="body",
+    )
+    mock_bot = AsyncMock()
+    mock_bot.send_document = AsyncMock(side_effect=Exception("Bad Request"))
+
+    with patch("orcheo.nodes.telegram.Bot", return_value=mock_bot):
+        with pytest.raises(ValueError, match="Telegram API error: Bad Request"):
+            await node.run(State(), None)
