@@ -101,7 +101,7 @@ class _SchemaCompiler:
 
         self._stack.append(name)
         try:
-            fields: dict[str, tuple[Any, Any]] = {}
+            fields: dict[str, Any] = {}
             for member in schema.body:
                 if _is_docstring(member):
                     continue
@@ -158,10 +158,12 @@ class _SchemaCompiler:
             )
         base = node.value.id
         if base == "list":
-            return list[self._annotation_from_ast(node.slice)]
+            list_type: Any = list
+            return list_type[self._annotation_from_ast(node.slice)]
         if base == "dict":
             key_node, value_node = _tuple_slice(node.slice, expected=2)
-            return dict[
+            dict_type: Any = dict
+            return dict_type[
                 self._annotation_from_ast(key_node),
                 self._annotation_from_ast(value_node),
             ]

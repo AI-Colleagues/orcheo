@@ -12,6 +12,7 @@ from orcheo.nodes.registry import NodeMetadata, registry
 
 
 HtmlTextOperation = Literal["unescape", "escape", "normalize_nbsp"]
+_DEFAULT_OPERATIONS: list[HtmlTextOperation] = ["unescape"]
 
 
 def _apply_html_text_operations(
@@ -86,7 +87,7 @@ class HtmlTextTransformNode(TaskNode):
 
     input_data: Any = Field(description="Input text or structured payload")
     operations: list[HtmlTextOperation] = Field(
-        default_factory=lambda: ["unescape"],
+        default_factory=lambda: list(_DEFAULT_OPERATIONS),
         description="HTML text operations applied in order",
     )
     fields: list[str] | None = Field(

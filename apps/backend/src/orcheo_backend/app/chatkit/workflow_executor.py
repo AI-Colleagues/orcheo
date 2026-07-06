@@ -419,10 +419,11 @@ class WorkflowExecutor:
                     store=graph_store,
                 )
                 pending_interrupts = await _pending_interrupts(compiled, config)
+                payload: Any
                 if pending_interrupts:
                     payload = Command(resume=_resume_value_from_inputs(inputs))
                 elif workspace_id is None:
-                    payload: Any = build_initial_state(
+                    payload = build_initial_state(
                         graph_config,
                         inputs,
                         runtime_config=state_config,
