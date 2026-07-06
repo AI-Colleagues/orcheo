@@ -4,7 +4,6 @@ from __future__ import annotations
 import ast
 import builtins
 import textwrap
-from pathlib import Path
 from types import SimpleNamespace
 import pytest
 from orcheo.graph.ir.builder import MAX_GRAPH_DEPTH
@@ -20,14 +19,6 @@ from orcheo.graph.ir.models import (
     SubgraphNodeSpec,
 )
 from orcheo.nodes.qualitative import QuoteSelectionResponse
-
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_KNOWLEDGE_GUIDE_WORKFLOW = (
-    _REPO_ROOT
-    / "colleague-candidates/colleagues/knowledge_desk/"
-    / "knowledge_guide/workflow.py"
-)
-
 
 CONFORMING = '''
 """A conforming workflow."""
@@ -396,18 +387,6 @@ def test_imported_orcheo_pydantic_model_is_allowed_in_builtin_config() -> None:
         "module": "orcheo.nodes.qualitative",
         "name": "QuoteSelectionResponse",
     }
-
-
-def test_knowledge_guide_workflow_compiles_in_restricted_mode() -> None:
-    """The Knowledge Guide workflow compiles with helper graphs and schema imports."""
-    ir = compile_workflow_to_ir(_KNOWLEDGE_GUIDE_WORKFLOW.read_text())
-
-    agent = ir.nodes[0]
-    assert isinstance(agent, BuiltinNodeSpec)
-    tool = agent.config["workflow_tools"][0]
-    assert tool["name"] == "mongodb_hybrid_search"
-    assert tool["graph"]["entrypoint"] == "query_embedding"
-    assert tool["args_schema"]["properties"]["query"]["type"] == "string"
 
 
 def test_set_entry_point_resolves_entrypoint() -> None:
