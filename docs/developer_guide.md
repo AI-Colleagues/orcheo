@@ -4,9 +4,10 @@ This guide is for developers contributing to the Orcheo project.
 
 ## Repository Layout
 
-- `src/orcheo/` – core orchestration engine and FastAPI implementation
-- `apps/backend/` – deployment wrapper exposing the FastAPI ASGI app
-- `packages/sdk/` – lightweight Python SDK for composing workflow requests
+- `src/orcheo/` – core orchestration engine (graph builder, nodes, triggers, listeners, vault, workspace, identity, sandbox)
+- `apps/backend/` – the FastAPI application (`orcheo_backend.app`), WebSocket endpoints, identity service, and Celery worker
+- `packages/sdk/` – Python SDK and the `orcheo` / `horcheo` CLI
+- `packages/agentensor/` – agent prompt tensors, modules, and optimizers
 - `apps/studio/` – React + Vite web interface for monitoring and managing workflows
 
 ## Evaluation Node Imports
@@ -55,8 +56,8 @@ Opening the repository inside VS Code automatically offers to start the included
 # Run all tests with coverage
 make test
 
-# Run specific test file
-uv run pytest tests/nodes/test_ai_node.py
+# Run a specific test directory or file
+uv run pytest tests/nodes/ai
 
 # Run with verbose output
 uv run pytest -v tests/
@@ -106,10 +107,13 @@ Refer to `.env.example` for sample values and to [Deployment Guide](deployment.m
 
 ## Examples
 
-The `examples/` directory contains usage examples and notebooks:
-
-- `examples/quickstart/` – Studio and SDK user journeys
-- `examples/ingest_langgraph.py` – push a Python LangGraph script directly to the backend importer, execute it, and stream live updates
+The `examples/` directory contains ChatKit widget examples
+(`examples/chatkit_widgets/`, including `sdk_quickstart.py`). A broader set of
+example workflows — quickstart journeys, ingestion scripts, messaging bots, and
+more — lives in the
+[`colleague-candidates`](https://github.com/AI-Colleagues/colleague-candidates)
+repository's `examples/` directory (vendored here as the `colleague-candidates/`
+git submodule).
 
 ## Further Reading
 

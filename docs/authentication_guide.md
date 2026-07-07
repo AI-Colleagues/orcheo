@@ -27,6 +27,14 @@ The authentication system supports two primary methods:
 1. **Service Tokens**: Long-lived tokens for CLI, CI/CD, and service-to-service communication
 2. **JWT Tokens**: Standards-based JSON Web Tokens with symmetric (HS256) or asymmetric (RS256) signing
 
+For interactive users, JWTs are minted by Orcheo's **first-party passwordless
+email identity provider** (magic link + OTP): the identity service signs HS256
+access tokens with `ORCHEO_AUTH_JWT_SECRET` and the backend accepts only the
+configured `ORCHEO_AUTH_ISSUER`. See
+[First-party authentication: rollout & operations](first_party_auth_rollout.md)
+for the production setup; the generic JWKS/RS256 material below is retained for
+the dormant external-IdP path.
+
 ## Authentication Modes
 
 ### Setting the Authentication Mode
@@ -96,7 +104,7 @@ A bootstrap token is a special service token configured via the `ORCHEO_AUTH_BOO
 4. **Create your first persistent token**:
    ```bash
    export ORCHEO_SERVICE_TOKEN="your-secure-random-token"
-   orcheo token create --id production-token \
+   orcheo token create --name production-token \
      --scope workflows:read \
      --scope workflows:write \
      --scope workflows:execute
@@ -149,22 +157,26 @@ All service token management is done through the CLI or API. Tokens are stored i
 # Create a basic service token
 orcheo token create
 
-# Create a token with a custom identifier
-orcheo token create --id my-ci-token
+# Create a token with a human-readable name
+orcheo token create --name my-ci-token
 
 # Create a token with specific scopes
-orcheo token create --id backend-service \
+orcheo token create --name backend-service \
   --scope workflows:read \
   --scope workflows:execute
 
 # Create a token with workspace access restrictions
-orcheo token create --id analytics-service \
+orcheo token create --name analytics-service \
   --workspace ws-analytics \
   --workspace ws-reports
 
 # Create a token that expires in 30 days (2,592,000 seconds)
-orcheo token create --id temp-token --expires-in 2592000
+orcheo token create --name temp-token --expires-in 2592000
 ```
+
+The server assigns each token an ID; `--name` is an optional human-readable
+label (it need not be unique). Use the ID from the creation output or
+`orcheo token list` for `show` and `revoke`.
 
 **Important**: The token secret is displayed only once during creation. Store it securely in a password manager or secrets vault.
 
@@ -172,7 +184,8 @@ Example output:
 ```
 Service token created successfully!
 
-ID: my-ci-token
+ID: 6f0c1f6a-6a3e-4d5a-9b3e-2f4f9c9d1a2b
+Name: my-ci-token
 Secret: VGhpc0lzQW5FeGFtcGxlU2VjcmV0VG9rZW5TdHJpbmc=
 
 ⚠ Store this secret securely. It will not be shown again.
@@ -194,8 +207,8 @@ This displays a table with token IDs, scopes, workspaces, issuance dates, expira
 #### Viewing Token Details
 
 ```bash
-# Show detailed information for a specific token
-orcheo token show my-ci-token
+# Show detailed information for a specific token (use the ID from `orcheo token list`)
+orcheo token show <token-id>
 ```
 
 #### Replacing Service Tokens
@@ -214,8 +227,8 @@ orcheo token revoke <old-token-id> --reason "Replaced by new token"
 Immediately invalidate a token:
 
 ```bash
-# Revoke a token with a reason
-orcheo token revoke my-ci-token --reason "Token compromised"
+# Revoke a token with a reason (the --reason flag is required)
+orcheo token revoke <token-id> --reason "Token compromised"
 ```
 
 Revoked tokens cannot be used for authentication and the action is logged in the audit trail.
@@ -246,23 +259,25 @@ service_token = "your-token-secret-here"
 
 ```python
 import os
-from orcheo_sdk import OrcheoClient
+from orcheo_sdk import HttpWorkflowExecutor, OrcheoClient
 
-# Using environment variable
-client = OrcheoClient(
-    api_url="https://orcheo.example.com",
-    token=os.environ["ORCHEO_SERVICE_TOKEN"]
+client = OrcheoClient(base_url="https://orcheo.example.com")
+executor = HttpWorkflowExecutor(
+    client,
+    auth_token=os.environ.get("ORCHEO_SERVICE_TOKEN"),
 )
 
-# Or pass directly (not recommended for production)
-client = OrcheoClient(
-    api_url="https://orcheo.example.com",
-    token="your-token-secret-here"
+result = executor.trigger_run(
+    "<workflow-id>",
+    workflow_version_id="<version-id>",
+    triggered_by="ci",
+    inputs={},
 )
-
-# Use the client
-workflows = client.list_workflows()
+print(result)
 ```
+
+Tip: `orcheo code scaffold <workflow_id>` generates this snippet pre-filled for
+an uploaded workflow.
 
 #### With HTTP Requests
 
@@ -300,15 +315,13 @@ deploy:
 
 ### Service Token Configuration
 
-The service token backend is controlled by:
+Service tokens are stored in the Postgres-backed repository — `postgres` is
+both the default and the only accepted value:
 
 ```bash
-# Use the Postgres-backed repository
-export ORCHEO_AUTH_SERVICE_TOKEN_BACKEND=postgres
+export ORCHEO_AUTH_SERVICE_TOKEN_BACKEND=postgres  # default; other values are rejected
 export ORCHEO_POSTGRES_DSN=postgresql://user:pass@host:5432/orcheo
 ```
-
-If not specified, tokens stay in the in-memory repository for the life of the process.
 
 ## JWT Authentication
 
@@ -341,7 +354,12 @@ python -c "import secrets; print(secrets.token_urlsafe(64))"
 
 ### Asymmetric Key (RS256) Authentication with JWKS
 
-For production deployments with an Identity Provider (IdP) like Auth0, Okta, or Keycloak:
+> **Dormant path.** Production user authentication is the first-party HS256
+> identity provider above. The generic JWKS relying-party layer is retained
+> for a future enterprise-SSO initiative — configure it only when federating
+> with an external IdP.
+
+For deployments federating with an external Identity Provider (IdP) like Auth0, Okta, or Keycloak:
 
 ```bash
 # Configure JWKS URL for fetching public keys
@@ -423,10 +441,8 @@ curl -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..." \
 
 With the Python SDK:
 ```python
-client = OrcheoClient(
-    api_url="https://orcheo.example.com",
-    token=user_jwt_token
-)
+client = OrcheoClient(base_url="https://orcheo.example.com")
+executor = HttpWorkflowExecutor(client, auth_token=user_jwt_token)
 ```
 
 ## WebSocket Authentication
@@ -436,7 +452,7 @@ WebSocket connections support authentication via:
 ### 1. Authorization Header (Preferred)
 
 ```javascript
-const ws = new WebSocket('wss://orcheo.example.com/ws/workflow', {
+const ws = new WebSocket('wss://orcheo.example.com/ws/workflow/<workflow-id>', {
   headers: {
     'Authorization': 'Bearer YOUR_TOKEN_HERE'
   }
@@ -447,14 +463,14 @@ const ws = new WebSocket('wss://orcheo.example.com/ws/workflow', {
 
 ```javascript
 const ws = new WebSocket(
-  'wss://orcheo.example.com/ws/workflow?token=YOUR_TOKEN_HERE'
+  'wss://orcheo.example.com/ws/workflow/<workflow-id>?token=YOUR_TOKEN_HERE'
 );
 ```
 
 Or using `access_token`:
 ```javascript
 const ws = new WebSocket(
-  'wss://orcheo.example.com/ws/workflow?access_token=YOUR_TOKEN_HERE'
+  'wss://orcheo.example.com/ws/workflow/<workflow-id>?access_token=YOUR_TOKEN_HERE'
 );
 ```
 
@@ -584,7 +600,7 @@ Retry-After: 60
 ### JWT Configuration
 
 1. **Use strong secrets**: Minimum 32 bytes for HS256, generated randomly
-2. **Prefer asymmetric signing**: Use RS256 with JWKS for production deployments
+2. **HS256 is the supported production path**: the first-party IdP signs with `ORCHEO_AUTH_JWT_SECRET`; RS256/JWKS is reserved for external-IdP federation
 3. **Validate claims**: Always configure `ORCHEO_AUTH_AUDIENCE` and `ORCHEO_AUTH_ISSUER`
 4. **Restrict algorithms**: Use `ORCHEO_AUTH_ALLOWED_ALGORITHMS` to prevent algorithm confusion attacks
 5. **Enable JWKS caching**: Reduce external dependencies and improve performance
@@ -668,7 +684,7 @@ orcheo token list
 **Solution**:
 ```bash
 # Create a new token with the required scope
-orcheo token create --id new-token --scope workflows:write
+orcheo token create --name new-token --scope workflows:write
 ```
 
 #### "Workspace access denied"
@@ -678,7 +694,7 @@ orcheo token create --id new-token --scope workflows:write
 **Solution**:
 ```bash
 # Create token with workspace access
-orcheo token create --id workspace-token \
+orcheo token create --name workspace-token \
   --workspace ws-production
 ```
 
@@ -700,7 +716,7 @@ export ORCHEO_LOG_LEVEL=DEBUG
 export ORCHEO_LOG_SENSITIVE_DEBUG=1
 
 # Start Orcheo backend
-orcheo server start
+orcheo-dev-server
 ```
 
 This logs detailed authentication events, token validation steps, and scope checks.

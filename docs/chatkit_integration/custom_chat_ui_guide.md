@@ -314,7 +314,7 @@ Attach the returned object to `input.attachments` in your next `/api/chatkit` re
 ## References
 
 - Hosted ChatKit request wrapper: `apps/studio/src/features/chatkit/lib/chatkit-client.ts`
-- Hosted ChatKit widget example: `examples/chatkit-embedding.html`
+- Hosted ChatKit widget example: `colleague-candidates/examples/chatkit-embedding.html`
 - Publish flow: [Workflow Publishing](workflow_publish_guide.md)
 - Hosted widget flow: [Webpage Embedding](webpage_embedding_guide.md)
 - Studio-authenticated flow: [Studio Chat Bubble](studio_chat_bubble_guide.md)

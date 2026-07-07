@@ -230,16 +230,14 @@ They:
 
 - install through `orcheo plugin install`
 - register plugin-provided listener nodes plus listener runtimes
-- compile from the shared Studio template
+- compile from the shared example workflow
 - dispatch normalized payloads through the runtime adapter contract
 
-The shared builder artifact is the Studio template
-`template-wecom-lark-shared-listener`, backed by:
+The shared builder workflow lives in the `colleague-candidates` git submodule
+at `colleague-candidates/examples/wecom_lark_shared_listener/` (`workflow.py`
+plus `config.json`).
 
-- `apps/studio/src/features/workflow/data/templates/wecom-lark-shared-listener.ts`
-- `apps/studio/src/features/workflow/data/templates/assets/wecom-lark-shared-listener/workflow.py`
-
-Install both plugins before importing that template into a runtime environment.
+Install both plugins before uploading that workflow to a runtime environment.
 
 ## Runtime Impact Rules
 

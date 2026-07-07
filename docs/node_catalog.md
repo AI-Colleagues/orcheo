@@ -1,6 +1,6 @@
 # Built-in Node Catalog
 
-Orcheo currently ships with **97 built-in nodes** across **14 categories**.
+Orcheo currently ships with **138 built-in nodes** across **21 categories**.
 
 This catalog is sourced from runtime node registry metadata. Run `orcheo node list` to inspect the nodes available in your environment, including custom registrations.
 
@@ -8,20 +8,36 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 
 | Category | Node Count |
 |---|---:|
-| Agentensor (`agentensor`) | 1 |
 | AI (`ai`) | 4 |
+| Agentensor (`agentensor`) | 1 |
 | Base (`base`) | 1 |
+| Browser (`browser`) | 6 |
 | Communication (`communication`) | 2 |
 | Conversational Search (`conversational_search`) | 46 |
-| Data (`data`) | 4 |
+| Data (`data`) | 6 |
 | Evaluation (`evaluation`) | 8 |
-| Messaging (`messaging`) | 1 |
-| MongoDB (`mongodb`) | 8 |
+| Lark (`lark`) | 2 |
+| LinkedIn (`linkedin`) | 1 |
+| Logic (`logic`) | 3 |
+| Messaging (`messaging`) | 4 |
+| MongoDB (`mongodb`) | 9 |
+| RSS (`rss`) | 1 |
 | Slack (`slack`) | 2 |
-| Storage (`storage`) | 2 |
-| Trigger (`trigger`) | 4 |
+| Storage (`storage`) | 3 |
+| Telegram (`telegram`) | 1 |
+| Trigger (`trigger`) | 7 |
 | Utility (`utility`) | 5 |
 | WeCom (`wecom`) | 9 |
+| Workflow (`workflow`) | 17 |
+
+## AI Nodes
+
+| Node | Description |
+|---|---|
+| **AgentNode** | Execute an AI agent with tools |
+| **AgentReplyExtractorNode** | Extract the final assistant reply from agent messages |
+| **DeepAgentNode** | Execute an autonomous deep-research agent with configurable iteration depth for multi-step tool use and synthesis |
+| **LLMNode** | Execute a text-only LLM call |
 
 ## Agentensor Nodes
 
@@ -29,18 +45,22 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 |---|---|
 | **AgentensorNode** | Evaluate or train agent prompts using Agentensor datasets and evaluators. |
 
-## AI Nodes
-
-| Node | Description |
-|---|---|
-| **AgentNode** | Execute an AI agent with tools |
-| **LLMNode** | Execute a text-only LLM call |
-
 ## Base Nodes
 
 | Node | Description |
 |---|---|
 | **NoOpTaskNode** | A no-op node for developers to use as a template for custom nodes. Do not use this node directly, but inherit from this with your own `run` method. |
+
+## Browser Nodes
+
+| Node | Description |
+|---|---|
+| **BrowserActionNode** | Perform a user-style action against the active Playwright page. |
+| **BrowserCloseNode** | Close an active Playwright browser session. |
+| **BrowserExtractNode** | Extract page or element content from the active Playwright page. |
+| **BrowserNavigateNode** | Open a URL in a shared Playwright browser session. |
+| **BrowserScriptNode** | Evaluate JavaScript in the active Playwright page context. |
+| **BrowserWaitNode** | Wait for a condition on the active Playwright page. |
 
 ## Communication Nodes
 
@@ -104,7 +124,9 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 
 | Node | Description |
 |---|---|
+| **CodeNode** | Base class for user-authored node logic; the sole customisation port. Do not use this node directly, but inherit from this with your own `run` method. |
 | **DataTransformNode** | Map values from an input payload into a transformed structure. |
+| **HtmlTextTransformNode** | Decode, escape, and normalise HTML text in structured data. |
 | **HttpRequestNode** | Perform an HTTP request and return the response payload. |
 | **JsonProcessingNode** | Parse, stringify, or extract data from JSON payloads. |
 | **MergeNode** | Merge multiple payloads into a single aggregate structure. |
@@ -122,11 +144,35 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 | **SemanticSimilarityMetricsNode** | Compute embedding cosine similarity between predicted and reference texts |
 | **TokenF1MetricsNode** | Compute token-level F1 between predicted and reference texts |
 
+## Lark Nodes
+
+| Node | Description |
+|---|---|
+| **LarkSendMessageNode** | Send messages to Lark chats or reply to inbound Lark messages |
+| **LarkTenantAccessTokenNode** | Fetch a tenant access token from the Lark auth API |
+
+## LinkedIn Nodes
+
+| Node | Description |
+|---|---|
+| **LinkedInPostNode** | Create a LinkedIn post using vault-backed access credentials. |
+
+## Logic Nodes
+
+| Node | Description |
+|---|---|
+| **ExtractAIMessageNode** | Extract a text AI message from a structured response |
+| **HumanInputNode** | Pause a workflow and collect human input |
+| **StructuredRouterDispatchNode** | Translate structured agent output into a routing result |
+
 ## Messaging Nodes
 
 | Node | Description |
 |---|---|
-| **MessageTelegram** | Send message to Telegram |
+| **MessageDiscordNode** | Send a message to a Discord channel using a bot token. |
+| **MessageQQNode** | Send a message to QQ using AppID and client secret. |
+| **MessageTelegramNode** | Send message to Telegram |
+| **TelegramSendDocumentNode** | Send a document file to Telegram |
 
 ## MongoDB Nodes
 
@@ -136,10 +182,17 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 | **MongoDBEnsureSearchIndexNode** | Ensure a MongoDB Atlas Search index exists. |
 | **MongoDBEnsureVectorIndexNode** | Ensure a MongoDB Atlas vector search index exists. |
 | **MongoDBFindNode** | MongoDB find wrapper with sort and limit support |
-| **MongoDBHybridSearchNode** | Execute a hybrid search over text and vector indexes. |
+| **MongoDBHybridSearchNode** | Execute a hybrid search over text and vector indexes asynchronously. |
 | **MongoDBInsertManyNode** | Insert documents into MongoDB with optional vectors |
 | **MongoDBNode** | MongoDB node |
 | **MongoDBUpdateManyNode** | MongoDB update_many wrapper |
+| **MongoDBUpsertManyNode** | Bulk-upsert upstream records into MongoDB using keyed filters |
+
+## RSS Nodes
+
+| Node | Description |
+|---|---|
+| **RSSNode** | Fetch and parse RSS/Atom feeds from multiple sources |
 
 ## Slack Nodes
 
@@ -152,16 +205,26 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 
 | Node | Description |
 |---|---|
+| **FileUploadNode** | Upload a single file to blob storage and return a download URL. Reads content, filename, and mime_type from state via template references and writes attachment_id and download_url to node_results. |
+| **GraphStoreAppendMessageNode** | Append a message to a versioned chat history item in the LangGraph graph store. |
 | **PostgresNode** | Execute SQL against a PostgreSQL database using psycopg. |
-| **SQLiteNode** | Execute SQL statements against a SQLite database. |
+
+## Telegram Nodes
+
+| Node | Description |
+|---|---|
+| **TelegramEventsParserNode** | Validate and parse Telegram Bot webhook updates |
 
 ## Trigger Nodes
 
 | Node | Description |
 |---|---|
 | **CronTriggerNode** | Configure a cron-based schedule trigger. |
+| **DiscordBotListenerNode** | Receive Discord bot messages through the Gateway. |
 | **HttpPollingTriggerNode** | Poll an HTTP endpoint on an interval to trigger runs. |
 | **ManualTriggerNode** | Trigger workflows manually from the dashboard. |
+| **QQBotListenerNode** | Receive QQ bot messages through the managed Gateway. |
+| **TelegramBotListenerNode** | Receive Telegram bot updates through managed long polling. |
 | **WebhookTriggerNode** | Configure an HTTP webhook trigger. |
 
 ## Utility Nodes
@@ -170,6 +233,7 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 |---|---|
 | **DebugNode** | Capture state snapshots and emit debug information. |
 | **DelayNode** | Pause execution for a fixed duration |
+| **ForLoopNode** | Iterate over a list, exposing one item per invocation |
 | **SetVariableNode** | Store variables for downstream nodes |
 | **SubWorkflowNode** | Execute a mini workflow inline using the node registry. |
 
@@ -177,15 +241,37 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 
 | Node | Description |
 |---|---|
-| **WeComAccessTokenNode** | Fetch and cache WeCom access token |
 | **WeComAIBotEventsParserNode** | Validate WeCom AI bot signatures and parse callbacks |
 | **WeComAIBotPassiveReplyNode** | Encrypt and return passive AI bot replies |
 | **WeComAIBotResponseNode** | Send active replies to WeCom AI bot response_url |
+| **WeComAccessTokenNode** | Fetch and cache WeCom access token |
 | **WeComCustomerServiceSendNode** | Send messages via WeCom Customer Service (微信客服) |
 | **WeComCustomerServiceSyncNode** | Sync messages from WeCom Customer Service (微信客服) |
 | **WeComEventsParserNode** | Validate WeCom signatures and parse callback payloads |
 | **WeComGroupPushNode** | Send messages to WeCom group via webhook |
 | **WeComSendMessageNode** | Send messages to WeCom chat |
+
+## Workflow Nodes
+
+| Node | Description |
+|---|---|
+| **CodebookOutputNode** | Render the produced codebook as Markdown |
+| **CodedDataIngestNode** | Parse a coded-data CSV into units, assignments, quantification |
+| **DataQualityNode** | Flag low-effort, duplicate, PII, and AI-like responses |
+| **ExportCodebookNode** | Export the current codebook to CSV or inline JSON text |
+| **ExportCodedDataNode** | Serialise coded units and assignments to a CSV download |
+| **ExportReportNode** | Regenerate the downloadable Markdown report link |
+| **IngestNode** | Parse the source payload into units |
+| **InsightCriticNode** | Find counter-evidence and annotate candidate insights |
+| **LLMStageFinalizeNode** | Persist a qualitative LLM stage response |
+| **LLMStagePrepareNode** | Prepare prompt payloads for a qualitative LLM stage |
+| **LoadAttachmentsNode** | Resolve uploaded attachments into readable payloads |
+| **RecodeOutputNode** | Render recoded data with a coded-data CSV download link |
+| **RecommendationGeneratorNode** | Attach Finding -> Action -> Expected impact recommendations |
+| **ReportOutputNode** | Render the final report and return it with a download link |
+| **SegmentRecordsNode** | Segment structured records into qualitative coding units |
+| **TwoTrackThemeReportNode** | Render a Covered/Emergent salience-ranked theme report |
+| **ValidateFilesNode** | Validate qualitative data files and optional codebooks |
 
 ## Creating Custom Nodes
 

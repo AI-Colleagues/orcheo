@@ -20,8 +20,10 @@ installing dependencies, run them via `uv run <script>`:
   directories.
 - `uv run orcheo-dev-server` – launch the FastAPI development server with auto reload.
 - `uv run orcheo-lint` – execute Ruff (lint + format check) and mypy.
-- `uv run orcheo-test` – run the pytest suite with coverage reporting.
 - `uv run orcheo-format` – apply Ruff formatting and import sorting.
+- `uv run orcheo-dev-studio` – launch the Studio dev server.
+
+Run the test suite with `make test` (or `uv run pytest`).
 - `uv run orcheo-studio-lint` – lint the React studio application.
 
 These commands mirror the existing `make` targets but remove the need for GNU
@@ -42,10 +44,11 @@ repository lives outside the current working directory.
 
 ## Sample flows
 
-Two quickstart flows now live under `examples/quickstart` to demonstrate both
-onboarding paths:
+Two quickstart flows live under `colleague-candidates/examples/quickstart`
+(in the `colleague-candidates` git submodule) to demonstrate both onboarding
+paths:
 
-- `studio_welcome.json` – graph configuration suited for the Studio interface.
+- `canvas_welcome.json` – graph configuration suited for the Studio interface.
 - `sdk_quickstart.py` – Python script that builds the same graph and executes it
   locally using the SDK primitives.
 

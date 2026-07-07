@@ -12,7 +12,7 @@ page or custom ChatKit embeds.
 - You are comfortable running the Orcheo CLI or invoking the mirrored MCP tools.
 
 ## Prerequisites
-1. **CLI authentication** – run `orcheo login` or set
+1. **CLI authentication** – run `orcheo auth login` or set
    `ORCHEO_SERVICE_TOKEN` so the CLI may call your backend.
 2. **Backend availability** – start the FastAPI stack (`make dev-server`) and
    confirm it is reachable at the base URL pointed to by `ORCHEO_API_URL`.
@@ -29,7 +29,7 @@ page or custom ChatKit embeds.
 6. **Frontend origin override** – when the public ChatKit UI runs on a different
    host/port than your API (`ORCHEO_API_URL`), set
    `ORCHEO_CHATKIT_PUBLIC_BASE_URL` (e.g., `https://studio.example`) or pass
-   `--chatkit-public-base-url` directly to `orcheo workflow publish` so the CLI
+   `--studio-url` directly to `orcheo workflow publish` so the CLI
    and MCP responses emit the correct `https://.../chat/{workflowId}` links.
 
 ## Step 1 – Inspect the workflow
@@ -52,7 +52,7 @@ you pass `--force`. Add `--require-login` to gate ChatKit behind OAuth:
 ```bash
 orcheo workflow publish wf_123 --require-login
 # Override the share URL origin just for this run:
-orcheo workflow publish wf_123 --force --chatkit-public-base-url https://studio.example
+orcheo workflow publish wf_123 --force --studio-url https://studio.example
 ```
 
 Behind the scenes the CLI hits `POST /api/workflows/{id}/publish` and prints a
@@ -68,11 +68,11 @@ Share URL: https://studio.example/chat/wf_123
 
 ## Step 3 – Capture and share the URL
 The `Share URL` field is the canonical ChatKit UI entry point. Its origin comes
-from `ORCHEO_CHATKIT_PUBLIC_BASE_URL` (or the `--chatkit-public-base-url`
+from `ORCHEO_CHATKIT_PUBLIC_BASE_URL` (or the `--studio-url`
 override) when provided; otherwise it strips any trailing `/api` segment from
 `ORCHEO_API_URL`. For split local setups (backend on 2025, frontend on 2026),
 either export `ORCHEO_CHATKIT_PUBLIC_BASE_URL=http://localhost:2026` or tack on
-`--chatkit-public-base-url http://localhost:2026` to the publish command.
+`--studio-url http://localhost:2026` to the publish command.
 
 - Paste it directly into a browser to load the Studio-hosted public chat page,
   which renders the ChatKit widget bound to the published workflow.
@@ -106,7 +106,7 @@ your configured OAuth provider before ChatKit initializes.
   link immediately. Existing ChatKit sessions drop once the page reloads.
 - Re-run `orcheo workflow publish wf_123 --no-require-login` to remove an OAuth
   requirement without changing the share URL.
-- Use `orcheo workflow list --include-archived` to audit everything that is
+- Use `orcheo workflow list --archived` to audit everything that is
   currently public.
 
 ## Restricting access to workspace members (require login)
