@@ -560,8 +560,10 @@ class ExportCodebookNode(TaskNode):
 
     def _resolved_export_format(self) -> Literal["csv", "json"] | None:
         export_format = str(self.export_format).strip().lower()
-        if export_format in {"csv", "json"}:
-            return export_format
+        if export_format == "csv":
+            return "csv"
+        if export_format == "json":
+            return "json"
         return None
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
