@@ -22,6 +22,7 @@ _LISTENER_NODE_PLATFORMS: dict[str, str] = {
 }
 
 _CREDENTIAL_PLACEHOLDER_PATTERN = re.compile(r"^\[\[(?P<body>.+)\]\]$")
+_CREDENTIAL_PLACEHOLDER_SEARCH_PATTERN = re.compile(r"\[\[[^\[\]]+\]\]")
 _ORCHEO_NODE_MODULE_PREFIX = "orcheo.nodes"
 
 
@@ -103,7 +104,6 @@ class _AddNodeVisitor(ast.NodeVisitor):
         if class_name is None:
             return
 
-        provided_fields = {kw.arg for kw in call.keywords if kw.arg is not None}
         module_name = _get_call_module(call.func)
         if module_name is None:
             raw_name = _get_call_name(call.func)
@@ -112,9 +112,9 @@ class _AddNodeVisitor(ast.NodeVisitor):
         else:
             module_name = self._resolve_module_alias(module_name)
         self.credential_entries.extend(
-            _extract_default_credentials(
+            _extract_constructor_credentials(
                 class_name,
-                provided_fields,
+                call,
                 module_name=module_name,
             )
         )
@@ -170,6 +170,24 @@ class _AddNodeVisitor(ast.NodeVisitor):
         return f"{resolved_root}{separator}{remainder}" if separator else resolved_root
 
 
+def _extract_constructor_credentials(
+    class_name: str,
+    call: ast.Call,
+    *,
+    module_name: str | None = None,
+) -> list[dict[str, str]]:
+    """Return credential placeholders from literal args and node defaults."""
+    node_cls = _resolve_orcheo_node_class(class_name, module_name)
+    if node_cls is None:
+        return []
+
+    kwargs = _extract_kwargs(call)
+    provided_fields = set(kwargs)
+    entries = _collect_model_default_credentials(class_name, node_cls, provided_fields)
+    entries.extend(_collect_constructor_literal_credentials(class_name, kwargs))
+    return entries
+
+
 def _extract_default_credentials(
     class_name: str,
     provided_fields: set[str],
@@ -181,6 +199,24 @@ def _extract_default_credentials(
     if node_cls is None:
         return []
     return _collect_model_default_credentials(class_name, node_cls, provided_fields)
+
+
+def _collect_constructor_literal_credentials(
+    class_name: str,
+    kwargs: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Return placeholders from literal constructor keyword values."""
+    entries: list[dict[str, str]] = []
+    for field_name, value in kwargs.items():
+        for placeholder in _collect_credential_placeholders(value):
+            entries.append(
+                {
+                    "node_type": class_name,
+                    "field": field_name,
+                    "placeholder": placeholder,
+                }
+            )
+    return entries
 
 
 def _collect_model_default_credentials(
@@ -209,7 +245,11 @@ def _collect_model_default_credentials(
 
 def _collect_credential_placeholders(value: Any) -> list[str]:
     if isinstance(value, str):
-        return [value] if _is_credential_placeholder(value) else []
+        return [
+            placeholder
+            for placeholder in _CREDENTIAL_PLACEHOLDER_SEARCH_PATTERN.findall(value)
+            if _is_credential_placeholder(placeholder)
+        ]
     if isinstance(value, dict):
         placeholders: list[str] = []
         for nested in value.values():

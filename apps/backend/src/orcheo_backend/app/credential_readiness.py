@@ -23,7 +23,7 @@ def collect_workflow_credential_placeholders(
     imported or executed in a backend readiness check.
     """
     placeholders: dict[str, set[str]] = {}
-    _collect_value(graph_payload, placeholders, seen=set())
+    _collect_graph_payload(graph_payload, placeholders)
     _collect_source_index(graph_payload, placeholders)
     if runnable_config is not None:
         _collect_value(runnable_config, placeholders, seen=set())
@@ -39,6 +39,17 @@ def _collect_source_index(
     if not isinstance(source, str):
         return
     _collect_value(extract_graph_index(source), placeholders, seen=set())
+
+
+def _collect_graph_payload(
+    graph_payload: Mapping[str, Any],
+    placeholders: dict[str, set[str]],
+) -> None:
+    """Collect credentials from stored graph data without raw source text."""
+    payload_without_source = {
+        key: value for key, value in graph_payload.items() if key != "source"
+    }
+    _collect_value(payload_without_source, placeholders, seen=set())
 
 
 def _collect_state_graph(

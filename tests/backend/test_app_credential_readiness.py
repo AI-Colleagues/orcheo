@@ -88,6 +88,31 @@ def orcheo_workflow() -> StateGraph:
     ]
 
 
+def test_collect_workflow_credential_placeholders_ignores_frontmatter_updates() -> None:
+    source = """
+# /// orcheo
+# name = "Chromium URL Opener"
+# version = "1.0.0"
+#
+# [[updates]]
+# version = "1.0.0"
+# summary = "Initial release."
+# ///
+
+from langgraph.graph import StateGraph
+
+def orcheo_workflow() -> StateGraph:
+    return StateGraph(dict)
+"""
+
+    placeholders = collect_workflow_credential_placeholders(
+        {"source": source, "entrypoint": "orcheo_workflow"},
+        None,
+    )
+
+    assert placeholders == {}
+
+
 def test_collect_workflow_credential_placeholders_scans_provider_specific_aliases() -> (
     None
 ):

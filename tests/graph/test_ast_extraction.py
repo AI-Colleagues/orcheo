@@ -204,6 +204,12 @@ def test_collect_credential_placeholders_returns_empty_for_scalars() -> None:
     assert _collect_credential_placeholders(123) == []
 
 
+def test_collect_credential_placeholders_finds_embedded_string_placeholders() -> None:
+    assert _collect_credential_placeholders("Bearer [[service-token]] suffix") == [
+        "[[service-token]]"
+    ]
+
+
 # ---------------------------------------------------------------------------
 # _AddNodeVisitor
 # ---------------------------------------------------------------------------
@@ -649,6 +655,45 @@ def test_extract_graph_index_node_default_credentials() -> None:
                 "field": "connection_string",
                 "placeholder": "[[resolved-connection-string]]",
             }
+        ]
+    finally:
+        monkeypatch.undo()
+
+
+def test_extract_graph_index_literal_constructor_credentials() -> None:
+    class _ResolvedNode(BaseModel):
+        name: str
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        ast_extraction,
+        "_resolve_orcheo_node_class",
+        lambda *_args, **_kwargs: _ResolvedNode,
+    )
+    try:
+        source = textwrap.dedent("""\
+            AgentNode(
+                name="agent",
+                model_kwargs={
+                    "api_key": "[[openai_api_key]]",
+                    "authorization": "Bearer [[secondary_token]]",
+                },
+            )
+        """)
+
+        result = extract_graph_index(source)
+
+        assert result["credentials"] == [
+            {
+                "node_type": "AgentNode",
+                "field": "model_kwargs",
+                "placeholder": "[[openai_api_key]]",
+            },
+            {
+                "node_type": "AgentNode",
+                "field": "model_kwargs",
+                "placeholder": "[[secondary_token]]",
+            },
         ]
     finally:
         monkeypatch.undo()
