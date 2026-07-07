@@ -53,6 +53,11 @@ def _extract_kwargs(call_node: ast.Call) -> dict[str, Any]:
     return result
 
 
+def _extract_provided_keyword_fields(call_node: ast.Call) -> set[str]:
+    """Return explicitly provided keyword names, including non-literal values."""
+    return {kw.arg for kw in call_node.keywords if kw.arg is not None}
+
+
 def _get_call_name(node: ast.expr) -> str | None:
     """Return the function/class name from a Call's func field."""
     if isinstance(node, ast.Name):
@@ -182,23 +187,10 @@ def _extract_constructor_credentials(
         return []
 
     kwargs = _extract_kwargs(call)
-    provided_fields = set(kwargs)
+    provided_fields = _extract_provided_keyword_fields(call)
     entries = _collect_model_default_credentials(class_name, node_cls, provided_fields)
     entries.extend(_collect_constructor_literal_credentials(class_name, kwargs))
     return entries
-
-
-def _extract_default_credentials(
-    class_name: str,
-    provided_fields: set[str],
-    *,
-    module_name: str | None = None,
-) -> list[dict[str, str]]:
-    """Return credential placeholders from node defaults not overridden in source."""
-    node_cls = _resolve_orcheo_node_class(class_name, module_name)
-    if node_cls is None:
-        return []
-    return _collect_model_default_credentials(class_name, node_cls, provided_fields)
 
 
 def _collect_constructor_literal_credentials(
