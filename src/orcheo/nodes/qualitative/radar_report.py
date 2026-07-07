@@ -81,6 +81,20 @@ def coerce_codebook_input(value: Any) -> Codebook | None:
     return None
 
 
+def _coerce_string_list_input(value: Any) -> list[str]:
+    """Coerce a list value that may be a JSON-encoded textarea string."""
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if isinstance(value, str):
+        try:
+            payload = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        if isinstance(payload, list):
+            return [str(item) for item in payload]
+    return []
+
+
 def seed_theme_keys(codebook: Codebook) -> set[str]:
     """Return matching keys (theme ids + lowercase titles) for a codebook."""
     keys: set[str] = set()
@@ -368,11 +382,7 @@ class TwoTrackThemeReportNode(TaskNode):
             insight.insight_id: insight
             for insight in coerce_model_list(self.candidate_insights, CandidateInsight)
         }
-        approved_ids = (
-            [str(item) for item in self.approved_insight_ids]
-            if isinstance(self.approved_insight_ids, list)
-            else []
-        )
+        approved_ids = _coerce_string_list_input(self.approved_insight_ids)
         approved_insights = [
             candidates_by_id[insight_id]
             for insight_id in approved_ids

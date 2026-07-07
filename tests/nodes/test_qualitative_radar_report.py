@@ -212,7 +212,7 @@ async def test_two_track_theme_report_node_renders_full_report():
                 "supporting_units": ["U0001"],
             }
         ],
-        approved_insight_ids=["I01"],
+        approved_insight_ids=json.dumps(["I01"]),
         recommendations=[
             {
                 "insight_id": "I01",

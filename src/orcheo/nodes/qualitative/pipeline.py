@@ -558,6 +558,12 @@ class ExportCodebookNode(TaskNode):
                 return None
         return None
 
+    def _resolved_export_format(self) -> Literal["csv", "json"] | None:
+        export_format = str(self.export_format).strip().lower()
+        if export_format in {"csv", "json"}:
+            return export_format
+        return None
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         codebook = self._resolved_codebook()
         if codebook is None:
@@ -568,10 +574,18 @@ class ExportCodebookNode(TaskNode):
                 )
             }
 
+        export_format = self._resolved_export_format()
+        if export_format is None:
+            return {
+                "assistant_message": (
+                    "Unsupported codebook export format. Use 'csv' or 'json'."
+                )
+            }
+
         total_themes = len(codebook.themes)
         total_codes = sum(len(t.subthemes) for t in codebook.themes)
 
-        if self.export_format == "json":
+        if export_format == "json":
             json_content = json.dumps(
                 codebook.model_dump(mode="json"), indent=2, ensure_ascii=False
             )
