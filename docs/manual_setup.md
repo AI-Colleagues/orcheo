@@ -76,6 +76,10 @@ Bundled Caddy is the recommended ingress for reachable self-hosted installs. It 
 
 ### Managing Services
 
+The `orcheo stack` command wraps these Docker Compose actions
+(`orcheo stack --logs backend`, `--stop`, `--start`, `--pull`, `--ps`); the raw
+compose equivalents are:
+
 ```bash
 STACK_DIR="${ORCHEO_STACK_DIR:-$HOME/.orcheo/stack}"
 
@@ -147,7 +151,7 @@ If you previously ran `orcheo install` after the Caddy ingress rollout and your 
 
 ## Installation (Manual)
 
-The project ships with everything needed to spin up the FastAPI runtime on SQLite for local development.
+The project ships with everything needed to spin up the FastAPI runtime for local development (persistence uses PostgreSQL; see [Deployment Recipes](deployment.md) for the required `ORCHEO_*_BACKEND`/`ORCHEO_POSTGRES_DSN` settings).
 
 ### From Source (Development)
 
@@ -184,7 +188,9 @@ orcheo-dev-server
 ### Verifying the Setup
 
 ```bash
-orcheo-test
+make test          # full test suite with coverage
+# or
+uv run pytest -q
 ```
 
 ### Authentication
@@ -201,7 +207,7 @@ For detailed authentication setup including bootstrap tokens, service tokens, an
 
 - **[CLI Reference](cli_reference.md)** — Command reference for the `orcheo` CLI
 - **[Studio](studio.md)** — Workflow monitor, config editor, and Credential Vault manager
-- **[MCP Integration](mcp_integration.md)** — Connect AI assistants to Orcheo
+- **[Connect a Coding Agent](connect_coding_agent.md)** — Connect AI coding agents to Orcheo
 - **[Authentication Guide](authentication_guide.md)** — Detailed authentication configuration
 - **[Developer Guide](developer_guide.md)** — Contributing to Orcheo
 

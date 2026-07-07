@@ -7,10 +7,11 @@ arguments for classification mode and user-facing messages.
 # ruff: noqa: C901, D102, PLR0912, PLR0915
 
 from __future__ import annotations
+import json
 from collections.abc import Mapping
 from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.qualitative.accessors import (
@@ -531,16 +532,20 @@ class CodebookOutputNode(TaskNode):
 @registry.register(
     NodeMetadata(
         name="ExportCodebookNode",
-        description="Export the current codebook to CSV",
+        description="Export the current codebook to CSV or inline JSON text",
         category="workflow",
     )
 )
 class ExportCodebookNode(TaskNode):
-    """Export a configured codebook as a downloadable CSV."""
+    """Export a configured codebook as a downloadable CSV or inline JSON text."""
 
     codebook: Codebook | str
     export_filename: str = "codebook.csv"
     export_mime_type: str = "text/csv"
+    export_format: Literal["csv", "json"] | str = Field(
+        default="csv",
+        description="Export format: 'csv' for a download link, 'json' for inline text.",
+    )
 
     def _resolved_codebook(self) -> Codebook | None:
         raw: Any = self.codebook
@@ -553,6 +558,14 @@ class ExportCodebookNode(TaskNode):
                 return None
         return None
 
+    def _resolved_export_format(self) -> Literal["csv", "json"] | None:
+        export_format = str(self.export_format).strip().lower()
+        if export_format == "csv":
+            return "csv"
+        if export_format == "json":
+            return "json"
+        return None
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         codebook = self._resolved_codebook()
         if codebook is None:
@@ -562,6 +575,31 @@ class ExportCodebookNode(TaskNode):
                     "approve a codebook first."
                 )
             }
+
+        export_format = self._resolved_export_format()
+        if export_format is None:
+            return {
+                "assistant_message": (
+                    "Unsupported codebook export format. Use 'csv' or 'json'."
+                )
+            }
+
+        total_themes = len(codebook.themes)
+        total_codes = sum(len(t.subthemes) for t in codebook.themes)
+
+        if export_format == "json":
+            json_content = json.dumps(
+                codebook.model_dump(mode="json"), indent=2, ensure_ascii=False
+            )
+            lines = [
+                "## Codebook Export (JSON)\n",
+                f"Your codebook has **{total_themes} themes** and "
+                f"**{total_codes} codes**.\n",
+                "```json",
+                json_content,
+                "```",
+            ]
+            return {"assistant_message": "\n".join(lines)}
 
         csv_content = build_csv(
             [
@@ -595,8 +633,6 @@ class ExportCodebookNode(TaskNode):
         except RuntimeError as exc:
             return {"assistant_message": f"Export failed: {exc}"}
 
-        total_themes = len(codebook.themes)
-        total_codes = sum(len(t.subthemes) for t in codebook.themes)
         lines = [
             "## Codebook Export\n",
             f"Your codebook has **{total_themes} themes** and "

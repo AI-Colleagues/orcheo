@@ -200,10 +200,20 @@ class FakeLauncher:
     def __init__(self, browser: FakeBrowser) -> None:
         self.browser = browser
         self.launch_calls: list[dict[str, Any]] = []
+        self.persistent_context_calls: list[dict[str, Any]] = []
 
     async def launch(self, **kwargs: Any) -> FakeBrowser:
         self.launch_calls.append(kwargs)
         return self.browser
+
+    async def launch_persistent_context(
+        self,
+        user_data_dir: str,
+        **kwargs: Any,
+    ) -> FakeContext:
+        self.persistent_context_calls.append({"user_data_dir": user_data_dir, **kwargs})
+        self.browser.context.context_kwargs = kwargs
+        return self.browser.context
 
 
 class FakePlaywright:
@@ -335,6 +345,70 @@ async def test_browser_nodes_navigate_action_extract_and_close(
     assert fake_browser_runtime.context.closed is True
     assert fake_browser_runtime.browser.closed is True
     assert fake_browser_runtime.stopped is True
+
+
+@pytest.mark.asyncio
+async def test_browser_navigate_supports_persistent_user_data_dir(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """Browser navigation should use persistent contexts for profile dirs."""
+
+    state = State({"node_results": {}})
+    config = RunnableConfig(configurable={"thread_id": "exec-profile"})
+
+    navigate = BrowserNavigateNode(
+        name="navigate",
+        url="https://example.com/profile",
+        headless=False,
+        user_data_dir="/tmp/browser-profile",
+        launch_args=["--disable-dev-shm-usage"],
+        viewport_width=1280,
+        viewport_height=720,
+        extra_http_headers={"x-test": "1"},
+    )
+    navigate_payload = (await navigate(state, config))["node_results"]["navigate"]
+
+    assert navigate_payload["created_session"] is True
+    assert fake_browser_runtime.chromium.launch_calls == []
+    assert fake_browser_runtime.chromium.persistent_context_calls == [
+        {
+            "user_data_dir": "/tmp/browser-profile",
+            "headless": False,
+            "args": ["--disable-dev-shm-usage"],
+            "ignore_https_errors": False,
+            "java_script_enabled": True,
+            "viewport": {"width": 1280, "height": 720},
+            "extra_http_headers": {"x-test": "1"},
+        }
+    ]
+    assert fake_browser_runtime.browser.closed is False
+
+    close = BrowserCloseNode(name="close")
+    close_payload = (await close(state, config))["node_results"]["close"]
+
+    assert close_payload["closed"] is True
+    assert fake_browser_runtime.context.closed is True
+    assert fake_browser_runtime.browser.closed is False
+    assert fake_browser_runtime.stopped is True
+
+
+@pytest.mark.asyncio
+async def test_browser_navigate_rejects_storage_state_with_user_data_dir(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """Persistent profiles and one-off storage state are mutually exclusive."""
+
+    del fake_browser_runtime
+    state = State({"node_results": {}})
+    config = RunnableConfig(configurable={"thread_id": "exec-profile-conflict"})
+
+    with pytest.raises(ValueError, match="user_data_dir cannot be used"):
+        await BrowserNavigateNode(
+            name="navigate",
+            url="https://example.com",
+            user_data_dir="/tmp/browser-profile",
+            storage_state={"cookies": [], "origins": []},
+        )(state, config)
 
 
 @pytest.mark.asyncio
@@ -472,6 +546,7 @@ async def test_browser_session_manager_closes_all_sessions_for_scope(
         browser_type="chromium",
         headless=True,
         launch_args=[],
+        user_data_dir=None,
         viewport_width=None,
         viewport_height=None,
         user_agent=None,
@@ -488,6 +563,7 @@ async def test_browser_session_manager_closes_all_sessions_for_scope(
         browser_type="chromium",
         headless=True,
         launch_args=[],
+        user_data_dir=None,
         viewport_width=None,
         viewport_height=None,
         user_agent=None,
@@ -737,6 +813,7 @@ async def test_create_session_raises_for_unsupported_engine(
             browser_type="chromium",
             headless=True,
             launch_args=[],
+            user_data_dir=None,
             viewport_width=None,
             viewport_height=None,
             user_agent=None,
@@ -799,6 +876,7 @@ async def test_get_or_create_race_condition_returns_existing_in_lock(
         browser_type="chromium",
         headless=True,
         launch_args=[],
+        user_data_dir=None,
         viewport_width=None,
         viewport_height=None,
         user_agent=None,

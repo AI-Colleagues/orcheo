@@ -35,13 +35,14 @@ nav:
       - Authentication: authentication_guide.md
       - First-party Auth Rollout: first_party_auth_rollout.md
       - Lark App Setup: integrations/lark_app_setup.md
+      - LinkedIn Credentials Setup: integrations/linkedin_credentials_setup.md
+      - Connect a Coding Agent: connect_coding_agent.md
   - Examples:
       - Conversational Search: examples/conversational_search.md
       - Evaluation: examples/evaluation.md
   - Deployment:
       - Overview: deployment.md
       - Execution Worker: execution_worker/deployment.md
-      - PostgreSQL Migration: production/postgresql_migration_plan.md
   - Chatkit Integration:
       - Workflow Publishing: chatkit_integration/workflow_publish_guide.md
       - Chat Bubble: chatkit_integration/studio_chat_bubble_guide.md
@@ -53,10 +54,10 @@ nav:
       - Plugin Tutorial: plugin_tutorial.md
       - Plugin Reference: custom_nodes_and_tools.md
       - Sandboxed Custom Workflows: sandboxed_custom_workflows.md
-      - MCP Integration: mcp_integration.md
       - Releasing: releasing.md
   - Reference:
       - Node Catalog: node_catalog.md
+      - Workflow Config Annotations: workflow_config_annotations.md
       - CLI Reference: cli_reference.md
       - SDK Reference: sdk_reference.md
       - OpenTelemetry Tracing: otel_tracing/README.md

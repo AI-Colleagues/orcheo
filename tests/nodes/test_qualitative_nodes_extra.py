@@ -1219,6 +1219,47 @@ async def test_export_codebook_node_covers_upload_failure(
 
 
 @pytest.mark.asyncio
+async def test_export_codebook_node_json_format_skips_upload() -> None:
+    codebook = _codebook()
+    node = ExportCodebookNode(
+        name="export_codebook", codebook=codebook, export_format="json"
+    )
+
+    result = await node(State({}), {})
+
+    assert "Codebook Export (JSON)" in result["assistant_message"]
+    assert '"code_id": "C1"' in result["assistant_message"]
+    assert "```json" in result["assistant_message"]
+
+
+@pytest.mark.asyncio
+async def test_export_codebook_node_rejects_unknown_export_format() -> None:
+    codebook = _codebook()
+    node = ExportCodebookNode(
+        name="export_codebook", codebook=codebook, export_format="yaml"
+    )
+
+    result = await node(State({}), {})
+
+    assert result["assistant_message"] == (
+        "Unsupported codebook export format. Use 'csv' or 'json'."
+    )
+
+
+def test_export_codebook_node_accepts_unresolved_template_for_export_format() -> None:
+    # IR construction instantiates nodes with raw, unresolved `{{...}}` template
+    # strings before template resolution happens. A plain `Literal["csv", "json"]`
+    # would reject that string at construction time, so `export_format` must
+    # also accept `str` to defer validation to `run()`.
+    node = ExportCodebookNode(
+        name="export_codebook",
+        codebook="{{node_results.ingest.codebook}}",
+        export_format="{{structured_response.export_format}}",
+    )
+    assert node.export_format == "{{structured_response.export_format}}"
+
+
+@pytest.mark.asyncio
 async def test_recode_output_node_covers_direct_field_and_no_report_branches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

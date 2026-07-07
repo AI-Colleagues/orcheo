@@ -14,7 +14,7 @@ from orcheo.graph.ingestion.ast_extraction import (
     _collect_model_default_credentials,
     _collect_credential_placeholders,
     _extract_kwargs,
-    _extract_default_credentials,
+    _extract_provided_keyword_fields,
     _get_call_name,
     _get_call_module,
     _is_credential_placeholder,
@@ -119,6 +119,16 @@ def test_extract_kwargs_skips_non_literal_value() -> None:
     assert result == {}
 
 
+def test_extract_provided_keyword_fields_includes_non_literals() -> None:
+    call = ast.parse(
+        'MessageTelegram(token=token_from_config, message="hello", **extra)',
+        mode="eval",
+    ).body
+    assert isinstance(call, ast.Call)
+
+    assert _extract_provided_keyword_fields(call) == {"message", "token"}
+
+
 def test_extract_kwargs_empty() -> None:
     call = _build_call({})
     result = _extract_kwargs(call)
@@ -202,6 +212,12 @@ def test_collect_model_default_credentials_skips_required_fields() -> None:
 
 def test_collect_credential_placeholders_returns_empty_for_scalars() -> None:
     assert _collect_credential_placeholders(123) == []
+
+
+def test_collect_credential_placeholders_finds_embedded_string_placeholders() -> None:
+    assert _collect_credential_placeholders("Bearer [[service-token]] suffix") == [
+        "[[service-token]]"
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -466,11 +482,6 @@ def test_handle_constructor_call_skips_import_module_lookup_when_name_missing(
     monkeypatch.setattr(visitor, "_resolve_class_name", lambda _node: "SyntheticNode")
     monkeypatch.setattr(ast_extraction, "_get_call_module", lambda _node: None)
     monkeypatch.setattr(ast_extraction, "_get_call_name", lambda _node: None)
-    monkeypatch.setattr(
-        ast_extraction,
-        "_extract_default_credentials",
-        lambda *_args, **_kwargs: [],
-    )
 
     visitor._handle_constructor_call(call)
 
@@ -639,16 +650,57 @@ def test_extract_graph_index_node_default_credentials() -> None:
         lambda *_args, **_kwargs: _ResolvedNode,
     )
     try:
-        assert _extract_default_credentials(
-            "MongoDBEnsureSearchIndexNode",
-            set(),
-            module_name="orcheo.nodes.storage.mongodb.search",
-        ) == [
+        source = textwrap.dedent("""\
+            from orcheo.nodes.storage.mongodb.search import MongoDBEnsureSearchIndexNode
+
+            MongoDBEnsureSearchIndexNode(name="ensure_text_index")
+        """)
+
+        assert extract_graph_index(source)["credentials"] == [
             {
                 "node_type": "MongoDBEnsureSearchIndexNode",
                 "field": "connection_string",
                 "placeholder": "[[resolved-connection-string]]",
             }
+        ]
+    finally:
+        monkeypatch.undo()
+
+
+def test_extract_graph_index_literal_constructor_credentials() -> None:
+    class _ResolvedNode(BaseModel):
+        name: str
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        ast_extraction,
+        "_resolve_orcheo_node_class",
+        lambda *_args, **_kwargs: _ResolvedNode,
+    )
+    try:
+        source = textwrap.dedent("""\
+            AgentNode(
+                name="agent",
+                model_kwargs={
+                    "api_key": "[[openai_api_key]]",
+                    "authorization": "Bearer [[secondary_token]]",
+                },
+            )
+        """)
+
+        result = extract_graph_index(source)
+
+        assert result["credentials"] == [
+            {
+                "node_type": "AgentNode",
+                "field": "model_kwargs",
+                "placeholder": "[[openai_api_key]]",
+            },
+            {
+                "node_type": "AgentNode",
+                "field": "model_kwargs",
+                "placeholder": "[[secondary_token]]",
+            },
         ]
     finally:
         monkeypatch.undo()
@@ -670,6 +722,37 @@ def test_extract_graph_index_skips_overridden_default_credential() -> None:
     result = extract_graph_index(source)
 
     assert result["credentials"] == []
+
+
+def test_extract_graph_index_skips_non_literal_overridden_default_credential() -> None:
+    class _ResolvedNode(BaseModel):
+        name: str
+        token: str = "[[telegram_token]]"
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        ast_extraction,
+        "_resolve_orcheo_node_class",
+        lambda *_args, **_kwargs: _ResolvedNode,
+    )
+    try:
+        source = textwrap.dedent("""\
+            from orcheo.nodes.connectors.telegram import MessageTelegram
+
+            token_from_config = "{{config.configurable.telegram_token}}"
+
+            MessageTelegram(
+                name="send",
+                token=token_from_config,
+                message="{{inputs.message}}",
+            )
+        """)
+
+        result = extract_graph_index(source)
+
+        assert result["credentials"] == []
+    finally:
+        monkeypatch.undo()
 
 
 def test_extract_graph_index_does_not_fallback_for_custom_import_collision() -> None:
@@ -695,11 +778,13 @@ def test_extract_graph_index_resolves_orcheo_module_alias_default_credential() -
         lambda *_args, **_kwargs: _ResolvedNode,
     )
     try:
-        assert _extract_default_credentials(
-            "WeComGroupPushNode",
-            set(),
-            module_name="orcheo.nodes.wecom",
-        ) == [
+        source = textwrap.dedent("""\
+            import orcheo.nodes.wecom as wecom
+
+            wecom.WeComGroupPushNode(name="push")
+        """)
+
+        assert extract_graph_index(source)["credentials"] == [
             {
                 "node_type": "WeComGroupPushNode",
                 "field": "webhook_key",

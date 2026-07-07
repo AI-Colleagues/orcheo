@@ -25,6 +25,7 @@ orcheo --version
 | `--profile <name>` | `ORCHEO_PROFILE` | Select a named profile from `cli.toml`. |
 | `--api-url <url>` | `ORCHEO_API_URL` | Override the backend API URL. |
 | `--service-token <token>` | `ORCHEO_SERVICE_TOKEN` | Override the service token. |
+| `--workspace <slug>` | — | Active workspace slug to send on API requests for this invocation (see `orcheo workspace use` for a persistent default). |
 | `--offline` | — | Fall back to cached data when network calls fail. |
 | `--cache-ttl <hours>` | — | Cache TTL in hours for offline data (default: 24). |
 | `--no-update-check` | `ORCHEO_DISABLE_UPDATE_CHECK=1` | Skip startup update reminders for the current invocation. |
@@ -74,36 +75,46 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo plugin enable <plugin> [--runtime auto\|local\|stack]` | Mark an installed plugin enabled so the runtime may load it. |
 | `orcheo plugin disable <plugin> [--runtime auto\|local\|stack]` | Mark an installed plugin disabled without forgetting its install source. |
 | `orcheo plugin doctor [--runtime auto\|local\|stack]` | Run non-destructive diagnostics against plugin state, compatibility, and importability. |
+| `orcheo plugin init <name> [--author <name>] [--exports <list>] [--output-dir <dir>]` | Scaffold a new plugin package skeleton (pyproject, manifest, starter node, tests). |
 | `orcheo agent-tool list [--category <category>]` | List available agent tools with metadata. Filter by category. |
 | `orcheo agent-tool show <tool>` | Display detailed tool schema and parameter information. |
-| `orcheo workflow list [--include-archived]` | List workflows with owner, last run, and status. |
+| `orcheo workflow list [--archived]` | List workflows with owner, last run, and status. |
 | `orcheo workflow show <workflow> [--version <num>]` | Print workflow summary, publish status/details, Mermaid graph, and runs. Use `--version` to show a specific version instead of the latest. |
 | `orcheo workflow run <workflow> [--inputs <json> \| --inputs-file <path>] [--config <json> \| --config-file <path>] [--verbose] [--stream/--no-stream]` | Trigger a workflow execution. Streaming is enabled by default. |
 | `orcheo workflow evaluate <workflow> [--inputs <json> \| --inputs-file <path>] [--config <json> \| --config-file <path>] [--evaluation <json> \| --evaluation-file <path>] [--verbose] [--stream/--no-stream]` | Trigger a workflow evaluation run (requires streaming mode). |
-| `orcheo workflow update <workflow> [--name <name>] [--description <text>] [--handle <handle>] [--chatkit-prompts <json> \| --chatkit-prompts-file <path> \| --clear-chatkit-prompts]` | Update workflow metadata, including per-workflow public ChatKit starter prompts. |
-| `orcheo workflow upload <file> [--id <ref>] [--name <name>] [--entrypoint <name>] [--config <json> \| --config-file <path>]` | Upload a workflow from a Python LangGraph script (`.py`). The script may declare an optional `# /// orcheo ... # ///` frontmatter block whose values are used as defaults (CLI flags override). |
+| `orcheo workflow update <workflow> [--handle <handle>] [--description <text>] [--chatkit-prompts <json> \| --chatkit-prompts-file <path> \| --clear-chatkit-prompts] [--chatkit-models <json> \| --chatkit-models-file <path> \| --clear-chatkit-models]` | Update workflow metadata, including per-workflow public ChatKit starter prompts and supported models. |
+| `orcheo workflow upload <file> [--id <ref>] [--entrypoint <name>] [--config <json> \| --config-file <path>]` | Upload a workflow from a Python LangGraph script (`.py`). The script may declare an optional `# /// orcheo ... # ///` frontmatter block whose values (including the display name) are used as defaults (CLI flags override). |
 | `orcheo workflow save-config <workflow> [--version <num>] (--config <json> \| --config-file <path> \| --clear)` | Save version `runnable_config` without creating a new version. |
 | `orcheo workflow download <workflow> [-o <file>] [--config-out <file>] [--version <num>]` | Download workflow source as Python only. Use `--config-out` to write stored runnable config JSON when present, and `--version` to download a specific version. |
 | `orcheo workflow delete <workflow> [--force]` | Delete a workflow with confirmation safeguards. |
 | `orcheo workflow schedule <workflow>` | Activate cron scheduling based on the workflow's cron trigger (no-op if none). |
 | `orcheo workflow unschedule <workflow>` | Remove cron scheduling for the workflow. |
-| `orcheo workflow publish <workflow> [--require-login] [--chatkit-public-base-url <url>]` | Publish a workflow for public ChatKit access, optionally requiring OAuth login and overriding the share-link origin for that run. |
+| `orcheo workflow publish <workflow> [--require-login/--no-require-login] [--force] [--studio-url <url>]` | Publish a workflow for public ChatKit access, optionally requiring OAuth login and overriding the share-link origin for that run. |
 | `orcheo workflow unpublish <workflow>` | Revoke public access and invalidate existing share links. |
+| `orcheo workflow listeners <subcommand>` | Inspect and control workflow listeners (see `orcheo workflow listeners --help`). |
 | `orcheo credential list [--workflow-id <id>]` | List credentials with scopes, expiry, and health status. |
 | `orcheo credential create <name> --provider <provider> --secret <secret>` | Create a new credential with guided prompts. `--secret` is required. |
+| `orcheo credential update <credential> [--secret <secret>] [--metadata <json>]` | Update a credential when supported by the backend. |
 | `orcheo credential delete <credential> [--force]` | Revoke a credential with confirmation safeguards. |
 | `orcheo auth login [--no-browser] [--port <port>]` | Authenticate via browser-based OAuth flow. |
 | `orcheo auth logout` | Clear stored OAuth tokens for the current profile. |
 | `orcheo auth status` | Show current authentication status (OAuth or service token). |
-| `orcheo token create [--id <id>] [--scope <scope>]` | Create a service token for CLI/API authentication. |
+| `orcheo token create [--name <name>] [--scope <scope>] [--workspace <id>] [--expires-in <seconds>]` | Create a service token for CLI/API authentication. The server assigns the token ID; `--name` is an optional label. |
 | `orcheo token list` | List all service tokens with their scopes and status. |
 | `orcheo token show <token-id>` | Show detailed information for a specific service token. |
-| `orcheo token revoke <token-id> [--reason <reason>]` | Immediately invalidate a service token. |
-| `orcheo config [--profile <name>] [--api-url <url>] [--service-token <token>] [--env-file <path>]` | Write CLI profile settings to `cli.toml`. Supports OAuth options (see below). |
+| `orcheo token revoke <token-id> --reason <reason>` | Immediately invalidate a service token (`--reason` is required). |
+| `orcheo workspace list` / `me` / `use [<slug>]` | List workspaces, show the caller's memberships, and show or set the active workspace slug for the profile. |
+| `orcheo workspace create` / `invite` / `deactivate` / `reactivate` / `delete` / `purge-deleted` / `audit-log` | Administer workspaces: creation, member invitations, lifecycle, and audit events. |
+| `orcheo stack [--start\|--stop\|--restart\|--ps\|--pull\|--logs\|--down]` | Run common Docker Compose actions for the local Orcheo stack directory. |
+| `orcheo config [--profile <name>] [--api-url <url>] [--service-token <token>] [--studio-url <url>] [--env-file <path>]` | Write CLI profile settings to `cli.toml`. Supports OAuth options (see below). |
+| `orcheo config list` | List all configured CLI profiles. |
 | `orcheo code template [-o <file>] [--name <name>]` | Generate a minimal Python LangGraph workflow template file. |
 | `orcheo code scaffold <workflow>` | Generate Python SDK code snippets to invoke an existing workflow. |
 | `orcheo install [--yes] [--mode install\|upgrade] [--stack-version <version>] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided Docker-stack setup/upgrade (asset sync, `.env` updates, optional compose startup). |
 | `orcheo install upgrade [--yes] [--stack-version <version>] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided upgrade shortcut command. |
+| `orcheo install ensure-stack-env` | Create or backfill a stack env file without running the full install flow. |
+| `orcheo browser-aware` | Start the browser context bridge server. |
+| `orcheo context` | Inspect browser context from Studio tabs. |
 
 `orcheo install` syncs stack assets into `~/.orcheo/stack` (or
 `ORCHEO_STACK_DIR`). Files are refreshed when upstream content differs.
@@ -293,7 +304,7 @@ Supported fields (all optional):
 - `version` – candidate release version using strict `MAJOR.MINOR.PATCH` SemVer. Candidates without a version stay onboardable but do not show update availability.
 - `updates` – `[[updates]]` entries with `version`, `summary`, and optional `migration` text. Entries are shown to Studio users when they update an onboarded candidate colleague.
 
-The block is parsed as TOML; only the fields above are accepted. CLI flags (`--name`, `--id`, `--config-file`, `--entrypoint`) always win over the frontmatter values.
+The block is parsed as TOML; only the fields above are accepted. CLI flags (`--id`, `--config-file`, `--entrypoint`) always win over the frontmatter values; the display name comes from the frontmatter `name` — update it there and re-upload to rename a workflow.
 
 Candidate authors should bump patch versions for compatible fixes, minor versions for compatible behavior or capability additions, and major versions when prompt contracts, required config, credentials, or operational behavior may require review. Write `migration` notes for any risky or manual step; keep `summary` short enough to fit in update hover text.
 
@@ -341,7 +352,6 @@ The `config` command also accepts OAuth settings for browser-based authenticatio
 | `--auth-scopes` | `ORCHEO_AUTH_SCOPES` | `auth_scopes` |
 | `--auth-audience` | `ORCHEO_AUTH_AUDIENCE` | `auth_audience` |
 | `--auth-organization` | `ORCHEO_AUTH_ORGANIZATION` | `auth_organization` |
-| `--chatkit-public-base-url` | `ORCHEO_CHATKIT_PUBLIC_BASE_URL` | `chatkit_public_base_url` |
 
 Once written to a profile, these values are used by `orcheo auth login` and other commands without needing environment variables.
 

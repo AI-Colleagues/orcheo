@@ -11,6 +11,8 @@ from orcheo.runtime.credentials import parse_credential_reference
 
 
 _PLACEHOLDER_PATTERN = re.compile(r"\[\[[^\[\]]+\]\]")
+_FRONTMATTER_START_PATTERN = re.compile(r"^# /// orcheo[ \t]*$")
+_FRONTMATTER_END_PATTERN = re.compile(r"^# ///[ \t]*$")
 
 
 def collect_workflow_credential_placeholders(
@@ -23,7 +25,7 @@ def collect_workflow_credential_placeholders(
     imported or executed in a backend readiness check.
     """
     placeholders: dict[str, set[str]] = {}
-    _collect_value(graph_payload, placeholders, seen=set())
+    _collect_graph_payload(graph_payload, placeholders)
     _collect_source_index(graph_payload, placeholders)
     if runnable_config is not None:
         _collect_value(runnable_config, placeholders, seen=set())
@@ -38,7 +40,37 @@ def _collect_source_index(
     source = graph_payload.get("source")
     if not isinstance(source, str):
         return
+    _collect_string(_strip_orcheo_frontmatter(source), placeholders)
     _collect_value(extract_graph_index(source), placeholders, seen=set())
+
+
+def _collect_graph_payload(
+    graph_payload: Mapping[str, Any],
+    placeholders: dict[str, set[str]],
+) -> None:
+    """Collect credentials from stored graph data without raw source text."""
+    payload_without_source = {
+        key: value for key, value in graph_payload.items() if key != "source"
+    }
+    _collect_value(payload_without_source, placeholders, seen=set())
+
+
+def _strip_orcheo_frontmatter(source: str) -> str:
+    """Return source text with Orcheo frontmatter blocks removed."""
+    lines: list[str] = []
+    in_frontmatter = False
+
+    for line in source.splitlines():
+        if in_frontmatter:
+            if _FRONTMATTER_END_PATTERN.match(line):
+                in_frontmatter = False
+            continue
+        if _FRONTMATTER_START_PATTERN.match(line):
+            in_frontmatter = True
+            continue
+        lines.append(line)
+
+    return "\n".join(lines)
 
 
 def _collect_state_graph(

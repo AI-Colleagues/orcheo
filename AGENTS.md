@@ -11,13 +11,20 @@ It supports both low-code (JSON config) and vibe-coding-first (AI agents build w
 The project is a monorepo containing:
 - **Core Engine & Backend** (`src/orcheo/`, `apps/backend/`): Python — FastAPI, LangGraph, Celery + Redis.
 - **SDK** (`packages/sdk/`): Python SDK and CLI (`orcheo` / `horcheo`).
+- **Agentensor** (`packages/agentensor/`): Agent prompt tensors, modules, and optimizers for Orcheo workflows.
 - **Studio** (`apps/studio/`): Web interface for monitoring and managing workflows — React 19, Vite, Radix UI, Tailwind CSS, @xyflow/react. Workflow authoring is done via the SDK or AI coding agents.
+
+Git submodules (separate repositories with their own `AGENTS.md`):
+- `colleague-candidates/` — candidate AI colleague workflows (which itself nests the `colleague-experts/` submodule).
+- `agent-skills/` — reusable agent skills, including the `orcheo` CLI skill.
 
 ## Project Structure & Module Organization
 
-- Source: `src/orcheo/` — core package. Key areas: `graph/` (state, builder), `nodes/` (task/AI/integrations), `main.py` (FastAPI app/WebSocket).
+- Source: `src/orcheo/` — core package. Key areas: `graph/` (state, builder, IR, ingestion), `nodes/` (task/AI/integration nodes), `triggers/`, `listeners/`, `sandbox/` (MicroPython-WASM sandbox for CodeNode bodies), `runtime/`, `vault/`, `workspace/`, `identity/`, `tenancy/`, `plugins/`, `tooling/` (dev CLI commands).
+- Backend API: `apps/backend/src/orcheo_backend/` — FastAPI app, WebSocket endpoints, identity service.
 - Tests: `tests/` — mirrors package layout (e.g., `tests/graph/`, `tests/nodes/`).
-- Docs & examples: `docs/`, `examples/`, experimental `playground/`.
+- Docs & examples: `docs/`, `examples/`.
+- Deployment: `deploy/`, `docker-compose.yml`, `Dockerfile.backend`, `Dockerfile.studio`.
 - Contributors: `CONTRIBUTORS.md` — list of project contributors.
 - Config: `pyproject.toml` (tooling), `.pre-commit-config.yaml`, `.env` (local secrets), `Makefile` (common tasks).
 
@@ -28,7 +35,7 @@ The project is a monorepo containing:
 - **Graph Builder**: Constructs workflows from JSON configurations using StateGraph.
 - **State Management**: Centralized state passing between nodes with variable interpolation (`{{path.to.value}}`).
 - **Node Registry**: Dynamic registration system for node types.
-- Built-in nodes: AI, Code, MongoDB, RSS, Slack, Telegram.
+- Built-in nodes: 130+ types under `src/orcheo/nodes/` — AI/agents (`ai/`, `agent_tools/`), code, logic/control flow, data & storage (MongoDB, Postgres), RAG/ingestion, browser automation, qualitative research, evaluation, triggers, and messaging connectors (Telegram, Slack, Discord, WeCom, Lark, QQ, LinkedIn, email). Run `uv run orcheo node list` for the full registry.
 
 ### Technology Stack
 - **Backend**: FastAPI + uvicorn
@@ -66,8 +73,10 @@ Tip: Prefix with `uv run` when invoking tools directly, e.g. `uv run pytest -k n
 ### Docker Compose (Full Stack)
 - `make docker-up` — Start all services (backend, studio, redis, worker, celery-beat)
 - `make docker-down` — Stop all Docker Compose services
+- `make docker-restart` — Restart all Docker Compose services
 - `make docker-build` — Build Docker images
 - `make docker-logs` — Follow logs from all services
+- `make staging-up` / `staging-down` / `staging-restart` / `staging-build` / `staging-logs` / `staging-config` — same lifecycle against the staging compose environment (`make staging-env` prepares its env file)
 
 ### Package Management
 - Uses `uv` for dependency management (see uv.lock); Python 3.12+ required.
@@ -76,7 +85,12 @@ Tip: Prefix with `uv run` when invoking tools directly, e.g. `uv run pytest -k n
 ### CLI Commands
 Available when environment is active (defined in `pyproject.toml` scripts):
 - `orcheo-dev-server`: Equivalent to `make dev-server`.
+- `orcheo-dev-studio`: Start the Studio dev server.
+- `orcheo-format` / `orcheo-lint`: Python format/lint helpers.
+- `orcheo-studio-lint`: Studio lint helper.
 - `orcheo-seed-env`: Sets up development environment variables.
+
+The user-facing `orcheo` / `horcheo` CLI ships with the SDK (`packages/sdk/`).
 
 ## Coding Style & Naming Conventions
 

@@ -22,8 +22,17 @@ This guide walks you through a progressive demo suite for building conversationa
 | Production Pipeline | Production-ready pipeline with caching and guardrails | `examples/conversational_search/demo_5_production/demo_5.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | [![Try Live Demo](https://img.shields.io/badge/▶_Try_it-2ea44f?style=for-the-badge)](https://orcheo-canvas.ai-colleagues.com/chat/fceb4275-660d-418f-b4b7-d9afcd34a3b8) |
 | Evaluation & Research | Evaluation & research | `examples/conversational_search/demo_6_evaluation/demo_6.py` | `openai_api_key`, `pinecone_api_key` | Pinecone | [![Try Live Demo](https://img.shields.io/badge/▶_Try_it-2ea44f?style=for-the-badge)](https://orcheo-canvas.ai-colleagues.com/chat/810f32dd-1796-4d6e-a6d6-29b6a3579fd6) |
 
-!!! tip
-    The example script paths are relative to the Orcheo source root or the GitHub repository root.
+!!! warning "Examples have moved"
+    The example sources now live in the
+    [colleague-candidates](https://github.com/AI-Colleagues/colleague-candidates)
+    repository (vendored in this monorepo as the `colleague-candidates/` git
+    submodule) under `examples/`. Some directories were also reorganized: the
+    numbered demos are packaged as
+    `conversational_search/conversational_search_demo_<N>/` workflow
+    directories (`workflow.py` + `config.json`), and the MongoDB agent scripts
+    evolved into the Knowledge Desk colleagues under
+    `colleagues/knowledge_desk/`. Script paths in the table above reflect the
+    original layout; resolve them against the new locations.
 
 ## Prerequisites
 

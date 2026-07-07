@@ -21,7 +21,7 @@ This setup mirrors the default configuration that the tests exercise. It is idea
    make dev-server
    ```
 4. **Run an example workflow**
-   - Send a websocket message to `ws://localhost:2025/ws/workflow/<workflow_id>` with a payload matching the schema in `tests/test_main.py`.
+   - Send a websocket message to `ws://localhost:2025/ws/workflow/<workflow_id>` (see the [Authentication Guide](authentication_guide.md#websocket-authentication) for token options), or trigger a run with `orcheo workflow run <workflow_id>`.
 
 **Verification**: Run `uv run pytest` to validate the environment. The test suite uses the same backend factories as the server.
 
@@ -87,7 +87,7 @@ Use this recipe when you want an isolated environment that mimics production wit
 3. **Connect**
    Access the API via `http://localhost:2025`. The Postgres database is stored inside the named volume so runs persist across container restarts.
 
-**Verification**: `docker compose exec orcheo uv run pytest tests/test_main.py` confirms the container is healthy.
+**Verification**: `curl http://localhost:2025/api/system/info` confirms the container is healthy.
 
 _Vault note_: Rotate `ORCHEO_VAULT_ENCRYPTION_KEY` regularly and back up the Postgres volume alongside the database.
 
@@ -241,7 +241,7 @@ _Vault note_: Managed environments should prefer KMS-integrated vaults. Configur
 ## Operational Tips
 
 - **Secrets**: Prefer platform-specific secret managers (Fly Secrets, Railway variables, AWS Parameter Store) and never bake DSNs or vault encryption keys into images.
-- **Observability**: Route application logs to structured logging (e.g., stdout + centralized collector) and enable tracing once Milestone 6 instrumentation lands.
+- **Observability**: Route application logs to structured logging (e.g., stdout + centralized collector) and enable OpenTelemetry tracing via the `ORCHEO_TRACING_*` variables (see [OpenTelemetry Tracing](otel_tracing/README.md)).
 - **Scaling**: The FastAPI app is stateless. Scale horizontally by adding replicas while pointing them at the same checkpoint database. With bundled Caddy, keep replica pools limited to one logical deployment that shares Postgres and Redis.
 - **Backups**: Schedule database backups (pg_dump or managed snapshots) to protect workflow history and run states.
 

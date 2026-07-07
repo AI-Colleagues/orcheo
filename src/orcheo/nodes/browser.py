@@ -163,7 +163,7 @@ class BrowserSession:
 
     browser_type: BrowserEngine
     context: Any
-    browser: Any
+    browser: Any | None
     page: Any
     playwright: Any
     trace_path: str | None = None
@@ -237,6 +237,7 @@ class BrowserSessionManager:
         browser_type: BrowserEngine,
         headless: bool,
         launch_args: list[str],
+        user_data_dir: str | None,
         viewport_width: int | None,
         viewport_height: int | None,
         user_agent: str | None,
@@ -260,21 +261,34 @@ class BrowserSessionManager:
         launch_kwargs: dict[str, Any] = {"headless": headless}
         if launch_args:
             launch_kwargs["args"] = launch_args
-        browser = await launcher.launch(**launch_kwargs)
-
-        context = await browser.new_context(
-            **self._context_kwargs(
-                viewport_width=viewport_width,
-                viewport_height=viewport_height,
-                user_agent=user_agent,
-                locale=locale,
-                timezone_id=timezone_id,
-                storage_state=storage_state,
-                extra_http_headers=extra_http_headers,
-                ignore_https_errors=ignore_https_errors,
-                java_script_enabled=java_script_enabled,
-            )
+        context_kwargs = self._context_kwargs(
+            viewport_width=viewport_width,
+            viewport_height=viewport_height,
+            user_agent=user_agent,
+            locale=locale,
+            timezone_id=timezone_id,
+            storage_state=storage_state,
+            extra_http_headers=extra_http_headers,
+            ignore_https_errors=ignore_https_errors,
+            java_script_enabled=java_script_enabled,
         )
+        browser = None
+        if user_data_dir:
+            if storage_state is not None:
+                msg = (
+                    "BrowserNavigateNode.user_data_dir cannot be used with "
+                    "storage_state."
+                )
+                raise ValueError(msg)
+            context_kwargs.pop("storage_state", None)
+            context = await launcher.launch_persistent_context(
+                user_data_dir,
+                **launch_kwargs,
+                **context_kwargs,
+            )
+        else:
+            browser = await launcher.launch(**launch_kwargs)
+            context = await browser.new_context(**context_kwargs)
         tracing_started = trace_path is not None
         if tracing_started:
             await context.tracing.start(
@@ -304,6 +318,7 @@ class BrowserSessionManager:
         browser_type: BrowserEngine,
         headless: bool,
         launch_args: list[str],
+        user_data_dir: str | None,
         viewport_width: int | None,
         viewport_height: int | None,
         user_agent: str | None,
@@ -337,6 +352,7 @@ class BrowserSessionManager:
                 browser_type=browser_type,
                 headless=headless,
                 launch_args=launch_args,
+                user_data_dir=user_data_dir,
                 viewport_width=viewport_width,
                 viewport_height=viewport_height,
                 user_agent=user_agent,
@@ -389,7 +405,8 @@ class BrowserSessionManager:
             else:
                 await session.context.tracing.stop()
         await session.context.close()
-        await session.browser.close()
+        if session.browser is not None:
+            await session.browser.close()
         await session.playwright.stop()
 
 
@@ -465,6 +482,13 @@ class BrowserNavigateNode(BrowserNode):
         default_factory=list,
         description="Optional extra browser launch arguments.",
     )
+    user_data_dir: str | None = Field(
+        default=None,
+        description=(
+            "Optional persistent browser profile directory. Uses "
+            "Playwright launch_persistent_context()."
+        ),
+    )
     url: str = Field(description="Target URL to open in the browser.")
     wait_until: NavigationWaitUntil = Field(
         default="load",
@@ -531,6 +555,7 @@ class BrowserNavigateNode(BrowserNode):
             browser_type=self.browser_type,
             headless=self.headless,
             launch_args=self.launch_args,
+            user_data_dir=self.user_data_dir,
             viewport_width=self.viewport_width,
             viewport_height=self.viewport_height,
             user_agent=self.user_agent,

@@ -2,7 +2,7 @@
 
 Learn how to drop the ChatKit bubble into any static HTML page and connect it to
 Orcheo's published workflows. Use this guide in tandem with the demo at
-`examples/chatkit-orcheo.html`, which ships a working implementation you can
+`colleague-candidates/examples/chatkit-embedding.html`, which ships a working implementation you can
 copy/paste or customize.
 
 ## When to use this guide
@@ -63,7 +63,7 @@ domains where practical.
    `https://cdn.platform.openai.com`; override with
    `ORCHEO_CHATKIT_CDN_BASE_URL` if needed.
 2. **Add a launcher + container** – place a floating button and a hidden panel
-   that contains `<openai-chatkit>`. See `examples/chatkit-orcheo.html` for a
+   that contains `<openai-chatkit>`. See `colleague-candidates/examples/chatkit-embedding.html` for a
    fully styled version that mirrors the Studio chat bubble UX.
 3. **Capture configuration** – collect:
    - Backend base URL (`http://localhost:2025` for local dev)
@@ -203,7 +203,7 @@ export ORCHEO_API_URL="https://orcheo.example.com"
 export ORCHEO_SERVICE_TOKEN="<your-admin-or-bootstrap-token>"
 
 orcheo token create \
-  --id chatkit-embed-proxy \
+  --name chatkit-embed-proxy \
   --scope chatkit:session
 ```
 
@@ -223,7 +223,7 @@ To replace the token later (e.g. on a 90-day schedule), create a new token,
 point your proxy at it, then revoke the old one:
 
 ```bash
-orcheo token create --id chatkit-embed-proxy --scope chatkit:session
+orcheo token create --name chatkit-embed-proxy --scope chatkit:session
 orcheo token revoke <old-token-id> --reason "Scheduled replacement"
 ```
 
@@ -409,7 +409,7 @@ is transparently refreshed before each near-expiry request.
   if this key is missing; see `docs/environment_variables.md`.
 
 ## References
-- Working demo: `examples/chatkit-orcheo.html`
+- Working demo: `colleague-candidates/examples/chatkit-embedding.html`
 - Backend contract: `apps/backend/src/orcheo_backend/app/routers/chatkit.py`
 - Studio embedding code: `apps/studio/src/features/chatkit/components/public-chat-widget.tsx`
 - Authentication guide: `docs/authentication_guide.md`

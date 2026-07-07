@@ -1,17 +1,22 @@
 # Evaluation
 
-This guide covers the benchmark evaluation workflows in `examples/evaluation/`.
+This guide covers the benchmark evaluation workflows that live in the
+[colleague-candidates](https://github.com/AI-Colleagues/colleague-candidates)
+repository (vendored in this monorepo as the `colleague-candidates/` git
+submodule). Each workflow is a directory with a `workflow.py` and a
+`config.json`; see `colleague-candidates/examples/evaluation/README.md` for the
+full write-up.
 
 ## Overview
 
 The evaluation examples provide two benchmark tracks:
 
-- **QReCC rewrite evaluation** (`examples/evaluation/qrecc_eval.py`)
-- **MultiDoc2Dial grounded generation evaluation** (`examples/evaluation/md2d_eval.py`)
+- **QReCC rewrite evaluation** (`colleague-candidates/examples/qrecc_eval/`)
+- **MultiDoc2Dial grounded generation evaluation** (`colleague-candidates/examples/md2d_eval/`)
 
 A separate indexing workflow is included for MultiDoc2Dial corpus ingestion:
 
-- **MultiDoc2Dial corpus indexing** (`examples/evaluation/md2d_indexing.py`)
+- **MultiDoc2Dial corpus indexing** (`colleague-candidates/examples/md2d_indexing/`)
 
 ## Prerequisites
 
@@ -32,16 +37,16 @@ orcheo credential create pinecone_api_key --secret your-pinecone-key
 
 Default configs use hosted benchmark artifacts:
 
-- QReCC test set via Hugging Face (`config_qrecc.json`)
-- MultiDoc2Dial validation dialogs and corpus (`config_md2d.json`, `config_md2d_indexing.json`)
+- QReCC test set via Hugging Face (`qrecc_eval/config.json`)
+- MultiDoc2Dial validation dialogs and corpus (`md2d_eval/config.json`, `md2d_indexing/config.json`)
 
 ## Workflow: QReCC
 
 Upload and run:
 
 ```bash
-orcheo workflow upload examples/evaluation/qrecc_eval.py \
-  --config-file examples/evaluation/config_qrecc.json
+orcheo workflow upload colleague-candidates/examples/qrecc_eval/workflow.py \
+  --config-file colleague-candidates/examples/qrecc_eval/config.json
 orcheo workflow run <workflow-id> --verbose
 ```
 
@@ -57,16 +62,16 @@ Pipeline summary:
 ### Step 1: Index corpus (run once per index/namespace)
 
 ```bash
-orcheo workflow upload examples/evaluation/md2d_indexing.py \
-  --config-file examples/evaluation/config_md2d_indexing.json
+orcheo workflow upload colleague-candidates/examples/md2d_indexing/workflow.py \
+  --config-file colleague-candidates/examples/md2d_indexing/config.json
 orcheo workflow run <workflow-id>
 ```
 
 ### Step 2: Run evaluation
 
 ```bash
-orcheo workflow upload examples/evaluation/md2d_eval.py \
-  --config-file examples/evaluation/config_md2d.json
+orcheo workflow upload colleague-candidates/examples/md2d_eval/workflow.py \
+  --config-file colleague-candidates/examples/md2d_eval/config.json
 orcheo workflow run <workflow-id> --verbose
 ```
 
