@@ -8,6 +8,7 @@ from orcheo.nodes.qualitative import TwoTrackThemeReportNode
 from orcheo.nodes.qualitative.models import Codebook, QuantificationRow
 from orcheo.nodes.qualitative.radar_report import (
     coerce_codebook_input,
+    _coerce_string_list_input,
     corpus_summary,
     seed_theme_keys,
     split_covered_emergent,
@@ -34,6 +35,17 @@ def test_coerce_codebook_input_accepts_dict_json_string_and_rejects_garbage():
     )
     assert coerce_codebook_input("not json") is None
     assert coerce_codebook_input(None) is None
+
+
+def test_coerce_string_list_input_handles_lists_json_strings_and_invalid_json():
+    assert _coerce_string_list_input(["I01", 2, None]) == ["I01", "2", "None"]
+    assert _coerce_string_list_input(json.dumps(["I01", 2, None])) == [
+        "I01",
+        "2",
+        "None",
+    ]
+    assert _coerce_string_list_input("not json") == []
+    assert _coerce_string_list_input(json.dumps({"I01": True})) == []
 
 
 def test_seed_theme_keys():
