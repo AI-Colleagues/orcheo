@@ -120,6 +120,12 @@ describe("Credential dialogs", () => {
     );
   });
 
+  it("uses the compact add button label in the vault header", () => {
+    render(<CredentialsVault credentials={[credential]} />);
+
+    expect(screen.getByRole("button", { name: "+ Add" })).toBeInTheDocument();
+  });
+
   it("shows an explicit Show button in the edit dialog", async () => {
     const user = userEvent.setup();
 
