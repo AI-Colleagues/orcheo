@@ -48,6 +48,15 @@ if [[ "${ORCHEO_MACOS_BUNDLE_POSTGRES_LIBS:-true}" != "true" ]]; then
   exit 0
 fi
 
+FORMULA_MAJOR="${FORMULA##*@}"
+if [[ ! "${FORMULA_MAJOR}" =~ ^[0-9]+$ ]]; then
+  FORMULA_MAJOR="17"
+fi
+RUNTIME_SHARE_DIR="${ORCHEO_MACOS_POSTGRES_RUNTIME_SHARE_DIR:-/tmp/orcheo-pg${FORMULA_MAJOR}-share}"
+RUNTIME_PKGLIB_DIR="${ORCHEO_MACOS_POSTGRES_RUNTIME_PKGLIB_DIR:-/tmp/orcheo-pg${FORMULA_MAJOR}-lib}"
+RUNTIME_SYSCONF_DIR="${ORCHEO_MACOS_POSTGRES_RUNTIME_SYSCONF_DIR:-/tmp/orcheo-pg${FORMULA_MAJOR}-etc}"
+RUNTIME_LOCALE_DIR="${ORCHEO_MACOS_POSTGRES_RUNTIME_LOCALE_DIR:-/tmp/orcheo-pg${FORMULA_MAJOR}-locale}"
+
 RUNTIME_LIB_DIR="${DEST_DIR}/lib/orcheo-runtime"
 SOURCE_PG_LIB_DIR_REAL="$(realpath "${SOURCE_DIR}/lib/postgresql")"
 BREW_PREFIX=""
@@ -291,6 +300,53 @@ patch_target() {
   done < <(otool -L "${target}" | awk 'NR > 1 { print $1 }')
 }
 
+patch_embedded_path() {
+  local old_path="$1"
+  local new_path="$2"
+  local target="$3"
+
+  if [[ "${old_path}" == "" || "${new_path}" == "" || ! -e "${target}" ]]; then
+    return
+  fi
+  if (( ${#new_path} > ${#old_path} )); then
+    echo "Cannot patch ${old_path} to longer path ${new_path}" >&2
+    exit 69
+  fi
+  if ! grep -aqF "${old_path}" "${target}"; then
+    return
+  fi
+
+  chmod u+w "${target}"
+  OLD_PATH="${old_path}" NEW_PATH="${new_path}" perl -0pi -e '
+    my $old = $ENV{"OLD_PATH"};
+    my $new = $ENV{"NEW_PATH"};
+    my $replacement = $new . ("\0" x (length($old) - length($new)));
+    s/\Q$old\E/$replacement/g;
+  ' "${target}"
+}
+
+patch_compiled_postgres_paths() {
+  local target="$1"
+  local source_share_dir
+  local source_pkglib_dir
+  local source_sysconf_dir
+  local source_locale_dir
+
+  if ! is_macho_file "${target}"; then
+    return
+  fi
+
+  source_share_dir="$("${SOURCE_DIR}/bin/pg_config" --sharedir)"
+  source_pkglib_dir="$("${SOURCE_DIR}/bin/pg_config" --pkglibdir)"
+  source_sysconf_dir="$("${SOURCE_DIR}/bin/pg_config" --sysconfdir)"
+  source_locale_dir="$("${SOURCE_DIR}/bin/pg_config" --localedir 2>/dev/null || true)"
+
+  patch_embedded_path "${source_share_dir}" "${RUNTIME_SHARE_DIR}" "${target}"
+  patch_embedded_path "${source_pkglib_dir}" "${RUNTIME_PKGLIB_DIR}" "${target}"
+  patch_embedded_path "${source_sysconf_dir}" "${RUNTIME_SYSCONF_DIR}" "${target}"
+  patch_embedded_path "${source_locale_dir}" "${RUNTIME_LOCALE_DIR}" "${target}"
+}
+
 while IFS= read -r target; do
   add_scan_target "${target}"
 done < <(find "${DEST_DIR}/bin" -type f -perm -111)
@@ -314,6 +370,12 @@ done
 while IFS= read -r target; do
   if [[ "${target}" != "" ]]; then
     patch_target "${target}"
+  fi
+done < <(printf "%s" "${all_targets}")
+
+while IFS= read -r target; do
+  if [[ "${target}" != "" ]]; then
+    patch_compiled_postgres_paths "${target}"
   fi
 done < <(printf "%s" "${all_targets}")
 
