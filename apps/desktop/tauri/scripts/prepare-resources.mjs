@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   cpSync,
@@ -10,133 +10,163 @@ import {
   statSync,
   unlinkSync,
   readdirSync,
-} from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+  writeFileSync,
+} from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const tauriDirectory = path.resolve(__dirname, '..')
-const repoRoot = path.resolve(tauriDirectory, '../../..')
-const bundleRoot = path.join(tauriDirectory, 'bundle')
-const stagedRepo = path.join(bundleRoot, 'orcheo')
-const stagedPostgres = path.join(bundleRoot, 'postgres')
-const stagedPlaywright = path.join(bundleRoot, 'ms-playwright')
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const tauriDirectory = path.resolve(__dirname, "..");
+const repoRoot = path.resolve(tauriDirectory, "../../..");
+const bundleRoot = path.join(tauriDirectory, "bundle");
+const stagedRepo = path.join(bundleRoot, "orcheo");
+const stagedPostgres = path.join(bundleRoot, "postgres");
+const stagedPlaywright = path.join(bundleRoot, "ms-playwright");
+const releaseUvEnvironment = path.join(bundleRoot, ".release-python-env");
 
 const excludedNames = new Set([
-  '.cache',
-  '.coverage-shards',
-  '.git',
-  '.mypy_cache',
-  '.orcheo',
-  '.pytest_cache',
-  '.ruff_cache',
-  '.tox',
-  '.venv',
-  '__pycache__',
-  'build',
-  'dist-ssr',
-  'htmlcov',
-  'node_modules',
-  'target',
-])
+  ".cache",
+  ".coverage-shards",
+  ".git",
+  ".mypy_cache",
+  ".orcheo",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".tox",
+  ".venv",
+  "__pycache__",
+  "build",
+  "dist-ssr",
+  "htmlcov",
+  "node_modules",
+  "target",
+]);
 
 // The backend only needs the workspace members it actually depends on
 // (`uv run` from the repo root installs this whole workspace) plus the one
 // script the desktop shell shells out to. Everything else in the monorepo
 // (other apps, docs, marketing sites, test fixtures, agent skills, etc.) is
 // dead weight in a packaged app and was previously copied wholesale.
-const requiredRootFiles = ['pyproject.toml', 'uv.lock', 'README.md', '.python-version']
-const requiredRootDirs = ['src', 'apps/backend', 'packages/agentensor', 'packages/sdk']
-const requiredScriptFiles = ['scripts/desktop-postgres.sh']
+const requiredRootFiles = [
+  "pyproject.toml",
+  "uv.lock",
+  "README.md",
+  ".python-version",
+];
+const requiredRootDirs = [
+  "src",
+  "apps/backend",
+  "packages/agentensor",
+  "packages/sdk",
+];
+const requiredScriptFiles = ["scripts/desktop-postgres.sh"];
+
+function truthy(value) {
+  return ["1", "true", "yes", "on"].includes(String(value ?? "").toLowerCase());
+}
+
+const usePublishedReleases = truthy(
+  process.env.ORCHEO_TAURI_USE_PUBLISHED_RELEASES,
+);
 
 function shouldCopy(sourcePath) {
-  const name = path.basename(sourcePath)
+  const name = path.basename(sourcePath);
 
   if (excludedNames.has(name)) {
-    return false
+    return false;
   }
 
-  if (name === '.DS_Store' || name.endsWith('.pyc') || name.endsWith('.pyo')) {
-    return false
+  if (name === ".DS_Store" || name.endsWith(".pyc") || name.endsWith(".pyo")) {
+    return false;
   }
 
-  return true
+  return true;
 }
 
 function copyFilteredDirectory(sourceDirectory, destinationDirectory) {
-  mkdirSync(destinationDirectory, { recursive: true })
+  mkdirSync(destinationDirectory, { recursive: true });
 
   for (const entry of readdirSync(sourceDirectory)) {
-    const sourcePath = path.join(sourceDirectory, entry)
+    const sourcePath = path.join(sourceDirectory, entry);
     if (!shouldCopy(sourcePath)) {
-      continue
+      continue;
     }
 
-    const destinationPath = path.join(destinationDirectory, entry)
-    const stat = lstatSync(sourcePath)
+    const destinationPath = path.join(destinationDirectory, entry);
+    const stat = lstatSync(sourcePath);
     if (stat.isSymbolicLink()) {
-      continue
+      continue;
     } else if (stat.isDirectory()) {
-      copyFilteredDirectory(sourcePath, destinationPath)
+      copyFilteredDirectory(sourcePath, destinationPath);
     } else if (stat.isFile()) {
       cpSync(sourcePath, destinationPath, {
         dereference: false,
         force: true,
         preserveTimestamps: true,
-      })
+      });
     }
   }
 }
 
 function normalizeResourcePermissions(resourceDirectory) {
   if (!existsSync(resourceDirectory)) {
-    return
+    return;
   }
 
   for (const entry of readdirSync(resourceDirectory)) {
-    const entryPath = path.join(resourceDirectory, entry)
-    const stat = lstatSync(entryPath)
+    const entryPath = path.join(resourceDirectory, entry);
+    const stat = lstatSync(entryPath);
     if (stat.isSymbolicLink()) {
-      const targetPath = path.resolve(path.dirname(entryPath), readlinkSync(entryPath))
-      const targetStat = statSync(targetPath)
-      unlinkSync(entryPath)
+      const targetPath = path.resolve(
+        path.dirname(entryPath),
+        readlinkSync(entryPath),
+      );
+      const targetStat = statSync(targetPath);
+      unlinkSync(entryPath);
       cpSync(targetPath, entryPath, {
         dereference: true,
         recursive: targetStat.isDirectory(),
-      })
+      });
       if (targetStat.isDirectory()) {
-        chmodSync(entryPath, 0o755)
-        normalizeResourcePermissions(entryPath)
+        chmodSync(entryPath, 0o755);
+        normalizeResourcePermissions(entryPath);
       } else {
-        const executable = (targetStat.mode & 0o111) !== 0
-        chmodSync(entryPath, executable ? 0o755 : 0o644)
+        const executable = (targetStat.mode & 0o111) !== 0;
+        chmodSync(entryPath, executable ? 0o755 : 0o644);
       }
-      continue
+      continue;
     }
     if (stat.isDirectory()) {
-      chmodSync(entryPath, 0o755)
-      normalizeResourcePermissions(entryPath)
+      chmodSync(entryPath, 0o755);
+      normalizeResourcePermissions(entryPath);
     } else if (stat.isFile()) {
-      const executable = (stat.mode & 0o111) !== 0
-      chmodSync(entryPath, executable ? 0o755 : 0o644)
+      const executable = (stat.mode & 0o111) !== 0;
+      chmodSync(entryPath, executable ? 0o755 : 0o644);
     }
   }
 }
 
 function prunePostgresDevelopmentFiles(postgresDirectory) {
-  rmSync(path.join(postgresDirectory, 'include'), { force: true, recursive: true })
-  rmSync(path.join(postgresDirectory, 'lib', 'postgresql', 'pkgconfig'), {
+  rmSync(path.join(postgresDirectory, "include"), {
     force: true,
     recursive: true,
-  })
+  });
+  rmSync(path.join(postgresDirectory, "lib", "postgresql", "pkgconfig"), {
+    force: true,
+    recursive: true,
+  });
 
-  const postgresLibDirectory = path.join(postgresDirectory, 'lib', 'postgresql')
+  const postgresLibDirectory = path.join(
+    postgresDirectory,
+    "lib",
+    "postgresql",
+  );
   if (!existsSync(postgresLibDirectory)) {
-    return
+    return;
   }
   for (const entry of readdirSync(postgresLibDirectory)) {
-    if (entry.endsWith('.a')) {
-      rmSync(path.join(postgresLibDirectory, entry), { force: true })
+    if (entry.endsWith(".a")) {
+      rmSync(path.join(postgresLibDirectory, entry), { force: true });
     }
   }
 }
@@ -145,68 +175,166 @@ function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: repoRoot,
     env: process.env,
-    stdio: 'inherit',
+    stdio: "inherit",
     ...options,
-  })
+  });
 
   if (result.error) {
-    throw result.error
+    throw result.error;
   }
   if (result.status !== 0) {
-    process.exit(result.status ?? 1)
+    process.exit(result.status ?? 1);
   }
 }
 
-rmSync(stagedRepo, { force: true, recursive: true })
-rmSync(stagedPostgres, { force: true, recursive: true })
-rmSync(stagedPlaywright, { force: true, recursive: true })
-mkdirSync(stagedRepo, { recursive: true })
-mkdirSync(stagedPostgres, { recursive: true })
-mkdirSync(stagedPlaywright, { recursive: true })
+function packageRequirement(envName, packageName) {
+  const configured = process.env[envName]?.trim();
+  if (!configured) {
+    return packageName;
+  }
+  if (configured.startsWith(`${packageName}`)) {
+    return configured;
+  }
+  if (/^[0-9]+(\.[0-9]+){1,2}/.test(configured)) {
+    return `${packageName}==${configured}`;
+  }
+  return `${packageName}${configured}`;
+}
 
-if (!existsSync(path.join(repoRoot, 'apps/studio/dist/index.html'))) {
+function writePublishedRuntimeProject() {
+  const dependencies = [
+    packageRequirement("ORCHEO_TAURI_ORCHEO_PACKAGE", "orcheo"),
+    packageRequirement("ORCHEO_TAURI_BACKEND_PACKAGE", "orcheo-backend"),
+    packageRequirement("ORCHEO_TAURI_SDK_PACKAGE", "orcheo-sdk"),
+    packageRequirement("ORCHEO_TAURI_AGENTENSOR_PACKAGE", "agentensor"),
+  ];
+  const quotedDependencies = dependencies
+    .map((dependency) => `  "${dependency}",`)
+    .join("\n");
+
+  writeFileSync(
+    path.join(stagedRepo, "pyproject.toml"),
+    `[project]
+name = "orcheo-desktop-runtime"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = [
+${quotedDependencies}
+]
+
+[tool.uv]
+package = false
+`,
+  );
+
+  writeFileSync(
+    path.join(stagedRepo, "README.md"),
+    "# Orcheo Desktop Runtime\n\nThis runtime project is generated during the Tauri release build from published Orcheo packages.\n",
+  );
+}
+
+rmSync(stagedRepo, { force: true, recursive: true });
+rmSync(stagedPostgres, { force: true, recursive: true });
+rmSync(stagedPlaywright, { force: true, recursive: true });
+rmSync(releaseUvEnvironment, { force: true, recursive: true });
+mkdirSync(stagedRepo, { recursive: true });
+mkdirSync(stagedPostgres, { recursive: true });
+mkdirSync(stagedPlaywright, { recursive: true });
+
+if (!existsSync(path.join(repoRoot, "apps/studio/dist/index.html"))) {
   console.error(
-    `Studio is not built at ${path.join(repoRoot, 'apps/studio/dist')}. Run `
-      + '`npm --prefix apps/studio run build` first.',
-  )
-  process.exit(1)
+    `Studio is not built at ${path.join(repoRoot, "apps/studio/dist")}. Run ` +
+      "`npm --prefix apps/studio run build` first.",
+  );
+  process.exit(1);
 }
 
-for (const relativePath of requiredRootFiles) {
-  const sourcePath = path.join(repoRoot, relativePath)
-  if (existsSync(sourcePath)) {
-    cpSync(sourcePath, path.join(stagedRepo, relativePath), {
-      force: true,
-      preserveTimestamps: true,
-    })
+if (usePublishedReleases) {
+  writePublishedRuntimeProject();
+} else {
+  for (const relativePath of requiredRootFiles) {
+    const sourcePath = path.join(repoRoot, relativePath);
+    if (existsSync(sourcePath)) {
+      cpSync(sourcePath, path.join(stagedRepo, relativePath), {
+        force: true,
+        preserveTimestamps: true,
+      });
+    }
   }
-}
 
-for (const relativePath of requiredRootDirs) {
-  copyFilteredDirectory(path.join(repoRoot, relativePath), path.join(stagedRepo, relativePath))
+  for (const relativePath of requiredRootDirs) {
+    copyFilteredDirectory(
+      path.join(repoRoot, relativePath),
+      path.join(stagedRepo, relativePath),
+    );
+  }
 }
 
 for (const relativePath of requiredScriptFiles) {
-  const destinationPath = path.join(stagedRepo, relativePath)
-  mkdirSync(path.dirname(destinationPath), { recursive: true })
+  const destinationPath = path.join(stagedRepo, relativePath);
+  mkdirSync(path.dirname(destinationPath), { recursive: true });
   cpSync(path.join(repoRoot, relativePath), destinationPath, {
     force: true,
     preserveTimestamps: true,
-  })
+  });
 }
 
-if (process.platform === 'darwin' && process.env.ORCHEO_TAURI_BUNDLE_POSTGRES !== 'false') {
-  run('bash', ['scripts/bundle-postgres-macos.sh', stagedPostgres])
-  prunePostgresDevelopmentFiles(stagedPostgres)
+if (usePublishedReleases) {
+  run("uv", ["lock", "--upgrade"], { cwd: stagedRepo });
 }
 
-if (process.env.ORCHEO_TAURI_BUNDLE_PLAYWRIGHT !== 'false') {
-  run('uv', ['run', 'python', '-m', 'playwright', 'install', 'chromium', 'chromium-headless-shell'], {
-    env: {
-      ...process.env,
-      PLAYWRIGHT_BROWSERS_PATH: stagedPlaywright,
-    },
-  })
+if (
+  process.platform === "darwin" &&
+  process.env.ORCHEO_TAURI_BUNDLE_POSTGRES !== "false"
+) {
+  run("bash", ["scripts/bundle-postgres-macos.sh", stagedPostgres]);
+  prunePostgresDevelopmentFiles(stagedPostgres);
+}
+
+if (process.env.ORCHEO_TAURI_BUNDLE_PLAYWRIGHT !== "false") {
+  if (usePublishedReleases) {
+    run(
+      "uv",
+      [
+        "run",
+        "--project",
+        stagedRepo,
+        "--frozen",
+        "python",
+        "-m",
+        "playwright",
+        "install",
+        "chromium",
+        "chromium-headless-shell",
+      ],
+      {
+        env: {
+          ...process.env,
+          PLAYWRIGHT_BROWSERS_PATH: stagedPlaywright,
+          UV_PROJECT_ENVIRONMENT: releaseUvEnvironment,
+        },
+      },
+    );
+  } else {
+    run(
+      "uv",
+      [
+        "run",
+        "python",
+        "-m",
+        "playwright",
+        "install",
+        "chromium",
+        "chromium-headless-shell",
+      ],
+      {
+        env: {
+          ...process.env,
+          PLAYWRIGHT_BROWSERS_PATH: stagedPlaywright,
+        },
+      },
+    );
+  }
 }
 
 // Only Postgres needs this: Homebrew's binaries are symlinks pointing outside
@@ -217,33 +345,42 @@ if (process.env.ORCHEO_TAURI_BUNDLE_PLAYWRIGHT !== 'false') {
 // symlinks into Versions/Current/, itself a symlink to the version dir) —
 // symlinks that point *inside* the same tree and are already portable as-is.
 // Dereferencing those would duplicate the framework payload 2-3x over.
-normalizeResourcePermissions(stagedPostgres)
+normalizeResourcePermissions(stagedPostgres);
 
-const requiredFiles = [
-  'pyproject.toml',
-  'uv.lock',
-  'apps/backend/src/orcheo_backend/app/__init__.py',
-  'scripts/desktop-postgres.sh',
-]
+const requiredFiles = usePublishedReleases
+  ? ["pyproject.toml", "uv.lock", "scripts/desktop-postgres.sh"]
+  : [
+      "pyproject.toml",
+      "uv.lock",
+      "apps/backend/src/orcheo_backend/app/__init__.py",
+      "scripts/desktop-postgres.sh",
+    ];
 
-if (process.platform === 'darwin' && process.env.ORCHEO_TAURI_BUNDLE_POSTGRES !== 'false') {
-  requiredFiles.push('../postgres/bin/initdb', '../postgres/bin/pg_ctl', '../postgres/bin/postgres')
+if (
+  process.platform === "darwin" &&
+  process.env.ORCHEO_TAURI_BUNDLE_POSTGRES !== "false"
+) {
+  requiredFiles.push(
+    "../postgres/bin/initdb",
+    "../postgres/bin/pg_ctl",
+    "../postgres/bin/postgres",
+  );
 }
 
-if (process.env.ORCHEO_TAURI_BUNDLE_PLAYWRIGHT !== 'false') {
-  requiredFiles.push('../ms-playwright')
+if (process.env.ORCHEO_TAURI_BUNDLE_PLAYWRIGHT !== "false") {
+  requiredFiles.push("../ms-playwright");
 }
 
 const missingFiles = requiredFiles.filter((relativePath) => {
-  return !existsSync(path.join(stagedRepo, relativePath))
-})
+  return !existsSync(path.join(stagedRepo, relativePath));
+});
 
 if (missingFiles.length > 0) {
-  console.error('Staged Tauri repo bundle is missing required files:')
+  console.error("Staged Tauri repo bundle is missing required files:");
   for (const file of missingFiles) {
-    console.error(`- ${file}`)
+    console.error(`- ${file}`);
   }
-  process.exit(1)
+  process.exit(1);
 }
 
-console.log(`Prepared Tauri repo bundle at ${stagedRepo}`)
+console.log(`Prepared Tauri repo bundle at ${stagedRepo}`);

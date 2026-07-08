@@ -2026,7 +2026,7 @@ dependencies = [
   "uuid"
 ]
 name = "orcheo-desktop"
-version = "0.1.0"
+version = "0.0.0"
 
 [[package]]
 checksum = "7ca27ec1eb0457ab26f3036ea52229edbdb74dee1edd29063f5b9b010e7ebee4"

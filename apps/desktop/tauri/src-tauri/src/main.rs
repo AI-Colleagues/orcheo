@@ -195,13 +195,7 @@ fn build_macos_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let services = PredefinedMenuItem::services(app, None)?;
     let hide = PredefinedMenuItem::hide(app, None)?;
     let hide_others = PredefinedMenuItem::hide_others(app, None)?;
-    let quit = MenuItem::with_id(
-        app,
-        QUIT_MENU_ID,
-        "Quit Orcheo",
-        true,
-        Some("CmdOrCtrl+Q"),
-    )?;
+    let quit = MenuItem::with_id(app, QUIT_MENU_ID, "Quit Orcheo", true, Some("CmdOrCtrl+Q"))?;
     let app_menu = Submenu::with_items(
         app,
         "Orcheo",
@@ -363,11 +357,7 @@ impl DesktopConfiguration {
         let backend_command = environment
             .get("ORCHEO_DESKTOP_BACKEND_COMMAND")
             .cloned()
-            .unwrap_or_else(|| {
-                format!(
-                    "uv run uvicorn --app-dir apps/backend/src orcheo_backend.app:app --host 127.0.0.1 --port {backend_port}"
-                )
-            });
+            .unwrap_or_else(|| default_backend_command(&repo_root, backend_port));
         let worker_command = environment
             .get("ORCHEO_DESKTOP_WORKER_COMMAND")
             .cloned()
@@ -632,6 +622,16 @@ fn resolve_repo_root(
     }
 
     Err("Set ORCHEO_DESKTOP_REPO_ROOT to an Orcheo checkout or bundle the repo as a Tauri resource.".to_string())
+}
+
+fn default_backend_command(repo_root: &Path, backend_port: u16) -> String {
+    if repo_root.join("apps/backend/src").is_dir() {
+        return format!(
+            "uv run uvicorn --app-dir apps/backend/src orcheo_backend.app:app --host 127.0.0.1 --port {backend_port}"
+        );
+    }
+
+    format!("uv run uvicorn orcheo_backend.app:app --host 127.0.0.1 --port {backend_port}")
 }
 
 fn resolve_studio_dist_dir(
