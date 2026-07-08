@@ -15,6 +15,7 @@
         "height": 820,
         "minWidth": 960,
         "minHeight": 640,
+        "visible": true,
         "url": "index.html",
         "backgroundColor": "#101114"
       }

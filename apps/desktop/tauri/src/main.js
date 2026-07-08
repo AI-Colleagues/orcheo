@@ -11,8 +11,15 @@ function renderStatus(nextTitle, nextDetail, { showActions = false } = {}) {
   actions.hidden = !showActions
 }
 
+function nextFrame() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve))
+  })
+}
+
 async function start() {
   renderStatus('Starting Orcheo', 'Launching local services...')
+  await nextFrame()
   try {
     const status = await invoke('start_orcheo')
     window.location.replace(status.backendUrl)
@@ -26,6 +33,7 @@ async function start() {
 restartButton.addEventListener('click', async () => {
   restartButton.disabled = true
   renderStatus('Restarting Orcheo', 'Stopping and relaunching local services...')
+  await nextFrame()
   try {
     const status = await invoke('restart_orcheo')
     window.location.replace(status.backendUrl)
