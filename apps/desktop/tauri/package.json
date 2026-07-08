@@ -5,12 +5,13 @@
   "type": "module",
   "description": "Cross-platform Tauri shell for Orcheo Studio and local Orcheo services",
   "scripts": {
-    "build": "npm run check:prereqs && npm run build:studio && npm run prepare:resources && tauri build",
+    "build": "npm run check:prereqs && npm run build:studio && npm run prepare:resources && tauri build && npm run fix:macos-bundle",
     "build:studio": "node scripts/build-studio.mjs",
     "check:prereqs": "node scripts/check-prereqs.mjs",
     "clean": "node scripts/clean.mjs",
     "dev": "npm run check:prereqs && npm run build:studio && npm run prepare:resources && tauri dev",
     "dev:fast": "tauri dev",
+    "fix:macos-bundle": "node scripts/fix-macos-bundle.mjs",
     "prepare:resources": "node scripts/prepare-resources.mjs",
     "tauri": "tauri"
   },

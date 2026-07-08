@@ -36,7 +36,6 @@
     "resources": {
       "../bundle/orcheo": "orcheo",
       "../bundle/postgres": "postgres",
-      "../bundle/ms-playwright": "ms-playwright",
       "../../../studio/dist": "studio"
     }
   }
