@@ -199,7 +199,14 @@ start_local_postgres() {
   fi
 
   if "${bin_dir}/pg_ctl" -D "${PG_DATA_DIR}" status >/dev/null 2>&1; then
-    :
+    if ! nc -z 127.0.0.1 "${port}" >/dev/null 2>&1; then
+      "${bin_dir}/pg_ctl" -D "${PG_DATA_DIR}" stop -m fast -w >>"${PG_LOG}" 2>&1 || true
+      "${bin_dir}/pg_ctl" \
+        -D "${PG_DATA_DIR}" \
+        -l "${PG_LOG}" \
+        -o "-h 127.0.0.1 -p ${port} -c timezone=${timezone_name} -c log_timezone=${timezone_name}" \
+        start -w >>"${PG_LOG}" 2>&1
+    fi
   else
     "${bin_dir}/pg_ctl" \
       -D "${PG_DATA_DIR}" \
