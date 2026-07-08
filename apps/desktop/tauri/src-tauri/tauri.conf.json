@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Orcheo Desktop",
+  "productName": "Orcheo",
   "version": "0.1.0",
   "identifier": "com.orcheo.desktop",
   "build": {
@@ -15,7 +15,8 @@
         "height": 820,
         "minWidth": 960,
         "minHeight": 640,
-        "url": "index.html"
+        "url": "index.html",
+        "backgroundColor": "#101114"
       }
     ],
     "security": {

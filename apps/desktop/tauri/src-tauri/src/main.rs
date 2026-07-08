@@ -154,7 +154,7 @@ fn main() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("failed to build Orcheo Desktop");
+        .expect("failed to build Orcheo");
 
     app.run(|app_handle, event| match event {
         tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
@@ -198,13 +198,13 @@ fn build_macos_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let quit = MenuItem::with_id(
         app,
         QUIT_MENU_ID,
-        "Quit Orcheo Desktop",
+        "Quit Orcheo",
         true,
         Some("CmdOrCtrl+Q"),
     )?;
     let app_menu = Submenu::with_items(
         app,
-        "Orcheo Desktop",
+        "Orcheo",
         true,
         &[
             &about,
@@ -799,13 +799,20 @@ fn run_desktop_postgres_script(
     Ok(stdout)
 }
 
+// A cold first launch has to let `uv` create a virtualenv and install the
+// whole workspace (and, the first time, initialize the bundled Postgres data
+// directory), which can comfortably exceed a minute. The loop below already
+// exits immediately if the backend process itself exits, so a generous
+// deadline here only guards against a truly hung process.
+const BACKEND_HEALTH_TIMEOUT: Duration = Duration::from_secs(300);
+
 fn wait_for_backend(
     runtime: &mut DesktopRuntime,
     host: &str,
     port: u16,
     path: &str,
 ) -> Result<(), String> {
-    let deadline = Instant::now() + Duration::from_secs(60);
+    let deadline = Instant::now() + BACKEND_HEALTH_TIMEOUT;
     while Instant::now() < deadline {
         if health_check(host, port, path).unwrap_or(false) {
             return Ok(());

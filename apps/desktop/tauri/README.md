@@ -36,6 +36,7 @@ From the repository root:
 make desktop-tauri-check
 make desktop-tauri-dev
 make desktop-tauri-build
+make desktop-tauri-clean
 ```
 
 Or directly:
@@ -46,6 +47,7 @@ npm --prefix apps/desktop/tauri run check:prereqs
 npm --prefix apps/desktop/tauri run prepare:resources
 npm --prefix apps/desktop/tauri run dev
 npm --prefix apps/desktop/tauri run build
+npm --prefix apps/desktop/tauri run clean
 ```
 
 `npm run build` first builds Studio with `VITE_ORCHEO_AUTH_DISABLED=true` unless

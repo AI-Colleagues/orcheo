@@ -47,10 +47,16 @@ if [[ "${ORCHEO_MACOS_BUNDLE_PLAYWRIGHT:-true}" == "true" ]]; then
 fi
 
 echo "Bundling Orcheo checkout..."
+# The backend only needs the workspace members it actually depends on (`uv
+# run` from the repo root installs this whole workspace) plus the one script
+# the desktop shell shells out to. Everything else in the monorepo (other
+# apps, docs, marketing sites, test fixtures, agent skills, etc.) is dead
+# weight in a packaged app and was previously copied wholesale.
+REQUIRED_ROOT_FILES=(pyproject.toml uv.lock README.md .python-version)
+REQUIRED_ROOT_DIRS=(src apps/backend packages/agentensor packages/sdk)
+REQUIRED_SCRIPT_FILES=(scripts/desktop-postgres.sh)
+
 COMMON_RSYNC_EXCLUDES=(
-  --exclude ".git/"
-  --exclude ".git"
-  --exclude ".venv/"
   --exclude ".cache/"
   --exclude ".mypy_cache/"
   --exclude ".pytest_cache/"
@@ -58,22 +64,37 @@ COMMON_RSYNC_EXCLUDES=(
   --exclude "**/__pycache__/"
   --exclude "**/*.pyc"
   --exclude "node_modules/"
-  --exclude "apps/studio/node_modules/"
-  --exclude "apps/desktop/macos/.build/"
   --exclude "build/"
   --exclude "dist/"
   --exclude "dist-ssr/"
   --exclude ".DS_Store"
 )
 
+rm -rf "${REPO_BUNDLE_DIR}"
+mkdir -p "${REPO_BUNDLE_DIR}"
+
+for relative_path in "${REQUIRED_ROOT_FILES[@]}"; do
+  if [[ -f "${ROOT_DIR}/${relative_path}" ]]; then
+    cp "${ROOT_DIR}/${relative_path}" "${REPO_BUNDLE_DIR}/${relative_path}"
+  fi
+done
+
+for relative_path in "${REQUIRED_ROOT_DIRS[@]}"; do
+  mkdir -p "${REPO_BUNDLE_DIR}/${relative_path}"
+  rsync -a --delete "${COMMON_RSYNC_EXCLUDES[@]}" \
+    "${ROOT_DIR}/${relative_path}/" "${REPO_BUNDLE_DIR}/${relative_path}/"
+done
+
+for relative_path in "${REQUIRED_SCRIPT_FILES[@]}"; do
+  mkdir -p "$(dirname "${REPO_BUNDLE_DIR}/${relative_path}")"
+  cp "${ROOT_DIR}/${relative_path}" "${REPO_BUNDLE_DIR}/${relative_path}"
+done
+
 if [[ "${ORCHEO_MACOS_INCLUDE_ENV:-false}" == "true" ]]; then
-  rsync -a --delete "${COMMON_RSYNC_EXCLUDES[@]}" \
-    "${ROOT_DIR}/" "${REPO_BUNDLE_DIR}/"
-else
-  rsync -a --delete "${COMMON_RSYNC_EXCLUDES[@]}" \
-    --exclude ".env" \
-    --exclude ".env.*" \
-    "${ROOT_DIR}/" "${REPO_BUNDLE_DIR}/"
+  for env_file in "${ROOT_DIR}"/.env "${ROOT_DIR}"/.env.*; do
+    [[ -f "${env_file}" ]] || continue
+    cp "${env_file}" "${REPO_BUNDLE_DIR}/$(basename "${env_file}")"
+  done
 fi
 
 if [[ -f "${REPO_BUNDLE_DIR}/.env" ]]; then

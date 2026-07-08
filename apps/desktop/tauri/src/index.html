@@ -3,21 +3,18 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Orcheo Desktop</title>
+    <title>Orcheo</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main class="shell">
       <section class="status">
-        <div class="mark" aria-hidden="true"></div>
-        <p class="eyebrow">Orcheo Desktop</p>
-        <h1 id="title">Starting local services</h1>
-        <p id="detail">Launching the backend and preparing Studio.</p>
-        <div class="actions">
-          <button id="restart" type="button">Restart</button>
+        <h1 id="title">Starting Orcheo</h1>
+        <p id="detail">Launching local services...</p>
+        <div class="actions" id="actions" hidden>
+          <button id="restart" type="button">Retry</button>
           <button id="logs" type="button">Open Logs</button>
         </div>
-        <pre id="metadata" hidden></pre>
       </section>
     </main>
     <script type="module" src="./main.js"></script>

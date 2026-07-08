@@ -40,34 +40,23 @@ const excludedNames = new Set([
   'target',
 ])
 
-const excludedRepoRelative = new Set([
-  '.env',
-  '.env.local',
-  '.env.development',
-  '.env.production',
-  'apps/desktop/macos/.build',
-  'apps/desktop/tauri/bundle',
-  'apps/desktop/tauri/src-tauri/target',
-  'packages/plugins',
-])
-
-function toRepoRelative(absolutePath) {
-  return path.relative(repoRoot, absolutePath).split(path.sep).join('/')
-}
+// The backend only needs the workspace members it actually depends on
+// (`uv run` from the repo root installs this whole workspace) plus the one
+// script the desktop shell shells out to. Everything else in the monorepo
+// (other apps, docs, marketing sites, test fixtures, agent skills, etc.) is
+// dead weight in a packaged app and was previously copied wholesale.
+const requiredRootFiles = ['pyproject.toml', 'uv.lock', 'README.md', '.python-version']
+const requiredRootDirs = ['src', 'apps/backend', 'packages/agentensor', 'packages/sdk']
+const requiredScriptFiles = ['scripts/desktop-postgres.sh']
 
 function shouldCopy(sourcePath) {
   const name = path.basename(sourcePath)
-  const relativePath = toRepoRelative(sourcePath)
 
-  if (excludedNames.has(name) || excludedRepoRelative.has(relativePath)) {
+  if (excludedNames.has(name)) {
     return false
   }
 
   if (name === '.DS_Store' || name.endsWith('.pyc') || name.endsWith('.pyo')) {
-    return false
-  }
-
-  if (name.startsWith('.env.')) {
     return false
   }
 
@@ -171,9 +160,40 @@ function run(command, args, options = {}) {
 rmSync(stagedRepo, { force: true, recursive: true })
 rmSync(stagedPostgres, { force: true, recursive: true })
 rmSync(stagedPlaywright, { force: true, recursive: true })
+mkdirSync(stagedRepo, { recursive: true })
 mkdirSync(stagedPostgres, { recursive: true })
 mkdirSync(stagedPlaywright, { recursive: true })
-copyFilteredDirectory(repoRoot, stagedRepo)
+
+if (!existsSync(path.join(repoRoot, 'apps/studio/dist/index.html'))) {
+  console.error(
+    `Studio is not built at ${path.join(repoRoot, 'apps/studio/dist')}. Run `
+      + '`npm --prefix apps/studio run build` first.',
+  )
+  process.exit(1)
+}
+
+for (const relativePath of requiredRootFiles) {
+  const sourcePath = path.join(repoRoot, relativePath)
+  if (existsSync(sourcePath)) {
+    cpSync(sourcePath, path.join(stagedRepo, relativePath), {
+      force: true,
+      preserveTimestamps: true,
+    })
+  }
+}
+
+for (const relativePath of requiredRootDirs) {
+  copyFilteredDirectory(path.join(repoRoot, relativePath), path.join(stagedRepo, relativePath))
+}
+
+for (const relativePath of requiredScriptFiles) {
+  const destinationPath = path.join(stagedRepo, relativePath)
+  mkdirSync(path.dirname(destinationPath), { recursive: true })
+  cpSync(path.join(repoRoot, relativePath), destinationPath, {
+    force: true,
+    preserveTimestamps: true,
+  })
+}
 
 if (process.platform === 'darwin' && process.env.ORCHEO_TAURI_BUNDLE_POSTGRES !== 'false') {
   run('bash', ['scripts/bundle-postgres-macos.sh', stagedPostgres])
@@ -189,14 +209,20 @@ if (process.env.ORCHEO_TAURI_BUNDLE_PLAYWRIGHT !== 'false') {
   })
 }
 
+// Only Postgres needs this: Homebrew's binaries are symlinks pointing outside
+// the staged bundle (into /opt/homebrew/Cellar/...), which must be resolved
+// to real files to be portable. Playwright's own installer already ships
+// correct permissions, and its browser bundles use macOS's standard versioned
+// framework layout (Framework.framework/{Resources,Libraries,Helpers} as
+// symlinks into Versions/Current/, itself a symlink to the version dir) —
+// symlinks that point *inside* the same tree and are already portable as-is.
+// Dereferencing those would duplicate the framework payload 2-3x over.
 normalizeResourcePermissions(stagedPostgres)
-normalizeResourcePermissions(stagedPlaywright)
 
 const requiredFiles = [
   'pyproject.toml',
   'uv.lock',
   'apps/backend/src/orcheo_backend/app/__init__.py',
-  'apps/studio/dist/index.html',
   'scripts/desktop-postgres.sh',
 ]
 

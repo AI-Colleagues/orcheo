@@ -305,9 +305,16 @@ final class ServiceSupervisor {
         managedDesktopPostgres = false
     }
 
+    // A cold first launch has to let `uv` create a virtualenv and install the
+    // whole workspace (and, the first time, initialize the bundled Postgres
+    // data directory), which can comfortably exceed a minute. This loop
+    // already returns as soon as the backend process itself exits, so a
+    // generous deadline here only guards against a truly hung process.
+    private static let backendHealthTimeout: TimeInterval = 300
+
     private func waitForBackend(_ baseURL: URL) async throws {
         let healthURL = baseURL.appendingPathComponent("api/system/health")
-        let deadline = Date().addingTimeInterval(60)
+        let deadline = Date().addingTimeInterval(Self.backendHealthTimeout)
         var lastError: String?
         while Date() < deadline {
             do {
@@ -318,9 +325,16 @@ final class ServiceSupervisor {
                 lastError = "Unexpected health response: \(String(describing: (response as? HTTPURLResponse)?.statusCode))"
             } catch {
                 lastError = error.localizedDescription
-                try await Task.sleep(nanoseconds: 500_000_000)
-                continue
             }
+
+            if let backend = processes.first, !backend.isRunning {
+                let suffix = lastError.map { " Last error: \($0)" } ?? ""
+                desktopLog?.write("Backend exited before becoming healthy at \(healthURL.absoluteString).\(suffix)")
+                throw DesktopError.serviceFailed(
+                    "Backend exited before becoming healthy at \(healthURL.absoluteString).\(suffix)"
+                )
+            }
+
             try await Task.sleep(nanoseconds: 500_000_000)
         }
         let suffix = lastError.map { " Last error: \($0)" } ?? ""
