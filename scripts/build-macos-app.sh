@@ -11,6 +11,7 @@ RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 SWIFT_PACKAGE_DIR="${ROOT_DIR}/apps/desktop/macos"
 REPO_BUNDLE_DIR="${RESOURCES_DIR}/orcheo"
 POSTGRES_BUNDLE_DIR="${RESOURCES_DIR}/postgres"
+PLAYWRIGHT_BUNDLE_DIR="${RESOURCES_DIR}/ms-playwright"
 ICON_SOURCE="${ORCHEO_MACOS_ICON_SOURCE:-${ROOT_DIR}/apps/studio/public/orcheo.png}"
 ICONSET_DIR="${BUILD_DIR}/${APP_NAME}.iconset"
 ICON_FILE="${RESOURCES_DIR}/AppIcon.icns"
@@ -37,6 +38,12 @@ cp -R "${ROOT_DIR}/apps/studio/dist" "${RESOURCES_DIR}/studio"
 if [[ "${ORCHEO_MACOS_BUNDLE_POSTGRES:-true}" == "true" ]]; then
   echo "Bundling native Postgres..."
   "${ROOT_DIR}/scripts/bundle-postgres-macos.sh" "${POSTGRES_BUNDLE_DIR}"
+fi
+
+if [[ "${ORCHEO_MACOS_BUNDLE_PLAYWRIGHT:-true}" == "true" ]]; then
+  echo "Bundling Playwright Chromium..."
+  PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BUNDLE_DIR}" \
+    uv run python -m playwright install chromium chromium-headless-shell
 fi
 
 echo "Bundling Orcheo checkout..."

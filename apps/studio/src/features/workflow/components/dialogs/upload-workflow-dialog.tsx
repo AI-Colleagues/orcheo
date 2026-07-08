@@ -17,6 +17,7 @@ import {
   uploadWorkflowFromFiles,
   WorkflowUploadFailedError,
 } from "@features/workflow/lib/workflow-storage";
+import { parseWorkflowFrontmatter } from "@features/workflow/lib/workflow-frontmatter";
 import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
 import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
 import { getWorkspaceWorkflowPath } from "@/lib/workspace-routing";
@@ -126,6 +127,10 @@ export function UploadWorkflowDialog({
         const text = e.target?.result;
         if (typeof text === "string") {
           setScriptContent(text);
+          const frontmatter = parseWorkflowFrontmatter(text);
+          if (!workflowName && frontmatter.name) {
+            setWorkflowName(frontmatter.name);
+          }
         }
       };
       reader.readAsText(file);

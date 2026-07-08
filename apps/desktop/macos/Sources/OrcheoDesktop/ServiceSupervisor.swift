@@ -112,9 +112,7 @@ final class ServiceSupervisor {
         environment["UV_PROJECT_ENVIRONMENT"] = configuration.appSupportDirectory
             .appendingPathComponent("python-env")
             .path
-        environment["PLAYWRIGHT_BROWSERS_PATH"] = configuration.appSupportDirectory
-            .appendingPathComponent("ms-playwright")
-            .path
+        environment["PLAYWRIGHT_BROWSERS_PATH"] = configuration.playwrightBrowsersDirectory.path
         return environment
     }
 

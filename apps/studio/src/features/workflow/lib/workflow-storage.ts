@@ -29,6 +29,7 @@ import {
   clearWorkflowUploadError,
   saveWorkflowUploadError,
 } from "./workflow-upload-errors";
+import { parseWorkflowFrontmatter } from "./workflow-frontmatter";
 import type {
   ApiWorkflow,
   SaveWorkflowInput,
@@ -372,11 +373,13 @@ export const uploadWorkflowFromFiles = async (
   options?: { actor?: string },
 ): Promise<StoredWorkflow> => {
   const actor = resolveActor(options?.actor);
+  const frontmatter = parseWorkflowFrontmatter(script);
   const created = await request<ApiWorkflow>(API_BASE, {
     method: "POST",
     body: JSON.stringify({
       name: workflowName,
-      description: null,
+      handle: frontmatter.handle ?? undefined,
+      description: frontmatter.description ?? null,
       tags: [],
       actor,
     }),
@@ -387,7 +390,7 @@ export const uploadWorkflowFromFiles = async (
       method: "POST",
       body: JSON.stringify({
         script,
-        entrypoint: null,
+        entrypoint: frontmatter.entrypoint ?? null,
         runnable_config: config ?? null,
         metadata: { source: "studio-upload" },
         notes: null,

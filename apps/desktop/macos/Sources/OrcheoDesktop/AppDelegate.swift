@@ -123,6 +123,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 
+        mainMenu.addItem(editMenuItem())
+
         let serviceMenuItem = NSMenuItem()
         let serviceMenu = NSMenu(title: "Services")
         serviceMenu.addItem(targetedItem(title: "Reload Studio", action: #selector(reloadStudio), keyEquivalent: "r"))
@@ -134,9 +136,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         NSApp.mainMenu = mainMenu
     }
 
+    private func editMenuItem() -> NSMenuItem {
+        let editMenuItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+
+        editMenu.addItem(responderItem(title: "Undo", action: NSSelectorFromString("undo:"), keyEquivalent: "z"))
+        let redo = responderItem(title: "Redo", action: NSSelectorFromString("redo:"), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = NSEvent.ModifierFlags([.command, .shift])
+        editMenu.addItem(redo)
+        editMenu.addItem(.separator())
+        editMenu.addItem(responderItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+        editMenu.addItem(responderItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+        editMenu.addItem(responderItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        let pasteAndMatchStyle = responderItem(
+            title: "Paste and Match Style",
+            action: NSSelectorFromString("pasteAsPlainText:"),
+            keyEquivalent: "v"
+        )
+        pasteAndMatchStyle.keyEquivalentModifierMask = NSEvent.ModifierFlags([.command, .option, .shift])
+        editMenu.addItem(pasteAndMatchStyle)
+        editMenu.addItem(responderItem(title: "Delete", action: #selector(NSText.delete(_:)), keyEquivalent: ""))
+        editMenu.addItem(.separator())
+        editMenu.addItem(responderItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+
+        editMenuItem.submenu = editMenu
+        return editMenuItem
+    }
+
     private func targetedItem(title: String, action: Selector, keyEquivalent: String) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
         item.target = self
+        return item
+    }
+
+    private func responderItem(title: String, action: Selector, keyEquivalent: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
+        item.target = nil
         return item
     }
 

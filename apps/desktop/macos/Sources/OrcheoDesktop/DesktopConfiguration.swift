@@ -6,6 +6,7 @@ struct DesktopConfiguration {
     let appSupportDirectory: URL
     let logsDirectory: URL
     let studioDistDirectory: URL
+    let playwrightBrowsersDirectory: URL
     let backendPort: Int
     let backendURL: URL
     let backendCommand: String
@@ -35,6 +36,10 @@ struct DesktopConfiguration {
             environment: environment,
             repoRoot: repoRoot
         )
+        let playwrightBrowsersDirectory = resolvePlaywrightBrowsersDirectory(
+            environment: environment,
+            appSupportDirectory: appSupportDirectory
+        )
 
         let backendCommand = environment["ORCHEO_DESKTOP_BACKEND_COMMAND"]
             ?? "uv run uvicorn --app-dir apps/backend/src orcheo_backend.app:app --host 127.0.0.1 --port \(port)"
@@ -51,6 +56,7 @@ struct DesktopConfiguration {
             appSupportDirectory: appSupportDirectory,
             logsDirectory: logsDirectory,
             studioDistDirectory: studioDistDirectory,
+            playwrightBrowsersDirectory: playwrightBrowsersDirectory,
             backendPort: port,
             backendURL: backendURL,
             backendCommand: backendCommand,
@@ -108,6 +114,25 @@ struct DesktopConfiguration {
         }
 
         return repoRoot.appendingPathComponent("apps/studio/dist")
+    }
+
+    private static func resolvePlaywrightBrowsersDirectory(
+        environment: [String: String],
+        appSupportDirectory: URL
+    ) -> URL {
+        if let configured = environment["PLAYWRIGHT_BROWSERS_PATH"],
+           !configured.isEmpty {
+            return URL(fileURLWithPath: configured)
+        }
+
+        if let resourceURL = Bundle.main.resourceURL {
+            let bundledBrowsers = resourceURL.appendingPathComponent("ms-playwright")
+            if FileManager.default.fileExists(atPath: bundledBrowsers.path) {
+                return bundledBrowsers
+            }
+        }
+
+        return appSupportDirectory.appendingPathComponent("ms-playwright")
     }
 }
 

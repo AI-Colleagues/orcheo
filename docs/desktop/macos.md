@@ -73,6 +73,9 @@ Useful environment:
 - `ORCHEO_MACOS_INSTALL_POSTGRES=true` lets the build install `postgresql@17`
   with Homebrew if it is not already installed. Enabled by default for desktop
   builds.
+- `ORCHEO_MACOS_BUNDLE_PLAYWRIGHT=true` bundles Playwright's Chromium and
+  headless shell browser payloads under `Contents/Resources/ms-playwright`.
+  Enabled by default for desktop builds.
 - `ORCHEO_SPARKLE_FEED_URL=...` configures the update feed placeholder.
 
 For double-click launches, put desktop-only settings in:
@@ -89,15 +92,15 @@ ORCHEO_DESKTOP_POSTGRES_DSN=postgresql://orcheo:orcheo@127.0.0.1:25432/orcheo_de
 
 The current app bundle is a development shell. It still expects `uv` to be
 available outside the bundle. The native shell directs `uv` caches, the Python
-environment, managed Postgres state, and Playwright browser downloads to
+environment, and managed Postgres state to
 `~/Library/Application Support/Orcheo` so the app bundle itself stays read-only
-after launch.
+after launch. Playwright uses the bundled browser payload when present and falls
+back to `~/Library/Application Support/Orcheo/ms-playwright` otherwise.
 
 The next packaging milestone is to replace source-checkout execution with
 bundled runtime resources:
 
 - embedded Python 3.12 runtime and locked wheel environment,
-- bundled Chromium/Playwright browser payload,
 - native broker strategy or explicit external-service configuration,
 - Sparkle framework integration for signed appcast updates.
 
