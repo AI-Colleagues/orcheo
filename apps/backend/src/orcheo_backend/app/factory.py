@@ -5,12 +5,15 @@ import json
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import cast
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from orcheo.agentensor.checkpoints import AgentensorCheckpointStore
 from orcheo.plugins import load_enabled_plugins
 from orcheo.vault.oauth import OAuthCredentialService
@@ -101,6 +104,18 @@ async def _authentication_error_handler(request: Request, exc: Exception) -> Res
 async def _robots_txt() -> PlainTextResponse:
     """Expose crawl policy for public backend deployments."""
     return PlainTextResponse("User-agent: *\nDisallow: /\n")
+
+
+class _StudioStaticFiles(StaticFiles):
+    """Serve a Vite SPA bundle and fall back to index.html for app routes."""
+
+    async def get_response(self, path: str, scope: dict[str, object]) -> Response:
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
+        return await super().get_response("index.html", scope)
 
 
 @asynccontextmanager
@@ -271,6 +286,27 @@ def _configure_application(application: FastAPI) -> None:
     application.include_router(websocket.router)
     application.add_exception_handler(
         AuthenticationError, _authentication_error_handler
+    )
+    _configure_studio_static(application)
+
+
+def _configure_studio_static(application: FastAPI) -> None:
+    """Mount built Studio assets when ORCHEO_STUDIO_DIST_DIR is configured."""
+    studio_dist_dir = os.getenv("ORCHEO_STUDIO_DIST_DIR", "").strip()
+    if not studio_dist_dir:
+        return
+
+    studio_dist_path = Path(studio_dist_dir).expanduser().resolve()
+    if not studio_dist_path.joinpath("index.html").is_file():
+        raise RuntimeError(
+            "ORCHEO_STUDIO_DIST_DIR must point to a built Studio directory "
+            "containing index.html."
+        )
+
+    application.mount(
+        "/",
+        _StudioStaticFiles(directory=studio_dist_path, html=True),
+        name="studio",
     )
 
 
