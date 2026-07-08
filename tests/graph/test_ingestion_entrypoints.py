@@ -76,6 +76,32 @@ def test_load_graph_from_script_with_entrypoint() -> None:
     assert set(graph.nodes.keys()) == {"rss"}
 
 
+def test_load_graph_from_script_exposes_script_filename() -> None:
+    script = textwrap.dedent(
+        """
+        from langgraph.graph import StateGraph
+        from orcheo.graph.state import State
+
+        if __file__ != "/tmp/orcheo/workflow.py":
+            raise RuntimeError(f"unexpected filename: {__file__}")
+
+        def build_graph():
+            graph = StateGraph(State)
+            graph.add_node("first", lambda state: state)
+            graph.set_entry_point("first")
+            graph.set_finish_point("first")
+            return graph
+        """
+    )
+
+    graph = load_graph_from_script(
+        script,
+        entrypoint="build_graph",
+        script_filename="/tmp/orcheo/workflow.py",
+    )
+    assert "first" in graph.nodes
+
+
 def test_load_graph_from_script_allows_graph_state_import() -> None:
     script = textwrap.dedent(
         """

@@ -399,7 +399,11 @@ async def test_render_candidate_previews_uses_local_catalog_ingestion(
     result = await candidates_service._render_candidate_previews([candidate])
 
     assert result[0].mermaid == "graph TD; A-->B"
-    ingestor.assert_called_once_with(_WORKFLOW_WITH_FRONTMATTER, entrypoint=None)
+    ingestor.assert_called_once_with(
+        _WORKFLOW_WITH_FRONTMATTER,
+        entrypoint=None,
+        script_filename="colleagues/linkedin_post/workflow.py",
+    )
     renderer.assert_called_once_with({"format": "langgraph-script", "source": "x"})
 
 

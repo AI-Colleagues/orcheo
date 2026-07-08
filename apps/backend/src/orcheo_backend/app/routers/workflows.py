@@ -940,6 +940,7 @@ async def ingest_workflow_version(
         graph_payload = ingest_workflow(
             request.script,
             entrypoint=request.entrypoint,
+            script_filename=_script_filename_from_metadata(request.metadata),
         )
     except (WorkflowValidationError, ScriptIngestionError) as exc:
         message = str(exc)
@@ -1006,6 +1007,12 @@ async def ingest_workflow_version(
 
     await _clear_workflow_upload_error(repository, workflow, actor=actor)
     return _attach_mermaid(version)
+
+
+def _script_filename_from_metadata(metadata: dict[str, Any]) -> str | None:
+    """Return an optional script filename supplied by trusted server-side callers."""
+    value = metadata.get("source_filename")
+    return value if isinstance(value, str) and value.strip() else None
 
 
 @router.put(

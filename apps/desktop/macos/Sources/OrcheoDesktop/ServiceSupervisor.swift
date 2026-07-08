@@ -5,6 +5,7 @@ final class ServiceSupervisor {
     private(set) var configuration: DesktopConfiguration?
     private var processes: [ManagedProcess] = []
     private var managedDesktopPostgres = false
+    private var desktopLog: DesktopLog?
 
     var backendURL: URL? {
         configuration?.backendURL
@@ -15,41 +16,54 @@ final class ServiceSupervisor {
     }
 
     func start() async throws -> URL {
-        let configuration = try DesktopConfiguration.load()
-        self.configuration = configuration
-        try FileManager.default.createDirectory(
-            at: configuration.logsDirectory,
-            withIntermediateDirectories: true
-        )
+        desktopLog = try? DesktopLog.defaultLog()
+        desktopLog?.write("Starting Orcheo desktop services")
+        do {
+            let configuration = try DesktopConfiguration.load()
+            self.configuration = configuration
+            desktopLog = try DesktopLog(logsDirectory: configuration.logsDirectory)
+            logConfiguration(configuration)
+            try FileManager.default.createDirectory(
+                at: configuration.logsDirectory,
+                withIntermediateDirectories: true
+            )
 
-        let environment = try processEnvironment(configuration: configuration)
-        try startProcess(
-            name: "backend",
-            command: configuration.backendCommand,
-            configuration: configuration,
-            environment: environment
-        )
-
-        if configuration.startWorker {
+            let environment = try processEnvironment(configuration: configuration)
+            desktopLog?.write(
+                "Resolved process environment: \(redactedEnvironmentSummary(environment))"
+            )
             try startProcess(
-                name: "worker",
-                command: configuration.workerCommand,
+                name: "backend",
+                command: configuration.backendCommand,
                 configuration: configuration,
                 environment: environment
             )
-        }
 
-        if configuration.startBeat {
-            try startProcess(
-                name: "beat",
-                command: configuration.beatCommand,
-                configuration: configuration,
-                environment: environment
-            )
-        }
+            if configuration.startWorker {
+                try startProcess(
+                    name: "worker",
+                    command: configuration.workerCommand,
+                    configuration: configuration,
+                    environment: environment
+                )
+            }
 
-        try await waitForBackend(configuration.backendURL)
-        return configuration.backendURL
+            if configuration.startBeat {
+                try startProcess(
+                    name: "beat",
+                    command: configuration.beatCommand,
+                    configuration: configuration,
+                    environment: environment
+                )
+            }
+
+            try await waitForBackend(configuration.backendURL)
+            desktopLog?.write("Backend is healthy at \(configuration.backendURL.absoluteString)")
+            return configuration.backendURL
+        } catch {
+            desktopLog?.write("Service startup failed: \(error.localizedDescription)")
+            throw error
+        }
     }
 
     func restart() async throws -> URL {
@@ -58,11 +72,19 @@ final class ServiceSupervisor {
     }
 
     func stop() {
+        desktopLog?.write("Stopping Orcheo desktop services")
         for process in processes.reversed() {
             process.stop()
         }
         processes.removeAll()
         stopManagedDesktopPostgres()
+    }
+
+    func recordDiagnostic(_ message: String) {
+        if desktopLog == nil {
+            desktopLog = try? DesktopLog.defaultLog()
+        }
+        desktopLog?.write(message)
     }
 
     private func startProcess(
@@ -74,7 +96,8 @@ final class ServiceSupervisor {
         let process = ManagedProcess(
             name: name,
             command: command,
-            logURL: configuration.logsDirectory.appendingPathComponent("\(name).log")
+            logURL: configuration.logsDirectory.appendingPathComponent("\(name).log"),
+            desktopLog: desktopLog
         )
         try process.start(
             workingDirectory: configuration.repoRoot,
@@ -114,6 +137,18 @@ final class ServiceSupervisor {
             .path
         environment["PLAYWRIGHT_BROWSERS_PATH"] = configuration.playwrightBrowsersDirectory.path
         return environment
+    }
+
+    private func logConfiguration(_ configuration: DesktopConfiguration) {
+        desktopLog?.write("Repo root: \(configuration.repoRoot.path)")
+        desktopLog?.write("App support: \(configuration.appSupportDirectory.path)")
+        desktopLog?.write("Logs: \(configuration.logsDirectory.path)")
+        desktopLog?.write("Backend URL: \(configuration.backendURL.absoluteString)")
+        desktopLog?.write("Studio dist: \(configuration.studioDistDirectory.path)")
+        desktopLog?.write("Playwright browsers: \(configuration.playwrightBrowsersDirectory.path)")
+        desktopLog?.write("Backend command: \(configuration.backendCommand)")
+        desktopLog?.write("Worker enabled: \(configuration.startWorker)")
+        desktopLog?.write("Beat enabled: \(configuration.startBeat)")
     }
 
     private func configureDesktopWorkflowUploadPolicy(
@@ -224,6 +259,7 @@ final class ServiceSupervisor {
 
         let process = Process()
         let outputPipe = Pipe()
+        desktopLog?.write("Running desktop Postgres helper: \(action)")
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = [
             scriptURL.path,
@@ -243,6 +279,12 @@ final class ServiceSupervisor {
             data: outputPipe.fileHandleForReading.readDataToEndOfFile(),
             encoding: .utf8
         )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        desktopLog?.write(
+            "Desktop Postgres helper \(action) exited with status \(process.terminationStatus)"
+        )
+        if !output.isEmpty {
+            desktopLog?.write("Desktop Postgres helper \(action) output: \(output)")
+        }
 
         if process.terminationStatus != 0 {
             throw DesktopError.configuration(output.isEmpty
@@ -266,19 +308,24 @@ final class ServiceSupervisor {
     private func waitForBackend(_ baseURL: URL) async throws {
         let healthURL = baseURL.appendingPathComponent("api/system/health")
         let deadline = Date().addingTimeInterval(60)
+        var lastError: String?
         while Date() < deadline {
             do {
                 let (_, response) = try await URLSession.shared.data(from: healthURL)
                 if (response as? HTTPURLResponse)?.statusCode == 200 {
                     return
                 }
+                lastError = "Unexpected health response: \(String(describing: (response as? HTTPURLResponse)?.statusCode))"
             } catch {
+                lastError = error.localizedDescription
                 try await Task.sleep(nanoseconds: 500_000_000)
                 continue
             }
             try await Task.sleep(nanoseconds: 500_000_000)
         }
-        throw DesktopError.serviceFailed("Backend did not become healthy at \(healthURL.absoluteString).")
+        let suffix = lastError.map { " Last error: \($0)" } ?? ""
+        desktopLog?.write("Backend health check timed out at \(healthURL.absoluteString).\(suffix)")
+        throw DesktopError.serviceFailed("Backend did not become healthy at \(healthURL.absoluteString).\(suffix)")
     }
 }
 
@@ -319,6 +366,28 @@ private func loadDotenvValues(at url: URL) -> [String: String] {
         values[key] = value
     }
     return values
+}
+
+private func redactedEnvironmentSummary(_ environment: [String: String]) -> String {
+    let interestingPrefixes = [
+        "ORCHEO_",
+        "UV_",
+        "PLAYWRIGHT_",
+        "PATH",
+    ]
+    return environment.keys
+        .filter { key in interestingPrefixes.contains(where: { key.hasPrefix($0) }) }
+        .sorted()
+        .map { key in "\(key)=\(redactedValue(key: key, value: environment[key] ?? ""))" }
+        .joined(separator: ", ")
+}
+
+private func redactedValue(key: String, value: String) -> String {
+    let redactedMarkers = ["KEY", "TOKEN", "SECRET", "PASSWORD", "DSN", "DATABASE_URL"]
+    if redactedMarkers.contains(where: { key.uppercased().contains($0) }) {
+        return value.isEmpty ? "" : "<redacted>"
+    }
+    return value
 }
 
 private func usesDeploymentPostgresPort(_ dsn: String) -> Bool {

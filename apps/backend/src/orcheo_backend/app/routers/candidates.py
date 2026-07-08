@@ -22,6 +22,7 @@ from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo.workflow.mermaid import render_mermaid_from_graph_payload_full_env
 from orcheo_backend.app.candidates_service import (
     CandidateFetchError,
+    candidate_script_filename,
     get_candidate_source_ref,
     get_candidates,
 )
@@ -158,6 +159,7 @@ def _prepare_candidate_version_payload(
         graph_payload = ingest_workflow(
             candidate.script,
             entrypoint=candidate.entrypoint,
+            script_filename=candidate_script_filename(candidate.id),
         )
     except (WorkflowValidationError, ScriptIngestionError) as exc:
         raise HTTPException(
@@ -180,6 +182,7 @@ def _prepare_candidate_version_payload(
             load_graph_from_script_full_env(
                 candidate.script,
                 entrypoint=candidate.entrypoint,
+                script_filename=candidate_script_filename(candidate.id),
             )
         except ScriptIngestionError as exc:
             raise HTTPException(

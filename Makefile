@@ -1,4 +1,4 @@
-.PHONY: dev-server test lint format studio-lint studio-format studio-test redis worker celery-beat desktop-macos \
+.PHONY: dev-server test lint format studio-lint studio-format studio-test redis worker celery-beat desktop-macos desktop-tauri-check desktop-tauri-dev desktop-tauri-build \
        docker-up docker-down docker-build docker-logs \
        staging-env staging-up staging-down staging-restart \
        staging-build staging-logs staging-config
@@ -28,6 +28,15 @@ studio-test:
 
 desktop-macos:
 	./scripts/build-macos-app.sh
+
+desktop-tauri-check:
+	npm --prefix apps/desktop/tauri run check:prereqs
+
+desktop-tauri-dev:
+	npm --prefix apps/desktop/tauri run dev
+
+desktop-tauri-build:
+	npm --prefix apps/desktop/tauri run build
 
 format:
 	ruff format --config pyproject.toml .

@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     private let supervisor = ServiceSupervisor()
     private var window: NSWindow?
     private var webView: WKWebView?
@@ -36,7 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     @objc private func openLogs() {
-        guard let logsDirectory = supervisor.logsDirectory else { return }
+        let logsDirectory = supervisor.logsDirectory
+            ?? FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Logs/Orcheo", isDirectory: true)
         NSWorkspace.shared.open(logsDirectory)
     }
 
@@ -70,6 +72,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private func buildWindow() {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.userContentController.add(self, name: "orcheoDesktopLog")
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: Self.webDiagnosticsScript,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        )
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
@@ -109,6 +119,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             }
         } else {
             completionHandler(panel.runModal() == .OK ? panel.urls : nil)
+        }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFail navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        supervisor.recordDiagnostic("WebView navigation failed: \(error.localizedDescription)")
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        supervisor.recordDiagnostic(
+            "WebView provisional navigation failed: \(error.localizedDescription)"
+        )
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        supervisor.recordDiagnostic("WebView content process terminated")
+        webView.reload()
+    }
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard message.name == "orcheoDesktopLog" else { return }
+        if let body = message.body as? [String: Any] {
+            let level = body["level"] as? String ?? "log"
+            let text = body["message"] as? String ?? String(describing: body)
+            supervisor.recordDiagnostic("Studio \(level): \(text)")
+        } else {
+            supervisor.recordDiagnostic("Studio log: \(String(describing: message.body))")
         }
     }
 
@@ -177,6 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     private func showError(_ error: Error) {
         let message = error.localizedDescription
+        supervisor.recordDiagnostic("Presented startup error: \(message)")
         loadStatusPage(title: "Orcheo could not start", detail: message)
 
         let alert = NSAlert()
@@ -229,4 +277,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             .replacingOccurrences(of: ">", with: "&gt;")
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
+
+    private static let webDiagnosticsScript = """
+    (() => {
+      if (window.__orcheoDesktopLogInstalled) return;
+      window.__orcheoDesktopLogInstalled = true;
+      const stringify = (value) => {
+        try {
+          if (value instanceof Error) return value.stack || value.message;
+          if (typeof value === "string") return value;
+          return JSON.stringify(value);
+        } catch (_) {
+          return String(value);
+        }
+      };
+      const send = (level, values) => {
+        try {
+          window.webkit.messageHandlers.orcheoDesktopLog.postMessage({
+            level,
+            message: Array.from(values).map(stringify).join(" ")
+          });
+        } catch (_) {}
+      };
+      for (const level of ["error", "warn"]) {
+        const original = console[level];
+        console[level] = function(...args) {
+          send(level, args);
+          return original.apply(this, args);
+        };
+      }
+      window.addEventListener("error", (event) => {
+        send("error", [
+          event.message,
+          `${event.filename || "unknown"}:${event.lineno || 0}:${event.colno || 0}`
+        ]);
+      });
+      window.addEventListener("unhandledrejection", (event) => {
+        send("error", ["Unhandled promise rejection", event.reason]);
+      });
+    })();
+    """
 }

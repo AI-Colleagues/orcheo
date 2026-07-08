@@ -16,6 +16,7 @@ import os
 import tarfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 import httpx
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
@@ -81,6 +82,32 @@ def get_candidate_source_ref() -> str:
     """Return the configured candidate repository ref for source metadata."""
     _, ref, _ = _repo_settings()
     return ref
+
+
+def candidate_script_filename(candidate_id: str) -> str:
+    """Return the best filename to expose while executing a candidate script."""
+    for root in _candidate_local_roots():
+        workflow_path = root / _COLLEAGUES_DIR / candidate_id / _WORKFLOW_FILENAME
+        if workflow_path.exists():
+            return str(workflow_path)
+    return f"{_COLLEAGUES_DIR}/{candidate_id}/{_WORKFLOW_FILENAME}"
+
+
+def _candidate_local_roots() -> list[Path]:
+    """Return local candidate roots that may exist in desktop/dev checkouts."""
+    configured = os.getenv("ORCHEO_CANDIDATES_LOCAL_ROOT", "").strip()
+    roots: list[Path] = []
+    if configured:
+        roots.append(Path(configured).expanduser())
+    cwd = Path.cwd()
+    roots.extend(
+        [
+            cwd / "colleague-candidates" / "colleague-experts",
+            cwd / "colleague-candidates",
+            cwd,
+        ]
+    )
+    return roots
 
 
 async def _download_tarball() -> bytes:
@@ -231,6 +258,7 @@ async def _render_candidate_previews(
             script_payload = ingest_langgraph_script(
                 candidate.script,
                 entrypoint=candidate.entrypoint,
+                script_filename=candidate_script_filename(candidate.id),
             )
             mermaid = render_mermaid_from_graph_payload(script_payload)
         except ScriptIngestionError:
