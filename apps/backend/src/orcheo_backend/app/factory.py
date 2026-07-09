@@ -106,6 +106,17 @@ async def _robots_txt() -> PlainTextResponse:
     return PlainTextResponse("User-agent: *\nDisallow: /\n")
 
 
+# Backend namespaces mounted outside the API router (see _configure_application)
+# that a request path might fall through to without matching a literal route.
+# These must 404 as themselves rather than silently serving the SPA shell.
+_RESERVED_BACKEND_PREFIXES = ("api/", "hooks/", "assets/ck1/", "ws/")
+
+
+def _is_reserved_backend_path(path: str) -> bool:
+    """Return True for paths that belong to a backend namespace, not the SPA."""
+    return path == "robots.txt" or path.startswith(_RESERVED_BACKEND_PREFIXES)
+
+
 class _StudioStaticFiles(StaticFiles):
     """Serve a Vite SPA bundle and fall back to index.html for app routes."""
 
@@ -113,7 +124,7 @@ class _StudioStaticFiles(StaticFiles):
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as exc:
-            if exc.status_code != 404:
+            if exc.status_code != 404 or _is_reserved_backend_path(path):
                 raise
         return await super().get_response("index.html", scope)
 

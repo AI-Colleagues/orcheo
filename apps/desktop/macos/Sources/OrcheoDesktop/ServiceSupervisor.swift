@@ -62,19 +62,24 @@ final class ServiceSupervisor {
             return configuration.backendURL
         } catch {
             desktopLog?.write("Service startup failed: \(error.localizedDescription)")
+            // Startup can fail after some processes (or managed Postgres) are
+            // already running -- e.g. Postgres started but vault-key creation
+            // failed. Stop whatever did start so a failed launch does not
+            // leak processes, held ports, or app-support state.
+            await stop()
             throw error
         }
     }
 
     func restart() async throws -> URL {
-        stop()
+        await stop()
         return try await start()
     }
 
-    func stop() {
+    func stop() async {
         desktopLog?.write("Stopping Orcheo desktop services")
         for process in processes.reversed() {
-            process.stop()
+            await process.stop()
         }
         processes.removeAll()
         stopManagedDesktopPostgres()

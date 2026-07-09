@@ -20,6 +20,7 @@ from orcheo.runtime.configurable_schema import (
     split_configurable,
 )
 from orcheo.runtime.runnable_config import RunnableConfigModel
+from orcheo.workflow.frontmatter import parse_workflow_frontmatter
 from orcheo.workflow.mermaid import (
     render_mermaid_from_graph_payload,
     render_mermaid_from_graph_payload_full_env,
@@ -79,7 +80,6 @@ from orcheo_backend.app.workspace import (
     get_workspace_repository,
 )
 from orcheo_backend.app.workspace_governance import ensure_workspace_workflow_quota
-from orcheo_sdk.cli.workflow.frontmatter import parse_workflow_frontmatter
 
 
 router = APIRouter()
@@ -1009,10 +1009,26 @@ async def ingest_workflow_version(
     return _attach_mermaid(version)
 
 
+_MAX_SCRIPT_FILENAME_LENGTH = 512
+
+
 def _script_filename_from_metadata(metadata: dict[str, Any]) -> str | None:
-    """Return an optional script filename supplied by trusted server-side callers."""
+    """Return an optional script filename from the client-supplied request body.
+
+    ``source_filename`` is untrusted client input, not a server-side value: it
+    becomes the ingested script's compiled filename and ``__file__``, so it is
+    length- and charset-limited before use to keep obviously malformed values
+    out of tracebacks and persisted metadata.
+    """
     value = metadata.get("source_filename")
-    return value if isinstance(value, str) and value.strip() else None
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped or len(stripped) > _MAX_SCRIPT_FILENAME_LENGTH:
+        return None
+    if any(ord(char) < 0x20 for char in stripped):
+        return None
+    return stripped
 
 
 @router.put(

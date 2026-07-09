@@ -1,6 +1,13 @@
 """Workflow CLI package."""
 
 from __future__ import annotations
+from orcheo.workflow.frontmatter import (
+    WorkflowFrontmatter,
+    load_workflow_frontmatter,
+    parse_workflow_frontmatter,
+    resolve_frontmatter_config,
+    resolve_frontmatter_config_bundle,
+)
 from orcheo_sdk.cli.output import render_json, render_table
 from . import commands as _commands  # noqa: F401
 from .app import (
@@ -31,13 +38,6 @@ from .commands.running import evaluate_workflow, run_workflow
 from .commands.scheduling import schedule_workflow, unschedule_workflow
 from .commands.showing import show_workflow
 from .formatting import _format_workflow_as_python
-from .frontmatter import (
-    WorkflowFrontmatter,
-    load_workflow_frontmatter,
-    parse_workflow_frontmatter,
-    resolve_frontmatter_config,
-    resolve_frontmatter_config_bundle,
-)
 from .ingest import (
     _generate_slug,
     _load_workflow_from_python,

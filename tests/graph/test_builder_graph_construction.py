@@ -67,9 +67,11 @@ def test_build_graph_script_format_delegates_to_ingestion_loader(
         *,
         entrypoint: str | None = None,
         max_script_bytes: int | None = None,
+        script_filename: str | None = None,
     ):
         captured["source"] = source
         captured["entrypoint"] = entrypoint
+        captured["script_filename"] = script_filename
         return sentinel.graph
 
     monkeypatch.setattr(builder, "load_graph_from_script", fake_loader)
@@ -78,6 +80,7 @@ def test_build_graph_script_format_delegates_to_ingestion_loader(
             "format": "langgraph-script",
             "source": "from langgraph.graph import StateGraph",
             "entrypoint": "build_graph",
+            "filename": "workflow.py",
         }
     )
 
@@ -85,4 +88,5 @@ def test_build_graph_script_format_delegates_to_ingestion_loader(
     assert captured == {
         "source": "from langgraph.graph import StateGraph",
         "entrypoint": "build_graph",
+        "script_filename": "workflow.py",
     }

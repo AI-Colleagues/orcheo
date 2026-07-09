@@ -1,6 +1,11 @@
 const VITE_DEV_ORIGINS = new Set([
   "http://localhost:2026",
   "http://127.0.0.1:2026",
+  // `vite preview`'s default port. It serves the built SPA standalone (not
+  // colocated with the backend), so it must fall back to the dev backend
+  // default rather than treating itself as the backend's own origin.
+  "http://localhost:4173",
+  "http://127.0.0.1:4173",
 ]);
 
 const getDefaultBackendUrl = (): string => {

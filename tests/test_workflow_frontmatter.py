@@ -2,81 +2,10 @@
 
 from __future__ import annotations
 import codecs
-import importlib.util
 import json
-import sys
-import types
 from pathlib import Path
 import pytest
-
-
-def _load_frontmatter_module() -> types.ModuleType:
-    """Load the frontmatter module without importing the full SDK package."""
-    root = Path(__file__).resolve().parents[2]
-    module_path = (
-        root
-        / "packages"
-        / "sdk"
-        / "src"
-        / "orcheo_sdk"
-        / "cli"
-        / "workflow"
-        / "frontmatter.py"
-    )
-
-    saved_modules = {
-        name: sys.modules[name]
-        for name in (
-            "orcheo_sdk",
-            "orcheo_sdk.cli",
-            "orcheo_sdk.cli.errors",
-            "orcheo_sdk.cli.workflow.frontmatter",
-        )
-        if name in sys.modules
-    }
-
-    orcheo_sdk_module = types.ModuleType("orcheo_sdk")
-    orcheo_sdk_module.__path__ = []  # type: ignore[attr-defined]
-    cli_module = types.ModuleType("orcheo_sdk.cli")
-    cli_module.__path__ = []  # type: ignore[attr-defined]
-    errors_module = types.ModuleType("orcheo_sdk.cli.errors")
-
-    class CLIError(RuntimeError):
-        """Minimal stand-in for the SDK CLI error type."""
-
-    errors_module.CLIError = CLIError
-
-    sys.modules["orcheo_sdk"] = orcheo_sdk_module
-    sys.modules["orcheo_sdk.cli"] = cli_module
-    sys.modules["orcheo_sdk.cli.errors"] = errors_module
-
-    try:
-        spec = importlib.util.spec_from_file_location(
-            "orcheo_sdk.cli.workflow.frontmatter",
-            module_path,
-        )
-        assert spec is not None and spec.loader is not None
-
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
-        return module
-    finally:
-        for module_name in ("orcheo_sdk", "orcheo_sdk.cli", "orcheo_sdk.cli.errors"):
-            sys.modules.pop(module_name, None)
-        if "orcheo_sdk.cli.workflow.frontmatter" in saved_modules:
-            sys.modules["orcheo_sdk.cli.workflow.frontmatter"] = saved_modules[
-                "orcheo_sdk.cli.workflow.frontmatter"
-            ]
-        else:
-            sys.modules.pop("orcheo_sdk.cli.workflow.frontmatter", None)
-        for module_name, module in saved_modules.items():
-            if module_name == "orcheo_sdk.cli.workflow.frontmatter":
-                continue
-            sys.modules[module_name] = module
-
-
-frontmatter = _load_frontmatter_module()
+from orcheo.workflow import frontmatter
 
 
 def test_workflow_frontmatter_is_empty_by_default() -> None:
@@ -187,25 +116,27 @@ def test_compare_semver_orders_major_minor_patch() -> None:
 
 def test_parse_rejects_invalid_version() -> None:
     source = '# /// orcheo\n# version = "v1.2.3"\n# ///\n'
-    with pytest.raises(frontmatter.CLIError, match="strict SemVer"):
+    with pytest.raises(frontmatter.FrontmatterError, match="strict SemVer"):
         frontmatter.parse_workflow_frontmatter(source)
 
 
 def test_parse_rejects_malformed_update_notes() -> None:
     source = '# /// orcheo\n# [[updates]]\n# version = "1.0.0"\n# ///\n'
-    with pytest.raises(frontmatter.CLIError, match="requires 'summary'"):
+    with pytest.raises(frontmatter.FrontmatterError, match="requires 'summary'"):
         frontmatter.parse_workflow_frontmatter(source)
 
 
 def test_parse_rejects_non_array_updates() -> None:
     source = '# /// orcheo\n# updates = "not an array"\n# ///\n'
-    with pytest.raises(frontmatter.CLIError, match="must be an array"):
+    with pytest.raises(frontmatter.FrontmatterError, match="must be an array"):
         frontmatter.parse_workflow_frontmatter(source)
 
 
 def test_parse_rejects_non_table_update_entry() -> None:
     source = '# /// orcheo\n# updates = ["not a table"]\n# ///\n'
-    with pytest.raises(frontmatter.CLIError, match="updates entry 1 must be a table"):
+    with pytest.raises(
+        frontmatter.FrontmatterError, match="updates entry 1 must be a table"
+    ):
         frontmatter.parse_workflow_frontmatter(source)
 
 
@@ -218,19 +149,21 @@ def test_parse_rejects_unknown_update_field() -> None:
         '# extra = "nope"\n'
         "# ///\n"
     )
-    with pytest.raises(frontmatter.CLIError, match="updates field\\(s\\): extra"):
+    with pytest.raises(
+        frontmatter.FrontmatterError, match="updates field\\(s\\): extra"
+    ):
         frontmatter.parse_workflow_frontmatter(source)
 
 
 def test_parse_rejects_update_entry_without_version() -> None:
     source = '# /// orcheo\n# [[updates]]\n# summary = "Initial release."\n# ///\n'
-    with pytest.raises(frontmatter.CLIError, match="requires 'version'"):
+    with pytest.raises(frontmatter.FrontmatterError, match="requires 'version'"):
         frontmatter.parse_workflow_frontmatter(source)
 
 
 def test_parse_rejects_non_table_metadata() -> None:
     source = '# /// orcheo\n# metadata = "nope"\n# ///\n'
-    with pytest.raises(frontmatter.CLIError, match="must be a table"):
+    with pytest.raises(frontmatter.FrontmatterError, match="must be a table"):
         frontmatter.parse_workflow_frontmatter(source)
 
 
@@ -243,14 +176,14 @@ def test_parse_accepts_handle_alias() -> None:
 
 def test_parse_rejects_id_and_handle_together() -> None:
     source = '# /// orcheo\n# id = "x"\n# handle = "y"\n# ///\n'
-    with pytest.raises(frontmatter.CLIError, match="must not specify both"):
+    with pytest.raises(frontmatter.FrontmatterError, match="must not specify both"):
         frontmatter.parse_workflow_frontmatter(source)
 
 
 def test_parse_rejects_unknown_field() -> None:
     source = '# /// orcheo\n# bogus = "x"\n# ///\n'
     with pytest.raises(
-        frontmatter.CLIError, match="Unknown 'orcheo' frontmatter field"
+        frontmatter.FrontmatterError, match="Unknown 'orcheo' frontmatter field"
     ):
         frontmatter.parse_workflow_frontmatter(source)
 
@@ -258,32 +191,34 @@ def test_parse_rejects_unknown_field() -> None:
 def test_parse_rejects_emoji_field() -> None:
     source = '# /// orcheo\n# emoji = "🤖"\n# ///\n'
     with pytest.raises(
-        frontmatter.CLIError, match="Unknown 'orcheo' frontmatter field"
+        frontmatter.FrontmatterError, match="Unknown 'orcheo' frontmatter field"
     ):
         frontmatter.parse_workflow_frontmatter(source)
 
 
 def test_parse_rejects_non_string_field() -> None:
     source = "# /// orcheo\n# name = 123\n# ///\n"
-    with pytest.raises(frontmatter.CLIError, match="must be a string"):
+    with pytest.raises(frontmatter.FrontmatterError, match="must be a string"):
         frontmatter.parse_workflow_frontmatter(source)
 
 
 def test_parse_rejects_empty_string_field() -> None:
     source = '# /// orcheo\n# name = "   "\n# ///\n'
-    with pytest.raises(frontmatter.CLIError, match="must not be empty"):
+    with pytest.raises(frontmatter.FrontmatterError, match="must not be empty"):
         frontmatter.parse_workflow_frontmatter(source)
 
 
 def test_parse_rejects_invalid_toml() -> None:
     source = '# /// orcheo\n# name = "unterminated\n# ///\n'
-    with pytest.raises(frontmatter.CLIError, match="Invalid TOML"):
+    with pytest.raises(frontmatter.FrontmatterError, match="Invalid TOML"):
         frontmatter.parse_workflow_frontmatter(source)
 
 
 def test_parse_rejects_unterminated_orcheo_block() -> None:
     source = '# /// orcheo\n# name = "Missing End"\n'
-    with pytest.raises(frontmatter.CLIError, match="Unterminated 'orcheo' frontmatter"):
+    with pytest.raises(
+        frontmatter.FrontmatterError, match="Unterminated 'orcheo' frontmatter"
+    ):
         frontmatter.parse_workflow_frontmatter(source)
 
 
@@ -298,7 +233,7 @@ def test_parse_rejects_multiple_blocks() -> None:
         "# ///\n"
     )
     with pytest.raises(
-        frontmatter.CLIError, match="Multiple 'orcheo' frontmatter blocks"
+        frontmatter.FrontmatterError, match="Multiple 'orcheo' frontmatter blocks"
     ):
         frontmatter.parse_workflow_frontmatter(source)
 
@@ -478,7 +413,7 @@ def test_resolve_config_missing_file_raises(tmp_path: Path) -> None:
     workflow = tmp_path / "wf.py"
     workflow.write_text("# noop", encoding="utf-8")
 
-    with pytest.raises(frontmatter.CLIError, match="does not exist"):
+    with pytest.raises(frontmatter.FrontmatterError, match="does not exist"):
         frontmatter.resolve_frontmatter_config(workflow, "missing.config.json")
 
 
@@ -487,7 +422,7 @@ def test_resolve_config_rejects_directory(tmp_path: Path) -> None:
     workflow.write_text("# noop", encoding="utf-8")
     (tmp_path / "configdir").mkdir()
 
-    with pytest.raises(frontmatter.CLIError, match="is not a file"):
+    with pytest.raises(frontmatter.FrontmatterError, match="is not a file"):
         frontmatter.resolve_frontmatter_config(workflow, "configdir")
 
 
@@ -497,7 +432,7 @@ def test_resolve_config_rejects_invalid_json(tmp_path: Path) -> None:
     bad = tmp_path / "bad.json"
     bad.write_text("{ not json", encoding="utf-8")
 
-    with pytest.raises(frontmatter.CLIError, match="Invalid JSON"):
+    with pytest.raises(frontmatter.FrontmatterError, match="Invalid JSON"):
         frontmatter.resolve_frontmatter_config(workflow, "bad.json")
 
 
@@ -507,7 +442,9 @@ def test_resolve_config_rejects_non_object(tmp_path: Path) -> None:
     arr = tmp_path / "arr.json"
     arr.write_text("[1, 2, 3]", encoding="utf-8")
 
-    with pytest.raises(frontmatter.CLIError, match="must contain a JSON object"):
+    with pytest.raises(
+        frontmatter.FrontmatterError, match="must contain a JSON object"
+    ):
         frontmatter.resolve_frontmatter_config(workflow, "arr.json")
 
 
@@ -568,7 +505,9 @@ def test_load_from_file_defaults_to_utf8(tmp_path: Path) -> None:
 def test_load_from_file_with_file_not_found_error(tmp_path: Path) -> None:
     """load_workflow_frontmatter raises CLIError for missing files."""
     missing_file = tmp_path / "does_not_exist.py"
-    with pytest.raises(frontmatter.CLIError, match="Failed to read workflow file"):
+    with pytest.raises(
+        frontmatter.FrontmatterError, match="Failed to read workflow file"
+    ):
         frontmatter.load_workflow_frontmatter(missing_file)
 
 
@@ -581,7 +520,9 @@ def test_load_from_file_with_invalid_encoding(tmp_path: Path) -> None:
         f.write(b'# name = "\xff\xfe"  # Invalid UTF-8 bytes\n')
         f.write(b"# ///\n")
 
-    with pytest.raises(frontmatter.CLIError, match="Failed to decode workflow file"):
+    with pytest.raises(
+        frontmatter.FrontmatterError, match="Failed to decode workflow file"
+    ):
         frontmatter.load_workflow_frontmatter(py_file)
 
 
@@ -649,7 +590,7 @@ def test_resolve_frontmatter_config_bundle_rejects_schema_directory(
     config_path.write_text(json.dumps({"configurable": {}}), encoding="utf-8")
     (tmp_path / "workflow.config.schema.json").mkdir()
 
-    with pytest.raises(frontmatter.CLIError, match="is not a file"):
+    with pytest.raises(frontmatter.FrontmatterError, match="is not a file"):
         frontmatter.resolve_frontmatter_config_bundle(workflow, "workflow.config.json")
 
 
@@ -665,7 +606,7 @@ def test_resolve_frontmatter_config_bundle_rejects_invalid_schema_json(
     schema_path.write_text("{ not json", encoding="utf-8")
 
     with pytest.raises(
-        frontmatter.CLIError, match="Invalid JSON in frontmatter schema file"
+        frontmatter.FrontmatterError, match="Invalid JSON in frontmatter schema file"
     ):
         frontmatter.resolve_frontmatter_config_bundle(workflow, "workflow.config.json")
 
@@ -682,7 +623,7 @@ def test_resolve_frontmatter_config_bundle_rejects_non_object_schema_payload(
     schema_path.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
 
     with pytest.raises(
-        frontmatter.CLIError,
+        frontmatter.FrontmatterError,
         match="must contain a JSON object",
     ):
         frontmatter.resolve_frontmatter_config_bundle(workflow, "workflow.config.json")
@@ -701,5 +642,5 @@ def test_normalize_schema_definition_map_uses_payload_when_configurable_missing(
 
 def test_normalize_schema_definition_map_rejects_non_object_fields() -> None:
     """Every schema field must be a JSON object."""
-    with pytest.raises(frontmatter.CLIError, match="must be an object"):
+    with pytest.raises(frontmatter.FrontmatterError, match="must be an object"):
         frontmatter._normalize_schema_definition_map({"mode": 1}, "schema.json")

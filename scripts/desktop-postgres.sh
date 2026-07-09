@@ -58,6 +58,19 @@ choose_port() {
   exit 70
 }
 
+sanitize_pg_option_value() {
+  # ${1} feeds into a `pg_ctl -o "..."` string that pg_ctl re-splits into
+  # individual -c flags, so reject anything outside a safe IANA-timezone-ish
+  # charset to prevent flag injection via a malformed env var.
+  local value="$1"
+  local fallback="$2"
+  if [[ "${value}" =~ ^[A-Za-z0-9/_+-]+$ ]]; then
+    echo "${value}"
+  else
+    echo "${fallback}"
+  fi
+}
+
 configure_locale() {
   local locale_name="${ORCHEO_DESKTOP_POSTGRES_LOCALE:-en_US.UTF-8}"
   local timezone_name="${ORCHEO_DESKTOP_POSTGRES_TIMEZONE:-UTC}"
@@ -180,7 +193,8 @@ start_local_postgres() {
   local bin_dir="$1"
   local port="$2"
   local share_dir
-  local timezone_name="${ORCHEO_DESKTOP_POSTGRES_TIMEZONE:-UTC}"
+  local timezone_name
+  timezone_name="$(sanitize_pg_option_value "${ORCHEO_DESKTOP_POSTGRES_TIMEZONE:-UTC}" "UTC")"
 
   configure_locale
   prepare_bundled_runtime_paths "${bin_dir}"

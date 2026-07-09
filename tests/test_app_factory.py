@@ -3,6 +3,7 @@
 import importlib
 import json
 import sys
+from pathlib import Path
 from types import ModuleType
 from unittest.mock import AsyncMock
 import pytest
@@ -429,6 +430,56 @@ async def test_robots_txt_returns_crawl_policy() -> None:
 
     assert response.status_code == 200
     assert response.body == b"User-agent: *\nDisallow: /\n"
+
+
+def test_studio_static_fallback_serves_index_for_spa_routes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Unmatched client-side routes fall back to the Studio SPA shell."""
+    (tmp_path / "index.html").write_text("<html>studio shell</html>")
+    monkeypatch.setenv("ORCHEO_STUDIO_DIST_DIR", str(tmp_path))
+
+    app = create_app(InMemoryWorkflowRepository())
+    with TestClient(app) as client:
+        response = client.get("/workflows/some-client-route")
+
+    assert response.status_code == 200
+    assert response.text == "<html>studio shell</html>"
+
+
+def test_studio_static_dist_dir_without_index_html_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A configured dist dir missing index.html is rejected as misconfigured."""
+    monkeypatch.setenv("ORCHEO_STUDIO_DIST_DIR", str(tmp_path))
+
+    with pytest.raises(RuntimeError, match="must point to a built Studio directory"):
+        create_app(InMemoryWorkflowRepository())
+
+
+def test_studio_static_fallback_returns_404_for_unmatched_api_routes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Unmatched /api paths 404 instead of silently serving the SPA shell."""
+    (tmp_path / "index.html").write_text("<html>studio shell</html>")
+    monkeypatch.setenv("ORCHEO_STUDIO_DIST_DIR", str(tmp_path))
+
+    app = create_app(InMemoryWorkflowRepository())
+    with TestClient(app) as client:
+        response = client.get("/api/does-not-exist")
+
+    assert response.status_code == 404
+    assert response.text != "<html>studio shell</html>"
+
+
+def test_is_reserved_backend_path_covers_non_spa_namespaces() -> None:
+    """Backend namespaces mounted outside the SPA fallback must not be shadowed."""
+    assert factory_module._is_reserved_backend_path("robots.txt")
+    assert factory_module._is_reserved_backend_path("api/workflows/typo")
+    assert factory_module._is_reserved_backend_path("hooks/acme/trigger-1")
+    assert factory_module._is_reserved_backend_path("assets/ck1/foo.js")
+    assert factory_module._is_reserved_backend_path("ws/workflow/wf-1")
+    assert not factory_module._is_reserved_backend_path("workflows/some-client-route")
 
 
 def test_load_allowed_origins_reads_json_list(monkeypatch: pytest.MonkeyPatch) -> None:

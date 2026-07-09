@@ -484,7 +484,24 @@ fn terminate_process_tree(child: &mut Child) {
 
 #[cfg(not(unix))]
 fn terminate_process_tree(child: &mut Child) {
-    let _ = child.kill();
+    // `shell_command` launches processes via `cmd /C <command>` on Windows, so
+    // `child` here is the cmd.exe wrapper and the real backend/worker process
+    // is a grandchild. `child.kill()` alone only terminates the wrapper and
+    // orphans the real process. `taskkill /T` kills the entire process tree
+    // rooted at this PID; fall back to killing just the wrapper if taskkill
+    // itself is unavailable or fails to run.
+    let pid = child.id();
+    let killed_tree = Command::new("taskkill")
+        .arg("/PID")
+        .arg(pid.to_string())
+        .arg("/T")
+        .arg("/F")
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if !killed_tree {
+        let _ = child.kill();
+    }
 }
 
 #[cfg(unix)]
@@ -766,6 +783,13 @@ fn configure_desktop_vault_key(
     let key = format!("{}-{}", Uuid::new_v4(), Uuid::new_v4());
     fs::write(&key_path, &key)
         .map_err(|error| format!("Could not write {}: {error}", key_path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600)).map_err(
+            |error| format!("Could not set permissions on {}: {error}", key_path.display()),
+        )?;
+    }
     environment.insert("ORCHEO_VAULT_ENCRYPTION_KEY".to_string(), key);
     Ok(())
 }
@@ -877,10 +901,16 @@ fn shell_command(command: &str) -> Command {
 }
 
 fn shell_set_env_command(key: &str, value: &Path, command: &str) -> String {
+    let value_display = value.display().to_string();
     if cfg!(windows) {
-        format!("set \"{}={}\" && {}", key, value.display(), command)
+        // cmd.exe represents a literal quote inside a quoted string as `""`.
+        let escaped = value_display.replace('"', "\"\"");
+        format!("set \"{key}={escaped}\" && {command}")
     } else {
-        format!("{}='{}' {}", key, value.display(), command)
+        // POSIX single-quoting: close the quote, emit an escaped literal
+        // quote, then reopen the quote, so an embedded `'` cannot break out.
+        let escaped = value_display.replace('\'', "'\\''");
+        format!("{key}='{escaped}' {command}")
     }
 }
 

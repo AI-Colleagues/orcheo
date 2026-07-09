@@ -19,8 +19,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        supervisor.stop()
-        return .terminateNow
+        Task {
+            await supervisor.stop()
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     @objc private func restartServices() {
@@ -138,6 +141,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         supervisor.recordDiagnostic(
             "WebView provisional navigation failed: \(error.localizedDescription)"
         )
+    }
+
+    // Restricts top-level navigation to the local backend origin. Studio may
+    // render untrusted workflow content (e.g. under
+    // ORCHEO_WORKFLOW_TRUST_MODE=allow_client_uploads), so a link or script
+    // must not be able to navigate this window to an arbitrary external site.
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+    ) {
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.allow)
+            return
+        }
+
+        // The startup/error status pages are loaded via loadHTMLString(_:baseURL:),
+        // which WebKit reports as an "about:" scheme navigation.
+        if url.scheme == "about" {
+            decisionHandler(.allow)
+            return
+        }
+
+        guard let backendURL = supervisor.backendURL, isSameOrigin(url, backendURL) else {
+            supervisor.recordDiagnostic("Blocked navigation to disallowed origin: \(url.absoluteString)")
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
+    }
+
+    private func isSameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.scheme == rhs.scheme && lhs.host == rhs.host && lhs.port == rhs.port
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

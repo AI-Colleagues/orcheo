@@ -48,4 +48,10 @@ describe("getBackendBaseUrl", () => {
 
     expect(getBackendBaseUrl()).toBe("http://localhost:2025");
   });
+
+  it("keeps the backend dev default when served by vite preview", () => {
+    setLocationOrigin("http://localhost:4173");
+
+    expect(getBackendBaseUrl()).toBe("http://localhost:2025");
+  });
 });

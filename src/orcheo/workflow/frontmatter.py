@@ -13,8 +13,8 @@ The frontmatter follows the PEP 723-inspired comment block convention:
     # subtitle = "AI Assistant"
     # ///
 
-The block content is parsed as TOML. All fields are optional; CLI flags
-always take precedence over values declared in the frontmatter.
+The block content is parsed as TOML. All fields are optional; caller-supplied
+values always take precedence over values declared in the frontmatter.
 """
 
 from __future__ import annotations
@@ -26,7 +26,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from orcheo_sdk.cli.errors import CLIError
+
+
+class FrontmatterError(RuntimeError):
+    """Raised when workflow frontmatter cannot be parsed or resolved."""
 
 
 _BLOCK_TYPE = "orcheo"
@@ -174,7 +177,7 @@ def parse_workflow_frontmatter(source: str) -> WorkflowFrontmatter:
     if not blocks:
         return WorkflowFrontmatter()
     if len(blocks) > 1:
-        raise CLIError(
+        raise FrontmatterError(
             f"Multiple '{_BLOCK_TYPE}' frontmatter blocks found in workflow file."
         )
 
@@ -183,15 +186,17 @@ def parse_workflow_frontmatter(source: str) -> WorkflowFrontmatter:
     try:
         data = tomllib.loads(toml_text)
     except tomllib.TOMLDecodeError as exc:
-        raise CLIError(f"Invalid TOML in 'orcheo' frontmatter: {exc}") from exc
+        raise FrontmatterError(f"Invalid TOML in 'orcheo' frontmatter: {exc}") from exc
 
     unknown = set(data) - _ALLOWED_FIELDS
     if unknown:
         keys = ", ".join(sorted(unknown))
-        raise CLIError(f"Unknown 'orcheo' frontmatter field(s): {keys}.")
+        raise FrontmatterError(f"Unknown 'orcheo' frontmatter field(s): {keys}.")
 
     if "id" in data and "handle" in data:
-        raise CLIError("'orcheo' frontmatter must not specify both 'id' and 'handle'.")
+        raise FrontmatterError(
+            "'orcheo' frontmatter must not specify both 'id' and 'handle'."
+        )
 
     return WorkflowFrontmatter(
         name=_string_field(data, "name"),
@@ -213,7 +218,7 @@ def parse_semver(value: str) -> SemVer:
     """Parse a strict ``MAJOR.MINOR.PATCH`` version string."""
     match = _SEMVER_RE.fullmatch(value)
     if match is None:
-        raise CLIError(
+        raise FrontmatterError(
             "Semantic versions must use strict 'MAJOR.MINOR.PATCH' format "
             "with no prefix, prerelease, or build metadata."
         )
@@ -257,7 +262,7 @@ def _collect_frontmatter_blocks(source: str) -> list[list[str]]:
             in_block = True
 
     if in_block and current_type == _BLOCK_TYPE:
-        raise CLIError(
+        raise FrontmatterError(
             f"Unterminated '{_BLOCK_TYPE}' frontmatter block. "
             "Add a closing '# ///' line."
         )
@@ -284,10 +289,10 @@ def _string_field(data: dict[str, Any], key: str) -> str | None:
         return None
     value = data[key]
     if not isinstance(value, str):
-        raise CLIError(f"'orcheo' frontmatter field '{key}' must be a string.")
+        raise FrontmatterError(f"'orcheo' frontmatter field '{key}' must be a string.")
     stripped = value.strip()
     if not stripped:
-        raise CLIError(f"'orcheo' frontmatter field '{key}' must not be empty.")
+        raise FrontmatterError(f"'orcheo' frontmatter field '{key}' must not be empty.")
     return stripped
 
 
@@ -297,7 +302,7 @@ def _table_field(data: dict[str, Any], key: str) -> dict[str, Any] | None:
         return None
     value = data[key]
     if not isinstance(value, dict):
-        raise CLIError(f"'orcheo' frontmatter field '{key}' must be a table.")
+        raise FrontmatterError(f"'orcheo' frontmatter field '{key}' must be a table.")
     return value
 
 
@@ -308,8 +313,8 @@ def _semver_field(data: dict[str, Any], key: str) -> str | None:
         return None
     try:
         parse_semver(value)
-    except CLIError as exc:
-        raise CLIError(
+    except FrontmatterError as exc:
+        raise FrontmatterError(
             f"'orcheo' frontmatter field '{key}' must be a strict SemVer "
             "string in 'MAJOR.MINOR.PATCH' format."
         ) from exc
@@ -322,26 +327,28 @@ def _updates_field(data: dict[str, Any], key: str) -> list[WorkflowUpdateNote] |
         return None
     value = data[key]
     if not isinstance(value, list):
-        raise CLIError(f"'orcheo' frontmatter field '{key}' must be an array.")
+        raise FrontmatterError(f"'orcheo' frontmatter field '{key}' must be an array.")
 
     updates: list[WorkflowUpdateNote] = []
     for index, item in enumerate(value, start=1):
         if not isinstance(item, dict):
-            raise CLIError(
+            raise FrontmatterError(
                 f"'orcheo' frontmatter updates entry {index} must be a table."
             )
         unknown = set(item) - {"version", "summary", "migration"}
         if unknown:
             keys = ", ".join(sorted(unknown))
-            raise CLIError(f"Unknown 'orcheo' frontmatter updates field(s): {keys}.")
+            raise FrontmatterError(
+                f"Unknown 'orcheo' frontmatter updates field(s): {keys}."
+            )
         version = _semver_field(item, "version")
         if version is None:
-            raise CLIError(
+            raise FrontmatterError(
                 f"'orcheo' frontmatter updates entry {index} requires 'version'."
             )
         summary = _string_field(item, "summary")
         if summary is None:
-            raise CLIError(
+            raise FrontmatterError(
                 f"'orcheo' frontmatter updates entry {index} requires 'summary'."
             )
         migration = _string_field(item, "migration")
@@ -363,9 +370,11 @@ def load_workflow_frontmatter(path: Path) -> WorkflowFrontmatter:
         encoding = _detect_file_encoding(path)
         source = path.read_text(encoding=encoding)
     except OSError as exc:  # pragma: no cover - filesystem errors
-        raise CLIError(f"Failed to read workflow file '{path}': {exc}") from exc
+        raise FrontmatterError(f"Failed to read workflow file '{path}': {exc}") from exc
     except UnicodeDecodeError as exc:  # pragma: no cover - encoding errors
-        raise CLIError(f"Failed to decode workflow file '{path}': {exc}") from exc
+        raise FrontmatterError(
+            f"Failed to decode workflow file '{path}': {exc}"
+        ) from exc
     return parse_workflow_frontmatter(source)
 
 
@@ -395,21 +404,23 @@ def resolve_frontmatter_config_bundle(
         candidate = workflow_path.parent / candidate
     resolved = candidate.resolve()
     if not resolved.exists():
-        raise CLIError(
+        raise FrontmatterError(
             f"Frontmatter config file '{config_path}' does not exist "
             f"(resolved to '{resolved}')."
         )
     if not resolved.is_file():
-        raise CLIError(f"Frontmatter config path '{config_path}' is not a file.")
+        raise FrontmatterError(
+            f"Frontmatter config path '{config_path}' is not a file."
+        )
 
     try:
         data = json.loads(resolved.read_text(encoding="utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise CLIError(
+        raise FrontmatterError(
             f"Invalid JSON in frontmatter config file '{config_path}': {exc}"
         ) from exc
     if not isinstance(data, dict):
-        raise CLIError(
+        raise FrontmatterError(
             f"Frontmatter config file '{config_path}' must contain a JSON object."
         )
 
@@ -424,16 +435,18 @@ def _load_sibling_schema_file(resolved_config: Path) -> dict[str, Any] | None:
     if not schema_path.exists():
         return None
     if not schema_path.is_file():
-        raise CLIError(f"Frontmatter schema path '{schema_path.name}' is not a file.")
+        raise FrontmatterError(
+            f"Frontmatter schema path '{schema_path.name}' is not a file."
+        )
 
     try:
         schema_payload = json.loads(schema_path.read_text(encoding="utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise CLIError(
+        raise FrontmatterError(
             f"Invalid JSON in frontmatter schema file '{schema_path.name}': {exc}"
         ) from exc
     if not isinstance(schema_payload, dict):
-        raise CLIError(
+        raise FrontmatterError(
             f"Frontmatter schema file '{schema_path.name}' must contain a JSON object."
         )
     return _normalize_schema_definition_map(schema_payload, schema_path.name)
@@ -453,7 +466,7 @@ def _normalize_schema_definition_map(
     normalized: dict[str, Any] = {}
     for key, value in source.items():
         if not isinstance(value, Mapping):
-            raise CLIError(
+            raise FrontmatterError(
                 f"Frontmatter schema file '{config_path}' field '{key}' "
                 "must be an object."
             )
@@ -465,6 +478,7 @@ __all__ = [
     "SemVer",
     "WorkflowUpdateNote",
     "WorkflowFrontmatter",
+    "FrontmatterError",
     "parse_semver",
     "compare_semver",
     "parse_workflow_frontmatter",

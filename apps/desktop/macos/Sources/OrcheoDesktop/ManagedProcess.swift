@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 final class ManagedProcess: @unchecked Sendable {
@@ -70,18 +71,34 @@ final class ManagedProcess: @unchecked Sendable {
         }
     }
 
-    func stop() {
+    // Escalates SIGTERM -> SIGINT -> SIGKILL, waiting for the process to
+    // actually exit at each stage. Callers (restart/quit) rely on this
+    // returning only once the process is gone, so a new process is never
+    // started while the old one might still hold its port.
+    func stop() async {
         guard process.isRunning else { return }
         writeLogLine("Stopping \(name)")
         desktopLog?.write("Stopping process \(name)")
         process.terminate()
+        if await waitUntilExited(timeout: 5) { return }
 
-        DispatchQueue.global(qos: .utility).async { [process] in
-            Thread.sleep(forTimeInterval: 2)
-            if process.isRunning {
-                process.interrupt()
-            }
+        writeLogLine("\(name) did not exit after SIGTERM, sending SIGINT")
+        desktopLog?.write("\(name) did not exit after SIGTERM, sending SIGINT")
+        process.interrupt()
+        if await waitUntilExited(timeout: 2) { return }
+
+        writeLogLine("\(name) did not exit after SIGINT, sending SIGKILL")
+        desktopLog?.write("\(name) did not exit after SIGINT, sending SIGKILL")
+        Darwin.kill(process.processIdentifier, SIGKILL)
+        _ = await waitUntilExited(timeout: 2)
+    }
+
+    private func waitUntilExited(timeout: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning && Date() < deadline {
+            try? await Task.sleep(nanoseconds: 100_000_000)
         }
+        return !process.isRunning
     }
 
     private func writeProcessData(_ data: Data) {

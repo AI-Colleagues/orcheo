@@ -30,7 +30,6 @@ final class DesktopLog: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        FileManager.default.createFile(atPath: url.path, contents: nil)
         guard let handle = try? FileHandle(forWritingTo: url) else { return }
         defer { try? handle.close() }
         do {
