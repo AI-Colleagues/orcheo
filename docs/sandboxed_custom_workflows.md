@@ -35,8 +35,12 @@ export ORCHEO_WORKFLOW_DEFINITION_MODE=unrestricted
 
 The active mode is logged once at startup. Unrestricted mode is logged as a
 warning because it executes arbitrary author code in-process and provides **no
-tenant isolation**. The default at this stage is `unrestricted`; flipping the
-default to `restricted` is a separate follow-up.
+tenant isolation**. The runtime default (when the variable is unset) is
+`unrestricted`. `orcheo install` now writes `restricted` automatically for
+trusted HTTPS backends, while local-hosting and untrusted-HTTP deployments
+still get `unrestricted`; see
+[`ORCHEO_WORKFLOW_DEFINITION_MODE`](environment_variables.md) for the full
+per-topology breakdown.
 
 ## The restricted grammar
 
