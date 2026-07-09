@@ -169,8 +169,10 @@ class FakeContext:
         self.context_kwargs: dict[str, Any] | None = None
         self.closed = False
         self.tracing = FakeTracing()
+        self.pages: list[FakePage] = []
 
     async def new_page(self) -> FakePage:
+        self.pages.append(self.page)
         return self.page
 
     async def close(self) -> None:
@@ -213,6 +215,7 @@ class FakeLauncher:
     ) -> FakeContext:
         self.persistent_context_calls.append({"user_data_dir": user_data_dir, **kwargs})
         self.browser.context.context_kwargs = kwargs
+        self.browser.context.pages = [self.browser.context.page]
         return self.browser.context
 
 
@@ -382,6 +385,7 @@ async def test_browser_navigate_supports_persistent_user_data_dir(
         }
     ]
     assert fake_browser_runtime.browser.closed is False
+    assert len(fake_browser_runtime.context.pages) == 1
 
     close = BrowserCloseNode(name="close")
     close_payload = (await close(state, config))["node_results"]["close"]
