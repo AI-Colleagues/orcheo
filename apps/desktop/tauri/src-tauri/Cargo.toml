@@ -12,4 +12,4 @@ authors = ["ShaojieJiang"]
 description = "Cross-platform Tauri shell for Orcheo"
 edition = "2021"
 name = "orcheo-desktop"
-version = "0.1.0"
+version = "0.1.1"
