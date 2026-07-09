@@ -22,7 +22,7 @@ def _reset_auth(monkeypatch: pytest.MonkeyPatch) -> None:
 def _clear_cache() -> None:
     """Reset versioning cache between tests."""
 
-    versioning._cache_state["entry"] = None  # type: ignore[attr-defined]
+    versioning._latest_version_cache.clear()
 
 
 def test_system_info_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -366,14 +366,19 @@ def test_versioning_timeout_retries_and_cache_hit(
     monkeypatch.setenv("ORCHEO_UPDATE_CHECK_RETRIES", "-2")
     assert versioning._read_retries() == 1
 
-    cached = {"ok": True}
-    versioning._cache_state["entry"] = versioning._CacheEntry(  # type: ignore[attr-defined]
-        payload=cached,
-        expires_at=datetime.now(tz=UTC) + timedelta(hours=1),
+    versioning._latest_version_cache["orcheo-backend"] = (
+        versioning._LatestVersionCacheEntry(
+            value="9.9.9",
+            expires_at=datetime.now(tz=UTC) + timedelta(hours=1),
+        )
     )
-    monkeypatch.setattr(
-        versioning,
-        "_build_payload",
-        lambda: (_ for _ in ()).throw(RuntimeError("must not build")),
+
+    def _must_not_fetch(*_args: object, **_kwargs: object) -> str:
+        raise RuntimeError("must not fetch")
+
+    assert (
+        versioning._get_cached_latest_version(
+            "orcheo-backend", _must_not_fetch, timeout=1.0, retries=0
+        )
+        == "9.9.9"
     )
-    assert versioning.get_system_info_payload() == cached
