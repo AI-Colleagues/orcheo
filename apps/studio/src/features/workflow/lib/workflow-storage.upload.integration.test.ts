@@ -109,6 +109,49 @@ describe("uploadWorkflowFromFiles", () => {
     expect(ingestPayload.runnable_config).toBeNull();
   });
 
+  it("uses workflow frontmatter for create and ingest metadata", async () => {
+    const mockFetch = getFetchMock();
+    const script = `# /// orcheo
+# handle = "frontmatter-handle"
+# description = "Created from script metadata."
+# entrypoint = "build_graph"
+# ///
+
+print('hi')
+`;
+    queueResponses([
+      workflowResponse("uploaded-frontmatter", "Frontmatter"),
+      jsonResponse({ id: "version-1", version: 1 }),
+      workflowResponse("uploaded-frontmatter", "Frontmatter"),
+      jsonResponse([
+        {
+          id: "version-1",
+          workflow_id: "uploaded-frontmatter",
+          version: 1,
+          metadata: { source: "studio-upload" },
+          notes: null,
+          created_by: "studio-app",
+          created_at: "2026-05-17T12:00:00Z",
+          updated_at: "2026-05-17T12:00:00Z",
+          graph: { format: "langgraph-script", source: script },
+        },
+      ]),
+    ]);
+
+    await uploadWorkflowFromFiles("Frontmatter", script, null);
+
+    const createPayload = JSON.parse(
+      (mockFetch.mock.calls[0]?.[1]?.body ?? "{}") as string,
+    ) as { handle: string; description: string };
+    expect(createPayload.handle).toBe("frontmatter-handle");
+    expect(createPayload.description).toBe("Created from script metadata.");
+
+    const ingestPayload = JSON.parse(
+      (mockFetch.mock.calls[1]?.[1]?.body ?? "{}") as string,
+    ) as { entrypoint: string };
+    expect(ingestPayload.entrypoint).toBe("build_graph");
+  });
+
   it("honors an explicit actor override", async () => {
     const mockFetch = getFetchMock();
     queueResponses([

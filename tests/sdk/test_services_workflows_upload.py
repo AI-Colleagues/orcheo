@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 import pytest
+from orcheo.workflow.frontmatter import FrontmatterError
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -97,7 +98,8 @@ def _install_workflow_package(
     workflow_module._upload_langgraph_script = upload_langgraph_script
     workflow_module._validate_local_path = validate_local_path
 
-    frontmatter_module = ModuleType("orcheo_sdk.cli.workflow.frontmatter")
+    frontmatter_module = ModuleType("orcheo.workflow.frontmatter")
+    frontmatter_module.FrontmatterError = FrontmatterError
     frontmatter_module.load_workflow_frontmatter = load_workflow_frontmatter
     frontmatter_module.resolve_frontmatter_config = lambda path_obj, config_path: (
         path_obj,
@@ -112,9 +114,7 @@ def _install_workflow_package(
 
     workflow_module.frontmatter = frontmatter_module
     monkeypatch.setitem(sys.modules, "orcheo_sdk.cli.workflow", workflow_module)
-    monkeypatch.setitem(
-        sys.modules, "orcheo_sdk.cli.workflow.frontmatter", frontmatter_module
-    )
+    monkeypatch.setitem(sys.modules, "orcheo.workflow.frontmatter", frontmatter_module)
 
 
 def test_apply_frontmatter_defaults_returns_inputs_when_empty() -> None:
@@ -184,7 +184,7 @@ def test_apply_frontmatter_defaults_fills_missing_values_and_logs(
         validate_local_path=lambda file_path, description: Path(file_path),
         load_workflow_frontmatter=lambda _path: _DummyFrontmatter(is_empty=True),
     )
-    sys.modules["orcheo_sdk.cli.workflow.frontmatter"].resolve_frontmatter_config = (  # type: ignore[attr-defined]
+    sys.modules["orcheo.workflow.frontmatter"].resolve_frontmatter_config = (  # type: ignore[attr-defined]
         fake_resolve_frontmatter_config
     )
 
@@ -283,7 +283,7 @@ def test_apply_frontmatter_defaults_keeps_cli_overrides(
         validate_local_path=lambda file_path, description: Path(file_path),
         load_workflow_frontmatter=lambda _path: _DummyFrontmatter(is_empty=True),
     )
-    sys.modules["orcheo_sdk.cli.workflow.frontmatter"].resolve_frontmatter_config = (  # type: ignore[attr-defined]
+    sys.modules["orcheo.workflow.frontmatter"].resolve_frontmatter_config = (  # type: ignore[attr-defined]
         lambda _path_obj, _config_path: pytest.fail(
             "frontmatter config should not be loaded when CLI config is provided"
         )
@@ -334,7 +334,7 @@ def test_apply_frontmatter_defaults_swallows_console_errors(
         validate_local_path=lambda file_path, description: Path(file_path),
         load_workflow_frontmatter=lambda _path: _DummyFrontmatter(is_empty=True),
     )
-    sys.modules["orcheo_sdk.cli.workflow.frontmatter"].resolve_frontmatter_config = (  # type: ignore[attr-defined]
+    sys.modules["orcheo.workflow.frontmatter"].resolve_frontmatter_config = (  # type: ignore[attr-defined]
         lambda _path_obj, _config_path: resolved_config
     )
 
@@ -359,6 +359,47 @@ def test_apply_frontmatter_defaults_swallows_console_errors(
         resolved_config,
         None,
     )
+
+
+def test_apply_frontmatter_defaults_wraps_frontmatter_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A FrontmatterError resolving the config bundle surfaces as a CLIError."""
+    frontmatter = _DummyFrontmatter(
+        is_empty=False,
+        config_path="./missing.config.json",
+    )
+
+    _install_workflow_package(
+        monkeypatch,
+        load_workflow_from_python=lambda _path: {},
+        normalize_workflow_name=lambda name: name,
+        upload_langgraph_script=lambda *args, **kwargs: {},
+        validate_local_path=lambda file_path, description: Path(file_path),
+        load_workflow_frontmatter=lambda _path: _DummyFrontmatter(is_empty=True),
+    )
+
+    def raise_frontmatter_error(
+        _path_obj: Path, _config_path: str
+    ) -> dict[str, object]:
+        raise FrontmatterError("config file does not exist")
+
+    sys.modules["orcheo.workflow.frontmatter"].resolve_frontmatter_config = (  # type: ignore[attr-defined]
+        raise_frontmatter_error
+    )
+
+    with pytest.raises(upload.CLIError, match="config file does not exist"):
+        upload._apply_frontmatter_defaults(
+            path_obj=Path("/tmp/workflow.py"),
+            frontmatter=frontmatter,
+            workflow_id=None,
+            workflow_handle=None,
+            workflow_name=None,
+            workflow_description=None,
+            entrypoint=None,
+            runnable_config=None,
+            console=None,
+        )
 
 
 def test_load_workflow_config_from_path_rejects_non_python() -> None:
@@ -546,6 +587,32 @@ def test_upload_workflow_data_success_injects_entrypoint_and_config(
         "name": "My Workflow",
         "workflow_config": uploaded_payloads[0]["workflow_config"],
     }
+
+
+def test_upload_workflow_data_wraps_frontmatter_error_from_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A FrontmatterError parsing the workflow file surfaces as a CLIError."""
+    workflow_path = Path("/tmp/workflow.py")
+
+    def raise_frontmatter_error(_path: Path) -> _DummyFrontmatter:
+        raise FrontmatterError("invalid TOML in 'orcheo' frontmatter")
+
+    _install_workflow_package(
+        monkeypatch=monkeypatch,
+        load_workflow_from_python=lambda _path: {"_type": "langgraph_script"},
+        normalize_workflow_name=lambda name: name,
+        upload_langgraph_script=lambda *args, **kwargs: {},
+        validate_local_path=lambda file_path, description: workflow_path,
+        load_workflow_frontmatter=raise_frontmatter_error,
+    )
+
+    with pytest.raises(upload.CLIError, match="invalid TOML"):
+        upload.upload_workflow_data(
+            client=object(),
+            file_path=workflow_path,
+            console=_RecordingConsole(),
+        )
 
 
 def test_upload_workflow_data_merges_frontmatter_avatar_with_existing_metadata(

@@ -154,6 +154,47 @@ describe("UploadWorkflowDialog", () => {
     });
   });
 
+  it("defaults the workflow name from script frontmatter", async () => {
+    const user = userEvent.setup();
+    uploadWorkflowFromFilesMock.mockResolvedValue({
+      id: "uploaded-frontmatter",
+      handle: "frontmatter-handle",
+      name: "Frontmatter Name",
+    });
+
+    renderDialog();
+
+    const scriptInput = screen.getByLabelText(/Workflow Script/i);
+    await user.upload(
+      scriptInput,
+      pyFile(
+        "fallback.py",
+        `# /// orcheo
+# name = "Frontmatter Name"
+# ///
+
+print('hi')
+`,
+      ),
+    );
+
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText(/Workflow Name/i) as HTMLInputElement).value,
+      ).toBe("Frontmatter Name");
+    });
+
+    await user.click(screen.getByRole("button", { name: /^Upload$/ }));
+
+    await waitFor(() => {
+      expect(uploadWorkflowFromFilesMock).toHaveBeenCalledWith(
+        "Frontmatter Name",
+        expect.stringContaining('name = "Frontmatter Name"'),
+        null,
+      );
+    });
+  });
+
   it("rejects oversized script files", async () => {
     const user = userEvent.setup();
     renderDialog();

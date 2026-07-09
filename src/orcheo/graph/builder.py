@@ -47,7 +47,14 @@ def build_graph(graph_json: Mapping[str, Any]) -> StateGraph:
         msg = "Entrypoint must be a string when provided"
         raise ValueError(msg)
     return load_graph_from_script(
-        source, entrypoint=entrypoint_value, max_script_bytes=None
+        source,
+        entrypoint=entrypoint_value,
+        max_script_bytes=None,
+        script_filename=(
+            graph_json.get("filename")
+            if isinstance(graph_json.get("filename"), str)
+            else None
+        ),
     )
 
 

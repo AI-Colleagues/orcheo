@@ -19,9 +19,11 @@ from orcheo.runtime.configurable_schema import (
     split_configurable,
 )
 from orcheo.runtime.runnable_config import RunnableConfigModel
+from orcheo.workflow.frontmatter import FrontmatterError, compare_semver, parse_semver
 from orcheo.workflow.mermaid import render_mermaid_from_graph_payload_full_env
 from orcheo_backend.app.candidates_service import (
     CandidateFetchError,
+    candidate_script_filename,
     get_candidate_source_ref,
     get_candidates,
 )
@@ -46,8 +48,6 @@ from orcheo_backend.app.schemas.candidates import CandidateItem, CandidatePublic
 from orcheo_backend.app.teams_service import ensure_default_team
 from orcheo_backend.app.workspace import WorkspaceContextDep
 from orcheo_backend.app.workspace_governance import ensure_workspace_workflow_quota
-from orcheo_sdk.cli.errors import CLIError
-from orcheo_sdk.cli.workflow.frontmatter import compare_semver, parse_semver
 
 
 logger = logging.getLogger(__name__)
@@ -129,7 +129,7 @@ def _validate_candidate_version(candidate: CandidateItem) -> str:
         )
     try:
         parse_semver(candidate.version)
-    except CLIError as exc:
+    except FrontmatterError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -158,6 +158,7 @@ def _prepare_candidate_version_payload(
         graph_payload = ingest_workflow(
             candidate.script,
             entrypoint=candidate.entrypoint,
+            script_filename=candidate_script_filename(candidate.id),
         )
     except (WorkflowValidationError, ScriptIngestionError) as exc:
         raise HTTPException(
@@ -180,6 +181,7 @@ def _prepare_candidate_version_payload(
             load_graph_from_script_full_env(
                 candidate.script,
                 entrypoint=candidate.entrypoint,
+                script_filename=candidate_script_filename(candidate.id),
             )
         except ScriptIngestionError as exc:
             raise HTTPException(
@@ -566,7 +568,7 @@ async def update_candidate_workflow(
 
     try:
         comparison = compare_semver(latest_candidate_version, installed_version)
-    except CLIError as exc:
+    except FrontmatterError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={

@@ -25,6 +25,7 @@ def ingest_langgraph_script(
     source: str,
     *,
     entrypoint: str | None = None,
+    script_filename: str | None = None,
     max_script_bytes: int | None = DEFAULT_SCRIPT_SIZE_LIMIT,
 ) -> dict[str, Any]:
     """Validate and index a LangGraph Python script without executing it.
@@ -46,6 +47,7 @@ def ingest_langgraph_script(
         "source": source,
         "entrypoint": entrypoint,
         "index": index,
+        **({"filename": script_filename} if script_filename else {}),
     }
 
 
@@ -53,6 +55,7 @@ def ingest_workflow(
     source: str,
     *,
     entrypoint: str | None = None,
+    script_filename: str | None = None,
     max_script_bytes: int | None = DEFAULT_SCRIPT_SIZE_LIMIT,
 ) -> dict[str, Any]:
     """Ingest a ``workflow.py`` per the active definition mode.
@@ -99,7 +102,10 @@ def ingest_workflow(
         "in-process at build time with no tenant isolation."
     )
     return ingest_langgraph_script(
-        source, entrypoint=entrypoint, max_script_bytes=max_script_bytes
+        source,
+        entrypoint=entrypoint,
+        script_filename=script_filename,
+        max_script_bytes=max_script_bytes,
     )
 
 

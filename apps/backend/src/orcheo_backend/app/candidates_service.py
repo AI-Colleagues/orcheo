@@ -9,6 +9,7 @@ blocks on GitHub and keeps serving the last good payload on transient failures.
 
 from __future__ import annotations
 import asyncio
+import hashlib
 import io
 import json
 import logging
@@ -16,13 +17,13 @@ import os
 import tarfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 import httpx
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_langgraph_script
+from orcheo.workflow.frontmatter import FrontmatterError, parse_workflow_frontmatter
 from orcheo.workflow.mermaid import render_mermaid_from_graph_payload
 from orcheo_backend.app.schemas.candidates import CandidateItem, CandidateUpdateNote
-from orcheo_sdk.cli.errors import CLIError
-from orcheo_sdk.cli.workflow.frontmatter import parse_workflow_frontmatter
 
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,10 @@ _CONFIG_FILENAME = "config.json"
 _CACHE_TTL_SECONDS = 300.0
 _FETCH_TIMEOUT_SECONDS = 30.0
 _MAX_TARBALL_BYTES = 16 * 1024 * 1024
+# Rendering executes each candidate's script and takes ~20s; bound how many
+# run at once so a large catalog does not spawn unbounded worker threads.
+_PREVIEW_CONCURRENCY = 4
+_UNRESOLVED = object()
 
 
 class CandidateFetchError(RuntimeError):
@@ -56,6 +61,10 @@ class _CacheState:
         self.entry: _CacheEntry | None = None
         self.background_task: asyncio.Task[None] | None = None
         self.preview_task: asyncio.Task[None] | None = None
+        # candidate id -> (content hash, rendered mermaid) so an unchanged
+        # candidate is not re-executed on every periodic refresh.
+        self.preview_cache: dict[str, tuple[str, str | None]] = {}
+        self.local_root: Path | None | object = _UNRESOLVED
 
 
 _state = _CacheState()
@@ -67,6 +76,8 @@ def reset_cache() -> None:
     _state.entry = None
     _state.background_task = None
     _state.preview_task = None
+    _state.preview_cache = {}
+    _state.local_root = _UNRESOLVED
 
 
 def _repo_settings() -> tuple[str, str, str | None]:
@@ -81,6 +92,62 @@ def get_candidate_source_ref() -> str:
     """Return the configured candidate repository ref for source metadata."""
     _, ref, _ = _repo_settings()
     return ref
+
+
+def _is_safe_candidate_id(candidate_id: str) -> bool:
+    """Reject candidate ids that could escape the local candidates root."""
+    if not candidate_id or candidate_id.startswith("/") or "\\" in candidate_id:
+        return False
+    segments = candidate_id.split("/")
+    return all(segment not in ("", ".", "..") for segment in segments)
+
+
+def candidate_script_filename(candidate_id: str) -> str:
+    """Return the best filename to expose while executing a candidate script."""
+    fallback = f"{_COLLEAGUES_DIR}/{candidate_id}/{_WORKFLOW_FILENAME}"
+    if not _is_safe_candidate_id(candidate_id):
+        return fallback
+    root = _resolved_candidate_local_root()
+    if root is None:
+        return fallback
+    workflow_path = root / _COLLEAGUES_DIR / candidate_id / _WORKFLOW_FILENAME
+    return str(workflow_path) if workflow_path.exists() else fallback
+
+
+def _resolved_candidate_local_root() -> Path | None:
+    """Return the first local root with a colleagues/ directory, cached.
+
+    Filesystem checks here are unnecessary per-candidate work: the set of
+    local roots depends only on the process environment and cwd, so the first
+    matching root can be resolved once and reused for every candidate.
+    """
+    if _state.local_root is _UNRESOLVED:
+        _state.local_root = next(
+            (
+                root
+                for root in _candidate_local_roots()
+                if (root / _COLLEAGUES_DIR).is_dir()
+            ),
+            None,
+        )
+    return _state.local_root  # type: ignore[return-value]
+
+
+def _candidate_local_roots() -> list[Path]:
+    """Return local candidate roots that may exist in desktop/dev checkouts."""
+    configured = os.getenv("ORCHEO_CANDIDATES_LOCAL_ROOT", "").strip()
+    roots: list[Path] = []
+    if configured:
+        roots.append(Path(configured).expanduser())
+    cwd = Path.cwd()
+    roots.extend(
+        [
+            cwd / "colleague-candidates" / "colleague-experts",
+            cwd / "colleague-candidates",
+            cwd,
+        ]
+    )
+    return roots
 
 
 async def _download_tarball() -> bytes:
@@ -118,7 +185,7 @@ def _build_candidate(
     """
     try:
         frontmatter = parse_workflow_frontmatter(source)
-    except CLIError:
+    except FrontmatterError:
         logger.warning("Skipping candidate with invalid frontmatter: %s", directory)
         return None
     fallback_name = directory.rsplit("/", 1)[-1]
@@ -219,31 +286,63 @@ async def _enrich_cached_with_previews() -> None:
         logger.warning("Background preview enrichment failed", exc_info=True)
 
 
+def _candidate_content_hash(candidate: CandidateItem) -> str:
+    """Return a stable hash of the inputs that affect a candidate's preview."""
+    payload = f"{candidate.id}\n{candidate.entrypoint or ''}\n{candidate.script}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _render_single_candidate_preview(candidate: CandidateItem) -> str | None:
+    """Execute a candidate's script and derive its Mermaid preview, if possible.
+
+    Runs synchronously so it can be offloaded to a worker thread: executing
+    the script is CPU-bound and blocks whatever thread runs it.
+    """
+    try:
+        script_payload = ingest_langgraph_script(
+            candidate.script,
+            entrypoint=candidate.entrypoint,
+            script_filename=candidate_script_filename(candidate.id),
+        )
+        return render_mermaid_from_graph_payload(script_payload)
+    except ScriptIngestionError:
+        logger.debug("Graph derivation failed for candidate %s", candidate.id)
+    except Exception:
+        logger.debug(
+            "Unexpected error during graph derivation for %s",
+            candidate.id,
+            exc_info=True,
+        )
+    return None
+
+
 async def _render_candidate_previews(
     candidates: list[CandidateItem],
 ) -> list[CandidateItem]:
-    """Derive mermaid previews for remote candidates by executing each script."""
-    rendered: list[CandidateItem] = []
-    for candidate in candidates:
-        mermaid: str | None = None
+    """Derive mermaid previews for remote candidates, reusing unchanged results.
 
-        try:
-            script_payload = ingest_langgraph_script(
-                candidate.script,
-                entrypoint=candidate.entrypoint,
-            )
-            mermaid = render_mermaid_from_graph_payload(script_payload)
-        except ScriptIngestionError:
-            logger.debug("Graph derivation failed for candidate %s", candidate.id)
-        except Exception:
-            logger.debug(
-                "Unexpected error during graph derivation for %s",
-                candidate.id,
-                exc_info=True,
-            )
+    Rendering executes each candidate's script (~20s each), so previews are
+    cached by content hash to skip unchanged candidates on repeat refreshes,
+    execution is offloaded to worker threads so it never blocks the event
+    loop, and concurrency is bounded so a large catalog does not launch every
+    candidate's script at once.
+    """
+    semaphore = asyncio.Semaphore(_PREVIEW_CONCURRENCY)
 
-        rendered.append(candidate.model_copy(update={"mermaid": mermaid}))
-    return rendered
+    async def render_one(candidate: CandidateItem) -> CandidateItem:
+        content_hash = _candidate_content_hash(candidate)
+        cached = _state.preview_cache.get(candidate.id)
+        if cached is not None and cached[0] == content_hash:
+            mermaid = cached[1]
+        else:
+            async with semaphore:
+                mermaid = await asyncio.to_thread(
+                    _render_single_candidate_preview, candidate
+                )
+            _state.preview_cache[candidate.id] = (content_hash, mermaid)
+        return candidate.model_copy(update={"mermaid": mermaid})
+
+    return list(await asyncio.gather(*(render_one(c) for c in candidates)))
 
 
 async def _background_refresh() -> None:

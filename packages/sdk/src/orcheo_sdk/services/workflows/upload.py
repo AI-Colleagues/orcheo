@@ -9,7 +9,7 @@ from orcheo_sdk.cli.http import ApiClient
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from orcheo_sdk.cli.workflow.frontmatter import WorkflowFrontmatter
+    from orcheo.workflow.frontmatter import WorkflowFrontmatter
 
 
 def _load_workflow_config_from_path(
@@ -62,6 +62,22 @@ def _upload_langgraph_workflow(
         raise CLIError("Failed to upload LangGraph workflow script via API.") from exc
 
 
+def _resolve_frontmatter_config_bundle(
+    path_obj: Path,
+    config_path: str,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Load a frontmatter-referenced config bundle, translating parse errors."""
+    from orcheo.workflow.frontmatter import (
+        FrontmatterError,
+        resolve_frontmatter_config_bundle,
+    )
+
+    try:
+        return resolve_frontmatter_config_bundle(path_obj, config_path)
+    except FrontmatterError as exc:
+        raise CLIError(str(exc)) from exc
+
+
 def _apply_frontmatter_defaults(
     *,
     path_obj: Path,
@@ -87,10 +103,6 @@ def _apply_frontmatter_defaults(
     CLI-provided arguments always take precedence; frontmatter only fills
     in fields that were omitted by the caller.
     """
-    from orcheo_sdk.cli.workflow.frontmatter import (
-        resolve_frontmatter_config_bundle,
-    )
-
     if frontmatter.is_empty:
         return (
             workflow_id,
@@ -120,7 +132,7 @@ def _apply_frontmatter_defaults(
         entrypoint = frontmatter.entrypoint
         used.append("entrypoint")
     if runnable_config is None and frontmatter.config_path is not None:
-        runnable_config, configurable_schema = resolve_frontmatter_config_bundle(
+        runnable_config, configurable_schema = _resolve_frontmatter_config_bundle(
             path_obj,
             frontmatter.config_path,
         )
@@ -174,13 +186,13 @@ def upload_workflow_data(
     console: Any | None = None,
 ) -> dict[str, Any]:
     """Upload workflow definition from a local file."""
+    from orcheo.workflow.frontmatter import FrontmatterError, load_workflow_frontmatter
     from orcheo_sdk.cli.workflow import (
         _load_workflow_from_python,
         _normalize_workflow_name,
         _upload_langgraph_script,
         _validate_local_path,
     )
-    from orcheo_sdk.cli.workflow.frontmatter import load_workflow_frontmatter
 
     class MinimalState:
         def __init__(self, client_obj: Any, console_obj: Any | None) -> None:
@@ -194,7 +206,10 @@ def upload_workflow_data(
     state = MinimalState(client, console)
     path_obj = _validate_local_path(file_path, description="workflow")
 
-    frontmatter = load_workflow_frontmatter(path_obj)
+    try:
+        frontmatter = load_workflow_frontmatter(path_obj)
+    except FrontmatterError as exc:
+        raise CLIError(str(exc)) from exc
     (
         workflow_id,
         workflow_handle,

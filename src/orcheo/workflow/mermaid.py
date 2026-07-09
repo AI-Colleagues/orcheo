@@ -56,7 +56,7 @@ def render_mermaid_from_ir(ir: Mapping[str, Any]) -> str | None:
 
 def _render_from_payload(
     graph_payload: dict[str, Any],
-    script_renderer: Callable[[str, str | None], str | None],
+    script_renderer: Callable[[str, str | None, str | None], str | None],
 ) -> str | None:
     """Dispatch a stored graph payload to the renderer for its format."""
     fmt = graph_payload.get("format", "")
@@ -69,7 +69,12 @@ def _render_from_payload(
     if not isinstance(source, str) or not source.strip():
         return None
     entrypoint = graph_payload.get("entrypoint")
-    return script_renderer(source, entrypoint)
+    filename = graph_payload.get("filename")
+    return script_renderer(
+        source,
+        entrypoint if isinstance(entrypoint, str) else None,
+        filename if isinstance(filename, str) else None,
+    )
 
 
 def _ir_diagram_placeholder(_spec: Any) -> Callable[..., Any]:
@@ -101,14 +106,17 @@ def _render_graph_mermaid(graph: Any) -> str | None:
 
 
 def _render_mermaid_from_script(
-    source: str, entrypoint: str | None = None
+    source: str, entrypoint: str | None = None, script_filename: str | None = None
 ) -> str | None:
     """Execute ``source`` and render a Mermaid diagram from the graph."""
     from orcheo.graph.ingestion.exceptions import ScriptIngestionError
     from orcheo.graph.ingestion.loader import load_graph_from_script
 
     try:
-        graph = load_graph_from_script(source, entrypoint=entrypoint)
+        kwargs: dict[str, Any] = {"entrypoint": entrypoint}
+        if script_filename is not None:
+            kwargs["script_filename"] = script_filename
+        graph = load_graph_from_script(source, **kwargs)
         return _render_graph_mermaid(graph)
     except ScriptIngestionError as exc:
         logger.warning("Mermaid rendering skipped: script ingestion error: %s", exc)
@@ -119,7 +127,7 @@ def _render_mermaid_from_script(
 
 
 def _render_mermaid_from_script_full_env(
-    source: str, entrypoint: str | None = None
+    source: str, entrypoint: str | None = None, script_filename: str | None = None
 ) -> str | None:
     """Render a Mermaid diagram using the full Python environment.
 
@@ -132,7 +140,10 @@ def _render_mermaid_from_script_full_env(
     from orcheo.graph.ingestion.loader import load_graph_from_script_full_env
 
     try:
-        graph = load_graph_from_script_full_env(source, entrypoint=entrypoint)
+        kwargs: dict[str, Any] = {"entrypoint": entrypoint}
+        if script_filename is not None:
+            kwargs["script_filename"] = script_filename
+        graph = load_graph_from_script_full_env(source, **kwargs)
         return _render_graph_mermaid(graph)
     except ScriptIngestionError as exc:
         logger.warning("Mermaid rendering skipped: script ingestion error: %s", exc)

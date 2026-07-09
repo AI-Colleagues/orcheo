@@ -27,6 +27,8 @@ type CredentialAccess = CredentialVaultAccessLevel;
 
 interface AddCredentialDialogProps {
   onAddCredential?: (credential: CredentialInput) => Promise<void> | void;
+  triggerLabel?: string;
+  showTriggerIcon?: boolean;
 }
 
 const DEFAULT_CREDENTIAL: CredentialInput = {
@@ -38,6 +40,8 @@ const DEFAULT_CREDENTIAL: CredentialInput = {
 
 export function AddCredentialDialog({
   onAddCredential,
+  triggerLabel = "Add Credential",
+  showTriggerIcon = true,
 }: AddCredentialDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [pendingCredential, setPendingCredential] =
@@ -117,8 +121,8 @@ export function AddCredentialDialog({
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Credential
+          {showTriggerIcon ? <Plus className="h-4 w-4 mr-2" /> : null}
+          {triggerLabel}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[500px]">

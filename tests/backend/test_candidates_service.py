@@ -5,6 +5,7 @@ import asyncio
 import io
 import tarfile
 from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 import httpx
 import pytest
@@ -330,14 +331,14 @@ async def test_download_tarball_raises_on_http_error(
 # ---------------------------------------------------------------------------
 
 
-def test_build_candidate_returns_none_on_cli_error(
+def test_build_candidate_returns_none_on_frontmatter_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Returns None when frontmatter parsing raises CLIError."""
-    from orcheo_sdk.cli.errors import CLIError
+    """Returns None when frontmatter parsing raises FrontmatterError."""
+    from orcheo.workflow.frontmatter import FrontmatterError
 
     def fail_parse(source: str) -> None:
-        raise CLIError("no frontmatter block")
+        raise FrontmatterError("no frontmatter block")
 
     monkeypatch.setattr(candidates_service, "parse_workflow_frontmatter", fail_parse)
 
@@ -399,8 +400,60 @@ async def test_render_candidate_previews_uses_local_catalog_ingestion(
     result = await candidates_service._render_candidate_previews([candidate])
 
     assert result[0].mermaid == "graph TD; A-->B"
-    ingestor.assert_called_once_with(_WORKFLOW_WITH_FRONTMATTER, entrypoint=None)
+    ingestor.assert_called_once_with(
+        _WORKFLOW_WITH_FRONTMATTER,
+        entrypoint=None,
+        script_filename="colleagues/linkedin_post/workflow.py",
+    )
     renderer.assert_called_once_with({"format": "langgraph-script", "source": "x"})
+
+
+@pytest.mark.asyncio()
+async def test_render_candidate_previews_reuses_cached_result_for_unchanged_script(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A candidate whose script is unchanged is not re-executed on refresh."""
+    candidate = candidates_service._build_candidate(
+        "linkedin_post", _WORKFLOW_WITH_FRONTMATTER, None
+    )
+    assert candidate is not None
+    ingestor = Mock(return_value={"format": "langgraph-script", "source": "x"})
+    monkeypatch.setattr(candidates_service, "ingest_langgraph_script", ingestor)
+    monkeypatch.setattr(
+        candidates_service, "render_mermaid_from_graph_payload", lambda _p: "graph TD"
+    )
+
+    first = await candidates_service._render_candidate_previews([candidate])
+    second = await candidates_service._render_candidate_previews([candidate])
+
+    assert first[0].mermaid == "graph TD"
+    assert second[0].mermaid == "graph TD"
+    ingestor.assert_called_once()
+
+
+@pytest.mark.asyncio()
+async def test_render_candidate_previews_re_renders_when_script_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A changed script invalidates the cached preview for that candidate."""
+    original = candidates_service._build_candidate(
+        "linkedin_post", _WORKFLOW_WITH_FRONTMATTER, None
+    )
+    updated = candidates_service._build_candidate(
+        "linkedin_post", _WORKFLOW_WITH_FRONTMATTER + "\nx = 2\n", None
+    )
+    assert original is not None
+    assert updated is not None
+    ingestor = Mock(return_value={"format": "langgraph-script", "source": "x"})
+    monkeypatch.setattr(candidates_service, "ingest_langgraph_script", ingestor)
+    monkeypatch.setattr(
+        candidates_service, "render_mermaid_from_graph_payload", lambda _p: "graph TD"
+    )
+
+    await candidates_service._render_candidate_previews([original])
+    await candidates_service._render_candidate_previews([updated])
+
+    assert ingestor.call_count == 2
 
 
 @pytest.mark.asyncio()
@@ -544,10 +597,10 @@ def test_parse_tarball_excludes_none_candidates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Candidates for which _build_candidate returns None are not included."""
-    from orcheo_sdk.cli.errors import CLIError
+    from orcheo.workflow.frontmatter import FrontmatterError
 
     def fail_parse(source: str) -> None:
-        raise CLIError("bad frontmatter")
+        raise FrontmatterError("bad frontmatter")
 
     monkeypatch.setattr(candidates_service, "parse_workflow_frontmatter", fail_parse)
 
@@ -724,3 +777,101 @@ async def test_get_candidates_cold_cache_does_not_wait_for_preview_rendering(
 
     enriched = await get_candidates()
     assert enriched[0].mermaid == "graph TD; A-->B"
+
+
+@pytest.mark.parametrize(
+    "candidate_id",
+    [
+        "../../etc/passwd",
+        "foo/../../bar",
+        "/etc/passwd",
+        "foo/../bar",
+        "",
+        "foo\\..\\bar",
+    ],
+)
+def test_candidate_script_filename_rejects_traversal(candidate_id: str) -> None:
+    """Unsafe candidate ids fall back to the generic remote-relative filename."""
+    result = candidates_service.candidate_script_filename(candidate_id)
+
+    assert result == f"colleagues/{candidate_id}/workflow.py"
+
+
+def test_candidate_script_filename_allows_nested_ids() -> None:
+    """Legitimate nested candidate ids are not rejected by the traversal guard."""
+    assert candidates_service._is_safe_candidate_id("wechat/daily_reminder")
+    assert candidates_service._is_safe_candidate_id("linkedin_post")
+
+
+def test_resolved_candidate_local_root_is_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The local root lookup only walks the filesystem once per process."""
+    roots_probed: list[list] = []
+
+    def fake_roots() -> list:
+        roots_probed.append([])
+        return []
+
+    monkeypatch.setattr(candidates_service, "_candidate_local_roots", fake_roots)
+
+    first = candidates_service._resolved_candidate_local_root()
+    second = candidates_service._resolved_candidate_local_root()
+
+    assert first is None
+    assert second is None
+    assert len(roots_probed) == 1
+
+
+def test_candidate_script_filename_falls_back_without_local_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A safe candidate id still falls back when no local root is found."""
+    monkeypatch.setattr(
+        candidates_service, "_resolved_candidate_local_root", lambda: None
+    )
+
+    result = candidates_service.candidate_script_filename("linkedin_post")
+
+    assert result == "colleagues/linkedin_post/workflow.py"
+
+
+def test_candidate_script_filename_uses_local_workflow_when_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A resolved local root with a matching workflow file wins over the fallback."""
+    workflow_dir = tmp_path / "colleagues" / "linkedin_post"
+    workflow_dir.mkdir(parents=True)
+    workflow_file = workflow_dir / "workflow.py"
+    workflow_file.write_text("graph = object()\n")
+    monkeypatch.setattr(
+        candidates_service, "_resolved_candidate_local_root", lambda: tmp_path
+    )
+
+    result = candidates_service.candidate_script_filename("linkedin_post")
+
+    assert result == str(workflow_file)
+
+
+def test_candidate_script_filename_falls_back_when_local_file_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A resolved local root without the candidate's workflow file falls back."""
+    monkeypatch.setattr(
+        candidates_service, "_resolved_candidate_local_root", lambda: tmp_path
+    )
+
+    result = candidates_service.candidate_script_filename("linkedin_post")
+
+    assert result == "colleagues/linkedin_post/workflow.py"
+
+
+def test_candidate_local_roots_includes_configured_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ORCHEO_CANDIDATES_LOCAL_ROOT is prepended to the probed local roots."""
+    monkeypatch.setenv("ORCHEO_CANDIDATES_LOCAL_ROOT", "~/custom-candidates")
+
+    roots = candidates_service._candidate_local_roots()
+
+    assert roots[0] == Path("~/custom-candidates").expanduser()

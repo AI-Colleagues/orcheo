@@ -73,6 +73,37 @@ def test_merge_frontmatter_avatar_fills_avatar_and_subtitle_from_frontmatter(
     assert result["subtitle"] == "My Bot"
 
 
+def test_script_filename_from_metadata_returns_stripped_value() -> None:
+    """A well-formed source_filename is returned trimmed."""
+    result = workflows._script_filename_from_metadata(
+        {"source_filename": "  candidate/workflow.py  "}
+    )
+    assert result == "candidate/workflow.py"
+
+
+def test_script_filename_from_metadata_rejects_missing_or_non_string() -> None:
+    """Absent or non-string values return None instead of raising."""
+    assert workflows._script_filename_from_metadata({}) is None
+    assert workflows._script_filename_from_metadata({"source_filename": 123}) is None
+    assert workflows._script_filename_from_metadata({"source_filename": "   "}) is None
+
+
+def test_script_filename_from_metadata_rejects_overlong_value() -> None:
+    """Values past the length cap are rejected rather than passed through."""
+    overlong = "a" * (workflows._MAX_SCRIPT_FILENAME_LENGTH + 1)
+    assert (
+        workflows._script_filename_from_metadata({"source_filename": overlong}) is None
+    )
+
+
+def test_script_filename_from_metadata_rejects_control_characters() -> None:
+    """Control characters (e.g. embedded newlines) are rejected."""
+    result = workflows._script_filename_from_metadata(
+        {"source_filename": "workflow.py\nEvil-Header: 1"}
+    )
+    assert result is None
+
+
 def test_merge_configurable_schema_merges_dict_existing() -> None:
     """When existing is a dict, inline schema is merged with existing winning."""
     inline = {"key1": "inline-val", "key2": "only-inline"}

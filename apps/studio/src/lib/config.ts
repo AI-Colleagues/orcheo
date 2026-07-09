@@ -1,4 +1,25 @@
-const DEFAULT_BACKEND_URL = "http://localhost:2025";
+const VITE_DEV_ORIGINS = new Set([
+  "http://localhost:2026",
+  "http://127.0.0.1:2026",
+  // `vite preview`'s default port. It serves the built SPA standalone (not
+  // colocated with the backend), so it must fall back to the dev backend
+  // default rather than treating itself as the backend's own origin.
+  "http://localhost:4173",
+  "http://127.0.0.1:4173",
+]);
+
+const getDefaultBackendUrl = (): string => {
+  if (typeof window === "undefined") {
+    return "http://localhost:2025";
+  }
+
+  const origin = window.location.origin;
+  if (origin && !VITE_DEV_ORIGINS.has(origin)) {
+    return origin;
+  }
+
+  return "http://localhost:2025";
+};
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
 
@@ -33,14 +54,15 @@ const normaliseBaseUrl = (value: string): string => {
 
 export const getBackendBaseUrl = (): string => {
   const fromEnv = (import.meta.env?.VITE_ORCHEO_BACKEND_URL ?? "") as string;
-  const candidate = fromEnv || DEFAULT_BACKEND_URL;
+  const defaultBackendUrl = getDefaultBackendUrl();
+  const candidate = fromEnv || defaultBackendUrl;
   const normalised = normaliseBaseUrl(candidate);
 
   if (fromEnv && !isValidUrl(normalised)) {
     console.warn(
       "Invalid VITE_ORCHEO_BACKEND_URL provided, falling back to default backend URL.",
     );
-    return normaliseBaseUrl(DEFAULT_BACKEND_URL);
+    return normaliseBaseUrl(defaultBackendUrl);
   }
 
   return normalised;

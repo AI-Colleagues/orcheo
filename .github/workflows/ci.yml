@@ -22,6 +22,7 @@ on:
       - 'agentensor-v*'
       - 'studio-v*'
       - 'stack-v*'
+      - 'desktop-v*'
   pull_request:
     branches:
       - main
@@ -433,3 +434,96 @@ jobs:
         run: npm run build
       - name: Publish to npm
         run: npm publish --provenance --access public
+
+  desktop-tauri-release:
+    needs: [lint, coverage, postgres-persistence, studio]
+    if: "startsWith(github.ref, 'refs/tags/desktop-v')"
+    runs-on: macos-26
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            apps/studio/package-lock.json
+            apps/desktop/tauri/package-lock.json
+
+      - name: Upgrade npm
+        run: npm install -g npm@^11.5.1
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: '3.12'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/tauri/src-tauri -> target
+
+      - name: Verify Apple Silicon runner
+        run: |
+          test "$(uname -m)" = "arm64"
+
+      - name: Install dependencies
+        run: |
+          npm ci --prefix apps/desktop/tauri
+
+      - name: Verify desktop version matches tag
+        run: |
+          version="${GITHUB_REF_NAME#desktop-v}"
+          pkg_version=$(node -p "require('./apps/desktop/tauri/package.json').version")
+          tauri_version=$(node -p "require('./apps/desktop/tauri/src-tauri/tauri.conf.json').version")
+          if [[ "$version" != "$pkg_version" ]]; then
+            echo "Error: Tag version ($version) does not match package.json version ($pkg_version)" >&2
+            exit 1
+          fi
+          if [[ "$version" != "$tauri_version" ]]; then
+            echo "Error: Tag version ($version) does not match tauri.conf.json version ($tauri_version)" >&2
+            exit 1
+          fi
+          echo "Version check passed: $version"
+
+      - name: Build Apple Silicon DMG
+        env:
+          ORCHEO_TAURI_USE_PUBLISHED_RELEASES: "true"
+        run: npm --prefix apps/desktop/tauri run build
+
+      - name: Stage DMG release asset
+        run: |
+          mkdir -p dist/desktop-tauri
+          find apps/desktop/tauri/src-tauri/target/release/bundle/dmg \
+            -maxdepth 1 \
+            -type f \
+            -name '*.dmg' \
+            -exec cp {} dist/desktop-tauri/ \;
+          dmg_count=$(find dist/desktop-tauri -maxdepth 1 -type f -name '*.dmg' | wc -l | tr -d ' ')
+          if [[ "$dmg_count" -eq 0 ]]; then
+            echo "No DMG files were produced." >&2
+            exit 1
+          fi
+          if find dist/desktop-tauri -maxdepth 1 -type f ! -name '*.dmg' | grep -q .; then
+            echo "Only DMG files may be staged as desktop release assets." >&2
+            find dist/desktop-tauri -maxdepth 1 -type f >&2
+            exit 1
+          fi
+          ls -lh dist/desktop-tauri
+
+      - name: Upload DMG to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          fail_on_unmatched_files: true
+          files: dist/desktop-tauri/*.dmg
+          name: Orcheo Desktop ${{ github.ref_name }}
+          body: See the DMG asset below to download Orcheo Desktop for Apple Silicon.

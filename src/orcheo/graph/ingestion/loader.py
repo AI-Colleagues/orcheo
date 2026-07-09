@@ -36,6 +36,7 @@ def _execute_langgraph_script(
     source: str,
     max_script_bytes: int | None,
     execution_timeout_seconds: float | None,
+    script_filename: str | None = None,
 ) -> dict[str, Any]:
     """Execute a LangGraph script with full Python builtins and return its namespace.
 
@@ -59,6 +60,9 @@ def _execute_langgraph_script(
     # up sys.modules[cls.__module__] do not encounter None.
     module_name = _new_script_module_name()
     module = types.ModuleType(module_name)
+    filename = script_filename or "<langgraph-script>"
+    module.__file__ = filename
+    module.__package__ = ""
     module.__dict__["__builtins__"] = vars(builtins)
     namespace = module.__dict__
     sys.modules[module_name] = module
@@ -66,7 +70,7 @@ def _execute_langgraph_script(
     try:
         try:
             compiled = compile(  # noqa: S307
-                source, "<langgraph-script>", "exec", ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
+                source, filename, "exec", ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
             )
         except SyntaxError as exc:
             raise ScriptIngestionError(f"Compilation error: {exc}") from exc
@@ -161,10 +165,11 @@ def load_graph_from_script(
     entrypoint: str | None = None,
     max_script_bytes: int | None = DEFAULT_SCRIPT_SIZE_LIMIT,
     execution_timeout_seconds: float | None = DEFAULT_EXECUTION_TIMEOUT_SECONDS,
+    script_filename: str | None = None,
 ) -> StateGraph:
     """Execute a LangGraph Python script and return the graph."""
     namespace = _execute_langgraph_script(
-        source, max_script_bytes, execution_timeout_seconds
+        source, max_script_bytes, execution_timeout_seconds, script_filename
     )
     try:
         return _load_graph_from_namespace(namespace, entrypoint)
@@ -180,9 +185,12 @@ def load_graph_from_script_full_env(
     *,
     entrypoint: str | None = None,
     execution_timeout_seconds: float | None = DEFAULT_EXECUTION_TIMEOUT_SECONDS,
+    script_filename: str | None = None,
 ) -> StateGraph:
     """Execute a LangGraph script without size limits and return the graph."""
-    namespace = _execute_langgraph_script(source, None, execution_timeout_seconds)
+    namespace = _execute_langgraph_script(
+        source, None, execution_timeout_seconds, script_filename
+    )
     try:
         return _load_graph_from_namespace(namespace, entrypoint)
     finally:

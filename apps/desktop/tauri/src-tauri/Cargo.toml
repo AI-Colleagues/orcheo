@@ -1,0 +1,15 @@
+[build-dependencies]
+tauri-build = {version = "2.6.3", features = []}
+
+[dependencies]
+libc = "0.2"
+serde = {version = "1", features = ["derive"]}
+tauri = {version = "2.11.1", features = []}
+uuid = {version = "1", features = ["v4"]}
+
+[package]
+authors = ["ShaojieJiang"]
+description = "Cross-platform Tauri shell for Orcheo"
+edition = "2021"
+name = "orcheo-desktop"
+version = "0.0.0"
