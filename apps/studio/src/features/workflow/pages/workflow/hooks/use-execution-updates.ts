@@ -48,8 +48,10 @@ export function useExecutionUpdates({
   );
 
   const describePayload = useCallback(
-    (payload: Record<string, unknown>, graphToWorkflow: Record<string, string>) =>
-      describePayloadRaw(payload, graphToWorkflow, (id) => id),
+    (
+      payload: Record<string, unknown>,
+      graphToWorkflow: Record<string, string>,
+    ) => describePayloadRaw(payload, graphToWorkflow, (id) => id),
     [],
   );
 

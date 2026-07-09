@@ -73,7 +73,9 @@ export default function Login() {
       setStage("sent");
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Unable to send the sign-in email.",
+        err instanceof Error
+          ? err.message
+          : "Unable to send the sign-in email.",
       );
     } finally {
       setBusy(false);

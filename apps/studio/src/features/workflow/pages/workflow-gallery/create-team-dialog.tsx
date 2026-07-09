@@ -70,9 +70,7 @@ export const CreateTeamDialog = ({
       await onCreate(trimmedName, trimmedSlug);
       onOpenChange(false);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to create team.",
-      );
+      setError(err instanceof Error ? err.message : "Failed to create team.");
     } finally {
       setIsSubmitting(false);
     }
@@ -118,9 +116,7 @@ export const CreateTeamDialog = ({
               underscores only.
             </p>
           </div>
-          {error ? (
-            <p className="text-sm text-destructive">{error}</p>
-          ) : null}
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </div>
 
         <DialogFooter>

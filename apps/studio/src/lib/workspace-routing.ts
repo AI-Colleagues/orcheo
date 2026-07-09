@@ -63,9 +63,7 @@ export const getWorkspaceTeamWorkflowPath = (
   if (!ref) {
     return getWorkspaceGalleryPath(slug);
   }
-  return slug
-    ? `/${slug}/team/${teamSlug}/${ref}`
-    : `/team/${teamSlug}/${ref}`;
+  return slug ? `/${slug}/team/${teamSlug}/${ref}` : `/team/${teamSlug}/${ref}`;
 };
 
 export const getWorkspaceSlugFromPathname = (

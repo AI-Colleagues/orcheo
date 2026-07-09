@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getPublicChatAccessErrorMessage } from "./public-chat";
+import { getPublicChatAccessErrorMessage } from "./public-chat-access";
 
 describe("getPublicChatAccessErrorMessage", () => {
   it("surfaces workspace mismatch errors specifically", () => {

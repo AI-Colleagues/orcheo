@@ -296,7 +296,7 @@ class BrowserSessionManager:
                 snapshots=True,
                 sources=True,
             )
-        page = await context.new_page()
+        page = context.pages[0] if context.pages else await context.new_page()
         return BrowserSession(
             browser_type=browser_type,
             context=context,

@@ -18,7 +18,7 @@ function nextFrame() {
 }
 
 async function start() {
-  renderStatus('Starting Orcheo', 'Launching local services...')
+  renderStatus('Starting Orcheo', '')
   await nextFrame()
   try {
     const status = await invoke('start_orcheo')

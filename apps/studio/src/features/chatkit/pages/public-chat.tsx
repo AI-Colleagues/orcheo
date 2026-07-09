@@ -19,6 +19,7 @@ import type { PublicWorkflowMetadata } from "@features/workflow/lib/workflow-sto
 import { PublicChatWidget } from "@features/chatkit/components/public-chat-widget";
 import { PublicChatErrorBoundary } from "@features/chatkit/components/public-chat-error-boundary";
 import type { PublicChatHttpError } from "@features/chatkit/lib/chatkit-client";
+import { getPublicChatAccessErrorMessage } from "@features/chatkit/lib/public-chat-access";
 
 type ColorScheme = "light" | "dark";
 
@@ -26,18 +27,6 @@ type WorkflowState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; workflow: PublicWorkflowMetadata };
-
-export const getPublicChatAccessErrorMessage = (
-  error: Pick<PublicChatHttpError, "status" | "code">,
-): string => {
-  if (error.code === "chatkit.auth.workspace_mismatch") {
-    return "Your account is signed in, but it is not a member of this workflow workspace. Switch workspaces or ask the owner to add you.";
-  }
-  if (error.status === 403) {
-    return "You do not have permission to use this workflow. Ask the owner to confirm your workspace access.";
-  }
-  return "You do not have access to this workflow yet. Ask the owner to confirm it is still published.";
-};
 
 const sanitizeWorkflowNameForEmail = (value: string): string =>
   value

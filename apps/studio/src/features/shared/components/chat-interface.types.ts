@@ -27,11 +27,7 @@ export interface ChatInterfaceProps {
   isMinimizable?: boolean;
   isClosable?: boolean;
   position?:
-    | "bottom-right"
-    | "bottom-left"
-    | "top-right"
-    | "top-left"
-    | "center";
+    "bottom-right" | "bottom-left" | "top-right" | "top-left" | "center";
   triggerButton?: React.ReactNode;
   user: ChatParticipant;
   ai: ChatParticipant;

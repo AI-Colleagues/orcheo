@@ -22,7 +22,9 @@ const parseTomlString = (value: string): string | undefined => {
   if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
     try {
       const parsed = JSON.parse(trimmed) as unknown;
-      return typeof parsed === "string" && parsed.trim() ? parsed.trim() : undefined;
+      return typeof parsed === "string" && parsed.trim()
+        ? parsed.trim()
+        : undefined;
     } catch {
       return undefined;
     }

@@ -171,8 +171,12 @@ describe("buildPublicChatFetch", () => {
 
     const visitorId = getOrCreateVisitorId();
     expect(visitorId).toBeTruthy();
-    const firstHeaders = new Headers(fetchMock.mock.calls[0]![1]?.headers ?? {});
-    const secondHeaders = new Headers(fetchMock.mock.calls[1]![1]?.headers ?? {});
+    const firstHeaders = new Headers(
+      fetchMock.mock.calls[0]![1]?.headers ?? {},
+    );
+    const secondHeaders = new Headers(
+      fetchMock.mock.calls[1]![1]?.headers ?? {},
+    );
     // The same id must be reused across requests so history stays attributed.
     expect(firstHeaders.get(VISITOR_ID_HEADER)).toBe(visitorId);
     expect(secondHeaders.get(VISITOR_ID_HEADER)).toBe(visitorId);

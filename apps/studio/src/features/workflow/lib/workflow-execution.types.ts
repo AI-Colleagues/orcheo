@@ -31,17 +31,10 @@ export type WorkflowLookup = {
 };
 
 export type WorkflowExecutionStatus =
-  | "running"
-  | "success"
-  | "failed"
-  | "partial";
+  "running" | "success" | "failed" | "partial";
 
 export type WorkflowExecutionNodeStatus =
-  | "idle"
-  | "running"
-  | "success"
-  | "error"
-  | "warning";
+  "idle" | "running" | "success" | "error" | "warning";
 
 export interface WorkflowExecutionNode {
   id: string;

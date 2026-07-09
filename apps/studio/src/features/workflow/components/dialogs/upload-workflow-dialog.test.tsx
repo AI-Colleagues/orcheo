@@ -15,7 +15,9 @@ const { uploadWorkflowFromFilesMock, navigateMock, toastMock } = vi.hoisted(
 
 vi.mock("@features/workflow/lib/workflow-storage", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@features/workflow/lib/workflow-storage")>();
+    await importOriginal<
+      typeof import("@features/workflow/lib/workflow-storage")
+    >();
   return {
     ...actual,
     uploadWorkflowFromFiles: uploadWorkflowFromFilesMock,

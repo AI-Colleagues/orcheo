@@ -31,16 +31,7 @@ export type ColorVariant =
   | "gray";
 
 export type ComponentSize =
-  | "4"
-  | "5"
-  | "6"
-  | "7"
-  | "8"
-  | "9"
-  | "10"
-  | "11"
-  | "12"
-  | "16";
+  "4" | "5" | "6" | "7" | "8" | "9" | "10" | "11" | "12" | "16";
 
 // CONSTANTS
 

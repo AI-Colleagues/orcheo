@@ -7,7 +7,8 @@ export interface WorkflowUploadError {
 
 const STORAGE_PREFIX = "orcheo.workflowUploadError.";
 
-const storageKey = (workflowId: string): string => `${STORAGE_PREFIX}${workflowId}`;
+const storageKey = (workflowId: string): string =>
+  `${STORAGE_PREFIX}${workflowId}`;
 
 const canUseSessionStorage = (): boolean =>
   typeof window !== "undefined" && Boolean(window.sessionStorage);
@@ -26,7 +27,10 @@ export const saveWorkflowUploadError = (
   }
 
   try {
-    window.sessionStorage.setItem(storageKey(workflowId), JSON.stringify(error));
+    window.sessionStorage.setItem(
+      storageKey(workflowId),
+      JSON.stringify(error),
+    );
   } catch {
     // Upload failure rendering should not depend on storage availability.
   }

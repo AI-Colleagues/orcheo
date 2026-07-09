@@ -282,69 +282,65 @@ export default function WorkspaceMembers() {
         </div>
       )}
 
-      {canManage &&
-        invitations.some((i) => i.status === "pending") && (
-          <div className="rounded-lg border">
-            <div className="border-b px-4 py-3">
-              <h3 className="text-sm font-medium">Pending Invitations</h3>
-            </div>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Expires</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {invitations
-                  .filter((i) => i.status === "pending")
-                  .map((invitation) => {
-                    const isRevoking =
-                      revokingInvitationId === invitation.id;
-                    const isExpired =
-                      new Date(invitation.expires_at) < new Date();
-                    return (
-                      <TableRow
-                        key={invitation.id}
-                        className={isExpired ? "opacity-60" : undefined}
-                      >
-                        <TableCell className="text-sm">
-                          {invitation.email}
-                        </TableCell>
-                        <TableCell className="capitalize">
-                          {invitation.role}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {isExpired ? (
-                            <span className="text-destructive">Expired</span>
-                          ) : (
-                            new Date(
-                              invitation.expires_at,
-                            ).toLocaleDateString()
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() =>
-                              void handleRevokeInvitation(invitation.id)
-                            }
-                            disabled={isRevoking}
-                          >
-                            {isRevoking ? "Revoking..." : "Revoke"}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-              </TableBody>
-            </Table>
+      {canManage && invitations.some((i) => i.status === "pending") && (
+        <div className="rounded-lg border">
+          <div className="border-b px-4 py-3">
+            <h3 className="text-sm font-medium">Pending Invitations</h3>
           </div>
-        )}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Email</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Expires</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {invitations
+                .filter((i) => i.status === "pending")
+                .map((invitation) => {
+                  const isRevoking = revokingInvitationId === invitation.id;
+                  const isExpired =
+                    new Date(invitation.expires_at) < new Date();
+                  return (
+                    <TableRow
+                      key={invitation.id}
+                      className={isExpired ? "opacity-60" : undefined}
+                    >
+                      <TableCell className="text-sm">
+                        {invitation.email}
+                      </TableCell>
+                      <TableCell className="capitalize">
+                        {invitation.role}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {isExpired ? (
+                          <span className="text-destructive">Expired</span>
+                        ) : (
+                          new Date(invitation.expires_at).toLocaleDateString()
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() =>
+                            void handleRevokeInvitation(invitation.id)
+                          }
+                          disabled={isRevoking}
+                        >
+                          {isRevoking ? "Revoking..." : "Revoke"}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       {isForbidden ? null : isLoading ? (
         <p className="text-sm text-muted-foreground">Loading members...</p>
