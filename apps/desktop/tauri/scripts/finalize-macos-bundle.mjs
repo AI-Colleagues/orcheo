@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -128,25 +129,27 @@ function pngChunk(type, data) {
   return Buffer.concat([length, typeBuffer, data, checksum]);
 }
 
-function createInstallArrowBackground() {
-  const width = 560;
-  const height = 360;
-  const pixels = Buffer.alloc((width * 4 + 1) * height);
+// Plain point-sampling (setPixel says "in" or "out", nothing between) leaves
+// hard, jagged edges on the line/triangle. There's no anti-aliasing here, so
+// instead we rasterize at `supersample`x the final resolution and box-filter
+// back down - each output pixel becomes the average of an NxN block, which
+// turns the hard edge into a smooth alpha/color gradient.
+function createCanvas(width, height) {
+  const buffer = Buffer.alloc(width * height * 4);
 
   function setPixel(x, y, color) {
     if (x < 0 || x >= width || y < 0 || y >= height) {
       return;
     }
-    const offset = y * (width * 4 + 1) + 1 + x * 4;
-    pixels[offset] = color[0];
-    pixels[offset + 1] = color[1];
-    pixels[offset + 2] = color[2];
-    pixels[offset + 3] = color[3];
+    const offset = (y * width + x) * 4;
+    buffer[offset] = color[0];
+    buffer[offset + 1] = color[1];
+    buffer[offset + 2] = color[2];
+    buffer[offset + 3] = color[3];
   }
 
   function fill(color) {
     for (let y = 0; y < height; y += 1) {
-      pixels[y * (width * 4 + 1)] = 0;
       for (let x = 0; x < width; x += 1) {
         setPixel(x, y, color);
       }
@@ -204,9 +207,88 @@ function createInstallArrowBackground() {
     }
   }
 
-  fill([246, 247, 249, 255]);
-  drawLine(228, 162, 330, 162, 12, [52, 61, 72, 255]);
-  drawTriangle(358, 162, 322, 140, 322, 184, [52, 61, 72, 255]);
+  return { buffer, fill, drawLine, drawTriangle };
+}
+
+function downsampleBoxFilter(source, width, height, factor) {
+  const outWidth = width / factor;
+  const outHeight = height / factor;
+  const out = Buffer.alloc(outWidth * outHeight * 4);
+  const samples = factor * factor;
+
+  for (let oy = 0; oy < outHeight; oy += 1) {
+    for (let ox = 0; ox < outWidth; ox += 1) {
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let a = 0;
+      for (let sy = 0; sy < factor; sy += 1) {
+        for (let sx = 0; sx < factor; sx += 1) {
+          const offset =
+            ((oy * factor + sy) * width + (ox * factor + sx)) * 4;
+          r += source[offset];
+          g += source[offset + 1];
+          b += source[offset + 2];
+          a += source[offset + 3];
+        }
+      }
+      const outOffset = (oy * outWidth + ox) * 4;
+      out[outOffset] = Math.round(r / samples);
+      out[outOffset + 1] = Math.round(g / samples);
+      out[outOffset + 2] = Math.round(b / samples);
+      out[outOffset + 3] = Math.round(a / samples);
+    }
+  }
+
+  return out;
+}
+
+function toPngScanlines(rgba, width, height) {
+  const pixels = Buffer.alloc((width * 4 + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const rowStart = y * (width * 4 + 1);
+    pixels[rowStart] = 0;
+    rgba.copy(pixels, rowStart + 1, y * width * 4, (y + 1) * width * 4);
+  }
+  return pixels;
+}
+
+function createInstallArrowBackground() {
+  const width = 560;
+  const height = 360;
+  const supersample = 4;
+  const canvas = createCanvas(width * supersample, height * supersample);
+
+  canvas.fill([246, 247, 249, 255]);
+  // Centered on the 560x360 canvas (280, 180), which lines up with the
+  // Finder icon row set by applyDmgFinderLayout (both icons at y=180,
+  // symmetric around x=280).
+  const s = supersample;
+  canvas.drawLine(
+    218 * s,
+    180 * s,
+    320 * s,
+    180 * s,
+    12 * s,
+    [52, 61, 72, 255],
+  );
+  canvas.drawTriangle(
+    348 * s,
+    180 * s,
+    312 * s,
+    158 * s,
+    312 * s,
+    202 * s,
+    [52, 61, 72, 255],
+  );
+
+  const rgba = downsampleBoxFilter(
+    canvas.buffer,
+    width * supersample,
+    height * supersample,
+    supersample,
+  );
+  const pixels = toPngScanlines(rgba, width, height);
 
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width, 0);
@@ -302,6 +384,38 @@ function rebuildDmg(dmgPath, appPath, appName) {
     mountPoint = parseMountPoint(attachOutput);
     run("SetFile", ["-a", "V", path.join(mountPoint, ".background")]);
     applyDmgFinderLayout(volumeName, mountPoint, appName);
+    run("sync", []);
+
+    // applyDmgFinderLayout closes the window, which makes Finder write the
+    // customized .DS_Store (background image, 128px icons, icon positions).
+    // A few seconds later Finder asynchronously rewrites that same .DS_Store
+    // back to defaults, silently dropping every customization - so the arrow
+    // install layout only survives if we detach before that clobber lands.
+    // Whether we win that race depends on how long sync/detach take to flush
+    // the volume, and for the multi-hundred-MB Orcheo bundle that is slow
+    // enough that the clobber usually wins, shipping a plain window with no
+    // arrow. Capture the styled .DS_Store while it is still fresh, then
+    // re-inject it on a second, unscripted attach (no Finder window is opened,
+    // so nothing rewrites it) to make the layout deterministic.
+    const styledDsStore = readFileSync(path.join(mountPoint, ".DS_Store"));
+    if (!styledDsStore.includes("backgroundImageAlias")) {
+      throw new Error(
+        "Finder did not persist the styled DMG .DS_Store (background image " +
+          "reference missing); refusing to ship a DMG without the install " +
+          "layout.",
+      );
+    }
+    run("hdiutil", ["detach", mountPoint]);
+    mountPoint = null;
+
+    const reattachOutput = runCapture("hdiutil", [
+      "attach",
+      rwDmgPath,
+      "-nobrowse",
+      "-readwrite",
+    ]);
+    mountPoint = parseMountPoint(reattachOutput);
+    writeFileSync(path.join(mountPoint, ".DS_Store"), styledDsStore);
     run("sync", []);
     run("hdiutil", ["detach", mountPoint]);
     mountPoint = null;
