@@ -44,17 +44,6 @@ const parseCache = (raw: string | null): SystemInfoCachePayload | null => {
   }
 };
 
-const shouldRefresh = (cache: SystemInfoCachePayload | null): boolean => {
-  if (!cache) {
-    return true;
-  }
-  const lastCheckedAt = Date.parse(cache.checkedAt);
-  if (Number.isNaN(lastCheckedAt)) {
-    return true;
-  }
-  return Date.now() - lastCheckedAt >= UPDATE_CHECK_TTL_MS;
-};
-
 const parseSemver = (value: string | null | undefined): ParsedSemver | null => {
   if (!value) {
     return null;
@@ -152,7 +141,18 @@ const isDismissed = (): boolean => {
 };
 
 export default function VersionStatus() {
-  const [systemInfo, setSystemInfo] = useState<SystemInfoResponse | null>(null);
+  // Drives the "update available" nag — never the displayed version text,
+  // since a stale value would otherwise show a backend version that no longer
+  // matches what's actually running (e.g. right after an upgrade). The
+  // localStorage copy is read once on mount purely to paint instantly before
+  // the fetch below resolves; every fetch result overwrites it immediately,
+  // so this is never gated on the cache's age.
+  const [cachedInfo, setCachedInfo] = useState<SystemInfoResponse | null>(null);
+  // Always fetched fresh on mount so the displayed "Backend X.Y.Z" text reflects
+  // the version actually running right now.
+  const [liveBackendVersion, setLiveBackendVersion] = useState<string | null>(
+    null,
+  );
   const [dismissedReminder, setDismissedReminder] = useState<boolean>(() =>
     isDismissed(),
   );
@@ -163,11 +163,7 @@ export default function VersionStatus() {
       window.localStorage.getItem(UPDATE_CHECK_CACHE_KEY),
     );
     if (cache) {
-      setSystemInfo(cache.payload);
-    }
-
-    if (!shouldRefresh(cache)) {
-      return;
+      setCachedInfo(cache.payload);
     }
 
     let active = true;
@@ -176,7 +172,8 @@ export default function VersionStatus() {
         if (!active) {
           return;
         }
-        setSystemInfo(payload);
+        setLiveBackendVersion(payload.backend.current_version);
+        setCachedInfo(payload);
         const cachePayload: SystemInfoCachePayload = {
           checkedAt: new Date().toISOString(),
           payload,
@@ -196,39 +193,39 @@ export default function VersionStatus() {
   }, []);
 
   const studioUpdateAvailable = useMemo(() => {
-    if (!systemInfo) {
+    if (!cachedInfo) {
       return false;
     }
-    if (systemInfo.studio.update_available) {
+    if (cachedInfo.studio.update_available) {
       return true;
     }
-    return compareSemver(studioVersion, systemInfo.studio.latest_version) < 0;
-  }, [studioVersion, systemInfo]);
+    return compareSemver(studioVersion, cachedInfo.studio.latest_version) < 0;
+  }, [studioVersion, cachedInfo]);
 
   const showReminder =
-    ((systemInfo?.backend.update_available ?? false) ||
+    ((cachedInfo?.backend.update_available ?? false) ||
       studioUpdateAvailable) &&
     !dismissedReminder;
 
   const versionSummary = useMemo(() => {
-    const backend = systemInfo?.backend.current_version ?? "unknown";
+    const backend = liveBackendVersion ?? "unknown";
     return `Orcheo ${studioVersion} · Backend ${backend}`;
-  }, [studioVersion, systemInfo]);
+  }, [studioVersion, liveBackendVersion]);
 
   const updateLines = useMemo(() => {
-    if (!systemInfo) return [];
+    if (!cachedInfo) return [];
     const lines: string[] = [];
-    if (systemInfo.backend.update_available) {
+    if (cachedInfo.backend.update_available) {
       lines.push(
-        `Backend: ${systemInfo.backend.current_version} → ${systemInfo.backend.latest_version}`,
+        `Backend: ${cachedInfo.backend.current_version} → ${cachedInfo.backend.latest_version}`,
       );
     }
     if (studioUpdateAvailable) {
-      const studioCurrent = systemInfo.studio.current_version ?? studioVersion;
-      lines.push(`Orcheo: ${studioCurrent} → ${systemInfo.studio.latest_version}`);
+      const studioCurrent = cachedInfo.studio.current_version ?? studioVersion;
+      lines.push(`Orcheo: ${studioCurrent} → ${cachedInfo.studio.latest_version}`);
     }
     return lines;
-  }, [studioUpdateAvailable, studioVersion, systemInfo]);
+  }, [studioUpdateAvailable, studioVersion, cachedInfo]);
 
   const dismissUpdateReminder = () => {
     if (typeof window === "undefined") {

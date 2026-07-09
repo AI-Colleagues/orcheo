@@ -20,13 +20,13 @@ _UPDATE_CHECK_TTL_HOURS = 24
 
 
 @dataclass(slots=True)
-class _CacheEntry:
-    payload: dict[str, Any]
+class _LatestVersionCacheEntry:
+    value: str | None
     expires_at: datetime
 
 
 _cache_lock = threading.Lock()
-_cache_state: dict[str, _CacheEntry | None] = {"entry": None}
+_latest_version_cache: dict[str, _LatestVersionCacheEntry] = {}
 
 
 def _is_stable(version_value: str | None) -> bool:
@@ -125,6 +125,30 @@ def _fetch_npm_latest(package_name: str, *, timeout: float, retries: int) -> str
     return version_value if isinstance(version_value, str) else None
 
 
+def _get_cached_latest_version(
+    package_name: str,
+    fetcher: Any,
+    *,
+    timeout: float,
+    retries: int,
+) -> str | None:
+    """Return the latest published version, cached for `_UPDATE_CHECK_TTL_HOURS`."""
+    now = datetime.now(tz=UTC)
+    with _cache_lock:
+        entry = _latest_version_cache.get(package_name)
+        if entry is not None and now < entry.expires_at:
+            return entry.value
+
+    value = fetcher(package_name, timeout=timeout, retries=retries)
+
+    with _cache_lock:
+        _latest_version_cache[package_name] = _LatestVersionCacheEntry(
+            value=value,
+            expires_at=now + timedelta(hours=_UPDATE_CHECK_TTL_HOURS),
+        )
+    return value
+
+
 def _read_timeout_seconds() -> float:
     raw = os.getenv("ORCHEO_UPDATE_CHECK_TIMEOUT_SECONDS")
     if not raw:
@@ -155,11 +179,15 @@ def _build_payload() -> dict[str, Any]:
     cli_current = _read_current_version("orcheo-sdk")
     studio_current = _read_studio_current_version()
 
-    backend_latest = _fetch_pypi_latest(
-        "orcheo-backend", timeout=timeout, retries=retries
+    backend_latest = _get_cached_latest_version(
+        "orcheo-backend", _fetch_pypi_latest, timeout=timeout, retries=retries
     )
-    cli_latest = _fetch_pypi_latest("orcheo-sdk", timeout=timeout, retries=retries)
-    studio_latest = _fetch_npm_latest("orcheo-studio", timeout=timeout, retries=retries)
+    cli_latest = _get_cached_latest_version(
+        "orcheo-sdk", _fetch_pypi_latest, timeout=timeout, retries=retries
+    )
+    studio_latest = _get_cached_latest_version(
+        "orcheo-studio", _fetch_npm_latest, timeout=timeout, retries=retries
+    )
 
     checked_at = datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
 
@@ -193,18 +221,13 @@ def _build_payload() -> dict[str, Any]:
 
 
 def get_system_info_payload() -> dict[str, Any]:
-    """Return cached system version metadata payload."""
-    now = datetime.now(tz=UTC)
-    ttl = timedelta(hours=_UPDATE_CHECK_TTL_HOURS)
+    """Return system version metadata.
 
-    with _cache_lock:
-        entry = _cache_state["entry"]
-        if entry is not None and now < entry.expires_at:
-            return entry.payload
-
-        payload = _build_payload()
-        _cache_state["entry"] = _CacheEntry(payload=payload, expires_at=now + ttl)
-        return payload
+    Installed ("current") versions are read fresh on every call since they are
+    cheap local lookups. Only the "latest published version" lookups (which hit
+    PyPI/npm) are cached, via `_get_cached_latest_version`.
+    """
+    return _build_payload()
 
 
 __all__ = ["get_system_info_payload"]
