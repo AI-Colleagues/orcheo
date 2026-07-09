@@ -161,12 +161,7 @@ export interface WorkflowListenerHealth {
   last_event_at?: string | null;
   last_error?: string | null;
   runtime_status:
-    | "starting"
-    | "healthy"
-    | "backoff"
-    | "stopped"
-    | "error"
-    | "unknown";
+    "starting" | "healthy" | "backoff" | "stopped" | "error" | "unknown";
   runtime_detail?: string | null;
   last_polled_at?: string | null;
   consecutive_failures: number;

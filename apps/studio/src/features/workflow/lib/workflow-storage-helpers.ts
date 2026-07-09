@@ -281,11 +281,9 @@ const parseWorkflowMetadata = (
 
   const workflowRecord = workflowMetadata as Record<string, unknown>;
   const snapshotPayload = workflowRecord.snapshot as
-    | WorkflowSnapshot
-    | undefined;
+    WorkflowSnapshot | undefined;
   const summaryPayload = workflowRecord.summary as
-    | WorkflowDiffResult["summary"]
-    | undefined;
+    WorkflowDiffResult["summary"] | undefined;
   const messagePayload = workflowRecord.message as string | undefined;
   const workflowToGraph = (workflowRecord.workflowToGraph ??
     workflowRecord.canvasToGraph) as Record<string, string> | undefined;

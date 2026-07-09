@@ -92,7 +92,10 @@ export function useWorkflowExecutionController(
 
       const graphToWorkflow = latestVersionRecord?.graphToWorkflow ?? {};
       const executionId = generateRandomId("run");
-      const executionRecord = createExecutionRecord(executionId, graphToWorkflow);
+      const executionRecord = createExecutionRecord(
+        executionId,
+        graphToWorkflow,
+      );
 
       if (core.websocketRef.current) {
         core.websocketRef.current.close();

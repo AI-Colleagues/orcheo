@@ -61,9 +61,7 @@ describe("workflow-storage-api helpers", () => {
       ],
     });
 
-    expect(extractErrorMessage(body)).toBe(
-      "field required; must be a string",
-    );
+    expect(extractErrorMessage(body)).toBe("field required; must be a string");
   });
 
   it("falls back to the raw body when it is not JSON", () => {

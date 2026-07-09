@@ -1,9 +1,5 @@
 export type SpanCardConnectorType =
-  | "horizontal"
-  | "vertical"
-  | "t-right"
-  | "corner-top-right"
-  | "empty";
+  "horizontal" | "vertical" | "t-right" | "corner-top-right" | "empty";
 
 interface SpanCardConnectorProps {
   type: SpanCardConnectorType;

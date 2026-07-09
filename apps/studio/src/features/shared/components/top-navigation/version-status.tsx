@@ -141,15 +141,7 @@ const isDismissed = (): boolean => {
 };
 
 export default function VersionStatus() {
-  // Drives the "update available" nag — never the displayed version text,
-  // since a stale value would otherwise show a backend version that no longer
-  // matches what's actually running (e.g. right after an upgrade). The
-  // localStorage copy is read once on mount purely to paint instantly before
-  // the fetch below resolves; every fetch result overwrites it immediately,
-  // so this is never gated on the cache's age.
   const [cachedInfo, setCachedInfo] = useState<SystemInfoResponse | null>(null);
-  // Always fetched fresh on mount so the displayed "Backend X.Y.Z" text reflects
-  // the version actually running right now.
   const [liveBackendVersion, setLiveBackendVersion] = useState<string | null>(
     null,
   );
@@ -164,6 +156,11 @@ export default function VersionStatus() {
     );
     if (cache) {
       setCachedInfo(cache.payload);
+      setLiveBackendVersion(cache.payload.backend.current_version);
+      const cacheAge = Date.now() - Date.parse(cache.checkedAt);
+      if (cacheAge < UPDATE_CHECK_TTL_MS) {
+        return;
+      }
     }
 
     let active = true;
@@ -222,7 +219,9 @@ export default function VersionStatus() {
     }
     if (studioUpdateAvailable) {
       const studioCurrent = cachedInfo.studio.current_version ?? studioVersion;
-      lines.push(`Orcheo: ${studioCurrent} → ${cachedInfo.studio.latest_version}`);
+      lines.push(
+        `Orcheo: ${studioCurrent} → ${cachedInfo.studio.latest_version}`,
+      );
     }
     return lines;
   }, [studioUpdateAvailable, studioVersion, cachedInfo]);

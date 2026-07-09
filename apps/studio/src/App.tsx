@@ -78,9 +78,7 @@ function WorkspaceWorkflowRoute() {
   }, [workspaceSlug]);
 
   return (
-    <WorkflowPage
-      workflowId={workflowId === "new" ? undefined : workflowId}
-    />
+    <WorkflowPage workflowId={workflowId === "new" ? undefined : workflowId} />
   );
 }
 
@@ -88,52 +86,58 @@ export default function OrcheoStudioApp() {
   return (
     <Router>
       <BrowserContextProvider>
-          <Routes>
-            <Route path="/login" element={<Login />} />
+        <Routes>
+          <Route path="/login" element={<Login />} />
 
-            <Route path="/auth/verify" element={<AuthVerify />} />
-            <Route path="/chat/:workflowId" element={<PublicChatPage />} />
-            <Route path="/chat/team/:teamSlug/:workflowId" element={<PublicChatPage />} />
-            <Route path="/chat/:workspaceSlug/:workflowId" element={<PublicChatPage />} />
-            <Route path="/chat/:workspaceSlug/team/:teamSlug/:workflowId" element={<PublicChatPage />} />
+          <Route path="/auth/verify" element={<AuthVerify />} />
+          <Route path="/chat/:workflowId" element={<PublicChatPage />} />
+          <Route
+            path="/chat/team/:teamSlug/:workflowId"
+            element={<PublicChatPage />}
+          />
+          <Route
+            path="/chat/:workspaceSlug/:workflowId"
+            element={<PublicChatPage />}
+          />
+          <Route
+            path="/chat/:workspaceSlug/team/:teamSlug/:workflowId"
+            element={<PublicChatPage />}
+          />
 
-            <Route element={<RequireAuth />}>
+          <Route element={<RequireAuth />}>
+            <Route path="/invitations/accept" element={<InvitationAccept />} />
+            <Route element={<RequireWorkspace />}>
+              <Route path="/" element={<WorkspaceHomeRedirect />} />
               <Route
-                path="/invitations/accept"
-                element={<InvitationAccept />}
+                path="/:workspaceSlug"
+                element={<WorkspaceGalleryRoute />}
               />
-              <Route element={<RequireWorkspace />}>
-                <Route path="/" element={<WorkspaceHomeRedirect />} />
-                <Route
-                  path="/:workspaceSlug"
-                  element={<WorkspaceGalleryRoute />}
-                />
 
-                <Route
-                  path="/:workspaceSlug/workspace"
-                  element={<WorkspaceManagementRoute />}
-                />
+              <Route
+                path="/:workspaceSlug/workspace"
+                element={<WorkspaceManagementRoute />}
+              />
 
-                <Route
-                  path="/:workspaceSlug/new"
-                  element={<WorkspaceWorkflowRoute />}
-                />
-                <Route
-                  path="/:workspaceSlug/team/:teamSlug/:workflowId"
-                  element={<WorkspaceWorkflowRoute />}
-                />
-                <Route
-                  path="/:workspaceSlug/:workflowId"
-                  element={<WorkspaceWorkflowRoute />}
-                />
+              <Route
+                path="/:workspaceSlug/new"
+                element={<WorkspaceWorkflowRoute />}
+              />
+              <Route
+                path="/:workspaceSlug/team/:teamSlug/:workflowId"
+                element={<WorkspaceWorkflowRoute />}
+              />
+              <Route
+                path="/:workspaceSlug/:workflowId"
+                element={<WorkspaceWorkflowRoute />}
+              />
 
-                <Route path="/profile" element={<Profile />} />
+              <Route path="/profile" element={<Profile />} />
 
-                <Route path="/settings" element={<Settings />} />
-              </Route>
+              <Route path="/settings" element={<Settings />} />
             </Route>
-          </Routes>
-          <Toaster />
+          </Route>
+        </Routes>
+        <Toaster />
       </BrowserContextProvider>
     </Router>
   );

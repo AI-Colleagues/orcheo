@@ -399,7 +399,9 @@ export const uploadWorkflowFromFiles = async (
     });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Upload failed. Please try again.";
+      error instanceof Error
+        ? error.message
+        : "Upload failed. Please try again.";
     const uploadError = saveWorkflowUploadError(created.id, message);
     const stored = await ensureWorkflow(created.id);
     invalidateWorkflowListCache();
@@ -453,7 +455,9 @@ export const updateWorkflowFromFiles = async (
     });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Update failed. Please try again.";
+      error instanceof Error
+        ? error.message
+        : "Update failed. Please try again.";
     saveWorkflowUploadError(workflowId, message);
     invalidateWorkflowListCache();
     invalidateWorkflowCache(workflowId);

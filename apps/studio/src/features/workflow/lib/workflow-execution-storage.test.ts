@@ -4,8 +4,7 @@ import { loadWorkflowExecutions } from "./workflow-execution-storage";
 import { jsonResponse } from "@/testing/mocks/backend/request-utils";
 import { createFetchMockHarness } from "@/testing/mocks/fetch-mock";
 
-const { queueResponses, setupFetchMock } =
-  createFetchMockHarness();
+const { queueResponses, setupFetchMock } = createFetchMockHarness();
 
 setupFetchMock();
 

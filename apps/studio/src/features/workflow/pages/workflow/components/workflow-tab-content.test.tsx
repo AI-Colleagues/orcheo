@@ -322,7 +322,9 @@ describe("WorkflowTabContent", () => {
     );
 
     expect(screen.getByText("Workflow upload failed")).toBeInTheDocument();
-    expect(screen.getByText("Invalid script: expected ':'")).toBeInTheDocument();
+    expect(
+      screen.getByText("Invalid script: expected ':'"),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(/fix the error in the workflow script or config/i),
     ).toBeInTheDocument();

@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  cleanup,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import Login from "./login";
@@ -68,8 +63,13 @@ describe("Login", () => {
     const user = userEvent.setup();
     render(<Login />);
 
-    await user.type(screen.getByLabelText(/email address/i), "alice@example.com");
-    await user.click(screen.getByRole("button", { name: /continue with email/i }));
+    await user.type(
+      screen.getByLabelText(/email address/i),
+      "alice@example.com",
+    );
+    await user.click(
+      screen.getByRole("button", { name: /continue with email/i }),
+    );
 
     await waitFor(() =>
       expect(startEmailChallenge).toHaveBeenCalledWith(
@@ -84,7 +84,10 @@ describe("Login", () => {
     await user.click(screen.getByRole("button", { name: /verify code/i }));
 
     await waitFor(() =>
-      expect(verifyEmailCode).toHaveBeenCalledWith("alice@example.com", "123456"),
+      expect(verifyEmailCode).toHaveBeenCalledWith(
+        "alice@example.com",
+        "123456",
+      ),
     );
     expect(navigateMock).toHaveBeenCalledWith("/", { replace: true });
   });
@@ -94,13 +97,20 @@ describe("Login", () => {
     const user = userEvent.setup();
     render(<Login />);
 
-    await user.type(screen.getByLabelText(/email address/i), "alice@example.com");
-    await user.click(screen.getByRole("button", { name: /continue with email/i }));
+    await user.type(
+      screen.getByLabelText(/email address/i),
+      "alice@example.com",
+    );
+    await user.click(
+      screen.getByRole("button", { name: /continue with email/i }),
+    );
     await user.type(await screen.findByLabelText(/sign-in code/i), "999000");
     await user.click(screen.getByRole("button", { name: /verify code/i }));
 
     await waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith("/workflows", { replace: true }),
+      expect(navigateMock).toHaveBeenCalledWith("/workflows", {
+        replace: true,
+      }),
     );
   });
 
@@ -109,8 +119,13 @@ describe("Login", () => {
     const user = userEvent.setup();
     render(<Login />);
 
-    await user.type(screen.getByLabelText(/email address/i), "alice@example.com");
-    await user.click(screen.getByRole("button", { name: /continue with email/i }));
+    await user.type(
+      screen.getByLabelText(/email address/i),
+      "alice@example.com",
+    );
+    await user.click(
+      screen.getByRole("button", { name: /continue with email/i }),
+    );
 
     expect(await screen.findByText(/rate limited/i)).toBeInTheDocument();
   });
@@ -120,8 +135,13 @@ describe("Login", () => {
     const user = userEvent.setup();
     render(<Login />);
 
-    await user.type(screen.getByLabelText(/email address/i), "alice@example.com");
-    await user.click(screen.getByRole("button", { name: /continue with email/i }));
+    await user.type(
+      screen.getByLabelText(/email address/i),
+      "alice@example.com",
+    );
+    await user.click(
+      screen.getByRole("button", { name: /continue with email/i }),
+    );
     await user.type(await screen.findByLabelText(/sign-in code/i), "999000");
     await user.click(screen.getByRole("button", { name: /verify code/i }));
 
@@ -135,16 +155,20 @@ describe("Login", () => {
     const user = userEvent.setup();
     render(<Login />);
 
-    await user.type(screen.getByLabelText(/email address/i), "alice@example.com");
-    await user.click(screen.getByRole("button", { name: /continue with email/i }));
+    await user.type(
+      screen.getByLabelText(/email address/i),
+      "alice@example.com",
+    );
+    await user.click(
+      screen.getByRole("button", { name: /continue with email/i }),
+    );
     await user.type(await screen.findByLabelText(/sign-in code/i), "999000");
     await user.click(screen.getByRole("button", { name: /verify code/i }));
 
     await waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith(
-        "/chat/ws/team/ws/typesetter",
-        { replace: true },
-      ),
+      expect(navigateMock).toHaveBeenCalledWith("/chat/ws/team/ws/typesetter", {
+        replace: true,
+      }),
     );
   });
 
@@ -154,8 +178,13 @@ describe("Login", () => {
     const user = userEvent.setup();
     render(<Login />);
 
-    await user.type(screen.getByLabelText(/email address/i), "alice@example.com");
-    await user.click(screen.getByRole("button", { name: /continue with email/i }));
+    await user.type(
+      screen.getByLabelText(/email address/i),
+      "alice@example.com",
+    );
+    await user.click(
+      screen.getByRole("button", { name: /continue with email/i }),
+    );
     await user.type(await screen.findByLabelText(/sign-in code/i), "999000");
     await user.click(screen.getByRole("button", { name: /verify code/i }));
 

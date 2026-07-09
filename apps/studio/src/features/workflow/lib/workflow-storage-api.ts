@@ -498,7 +498,8 @@ export const extractCronConfigFromVersionGraph = (
 
 // Matches a value that is exactly a single `{{config.configurable.<name>}}`
 // placeholder, optionally padded with whitespace inside the braces.
-const CONFIGURABLE_TEMPLATE = /^\{\{\s*config\.configurable\.([^}\s.]+)\s*\}\}$/;
+const CONFIGURABLE_TEMPLATE =
+  /^\{\{\s*config\.configurable\.([^}\s.]+)\s*\}\}$/;
 
 const resolveConfigurableTemplate = (
   value: string | null | undefined,
@@ -539,16 +540,11 @@ const resolveConfigurableCronConfig = (
       resolveConfigurableTemplate(config.expression, configurable) ??
       config.expression,
     timezone: resolveConfigurableTemplate(config.timezone, configurable) as
-      | string
-      | undefined,
+      string | undefined,
     start_at: resolveConfigurableTemplate(config.start_at, configurable) as
-      | string
-      | null
-      | undefined,
+      string | null | undefined,
     end_at: resolveConfigurableTemplate(config.end_at, configurable) as
-      | string
-      | null
-      | undefined,
+      string | null | undefined,
   };
 };
 

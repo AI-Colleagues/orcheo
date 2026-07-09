@@ -15,32 +15,26 @@ vi.mock("@/hooks/use-page-context", () => ({
 vi.mock(
   "@features/workflow/pages/workflow/hooks/controller/use-workflow-controller",
   () => ({
-    useWorkflowController: (...args: unknown[]) =>
-      controllerMock(...args),
+    useWorkflowController: (...args: unknown[]) => controllerMock(...args),
   }),
 );
 
-vi.mock(
-  "@features/workflow/pages/workflow/components/workflow-layout",
-  () => ({
-    WorkflowLayout: ({
-      workflowProps,
-      topNavigationProps,
-    }: {
-      workflowProps: { workflowId: string | null };
-      topNavigationProps: { currentWorkflow: { name: string } };
-    }) => (
-      <div data-testid="workflow-layout">
-        <span data-testid="workflow-id">
-          {workflowProps.workflowId ?? "new"}
-        </span>
-        <span data-testid="workflow-name">
-          {topNavigationProps.currentWorkflow.name}
-        </span>
-      </div>
-    ),
-  }),
-);
+vi.mock("@features/workflow/pages/workflow/components/workflow-layout", () => ({
+  WorkflowLayout: ({
+    workflowProps,
+    topNavigationProps,
+  }: {
+    workflowProps: { workflowId: string | null };
+    topNavigationProps: { currentWorkflow: { name: string } };
+  }) => (
+    <div data-testid="workflow-layout">
+      <span data-testid="workflow-id">{workflowProps.workflowId ?? "new"}</span>
+      <span data-testid="workflow-name">
+        {topNavigationProps.currentWorkflow.name}
+      </span>
+    </div>
+  ),
+}));
 
 vi.mock("@features/workflow/lib/workflow-storage", () => ({
   getWorkflowById: (...args: unknown[]) => getWorkflowByIdMock(...args),

@@ -25,20 +25,26 @@ afterEach(() => {
 
 describe("AuthVerify", () => {
   it("redeems the token and navigates to the sanitized redirect", async () => {
-    searchParams = new URLSearchParams({ token: "magic", redirect: "/workflows" });
+    searchParams = new URLSearchParams({
+      token: "magic",
+      redirect: "/workflows",
+    });
     render(<AuthVerify />);
 
-    await waitFor(() =>
-      expect(verifyEmailToken).toHaveBeenCalledWith("magic"),
-    );
+    await waitFor(() => expect(verifyEmailToken).toHaveBeenCalledWith("magic"));
     expect(navigateMock).toHaveBeenCalledWith("/workflows", { replace: true });
   });
 
   it("falls back to root for an unsafe redirect", async () => {
-    searchParams = new URLSearchParams({ token: "magic", redirect: "//evil.com" });
+    searchParams = new URLSearchParams({
+      token: "magic",
+      redirect: "//evil.com",
+    });
     render(<AuthVerify />);
 
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/", { replace: true }));
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith("/", { replace: true }),
+    );
   });
 
   it("shows an error when the token is missing", () => {

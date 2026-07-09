@@ -50,10 +50,10 @@ const extractVersionRecord = (
   lookup: WorkflowLookup,
 ) => {
   const inputs = history.inputs ?? {};
-  const metadata = (inputs.metadata ?? inputs.workflow ?? inputs.canvas ?? {}) as Record<
-    string,
-    unknown
-  >;
+  const metadata = (inputs.metadata ??
+    inputs.workflow ??
+    inputs.canvas ??
+    {}) as Record<string, unknown>;
   const versionIdRaw = metadata?.workflow_version_id;
   if (typeof versionIdRaw === "string" && versionIdRaw) {
     return lookup.versions.get(versionIdRaw);

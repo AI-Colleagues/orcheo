@@ -283,14 +283,17 @@ describe("executeNode", () => {
       status: 409,
       json: async () => ({
         detail: {
-          error: { code: "workspace.slug_conflict", message: "Workspace slug already exists: acme" },
+          error: {
+            code: "workspace.slug_conflict",
+            message: "Workspace slug already exists: acme",
+          },
         },
       }),
     });
 
-    await expect(createWorkspace({ slug: "acme", name: "Acme" })).rejects.toThrow(
-      "Workspace slug already exists: acme",
-    );
+    await expect(
+      createWorkspace({ slug: "acme", name: "Acme" }),
+    ).rejects.toThrow("Workspace slug already exists: acme");
   });
 
   it("should add a workspace member", async () => {
@@ -366,5 +369,4 @@ describe("executeNode", () => {
       "Membership not found",
     );
   });
-
 });

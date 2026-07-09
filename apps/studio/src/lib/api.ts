@@ -250,9 +250,14 @@ async function requestSystemJson<T>(
       message = detail;
     } else if (detail && typeof detail === "object" && "error" in detail) {
       const err = detail.error as Record<string, unknown>;
-      message = typeof err.message === "string" ? err.message : `HTTP ${response.status}`;
+      message =
+        typeof err.message === "string"
+          ? err.message
+          : `HTTP ${response.status}`;
     } else if (Array.isArray(detail)) {
-      message = detail.map((e: Record<string, unknown>) => e.msg ?? JSON.stringify(e)).join("; ");
+      message = detail
+        .map((e: Record<string, unknown>) => e.msg ?? JSON.stringify(e))
+        .join("; ");
     } else {
       message = `HTTP ${response.status}`;
     }

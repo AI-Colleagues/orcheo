@@ -752,7 +752,9 @@ export function WorkflowTabContent({
                   void handleScheduleToggle(checked)
                 }
                 disabled={
-                  isSchedulePending || !canToggleSchedule || uploadBlocksWorkflow
+                  isSchedulePending ||
+                  !canToggleSchedule ||
+                  uploadBlocksWorkflow
                 }
               />
             </div>

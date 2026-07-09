@@ -72,11 +72,20 @@ const clampInt = (value: string, max: number, fallback: number) => {
 };
 
 /** Parse a single cron field's first numeric token, falling back to `fallback`. */
-const parseField = (field: string | undefined, max: number, fallback: number) =>
-  field && field !== "*" ? clampInt(field.split(/[,/-]/)[0], max, fallback) : fallback;
+const parseField = (
+  field: string | undefined,
+  max: number,
+  fallback: number,
+) =>
+  field && field !== "*"
+    ? clampInt(field.split(/[,/-]/)[0], max, fallback)
+    : fallback;
 
 /** Extract the step N from a `*\/N` field (clamped to `max`), or undefined if it isn't a step. */
-const parseStep = (field: string | undefined, max: number): number | undefined => {
+const parseStep = (
+  field: string | undefined,
+  max: number,
+): number | undefined => {
   const match = /^\*\/(\d+)$/.exec(field ?? "");
   return match ? clampInt(match[1], max, 1) || 1 : undefined;
 };
@@ -98,7 +107,9 @@ const parseDaysOfWeek = (field: string | undefined): number[] => {
   return Array.from(new Set(days));
 };
 
-const parseCron = (value: string | undefined): { freq: Frequency; parts: CronParts } => {
+const parseCron = (
+  value: string | undefined,
+): { freq: Frequency; parts: CronParts } => {
   const [minute, hour, dom, , dow] = (value ?? "").trim().split(/\s+/);
   const minuteStep = parseStep(minute, 59);
   const hourStep = parseStep(hour, 23);
@@ -117,13 +128,15 @@ const parseCron = (value: string | undefined): { freq: Frequency; parts: CronPar
   // `*/30 * * * *` (step) or `* * * * *` (every minute) → minute interval.
   else if (minuteStep !== undefined || minute === "*") freq = "minute";
   // `M */2 * * *` (step) or `M * * * *` (every hour) → hour interval.
-  else if (hourStep !== undefined || hour === "*" || hour === undefined) freq = "hour";
+  else if (hourStep !== undefined || hour === "*" || hour === undefined)
+    freq = "hour";
 
   return { freq, parts };
 };
 
 const buildCron = (freq: Frequency, parts: CronParts): string => {
-  const { interval, hourInterval, minute, hour, dayOfMonth, daysOfWeek } = parts;
+  const { interval, hourInterval, minute, hour, dayOfMonth, daysOfWeek } =
+    parts;
   switch (freq) {
     case "minute":
       // `*/1` is just "every minute"; emit the canonical wildcard form.
@@ -136,7 +149,9 @@ const buildCron = (freq: Frequency, parts: CronParts): string => {
     case "day":
       return `${minute} ${hour} * * *`;
     case "week": {
-      const dow = daysOfWeek.length ? [...daysOfWeek].sort((a, b) => a - b).join(",") : "*";
+      const dow = daysOfWeek.length
+        ? [...daysOfWeek].sort((a, b) => a - b).join(",")
+        : "*";
       return `${minute} ${hour} * * ${dow}`;
     }
     case "month":
@@ -165,7 +180,11 @@ const canonicalCron = (value: string | undefined): string | null => {
   if (/[a-z]/i.test(fields.join(""))) return null;
   const days = parseDaysOfWeek(dow);
   const dowField =
-    dow === "*" ? "*" : days.length ? [...days].sort((a, b) => a - b).join(",") : dow;
+    dow === "*"
+      ? "*"
+      : days.length
+        ? [...days].sort((a, b) => a - b).join(",")
+        : dow;
   return [minute, hour, dom, month, dowField].join(" ");
 };
 
@@ -292,7 +311,9 @@ function CronWidget(props: WidgetProps) {
 
       {(freq === "minute" || freq === "hour") && (
         <Select
-          value={String(freq === "minute" ? parts.interval : parts.hourInterval)}
+          value={String(
+            freq === "minute" ? parts.interval : parts.hourInterval,
+          )}
           onValueChange={(v) =>
             freq === "minute"
               ? update("minute", { ...parts, interval: Number(v) })
@@ -343,7 +364,11 @@ function CronWidget(props: WidgetProps) {
                 "flex h-9 min-w-[6rem] items-center justify-between gap-2 whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
               )}
             >
-              <span className={cn(parts.daysOfWeek.length === 0 && "text-muted-foreground")}>
+              <span
+                className={cn(
+                  parts.daysOfWeek.length === 0 && "text-muted-foreground",
+                )}
+              >
                 {selectedDaysLabel}
               </span>
               <ChevronDown className="h-4 w-4 opacity-50" />
