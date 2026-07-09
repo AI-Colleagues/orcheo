@@ -836,6 +836,36 @@ def test_candidate_script_filename_falls_back_without_local_root(
     assert result == "colleagues/linkedin_post/workflow.py"
 
 
+def test_candidate_script_filename_uses_local_workflow_when_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A resolved local root with a matching workflow file wins over the fallback."""
+    workflow_dir = tmp_path / "colleagues" / "linkedin_post"
+    workflow_dir.mkdir(parents=True)
+    workflow_file = workflow_dir / "workflow.py"
+    workflow_file.write_text("graph = object()\n")
+    monkeypatch.setattr(
+        candidates_service, "_resolved_candidate_local_root", lambda: tmp_path
+    )
+
+    result = candidates_service.candidate_script_filename("linkedin_post")
+
+    assert result == str(workflow_file)
+
+
+def test_candidate_script_filename_falls_back_when_local_file_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A resolved local root without the candidate's workflow file falls back."""
+    monkeypatch.setattr(
+        candidates_service, "_resolved_candidate_local_root", lambda: tmp_path
+    )
+
+    result = candidates_service.candidate_script_filename("linkedin_post")
+
+    assert result == "colleagues/linkedin_post/workflow.py"
+
+
 def test_candidate_local_roots_includes_configured_root(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

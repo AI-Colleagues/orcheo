@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import Scope
 from orcheo.agentensor.checkpoints import AgentensorCheckpointStore
 from orcheo.plugins import load_enabled_plugins
 from orcheo.vault.oauth import OAuthCredentialService
@@ -120,7 +121,7 @@ def _is_reserved_backend_path(path: str) -> bool:
 class _StudioStaticFiles(StaticFiles):
     """Serve a Vite SPA bundle and fall back to index.html for app routes."""
 
-    async def get_response(self, path: str, scope: dict[str, object]) -> Response:
+    async def get_response(self, path: str, scope: Scope) -> Response:
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as exc:
