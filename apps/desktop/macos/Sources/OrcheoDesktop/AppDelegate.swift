@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         NSApp.setActivationPolicy(.regular)
         buildMenu()
         buildWindow()
-        loadStatusPage(title: "Starting Orcheo", detail: "Launching local services...")
+        loadStatusPage(title: "Starting Orcheo", detail: "")
 
         Task {
             await startServices()
@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     @objc private func restartServices() {
-        loadStatusPage(title: "Restarting Orcheo", detail: "Stopping and launching local services...")
+        loadStatusPage(title: "Restarting Orcheo", detail: "")
         Task {
             do {
                 let url = try await supervisor.restart()
