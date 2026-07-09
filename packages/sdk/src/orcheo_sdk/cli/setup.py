@@ -1156,6 +1156,25 @@ def _is_local_hosting(config: SetupConfig) -> bool:
     )
 
 
+def _resolve_workflow_modes(config: SetupConfig) -> tuple[str, str]:
+    """Resolve ``(trust_mode, definition_mode)`` for the deployment topology.
+
+    * **Local hosting** (loopback ``http://`` backend, no bundled public
+      ingress): the operator is the sole workflow author, so client uploads are
+      allowed and run in-process (``unrestricted``).
+    * **Trusted HTTPS backend**: client uploads are allowed but compiled to the
+      frozen IR and executed with ``CodeNode`` bodies sandboxed
+      (``restricted``), giving tenant isolation for publicly reachable stacks.
+    * **Anything else** (untrusted non-loopback ``http://`` backend): uploads
+      stay ``managed`` and execution remains ``unrestricted``.
+    """
+    if _is_local_hosting(config):
+        return "allow_client_uploads", "unrestricted"
+    if _backend_url_requires_https_auth(config.backend_url):
+        return "allow_client_uploads", "restricted"
+    return "managed", "unrestricted"
+
+
 _DEFAULT_AUTH_ISSUER = "https://auth.orcheo.cloud"
 _DEFAULT_AUTH_AUDIENCE = "orcheo-api"
 
@@ -1506,6 +1525,7 @@ def _build_env_updates(
     ``updates`` are always applied.  ``defaults`` contain auto-generated
     secrets that should only be written to a freshly-created .env file.
     """
+    trust_mode, definition_mode = _resolve_workflow_modes(config)
     updates: dict[str, str] = {
         "ORCHEO_API_URL": config.backend_url,
         "VITE_ORCHEO_BACKEND_URL": config.backend_url,
@@ -1519,9 +1539,8 @@ def _build_env_updates(
         "ORCHEO_CADDY_SITE_ADDRESS": config.public_host or "",
         "ORCHEO_CADDY_BACKEND_UPSTREAMS": config.backend_upstreams,
         "ORCHEO_CADDY_STUDIO_UPSTREAM": config.studio_upstream,
-        "ORCHEO_WORKFLOW_TRUST_MODE": (
-            "allow_client_uploads" if _is_local_hosting(config) else "managed"
-        ),
+        "ORCHEO_WORKFLOW_TRUST_MODE": trust_mode,
+        "ORCHEO_WORKFLOW_DEFINITION_MODE": definition_mode,
     }
     if config.auth_mode == "api-key" and config.api_key:
         updates["ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN"] = config.api_key

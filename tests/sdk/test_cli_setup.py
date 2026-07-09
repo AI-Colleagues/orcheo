@@ -552,6 +552,7 @@ def test_build_env_updates(monkeypatch):
     assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain"
     assert updates["ORCHEO_STACK_IMAGE"] == f"{setup._STACK_IMAGE_REPOSITORY}:2.0"
     assert updates["ORCHEO_WORKFLOW_TRUST_MODE"] == "allow_client_uploads"
+    assert updates["ORCHEO_WORKFLOW_DEFINITION_MODE"] == "unrestricted"
     assert defaults["ORCHEO_POSTGRES_PASSWORD"] == "safe"
     # No SMTP host configured -> no SMTP env emitted (links/codes are logged).
     assert "ORCHEO_SMTP_HOST" not in updates
@@ -738,6 +739,33 @@ def test_build_env_updates_keeps_managed_mode_for_non_loopback_http(monkeypatch)
     updates, _ = setup._build_env_updates(config)
 
     assert updates["ORCHEO_WORKFLOW_TRUST_MODE"] == "managed"
+    assert updates["ORCHEO_WORKFLOW_DEFINITION_MODE"] == "unrestricted"
+
+
+def test_build_env_updates_allows_restricted_uploads_for_https_backend(monkeypatch):
+    monkeypatch.setattr(secrets, "token_urlsafe", lambda _: "safe")
+    monkeypatch.setattr(secrets, "token_hex", lambda _: "hex")
+    config = setup.SetupConfig(
+        mode="install",
+        backend_url="https://api.example.com",
+        studio_url="https://studio.example.com",
+        auth_mode="api-key",
+        api_key="provided",
+        chatkit_domain_key="domain",
+        public_ingress_enabled=False,
+        public_host=None,
+        publish_local_ports=True,
+        backend_upstreams="backend:2025",
+        studio_upstream="studio:2026",
+        start_stack=False,
+        install_docker_if_missing=False,
+        auth_mode_required=True,
+    )
+
+    updates, _ = setup._build_env_updates(config)
+
+    assert updates["ORCHEO_WORKFLOW_TRUST_MODE"] == "allow_client_uploads"
+    assert updates["ORCHEO_WORKFLOW_DEFINITION_MODE"] == "restricted"
 
 
 def test_build_env_updates_generates_required_auth_secret_when_missing(monkeypatch):
