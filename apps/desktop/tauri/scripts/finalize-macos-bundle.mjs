@@ -67,7 +67,9 @@ function run(command, args) {
     throw result.error;
   }
   if (result.status !== 0) {
-    process.exit(result.status ?? 1);
+    throw new Error(
+      `${command} ${args.join(" ")} exited with status ${result.status}`,
+    );
   }
 }
 
@@ -79,7 +81,9 @@ function runCapture(command, args) {
   if (result.status !== 0) {
     process.stdout.write(result.stdout);
     process.stderr.write(result.stderr);
-    process.exit(result.status ?? 1);
+    throw new Error(
+      `${command} ${args.join(" ")} exited with status ${result.status}`,
+    );
   }
   return result.stdout;
 }
@@ -94,7 +98,9 @@ function runWithInput(command, args, input) {
     throw result.error;
   }
   if (result.status !== 0) {
-    process.exit(result.status ?? 1);
+    throw new Error(
+      `${command} ${args.join(" ")} exited with status ${result.status}`,
+    );
   }
 }
 
@@ -382,43 +388,68 @@ function rebuildDmg(dmgPath, appPath, appName) {
       "-readwrite",
     ]);
     mountPoint = parseMountPoint(attachOutput);
-    run("SetFile", ["-a", "V", path.join(mountPoint, ".background")]);
-    applyDmgFinderLayout(volumeName, mountPoint, appName);
-    run("sync", []);
 
-    // applyDmgFinderLayout closes the window, which makes Finder write the
-    // customized .DS_Store (background image, 128px icons, icon positions).
-    // A few seconds later Finder asynchronously rewrites that same .DS_Store
-    // back to defaults, silently dropping every customization - so the arrow
-    // install layout only survives if we detach before that clobber lands.
-    // Whether we win that race depends on how long sync/detach take to flush
-    // the volume, and for the multi-hundred-MB Orcheo bundle that is slow
-    // enough that the clobber usually wins, shipping a plain window with no
-    // arrow. Capture the styled .DS_Store while it is still fresh, then
-    // re-inject it on a second, unscripted attach (no Finder window is opened,
-    // so nothing rewrites it) to make the layout deterministic.
-    const styledDsStore = readFileSync(path.join(mountPoint, ".DS_Store"));
-    if (!styledDsStore.includes("backgroundImageAlias")) {
-      throw new Error(
-        "Finder did not persist the styled DMG .DS_Store (background image " +
-          "reference missing); refusing to ship a DMG without the install " +
-          "layout.",
+    // applyDmgFinderLayout drives Finder over AppleScript, which requires
+    // Automation permission for whatever process is running this script.
+    // That permission has to be granted interactively once per machine, so
+    // it's available on a developer's Mac after the first local build but
+    // not on ephemeral, non-interactive CI runners. Rather than fail the
+    // whole release build when that permission is missing, fall back to
+    // shipping a plain drag-and-drop DMG (the pre-existing behavior) and
+    // just skip the custom install layout.
+    try {
+      run("SetFile", ["-a", "V", path.join(mountPoint, ".background")]);
+      applyDmgFinderLayout(volumeName, mountPoint, appName);
+      run("sync", []);
+
+      // applyDmgFinderLayout closes the window, which makes Finder write the
+      // customized .DS_Store (background image, 128px icons, icon positions).
+      // A few seconds later Finder asynchronously rewrites that same
+      // .DS_Store back to defaults, silently dropping every customization -
+      // so the arrow install layout only survives if we detach before that
+      // clobber lands. Whether we win that race depends on how long
+      // sync/detach take to flush the volume, and for the multi-hundred-MB
+      // Orcheo bundle that is slow enough that the clobber usually wins,
+      // shipping a plain window with no arrow. Capture the styled .DS_Store
+      // while it is still fresh, then re-inject it on a second, unscripted
+      // attach (no Finder window is opened, so nothing rewrites it) to make
+      // the layout deterministic.
+      const styledDsStore = readFileSync(path.join(mountPoint, ".DS_Store"));
+      if (!styledDsStore.includes("backgroundImageAlias")) {
+        throw new Error(
+          "Finder did not persist the styled DMG .DS_Store (background " +
+            "image reference missing).",
+        );
+      }
+      run("hdiutil", ["detach", mountPoint]);
+      mountPoint = null;
+
+      const reattachOutput = runCapture("hdiutil", [
+        "attach",
+        rwDmgPath,
+        "-nobrowse",
+        "-readwrite",
+      ]);
+      mountPoint = parseMountPoint(reattachOutput);
+      writeFileSync(path.join(mountPoint, ".DS_Store"), styledDsStore);
+      run("sync", []);
+    } catch (layoutError) {
+      console.warn(
+        `Skipping custom DMG install layout for ${appName}: ` +
+          `${layoutError.message}`,
+      );
+      console.warn(
+        "Falling back to a plain drag-and-drop DMG. This is expected when " +
+          "the build process has not been granted Finder Automation " +
+          "permission (System Settings > Privacy & Security > Automation), " +
+          "e.g. on a fresh CI runner.",
       );
     }
-    run("hdiutil", ["detach", mountPoint]);
-    mountPoint = null;
 
-    const reattachOutput = runCapture("hdiutil", [
-      "attach",
-      rwDmgPath,
-      "-nobrowse",
-      "-readwrite",
-    ]);
-    mountPoint = parseMountPoint(reattachOutput);
-    writeFileSync(path.join(mountPoint, ".DS_Store"), styledDsStore);
-    run("sync", []);
-    run("hdiutil", ["detach", mountPoint]);
-    mountPoint = null;
+    if (mountPoint !== null) {
+      run("hdiutil", ["detach", mountPoint]);
+      mountPoint = null;
+    }
 
     rmSync(dmgPath, { force: true });
     run("hdiutil", [
