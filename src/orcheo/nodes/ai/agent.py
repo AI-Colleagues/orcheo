@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_valid
 from pydantic.json_schema import SkipJsonSchema
 from agentensor.tensor import TextTensor
 from orcheo.graph.state import State
+from orcheo.nodes.ai.mcp_guard import reject_local_mcp_servers_in_restricted_mode
 from orcheo.nodes.base import AINode, TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
 
@@ -491,7 +492,11 @@ class AgentNode(AINode):
                 _ai_attr("build_chatkit_widget_tools")(self.chatkit_widgets_dir)
             )
 
-        # Get MCP tools
+        # Get MCP tools. Local (stdio) MCP servers spawn a subprocess on the
+        # host, so they are refused for untrusted restricted-mode workflows.
+        reject_local_mcp_servers_in_restricted_mode(
+            self.mcp_servers, node_name=self.name
+        )
         mcp_client = _ai_attr("MultiServerMCPClient")(connections=self.mcp_servers)
         mcp_tools = await mcp_client.get_tools()
         tools.extend(mcp_tools)
