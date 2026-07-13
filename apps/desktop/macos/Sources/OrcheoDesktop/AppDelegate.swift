@@ -41,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     @objc private func openLogs() {
         let logsDirectory = supervisor.logsDirectory
             ?? FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Logs/Orcheo", isDirectory: true)
+                .appendingPathComponent("Logs/com.orcheo.desktop", isDirectory: true)
         NSWorkspace.shared.open(logsDirectory)
     }
 

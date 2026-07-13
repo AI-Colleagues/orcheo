@@ -21,11 +21,11 @@ struct DesktopConfiguration {
         let fileManager = FileManager.default
         let appSupportDirectory = try fileManager.ensureDirectory(
             base: .applicationSupportDirectory,
-            component: "Orcheo"
+            component: "com.orcheo.desktop"
         )
         let logsDirectory = try fileManager.ensureDirectory(
             base: .libraryDirectory,
-            component: "Logs/Orcheo"
+            component: "Logs/com.orcheo.desktop"
         )
 
         let repoRoot = try resolveRepoRoot(environment: environment)

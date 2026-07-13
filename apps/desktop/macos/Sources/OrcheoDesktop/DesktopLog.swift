@@ -19,7 +19,7 @@ final class DesktopLog: @unchecked Sendable {
         let logsDirectory = FileManager.default.urls(
             for: .libraryDirectory,
             in: .userDomainMask
-        )[0].appendingPathComponent("Logs/Orcheo", isDirectory: true)
+        )[0].appendingPathComponent("Logs/com.orcheo.desktop", isDirectory: true)
         return try DesktopLog(logsDirectory: logsDirectory)
     }
 

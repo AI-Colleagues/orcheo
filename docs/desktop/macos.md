@@ -81,7 +81,7 @@ Useful environment:
 For double-click launches, put desktop-only settings in:
 
 ```text
-~/Library/Application Support/Orcheo/desktop.env
+~/Library/Application Support/com.orcheo.desktop/desktop.env
 ```
 
 Optional explicit database example:
@@ -93,9 +93,10 @@ ORCHEO_DESKTOP_POSTGRES_DSN=postgresql://orcheo:orcheo@127.0.0.1:25432/orcheo_de
 The current app bundle is a development shell. It still expects `uv` to be
 available outside the bundle. The native shell directs `uv` caches, the Python
 environment, and managed Postgres state to
-`~/Library/Application Support/Orcheo` so the app bundle itself stays read-only
-after launch. Playwright uses the bundled browser payload when present and falls
-back to `~/Library/Application Support/Orcheo/ms-playwright` otherwise.
+`~/Library/Application Support/com.orcheo.desktop` so the app bundle itself stays
+read-only after launch. Playwright uses the bundled browser payload when present
+and falls back to `~/Library/Application Support/com.orcheo.desktop/ms-playwright`
+otherwise.
 
 The next packaging milestone is to replace source-checkout execution with
 bundled runtime resources:
