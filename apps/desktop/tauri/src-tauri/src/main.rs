@@ -17,6 +17,9 @@ use uuid::Uuid;
 
 const QUIT_MENU_ID: &str = "orcheo_quit";
 const CHATKIT_SETTINGS_MENU_ID: &str = "chatkit_settings";
+const RELOAD_STUDIO_MENU_ID: &str = "reload_studio";
+const RESTART_SERVICES_MENU_ID: &str = "restart_services";
+const OPEN_LOGS_MENU_ID: &str = "open_logs";
 const CHATKIT_SIGNING_KEY_FILENAME: &str = "desktop-chatkit-signing-key";
 
 #[derive(Default)]
@@ -194,6 +197,25 @@ fn main() {
                     eprintln!("failed to open ChatKit settings: {error}");
                 }
             }
+            RELOAD_STUDIO_MENU_ID => {
+                if let Some(window) = app.get_webview_window("main") {
+                    if let Err(error) = window.reload() {
+                        eprintln!("failed to reload Studio: {error}");
+                    }
+                }
+            }
+            RESTART_SERVICES_MENU_ID => {
+                let state = app.state::<Mutex<SupervisorState>>();
+                if let Err(error) = restart_runtime(app, &state) {
+                    eprintln!("failed to restart local services: {error}");
+                }
+            }
+            OPEN_LOGS_MENU_ID => {
+                let state = app.state::<Mutex<SupervisorState>>();
+                if let Err(error) = open_logs(app.clone(), state) {
+                    eprintln!("failed to open logs: {error}");
+                }
+            }
             _ => {}
         });
 
@@ -253,19 +275,45 @@ fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         Some("CmdOrCtrl+,"),
     )?;
+    let reload_studio = MenuItem::with_id(
+        app,
+        RELOAD_STUDIO_MENU_ID,
+        "Reload Studio",
+        true,
+        Some("CmdOrCtrl+R"),
+    )?;
+    let restart_services = MenuItem::with_id(
+        app,
+        RESTART_SERVICES_MENU_ID,
+        "Restart Local Services",
+        true,
+        None::<&str>,
+    )?;
+    let open_logs = MenuItem::with_id(
+        app,
+        OPEN_LOGS_MENU_ID,
+        "Open Logs",
+        true,
+        Some("CmdOrCtrl+L"),
+    )?;
+    let services_menu = Submenu::with_items(
+        app,
+        "Services",
+        true,
+        &[&reload_studio, &restart_services, &open_logs],
+    )?;
     let quit = MenuItem::with_id(app, QUIT_MENU_ID, "Quit Orcheo", true, Some("CmdOrCtrl+Q"))?;
     let app_menu = Submenu::with_items(
         app,
         "Orcheo",
         true,
-        &[&settings, &PredefinedMenuItem::separator(app)?, &quit],
-    )?;
-
-    let file_menu = Submenu::with_items(
-        app,
-        "File",
-        true,
-        &[&PredefinedMenuItem::close_window(app, None)?],
+        &[
+            &settings,
+            &PredefinedMenuItem::separator(app)?,
+            &services_menu,
+            &PredefinedMenuItem::separator(app)?,
+            &quit,
+        ],
     )?;
 
     let edit_menu = Submenu::with_items(
@@ -294,7 +342,7 @@ fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         ],
     )?;
 
-    Menu::with_items(app, &[&app_menu, &file_menu, &edit_menu, &window_menu])
+    Menu::with_items(app, &[&app_menu, &edit_menu, &window_menu])
 }
 
 fn show_chatkit_settings(app: &AppHandle) -> Result<(), String> {
