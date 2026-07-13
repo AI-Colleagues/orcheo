@@ -63,6 +63,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         webView?.reload(nil)
     }
 
+    @objc private func openChatKitSettings() {
+        guard let appSupportDirectory = chatKitSettingsDirectory() else {
+            showError(DesktopError.configuration("Could not resolve the desktop settings directory."))
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "ChatKit Settings"
+        alert.informativeText = ChatKitSettings.signingKey(in: appSupportDirectory) == nil
+            ? "Enter the ChatKit session token signing key. Orcheo will restart its local services after saving it."
+            : "A ChatKit session token signing key is saved. Enter a replacement key, or remove the saved key. Orcheo will restart its local services after the change."
+        alert.addButton(withTitle: "Save and Restart")
+        alert.addButton(withTitle: "Remove Key and Restart")
+        alert.addButton(withTitle: "Cancel")
+
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+        field.placeholderString = "Session token signing key"
+        alert.accessoryView = field
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            do {
+                try ChatKitSettings.saveSigningKey(field.stringValue, in: appSupportDirectory)
+                restartAfterSettingsChange()
+            } catch {
+                showError(error)
+            }
+        case .alertSecondButtonReturn:
+            do {
+                try ChatKitSettings.removeSigningKey(in: appSupportDirectory)
+                restartAfterSettingsChange()
+            } catch {
+                showError(error)
+            }
+        default:
+            return
+        }
+    }
+
+    private func restartAfterSettingsChange() {
+        loadStatusPage(title: "Applying ChatKit Settings", detail: "Restarting local services...")
+        Task {
+            do {
+                let url = try await supervisor.restart()
+                webView?.load(URLRequest(url: url))
+            } catch {
+                showError(error)
+            }
+        }
+    }
+
+    private func chatKitSettingsDirectory() -> URL? {
+        if let configured = supervisor.configuration?.appSupportDirectory {
+            return configured
+        }
+        return try? FileManager.default.ensureDirectory(
+            base: .applicationSupportDirectory,
+            component: "com.orcheo.desktop"
+        )
+    }
+
     private func startServices() async {
         do {
             let url = try await supervisor.start()
@@ -200,6 +261,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
+        appMenu.addItem(targetedItem(title: "Settings...", action: #selector(openChatKitSettings), keyEquivalent: ","))
+        appMenu.addItem(.separator())
         appMenu.addItem(targetedItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: ""))
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Quit Orcheo", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))

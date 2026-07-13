@@ -23,6 +23,13 @@ body {
   text-align: center;
 }
 
+.settings {
+  box-sizing: border-box;
+  max-width: 500px;
+  padding: 32px;
+  width: 100%;
+}
+
 h1 {
   font-size: 24px;
   font-weight: 650;
@@ -34,6 +41,33 @@ p {
   line-height: 1.5;
   margin: 0;
   white-space: pre-wrap;
+}
+
+label {
+  display: block;
+  font-weight: 600;
+  margin: 24px 0 8px;
+}
+
+input {
+  background: #1a1c21;
+  border: 1px solid #454a53;
+  border-radius: 6px;
+  box-sizing: border-box;
+  color: #f5f5f5;
+  font: inherit;
+  padding: 9px 10px;
+  width: 100%;
+}
+
+input:focus {
+  border-color: #93dccf;
+  outline: none;
+}
+
+.hint {
+  font-size: 12px;
+  margin-top: 8px;
 }
 
 .actions {

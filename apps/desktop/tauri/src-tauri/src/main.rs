@@ -11,13 +11,13 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-#[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use uuid::Uuid;
 
-#[cfg(target_os = "macos")]
 const QUIT_MENU_ID: &str = "orcheo_quit";
+const CHATKIT_SETTINGS_MENU_ID: &str = "chatkit_settings";
+const CHATKIT_SIGNING_KEY_FILENAME: &str = "desktop-chatkit-signing-key";
 
 #[derive(Default)]
 struct SupervisorState {
@@ -84,6 +84,13 @@ fn restart_orcheo(
     app: AppHandle,
     state: tauri::State<'_, Mutex<SupervisorState>>,
 ) -> Result<DesktopStatus, String> {
+    restart_runtime(&app, &state)
+}
+
+fn restart_runtime(
+    app: &AppHandle,
+    state: &tauri::State<'_, Mutex<SupervisorState>>,
+) -> Result<DesktopStatus, String> {
     let mut guard = state
         .lock()
         .map_err(|_| "Supervisor lock is poisoned.".to_string())?;
@@ -92,9 +99,15 @@ fn restart_orcheo(
     }
     guard.runtime = None;
 
-    let runtime = start_runtime(&app)?;
+    let runtime = start_runtime(app)?;
     let status = runtime.configuration.status();
     guard.runtime = Some(runtime);
+    if let Some(main_window) = app.get_webview_window("main") {
+        let script = format!("window.location.replace({:?});", status.backend_url);
+        main_window
+            .eval(&script)
+            .map_err(|error| format!("Could not reload Orcheo after restart: {error}"))?;
+    }
     Ok(status)
 }
 
@@ -126,26 +139,69 @@ fn open_logs(
     open_path(&logs_dir)
 }
 
+#[tauri::command]
+fn chatkit_signing_key_configured(app: AppHandle) -> Result<bool, String> {
+    let app_support_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Could not resolve app data directory: {error}"))?;
+    Ok(read_chatkit_signing_key(&app_support_dir).is_some())
+}
+
+#[tauri::command]
+fn save_chatkit_signing_key(
+    app: AppHandle,
+    state: tauri::State<'_, Mutex<SupervisorState>>,
+    key: String,
+) -> Result<DesktopStatus, String> {
+    let app_support_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Could not resolve app data directory: {error}"))?;
+    write_chatkit_signing_key(&app_support_dir, &key)?;
+    restart_runtime(&app, &state)
+}
+
+#[tauri::command]
+fn remove_chatkit_signing_key(
+    app: AppHandle,
+    state: tauri::State<'_, Mutex<SupervisorState>>,
+) -> Result<DesktopStatus, String> {
+    let app_support_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Could not resolve app data directory: {error}"))?;
+    remove_chatkit_signing_key_file(&app_support_dir)?;
+    restart_runtime(&app, &state)
+}
+
 fn main() {
-    let mut builder = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(Mutex::new(SupervisorState::default()))
         .invoke_handler(tauri::generate_handler![
             start_orcheo,
             restart_orcheo,
-            open_logs
-        ]);
-
-    #[cfg(target_os = "macos")]
-    {
-        builder = builder.menu(build_macos_menu).on_menu_event(|app, event| {
-            if event.id() == QUIT_MENU_ID {
-                app.exit(0);
+            open_logs,
+            chatkit_signing_key_configured,
+            save_chatkit_signing_key,
+            remove_chatkit_signing_key
+        ])
+        .menu(build_app_menu)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            QUIT_MENU_ID => app.exit(0),
+            CHATKIT_SETTINGS_MENU_ID => {
+                if let Err(error) = show_chatkit_settings(app) {
+                    eprintln!("failed to open ChatKit settings: {error}");
+                }
             }
+            _ => {}
         });
-    }
 
     let app = builder
         .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 if let Err(error) = window.hide() {
@@ -189,27 +245,20 @@ fn stop_runtime(app: &AppHandle) {
     }
 }
 
-#[cfg(target_os = "macos")]
-fn build_macos_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
-    let about = PredefinedMenuItem::about(app, None, None)?;
-    let services = PredefinedMenuItem::services(app, None)?;
-    let hide = PredefinedMenuItem::hide(app, None)?;
-    let hide_others = PredefinedMenuItem::hide_others(app, None)?;
+fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let settings = MenuItem::with_id(
+        app,
+        CHATKIT_SETTINGS_MENU_ID,
+        "ChatKit Settings...",
+        true,
+        Some("CmdOrCtrl+,"),
+    )?;
     let quit = MenuItem::with_id(app, QUIT_MENU_ID, "Quit Orcheo", true, Some("CmdOrCtrl+Q"))?;
     let app_menu = Submenu::with_items(
         app,
         "Orcheo",
         true,
-        &[
-            &about,
-            &PredefinedMenuItem::separator(app)?,
-            &services,
-            &PredefinedMenuItem::separator(app)?,
-            &hide,
-            &hide_others,
-            &PredefinedMenuItem::separator(app)?,
-            &quit,
-        ],
+        &[&settings, &PredefinedMenuItem::separator(app)?, &quit],
     )?;
 
     let file_menu = Submenu::with_items(
@@ -246,6 +295,29 @@ fn build_macos_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     )?;
 
     Menu::with_items(app, &[&app_menu, &file_menu, &edit_menu, &window_menu])
+}
+
+fn show_chatkit_settings(app: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("chatkit-settings") {
+        window
+            .show()
+            .map_err(|error| format!("Could not show ChatKit settings: {error}"))?;
+        return window
+            .set_focus()
+            .map_err(|error| format!("Could not focus ChatKit settings: {error}"));
+    }
+
+    WebviewWindowBuilder::new(
+        app,
+        "chatkit-settings",
+        WebviewUrl::App("index.html?view=chatkit-settings".into()),
+    )
+    .title("ChatKit Settings")
+    .inner_size(500.0, 330.0)
+    .resizable(false)
+    .build()
+    .map(|_| ())
+    .map_err(|error| format!("Could not create ChatKit settings window: {error}"))
 }
 
 fn start_runtime(app: &AppHandle) -> Result<DesktopRuntime, String> {
@@ -521,6 +593,11 @@ fn process_environment(
 ) -> Result<(HashMap<String, String>, bool), String> {
     let mut environment = env::vars().collect::<HashMap<_, _>>();
     apply_desktop_env_file(&mut environment, configuration);
+    if let Some(signing_key) = read_chatkit_signing_key(&configuration.app_support_dir) {
+        // A key explicitly saved in the desktop settings takes precedence over
+        // launch-time environment values so it works when launched by the OS.
+        environment.insert("ORCHEO_CHATKIT_TOKEN_SIGNING_KEY".to_string(), signing_key);
+    }
     environment.insert("ORCHEO_HOST".to_string(), "127.0.0.1".to_string());
     environment.insert(
         "ORCHEO_PORT".to_string(),
@@ -786,9 +863,12 @@ fn configure_desktop_vault_key(
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600)).map_err(
-            |error| format!("Could not set permissions on {}: {error}", key_path.display()),
-        )?;
+        fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600)).map_err(|error| {
+            format!(
+                "Could not set permissions on {}: {error}",
+                key_path.display()
+            )
+        })?;
     }
     environment.insert("ORCHEO_VAULT_ENCRYPTION_KEY".to_string(), key);
     Ok(())
@@ -982,6 +1062,54 @@ fn load_dotenv_values(path: &Path) -> HashMap<String, String> {
         values.insert(key.trim().to_string(), value);
     }
     values
+}
+
+fn chatkit_signing_key_path(app_support_dir: &Path) -> PathBuf {
+    app_support_dir.join(CHATKIT_SIGNING_KEY_FILENAME)
+}
+
+fn read_chatkit_signing_key(app_support_dir: &Path) -> Option<String> {
+    let key_path = chatkit_signing_key_path(app_support_dir);
+    fs::read_to_string(key_path).ok().and_then(|value| {
+        let trimmed = value.trim().to_string();
+        (!trimmed.is_empty()).then_some(trimmed)
+    })
+}
+
+fn write_chatkit_signing_key(app_support_dir: &Path, key: &str) -> Result<(), String> {
+    let key = key.trim();
+    if key.is_empty() {
+        return Err("ChatKit session token signing key cannot be empty.".to_string());
+    }
+    fs::create_dir_all(app_support_dir).map_err(|error| {
+        format!(
+            "Could not create app support directory at {}: {error}",
+            app_support_dir.display()
+        )
+    })?;
+    let key_path = chatkit_signing_key_path(app_support_dir);
+    fs::write(&key_path, key)
+        .map_err(|error| format!("Could not write {}: {error}", key_path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600)).map_err(|error| {
+            format!(
+                "Could not set permissions on {}: {error}",
+                key_path.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn remove_chatkit_signing_key_file(app_support_dir: &Path) -> Result<(), String> {
+    let key_path = chatkit_signing_key_path(app_support_dir);
+    match fs::remove_file(&key_path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Could not remove {}: {error}", key_path.display())),
+    }
 }
 
 fn bool_env(environment: &HashMap<String, String>, key: &str) -> bool {

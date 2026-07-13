@@ -117,6 +117,13 @@ final class ServiceSupervisor {
             to: &environment,
             configuration: configuration
         )
+        if let signingKey = ChatKitSettings.signingKey(
+            in: configuration.appSupportDirectory
+        ) {
+            // A key explicitly saved in the desktop settings takes precedence
+            // over launch-time environment values so it works from Finder too.
+            environment["ORCHEO_CHATKIT_TOKEN_SIGNING_KEY"] = signingKey
+        }
         environment["ORCHEO_HOST"] = "127.0.0.1"
         environment["ORCHEO_PORT"] = String(configuration.backendPort)
         environment["ORCHEO_STUDIO_URL"] = configuration.backendURL.absoluteString

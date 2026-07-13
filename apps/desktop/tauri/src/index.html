@@ -8,12 +8,23 @@
   </head>
   <body>
     <main class="shell">
-      <section class="status">
+      <section class="status" id="startup-view">
         <h1 id="title">Starting Orcheo</h1>
         <p id="detail"></p>
         <div class="actions" id="actions" hidden>
           <button id="restart" type="button">Retry</button>
           <button id="logs" type="button">Open Logs</button>
+        </div>
+      </section>
+      <section class="settings" id="settings-view" hidden>
+        <h1>ChatKit Settings</h1>
+        <p id="settings-detail"></p>
+        <label for="signing-key">Session token signing key</label>
+        <input id="signing-key" type="password" autocomplete="off" />
+        <p class="hint">The key is stored locally and used only by Orcheo’s local backend.</p>
+        <div class="actions">
+          <button id="save-signing-key" type="button">Save and Restart</button>
+          <button id="remove-signing-key" type="button">Remove Key and Restart</button>
         </div>
       </section>
     </main>
