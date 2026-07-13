@@ -119,6 +119,43 @@ describe("WorkflowFolderPicker drag-and-drop", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it("reports an error when a dropped folder has no usable files", async () => {
+    const { onSelect, onError } = renderPicker();
+
+    fireEvent.drop(dropzone(), {
+      dataTransfer: dropData([
+        directoryEntry([directoryEntry([fileEntry(file("nested.py"))])]),
+      ]),
+    });
+
+    await waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(
+        expect.stringMatching(/No files were found in the selected folder/i),
+      );
+    });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("clears a stale selection when a subsequent drop yields no files", async () => {
+    const { onSelect, onError } = renderPicker();
+
+    fireEvent.drop(dropzone(), {
+      dataTransfer: dropData([
+        directoryEntry([fileEntry(file("flow.py", "print('hi')"))]),
+      ]),
+    });
+    await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1));
+
+    fireEvent.drop(dropzone(), {
+      dataTransfer: dropData([
+        directoryEntry([directoryEntry([fileEntry(file("nested.py"))])]),
+      ]),
+    });
+
+    await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores drops while disabled", async () => {
     const { onSelect, onError } = renderPicker({ disabled: true });
 

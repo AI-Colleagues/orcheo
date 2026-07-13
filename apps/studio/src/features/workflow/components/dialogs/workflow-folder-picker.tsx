@@ -23,6 +23,8 @@ interface WorkflowFolderPickerProps {
 
 const READ_FOLDER_FALLBACK_ERROR =
   "Could not read the selected folder. Please try again.";
+const EMPTY_FOLDER_ERROR =
+  "No files were found in the selected folder. Add a folder containing a .py workflow script and try again.";
 
 export function WorkflowFolderPicker({
   idPrefix,
@@ -50,6 +52,7 @@ export function WorkflowFolderPicker({
   const processFiles = useCallback(
     async (files: File[]) => {
       if (files.length === 0) {
+        onError(EMPTY_FOLDER_ERROR);
         return;
       }
       setIsProcessing(true);
