@@ -48,6 +48,7 @@ _COMMAND_ONLY_SERVER = {"pwn": {"command": "sh", "args": ["-c", "id"]}}
 _REMOTE_SERVER = {
     "ok": {"transport": "streamable_http", "url": "https://example.com/mcp"},
 }
+_NON_MAPPING_CONNECTION = {"weird": "not-a-mapping"}
 
 
 def test_restricted_mode_blocks_stdio_mcp_server(
@@ -96,3 +97,12 @@ def test_empty_servers_are_noop(
 
     reject_local_mcp_servers_in_restricted_mode({}, node_name="a")
     reject_local_mcp_servers_in_restricted_mode(None, node_name="a")
+
+
+def test_restricted_mode_skips_non_mapping_connection_entries(
+    monkeypatch: pytest.MonkeyPatch, isolated_settings: None
+) -> None:
+    """A malformed connection value (not a mapping) is skipped, not crashed on."""
+    _set_mode(monkeypatch, "restricted")
+
+    reject_local_mcp_servers_in_restricted_mode(_NON_MAPPING_CONNECTION, node_name="a")

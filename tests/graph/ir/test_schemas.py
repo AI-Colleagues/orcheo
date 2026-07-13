@@ -6,6 +6,7 @@ import textwrap
 import pytest
 from orcheo.graph.ir.exceptions import WorkflowValidationError
 from orcheo.graph.ir.schemas import (
+    _SchemaCompiler,
     is_schema_class,
     schema_json_schema,
     validate_schema_class,
@@ -147,6 +148,30 @@ def test_schema_json_schema_rejects_recursive_reference() -> None:
 
     with pytest.raises(WorkflowValidationError, match="recursive schema references"):
         schema_json_schema("Node", classes)
+
+
+def test_schema_json_schema_wraps_model_json_schema_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pydantic failure while rendering JSON Schema is reported cleanly.
+
+    ``model_json_schema()`` can fail in ways the restricted annotation grammar
+    doesn't otherwise let us provoke; simulate that failure directly against
+    the built model to prove the wrapping behaviour still holds.
+    """
+
+    class _BrokenModel:
+        @staticmethod
+        def model_json_schema() -> dict[str, object]:
+            raise RuntimeError("boom")
+
+    compiler = _SchemaCompiler(classes={})
+    monkeypatch.setattr(compiler, "_build_model", lambda name: _BrokenModel)
+
+    with pytest.raises(
+        WorkflowValidationError, match="could not be lowered to JSON Schema"
+    ):
+        compiler.json_schema("Query")
 
 
 def test_schema_json_schema_rejects_unknown_schema() -> None:
