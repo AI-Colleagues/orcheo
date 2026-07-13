@@ -1,21 +1,25 @@
 # macOS Desktop Packaging
 
-The macOS desktop package is a thin native shell around the existing web-based
-Orcheo Studio. Native code owns lifecycle, logs, update affordances, and local
-service supervision; Studio remains the product UI.
+The macOS desktop package is the native (AppKit/WKWebView) version of the
+cross-platform Tauri shell in `apps/desktop/tauri`. Native code owns
+lifecycle, logs, and local service supervision; Studio remains the product UI.
+Unlike the Tauri release pipeline, which can build from published Orcheo
+packages, this app always builds from the local source checkout.
 
 Current shape:
 
-- `apps/desktop/macos` contains the AppKit/WKWebView shell.
-- `scripts/build-macos-app.sh` builds Studio, builds the Swift shell, and creates
-  `build/macos/Orcheo.app`.
-- `ORCHEO_STUDIO_DIST_DIR` lets the backend serve the built Studio SPA from the
-  same local origin.
-- The build script bundles a filtered checkout under
-  `Contents/Resources/orcheo` so double-click launch does not require
-  `ORCHEO_DESKTOP_REPO_ROOT`.
-- `.env` is excluded by default so the desktop app does not accidentally attach
-  to a normal Orcheo server deployment database or ports.
+- `apps/desktop/macos` is self-contained: the Swift shell lives in
+  `Sources/OrcheoDesktop` and the build pipeline in `scripts/`.
+- `scripts/build-app.sh` builds Studio from source, stages a trimmed repo
+  checkout, bundled Postgres, and Playwright Chromium under
+  `apps/desktop/macos/bundle/`, compiles the Swift shell, and assembles
+  `apps/desktop/macos/build/Orcheo.app`.
+- `ORCHEO_STUDIO_DIST_DIR` lets the backend serve the built Studio SPA from
+  the same local origin.
+- The bundled checkout lives under `Contents/Resources/orcheo` so double-click
+  launch does not require `ORCHEO_DESKTOP_REPO_ROOT`.
+- `.env` is never bundled, so the desktop app does not accidentally attach to
+  a normal Orcheo server deployment database or ports.
 - The shell chooses an available loopback backend port in `22025-22999` unless
   `ORCHEO_DESKTOP_BACKEND_PORT` is set.
 - Desktop launches default to `ORCHEO_WORKFLOW_DEFINITION_MODE=unrestricted`.
@@ -26,19 +30,26 @@ Current shape:
 - If no explicit desktop Postgres DSN is configured, the shell starts a managed
   desktop database on `127.0.0.1:25432-25531`. It prefers the Postgres runtime
   bundled under `Contents/Resources/postgres`, then local PostgreSQL binaries.
-- The app icon is generated from
-  `apps/studio/public/orcheo.png`.
+- Closing the window hides it while services keep running; the Dock icon
+  brings it back, and Quit stops all supervised services.
+- The app icon is generated from `apps/studio/public/orcheo.png`.
 
 Build:
 
 ```bash
-./scripts/build-macos-app.sh
+make desktop-macos
 ```
 
-Run the development bundle:
+Run the built bundle:
 
 ```bash
-open build/macos/Orcheo.app
+open apps/desktop/macos/build/Orcheo.app
+```
+
+Run from the checkout without packaging:
+
+```bash
+make desktop-macos-dev
 ```
 
 Useful environment:
@@ -63,20 +74,17 @@ Useful environment:
 - `ORCHEO_DESKTOP_BACKEND_COMMAND=...` overrides the backend command.
 - `ORCHEO_DESKTOP_WORKER_COMMAND=...` overrides the worker command.
 - `ORCHEO_DESKTOP_BEAT_COMMAND=...` overrides the beat command.
-- `ORCHEO_MACOS_ICON_SOURCE=...` overrides the PNG used to generate `AppIcon.icns`.
-- `ORCHEO_MACOS_INCLUDE_ENV=true` includes the local `.env` in a development
-  bundle. Do not use this for distributable builds.
-- `ORCHEO_MACOS_BUNDLE_POSTGRES=true` bundles native PostgreSQL. Enabled by
-  default.
+- `ORCHEO_MACOS_ICON_SOURCE=...` overrides the PNG used to generate
+  `AppIcon.icns`.
+- `ORCHEO_MACOS_BUNDLE_POSTGRES=false` skips bundling native PostgreSQL.
 - `ORCHEO_MACOS_POSTGRES_SOURCE_DIR=...` uses an existing PostgreSQL prefix as
-  the bundle source.
-- `ORCHEO_MACOS_INSTALL_POSTGRES=true` lets the build install `postgresql@17`
-  with Homebrew if it is not already installed. Enabled by default for desktop
-  builds.
-- `ORCHEO_MACOS_BUNDLE_PLAYWRIGHT=true` bundles Playwright's Chromium and
-  headless shell browser payloads under `Contents/Resources/ms-playwright`.
-  Enabled by default for desktop builds.
-- `ORCHEO_SPARKLE_FEED_URL=...` configures the update feed placeholder.
+  the bundle source instead of Homebrew.
+- `ORCHEO_MACOS_BUNDLE_PLAYWRIGHT=false` skips bundling Playwright's Chromium
+  and headless shell browser payloads
+  (`Contents/Resources/ms-playwright`).
+- `ORCHEO_MACOS_SKIP_STUDIO_BUILD=true` reuses the existing Studio dist.
+- `ORCHEO_MACOS_SKIP_RESOURCES=true` reuses the previously staged `bundle/`.
+- `ORCHEO_MACOS_MAKE_DMG=true` also produces a drag-and-drop `.dmg`.
 
 For double-click launches, put desktop-only settings in:
 
@@ -90,28 +98,24 @@ Optional explicit database example:
 ORCHEO_DESKTOP_POSTGRES_DSN=postgresql://orcheo:orcheo@127.0.0.1:25432/orcheo_desktop
 ```
 
-The current app bundle is a development shell. It still expects `uv` to be
-available outside the bundle. The native shell directs `uv` caches, the Python
-environment, and managed Postgres state to
-`~/Library/Application Support/com.orcheo.desktop` so the app bundle itself stays
-read-only after launch. Playwright uses the bundled browser payload when present
-and falls back to `~/Library/Application Support/com.orcheo.desktop/ms-playwright`
-otherwise.
+The app bundle still expects `uv` to be available outside the bundle. The
+native shell directs `uv` caches, the Python environment, and managed Postgres
+state to `~/Library/Application Support/com.orcheo.desktop` so the app bundle
+itself stays read-only after launch. Playwright uses the bundled browser
+payload when present and falls back to
+`~/Library/Application Support/com.orcheo.desktop/ms-playwright` otherwise.
 
-The next packaging milestone is to replace source-checkout execution with
-bundled runtime resources:
-
-- embedded Python 3.12 runtime and locked wheel environment,
-- native broker strategy or explicit external-service configuration,
-- Sparkle framework integration for signed appcast updates.
+Use **Orcheo → ChatKit Settings...** to save
+`ORCHEO_CHATKIT_TOKEN_SIGNING_KEY` after the app has started; the key is
+stored in the app data directory with owner-only permissions and the local
+backend restarts to pick it up.
 
 For signed releases, set:
 
 ```bash
 ORCHEO_MACOS_CODESIGN_IDENTITY="Developer ID Application: Example"
-ORCHEO_SPARKLE_FEED_URL="https://updates.orcheo.dev/appcast.xml"
-./scripts/build-macos-app.sh
+make desktop-macos
 ```
 
-Then notarize the resulting `.app` or a `.dmg`/`.pkg` wrapper with
+Then notarize the resulting `.app` or a `.dmg` wrapper with
 `xcrun notarytool`.

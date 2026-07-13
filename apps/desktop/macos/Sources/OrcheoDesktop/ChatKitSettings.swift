@@ -17,6 +17,10 @@ enum ChatKitSettings {
         guard let key = normalized(value) else {
             throw DesktopError.configuration("ChatKit session token signing key cannot be empty.")
         }
+        try FileManager.default.createDirectory(
+            at: appSupportDirectory,
+            withIntermediateDirectories: true
+        )
         let url = signingKeyURL(in: appSupportDirectory)
         try key.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(

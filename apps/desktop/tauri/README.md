@@ -1,8 +1,8 @@
 # Orcheo Tauri Desktop
 
 This is a cross-platform Tauri prototype for evaluating whether Orcheo should
-invest in Linux and Windows desktop support early, while keeping the existing
-native macOS wrapper in `apps/desktop/macos`.
+invest in Linux and Windows desktop support early, while keeping the native
+macOS app in `apps/desktop/macos`.
 
 ## What It Does
 
@@ -83,7 +83,7 @@ restarts the local backend. The key is persisted in the app data directory with
 owner-only permissions on Unix, rather than inside the application bundle, so
 it remains available after the app is moved to Applications.
 
-The native macOS wrapper exposes the same control through **Orcheo →
+The native macOS app exposes the same control through **Orcheo → ChatKit
 Settings…**.
 
 ## Current Evaluation Boundaries
