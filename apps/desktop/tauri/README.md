@@ -1,8 +1,8 @@
 # Orcheo Tauri Desktop
 
 This is a cross-platform Tauri prototype for evaluating whether Orcheo should
-invest in Linux and Windows desktop support early, while keeping the existing
-native macOS wrapper in `apps/desktop/macos`.
+invest in Linux and Windows desktop support early, while keeping the native
+macOS app in `apps/desktop/macos`.
 
 ## What It Does
 
@@ -15,6 +15,8 @@ native macOS wrapper in `apps/desktop/macos`.
 - Optionally starts the Celery worker and beat with the same environment flags as
   the macOS wrapper.
 - Opens the backend-served Studio app once `/api/system/health` returns 200.
+- Provides an app-menu ChatKit Settings screen for saving a session-token
+  signing key and restarting the local backend.
 
 ## Prerequisites
 
@@ -72,6 +74,17 @@ on `PATH`; install Rust with rustup and restart the shell before rebuilding.
 - `ORCHEO_TAURI_BUNDLE_POSTGRES=false`: skip macOS Postgres bundling.
 - `ORCHEO_TAURI_BUNDLE_PLAYWRIGHT=false`: skip Playwright browser bundling.
 - `PLAYWRIGHT_BROWSERS_PATH`: existing Playwright browser cache.
+
+## ChatKit Signing Key
+
+Use **Orcheo → ChatKit Settings…** to save
+`ORCHEO_CHATKIT_TOKEN_SIGNING_KEY` after the app has started. Saving the key
+restarts the local backend. The key is persisted in the app data directory with
+owner-only permissions on Unix, rather than inside the application bundle, so
+it remains available after the app is moved to Applications.
+
+The native macOS app exposes the same control through **Orcheo → ChatKit
+Settings…**.
 
 ## Current Evaluation Boundaries
 

@@ -6,13 +6,14 @@ export const buildChatTheme = (
 ): NonNullable<UseChatKitOptions["theme"]> => ({
   colorScheme: scheme,
   color: {
+    // Warm ink grayscale + Orcheo orange accent (orcheo-design-system tokens).
     grayscale: {
-      hue: 220,
+      hue: 42,
       tint: 6,
       shade: scheme === "dark" ? -1 : -4,
     },
     accent: {
-      primary: scheme === "dark" ? "#f1f5f9" : "#0f172a",
+      primary: "#f87825",
       level: 1,
     },
   },

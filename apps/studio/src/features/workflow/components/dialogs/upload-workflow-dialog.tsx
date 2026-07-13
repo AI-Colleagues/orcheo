@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2, Upload } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
@@ -21,51 +21,24 @@ import { parseWorkflowFrontmatter } from "@features/workflow/lib/workflow-frontm
 import { getWorkflowRouteRef } from "@features/workflow/lib/workflow-storage-helpers";
 import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
 import { getWorkspaceWorkflowPath } from "@/lib/workspace-routing";
+import { WorkflowFolderPicker } from "./workflow-folder-picker";
+import type { WorkflowFolderSelection } from "@features/workflow/lib/workflow-folder-selection";
 
 interface UploadWorkflowDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-const MAX_SCRIPT_UPLOAD_BYTES = 1024 * 1024;
-const MAX_CONFIG_UPLOAD_BYTES = 256 * 1024;
-const JSON_CONFIG_MIME_TYPES = new Set(["", "application/json", "text/json"]);
-
-const formatUploadLimit = (bytes: number): string => {
-  if (bytes >= 1024 * 1024) {
-    return `${bytes / (1024 * 1024)} MB`;
-  }
-  return `${bytes / 1024} KB`;
-};
-
-const validateUploadFile = (
-  file: File,
-  options: {
-    label: string;
-    extension: string;
-    maxBytes: number;
-  },
-): string | null => {
-  if (!file.name.toLowerCase().endsWith(options.extension)) {
-    return `${options.label} must use the ${options.extension} extension.`;
-  }
-  if (file.size > options.maxBytes) {
-    return `${options.label} must be ${formatUploadLimit(options.maxBytes)} or smaller.`;
-  }
-  return null;
-};
-
 export function UploadWorkflowDialog({
   open,
   onOpenChange,
 }: UploadWorkflowDialogProps) {
   const navigate = useNavigate();
-  const scriptInputRef = useRef<HTMLInputElement>(null);
-  const configInputRef = useRef<HTMLInputElement>(null);
 
   const [workflowName, setWorkflowName] = useState("");
   const [scriptContent, setScriptContent] = useState<string | null>(null);
   const [scriptFileName, setScriptFileName] = useState("");
+  const [configFileName, setConfigFileName] = useState<string | null>(null);
   const [configContent, setConfigContent] = useState<Record<
     string,
     unknown
@@ -77,15 +50,10 @@ export function UploadWorkflowDialog({
     setWorkflowName("");
     setScriptContent(null);
     setScriptFileName("");
+    setConfigFileName(null);
     setConfigContent(null);
     setIsUploading(false);
     setError(null);
-    if (scriptInputRef.current) {
-      scriptInputRef.current.value = "";
-    }
-    if (configInputRef.current) {
-      configInputRef.current.value = "";
-    }
   }, []);
 
   const handleOpenChange = useCallback(
@@ -98,83 +66,33 @@ export function UploadWorkflowDialog({
     [onOpenChange, reset],
   );
 
-  const handleScriptFileChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (!file) {
-        return;
+  const handleSelect = useCallback((selection: WorkflowFolderSelection) => {
+    setError(null);
+    setScriptContent(selection.scriptContent);
+    setScriptFileName(selection.scriptName);
+    setConfigFileName(selection.configName);
+    setConfigContent(selection.configContent);
+    setWorkflowName((current) => {
+      if (current) {
+        return current;
       }
-      const validationError = validateUploadFile(file, {
-        label: "Workflow script",
-        extension: ".py",
-        maxBytes: MAX_SCRIPT_UPLOAD_BYTES,
-      });
-      if (validationError) {
-        setError(validationError);
-        setScriptContent(null);
-        setScriptFileName("");
-        event.target.value = "";
-        return;
-      }
-      setError(null);
-      setScriptFileName(file.name);
-      if (!workflowName) {
-        const nameWithoutExt = file.name.replace(/\.py$/i, "");
-        setWorkflowName(nameWithoutExt);
-      }
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const text = e.target?.result;
-        if (typeof text === "string") {
-          setScriptContent(text);
-          const frontmatter = parseWorkflowFrontmatter(text);
-          if (!workflowName && frontmatter.name) {
-            setWorkflowName(frontmatter.name);
-          }
-        }
-      };
-      reader.readAsText(file);
-    },
-    [workflowName],
-  );
+      const frontmatter = parseWorkflowFrontmatter(selection.scriptContent);
+      return frontmatter.name ?? selection.scriptName.replace(/\.py$/i, "");
+    });
+  }, []);
 
-  const handleConfigFileChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (!file) {
-        return;
-      }
-      const validationError = validateUploadFile(file, {
-        label: "Config file",
-        extension: ".json",
-        maxBytes: MAX_CONFIG_UPLOAD_BYTES,
-        acceptedMimeTypes: JSON_CONFIG_MIME_TYPES,
-      });
-      if (validationError) {
-        setError(validationError);
-        setConfigContent(null);
-        event.target.value = "";
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const text = e.target?.result;
-        if (typeof text !== "string") {
-          return;
-        }
-        try {
-          const parsed = JSON.parse(text) as Record<string, unknown>;
-          setConfigContent(parsed);
-          setError(null);
-        } catch {
-          setError("config.json is not valid JSON.");
-          setConfigContent(null);
-        }
-      };
-      reader.readAsText(file);
-    },
-    [],
-  );
+  const handleSelectionError = useCallback((message: string) => {
+    setScriptContent(null);
+    setScriptFileName("");
+    setConfigFileName(null);
+    setConfigContent(null);
+    setError(message);
+    toast({
+      title: "Couldn't use that folder",
+      description: message,
+      variant: "destructive",
+    });
+  }, []);
 
   const handleUpload = useCallback(async () => {
     if (!scriptContent || !workflowName.trim()) {
@@ -230,35 +148,21 @@ export function UploadWorkflowDialog({
         <DialogHeader>
           <DialogTitle>Upload Workflow</DialogTitle>
           <DialogDescription>
-            Upload a Python workflow script and an optional JSON config to
-            create a new workflow.
+            Select a folder containing a Python workflow script and an optional
+            JSON config to create a new workflow.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="space-y-1.5">
-            <Label htmlFor="upload-script">
-              Workflow Script <span className="text-destructive">*</span>
+            <Label htmlFor="upload-folder">
+              Workflow Folder <span className="text-destructive">*</span>
             </Label>
-            <Input
-              id="upload-script"
-              ref={scriptInputRef}
-              type="file"
-              accept=".py"
-              onChange={handleScriptFileChange}
-              disabled={isUploading}
-            />
-            {scriptFileName && (
-              <p className="text-xs text-muted-foreground">{scriptFileName}</p>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="upload-config">Config (optional)</Label>
-            <Input
-              id="upload-config"
-              ref={configInputRef}
-              type="file"
-              accept=".json"
-              onChange={handleConfigFileChange}
+            <WorkflowFolderPicker
+              idPrefix="upload"
+              scriptName={scriptFileName}
+              configName={configFileName}
+              onSelect={handleSelect}
+              onError={handleSelectionError}
               disabled={isUploading}
             />
           </div>

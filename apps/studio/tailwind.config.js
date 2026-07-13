@@ -1,4 +1,5 @@
 import tailwindcssAnimate from "tailwindcss-animate";
+import defaultTheme from "tailwindcss/defaultTheme";
 
 const agentPrismPrefix = "agentprism";
 const agentPrismTokens = [
@@ -99,10 +100,29 @@ export default {
   content: ["./main.tsx", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['"IBM Plex Sans"', ...defaultTheme.fontFamily.sans],
+        display: ['"Space Grotesk"', ...defaultTheme.fontFamily.sans],
+        mono: ['"IBM Plex Mono"', ...defaultTheme.fontFamily.mono],
+      },
+      // Orcheo design-system radii: controls 10px, cards 14px, panels 20px.
       borderRadius: {
+        sm: "calc(var(--radius) - 8px)",
+        md: "calc(var(--radius) - 4px)",
         lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        xl: "calc(var(--radius) + 6px)",
+        "2xl": "calc(var(--radius) + 14px)",
+      },
+      // Warm-tinted shadows (ink/brown alpha, never black-blue).
+      boxShadow: {
+        xs: "0 1px 2px rgba(40, 30, 16, 0.06)",
+        sm: "0 1px 2px rgba(40, 30, 16, 0.06), 0 2px 6px rgba(40, 30, 16, 0.06)",
+        DEFAULT:
+          "0 1px 2px rgba(40, 30, 16, 0.06), 0 2px 6px rgba(40, 30, 16, 0.06)",
+        md: "0 2px 4px rgba(40, 30, 16, 0.06), 0 6px 16px rgba(40, 30, 16, 0.08)",
+        lg: "0 4px 8px rgba(40, 30, 16, 0.06), 0 16px 32px rgba(40, 30, 16, 0.12)",
+        xl: "0 8px 16px rgba(40, 30, 16, 0.08), 0 28px 56px rgba(40, 30, 16, 0.16)",
+        brand: "0 4px 14px rgba(248, 120, 37, 0.32)",
       },
       colors: {
         background: "hsl(var(--background))",
@@ -118,6 +138,8 @@ export default {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+          hover: "hsl(var(--primary-hover))",
+          active: "hsl(var(--primary-active))",
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
@@ -134,10 +156,33 @@ export default {
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
+          muted: "hsl(var(--destructive-muted))",
+          "muted-foreground": "hsl(var(--destructive-muted-foreground))",
+        },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+          muted: "hsl(var(--success-muted))",
+          "muted-foreground": "hsl(var(--success-muted-foreground))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
+          muted: "hsl(var(--warning-muted))",
+          "muted-foreground": "hsl(var(--warning-muted-foreground))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          foreground: "hsl(var(--info-foreground))",
+          muted: "hsl(var(--info-muted))",
+          "muted-foreground": "hsl(var(--info-muted-foreground))",
         },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
+        // Orcheo brand accents (orcheo-design-system: brand-cream, brand-tan).
+        cream: "#f6f5d4",
+        tan: "#e0c090",
         chart: {
           1: "hsl(var(--chart-1))",
           2: "hsl(var(--chart-2))",

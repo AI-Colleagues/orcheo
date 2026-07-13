@@ -22,6 +22,10 @@ final class ManagedProcess: @unchecked Sendable {
         process.isRunning
     }
 
+    var terminationStatus: Int32 {
+        process.terminationStatus
+    }
+
     func start(
         workingDirectory: URL,
         environment: [String: String]

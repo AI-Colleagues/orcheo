@@ -220,9 +220,8 @@ export function PublicChatWidget({
     <div
       className={cn(
         "relative h-full w-full overflow-hidden rounded-3xl",
-        "border border-slate-200/70 bg-white",
-        "shadow-[0_25px_80px_rgba(15,23,42,0.12)]",
-        "dark:border-slate-800/70 dark:bg-slate-900",
+        "border border-border/70 bg-card",
+        "shadow-[0_25px_80px_rgba(40,30,16,0.12)]",
       )}
     >
       <ChatKitSurface options={options} />

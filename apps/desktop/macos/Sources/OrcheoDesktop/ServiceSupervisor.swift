@@ -23,6 +23,13 @@ final class ServiceSupervisor {
             self.configuration = configuration
             desktopLog = try DesktopLog(logsDirectory: configuration.logsDirectory)
             logConfiguration(configuration)
+            guard FileManager.default.fileExists(
+                atPath: configuration.studioDistDirectory.appendingPathComponent("index.html").path
+            ) else {
+                throw DesktopError.configuration(
+                    "Studio is not built at \(configuration.studioDistDirectory.path). Run `bash apps/desktop/macos/scripts/build-studio.sh` first."
+                )
+            }
             try FileManager.default.createDirectory(
                 at: configuration.logsDirectory,
                 withIntermediateDirectories: true
@@ -117,6 +124,13 @@ final class ServiceSupervisor {
             to: &environment,
             configuration: configuration
         )
+        if let signingKey = ChatKitSettings.signingKey(
+            in: configuration.appSupportDirectory
+        ) {
+            // A key explicitly saved in the desktop settings takes precedence
+            // over launch-time environment values so it works from Finder too.
+            environment["ORCHEO_CHATKIT_TOKEN_SIGNING_KEY"] = signingKey
+        }
         environment["ORCHEO_HOST"] = "127.0.0.1"
         environment["ORCHEO_PORT"] = String(configuration.backendPort)
         environment["ORCHEO_STUDIO_URL"] = configuration.backendURL.absoluteString
@@ -141,7 +155,37 @@ final class ServiceSupervisor {
             .appendingPathComponent("python-env")
             .path
         environment["PLAYWRIGHT_BROWSERS_PATH"] = configuration.playwrightBrowsersDirectory.path
+        configureProcessPath(environment: &environment)
         return environment
+    }
+
+    // Finder launches inherit a minimal PATH that usually misses `uv` (and
+    // Homebrew), so extend it with the common install locations instead of
+    // relying purely on the login shell profile.
+    private func configureProcessPath(environment: inout [String: String]) {
+        var candidates: [String] = []
+        if let existing = nonEmpty(environment["PATH"]) {
+            candidates.append(contentsOf: existing.split(separator: ":").map(String.init))
+        }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        candidates.append("\(home)/.local/bin")
+        candidates.append("\(home)/.cargo/bin")
+        candidates.append(contentsOf: [
+            "/opt/homebrew/bin",
+            "/opt/homebrew/sbin",
+            "/usr/local/bin",
+            "/usr/local/sbin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+        ])
+
+        var seen: [String] = []
+        for candidate in candidates where !seen.contains(candidate) {
+            seen.append(candidate)
+        }
+        environment["PATH"] = seen.joined(separator: ":")
     }
 
     private func logConfiguration(_ configuration: DesktopConfiguration) {
@@ -256,9 +300,9 @@ final class ServiceSupervisor {
     ) throws -> String {
         let scriptURL = configuration.repoRoot
             .appendingPathComponent("scripts/desktop-postgres.sh")
-        if !FileManager.default.isExecutableFile(atPath: scriptURL.path) {
+        if !FileManager.default.fileExists(atPath: scriptURL.path) {
             throw DesktopError.configuration(
-                "Desktop Postgres helper is missing or not executable at \(scriptURL.path)."
+                "Desktop Postgres helper is missing at \(scriptURL.path)."
             )
         }
 
@@ -333,11 +377,13 @@ final class ServiceSupervisor {
             }
 
             if let backend = processes.first, !backend.isRunning {
-                let suffix = lastError.map { " Last error: \($0)" } ?? ""
-                desktopLog?.write("Backend exited before becoming healthy at \(healthURL.absoluteString).\(suffix)")
-                throw DesktopError.serviceFailed(
-                    "Backend exited before becoming healthy at \(healthURL.absoluteString).\(suffix)"
-                )
+                var message = "Backend exited before becoming healthy at \(healthURL.absoluteString) with status \(backend.terminationStatus)."
+                let logTail = readLogTail(at: backend.logURL, maxBytes: 4000)
+                if !logTail.isEmpty {
+                    message += "\n\nBackend log tail:\n\(logTail)"
+                }
+                desktopLog?.write(message)
+                throw DesktopError.serviceFailed(message)
             }
 
             try await Task.sleep(nanoseconds: 500_000_000)
@@ -346,6 +392,22 @@ final class ServiceSupervisor {
         desktopLog?.write("Backend health check timed out at \(healthURL.absoluteString).\(suffix)")
         throw DesktopError.serviceFailed("Backend did not become healthy at \(healthURL.absoluteString).\(suffix)")
     }
+}
+
+private func readLogTail(at url: URL, maxBytes: Int) -> String {
+    guard let handle = try? FileHandle(forReadingFrom: url) else {
+        return ""
+    }
+    defer { try? handle.close() }
+    guard let length = try? handle.seekToEnd() else {
+        return ""
+    }
+    let start = length > UInt64(maxBytes) ? length - UInt64(maxBytes) : 0
+    guard (try? handle.seek(toOffset: start)) != nil,
+          let data = try? handle.readToEnd() else {
+        return ""
+    }
+    return String(decoding: data, as: UTF8.self)
 }
 
 private func nonEmpty(_ value: String?) -> String? {

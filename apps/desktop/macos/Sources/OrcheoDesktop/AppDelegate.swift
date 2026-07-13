@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     private let supervisor = ServiceSupervisor()
     private var window: NSWindow?
     private var webView: WKWebView?
@@ -26,8 +26,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         return .terminateLater
     }
 
+    // Closing the window hides it while the local services keep running, and
+    // clicking the Dock icon brings it back -- the same lifecycle as the
+    // Tauri shell's hide-on-close behavior.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.orderOut(nil)
+        return false
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        if !flag, let window {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        return true
+    }
+
     @objc private func restartServices() {
-        loadStatusPage(title: "Restarting Orcheo", detail: "")
+        loadStatusPage(title: "Restarting Orcheo", detail: "Stopping and relaunching local services...")
         Task {
             do {
                 let url = try await supervisor.restart()
@@ -41,26 +60,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     @objc private func openLogs() {
         let logsDirectory = supervisor.logsDirectory
             ?? FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Logs/Orcheo", isDirectory: true)
+                .appendingPathComponent("Logs/com.orcheo.desktop", isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: logsDirectory,
+            withIntermediateDirectories: true
+        )
         NSWorkspace.shared.open(logsDirectory)
-    }
-
-    @objc private func checkForUpdates() {
-        let message: String
-        if let appcastURL = supervisor.configuration?.appcastURL {
-            message = "Update feed configured:\n\(appcastURL.absoluteString)\n\nWire Sparkle here when the release appcast is available."
-        } else {
-            message = "Set ORCHEO_SPARKLE_FEED_URL and connect Sparkle before shipping signed releases."
-        }
-        let alert = NSAlert()
-        alert.messageText = "Check for Updates"
-        alert.informativeText = message
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
     }
 
     @objc private func reloadStudio() {
         webView?.reload(nil)
+    }
+
+    @objc private func openChatKitSettings() {
+        guard let appSupportDirectory = chatKitSettingsDirectory() else {
+            showError(DesktopError.configuration("Could not resolve the desktop settings directory."))
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "ChatKit Settings"
+        alert.informativeText = ChatKitSettings.signingKey(in: appSupportDirectory) == nil
+            ? "No signing key is saved. Enter one to enable ChatKit sessions. Orcheo will restart its local services after saving it."
+            : "A signing key is saved. Enter a replacement key, or remove the saved key. Orcheo will restart its local services after the change."
+        alert.addButton(withTitle: "Save and Restart")
+        alert.addButton(withTitle: "Remove Key and Restart")
+        alert.addButton(withTitle: "Cancel")
+
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+        field.placeholderString = "Session token signing key"
+        alert.accessoryView = field
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            do {
+                try ChatKitSettings.saveSigningKey(field.stringValue, in: appSupportDirectory)
+                restartAfterSettingsChange()
+            } catch {
+                showError(error)
+            }
+        case .alertSecondButtonReturn:
+            do {
+                try ChatKitSettings.removeSigningKey(in: appSupportDirectory)
+                restartAfterSettingsChange()
+            } catch {
+                showError(error)
+            }
+        default:
+            return
+        }
+    }
+
+    private func restartAfterSettingsChange() {
+        loadStatusPage(title: "Applying ChatKit Settings", detail: "Restarting local services...")
+        Task {
+            do {
+                let url = try await supervisor.restart()
+                webView?.load(URLRequest(url: url))
+            } catch {
+                showError(error)
+            }
+        }
+    }
+
+    private func chatKitSettingsDirectory() -> URL? {
+        if let configured = supervisor.configuration?.appSupportDirectory {
+            return configured
+        }
+        return try? FileManager.default.ensureDirectory(
+            base: .applicationSupportDirectory,
+            component: "com.orcheo.desktop"
+        )
     }
 
     private func startServices() async {
@@ -75,6 +145,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private func buildWindow() {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        // The local backend serves Studio without explicit Cache-Control
+        // headers, and this app's bundle identifier (hence WKWebView's
+        // on-disk cache) stays the same across every rebuild while the
+        // backend port can also repeat. Without this, WebKit can keep
+        // serving an old cached index.html (pointing at stale hashed
+        // asset filenames) after a rebuild changes Studio's UI.
+        Self.clearWebViewHTTPCache(in: configuration.websiteDataStore)
         configuration.userContentController.add(self, name: "orcheoDesktopLog")
         configuration.userContentController.addUserScript(
             WKUserScript(
@@ -97,7 +174,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         )
         window.center()
         window.title = "Orcheo"
+        window.minSize = NSSize(width: 960, height: 640)
         window.contentView = webView
+        window.delegate = self
         window.makeKeyAndOrderFront(nil)
         self.window = window
         NSApp.activate(ignoringOtherApps: true)
@@ -172,6 +251,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         decisionHandler(.allow)
     }
 
+    private static func clearWebViewHTTPCache(in dataStore: WKWebsiteDataStore) {
+        let cacheTypes: Set<String> = [WKWebsiteDataTypeDiskCache, WKWebsiteDataTypeMemoryCache]
+        dataStore.removeData(ofTypes: cacheTypes, modifiedSince: .distantPast) {}
+    }
+
     private func isSameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
         lhs.scheme == rhs.scheme && lhs.host == rhs.host && lhs.port == rhs.port
     }
@@ -195,26 +279,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
     }
 
+    // Mirrors the Tauri shell's menu bar: Orcheo (ChatKit Settings, Services,
+    // Quit), Edit, and Window.
     private func buildMenu() {
         let mainMenu = NSMenu()
 
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(targetedItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: ""))
+        appMenu.addItem(targetedItem(title: "ChatKit Settings...", action: #selector(openChatKitSettings), keyEquivalent: ","))
+        appMenu.addItem(.separator())
+
+        let servicesItem = NSMenuItem()
+        let servicesMenu = NSMenu(title: "Services")
+        servicesMenu.addItem(targetedItem(title: "Reload Studio", action: #selector(reloadStudio), keyEquivalent: "r"))
+        servicesMenu.addItem(targetedItem(title: "Restart Local Services", action: #selector(restartServices), keyEquivalent: ""))
+        servicesMenu.addItem(targetedItem(title: "Open Logs", action: #selector(openLogs), keyEquivalent: "l"))
+        servicesItem.title = "Services"
+        servicesItem.submenu = servicesMenu
+        appMenu.addItem(servicesItem)
+
         appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Quit Orcheo", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 
         mainMenu.addItem(editMenuItem())
-
-        let serviceMenuItem = NSMenuItem()
-        let serviceMenu = NSMenu(title: "Services")
-        serviceMenu.addItem(targetedItem(title: "Reload Studio", action: #selector(reloadStudio), keyEquivalent: "r"))
-        serviceMenu.addItem(targetedItem(title: "Restart Local Services", action: #selector(restartServices), keyEquivalent: ""))
-        serviceMenu.addItem(targetedItem(title: "Open Logs", action: #selector(openLogs), keyEquivalent: "l"))
-        serviceMenuItem.submenu = serviceMenu
-        mainMenu.addItem(serviceMenuItem)
+        mainMenu.addItem(windowMenuItem())
 
         NSApp.mainMenu = mainMenu
     }
@@ -246,6 +336,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         return editMenuItem
     }
 
+    private func windowMenuItem() -> NSMenuItem {
+        let windowMenuItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+
+        windowMenu.addItem(responderItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
+        windowMenu.addItem(responderItem(title: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: ""))
+        let fullScreen = responderItem(
+            title: "Toggle Full Screen",
+            action: #selector(NSWindow.toggleFullScreen(_:)),
+            keyEquivalent: "f"
+        )
+        fullScreen.keyEquivalentModifierMask = NSEvent.ModifierFlags([.command, .control])
+        windowMenu.addItem(fullScreen)
+
+        windowMenuItem.submenu = windowMenu
+        return windowMenuItem
+    }
+
     private func targetedItem(title: String, action: Selector, keyEquivalent: String) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
         item.target = self
@@ -267,10 +375,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         alert.alertStyle = .critical
         alert.messageText = "Orcheo could not start"
         alert.informativeText = message
+        alert.addButton(withTitle: "Retry")
         alert.addButton(withTitle: "Open Logs")
-        alert.addButton(withTitle: "OK")
-        if alert.runModal() == .alertFirstButtonReturn {
+        alert.addButton(withTitle: "Close")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            restartServices()
+        case .alertSecondButtonReturn:
             openLogs()
+        default:
+            break
         }
     }
 

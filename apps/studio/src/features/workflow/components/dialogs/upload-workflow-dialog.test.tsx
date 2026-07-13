@@ -67,6 +67,9 @@ const pyFile = (
 const jsonFile = (name: string, contents: string) =>
   new File([contents], name, { type: "application/json" });
 
+const getFolderInput = () =>
+  screen.getByLabelText(/Workflow Folder/i) as HTMLInputElement;
+
 describe("UploadWorkflowDialog", () => {
   beforeEach(() => {
     uploadWorkflowFromFilesMock.mockReset();
@@ -78,7 +81,7 @@ describe("UploadWorkflowDialog", () => {
     cleanup();
   });
 
-  it("uploads a script with config and navigates to the new workflow", async () => {
+  it("uploads a folder with script and config and navigates to the new workflow", async () => {
     const user = userEvent.setup();
     uploadWorkflowFromFilesMock.mockResolvedValue({
       id: "uploaded-1",
@@ -89,14 +92,10 @@ describe("UploadWorkflowDialog", () => {
     const onOpenChange = vi.fn();
     renderDialog({ onOpenChange });
 
-    const scriptInput = screen.getByLabelText(/Workflow Script/i);
-    await user.upload(scriptInput, pyFile("my-workflow.py", "print('hi')"));
-
-    const configInput = screen.getByLabelText(/Config/i);
-    await user.upload(
-      configInput,
+    await user.upload(getFolderInput(), [
+      pyFile("my-workflow.py", "print('hi')"),
       jsonFile("config.json", JSON.stringify({ runtime: "python" })),
-    );
+    ]);
 
     await waitFor(() => {
       expect(
@@ -123,7 +122,7 @@ describe("UploadWorkflowDialog", () => {
     );
   });
 
-  it("accepts python scripts with a generic mime type", async () => {
+  it("uploads a folder that has only a script", async () => {
     const user = userEvent.setup();
     uploadWorkflowFromFilesMock.mockResolvedValue({
       id: "uploaded-2",
@@ -133,11 +132,9 @@ describe("UploadWorkflowDialog", () => {
 
     renderDialog();
 
-    const scriptInput = screen.getByLabelText(/Workflow Script/i);
-    await user.upload(
-      scriptInput,
+    await user.upload(getFolderInput(), [
       pyFile("generic-python.py", "print('hi')", "application/octet-stream"),
-    );
+    ]);
 
     await waitFor(() => {
       expect(
@@ -166,9 +163,7 @@ describe("UploadWorkflowDialog", () => {
 
     renderDialog();
 
-    const scriptInput = screen.getByLabelText(/Workflow Script/i);
-    await user.upload(
-      scriptInput,
+    await user.upload(getFolderInput(), [
       pyFile(
         "fallback.py",
         `# /// orcheo
@@ -178,7 +173,7 @@ describe("UploadWorkflowDialog", () => {
 print('hi')
 `,
       ),
-    );
+    ]);
 
     await waitFor(() => {
       expect(
@@ -197,15 +192,66 @@ print('hi')
     });
   });
 
+  it("rejects a folder with multiple python scripts as ambiguous", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.upload(getFolderInput(), [
+      pyFile("first.py", "print('a')"),
+      pyFile("second.py", "print('b')"),
+    ]);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Found 2 Python \(\.py\) files/i),
+      ).toBeInTheDocument();
+    });
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Couldn't use that folder",
+        variant: "destructive",
+      }),
+    );
+    expect(screen.getByRole("button", { name: /^Upload$/ })).toBeDisabled();
+  });
+
+  it("rejects a folder with multiple json configs as ambiguous", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.upload(getFolderInput(), [
+      pyFile("flow.py", "print('a')"),
+      jsonFile("a.json", "{}"),
+      jsonFile("b.json", "{}"),
+    ]);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Found 2 JSON \(\.json\) config files/i),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("rejects a folder without a python script", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.upload(getFolderInput(), [jsonFile("config.json", "{}")]);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/No Python \(\.py\) workflow script was found/i),
+      ).toBeInTheDocument();
+    });
+  });
+
   it("rejects oversized script files", async () => {
     const user = userEvent.setup();
     renderDialog();
 
-    const scriptInput = screen.getByLabelText(/Workflow Script/i);
-    await user.upload(
-      scriptInput,
+    await user.upload(getFolderInput(), [
       pyFile("large.py", "x".repeat(1024 * 1024 + 1)),
-    );
+    ]);
 
     await waitFor(() => {
       expect(
@@ -219,8 +265,10 @@ print('hi')
     const user = userEvent.setup();
     renderDialog();
 
-    const configInput = screen.getByLabelText(/Config/i);
-    await user.upload(configInput, jsonFile("config.json", "{not-json"));
+    await user.upload(getFolderInput(), [
+      pyFile("flow.py", "print('hi')"),
+      jsonFile("config.json", "{not-json"),
+    ]);
 
     await waitFor(() => {
       expect(
@@ -229,7 +277,7 @@ print('hi')
     });
   });
 
-  it("disables upload until a script is selected", async () => {
+  it("disables upload until a folder is selected", async () => {
     renderDialog();
     const uploadButton = screen.getByRole("button", { name: /^Upload$/ });
     expect(uploadButton).toBeDisabled();
@@ -240,8 +288,7 @@ print('hi')
     uploadWorkflowFromFilesMock.mockRejectedValue(new Error("Boom"));
     renderDialog();
 
-    const scriptInput = screen.getByLabelText(/Workflow Script/i);
-    await user.upload(scriptInput, pyFile("flow.py", "print('hi')"));
+    await user.upload(getFolderInput(), [pyFile("flow.py", "print('hi')")]);
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /^Upload$/ })).toBeEnabled();

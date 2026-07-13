@@ -129,6 +129,78 @@ def test_grammar_errors_carry_line_numbers(source: str) -> None:
     assert str(exc_info.value).startswith(f"line {exc_info.value.lineno}:")
 
 
+# Untrusted uploads must never crash restricted-mode ingestion with an
+# unhandled exception: the ingestion routes only translate
+# WorkflowValidationError / ScriptIngestionError into a 4xx rejection, so any
+# other exception would surface as an HTTP 500 (a denial-of-service and a
+# stack-trace leak) and would skip the upload-error audit path. These cases
+# previously raised ModuleNotFoundError / TypeError before reaching the IR.
+@pytest.mark.parametrize(
+    ("source", "needle"),
+    [
+        # A non-existent orcheo.* module used as an AI node ``response_format``
+        # (schema-reference path). Grammar allows the import (orcheo namespace),
+        # so the failure only shows up when the symbol is resolved.
+        (
+            "from orcheo.graph import StateGraph, START, END\n"
+            "from orcheo.graph.state import State\n"
+            "from orcheo.nodes.ai.agent import AgentNode\n"
+            "from orcheo.does_not_exist_xyz import Schema\n"
+            "def orcheo_workflow():\n"
+            "    graph = StateGraph(State)\n"
+            "    graph.add_node('a', AgentNode(name='a', response_format=Schema))\n"
+            "    graph.add_edge(START, 'a')\n"
+            "    graph.add_edge('a', END)\n"
+            "    return graph\n",
+            "cannot import",
+        ),
+        # The same non-existent module used as a generic built-in config value
+        # (Pydantic-model-reference path).
+        (
+            "from orcheo.graph import StateGraph, START, END\n"
+            "from orcheo.graph.state import State\n"
+            "from orcheo.nodes.ai.agent import AgentNode\n"
+            "from orcheo.does_not_exist_xyz import Model\n"
+            "def orcheo_workflow():\n"
+            "    graph = StateGraph(State)\n"
+            "    graph.add_node('a', AgentNode(name='a', tools=Model))\n"
+            "    graph.add_edge(START, 'a')\n"
+            "    graph.add_edge('a', END)\n"
+            "    return graph\n",
+            "cannot import",
+        ),
+    ],
+)
+def test_unresolvable_orcheo_import_is_rejected(source: str, needle: str) -> None:
+    """A referenced but unimportable orcheo symbol is a clean rejection, not a 500."""
+    with pytest.raises(WorkflowValidationError, match=needle):
+        compile_workflow_to_ir(source)
+
+
+@pytest.mark.parametrize("field_name", ["model_config", "model_dump"])
+def test_schema_reserved_field_name_is_rejected(field_name: str) -> None:
+    """A schema field colliding with a Pydantic reserved name rejects cleanly.
+
+    ``create_model`` raises TypeError/ValueError for these names; ingestion must
+    surface a WorkflowValidationError instead of an unhandled 500.
+    """
+    source = (
+        "from orcheo.graph import StateGraph, START, END\n"
+        "from orcheo.graph.state import State\n"
+        "from orcheo.nodes.ai.agent import AgentNode\n"
+        "class Schema(BaseModel):\n"
+        f"    {field_name}: int = 1\n"
+        "def orcheo_workflow():\n"
+        "    graph = StateGraph(State)\n"
+        "    graph.add_node('a', AgentNode(name='a', response_format=Schema))\n"
+        "    graph.add_edge(START, 'a')\n"
+        "    graph.add_edge('a', END)\n"
+        "    return graph\n"
+    )
+    with pytest.raises(WorkflowValidationError, match="schema 'Schema'"):
+        compile_workflow_to_ir(source)
+
+
 def test_config_value_error_carries_line_number() -> None:
     """A disallowed CodeNode credential placeholder reports its line."""
     source = textwrap.dedent(

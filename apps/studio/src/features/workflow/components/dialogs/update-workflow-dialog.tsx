@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
 import {
@@ -9,10 +9,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/design-system/ui/dialog";
-import { Input } from "@/design-system/ui/input";
 import { Label } from "@/design-system/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { updateWorkflowFromFiles } from "@features/workflow/lib/workflow-storage";
+import { WorkflowFolderPicker } from "./workflow-folder-picker";
+import type { WorkflowFolderSelection } from "@features/workflow/lib/workflow-folder-selection";
 
 interface UpdateWorkflowDialogProps {
   open: boolean;
@@ -27,11 +28,9 @@ export function UpdateWorkflowDialog({
   workflowId,
   workflowName,
 }: UpdateWorkflowDialogProps) {
-  const scriptInputRef = useRef<HTMLInputElement>(null);
-  const configInputRef = useRef<HTMLInputElement>(null);
-
   const [scriptContent, setScriptContent] = useState<string | null>(null);
   const [scriptFileName, setScriptFileName] = useState("");
+  const [configFileName, setConfigFileName] = useState<string | null>(null);
   const [configContent, setConfigContent] = useState<Record<
     string,
     unknown
@@ -42,15 +41,10 @@ export function UpdateWorkflowDialog({
   const reset = useCallback(() => {
     setScriptContent(null);
     setScriptFileName("");
+    setConfigFileName(null);
     setConfigContent(null);
     setIsUpdating(false);
     setError(null);
-    if (scriptInputRef.current) {
-      scriptInputRef.current.value = "";
-    }
-    if (configInputRef.current) {
-      configInputRef.current.value = "";
-    }
   }, []);
 
   const handleOpenChange = useCallback(
@@ -63,50 +57,26 @@ export function UpdateWorkflowDialog({
     [onOpenChange, reset],
   );
 
-  const handleScriptFileChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (!file) {
-        return;
-      }
-      setScriptFileName(file.name);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const text = e.target?.result;
-        if (typeof text === "string") {
-          setScriptContent(text);
-        }
-      };
-      reader.readAsText(file);
-    },
-    [],
-  );
+  const handleSelect = useCallback((selection: WorkflowFolderSelection) => {
+    setError(null);
+    setScriptContent(selection.scriptContent);
+    setScriptFileName(selection.scriptName);
+    setConfigFileName(selection.configName);
+    setConfigContent(selection.configContent);
+  }, []);
 
-  const handleConfigFileChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (!file) {
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const text = e.target?.result;
-        if (typeof text !== "string") {
-          return;
-        }
-        try {
-          const parsed = JSON.parse(text) as Record<string, unknown>;
-          setConfigContent(parsed);
-          setError(null);
-        } catch {
-          setError("config.json is not valid JSON.");
-          setConfigContent(null);
-        }
-      };
-      reader.readAsText(file);
-    },
-    [],
-  );
+  const handleSelectionError = useCallback((message: string) => {
+    setScriptContent(null);
+    setScriptFileName("");
+    setConfigFileName(null);
+    setConfigContent(null);
+    setError(message);
+    toast({
+      title: "Couldn't use that folder",
+      description: message,
+      variant: "destructive",
+    });
+  }, []);
 
   const handleUpdate = useCallback(async () => {
     if (!scriptContent) {
@@ -149,35 +119,21 @@ export function UpdateWorkflowDialog({
         <DialogHeader>
           <DialogTitle>Update Workflow</DialogTitle>
           <DialogDescription>
-            Upload a new Python script and optional JSON config to create a new
-            version of &ldquo;{workflowName}&rdquo;.
+            Select a folder with a new Python script and optional JSON config to
+            create a new version of &ldquo;{workflowName}&rdquo;.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="space-y-1.5">
-            <Label htmlFor="update-script">
-              Workflow Script <span className="text-destructive">*</span>
+            <Label htmlFor="update-folder">
+              Workflow Folder <span className="text-destructive">*</span>
             </Label>
-            <Input
-              id="update-script"
-              ref={scriptInputRef}
-              type="file"
-              accept=".py"
-              onChange={handleScriptFileChange}
-              disabled={isUpdating}
-            />
-            {scriptFileName && (
-              <p className="text-xs text-muted-foreground">{scriptFileName}</p>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="update-config">Config (optional)</Label>
-            <Input
-              id="update-config"
-              ref={configInputRef}
-              type="file"
-              accept=".json"
-              onChange={handleConfigFileChange}
+            <WorkflowFolderPicker
+              idPrefix="update"
+              scriptName={scriptFileName}
+              configName={configFileName}
+              onSelect={handleSelect}
+              onError={handleSelectionError}
               disabled={isUpdating}
             />
           </div>

@@ -353,7 +353,7 @@ export function CredentialsTable({
                         className={cn(
                           "h-6 w-6 transition-colors",
                           currentCopyState === "success" &&
-                            "text-emerald-600 hover:text-emerald-700",
+                            "text-success hover:text-success/80",
                           currentCopyState === "error" &&
                             "text-destructive hover:text-destructive",
                         )}

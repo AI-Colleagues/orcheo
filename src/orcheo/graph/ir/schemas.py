@@ -84,7 +84,13 @@ class _SchemaCompiler:
 
     def json_schema(self, name: str) -> dict[str, Any]:
         """Return ``name`` as a JSON Schema mapping."""
-        return self._build_model(name).model_json_schema()
+        model = self._build_model(name)
+        try:
+            return model.model_json_schema()
+        except Exception as exc:  # noqa: BLE001 - untrusted schema, report cleanly
+            raise WorkflowValidationError(
+                f"schema '{name}' could not be lowered to JSON Schema: {exc}"
+            ) from exc
 
     def _build_model(self, name: str) -> type[BaseModel]:
         if name in self._models:
@@ -113,7 +119,17 @@ class _SchemaCompiler:
                 annotation = self._annotation_from_ast(member.annotation)
                 default = _field_default_from_ast(member.value, field_name=field_name)
                 fields[field_name] = (annotation, default)
-            model = create_model(name, __base__=BaseModel, **fields)
+            # ``create_model`` runs on untrusted, author-supplied field names. A
+            # name that collides with a Pydantic reserved attribute (e.g.
+            # ``model_config``, ``model_dump``) raises TypeError/ValueError; keep
+            # that from surfacing as an unhandled 500 during ingestion.
+            try:
+                model = create_model(name, __base__=BaseModel, **fields)
+            except Exception as exc:  # noqa: BLE001 - untrusted schema, report cleanly
+                raise WorkflowValidationError(
+                    f"schema '{name}' declares a field name that is not allowed: {exc}",
+                    lineno=schema.lineno,
+                ) from exc
             self._models[name] = model
             return model
         finally:

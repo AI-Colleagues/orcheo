@@ -21,7 +21,7 @@ interface ProfileGeneralTabProps {
 export function ProfileGeneralTab({ user }: ProfileGeneralTabProps) {
   return (
     <div className="space-y-4">
-      <Card>
+      <Card className="border-border/70 bg-muted/40 shadow-none">
         <CardHeader>
           <CardTitle>Profile Information</CardTitle>
           <CardDescription>

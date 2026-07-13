@@ -14,18 +14,17 @@ struct DesktopConfiguration {
     let beatCommand: String
     let startWorker: Bool
     let startBeat: Bool
-    let appcastURL: URL?
 
     static func load() throws -> DesktopConfiguration {
         let environment = ProcessInfo.processInfo.environment
         let fileManager = FileManager.default
         let appSupportDirectory = try fileManager.ensureDirectory(
             base: .applicationSupportDirectory,
-            component: "Orcheo"
+            component: "com.orcheo.desktop"
         )
         let logsDirectory = try fileManager.ensureDirectory(
             base: .libraryDirectory,
-            component: "Logs/Orcheo"
+            component: "Logs/com.orcheo.desktop"
         )
 
         let repoRoot = try resolveRepoRoot(environment: environment)
@@ -42,14 +41,14 @@ struct DesktopConfiguration {
         )
 
         let backendCommand = environment["ORCHEO_DESKTOP_BACKEND_COMMAND"]
-            ?? "uv run uvicorn --app-dir apps/backend/src orcheo_backend.app:app --host 127.0.0.1 --port \(port)"
+            ?? defaultBackendCommand(repoRoot: repoRoot, port: port)
         let workerCommand = environment["ORCHEO_DESKTOP_WORKER_COMMAND"]
             ?? "uv run celery -A orcheo_backend.worker.celery_app worker --loglevel=info"
         let beatSchedule = appSupportDirectory
             .appendingPathComponent("celerybeat-schedule")
             .path
         let beatCommand = environment["ORCHEO_DESKTOP_BEAT_COMMAND"]
-            ?? "ORCHEO_CELERY_BEAT_SCHEDULE_FILE='\(beatSchedule)' uv run celery -A orcheo_backend.worker.celery_app beat --loglevel=info"
+            ?? "ORCHEO_CELERY_BEAT_SCHEDULE_FILE='\(shellSingleQuoteEscaped(beatSchedule))' uv run celery -A orcheo_backend.worker.celery_app beat --loglevel=info"
 
         return DesktopConfiguration(
             repoRoot: repoRoot,
@@ -63,8 +62,7 @@ struct DesktopConfiguration {
             workerCommand: workerCommand,
             beatCommand: beatCommand,
             startWorker: environment.boolValue("ORCHEO_DESKTOP_START_WORKER"),
-            startBeat: environment.boolValue("ORCHEO_DESKTOP_START_BEAT"),
-            appcastURL: environment["ORCHEO_SPARKLE_FEED_URL"].flatMap(URL.init(string:))
+            startBeat: environment.boolValue("ORCHEO_DESKTOP_START_BEAT")
         )
     }
 
@@ -95,6 +93,15 @@ struct DesktopConfiguration {
         throw DesktopError.configuration(
             "Set ORCHEO_DESKTOP_REPO_ROOT to an Orcheo checkout or bundle the repo under Contents/Resources/orcheo."
         )
+    }
+
+    private static func defaultBackendCommand(repoRoot: URL, port: Int) -> String {
+        if FileManager.default.fileExists(
+            atPath: repoRoot.appendingPathComponent("apps/backend/src").path
+        ) {
+            return "uv run uvicorn --app-dir apps/backend/src orcheo_backend.app:app --host 127.0.0.1 --port \(port)"
+        }
+        return "uv run uvicorn orcheo_backend.app:app --host 127.0.0.1 --port \(port)"
     }
 
     private static func resolveStudioDistDirectory(
@@ -134,6 +141,12 @@ struct DesktopConfiguration {
 
         return appSupportDirectory.appendingPathComponent("ms-playwright")
     }
+}
+
+// POSIX single-quoting: close the quote, emit an escaped literal quote, then
+// reopen the quote, so an embedded `'` cannot break out of the quoted value.
+private func shellSingleQuoteEscaped(_ value: String) -> String {
+    value.replacingOccurrences(of: "'", with: "'\\''")
 }
 
 extension FileManager {

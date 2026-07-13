@@ -217,7 +217,7 @@ describe("WorkflowCard", () => {
     const badge = screen.getByText("Error");
 
     expect(badge).toBeInTheDocument();
-    expect(badge.className).toContain("text-red-700");
+    expect(badge.className).toContain("text-destructive-muted-foreground");
   });
 
   it("renders a seeded avatar image for colleague workflows without an explicit avatar", () => {

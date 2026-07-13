@@ -15,7 +15,7 @@ export function CredentialStatusBadge({ status }: CredentialStatusBadgeProps) {
       return (
         <Badge
           variant="outline"
-          className="flex items-center gap-1 bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800"
+          className="flex items-center gap-1 border-success/30 bg-success-muted text-success-muted-foreground"
         >
           <CheckCircle2 className="h-3 w-3" />
           Healthy
@@ -25,7 +25,7 @@ export function CredentialStatusBadge({ status }: CredentialStatusBadgeProps) {
       return (
         <Badge
           variant="outline"
-          className="flex items-center gap-1 bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800"
+          className="flex items-center gap-1 border-destructive/30 bg-destructive-muted text-destructive-muted-foreground"
         >
           <AlertTriangle className="h-3 w-3" />
           Unhealthy

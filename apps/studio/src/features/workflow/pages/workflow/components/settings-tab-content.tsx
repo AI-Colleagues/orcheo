@@ -61,15 +61,27 @@ const runtimeStatusBadge = (
 ) => {
   switch (status) {
     case "healthy":
-      return { label: "Healthy", className: "bg-emerald-600 text-white" };
+      return {
+        label: "Healthy",
+        className: "bg-success text-success-foreground",
+      };
     case "starting":
-      return { label: "Starting", className: "bg-sky-600 text-white" };
+      return { label: "Starting", className: "bg-info text-info-foreground" };
     case "backoff":
-      return { label: "Backoff", className: "bg-amber-500 text-black" };
+      return {
+        label: "Backoff",
+        className: "bg-warning text-warning-foreground",
+      };
     case "error":
-      return { label: "Runtime Error", className: "bg-rose-600 text-white" };
+      return {
+        label: "Runtime Error",
+        className: "bg-destructive text-destructive-foreground",
+      };
     case "stopped":
-      return { label: "Stopped", className: "bg-slate-500 text-white" };
+      return {
+        label: "Stopped",
+        className: "bg-muted-foreground text-background",
+      };
     default:
       return { label: "Unknown", className: "bg-muted text-muted-foreground" };
   }
@@ -274,13 +286,13 @@ export function SettingsTabContent({
             </AlertDescription>
           </Alert>
         ) : isListenersLoading ? (
-          <Card>
+          <Card className="border-border/70 bg-muted/40 shadow-none">
             <CardContent className="pt-6 text-sm text-muted-foreground">
               Loading listener health and control state...
             </CardContent>
           </Card>
         ) : listeners.length === 0 ? (
-          <Card>
+          <Card className="border-border/70 bg-muted/40 shadow-none">
             <CardHeader>
               <CardTitle>No listeners detected</CardTitle>
               <CardDescription>
@@ -320,7 +332,10 @@ export function SettingsTabContent({
                   listener.status === "paused" || listener.status === "blocked";
 
                 return (
-                  <Card key={listener.subscription_id}>
+                  <Card
+                    key={listener.subscription_id}
+                    className="border-border/70 bg-muted/40 shadow-none"
+                  >
                     <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
@@ -394,7 +409,7 @@ export function SettingsTabContent({
 
                       {(listener.runtime_detail || listener.last_error) && (
                         <div className="sm:col-span-2 xl:col-span-4">
-                          <div className="rounded-lg border border-amber-300/50 bg-amber-50/70 px-3 py-2 text-amber-950 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-100">
+                          <div className="rounded-lg border border-warning/40 bg-warning-muted/70 px-3 py-2 text-warning-muted-foreground">
                             <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em]">
                               <Zap className="h-3.5 w-3.5" />
                               Runtime detail

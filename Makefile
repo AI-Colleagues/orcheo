@@ -1,4 +1,4 @@
-.PHONY: dev-server test lint format studio-lint studio-format studio-test redis worker celery-beat desktop-macos desktop-macos-clean desktop-tauri-check desktop-tauri-dev desktop-tauri-build desktop-tauri-clean desktop-clean \
+.PHONY: dev-server test lint format studio-lint studio-format studio-test redis worker celery-beat desktop-macos-check desktop-macos-dev desktop-macos desktop-macos-clean desktop-tauri-check desktop-tauri-dev desktop-tauri-build desktop-tauri-clean desktop-clean \
        docker-up docker-down docker-build docker-logs \
        staging-env staging-up staging-down staging-restart \
        staging-build staging-logs staging-config
@@ -26,11 +26,17 @@ studio-format:
 studio-test:
 	npm --prefix apps/studio run test -- --run
 
+desktop-macos-check:
+	bash apps/desktop/macos/scripts/check-prereqs.sh
+
+desktop-macos-dev:
+	bash apps/desktop/macos/scripts/dev.sh
+
 desktop-macos:
-	./scripts/build-macos-app.sh
+	bash apps/desktop/macos/scripts/build-app.sh
 
 desktop-macos-clean:
-	./scripts/clean-macos-app.sh
+	bash apps/desktop/macos/scripts/clean.sh
 
 desktop-tauri-check:
 	npm --prefix apps/desktop/tauri run check:prereqs
