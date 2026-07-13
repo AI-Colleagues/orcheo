@@ -16,6 +16,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from pydantic import ConfigDict, Field
 from orcheo.graph.state import State
 from orcheo.nodes.ai import WorkflowTool, _create_workflow_tool_func
+from orcheo.nodes.ai.mcp_guard import reject_local_mcp_servers_in_restricted_mode
 from orcheo.nodes.ai.tools.context import tool_execution_context
 from orcheo.nodes.ai.tools.registry import tool_registry
 from orcheo.nodes.base import AINode
@@ -153,6 +154,11 @@ class DeepAgentNode(AINode):
             )
             tools.append(tool)
 
+        # Local (stdio) MCP servers spawn a subprocess on the host, so they are
+        # refused for untrusted restricted-mode workflows.
+        reject_local_mcp_servers_in_restricted_mode(
+            self.mcp_servers, node_name=self.name
+        )
         mcp_client = MultiServerMCPClient(connections=self.mcp_servers)
         mcp_tools = await mcp_client.get_tools()
         tools.extend(mcp_tools)

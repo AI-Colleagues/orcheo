@@ -28,9 +28,9 @@ interface WorkflowDiffDialogProps {
 }
 
 const summaryBadgeClass = {
-  added: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-  removed: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
-  modified: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+  added: "bg-success-muted text-success-muted-foreground",
+  removed: "bg-destructive-muted text-destructive-muted-foreground",
+  modified: "bg-info-muted text-info-muted-foreground",
 };
 
 const formatValue = (value: unknown) =>
@@ -103,12 +103,12 @@ const Differences = ({
                 <p className="text-muted-foreground">{entry.detail}</p>
               )}
               {entry.type !== "added" && entry.before !== undefined && (
-                <pre className="bg-red-50 dark:bg-red-900/20 rounded-md p-2 font-mono text-xs whitespace-pre-wrap">
+                <pre className="bg-destructive-muted/60 rounded-md p-2 font-mono text-xs whitespace-pre-wrap">
                   - {formatValue(entry.before)}
                 </pre>
               )}
               {entry.type !== "removed" && entry.after !== undefined && (
-                <pre className="bg-green-50 dark:bg-green-900/20 rounded-md p-2 font-mono text-xs whitespace-pre-wrap">
+                <pre className="bg-success-muted/60 rounded-md p-2 font-mono text-xs whitespace-pre-wrap">
                   + {formatValue(entry.after)}
                 </pre>
               )}

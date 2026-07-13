@@ -42,7 +42,7 @@ export class PublicChatErrorBoundary extends Component<
   public override render(): ReactNode {
     if (this.state.hasError) {
       return (
-        <Alert className="rounded-3xl border-red-500/40 bg-red-500/10 p-6 text-red-100">
+        <Alert className="rounded-3xl border-destructive/40 bg-destructive-muted p-6 text-destructive-muted-foreground">
           <AlertTitle>Something went wrong</AlertTitle>
           <AlertDescription>
             {this.state.errorMessage ||

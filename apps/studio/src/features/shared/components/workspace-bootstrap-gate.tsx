@@ -155,7 +155,7 @@ export function WorkspaceBootstrapGate({
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-foreground dark:bg-slate-950">
+      <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
         <Card className="w-full max-w-md border-border bg-card/80 backdrop-blur-xl dark:border-primary/25 dark:bg-primary/5">
           <CardContent className="flex items-center gap-3 p-6 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -171,16 +171,16 @@ export function WorkspaceBootstrapGate({
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-100 text-foreground dark:bg-slate-950">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background text-foreground">
       <div
-        className="absolute inset-0 bg-gradient-to-br from-slate-100 via-slate-200 to-slate-100 dark:from-slate-950 dark:via-slate-900/80 dark:to-black"
+        className="absolute inset-0 bg-gradient-to-br from-background via-secondary to-background dark:via-card/80"
         aria-hidden="true"
       />
       <div
         className="absolute inset-0 opacity-40 mix-blend-soft-light dark:opacity-60"
         style={{
           backgroundImage:
-            "radial-gradient(circle at 20% 20%, rgba(148, 163, 184, 0.2), transparent 45%), radial-gradient(circle at 80% 30%, rgba(56, 189, 248, 0.25), transparent 50%), radial-gradient(circle at 50% 80%, rgba(45, 212, 191, 0.2), transparent 55%)",
+            "radial-gradient(circle at 20% 20%, rgba(224, 192, 144, 0.25), transparent 45%), radial-gradient(circle at 80% 30%, rgba(248, 120, 37, 0.2), transparent 50%), radial-gradient(circle at 50% 80%, rgba(246, 245, 212, 0.35), transparent 55%)",
         }}
         aria-hidden="true"
       />

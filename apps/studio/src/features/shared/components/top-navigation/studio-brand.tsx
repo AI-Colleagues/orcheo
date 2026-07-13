@@ -42,7 +42,7 @@ export default function StudioBrand() {
             >
               <Badge
                 variant="outline"
-                className="border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-700 shadow-none dark:text-amber-300"
+                className="border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-warning-muted-foreground shadow-none"
               >
                 Beta
               </Badge>

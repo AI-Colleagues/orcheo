@@ -4,3 +4,6 @@
 [submodule "agent-skills"]
 	path = agent-skills
 	url = https://github.com/AI-Colleagues/agent-skills.git
+[submodule "orcheo-design-system"]
+	path = orcheo-design-system
+	url = https://github.com/AI-Colleagues/orcheo-design-system.git

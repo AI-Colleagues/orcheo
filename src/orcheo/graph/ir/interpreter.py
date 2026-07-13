@@ -956,6 +956,28 @@ def _schema_or_literal_from_ast(expr: ast.expr, ctx: _CompileContext) -> Any:
     return literal_from_ast(expr)
 
 
+def _resolve_imported_symbol(module_name: str, attr_name: str) -> Any:
+    """Import a grammar-approved Orcheo symbol, or raise a clean validation error.
+
+    Grammar validation already restricts imports to the ``orcheo`` namespace, so
+    this only ever imports trusted first-party modules. A missing or
+    unimportable module is an invalid upload (author error), not a server fault:
+    convert the ``ImportError`` into a :class:`WorkflowValidationError` so
+    ingestion of an untrusted script fails as a clean rejection instead of an
+    unhandled 500. Without this guard a script that imports a non-existent
+    ``orcheo.<...>`` module and uses the name as a schema / model reference
+    crashes restricted-mode ingestion.
+    """
+    try:
+        module = import_module(module_name)
+    except ImportError as exc:
+        raise WorkflowValidationError(
+            f"cannot import '{module_name}.{attr_name}'; "
+            f"'{module_name}' is not an available Orcheo module"
+        ) from exc
+    return getattr(module, attr_name, None)
+
+
 def _imported_schema_json_schema(
     name: str, ctx: _CompileContext
 ) -> dict[str, Any] | None:
@@ -969,8 +991,7 @@ def _imported_schema_json_schema(
     if origin is None:
         return None
     module_name, attr_name = origin
-    module = import_module(module_name)
-    resolved = getattr(module, attr_name, None)
+    resolved = _resolve_imported_symbol(module_name, attr_name)
     if isinstance(resolved, type) and issubclass(resolved, BaseModel):
         return resolved.model_json_schema()
     return None
@@ -986,8 +1007,7 @@ def _imported_model_ref_from_ast(
     if origin is None:
         return None
     module_name, attr_name = origin
-    module = import_module(module_name)
-    resolved = getattr(module, attr_name, None)
+    resolved = _resolve_imported_symbol(module_name, attr_name)
     if (
         isinstance(resolved, type)
         and resolved is not BaseModel

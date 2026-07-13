@@ -239,7 +239,7 @@ const resolveRunResultBanner = (
       return {
         Icon: CheckCircle2,
         className:
-          "border-emerald-500/40 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
+          "border-success/40 bg-success-muted text-success-muted-foreground",
         message: "Workflow run succeeded. See the full trace on the Trace tab.",
       };
     case "failed":
@@ -252,7 +252,7 @@ const resolveRunResultBanner = (
       return {
         Icon: AlertTriangle,
         className:
-          "border-amber-500/40 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
+          "border-warning/40 bg-warning-muted text-warning-muted-foreground",
         message:
           "Workflow run finished with partial results. Check the Trace tab for details.",
       };
@@ -261,7 +261,7 @@ const resolveRunResultBanner = (
       return {
         Icon: AlertTriangle,
         className:
-          "border-amber-500/40 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
+          "border-warning/40 bg-warning-muted text-warning-muted-foreground",
         message:
           "Workflow run ended without a final status. Check the Trace tab for the latest status.",
       };
