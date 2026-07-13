@@ -8,7 +8,7 @@ import {
 import ThemeSettings from "@features/account/components/theme-settings";
 
 const AppearanceSettingsTab = () => (
-  <Card>
+  <Card className="border-border/70 bg-muted/40 shadow-none">
     <CardHeader>
       <CardTitle>Theme</CardTitle>
       <CardDescription>

@@ -213,7 +213,7 @@ export const WorkflowCard = ({
     <>
       <Card
         className={cn(
-          "flex w-full flex-col overflow-hidden border-border/70 bg-card text-card-foreground shadow-[0_16px_48px_rgba(15,23,42,0.08)] transition-transform duration-200 hover:-translate-y-1 dark:shadow-[0_16px_48px_rgba(0,0,0,0.45)] text-[20px] md:text-[14px]",
+          "flex w-full flex-col overflow-hidden border-border/70 bg-card text-card-foreground shadow-[0_16px_48px_rgba(40,30,16,0.1)] transition-transform duration-200 hover:-translate-y-1 dark:shadow-[0_16px_48px_rgba(0,0,0,0.45)] text-[20px] md:text-[14px]",
           WORKFLOW_GALLERY_CARD_ASPECT_CLASSNAME,
           isClickable && "cursor-pointer",
         )}
@@ -223,7 +223,7 @@ export const WorkflowCard = ({
         role={isClickable ? "button" : undefined}
         tabIndex={isClickable ? 0 : undefined}
       >
-        <CardHeader className="relative flex h-12 items-center justify-center overflow-hidden border-b border-border/70 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 px-4 py-0 text-center text-slate-50 dark:border-border/60 dark:from-slate-100 dark:via-slate-50 dark:to-slate-200 dark:text-slate-950">
+        <CardHeader className="relative flex h-12 items-center justify-center overflow-hidden border-b border-border/70 bg-gradient-to-r from-stone-950 via-stone-900 to-stone-800 px-4 py-0 text-center text-stone-50 dark:border-border/60 dark:from-stone-100 dark:via-stone-50 dark:to-stone-200 dark:text-stone-950">
           <div
             className="absolute inset-0 opacity-25 dark:opacity-40"
             aria-hidden="true"
@@ -235,7 +235,7 @@ export const WorkflowCard = ({
           />
 
           <div className="relative z-10 flex items-center gap-2">
-            <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-white/70 dark:text-slate-700">
+            <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-white/70 dark:text-stone-700">
               {headerLabel}
             </span>
           </div>
@@ -253,7 +253,7 @@ export const WorkflowCard = ({
               <Button
                 variant="ghost"
                 size="icon"
-                className="absolute right-2 top-2 z-10 h-7 w-7 text-white/75 hover:bg-white/10 hover:text-white dark:text-slate-700 dark:hover:bg-slate-950/10 dark:hover:text-slate-950"
+                className="absolute right-2 top-2 z-10 h-7 w-7 text-white/75 hover:bg-white/10 hover:text-white dark:text-stone-700 dark:hover:bg-stone-950/10 dark:hover:text-stone-950"
                 onClick={stopPropagation}
                 onPointerDown={stopPropagation}
                 aria-label="Workflow actions"
@@ -290,7 +290,7 @@ export const WorkflowCard = ({
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
-                        className="text-red-600"
+                        className="text-destructive"
                         onSelect={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
@@ -314,31 +314,31 @@ export const WorkflowCard = ({
               className={cn(
                 "absolute left-0 top-0 flex items-center gap-1 rounded-md border px-2 py-1 shadow-sm",
                 uploadError
-                  ? "border-red-500/40 bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300"
-                  : "border-border/70 bg-muted/60 text-muted-foreground dark:bg-slate-950/20",
+                  ? "border-destructive/40 bg-destructive-muted text-destructive-muted-foreground"
+                  : "border-border/70 bg-muted/60 text-muted-foreground dark:bg-background/30",
               )}
             >
               <span
                 className={cn(
                   "h-1.5 w-1.5 rounded-full",
                   uploadError
-                    ? "bg-red-600 shadow-[0_0_6px_rgba(220,38,38,0.45)] dark:bg-red-300"
-                    : "bg-slate-800 shadow-[0_0_6px_rgba(15,23,42,0.32)] dark:bg-slate-200 dark:shadow-[0_0_6px_rgba(226,232,240,0.28)]",
+                    ? "bg-destructive shadow-[0_0_6px_hsl(var(--destructive)/0.5)]"
+                    : "bg-foreground shadow-[0_0_6px_hsl(var(--foreground)/0.35)]",
                 )}
               />
               <span
                 className={cn(
                   "font-mono text-[9px] font-bold uppercase tracking-[0.1em]",
                   uploadError
-                    ? "text-red-700 dark:text-red-300"
-                    : "text-slate-700 dark:text-slate-300",
+                    ? "text-destructive-muted-foreground"
+                    : "text-muted-foreground",
                 )}
               >
                 {uploadError ? "Error" : "AI"}
               </span>
             </div>
 
-            <div className="flex h-[7em] w-[7em] items-center justify-center overflow-hidden rounded-full border-4 border-slate-900 bg-slate-100 shadow-[0_4px_16px_rgba(15,23,42,0.18)] dark:border-slate-100 dark:bg-slate-800 dark:shadow-[0_4px_16px_rgba(0,0,0,0.35)]">
+            <div className="flex h-[7em] w-[7em] items-center justify-center overflow-hidden rounded-full border-4 border-primary bg-muted shadow-[0_4px_16px_rgba(248,120,37,0.24)] dark:shadow-[0_4px_16px_rgba(0,0,0,0.35)]">
               <img
                 src={avatarUrl}
                 alt={workflow.name}
@@ -354,7 +354,7 @@ export const WorkflowCard = ({
                     <Button
                       variant="outline"
                       size="icon"
-                      className="absolute right-10 top-0 h-8 w-8 border-emerald-500/40 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60"
+                      className="absolute right-10 top-0 h-8 w-8 border-success/40 bg-success-muted text-success-muted-foreground hover:bg-success/20"
                       aria-label={`Update ${workflow.name} to candidate version ${candidateUpdate.latestVersion}`}
                       data-card-action="true"
                       onClick={(event) => {
@@ -376,7 +376,7 @@ export const WorkflowCard = ({
                         <p>{candidateUpdate.latestSummary}</p>
                       ) : null}
                       {candidateUpdate.firstMigration ? (
-                        <p className="text-amber-600 dark:text-amber-300">
+                        <p className="text-warning-muted-foreground">
                           {candidateUpdate.firstMigration}
                         </p>
                       ) : null}
@@ -490,7 +490,7 @@ export const WorkflowCard = ({
             </DialogHeader>
 
             {candidateUpdate.isMajor ? (
-              <div className="rounded-md border border-amber-500/50 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+              <div className="rounded-md border border-warning/50 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground">
                 This is a major candidate update. Review migration notes before
                 applying it to this colleague.
               </div>
@@ -508,7 +508,7 @@ export const WorkflowCard = ({
                     </div>
                     <p className="mt-1 text-muted-foreground">{note.summary}</p>
                     {note.migration ? (
-                      <p className="mt-2 text-amber-700 dark:text-amber-300">
+                      <p className="mt-2 text-warning-muted-foreground">
                         {note.migration}
                       </p>
                     ) : null}

@@ -225,9 +225,9 @@ export default function PublicChatPage() {
 
       if (workflowState.status === "error") {
         return (
-          <div className="rounded-3xl border border-slate-200/80 bg-white/70 p-6 text-slate-900 shadow-sm dark:border-slate-800/60 dark:bg-slate-950/40 dark:text-white">
+          <div className="rounded-3xl border border-border/80 bg-card/70 p-6 text-foreground shadow-sm">
             <p className="text-lg font-semibold">Chat unavailable</p>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            <p className="mt-2 text-sm text-muted-foreground">
               We cannot open a ChatKit session until the workflow loads.
             </p>
             <Button asChild variant="secondary" className="mt-4">
@@ -240,7 +240,7 @@ export default function PublicChatPage() {
       return (
         <div className="space-y-4">
           {rateLimitError && (
-            <Alert className="border-amber-500/50 bg-amber-500/[0.08] text-amber-100">
+            <Alert className="border-warning/50 bg-warning-muted text-warning-muted-foreground">
               <AlertTitle>Slow down for a moment</AlertTitle>
               <AlertDescription>
                 {rateLimitError.message ||
@@ -250,7 +250,7 @@ export default function PublicChatPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="border-amber-400/60 text-amber-100"
+                  className="border-warning/60 text-warning-muted-foreground"
                   onClick={() => setRateLimitError(null)}
                 >
                   Dismiss
@@ -260,8 +260,10 @@ export default function PublicChatPage() {
           )}
 
           {chatError ? (
-            <div className="space-y-4 rounded-3xl border border-red-500/40 bg-red-500/10 p-6 text-center">
-              <p className="font-medium text-red-100">{chatError.message}</p>
+            <div className="space-y-4 rounded-3xl border border-destructive/40 bg-destructive-muted p-6 text-center">
+              <p className="font-medium text-destructive-muted-foreground">
+                {chatError.message}
+              </p>
               <div className="flex flex-wrap justify-center gap-3">
                 <Button asChild variant="outline">
                   <a href={contactHref}>Contact owner</a>
@@ -271,7 +273,7 @@ export default function PublicChatPage() {
           ) : (
             <div className="relative min-h-[520px]">
               {!isChatReady && (
-                <div className="absolute inset-0 flex flex-col gap-4 rounded-3xl bg-white/90 p-6 shadow-sm dark:bg-slate-950/80">
+                <div className="absolute inset-0 flex flex-col gap-4 rounded-3xl bg-background/90 p-6 shadow-sm">
                   <Skeleton className="h-10 w-1/2 self-center" />
                   <Skeleton className="h-full w-full" />
                 </div>
@@ -313,21 +315,21 @@ export default function PublicChatPage() {
       <div className="space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
-            <p className="text-3xl font-semibold text-slate-900 dark:text-white">
+            <p className="text-3xl font-semibold text-foreground">
               Chat with “{currentWorkflowName}”
             </p>
-            <p className="text-base text-slate-600 dark:text-slate-300">
+            <p className="text-base text-muted-foreground">
               Chat sessions open automatically for published workflows unless
               the owner requires OAuth login.
             </p>
             {workflowState.status === "ready" && (
-              <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                 {workflowState.workflow.handle && (
-                  <code className="rounded bg-slate-100 px-2 py-1 dark:bg-slate-900">
+                  <code className="rounded bg-muted px-2 py-1">
                     handle: {workflowState.workflow.handle}
                   </code>
                 )}
-                <code className="rounded bg-slate-100 px-2 py-1 dark:bg-slate-900">
+                <code className="rounded bg-muted px-2 py-1">
                   id: {workflowState.workflow.id}
                 </code>
               </div>
@@ -342,7 +344,7 @@ export default function PublicChatPage() {
 
   return (
     <PublicChatErrorBoundary onReset={handleErrorBoundaryReset}>
-      <div className="h-screen overflow-hidden bg-white text-slate-900 dark:bg-slate-950 dark:text-white">
+      <div className="h-screen overflow-hidden bg-background text-foreground">
         <div className="mx-auto flex h-full max-w-6xl flex-col px-4 py-6 lg:py-8">
           <div className="flex flex-1 items-center justify-center">
             <div className="w-full max-w-3xl">{renderChatColumn()}</div>
@@ -403,7 +405,7 @@ function ThemeToggleButtonGroup({
       onValueChange={handleThemeChange}
       aria-label="Select display theme"
       className={cn(
-        "rounded-full border border-slate-200 bg-white/90 px-1 py-1 shadow-[inset_0_-1px_4px_rgba(15,23,42,0.12)] backdrop-blur-sm dark:border-slate-800 dark:bg-slate-950/70",
+        "rounded-full border border-border bg-card/90 px-1 py-1 shadow-[inset_0_-1px_4px_rgba(40,30,16,0.12)] backdrop-blur-sm dark:bg-background/70",
         className,
       )}
       variant="default"
@@ -414,7 +416,7 @@ function ThemeToggleButtonGroup({
           key={option.value}
           value={option.value}
           aria-label={`Use ${option.label.toLowerCase()} theme`}
-          className="h-9 w-9 rounded-full border border-transparent p-0 text-slate-400 transition-all hover:bg-transparent hover:text-slate-900 dark:text-slate-400 dark:hover:text-white data-[state=on]:border-slate-900/20 data-[state=on]:bg-slate-900 data-[state=on]:text-white data-[state=on]:shadow-[0_4px_12px_rgba(15,23,42,0.3)] dark:data-[state=on]:border-white/30 dark:data-[state=on]:bg-white dark:data-[state=on]:text-slate-900"
+          className="h-9 w-9 rounded-full border border-transparent p-0 text-muted-foreground transition-all hover:bg-transparent hover:text-foreground data-[state=on]:border-primary/20 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-[0_4px_12px_rgba(248,120,37,0.3)]"
         >
           {option.icon}
           <span className="sr-only">{option.label}</span>

@@ -1,59 +1,61 @@
 :root {
-  /* General purpose colors */
-  --agentprism-background: 1 0 0; /* white */
-  --agentprism-foreground: 21% 0.034 264.665; /* gray.900 */
-  --agentprism-primary: 21% 0.034 264.665; /* gray.900 */
-  --agentprism-primary-foreground: 98.5% 0.002 247.839; /* gray.50 */
-  --agentprism-primary: 21% 0.034 264.665; /* gray.900 */
-  --agentprism-primary-foreground: 98.5% 0.002 247.839; /* gray.50 */
-  --agentprism-secondary: 96.7% 0.003 264.542; /* gray.100 */
-  --agentprism-secondary-foreground: 55.1% 0.027 264.364; /* gray.500 */
-  --agentprism-muted: 98.5% 0.002 247.839; /* gray.50 */
-  --agentprism-muted-foreground: 44.6% 0.03 256.802; /* gray.600 */
-  --agentprism-accent: 96.7% 0.003 264.542; /* gray.100 */
-  --agentprism-accent-foreground: 96.7% 0.003 264.542; /* gray.100 */
+  /*
+   * General-purpose colors aligned with the Orcheo design system
+   * (orcheo-design-system/tokens/colors.css): warm ink neutrals,
+   * Orcheo orange brand, warm-harmonized status hues.
+   */
+  --agentprism-background: 97% 0.008 91.483; /* ink-50 */
+  --agentprism-foreground: 21.3% 0.006 91.63; /* ink-900 */
+  --agentprism-primary: 21.3% 0.006 91.63; /* ink-900 */
+  --agentprism-primary-foreground: 97% 0.008 91.483; /* ink-50 */
+  --agentprism-secondary: 93.4% 0.014 88.686; /* ink-100 */
+  --agentprism-secondary-foreground: 54.4% 0.02 84.589; /* ink-500 */
+  --agentprism-muted: 93.4% 0.014 88.686; /* ink-100 */
+  --agentprism-muted-foreground: 44.3% 0.015 86.885; /* ink-600 */
+  --agentprism-accent: 93.4% 0.014 88.686; /* ink-100 */
+  --agentprism-accent-foreground: 27.3% 0.009 88.77; /* ink-800 */
 
   /* Brand colors */
-  --agentprism-brand: 60.6% 0.25 292.717; /* violet.500 */
+  --agentprism-brand: 71.1% 0.179 48.062; /* orange-500 */
   --agentprism-brand-foreground: 1 0 0; /* white */
-  --agentprism-brand-secondary: 70.5% 0.213 47.604; /* orange.500 */
+  --agentprism-brand-secondary: 69.5% 0.092 72.981; /* tan-500 */
   --agentprism-brand-secondary-foreground: 1 0 0; /* white */
 
   /* Borders */
-  --agentprism-border: 92.8% 0.006 264.531; /* gray.200 */
-  --agentprism-border-subtle: 96.7% 0.003 264.542; /* gray.100 */
-  --agentprism-border-strong: 87.2% 0.01 258.338; /* gray.300 */
-  --agentprism-border-inverse: 21% 0.034 264.665; /* gray.900 */
+  --agentprism-border: 87.7% 0.02 87.522; /* ink-200 */
+  --agentprism-border-subtle: 93.4% 0.014 88.686; /* ink-100 */
+  --agentprism-border-strong: 78.7% 0.025 88.258; /* ink-300 */
+  --agentprism-border-inverse: 21.3% 0.006 91.63; /* ink-900 */
 
   /* Success status color */
-  --agentprism-success: 69.6% 0.17 162.48; /* emerald.500 */
-  --agentprism-success-muted: 97.9% 0.021 166.113; /* emerald.50 */
-  --agentprism-success-muted-foreground: 50.8% 0.118 165.612; /* emerald.700 */
+  --agentprism-success: 52.9% 0.103 156.217; /* green-500 */
+  --agentprism-success-muted: 94.2% 0.018 161.108; /* green-100 */
+  --agentprism-success-muted-foreground: 45.8% 0.089 156.156; /* green-600 */
 
   /* Error status color */
-  --agentprism-error: 63.7% 0.237 25.331; /* red.500 */
-  --agentprism-error-muted: 97.1% 0.013 17.38; /* red.50 */
-  --agentprism-error-muted-foreground: 57.7% 0.245 27.325; /* red.600 */
+  --agentprism-error: 57.3% 0.184 32.327; /* red-500 */
+  --agentprism-error-muted: 93.1% 0.029 36.154; /* red-100 */
+  --agentprism-error-muted-foreground: 50% 0.164 32.898; /* red-600 */
 
   /* Warning status color */
-  --agentprism-warning: 79.5% 0.184 86.047; /* yellow.500 */
-  --agentprism-warning-muted: 98.7% 0.026 102.212; /* yellow.50 */
-  --agentprism-warning-muted-foreground: 55.4% 0.135 66.442; /* yellow.700 */
+  --agentprism-warning: 72.9% 0.147 78.341; /* amber-500 */
+  --agentprism-warning-muted: 95.1% 0.041 88.794; /* amber-100 */
+  --agentprism-warning-muted-foreground: 63.6% 0.129 77.25; /* amber-600 */
 
   /* Pending status color */
-  --agentprism-pending: 60.6% 0.25 292.717; /* violet.500 */
-  --agentprism-pending-muted: 94.3% 0.029 294.588; /* violet.100 */
-  --agentprism-pending-muted-foreground: 54.1% 0.281 293.009; /* violet.600 */
+  --agentprism-pending: 52.2% 0.082 245.431; /* blue-500 */
+  --agentprism-pending-muted: 93.8% 0.014 238.015; /* blue-100 */
+  --agentprism-pending-muted-foreground: 44.6% 0.07 244.417; /* blue-600 */
 
   /* Code syntax highlighting */
-  --agentprism-code-string: 57.7% 0.245 27.325; /* red.600 */
-  --agentprism-code-number: 57.7% 0.245 27.325; /* red.600 */
-  --agentprism-code-key: 54.6% 0.245 262.881; /* blue.600 */
-  --agentprism-code-base: 55.1% 0.027 264.364; /* gray.500 */
+  --agentprism-code-string: 50% 0.164 32.898; /* red-600 */
+  --agentprism-code-number: 50% 0.164 32.898; /* red-600 */
+  --agentprism-code-key: 44.6% 0.07 244.417; /* blue-600 */
+  --agentprism-code-base: 54.4% 0.02 84.589; /* ink-500 */
 
   /* Generic badge colors */
-  --agentprism-badge-default: 96.7% 0.003 264.542; /* gray.100 */
-  --agentprism-badge-default-foreground: 44.6% 0.03 256.802; /* gray.600 */
+  --agentprism-badge-default: 93.4% 0.014 88.686; /* ink-100 */
+  --agentprism-badge-default-foreground: 44.3% 0.015 86.885; /* ink-600 */
 
   /* Trace colors (llm) */
   --agentprism-avatar-llm: 62.7% 0.265 303.9; /* purple.500 */
@@ -123,61 +125,59 @@
 }
 
 .dark {
-  /* General purpose colors */
-  --agentprism-background: 4% 0 0; /* align with workflow dark background */
-  --agentprism-foreground: 96.7% 0.003 264.542; /* gray.100 */
-  --agentprism-primary: 96.7% 0.003 264.542; /* gray.100 */
-  --agentprism-primary-foreground: 13% 0.028 261.692; /* gray.950 */
-  --agentprism-primary: 96.7% 0.003 264.542; /* gray.100 */
-  --agentprism-primary-foreground: 13% 0.028 261.692; /* gray.950 */
-  --agentprism-secondary: 27.8% 0.033 256.848; /* gray.800 */
-  --agentprism-secondary-foreground: 55.1% 0.027 264.364; /* gray.500 */
-  --agentprism-muted: 21% 0.034 264.665; /* gray.900 */
-  --agentprism-muted-foreground: 70.7% 0.022 261.325; /* gray.400 */
-  --agentprism-accent: 96.7% 0.003 264.542; /* gray.100 */
-  --agentprism-accent-foreground: 21% 0.034 264.665; /* gray.900 */
+  /* General purpose colors — warm ink dark ramp (orcheo-design-system) */
+  --agentprism-background: 16.3% 0.004 106.847; /* ink-950 */
+  --agentprism-foreground: 93.4% 0.014 88.686; /* ink-100 */
+  --agentprism-primary: 93.4% 0.014 88.686; /* ink-100 */
+  --agentprism-primary-foreground: 16.3% 0.004 106.847; /* ink-950 */
+  --agentprism-secondary: 27.3% 0.009 88.77; /* ink-800 */
+  --agentprism-secondary-foreground: 66.5% 0.023 85.959; /* ink-400 */
+  --agentprism-muted: 21.3% 0.006 91.63; /* ink-900 */
+  --agentprism-muted-foreground: 66.5% 0.023 85.959; /* ink-400 */
+  --agentprism-accent: 27.3% 0.009 88.77; /* ink-800 */
+  --agentprism-accent-foreground: 93.4% 0.014 88.686; /* ink-100 */
 
   /* Brand colors */
-  --agentprism-brand: 60.6% 0.25 292.717; /* violet.500 */
+  --agentprism-brand: 71.1% 0.179 48.062; /* orange-500 */
   --agentprism-brand-foreground: 1 0 0; /* white */
-  --agentprism-brand-secondary: 70.5% 0.213 47.604; /* orange.500 */
+  --agentprism-brand-secondary: 69.5% 0.092 72.981; /* tan-500 */
   --agentprism-brand-secondary-foreground: 1 0 0; /* white */
 
   /* Borders */
-  --agentprism-border: 44.6% 0.03 256.802; /* gray.600 */
-  --agentprism-border-subtle: 37.3% 0.034 259.733; /* gray.700 */
-  --agentprism-border-strong: 55.1% 0.027 264.364; /* gray.500 */
-  --agentprism-border-inverse: 92.8% 0.006 264.531; /* gray.200 */
+  --agentprism-border: 34.9% 0.013 87.556; /* ink-700 */
+  --agentprism-border-subtle: 27.3% 0.009 88.77; /* ink-800 */
+  --agentprism-border-strong: 44.3% 0.015 86.885; /* ink-600 */
+  --agentprism-border-inverse: 87.7% 0.02 87.522; /* ink-200 */
 
   /* Success status color */
-  --agentprism-success: 72.3% 0.219 149.579; /* green.500 */
-  --agentprism-success-muted: 26.6% 0.065 152.934; /* green.950 */
-  --agentprism-success-muted-foreground: 87.1% 0.15 154.449; /* green.300 */
+  --agentprism-success: 52.9% 0.103 156.217; /* green-500 */
+  --agentprism-success-muted: 29.7% 0.053 156.812; /* dark forest tint */
+  --agentprism-success-muted-foreground: 77.1% 0.081 159.669;
 
   /* Error status color */
-  --agentprism-error: 63.7% 0.237 25.331; /* red.500 */
-  --agentprism-error-muted: 25.8% 0.092 26.042; /* red.950 */
-  --agentprism-error-muted-foreground: 80.8% 0.114 19.571; /* red.300 */
+  --agentprism-error: 57.3% 0.184 32.327; /* red-500 */
+  --agentprism-error-muted: 26.5% 0.076 33.199; /* dark warm-red tint */
+  --agentprism-error-muted-foreground: 74.1% 0.111 33.398;
 
   /* Warning status color */
-  --agentprism-warning: 79.5% 0.184 86.047; /* yellow.500 */
-  --agentprism-warning-muted: 28.6% 0.066 53.813; /* yellow.950 */
-  --agentprism-warning-muted-foreground: 90.5% 0.182 98.111; /* yellow.300 */
+  --agentprism-warning: 72.9% 0.147 78.341; /* amber-500 */
+  --agentprism-warning-muted: 31.6% 0.06 79.88; /* dark ochre tint */
+  --agentprism-warning-muted-foreground: 81.5% 0.114 84.939;
 
   /* Pending status color */
-  --agentprism-pending: 60.6% 0.25 292.717; /* violet.500 */
-  --agentprism-pending-muted: 28.3% 0.141 291.089; /* violet.950 */
-  --agentprism-pending-muted-foreground: 70.2% 0.183 293.541; /* violet.400 */
+  --agentprism-pending: 52.2% 0.082 245.431; /* blue-500 */
+  --agentprism-pending-muted: 27.9% 0.039 244.504; /* dark slate-blue tint */
+  --agentprism-pending-muted-foreground: 75.9% 0.061 243.329;
 
   /* Code syntax highlighting */
-  --agentprism-code-string: 70.4% 0.191 22.216; /* red.400 */
-  --agentprism-code-number: 70.4% 0.191 22.216; /* red.400 */
-  --agentprism-code-key: 80.9% 0.105 251.813; /* blue.300 */
-  --agentprism-code-base: 70.7% 0.022 261.325; /* gray.400 */
+  --agentprism-code-string: 74.1% 0.111 33.398; /* warm red, lightened */
+  --agentprism-code-number: 74.1% 0.111 33.398;
+  --agentprism-code-key: 75.9% 0.061 243.329; /* slate blue, lightened */
+  --agentprism-code-base: 66.5% 0.023 85.959; /* ink-400 */
 
   /* Generic badge colors */
-  --agentprism-badge-default: 21% 0.034 264.665; /* gray.900 */
-  --agentprism-badge-default-foreground: 70.7% 0.022 261.325; /* gray.400 */
+  --agentprism-badge-default: 21.3% 0.006 91.63; /* ink-900 */
+  --agentprism-badge-default-foreground: 66.5% 0.023 85.959; /* ink-400 */
 
   /* Trace colors (llm) */
   --agentprism-avatar-llm: 82.7% 0.119 306.383; /* purple.300 */
