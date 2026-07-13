@@ -915,7 +915,7 @@ export function WorkflowTabContent({
 
         {latestVersion && mermaidSource && !diagramError && (
           <div className="min-h-0 flex flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-hidden">
+            <div className="dot-grid min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-muted/30">
               {diagramNodes.length > 0 ? (
                 <ReactFlow
                   key={`${latestVersion.id}-mermaid-svg`}
