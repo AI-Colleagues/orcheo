@@ -16,13 +16,16 @@ async def test_postgres_checkpointer_round_trip(
 ) -> None:
     """Ensure the Postgres checkpointer can persist and retrieve a checkpoint."""
 
+    if os.getenv("ORCHEO_TEST_POSTGRES_PERSISTENCE") != "1":
+        pytest.skip("Postgres persistence integration checks are not enabled.")
+
     dsn = os.getenv("ORCHEO_POSTGRES_DSN")
     if dsn is None:
-        pytest.skip("ORCHEO_POSTGRES_DSN is not configured.")
+        pytest.fail("ORCHEO_POSTGRES_DSN is required for this integration check.")
 
     monkeypatch.setenv("ORCHEO_CHECKPOINT_BACKEND", "postgres")
     monkeypatch.setenv("ORCHEO_POSTGRES_DSN", dsn)
-    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_TIMEOUT", "0.1")
+    monkeypatch.setenv("ORCHEO_POSTGRES_POOL_TIMEOUT", "5")
 
     settings = config.get_settings(refresh=True)
 

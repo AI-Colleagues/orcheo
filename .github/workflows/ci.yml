@@ -202,6 +202,7 @@ jobs:
           # Use a numeric address so psycopg never enters an unbounded DNS lookup.
           ORCHEO_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/postgres
           ORCHEO_CHECKPOINT_BACKEND: postgres
+          ORCHEO_TEST_POSTGRES_PERSISTENCE: "1"
         run: |
           uv run pytest tests/integration/test_postgres_persistence.py -vv \
             -o faulthandler_timeout=60
