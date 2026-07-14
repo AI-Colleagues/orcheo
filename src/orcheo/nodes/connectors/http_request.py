@@ -10,6 +10,10 @@ from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.security.ssrf import (
+    restricted_egress_client_kwargs,
+    validate_public_url_async,
+)
 
 
 HttpMethod = Literal[
@@ -62,6 +66,19 @@ class HttpRequestNode(TaskNode):
         default=False, description="Raise an error when the response is not 2xx"
     )
 
+    async def _guarded_client_kwargs(self) -> dict[str, Any]:
+        """Return httpx client kwargs, adding an SSRF egress guard when required.
+
+        In restricted mode the workflow author is untrusted, so requests to
+        internal/non-global hosts are blocked (SSRF). The pre-flight check gives
+        a clean error for the initial URL; the guarded transport re-validates
+        every redirect hop. Trusted deployments keep unrestricted egress.
+        """
+        client_kwargs = restricted_egress_client_kwargs()
+        if client_kwargs:
+            await validate_public_url_async(self.url)
+        return client_kwargs
+
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Execute the configured HTTP request."""
         request_kwargs: dict[str, Any] = {
@@ -80,8 +97,10 @@ class HttpRequestNode(TaskNode):
         if self.data is not None:
             request_kwargs["data"] = self.data
 
+        client_kwargs = await self._guarded_client_kwargs()
+
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 response = await client.request(**request_kwargs)
         except httpx.HTTPError as exc:  # pragma: no cover - network failure guard
             msg = f"HTTP request failed: {exc!s}"

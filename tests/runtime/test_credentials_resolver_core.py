@@ -76,6 +76,75 @@ def test_resolver_rejects_duplicate_name_references(
         resolver.resolve(credential_ref(metadata.name))
 
 
+def test_resolver_scopes_resolution_to_its_workspace() -> None:
+    """A resolver only resolves credentials in its bound workspace.
+
+    Security guarantee for restricted (untrusted, multi-tenant) mode: a
+    workflow author who writes ``[[name]]`` in built-in node config can only
+    reach credentials in the workflow's own workspace, never another tenant's.
+    """
+    workspace_a = uuid4()
+    workspace_b = uuid4()
+    vault = InMemoryCredentialVault()
+    vault.create_credential(
+        name="ApiKey",
+        provider="svc",
+        scopes=["read"],
+        secret="workspace-a-secret",
+        actor="ops",
+        workspace_id=str(workspace_a),
+    )
+    vault.create_credential(
+        name="OtherTenantOnly",
+        provider="svc",
+        scopes=["read"],
+        secret="workspace-b-secret",
+        actor="ops",
+        workspace_id=str(workspace_b),
+    )
+
+    resolver_a = CredentialResolver(
+        vault, context=CredentialAccessContext(workspace_id=workspace_a)
+    )
+    assert resolver_a.resolve(credential_ref("ApiKey")) == "workspace-a-secret"
+
+    # A credential that exists only in workspace B is invisible to workspace A.
+    with pytest.raises(CredentialReferenceNotFoundError):
+        resolver_a.resolve(credential_ref("OtherTenantOnly"))
+
+
+def test_resolver_does_not_leak_same_named_credential_across_workspaces() -> None:
+    """Same-named credentials in different workspaces stay isolated per resolver."""
+    workspace_a = uuid4()
+    workspace_b = uuid4()
+    vault = InMemoryCredentialVault()
+    vault.create_credential(
+        name="ApiKey",
+        provider="svc",
+        scopes=["read"],
+        secret="workspace-a-secret",
+        actor="ops",
+        workspace_id=str(workspace_a),
+    )
+    vault.create_credential(
+        name="ApiKey",
+        provider="svc",
+        scopes=["read"],
+        secret="workspace-b-secret",
+        actor="ops",
+        workspace_id=str(workspace_b),
+    )
+
+    resolver_a = CredentialResolver(
+        vault, context=CredentialAccessContext(workspace_id=workspace_a)
+    )
+    resolver_b = CredentialResolver(
+        vault, context=CredentialAccessContext(workspace_id=workspace_b)
+    )
+    assert resolver_a.resolve(credential_ref("ApiKey")) == "workspace-a-secret"
+    assert resolver_b.resolve(credential_ref("ApiKey")) == "workspace-b-secret"
+
+
 def test_vault_rejects_duplicate_names() -> None:
     vault = InMemoryCredentialVault()
     vault.create_credential(
