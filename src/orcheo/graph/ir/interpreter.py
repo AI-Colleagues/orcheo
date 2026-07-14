@@ -92,14 +92,23 @@ class _CompileContext:
     imported_symbols: dict[str, tuple[str, str]] = field(default_factory=dict)
     helper_graph_irs: dict[str, GraphIR] = field(default_factory=dict)
     helper_graph_stack: list[str] = field(default_factory=list)
+    enforce_node_policy: bool = True
 
 
-def compile_workflow_to_ir(source: str) -> GraphIR:
+def compile_workflow_to_ir(source: str, *, enforce_node_policy: bool = True) -> GraphIR:
     """Compile a conforming ``workflow.py`` source string into a frozen IR.
 
+    Args:
+        source: The ``workflow.py`` source string.
+        enforce_node_policy: When ``True`` (the default, for untrusted client
+            uploads), reject built-in node types disallowed for untrusted
+            restricted-mode authors (see :mod:`orcheo.graph.ir.node_policy`).
+            Trusted first-party sources (candidate onboarding) pass ``False``.
+
     Raises:
-        WorkflowValidationError: When the script violates the grammar or the
-            config-value / ``CodeNode`` body contracts (line-referenced).
+        WorkflowValidationError: When the script violates the grammar, the
+            config-value / ``CodeNode`` body contracts (line-referenced), or uses
+            a node type disallowed for untrusted restricted-mode authors.
     """
     try:
         module = ast.parse(source)
@@ -122,6 +131,7 @@ def compile_workflow_to_ir(source: str) -> GraphIR:
         graph_builders=graph_builders,
         schema_classes=schema_classes,
         imported_symbols=imported_symbols,
+        enforce_node_policy=enforce_node_policy,
     )
 
     root_name, graphs = _interpret_graph_builder(entrypoint, ctx)
@@ -559,12 +569,17 @@ def _build_builtin_spec(
     ctx: _CompileContext,
 ) -> BuiltinNodeSpec:
     """Build a :class:`BuiltinNodeSpec` from a registered node instantiation."""
+    from orcheo.graph.ir.node_policy import check_node_type_allowed
     from orcheo.nodes.registry import registry
 
     if registry.get_node(class_name) is None:
         raise WorkflowValidationError(
             f"unknown node type '{class_name}' for node '{node_id}'",
             lineno=getattr(node_call, "lineno", None),
+        )
+    if ctx.enforce_node_policy:
+        check_node_type_allowed(
+            class_name, node_id, lineno=getattr(node_call, "lineno", None)
         )
     config = _config_from_kwargs(
         node_call,

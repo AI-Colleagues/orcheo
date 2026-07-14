@@ -465,6 +465,7 @@ class BrowserNode(TaskNode):
         name="BrowserNavigateNode",
         description="Open a URL in a shared Playwright browser session.",
         category="browser",
+        restricted=True,
     )
 )
 class BrowserNavigateNode(BrowserNode):
@@ -592,6 +593,7 @@ class BrowserNavigateNode(BrowserNode):
         name="BrowserActionNode",
         description="Perform a user-style action against the active Playwright page.",
         category="browser",
+        restricted=True,
     )
 )
 class BrowserActionNode(BrowserNode):
@@ -709,6 +711,7 @@ class BrowserActionNode(BrowserNode):
         name="BrowserExtractNode",
         description="Extract page or element content from the active Playwright page.",
         category="browser",
+        restricted=True,
     )
 )
 class BrowserExtractNode(BrowserNode):
@@ -770,6 +773,7 @@ class BrowserExtractNode(BrowserNode):
         name="BrowserWaitNode",
         description="Wait for a condition on the active Playwright page.",
         category="browser",
+        restricted=True,
     )
 )
 class BrowserWaitNode(BrowserNode):
@@ -939,6 +943,7 @@ class BrowserWaitNode(BrowserNode):
         name="BrowserScriptNode",
         description="Evaluate JavaScript in the active Playwright page context.",
         category="browser",
+        restricted=True,
     )
 )
 class BrowserScriptNode(BrowserNode):
@@ -969,6 +974,7 @@ class BrowserScriptNode(BrowserNode):
         name="BrowserCloseNode",
         description="Close an active Playwright browser session.",
         category="browser",
+        restricted=True,
     )
 )
 class BrowserCloseNode(BrowserNode):

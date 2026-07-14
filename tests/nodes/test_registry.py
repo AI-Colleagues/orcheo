@@ -24,6 +24,18 @@ def test_get_metadata_by_callable_exact_match() -> None:
     assert result.name == "my_node"
     assert result.description == "A test node"
     assert result.category == "test"
+    assert result.restricted is False
+
+
+def test_metadata_can_mark_node_restricted() -> None:
+    """Node metadata exposes an opt-in restricted-mode policy flag."""
+    metadata = NodeMetadata(
+        name="restricted_node",
+        description="Host-capable node",
+        restricted=True,
+    )
+
+    assert metadata.restricted is True
 
 
 def test_get_metadata_by_callable_instance_match() -> None:

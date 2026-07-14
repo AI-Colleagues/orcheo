@@ -14,6 +14,10 @@ from orcheo.graph.state import State
 from orcheo.listeners.qq import DefaultQQAccessTokenProvider
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.security.ssrf import (
+    restricted_egress_client_kwargs,
+    validate_restricted_egress_host_async,
+)
 
 
 @registry.register(
@@ -92,6 +96,7 @@ class EmailNode(TaskNode):
         if not self.to_addresses and not self.cc_addresses and not self.bcc_addresses:
             msg = "At least one recipient must be specified"
             raise ValueError(msg)
+        await validate_restricted_egress_host_async(self.smtp_host, self.smtp_port)
         return await asyncio.to_thread(self._send_email)
 
 
@@ -134,7 +139,10 @@ class DiscordWebhookNode(TaskNode):
         if self.embeds is not None:
             payload["embeds"] = self.embeds
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(
+            timeout=self.timeout,
+            **restricted_egress_client_kwargs(),
+        ) as client:
             response = await client.post(self.webhook_url, json=payload)
             response.raise_for_status()
 

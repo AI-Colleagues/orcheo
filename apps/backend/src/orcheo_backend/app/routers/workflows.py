@@ -905,8 +905,9 @@ async def ingest_workflow_version(
                 "message": (
                     "Workflow script ingestion is disabled in managed mode. "
                     "Use the Candidates tab to onboard AI colleagues, or set "
-                    "ORCHEO_WORKFLOW_TRUST_MODE=self_host_unsafe for "
-                    "self-hosted deployments."
+                    "ORCHEO_WORKFLOW_TRUST_MODE=allow_client_uploads for "
+                    "self-hosted deployments where every workflow author is "
+                    "trusted."
                 ),
                 "code": "workflow.ingestion.disabled",
             },

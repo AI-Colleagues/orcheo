@@ -57,6 +57,7 @@ def ingest_workflow(
     entrypoint: str | None = None,
     script_filename: str | None = None,
     max_script_bytes: int | None = DEFAULT_SCRIPT_SIZE_LIMIT,
+    trusted_source: bool = False,
 ) -> dict[str, Any]:
     """Ingest a ``workflow.py`` per the active definition mode.
 
@@ -64,6 +65,15 @@ def ingest_workflow(
     code runs) and the IR is the stored graph payload. In ``unrestricted`` mode
     today's :func:`ingest_langgraph_script` behaviour is preserved and an
     explicit not-tenant-safe warning is logged.
+
+    Args:
+        source: The ``workflow.py`` source string.
+        entrypoint: Optional entrypoint name (unrestricted mode only).
+        script_filename: Optional compiled filename (unrestricted mode only).
+        max_script_bytes: Optional upload size limit.
+        trusted_source: ``True`` for curated first-party sources (candidate
+            onboarding), which bypass the restricted-mode node capability policy.
+            Client uploads leave this ``False`` so the policy is enforced.
 
     Returns:
         The graph payload to persist: a ``frozen-ir`` payload in restricted mode
@@ -81,7 +91,7 @@ def ingest_workflow(
 
         validate_script_size(source, max_script_bytes)
         try:
-            ir = compile_workflow_to_ir(source)
+            ir = compile_workflow_to_ir(source, enforce_node_policy=not trusted_source)
         except WorkflowValidationError as exc:
             # Audit log for ingestion rejections (line-referenced where known).
             logger.warning(

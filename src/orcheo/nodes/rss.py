@@ -12,6 +12,7 @@ from pydantic import Field, field_validator
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.security.ssrf import restricted_egress_client_kwargs
 
 
 RSS_REQUEST_HEADERS = {
@@ -226,6 +227,7 @@ class RSSNode(TaskNode):
         async with httpx.AsyncClient(
             follow_redirects=True,
             headers=RSS_REQUEST_HEADERS,
+            **restricted_egress_client_kwargs(),
         ) as client:
             # Re-flatten because resolved_for_run() uses model_copy(update=…)
             # which bypasses Pydantic field validators, so self.sources may

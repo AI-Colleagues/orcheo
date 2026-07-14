@@ -159,6 +159,9 @@ def _prepare_candidate_version_payload(
             candidate.script,
             entrypoint=candidate.entrypoint,
             script_filename=candidate_script_filename(candidate.id),
+            # Candidates are curated first-party workflows, not untrusted client
+            # uploads, so they may use the full node set in restricted mode.
+            trusted_source=True,
         )
     except (WorkflowValidationError, ScriptIngestionError) as exc:
         raise HTTPException(

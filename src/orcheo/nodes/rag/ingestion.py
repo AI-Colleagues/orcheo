@@ -26,6 +26,7 @@ from orcheo.nodes.rag.vector_store import (
     InMemoryVectorStore,
 )
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.security.ssrf import restricted_egress_client_kwargs
 from orcheo.tracing.model_metadata import (
     build_ai_trace_metadata,
     infer_model_name_from_instance,
@@ -215,6 +216,7 @@ class RawDocumentInput(BaseModel):
         name="DocumentLoaderNode",
         description="Normalize raw document payloads into validated Document objects.",
         category="conversational_search",
+        restricted=True,
     )
 )
 class DocumentLoaderNode(TaskNode):
@@ -490,6 +492,7 @@ class WebDocumentLoaderNode(TaskNode):
         async with httpx.AsyncClient(
             timeout=float(self.timeout),
             follow_redirects=self.follow_redirects,
+            **restricted_egress_client_kwargs(),
         ) as client:
             for index, web_input in enumerate(payloads):
                 document = await self._fetch_document(client, web_input, index)
