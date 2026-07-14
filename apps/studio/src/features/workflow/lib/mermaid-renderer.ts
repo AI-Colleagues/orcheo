@@ -4,7 +4,7 @@ const MAX_CONCURRENT_RENDERS = 3;
 const MEMORY_CACHE_LIMIT = 150;
 const SESSION_CACHE_LIMIT = 40;
 const MAX_SESSION_SVG_LENGTH = 150_000;
-const SESSION_STORAGE_KEY = "orcheo:workflow:mermaid-svg-cache:v1";
+const SESSION_STORAGE_KEY = "orcheo:workflow:mermaid-svg-cache:v2";
 
 let mermaidInitialized = false;
 let hydratedSessionCache = false;
@@ -196,6 +196,7 @@ export const forceMermaidLeftToRight = (source: string): string => {
 
 const MERMAID_COLOR_ALIASES: ReadonlyArray<[RegExp, string]> = [
   [/\bclassDef\s+default\s+fill:#eef4ff\b/gi, "classDef default fill:#f2f0ff"],
+  [/\bclassDef\s+first\s+fill-opacity:0\b/gi, "classDef first fill:#bfb6fc"],
   [/\bclassDef\s+last\s+fill:#94b8ff\b/gi, "classDef last fill:#bfb6fc"],
 ];
 

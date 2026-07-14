@@ -251,7 +251,7 @@ def _render_mermaid_fallback(
     lines.append("\t__end__([<p>__end__</p>]):::last")
     lines.extend(edge_lines)
     lines.append("\tclassDef default fill:#f2f0ff,line-height:1.2")
-    lines.append("\tclassDef first fill-opacity:0")
+    lines.append("\tclassDef first fill:#bfb6fc")
     lines.append("\tclassDef last fill:#bfb6fc")
     return normalise_mermaid_sentinels("\n".join(lines))
 

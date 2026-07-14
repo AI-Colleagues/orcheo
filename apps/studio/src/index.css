@@ -139,6 +139,12 @@
   }
 
   .react-flow__controls {
+    --xy-controls-box-shadow: 0 8px 20px hsl(var(--background) / 0.45);
+    --xy-controls-button-background-color: hsl(var(--card) / 0.98);
+    --xy-controls-button-background-color-hover: hsl(var(--accent));
+    --xy-controls-button-border-color: hsl(var(--border) / 0.9);
+    --xy-controls-button-color: hsl(var(--card-foreground));
+    --xy-controls-button-color-hover: hsl(var(--accent-foreground));
     @apply flex flex-col overflow-hidden rounded-xl border border-border bg-card/95 text-card-foreground shadow-lg backdrop-blur-sm;
   }
 

@@ -41,24 +41,18 @@ describe("mermaid-renderer", () => {
   });
 
   it("normalizes template palette aliases to the default workflow palette", () => {
-    expect(
-      normalizeMermaidPalette(
-        [
-          "graph TD;",
-          "\tclassDef default fill:#eef4ff,line-height:1.2",
-          "\tclassDef last fill:#94b8ff",
-        ].join("\n"),
-      ),
-    ).toContain("classDef default fill:#f2f0ff,line-height:1.2");
-    expect(
-      normalizeMermaidPalette(
-        [
-          "graph TD;",
-          "\tclassDef default fill:#eef4ff,line-height:1.2",
-          "\tclassDef last fill:#94b8ff",
-        ].join("\n"),
-      ),
-    ).toContain("classDef last fill:#bfb6fc");
+    const normalized = normalizeMermaidPalette(
+      [
+        "graph TD;",
+        "\tclassDef default fill:#eef4ff,line-height:1.2",
+        "\tclassDef first fill-opacity:0",
+        "\tclassDef last fill:#94b8ff",
+      ].join("\n"),
+    );
+
+    expect(normalized).toContain("classDef default fill:#f2f0ff,line-height:1.2");
+    expect(normalized).toContain("classDef first fill:#bfb6fc");
+    expect(normalized).toContain("classDef last fill:#bfb6fc");
   });
 
   it("reuses cached svg for the same key", async () => {
