@@ -3672,7 +3672,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "orcheo-sdk"
-version = "0.33.3"
+version = "0.33.4"
 source = { editable = "packages/sdk" }
 dependencies = [
     { name = "httpx" },
