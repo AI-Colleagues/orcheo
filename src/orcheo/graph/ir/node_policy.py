@@ -1,4 +1,4 @@
-"""Restricted-mode node capability policy (untrusted-author node allowlist).
+"""Restricted-mode policy for nodes marked unsafe for untrusted authors.
 
 In restricted definition mode uploaded workflows are untrusted, yet built-in
 nodes run **in-process with full host privileges** using author-controlled
@@ -6,16 +6,12 @@ config. Restricted mode exists precisely to isolate tenants, so node types whose
 capability inherently breaks that isolation are rejected at ingestion for
 untrusted authors:
 
-* **Browser nodes** drive a real Playwright browser — arbitrary page rendering,
-  ``page.evaluate`` JavaScript execution, and subresource/redirect egress that
-  the HTTP SSRF guard cannot see (a different networking stack).
-* **Database nodes** open connections to an author-supplied host and run
-  author-supplied queries (arbitrary SQL / Mongo commands against arbitrary,
-  possibly internal, endpoints).
-* **Communication nodes** open author-controlled SMTP or webhook targets using
-  networking stacks that are not protected by the restricted HTTP transport.
-* **File-backed loader nodes** read author-supplied paths from the worker
-  filesystem and can therefore expose files outside the workflow workspace.
+Nodes opt into rejection with ``NodeMetadata(restricted=True)``. This keeps the
+security decision next to each node's registry declaration instead of relying
+on category names or a central class-name list. Browser, Postgres, and
+file-backed loader nodes are currently marked restricted because they can reach
+internal HTTP services, the Orcheo Postgres database, or worker filesystem paths
+that are not otherwise isolated.
 
 This mirrors the existing per-capability guard in ``nodes/ai/mcp_guard.py``
 (local ``stdio`` MCP subprocess) and complements ``security/ssrf.py`` (which
@@ -33,31 +29,6 @@ from __future__ import annotations
 from orcheo.graph.ir.exceptions import WorkflowValidationError
 
 
-# Registry categories blocked for untrusted restricted-mode authors. Blocking by
-# category (not just by name) means a newly added node in one of these
-# categories is denied by default — fail-closed for new dangerous capabilities.
-RESTRICTED_BLOCKED_CATEGORIES = frozenset({"browser", "communication", "mongodb"})
-
-# Individual node types blocked regardless of their registry category (e.g.
-# ``PostgresNode`` lives in the mixed ``storage`` category).
-_RESTRICTED_BLOCKED_NODE_REASONS = {
-    "DatasetNode": "reads author-specified files from the worker filesystem",
-    "DocumentLoaderNode": "reads author-specified files from the worker filesystem",
-    "MultiDoc2DialCorpusLoaderNode": (
-        "reads author-specified files from the worker filesystem"
-    ),
-    "MultiDoc2DialDatasetNode": (
-        "reads author-specified files from the worker filesystem"
-    ),
-    "PostgresNode": (
-        "opens connections to an author-specified database host and runs "
-        "author-specified queries"
-    ),
-    "QReCCDatasetNode": "reads author-specified files from the worker filesystem",
-}
-RESTRICTED_BLOCKED_NODE_TYPES = frozenset(_RESTRICTED_BLOCKED_NODE_REASONS)
-
-
 def restricted_mode_rejection_reason(node_type: str) -> str | None:
     """Return why ``node_type`` is disallowed for untrusted authors, else ``None``.
 
@@ -70,15 +41,9 @@ def restricted_mode_rejection_reason(node_type: str) -> str | None:
     """
     from orcheo.nodes.registry import registry
 
-    if reason := _RESTRICTED_BLOCKED_NODE_REASONS.get(node_type):
-        return f"node type '{node_type}' {reason}"
     metadata = registry.get_metadata(node_type)
-    category = metadata.category if metadata is not None else None
-    if category in RESTRICTED_BLOCKED_CATEGORIES:
-        return (
-            f"node type '{node_type}' (category '{category}') drives host "
-            "resources that cannot be isolated from other tenants"
-        )
+    if metadata is not None and metadata.restricted:
+        return f"node type '{node_type}' is marked restricted for untrusted authors"
     return None
 
 
@@ -106,8 +71,6 @@ def check_node_type_allowed(
 
 
 __all__ = [
-    "RESTRICTED_BLOCKED_CATEGORIES",
-    "RESTRICTED_BLOCKED_NODE_TYPES",
     "check_node_type_allowed",
     "restricted_mode_rejection_reason",
 ]

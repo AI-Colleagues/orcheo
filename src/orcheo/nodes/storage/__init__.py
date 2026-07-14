@@ -58,6 +58,7 @@ def get_graph_store(config: RunnableConfig | None) -> Any | None:
         name="PostgresNode",
         description="Execute SQL against a PostgreSQL database using psycopg.",
         category="storage",
+        restricted=True,
     )
 )
 class PostgresNode(TaskNode):

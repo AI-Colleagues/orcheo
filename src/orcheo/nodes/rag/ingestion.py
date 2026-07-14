@@ -216,6 +216,7 @@ class RawDocumentInput(BaseModel):
         name="DocumentLoaderNode",
         description="Normalize raw document payloads into validated Document objects.",
         category="conversational_search",
+        restricted=True,
     )
 )
 class DocumentLoaderNode(TaskNode):

@@ -162,12 +162,35 @@ async def validate_public_url_async(url: str) -> None:
             fails, or any resolved address is a non-global target.
     """
     host, port = _split_target(url)
+    await validate_public_host_async(host, port)
+
+
+async def validate_public_host_async(host: str, port: int) -> None:
+    """Validate that a raw TCP host resolves only to public addresses.
+
+    This supports non-HTTP clients such as SMTP, where the URL-oriented guard
+    cannot be installed as an ``httpx`` transport.
+
+    Raises:
+        SSRFError: When the host is missing, resolution fails, or any resolved
+            address is a non-global target.
+    """
+    if not host:
+        raise SSRFError("request target must include a host")
     loop = asyncio.get_running_loop()
     try:
         resolved = await loop.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except socket.gaierror as exc:
         raise SSRFError(f"could not resolve host '{host}': {exc}") from exc
     _check_resolved(host, resolved)
+
+
+async def validate_restricted_egress_host_async(host: str, port: int) -> None:
+    """Validate a non-HTTP target when restricted definition mode is active."""
+    from orcheo.graph.ir.definition_mode import is_restricted_mode
+
+    if is_restricted_mode():
+        await validate_public_host_async(host, port)
 
 
 class SSRFGuardAsyncTransport(httpx.AsyncHTTPTransport):
@@ -205,6 +228,8 @@ __all__ = [
     "SSRFError",
     "SSRFGuardAsyncTransport",
     "restricted_egress_client_kwargs",
+    "validate_public_host_async",
     "validate_public_url",
     "validate_public_url_async",
+    "validate_restricted_egress_host_async",
 ]

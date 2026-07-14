@@ -11,6 +11,7 @@ class NodeMetadata(BaseModel):
         name: Unique identifier for the node
         description: Human-readable description of the node's purpose
         category: Node category, defaults to "general"
+        restricted: Whether untrusted uploads may use the node in restricted mode
     """
 
     name: str
@@ -19,6 +20,8 @@ class NodeMetadata(BaseModel):
     """Human-readable description of the node's purpose."""
     category: str = "general"
     """Node category, defaults to "general"."""
+    restricted: bool = False
+    """Whether restricted-mode ingestion rejects this node for untrusted authors."""
 
 
 class NodeRegistry:

@@ -37,19 +37,16 @@ def _workflow_with(node_ctor: str, imports: str) -> str:
 # --- policy function unit tests -------------------------------------------------
 
 
-def test_postgres_node_blocked_by_explicit_type() -> None:
-    """PostgresNode is blocked even though its category is the mixed 'storage'."""
+def test_postgres_node_blocked_by_metadata() -> None:
+    """PostgresNode opts into restricted-mode rejection through its metadata."""
     reason = restricted_mode_rejection_reason("PostgresNode")
-    assert reason is not None and "database" in reason
+    assert reason is not None and "marked restricted" in reason
 
 
-def test_unsafe_categories_blocked() -> None:
-    """Browser, communication, and MongoDB nodes are blocked by category."""
+def test_browser_nodes_blocked_by_metadata() -> None:
+    """Browser nodes opt into restricted-mode rejection through metadata."""
     assert restricted_mode_rejection_reason("BrowserNavigateNode") is not None
     assert restricted_mode_rejection_reason("BrowserScriptNode") is not None
-    assert restricted_mode_rejection_reason("DiscordWebhookNode") is not None
-    assert restricted_mode_rejection_reason("EmailNode") is not None
-    assert restricted_mode_rejection_reason("MongoDBFindNode") is not None
 
 
 @pytest.mark.parametrize(
@@ -65,7 +62,7 @@ def test_unsafe_categories_blocked() -> None:
 def test_file_backed_loaders_blocked(node_type: str) -> None:
     """File-backed loaders cannot read author-selected worker paths."""
     reason = restricted_mode_rejection_reason(node_type)
-    assert reason is not None and "worker filesystem" in reason
+    assert reason is not None and "marked restricted" in reason
 
 
 def test_benign_nodes_allowed() -> None:
@@ -73,6 +70,9 @@ def test_benign_nodes_allowed() -> None:
     assert restricted_mode_rejection_reason("SetVariableNode") is None
     assert restricted_mode_rejection_reason("AgentNode") is None
     assert restricted_mode_rejection_reason("HttpRequestNode") is None
+    assert restricted_mode_rejection_reason("MongoDBFindNode") is None
+    assert restricted_mode_rejection_reason("EmailNode") is None
+    assert restricted_mode_rejection_reason("DiscordWebhookNode") is None
 
 
 def test_unknown_node_type_is_not_blocked_by_policy() -> None:
@@ -105,8 +105,8 @@ def test_compile_blocks_disallowed_node_by_default() -> None:
     ("node_ctor", "imports"),
     [
         (
-            'DiscordWebhookNode(name="n", webhook_url="http://127.0.0.1")',
-            "from orcheo.nodes.communication import DiscordWebhookNode",
+            'BrowserNavigateNode(name="n", url="https://example.com")',
+            "from orcheo.nodes.browser import BrowserNavigateNode",
         ),
         (
             'DocumentLoaderNode(name="n")',
@@ -122,9 +122,34 @@ def test_compile_blocks_disallowed_node_by_default() -> None:
     ],
 )
 def test_compile_blocks_reviewed_unsafe_nodes(node_ctor: str, imports: str) -> None:
-    """Compilation rejects the communication and file-loader review gaps."""
+    """Compilation rejects nodes whose registry metadata marks them restricted."""
     with pytest.raises(WorkflowValidationError, match="restricted mode"):
         compile_workflow_to_ir(_workflow_with(node_ctor, imports))
+
+
+@pytest.mark.parametrize(
+    ("node_ctor", "imports"),
+    [
+        (
+            'MongoDBFindNode(name="n", database="db", collection="items")',
+            "from orcheo.nodes.storage.mongodb import MongoDBFindNode",
+        ),
+        (
+            'DiscordWebhookNode(name="n", webhook_url="https://discord.com")',
+            "from orcheo.nodes.communication import DiscordWebhookNode",
+        ),
+        (
+            'EmailNode(name="n", from_address="sender@example.com")',
+            "from orcheo.nodes.communication import EmailNode",
+        ),
+    ],
+)
+def test_compile_allows_guarded_or_workspace_scoped_nodes(
+    node_ctor: str, imports: str
+) -> None:
+    """MongoDB and guarded communication nodes remain available."""
+    ir = compile_workflow_to_ir(_workflow_with(node_ctor, imports))
+    assert [node.id for node in ir.nodes] == ["n"]
 
 
 def test_compile_allows_disallowed_node_when_policy_disabled() -> None:
@@ -143,14 +168,17 @@ def test_compile_blocks_disallowed_node_in_nested_subgraph() -> None:
         """
         from orcheo.graph import StateGraph, START, END
         from orcheo.graph.state import State
-        from orcheo.nodes.integrations.databases.mongodb import MongoDBFindNode
+        from orcheo.nodes.browser import BrowserNavigateNode
         from orcheo.nodes.logic import SetVariableNode
 
         async def orcheo_workflow() -> StateGraph:
             child = StateGraph(State)
-            child.add_node("m", MongoDBFindNode(name="m"))
-            child.add_edge(START, "m")
-            child.add_edge("m", END)
+            child.add_node(
+                "browser",
+                BrowserNavigateNode(name="browser", url="https://example.com"),
+            )
+            child.add_edge(START, "browser")
+            child.add_edge("browser", END)
 
             graph = StateGraph(State)
             graph.add_node("setter", SetVariableNode(name="setter", variables={}))
@@ -161,7 +189,7 @@ def test_compile_blocks_disallowed_node_in_nested_subgraph() -> None:
             return graph
         """
     )
-    with pytest.raises(WorkflowValidationError, match="MongoDBFindNode"):
+    with pytest.raises(WorkflowValidationError, match="BrowserNavigateNode"):
         compile_workflow_to_ir(source)
 
 
@@ -203,8 +231,8 @@ def test_untrusted_upload_with_blocked_node_is_rejected(restricted_mode: None) -
 def test_trusted_source_bypasses_node_policy(restricted_mode: None) -> None:
     """A trusted first-party source (candidate) may use the full node set."""
     source = _workflow_with(
-        'MongoDBFindNode(name="n")',
-        "from orcheo.nodes.integrations.databases.mongodb import MongoDBFindNode",
+        'BrowserNavigateNode(name="n", url="https://example.com")',
+        "from orcheo.nodes.browser import BrowserNavigateNode",
     )
     payload = ingest_workflow(source, trusted_source=True)
     assert payload["format"] == "frozen-ir"

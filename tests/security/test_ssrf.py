@@ -8,6 +8,7 @@ import pytest
 from orcheo.security.ssrf import (
     SSRFError,
     SSRFGuardAsyncTransport,
+    validate_public_host_async,
     validate_public_url,
     validate_public_url_async,
 )
@@ -135,6 +136,19 @@ async def test_validate_public_url_async_blocks_internal() -> None:
 async def test_validate_public_url_async_allows_public() -> None:
     """The async validator accepts public literals."""
     await validate_public_url_async("http://8.8.8.8/")
+
+
+@pytest.mark.asyncio
+async def test_validate_public_host_async_blocks_internal_smtp_target() -> None:
+    """The raw-host validator blocks internal targets for non-HTTP clients."""
+    with pytest.raises(SSRFError):
+        await validate_public_host_async("127.0.0.1", 25)
+
+
+@pytest.mark.asyncio
+async def test_validate_public_host_async_allows_public_smtp_target() -> None:
+    """The raw-host validator permits public targets for non-HTTP clients."""
+    await validate_public_host_async("8.8.8.8", 25)
 
 
 @pytest.mark.asyncio

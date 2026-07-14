@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
         name="DatasetNode",
         description="Load and filter golden datasets for evaluation workflows.",
         category="conversational_search",
+        restricted=True,
     )
 )
 class DatasetNode(TaskNode):
@@ -306,6 +307,7 @@ class DatasetNode(TaskNode):
             "normalize them for indexing."
         ),
         category="evaluation",
+        restricted=True,
     )
 )
 class MultiDoc2DialCorpusLoaderNode(TaskNode):
@@ -536,6 +538,7 @@ class MD2DConversation(BaseModel):
         name="QReCCDatasetNode",
         description=("Load QReCC conversations with gold rewrites for evaluation"),
         category="evaluation",
+        restricted=True,
     )
 )
 class QReCCDatasetNode(DatasetNode):
@@ -656,6 +659,7 @@ class QReCCDatasetNode(DatasetNode):
             "Load MultiDoc2Dial conversations with gold responses for evaluation"
         ),
         category="evaluation",
+        restricted=True,
     )
 )
 class MultiDoc2DialDatasetNode(DatasetNode):
