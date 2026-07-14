@@ -1,9 +1,9 @@
 """SSRF-guard coverage for author-URL httpx egress nodes beyond HttpRequestNode.
 
-``RSSNode`` and ``WebDocumentLoaderNode`` both fetch author-controlled URLs with
-``httpx.AsyncClient``. They must install the SSRF-guarded transport in restricted
-mode (so the guard cannot be bypassed by choosing a different node) and leave
-egress unrestricted otherwise.
+``RSSNode``, ``WebDocumentLoaderNode``, and ``WebSearchNode`` fetch
+author-controlled URLs with ``httpx.AsyncClient``. They must install the
+SSRF-guarded transport in restricted mode (so the guard cannot be bypassed by
+choosing a different node) and leave egress unrestricted otherwise.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import pytest
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
 from orcheo.nodes.rag.ingestion import WebDocumentLoaderNode
+from orcheo.nodes.rag.retrieval import WebSearchNode
 from orcheo.nodes.rss import RSSNode
 from orcheo.security.ssrf import SSRFError, SSRFGuardAsyncTransport
 
@@ -39,8 +40,21 @@ def _capture_transport(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             request=httpx.Request("GET", url),
         )
 
+    async def fake_post(
+        self: httpx.AsyncClient, url: str, **kwargs: Any
+    ) -> httpx.Response:
+        transport = captured.get("transport")
+        if isinstance(transport, SSRFGuardAsyncTransport):
+            await transport.handle_async_request(httpx.Request("POST", url))
+        return httpx.Response(
+            200,
+            json={"results": []},
+            request=httpx.Request("POST", url),
+        )
+
     monkeypatch.setattr(httpx.AsyncClient, "__init__", capture_init)
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
     return captured
 
 
@@ -102,5 +116,42 @@ async def test_web_document_loader_unrestricted_mode_is_not_guarded(
 
     node = WebDocumentLoaderNode(name="web", urls=[{"url": "http://10.0.0.1/page"}])
     await node(State({"node_results": {}}), RunnableConfig())
+
+    assert captured["transport"] is None
+
+
+@pytest.mark.asyncio
+async def test_web_search_guards_configurable_endpoint_in_restricted_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WebSearchNode blocks an internal author-configured API endpoint."""
+    _set_restricted(monkeypatch, True)
+    _capture_transport(monkeypatch)
+
+    node = WebSearchNode(
+        name="web",
+        api_key="key",
+        api_url="http://127.0.0.1/search",
+        suppress_errors=False,
+    )
+    with pytest.raises(SSRFError):
+        await node(State(inputs={"query": "news"}), RunnableConfig())
+
+
+@pytest.mark.asyncio
+async def test_web_search_unrestricted_mode_is_not_guarded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WebSearchNode installs no guard outside restricted mode."""
+    _set_restricted(monkeypatch, False)
+    captured = _capture_transport(monkeypatch)
+
+    node = WebSearchNode(
+        name="web",
+        api_key="key",
+        api_url="http://10.0.0.1/search",
+        suppress_errors=False,
+    )
+    await node(State(inputs={"query": "news"}), RunnableConfig())
 
     assert captured["transport"] is None

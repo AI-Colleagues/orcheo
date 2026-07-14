@@ -43,11 +43,29 @@ def test_postgres_node_blocked_by_explicit_type() -> None:
     assert reason is not None and "database" in reason
 
 
-def test_browser_and_mongodb_categories_blocked() -> None:
-    """Browser and MongoDB nodes are blocked by category."""
+def test_unsafe_categories_blocked() -> None:
+    """Browser, communication, and MongoDB nodes are blocked by category."""
     assert restricted_mode_rejection_reason("BrowserNavigateNode") is not None
     assert restricted_mode_rejection_reason("BrowserScriptNode") is not None
+    assert restricted_mode_rejection_reason("DiscordWebhookNode") is not None
+    assert restricted_mode_rejection_reason("EmailNode") is not None
     assert restricted_mode_rejection_reason("MongoDBFindNode") is not None
+
+
+@pytest.mark.parametrize(
+    "node_type",
+    [
+        "DatasetNode",
+        "DocumentLoaderNode",
+        "MultiDoc2DialCorpusLoaderNode",
+        "MultiDoc2DialDatasetNode",
+        "QReCCDatasetNode",
+    ],
+)
+def test_file_backed_loaders_blocked(node_type: str) -> None:
+    """File-backed loaders cannot read author-selected worker paths."""
+    reason = restricted_mode_rejection_reason(node_type)
+    assert reason is not None and "worker filesystem" in reason
 
 
 def test_benign_nodes_allowed() -> None:
@@ -81,6 +99,32 @@ def test_compile_blocks_disallowed_node_by_default() -> None:
     )
     with pytest.raises(WorkflowValidationError, match="PostgresNode"):
         compile_workflow_to_ir(source)
+
+
+@pytest.mark.parametrize(
+    ("node_ctor", "imports"),
+    [
+        (
+            'DiscordWebhookNode(name="n", webhook_url="http://127.0.0.1")',
+            "from orcheo.nodes.communication import DiscordWebhookNode",
+        ),
+        (
+            'DocumentLoaderNode(name="n")',
+            "from orcheo.nodes.rag.ingestion import DocumentLoaderNode",
+        ),
+        (
+            'MultiDoc2DialCorpusLoaderNode(name="n")',
+            (
+                "from orcheo.nodes.evaluation.datasets import "
+                "MultiDoc2DialCorpusLoaderNode"
+            ),
+        ),
+    ],
+)
+def test_compile_blocks_reviewed_unsafe_nodes(node_ctor: str, imports: str) -> None:
+    """Compilation rejects the communication and file-loader review gaps."""
+    with pytest.raises(WorkflowValidationError, match="restricted mode"):
+        compile_workflow_to_ir(_workflow_with(node_ctor, imports))
 
 
 def test_compile_allows_disallowed_node_when_policy_disabled() -> None:

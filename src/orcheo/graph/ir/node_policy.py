@@ -12,6 +12,10 @@ untrusted authors:
 * **Database nodes** open connections to an author-supplied host and run
   author-supplied queries (arbitrary SQL / Mongo commands against arbitrary,
   possibly internal, endpoints).
+* **Communication nodes** open author-controlled SMTP or webhook targets using
+  networking stacks that are not protected by the restricted HTTP transport.
+* **File-backed loader nodes** read author-supplied paths from the worker
+  filesystem and can therefore expose files outside the workflow workspace.
 
 This mirrors the existing per-capability guard in ``nodes/ai/mcp_guard.py``
 (local ``stdio`` MCP subprocess) and complements ``security/ssrf.py`` (which
@@ -32,11 +36,26 @@ from orcheo.graph.ir.exceptions import WorkflowValidationError
 # Registry categories blocked for untrusted restricted-mode authors. Blocking by
 # category (not just by name) means a newly added node in one of these
 # categories is denied by default — fail-closed for new dangerous capabilities.
-RESTRICTED_BLOCKED_CATEGORIES = frozenset({"browser", "mongodb"})
+RESTRICTED_BLOCKED_CATEGORIES = frozenset({"browser", "communication", "mongodb"})
 
 # Individual node types blocked regardless of their registry category (e.g.
 # ``PostgresNode`` lives in the mixed ``storage`` category).
-RESTRICTED_BLOCKED_NODE_TYPES = frozenset({"PostgresNode"})
+_RESTRICTED_BLOCKED_NODE_REASONS = {
+    "DatasetNode": "reads author-specified files from the worker filesystem",
+    "DocumentLoaderNode": "reads author-specified files from the worker filesystem",
+    "MultiDoc2DialCorpusLoaderNode": (
+        "reads author-specified files from the worker filesystem"
+    ),
+    "MultiDoc2DialDatasetNode": (
+        "reads author-specified files from the worker filesystem"
+    ),
+    "PostgresNode": (
+        "opens connections to an author-specified database host and runs "
+        "author-specified queries"
+    ),
+    "QReCCDatasetNode": "reads author-specified files from the worker filesystem",
+}
+RESTRICTED_BLOCKED_NODE_TYPES = frozenset(_RESTRICTED_BLOCKED_NODE_REASONS)
 
 
 def restricted_mode_rejection_reason(node_type: str) -> str | None:
@@ -51,11 +70,8 @@ def restricted_mode_rejection_reason(node_type: str) -> str | None:
     """
     from orcheo.nodes.registry import registry
 
-    if node_type in RESTRICTED_BLOCKED_NODE_TYPES:
-        return (
-            f"node type '{node_type}' opens connections to an author-specified "
-            "database host and runs author-specified queries"
-        )
+    if reason := _RESTRICTED_BLOCKED_NODE_REASONS.get(node_type):
+        return f"node type '{node_type}' {reason}"
     metadata = registry.get_metadata(node_type)
     category = metadata.category if metadata is not None else None
     if category in RESTRICTED_BLOCKED_CATEGORIES:

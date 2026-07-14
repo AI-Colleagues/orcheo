@@ -25,6 +25,7 @@ from orcheo.runtime.credentials import (
     get_active_credential_resolver,
     parse_credential_reference,
 )
+from orcheo.security.ssrf import restricted_egress_client_kwargs
 from orcheo.tracing.model_metadata import (
     build_ai_trace_metadata,
     infer_model_name_from_instance,
@@ -541,7 +542,10 @@ class WebSearchNode(TaskNode):
         payload = self._build_payload(query.strip(), api_key)
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout,
+                **restricted_egress_client_kwargs(),
+            ) as client:
                 response = await client.post(self.api_url, json=payload)
                 response.raise_for_status()
         except httpx.HTTPError as exc:
