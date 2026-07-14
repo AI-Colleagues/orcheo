@@ -18,7 +18,7 @@ CONTENTS_DIR="${APP_BUNDLE}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 STAGED_BUNDLE_DIR="${APP_DIR}/bundle"
-ICON_SOURCE="${ORCHEO_MACOS_ICON_SOURCE:-${ROOT_DIR}/apps/studio/public/orcheo.png}"
+ICON_SOURCE="${ORCHEO_MACOS_ICON_SOURCE:-${ROOT_DIR}/apps/studio/public/orcheo-mark.png}"
 ICONSET_DIR="${BUILD_DIR}/${APP_NAME}.iconset"
 
 bash "${SCRIPT_DIR}/check-prereqs.sh"

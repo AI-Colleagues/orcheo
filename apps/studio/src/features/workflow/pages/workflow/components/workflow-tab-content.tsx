@@ -34,6 +34,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/design-system/ui/tooltip";
+import { useColorScheme } from "@/hooks/use-color-scheme";
 import { toast } from "@/hooks/use-toast";
 import { ConfirmDeleteWorkflowDialog } from "@features/workflow/components/dialogs/confirm-delete-workflow-dialog";
 import { PublishWorkflowDialog } from "@features/workflow/components/dialogs/publish-workflow-dialog";
@@ -289,6 +290,7 @@ export function WorkflowTabContent({
   initialShareUrl,
   missingCredentials = [],
 }: WorkflowTabContentProps) {
+  const colorScheme = useColorScheme();
   const navigate = useNavigate();
   const uploadsAllowed = useUploadsAllowed();
   const latestVersion = versions.at(-1);
@@ -707,7 +709,7 @@ export function WorkflowTabContent({
   return (
     <>
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
-        <div className="flex items-center justify-between border-b pb-3">
+        <div className="flex items-center justify-between pb-3">
           <div>
             <h2 className="text-lg font-semibold">
               {workflowName || "Workflow"}
@@ -915,7 +917,7 @@ export function WorkflowTabContent({
 
         {latestVersion && mermaidSource && !diagramError && (
           <div className="min-h-0 flex flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-hidden">
+            <div className="dot-grid min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-muted/30">
               {diagramNodes.length > 0 ? (
                 <ReactFlow
                   key={`${latestVersion.id}-mermaid-svg`}
@@ -929,6 +931,7 @@ export function WorkflowTabContent({
                   nodesConnectable={false}
                   elementsSelectable={false}
                   zoomOnDoubleClick={false}
+                  colorMode={colorScheme}
                   className="h-full w-full"
                   proOptions={{ hideAttribution: true }}
                   style={{ background: "transparent" }}

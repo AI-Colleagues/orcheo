@@ -32,7 +32,7 @@ Current shape:
   bundled under `Contents/Resources/postgres`, then local PostgreSQL binaries.
 - Closing the window hides it while services keep running; the Dock icon
   brings it back, and Quit stops all supervised services.
-- The app icon is generated from `apps/studio/public/orcheo.png`.
+- The app icon is generated from `apps/studio/public/orcheo-mark.png`.
 
 Build:
 
