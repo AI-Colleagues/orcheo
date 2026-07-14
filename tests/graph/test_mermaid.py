@@ -74,6 +74,13 @@ def test_render_summary_mermaid_expands_inlined_subgraph_node() -> None:
     assert "root__branch__subgraph__subgraph --> root__end;" in diagram
 
 
+def test_render_summary_mermaid_gives_start_and_end_the_same_fill() -> None:
+    diagram = mermaid.render_summary_mermaid({"nodes": [], "edges": []})
+
+    assert "\tclassDef first fill:#bfb6fc" in diagram
+    assert "\tclassDef last fill:#bfb6fc" in diagram
+
+
 def test_sequence_helpers_reject_strings_and_non_sequences() -> None:
     assert mermaid._sequence("string") == []
     assert mermaid._mapping_sequence("string") == []

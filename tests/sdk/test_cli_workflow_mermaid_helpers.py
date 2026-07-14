@@ -380,6 +380,8 @@ def test_workflow_mermaid_parallel_branches() -> None:
     assert "a --> __end__" in mermaid
     assert "b --> __end__" in mermaid
     assert "classDef default fill:#f2f0ff,line-height:1.2" in mermaid
+    assert "classDef first fill:#bfb6fc" in mermaid
+    assert "classDef last fill:#bfb6fc" in mermaid
 
 
 def test_workflow_mermaid_top_level_conditional_edges() -> None:

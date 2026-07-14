@@ -123,6 +123,9 @@ export default {
         lg: "0 4px 8px rgba(40, 30, 16, 0.06), 0 16px 32px rgba(40, 30, 16, 0.12)",
         xl: "0 8px 16px rgba(40, 30, 16, 0.08), 0 28px 56px rgba(40, 30, 16, 0.16)",
         brand: "0 4px 14px rgba(248, 120, 37, 0.32)",
+        // Primary-button sheen: faint inset top highlight so orange doesn't read flat.
+        "primary-sheen":
+          "inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 1px 2px rgba(40, 30, 16, 0.06)",
       },
       colors: {
         background: "hsl(var(--background))",

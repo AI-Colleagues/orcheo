@@ -56,7 +56,7 @@ def render_summary_mermaid(summary: Mapping[str, Any]) -> str:
         "graph TD;",
         *body_lines,
         "\tclassDef default fill:#f2f0ff,line-height:1.2",
-        "\tclassDef first fill-opacity:0",
+        "\tclassDef first fill:#bfb6fc",
         "\tclassDef last fill:#bfb6fc",
         "\tclassDef tool fill:#e8f6ef,stroke:#4d8f6a,line-height:1.2",
         "\tclassDef toolBoundary fill:#f6faf8,stroke:#8ab79c,stroke-dasharray: 4 4",

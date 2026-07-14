@@ -110,16 +110,41 @@
   h4,
   h5,
   h6 {
-    @apply font-display tracking-tight;
+    @apply font-display font-semibold tracking-tight;
   }
   ::selection {
     background: hsl(28 92% 80%); /* orange-200 */
     color: hsl(60 8% 5%); /* ink-950 */
   }
+  .dark ::selection {
+    background: hsl(21 81% 33%); /* orange-800 */
+    color: hsl(0 0% 100%);
+  }
 }
 
 @layer components {
+  /* Warm dot lattice — the design system's workspace-canvas motif. */
+  .dot-grid {
+    background-image: radial-gradient(
+      hsl(42 22% 82%) 1px,
+      transparent 1px
+    ); /* ink-200 */
+    background-size: 18px 18px;
+  }
+  .dark .dot-grid {
+    background-image: radial-gradient(
+      hsl(43 10% 14%) 1px,
+      transparent 1px
+    ); /* warm ink dot */
+  }
+
   .react-flow__controls {
+    --xy-controls-box-shadow: 0 8px 20px hsl(var(--background) / 0.45);
+    --xy-controls-button-background-color: hsl(var(--card) / 0.98);
+    --xy-controls-button-background-color-hover: hsl(var(--accent));
+    --xy-controls-button-border-color: hsl(var(--border) / 0.9);
+    --xy-controls-button-color: hsl(var(--card-foreground));
+    --xy-controls-button-color-hover: hsl(var(--accent-foreground));
     @apply flex flex-col overflow-hidden rounded-xl border border-border bg-card/95 text-card-foreground shadow-lg backdrop-blur-sm;
   }
 

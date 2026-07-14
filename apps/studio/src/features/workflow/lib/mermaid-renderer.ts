@@ -4,7 +4,9 @@ const MAX_CONCURRENT_RENDERS = 3;
 const MEMORY_CACHE_LIMIT = 150;
 const SESSION_CACHE_LIMIT = 40;
 const MAX_SESSION_SVG_LENGTH = 150_000;
-const SESSION_STORAGE_KEY = "orcheo:workflow:mermaid-svg-cache:v1";
+const SESSION_STORAGE_KEY = "orcheo:workflow:mermaid-svg-cache:v4";
+const MAX_HORIZONTAL_EDGE_Y_VARIANCE = 2;
+const SVG_PATH_NUMBER = "[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?";
 
 let mermaidInitialized = false;
 let hydratedSessionCache = false;
@@ -36,6 +38,9 @@ const ensureMermaidInitialized = () => {
     startOnLoad: false,
     securityLevel: "strict",
     theme: "neutral",
+    flowchart: {
+      curve: "linear",
+    },
   });
   mermaidInitialized = true;
 };
@@ -196,6 +201,7 @@ export const forceMermaidLeftToRight = (source: string): string => {
 
 const MERMAID_COLOR_ALIASES: ReadonlyArray<[RegExp, string]> = [
   [/\bclassDef\s+default\s+fill:#eef4ff\b/gi, "classDef default fill:#f2f0ff"],
+  [/\bclassDef\s+first\s+fill-opacity:0\b/gi, "classDef first fill:#bfb6fc"],
   [/\bclassDef\s+last\s+fill:#94b8ff\b/gi, "classDef last fill:#bfb6fc"],
 ];
 
@@ -237,6 +243,81 @@ export const buildMermaidRenderId = (
   cacheKey: string,
 ): string =>
   `${sanitizeMermaidIdPart(prefix)}-${sanitizeMermaidIdPart(cacheKey)}`;
+
+interface LinearPathPoint {
+  command: "M" | "L";
+  x: string;
+  y: number;
+}
+
+const parseLinearPath = (pathData: string): LinearPathPoint[] | null => {
+  const pointPattern = new RegExp(
+    `([ML])\\s*(${SVG_PATH_NUMBER})\\s*[,\\s]\\s*(${SVG_PATH_NUMBER})`,
+    "gi",
+  );
+  const points: LinearPathPoint[] = [];
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pointPattern.exec(pathData)) !== null) {
+    if (pathData.slice(cursor, match.index).trim()) {
+      return null;
+    }
+    points.push({
+      command: match[1].toUpperCase() as "M" | "L",
+      x: match[2],
+      y: Number(match[3]),
+    });
+    cursor = pointPattern.lastIndex;
+  }
+
+  if (
+    pathData.slice(cursor).trim() ||
+    points.length < 2 ||
+    points[0].command !== "M" ||
+    points.slice(1).some((point) => point.command !== "L")
+  ) {
+    return null;
+  }
+  return points;
+};
+
+const formatSvgCoordinate = (value: number): string =>
+  Number(value.toFixed(3)).toString();
+
+const straightenNearlyHorizontalPath = (pathData: string): string => {
+  const points = parseLinearPath(pathData);
+  if (!points) {
+    return pathData;
+  }
+
+  const yValues = points.map(({ y }) => y);
+  const yVariance = Math.max(...yValues) - Math.min(...yValues);
+  if (yVariance === 0 || yVariance > MAX_HORIZONTAL_EDGE_Y_VARIANCE) {
+    return pathData;
+  }
+
+  const snappedY = (points[0].y + points[points.length - 1].y) / 2;
+  return points
+    .map(({ command, x }) => `${command}${x},${formatSvgCoordinate(snappedY)}`)
+    .join("");
+};
+
+export const straightenMermaidSvgEdges = (svg: string): string =>
+  svg.replace(/<path\b[^>]*>/gi, (pathElement) => {
+    if (!/\bclass=(['"])[^'"]*\bflowchart-link\b[^'"]*\1/i.test(pathElement)) {
+      return pathElement;
+    }
+    return pathElement.replace(
+      /\bd=(['"])(.*?)\1/i,
+      (attribute, quote: string, pathData: string) => {
+        const straightenedPath = straightenNearlyHorizontalPath(pathData);
+        return straightenedPath === pathData
+          ? attribute
+          : `d=${quote}${straightenedPath}${quote}`;
+      },
+    );
+  });
 
 export const makeMermaidSvgTransparent = (svg: string): string => {
   const svgWithTransparentRoot = svg.replace(
@@ -305,7 +386,10 @@ export const renderMermaidSvg = async ({
 
       ensureMermaidInitialized();
       const result = await mermaid.render(renderId, normalizedSource);
-      const nextSvg = transformSvg ? transformSvg(result.svg) : result.svg;
+      const straightenedSvg = straightenMermaidSvgEdges(result.svg);
+      const nextSvg = transformSvg
+        ? transformSvg(straightenedSvg)
+        : straightenedSvg;
       storeCachedSvg(cacheKey, nextSvg);
       return nextSvg;
     } finally {

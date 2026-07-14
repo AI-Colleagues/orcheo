@@ -6,6 +6,7 @@ import {
   forceMermaidLeftToRight,
   normalizeMermaidPalette,
   renderMermaidSvg,
+  straightenMermaidSvgEdges,
 } from "./mermaid-renderer";
 
 const mermaidMock = vi.hoisted(() => ({
@@ -41,24 +42,38 @@ describe("mermaid-renderer", () => {
   });
 
   it("normalizes template palette aliases to the default workflow palette", () => {
-    expect(
-      normalizeMermaidPalette(
-        [
-          "graph TD;",
-          "\tclassDef default fill:#eef4ff,line-height:1.2",
-          "\tclassDef last fill:#94b8ff",
-        ].join("\n"),
-      ),
-    ).toContain("classDef default fill:#f2f0ff,line-height:1.2");
-    expect(
-      normalizeMermaidPalette(
-        [
-          "graph TD;",
-          "\tclassDef default fill:#eef4ff,line-height:1.2",
-          "\tclassDef last fill:#94b8ff",
-        ].join("\n"),
-      ),
-    ).toContain("classDef last fill:#bfb6fc");
+    const normalized = normalizeMermaidPalette(
+      [
+        "graph TD;",
+        "\tclassDef default fill:#eef4ff,line-height:1.2",
+        "\tclassDef first fill-opacity:0",
+        "\tclassDef last fill:#94b8ff",
+      ].join("\n"),
+    );
+
+    expect(normalized).toContain(
+      "classDef default fill:#f2f0ff,line-height:1.2",
+    );
+    expect(normalized).toContain("classDef first fill:#bfb6fc");
+    expect(normalized).toContain("classDef last fill:#bfb6fc");
+  });
+
+  it("snaps nearly horizontal Mermaid edges to a straight line", () => {
+    const svg = [
+      '<svg><path class="edge-thickness-normal flowchart-link LS-A LE-B"',
+      ' d="M10,20L50,19L90,20" /></svg>',
+    ].join("");
+
+    expect(straightenMermaidSvgEdges(svg)).toContain('d="M10,20L50,20L90,20"');
+  });
+
+  it("preserves meaningful bends and non-flowchart paths", () => {
+    const svg = [
+      '<svg><path class="flowchart-link" d="M10,20L50,10L90,20" />',
+      '<path class="node-border" d="M10,20L50,19L90,20" /></svg>',
+    ].join("");
+
+    expect(straightenMermaidSvgEdges(svg)).toBe(svg);
   });
 
   it("reuses cached svg for the same key", async () => {
@@ -79,6 +94,13 @@ describe("mermaid-renderer", () => {
     expect(first).toBe("<svg id='first'></svg>");
     expect(second).toBe("<svg id='first'></svg>");
     expect(mermaidMock.initialize).toHaveBeenCalledTimes(1);
+    expect(mermaidMock.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flowchart: {
+          curve: "linear",
+        },
+      }),
+    );
     expect(mermaidMock.render).toHaveBeenCalledTimes(1);
   });
 
