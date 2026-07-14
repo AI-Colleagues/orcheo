@@ -168,6 +168,7 @@ jobs:
   postgres-persistence:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     services:
       postgres:
@@ -198,10 +199,12 @@ jobs:
 
       - name: Run Postgres persistence checks
         env:
-          ORCHEO_POSTGRES_DSN: postgresql://postgres:postgres@localhost:5432/postgres
+          # Use a numeric address so psycopg never enters an unbounded DNS lookup.
+          ORCHEO_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/postgres
           ORCHEO_CHECKPOINT_BACKEND: postgres
         run: |
-          uv run pytest tests/integration/test_postgres_persistence.py -q
+          uv run pytest tests/integration/test_postgres_persistence.py -vv \
+            -o faulthandler_timeout=60
 
   build-and-release:
     needs: [lint, coverage, postgres-persistence]

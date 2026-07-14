@@ -1,6 +1,7 @@
 """Integration checks for the Postgres checkpoint backend."""
 
 from __future__ import annotations
+import asyncio
 import os
 import pytest
 from langchain_core.runnables.config import RunnableConfig
@@ -25,10 +26,8 @@ async def test_postgres_checkpointer_round_trip(
 
     settings = config.get_settings(refresh=True)
 
-    try:
+    async with asyncio.timeout(30):
         async with create_checkpointer(settings) as checkpointer:
-            await checkpointer.setup()
-
             thread_id = "integration-thread"
             checkpoint_ns = "pytest"
             run_config: RunnableConfig = {
@@ -67,8 +66,3 @@ async def test_postgres_checkpointer_round_trip(
             assert stored.checkpoint["id"] == checkpoint["id"]
 
             await checkpointer.adelete_thread(thread_id)
-    except Exception as exc:
-        _msg = str(exc)
-        if "couldn't get a connection" in _msg or "Connection refused" in _msg:
-            pytest.skip(f"PostgreSQL not reachable: {exc}")
-        raise
