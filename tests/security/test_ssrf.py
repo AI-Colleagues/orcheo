@@ -9,9 +9,11 @@ import orcheo.security.ssrf as ssrf
 from orcheo.security.ssrf import (
     SSRFError,
     SSRFGuardAsyncTransport,
+    restricted_egress_client_kwargs,
     validate_public_host_async,
     validate_public_url,
     validate_public_url_async,
+    validate_restricted_egress_host_async,
 )
 
 
@@ -188,6 +190,72 @@ async def test_validate_public_host_async_rejects_resolution_failure(
     monkeypatch.setattr(ssrf.asyncio, "get_running_loop", lambda: _FailingLoop())
     with pytest.raises(SSRFError, match="could not resolve host"):
         await validate_public_host_async("missing.example.test", 25)
+
+
+@pytest.mark.asyncio
+async def test_validate_restricted_egress_host_async_validates_in_restricted_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Restricted mode delegates raw-host validation to the public-host guard."""
+    calls: list[tuple[str, int]] = []
+
+    async def _validate(host: str, port: int) -> None:
+        calls.append((host, port))
+
+    monkeypatch.setattr(
+        "orcheo.graph.ir.definition_mode.is_restricted_mode", lambda: True
+    )
+    monkeypatch.setattr(ssrf, "validate_public_host_async", _validate)
+
+    await validate_restricted_egress_host_async("smtp.example.test", 587)
+
+    assert calls == [("smtp.example.test", 587)]
+
+
+@pytest.mark.asyncio
+async def test_validate_restricted_egress_host_async_skips_validation_when_unrestricted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unrestricted mode leaves non-HTTP egress unchanged."""
+    called = False
+
+    async def _validate(host: str, port: int) -> None:
+        nonlocal called
+        del host, port
+        called = True
+
+    monkeypatch.setattr(
+        "orcheo.graph.ir.definition_mode.is_restricted_mode", lambda: False
+    )
+    monkeypatch.setattr(ssrf, "validate_public_host_async", _validate)
+
+    await validate_restricted_egress_host_async("127.0.0.1", 25)
+
+    assert not called
+
+
+def test_restricted_egress_client_kwargs_installs_guard_in_restricted_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Restricted mode supplies a transport that guards every HTTP hop."""
+    monkeypatch.setattr(
+        "orcheo.graph.ir.definition_mode.is_restricted_mode", lambda: True
+    )
+
+    kwargs = restricted_egress_client_kwargs()
+
+    assert isinstance(kwargs["transport"], SSRFGuardAsyncTransport)
+
+
+def test_restricted_egress_client_kwargs_is_empty_when_unrestricted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unrestricted mode does not alter the HTTP client configuration."""
+    monkeypatch.setattr(
+        "orcheo.graph.ir.definition_mode.is_restricted_mode", lambda: False
+    )
+
+    assert restricted_egress_client_kwargs() == {}
 
 
 @pytest.mark.asyncio
