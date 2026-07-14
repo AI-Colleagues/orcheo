@@ -5,6 +5,7 @@ import socket
 from typing import Any
 import httpx
 import pytest
+import orcheo.security.ssrf as ssrf
 from orcheo.security.ssrf import (
     SSRFError,
     SSRFGuardAsyncTransport,
@@ -71,6 +72,12 @@ def test_validate_public_url_requires_host() -> None:
         validate_public_url("http:///path-only")
 
 
+def test_validate_public_url_rejects_invalid_port() -> None:
+    """A URL with a non-numeric port is rejected before DNS resolution."""
+    with pytest.raises(SSRFError, match="invalid port"):
+        validate_public_url("http://example.com:not-a-port/")
+
+
 def _fake_getaddrinfo(*addresses: str) -> Any:
     """Return a ``socket.getaddrinfo`` stub yielding the given IP addresses."""
 
@@ -125,6 +132,15 @@ def test_validate_public_url_rejects_resolution_failure(
         validate_public_url("http://does-not-exist.example.test/")
 
 
+def test_validate_public_url_rejects_empty_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hosts with no usable DNS answers fail closed."""
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [])
+    with pytest.raises(SSRFError, match="did not resolve"):
+        validate_public_url("http://empty.example.test/")
+
+
 @pytest.mark.asyncio
 async def test_validate_public_url_async_blocks_internal() -> None:
     """The async validator rejects internal literals."""
@@ -152,6 +168,29 @@ async def test_validate_public_host_async_allows_public_smtp_target() -> None:
 
 
 @pytest.mark.asyncio
+async def test_validate_public_host_async_requires_host() -> None:
+    """The raw-host validator rejects an empty hostname."""
+    with pytest.raises(SSRFError, match="must include a host"):
+        await validate_public_host_async("", 25)
+
+
+@pytest.mark.asyncio
+async def test_validate_public_host_async_rejects_resolution_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Async DNS failures fail closed with the original resolution error."""
+
+    class _FailingLoop:
+        async def getaddrinfo(self, *args: Any, **kwargs: Any) -> Any:
+            del args, kwargs
+            raise socket.gaierror("async name resolution failed")
+
+    monkeypatch.setattr(ssrf.asyncio, "get_running_loop", lambda: _FailingLoop())
+    with pytest.raises(SSRFError, match="could not resolve host"):
+        await validate_public_host_async("missing.example.test", 25)
+
+
+@pytest.mark.asyncio
 async def test_guard_transport_rejects_internal_hop() -> None:
     """The guarded transport blocks an internal target before connecting.
 
@@ -166,3 +205,32 @@ async def test_guard_transport_rejects_internal_hop() -> None:
             await transport.handle_async_request(request)
     finally:
         await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_guard_transport_delegates_after_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A validated request is passed to the underlying HTTP transport."""
+
+    async def _validate(url: str) -> None:
+        assert url == "https://example.com/"
+
+    async def _handle(
+        transport: httpx.AsyncHTTPTransport, request: httpx.Request
+    ) -> httpx.Response:
+        del transport
+        return httpx.Response(204, request=request)
+
+    monkeypatch.setattr(ssrf, "validate_public_url_async", _validate)
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", _handle)
+
+    transport = SSRFGuardAsyncTransport()
+    try:
+        response = await transport.handle_async_request(
+            httpx.Request("GET", "https://example.com/")
+        )
+    finally:
+        await transport.aclose()
+
+    assert response.status_code == 204
