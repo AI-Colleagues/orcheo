@@ -72,6 +72,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         webView?.reload(nil)
     }
 
+    @objc private func showAbout() {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? "Development"
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: "Orcheo",
+            .applicationVersion: version,
+        ])
+    }
+
     @objc private func openChatKitSettings() {
         guard let appSupportDirectory = chatKitSettingsDirectory() else {
             showError(DesktopError.configuration("Could not resolve the desktop settings directory."))
@@ -279,13 +288,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
-    // Mirrors the Tauri shell's menu bar: Orcheo (ChatKit Settings, Services,
-    // Quit), Edit, and Window.
+    // Mirrors the Tauri shell's menu bar: Orcheo (About, ChatKit Settings,
+    // Services, Quit), Edit, and Window.
     private func buildMenu() {
         let mainMenu = NSMenu()
 
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
+        appMenu.addItem(targetedItem(title: "About Orcheo", action: #selector(showAbout), keyEquivalent: ""))
+        appMenu.addItem(.separator())
         appMenu.addItem(targetedItem(title: "ChatKit Settings...", action: #selector(openChatKitSettings), keyEquivalent: ","))
         appMenu.addItem(.separator())
 
