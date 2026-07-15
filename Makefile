@@ -45,7 +45,7 @@ desktop-tauri-dev:
 	npm --prefix apps/desktop/tauri run dev
 
 desktop-tauri-build:
-	npm --prefix apps/desktop/tauri run build
+	npm --prefix apps/desktop/tauri run build:app
 
 desktop-tauri-clean:
 	npm --prefix apps/desktop/tauri run clean

@@ -5,7 +5,10 @@
   "type": "module",
   "description": "Cross-platform Tauri shell for Orcheo Studio and local Orcheo services",
   "scripts": {
-    "build": "npm run check:prereqs && npm run build:studio && npm run prepare:resources && tauri build && npm run finalize:macos-bundle",
+    "build": "npm run build:prepare && tauri build && npm run finalize:macos-bundle",
+    "build:app": "npm run build:prepare && tauri build --bundles app && npm run finalize:macos-bundle -- --skip-dmg",
+    "build:dmg": "npm run build:prepare && tauri build --bundles app,dmg && npm run finalize:macos-bundle",
+    "build:prepare": "npm run check:prereqs && npm run build:studio && npm run prepare:resources",
     "build:studio": "node scripts/build-studio.mjs",
     "check:prereqs": "node scripts/check-prereqs.mjs",
     "clean": "node scripts/clean.mjs",

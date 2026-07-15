@@ -49,13 +49,16 @@ npm --prefix apps/desktop/tauri run check:prereqs
 npm --prefix apps/desktop/tauri run prepare:resources
 npm --prefix apps/desktop/tauri run dev
 npm --prefix apps/desktop/tauri run build
+npm --prefix apps/desktop/tauri run build:app
+npm --prefix apps/desktop/tauri run build:dmg
 npm --prefix apps/desktop/tauri run clean
 ```
 
-`npm run build` first builds Studio with `VITE_ORCHEO_AUTH_DISABLED=true` unless
-that variable is already set. It then stages a trimmed repo, bundled Postgres
-on macOS, and Playwright Chromium under `apps/desktop/tauri/bundle/` for
-inclusion in the Tauri app.
+`make desktop-tauri-build` builds only the macOS `.app`. `npm run build:dmg`
+builds both the app and its DMG release package. Both commands first build
+Studio with `VITE_ORCHEO_AUTH_DISABLED=true` unless that variable is already
+set, then stage a trimmed repo, bundled Postgres, and Playwright Chromium under
+`apps/desktop/tauri/bundle/` for inclusion in the Tauri app.
 
 If the build fails with `failed to run 'cargo metadata'`, Cargo is not available
 on `PATH`; install Rust with rustup and restart the shell before rebuilding.

@@ -501,7 +501,7 @@ jobs:
       - name: Build Apple Silicon DMG
         env:
           ORCHEO_TAURI_USE_PUBLISHED_RELEASES: "true"
-        run: npm --prefix apps/desktop/tauri run build
+        run: npm --prefix apps/desktop/tauri run build:dmg
 
       - name: Stage DMG release asset
         run: |
