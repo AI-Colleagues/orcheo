@@ -34,6 +34,7 @@ import { deflateSync } from "node:zlib";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tauriDirectory = path.resolve(__dirname, "..");
 const stagedPlaywright = path.join(tauriDirectory, "bundle", "ms-playwright");
+const skipDmg = process.argv.includes("--skip-dmg");
 
 if (process.platform !== "darwin") {
   process.exit(0);
@@ -507,7 +508,7 @@ const dmgDir = path.join(
   "dmg",
 );
 
-if (existsSync(dmgDir) && appNames.length > 0) {
+if (!skipDmg && existsSync(dmgDir) && appNames.length > 0) {
   const dmgFiles = readdirSync(dmgDir).filter((entry) =>
     entry.endsWith(".dmg"),
   );

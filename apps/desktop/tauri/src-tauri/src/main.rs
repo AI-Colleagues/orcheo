@@ -11,7 +11,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use uuid::Uuid;
 
@@ -268,6 +268,15 @@ fn stop_runtime(app: &AppHandle) {
 }
 
 fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let about = PredefinedMenuItem::about(
+        app,
+        Some("About Orcheo"),
+        Some(AboutMetadata {
+            name: Some("Orcheo".to_string()),
+            version: Some(app.package_info().version.to_string()),
+            ..Default::default()
+        }),
+    )?;
     let settings = MenuItem::with_id(
         app,
         CHATKIT_SETTINGS_MENU_ID,
@@ -308,6 +317,8 @@ fn build_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         "Orcheo",
         true,
         &[
+            &about,
+            &PredefinedMenuItem::separator(app)?,
             &settings,
             &PredefinedMenuItem::separator(app)?,
             &services_menu,
