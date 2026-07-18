@@ -60,6 +60,15 @@ Studio with `VITE_ORCHEO_AUTH_DISABLED=true` unless that variable is already
 set, then stage a trimmed repo, bundled Postgres, and Playwright Chromium under
 `apps/desktop/tauri/bundle/` for inclusion in the Tauri app.
 
+The bundled Chromium version is pinned by the `playwright` package version
+(Playwright maps 1:1 to a Chromium revision). Local-source builds stage it with
+`uv run --frozen` against `uv.lock`, and the published-release build
+(`ORCHEO_TAURI_USE_PUBLISHED_RELEASES`) resolves it from the released Orcheo
+packages; both print the resolved revision during the build
+(`Bundled Playwright browser: chromium-…`). The Tauri UI itself renders in the
+OS WebView (WKWebView / WebView2 / WebKitGTK), which is provided by the platform
+and is not pinnable.
+
 If the build fails with `failed to run 'cargo metadata'`, Cargo is not available
 on `PATH`; install Rust with rustup and restart the shell before rebuilding.
 
