@@ -5,6 +5,8 @@ const RESERVED_PATH_SEGMENTS = new Set([
   "profile",
   "settings",
   "workspace",
+  "apps",
+  "feedback",
 ]);
 
 const trimPathSegment = (value: string | null | undefined): string | null => {
@@ -51,6 +53,21 @@ export const getWorkspaceWorkflowPath = (
     return getWorkspaceGalleryPath(slug);
   }
   return slug ? `/${slug}/${ref}` : `/${ref}`;
+};
+
+export const getWorkspaceAppsPath = (
+  workspaceSlug: string | null | undefined,
+): string => {
+  const slug = trimPathSegment(workspaceSlug);
+  return slug ? `/${slug}/apps` : "/apps";
+};
+
+export const getWorkspaceAppPath = (
+  workspaceSlug: string | null | undefined,
+  appId: string,
+): string => {
+  const slug = trimPathSegment(workspaceSlug);
+  return slug ? `/${slug}/apps/${appId}` : `/apps/${appId}`;
 };
 
 export const getWorkspaceTeamWorkflowPath = (

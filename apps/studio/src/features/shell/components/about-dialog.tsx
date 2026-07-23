@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-
-import { Badge } from "@/design-system/ui/badge";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/design-system/ui/tooltip";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/design-system/ui/dialog";
+import { Badge } from "@/design-system/ui/badge";
 import { getSystemInfo, type SystemInfoResponse } from "@/lib/api";
 import { getStudioVersion } from "@/lib/config";
 
@@ -140,8 +139,15 @@ const isDismissed = (): boolean => {
   return Date.now() - dismissedAt < UPDATE_CHECK_TTL_MS;
 };
 
-export default function VersionStatus() {
-  const [cachedInfo, setCachedInfo] = useState<SystemInfoResponse | null>(null);
+interface AboutDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export default function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
+  const [cachedInfo, setCachedInfo] = useState<SystemInfoResponse | null>(
+    null,
+  );
   const [liveBackendVersion, setLiveBackendVersion] = useState<string | null>(
     null,
   );
@@ -151,6 +157,10 @@ export default function VersionStatus() {
   const studioVersion = getStudioVersion();
 
   useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
     const cache = parseCache(
       window.localStorage.getItem(UPDATE_CHECK_CACHE_KEY),
     );
@@ -187,7 +197,7 @@ export default function VersionStatus() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [open]);
 
   const studioUpdateAvailable = useMemo(() => {
     if (!cachedInfo) {
@@ -203,11 +213,6 @@ export default function VersionStatus() {
     ((cachedInfo?.backend.update_available ?? false) ||
       studioUpdateAvailable) &&
     !dismissedReminder;
-
-  const versionSummary = useMemo(() => {
-    const backend = liveBackendVersion ?? "unknown";
-    return `Orcheo ${studioVersion} · Backend ${backend}`;
-  }, [studioVersion, liveBackendVersion]);
 
   const updateLines = useMemo(() => {
     if (!cachedInfo) return [];
@@ -227,9 +232,6 @@ export default function VersionStatus() {
   }, [studioUpdateAvailable, studioVersion, cachedInfo]);
 
   const dismissUpdateReminder = () => {
-    if (typeof window === "undefined") {
-      return;
-    }
     window.localStorage.setItem(
       UPDATE_DISMISS_CACHE_KEY,
       new Date().toISOString(),
@@ -237,40 +239,73 @@ export default function VersionStatus() {
     setDismissedReminder(true);
   };
 
+  const rows = [
+    { label: "Studio", value: studioVersion },
+    { label: "Backend", value: liveBackendVersion ?? "unknown" },
+    { label: "CLI", value: cachedInfo?.cli.current_version ?? "unknown" },
+  ];
+
   return (
-    <div
-      className="hidden md:flex items-center gap-2"
-      aria-label="Version status"
-    >
-      <span className="text-xs text-muted-foreground">{versionSummary}</span>
-      {showReminder && (
-        <TooltipProvider delayDuration={300}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Badge variant="secondary" className="text-[10px] cursor-default">
-                Update available
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-xs">
-              <div className="space-y-1 text-xs">
-                {updateLines.map((line) => (
-                  <p key={line}>{line}</p>
-                ))}
-                <p className="pt-1 text-muted-foreground">
-                  Run: orcheo install upgrade
-                </p>
-                <button
-                  type="button"
-                  className="pt-1 text-left text-muted-foreground underline"
-                  onClick={dismissUpdateReminder}
-                >
-                  Remind me tomorrow
-                </button>
-              </div>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      )}
-    </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogTitle className="sr-only">About Orcheo</DialogTitle>
+        <DialogDescription className="sr-only">
+          Studio, backend, and CLI version information.
+        </DialogDescription>
+        <div className="flex items-center gap-3">
+          <img
+            src="/favicon.ico"
+            alt="Orcheo"
+            className="h-9 w-9 rounded-md"
+          />
+          <div>
+            <div className="font-semibold text-foreground">Orcheo</div>
+            <div className="text-xs text-muted-foreground">
+              by AI Colleagues
+            </div>
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-md border border-border">
+          <table className="w-full text-sm">
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.label} className="border-b border-border last:border-0">
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {row.label}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-xs text-foreground">
+                    {row.value}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {showReminder && (
+          <div className="space-y-1 rounded-md border border-border bg-muted/40 p-3 text-xs">
+            <Badge variant="secondary" className="text-[10px]">
+              Update available
+            </Badge>
+            {updateLines.map((line) => (
+              <p key={line} className="text-muted-foreground">
+                {line}
+              </p>
+            ))}
+            <p className="text-muted-foreground">
+              Run: orcheo install upgrade
+            </p>
+            <button
+              type="button"
+              className="text-left text-muted-foreground underline"
+              onClick={dismissUpdateReminder}
+            >
+              Remind me tomorrow
+            </button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

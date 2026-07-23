@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
-import TopNavigation from "@features/shared/components/top-navigation";
 import { getActiveWorkspace } from "@/lib/api";
-import useCredentialVault from "@/hooks/use-credential-vault";
 import { usePageContext } from "@/hooks/use-page-context";
 import { Button } from "@/design-system/ui/button";
 import { Plus } from "lucide-react";
@@ -39,14 +37,6 @@ export default function WorkflowGallery() {
       active = false;
     };
   }, []);
-  const {
-    credentials,
-    isLoading: isCredentialsLoading,
-    onAddCredential,
-    onUpdateCredential,
-    onDeleteCredential,
-    onRevealCredentialSecret,
-  } = useCredentialVault();
 
   const {
     searchQuery,
@@ -76,15 +66,6 @@ export default function WorkflowGallery() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <TopNavigation
-        credentials={credentials}
-        isCredentialsLoading={isCredentialsLoading}
-        onAddCredential={onAddCredential}
-        onUpdateCredential={onUpdateCredential}
-        onDeleteCredential={onDeleteCredential}
-        onRevealCredentialSecret={onRevealCredentialSecret}
-      />
-
       <main className="relative flex flex-1 min-h-0 flex-col overflow-hidden">
         <div className="flex-1 overflow-auto">
           <WorkflowGalleryTabs

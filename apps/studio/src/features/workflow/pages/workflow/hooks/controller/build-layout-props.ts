@@ -25,7 +25,7 @@ export const hasSchedulableCronTrigger = (
 };
 
 export interface WorkflowLayoutProps {
-  topNavigationProps: {
+  headerProps: {
     currentWorkflow: {
       name: string;
       onNameChange?: (name: string) => void;
@@ -136,7 +136,7 @@ export function buildWorkflowLayoutProps(
   };
 
   return {
-    topNavigationProps: {
+    headerProps: {
       currentWorkflow: {
         name: core.metadata.workflowName,
         onNameChange: core.metadata.setWorkflowName,

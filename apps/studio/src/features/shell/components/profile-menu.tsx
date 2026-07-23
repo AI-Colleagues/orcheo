@@ -1,7 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { Check, ChevronsUpDown, Plus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Avatar, AvatarFallback, AvatarImage } from "@/design-system/ui/avatar";
 import { Button } from "@/design-system/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuPortal,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/design-system/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -9,22 +21,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/design-system/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/design-system/ui/dropdown-menu";
 import { Input } from "@/design-system/ui/input";
 import { Label } from "@/design-system/ui/label";
 import { toast } from "@/hooks/use-toast";
+import {
+  Building2,
+  Check,
+  ChevronsUpDown,
+  Info,
+  LogOut,
+  Plus,
+  Settings,
+  User,
+} from "lucide-react";
+import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
+import { logoutSession } from "@features/auth/lib/auth-api";
 import {
   createWorkspace,
   getMyWorkspaces,
   type WorkspaceMembershipSummary,
 } from "@/lib/api";
 import { slugifyWorkspace } from "@/lib/workspace-slug";
-import { cn } from "@/lib/utils";
 import {
   clearSelectedWorkspaceSlug,
   getSelectedWorkspaceSlug,
@@ -35,20 +52,31 @@ import {
   getWorkspacePathWithSlug,
   getWorkspaceSlugFromPathname,
 } from "@/lib/workspace-routing";
-import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
+import AboutDialog from "./about-dialog";
 
-export default function ActiveWorkspaceIndicator() {
-  const authUser = useMemo(() => getAuthenticatedUserProfile(), []);
+export default function ProfileMenu() {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const authUser = useMemo(() => getAuthenticatedUserProfile(), []);
+  const accountLabel = authUser?.name ?? "Account";
+  const accountInitials = accountLabel
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
   const [workspaces, setWorkspaces] = useState<WorkspaceMembershipSummary[]>(
     [],
   );
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSlug, setWorkspaceSlugState] = useState("");
   const [workspaceSlugIsManual, setWorkspaceSlugIsManual] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const { pathname } = useLocation();
+
   const routeWorkspaceSlug = useMemo(
     () => getWorkspaceSlugFromPathname(pathname),
     [pathname],
@@ -142,10 +170,10 @@ export default function ActiveWorkspaceIndicator() {
       ) ?? null)
     : (workspaces[0] ?? null);
 
-  const handleSelectWorkspace = (slug: string) => {
+  const handleSelectWorkspace = useCallback((slug: string) => {
     setSelectedWorkspaceSlug(slug);
     window.location.assign(getWorkspaceGalleryPath(slug));
-  };
+  }, []);
 
   const handleCreateWorkspace = async () => {
     const name = workspaceName.trim();
@@ -191,43 +219,113 @@ export default function ActiveWorkspaceIndicator() {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className={cn(
-              "inline-flex h-9 w-fit items-center gap-2 whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background",
-              "focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
-            )}
+            className="flex w-full items-center gap-2 rounded-md p-2 text-left hover:bg-accent"
           >
-            <span className="truncate">Workspace</span>
-            <ChevronsUpDown className="h-4 w-4 opacity-50" />
+            <Avatar className="h-8 w-8 shrink-0">
+              {authUser?.avatar ? (
+                <AvatarImage src={authUser.avatar} alt={authUser.name} />
+              ) : null}
+              <AvatarFallback>
+                {accountInitials || <User className="h-4 w-4" />}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium text-foreground">
+                {accountLabel}
+              </div>
+              <div className="truncate text-xs text-muted-foreground">
+                {currentWorkspace?.name ?? "Workspace"}
+              </div>
+            </div>
+            <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-72">
-          {workspaces.length > 0 ? (
-            workspaces.map((workspace) => (
-              <DropdownMenuItem
-                key={workspace.workspace_id}
-                onClick={() => {
-                  handleSelectWorkspace(workspace.slug);
-                }}
-                className="flex items-center justify-between"
+        <DropdownMenuContent align="end" side="top" className="w-64">
+          <DropdownMenuLabel>My account</DropdownMenuLabel>
+          <DropdownMenuItem asChild>
+            <Link to="/profile" className="flex w-full items-center gap-0">
+              <User className="mr-2 h-4 w-4" />
+              <span>Profile</span>
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link to="/settings" className="flex w-full items-center gap-0">
+              <Settings className="mr-2 h-4 w-4" />
+              <span>Settings</span>
+            </Link>
+          </DropdownMenuItem>
+          {selectedWorkspaceSlug && (
+            <DropdownMenuItem asChild>
+              <Link
+                to={`/${selectedWorkspaceSlug}/workspace`}
+                className="flex w-full items-center gap-0"
               >
-                <span className="font-medium">{workspace.name}</span>
-                {workspace.slug === currentWorkspace?.slug ? (
-                  <Check className="h-4 w-4" />
-                ) : null}
-              </DropdownMenuItem>
-            ))
-          ) : (
-            <DropdownMenuItem disabled>
-              No workspaces available
+                <Building2 className="mr-2 h-4 w-4" />
+                <span>Workspace Management</span>
+              </Link>
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem
-            onClick={() => {
-              setCreateDialogOpen(true);
-            }}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Create workspace
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel>Workspace</DropdownMenuLabel>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Building2 className="mr-2 h-4 w-4" />
+              <span>{currentWorkspace?.name ?? "Select workspace"}</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuPortal>
+              <DropdownMenuSubContent className="w-64">
+                {workspaces.length > 0 ? (
+                  workspaces.map((workspace) => (
+                    <DropdownMenuItem
+                      key={workspace.workspace_id}
+                      onClick={() => handleSelectWorkspace(workspace.slug)}
+                      className="flex items-center justify-between"
+                    >
+                      <span className="truncate font-medium">
+                        {workspace.name}
+                      </span>
+                      {workspace.slug === currentWorkspace?.slug ? (
+                        <Check className="h-4 w-4 shrink-0" />
+                      ) : null}
+                    </DropdownMenuItem>
+                  ))
+                ) : (
+                  <DropdownMenuItem disabled>
+                    No workspaces available
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setCreateDialogOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create workspace
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuPortal>
+          </DropdownMenuSub>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <button
+              type="button"
+              className="flex w-full items-center gap-0"
+              onClick={() => setAboutOpen(true)}
+            >
+              <Info className="mr-2 h-4 w-4" />
+              <span>About</span>
+            </button>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <button
+              type="button"
+              className="flex w-full items-center gap-0 text-destructive"
+              onClick={() => {
+                void logoutSession().finally(() => {
+                  navigate("/login", { replace: true });
+                });
+              }}
+            >
+              <LogOut className="mr-2 h-4 w-4" />
+              <span>Log out</span>
+            </button>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -275,6 +373,8 @@ export default function ActiveWorkspaceIndicator() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
     </>
   );
 }

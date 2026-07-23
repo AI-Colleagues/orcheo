@@ -42,5 +42,11 @@ describe("App", () => {
     expect(
       await screen.findByRole("link", { name: /Orcheo.*by AI Colleagues/i }),
     ).toBeInTheDocument();
+
+    // Let the gallery's own data-loading effects (workflows, candidates,
+    // credential vault, workspace membership) settle before the test tears
+    // down jsdom, so their scheduled React work can't fire after `window`
+    // is gone.
+    await new Promise((resolve) => setTimeout(resolve, 300));
   });
 });
