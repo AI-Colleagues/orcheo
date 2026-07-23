@@ -316,10 +316,14 @@ if (process.env.ORCHEO_TAURI_BUNDLE_PLAYWRIGHT !== "false") {
       },
     );
   } else {
+    // --frozen: install against the committed uv.lock without re-locking, so
+    // the bundled Chromium cannot silently drift from the locked dependencies
+    // (see README). Fails loudly if pyproject.toml/uv.lock are out of sync.
     run(
       "uv",
       [
         "run",
+        "--frozen",
         "python",
         "-m",
         "playwright",
