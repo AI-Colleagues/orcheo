@@ -49,6 +49,13 @@ def test_browser_nodes_blocked_by_metadata() -> None:
     assert restricted_mode_rejection_reason("BrowserScriptNode") is not None
 
 
+def test_cli_agent_nodes_blocked_by_metadata() -> None:
+    """Host CLI agent nodes opt into restricted-mode rejection through metadata."""
+    assert restricted_mode_rejection_reason("CodexNode") is not None
+    assert restricted_mode_rejection_reason("ClaudeCodeNode") is not None
+    assert restricted_mode_rejection_reason("AntigravityNode") is not None
+
+
 @pytest.mark.parametrize(
     "node_type",
     [
@@ -118,6 +125,18 @@ def test_compile_blocks_disallowed_node_by_default() -> None:
                 "from orcheo.nodes.evaluation.datasets import "
                 "MultiDoc2DialCorpusLoaderNode"
             ),
+        ),
+        (
+            'CodexNode(name="n", prompt="fix the bug")',
+            "from orcheo.nodes.ai.cli import CodexNode",
+        ),
+        (
+            'ClaudeCodeNode(name="n", prompt="fix the bug")',
+            "from orcheo.nodes.ai.cli import ClaudeCodeNode",
+        ),
+        (
+            'AntigravityNode(name="n", prompt="fix the bug")',
+            "from orcheo.nodes.ai.cli import AntigravityNode",
         ),
     ],
 )

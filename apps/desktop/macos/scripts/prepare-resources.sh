@@ -104,10 +104,13 @@ if [[ "${ORCHEO_MACOS_BUNDLE_PLAYWRIGHT:-true}" != "false" ]]; then
   # use macOS's standard versioned framework layout whose internal symlinks
   # must be preserved as-is (dereferencing would duplicate the framework
   # payload 2-3x over).
+  # --frozen: install against the committed uv.lock without re-locking, so the
+  # bundled Chromium cannot silently drift from the locked dependencies (see
+  # README). Fails loudly if pyproject.toml/uv.lock are out of sync.
   (
     cd "${ROOT_DIR}"
     PLAYWRIGHT_BROWSERS_PATH="${STAGED_PLAYWRIGHT}" \
-      uv run python -m playwright install chromium chromium-headless-shell
+      uv run --frozen python -m playwright install chromium chromium-headless-shell
   )
 fi
 

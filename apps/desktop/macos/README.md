@@ -56,6 +56,12 @@ bash apps/desktop/macos/scripts/clean.sh
 Postgres, and Playwright Chromium under `apps/desktop/macos/bundle/`, compiles
 the Swift shell, and assembles `apps/desktop/macos/build/Orcheo.app`.
 
+The bundled Chromium version is pinned by the `playwright` package version in
+`uv.lock` (Playwright maps 1:1 to a Chromium revision). Resources are staged
+with `uv run --frozen`, so the browser cannot silently drift from the locked
+dependencies; bump it by updating `playwright` in `uv.lock`. The resolved
+revision is printed during the build (`Bundled Playwright browser: chromium-…`).
+
 `dev.sh` skips packaging entirely: it builds Studio and runs the shell from the
 checkout with `swift run`, resolving the repo root from the working directory.
 

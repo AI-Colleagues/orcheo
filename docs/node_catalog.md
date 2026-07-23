@@ -1,6 +1,6 @@
 # Built-in Node Catalog
 
-Orcheo currently ships with **138 built-in nodes** across **21 categories**.
+Orcheo currently ships with **145 built-in nodes** across **21 categories**.
 
 This catalog is sourced from runtime node registry metadata. Run `orcheo node list` to inspect the nodes available in your environment, including custom registrations.
 
@@ -8,7 +8,7 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 
 | Category | Node Count |
 |---|---:|
-| AI (`ai`) | 4 |
+| AI (`ai`) | 7 |
 | Agentensor (`agentensor`) | 1 |
 | Base (`base`) | 1 |
 | Browser (`browser`) | 6 |
@@ -19,13 +19,13 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 | Lark (`lark`) | 2 |
 | LinkedIn (`linkedin`) | 1 |
 | Logic (`logic`) | 3 |
-| Messaging (`messaging`) | 4 |
+| Messaging (`messaging`) | 6 |
 | MongoDB (`mongodb`) | 9 |
 | RSS (`rss`) | 1 |
 | Slack (`slack`) | 2 |
 | Storage (`storage`) | 3 |
 | Telegram (`telegram`) | 1 |
-| Trigger (`trigger`) | 7 |
+| Trigger (`trigger`) | 9 |
 | Utility (`utility`) | 5 |
 | WeCom (`wecom`) | 9 |
 | Workflow (`workflow`) | 17 |
@@ -36,6 +36,9 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 |---|---|
 | **AgentNode** | Execute an AI agent with tools |
 | **AgentReplyExtractorNode** | Extract the final assistant reply from agent messages |
+| **AntigravityNode** | Execute the Antigravity CLI as a non-interactive coding-agent step. Runs unsandboxed with the worker's privileges; trusted workflows only. |
+| **ClaudeCodeNode** | Execute Claude Code as a non-interactive coding-agent step. Runs unsandboxed with the worker's privileges; trusted workflows only. |
+| **CodexNode** | Execute the Codex CLI as a non-interactive coding-agent step. Runs unsandboxed with the worker's privileges; trusted workflows only. |
 | **DeepAgentNode** | Execute an autonomous deep-research agent with configurable iteration depth for multi-step tool use and synthesis |
 | **LLMNode** | Execute a text-only LLM call |
 
@@ -173,6 +176,8 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 | **MessageQQNode** | Send a message to QQ using AppID and client secret. |
 | **MessageTelegramNode** | Send message to Telegram |
 | **TelegramSendDocumentNode** | Send a document file to Telegram |
+| **WechatReplyNode** | Reply to WeChat messages through OpenClaw HTTP APIs. |
+| **WeixinReplyNode** | Backwards-compatible alias for WechatReplyNode. |
 
 ## MongoDB Nodes
 
@@ -226,6 +231,8 @@ This catalog is sourced from runtime node registry metadata. Run `orcheo node li
 | **QQBotListenerNode** | Receive QQ bot messages through the managed Gateway. |
 | **TelegramBotListenerNode** | Receive Telegram bot updates through managed long polling. |
 | **WebhookTriggerNode** | Configure an HTTP webhook trigger. |
+| **WechatListenerPluginNode** | Receive WeChat events through the plugin contract. |
+| **WeixinListenerPluginNode** | Backwards-compatible alias for WechatListenerPluginNode. |
 
 ## Utility Nodes
 

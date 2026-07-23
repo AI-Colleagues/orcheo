@@ -57,6 +57,7 @@ nav:
       - Releasing: releasing.md
   - Reference:
       - Node Catalog: node_catalog.md
+      - CLI Coding-Agent Nodes: cli_agent_nodes.md
       - Workflow Config Annotations: workflow_config_annotations.md
       - CLI Reference: cli_reference.md
       - SDK Reference: sdk_reference.md
