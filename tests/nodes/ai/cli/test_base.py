@@ -317,6 +317,62 @@ async def test_execute_process_terminates_process_group_on_cancel() -> None:
 
 
 @pytest.mark.asyncio
+async def test_read_stream_returns_immediately_for_none_stream() -> None:
+    """_read_stream is a no-op when the process has no such stream (e.g. DEVNULL)."""
+    from orcheo.nodes.ai.cli.base import _read_stream
+
+    chunks: list[bytes] = []
+    await _read_stream(None, chunks)
+
+    assert chunks == []
+
+
+@pytest.mark.asyncio
+async def test_drain_readers_returns_immediately_for_no_tasks() -> None:
+    """_drain_readers is a no-op when there are no reader tasks to wait on."""
+    from orcheo.nodes.ai.cli.base import _drain_readers
+
+    await _drain_readers([], timeout=5.0)
+
+
+@pytest.mark.asyncio
+async def test_terminate_process_group_returns_existing_exit_code() -> None:
+    """A process that already exited is not signalled again."""
+    from orcheo.nodes.ai.cli.base import _terminate_process_group
+
+    process = await asyncio.create_subprocess_exec(
+        "true", stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+    )
+    await process.wait()
+
+    exit_code = await _terminate_process_group(process)
+
+    assert exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_terminate_process_group_sigkills_process_that_ignores_sigterm() -> None:
+    """A process that ignores SIGTERM is force-killed after the grace period."""
+    from orcheo.nodes.ai.cli.base import _terminate_process_group
+
+    process = await asyncio.create_subprocess_exec(
+        "python3",
+        "-c",
+        "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    # Let the signal handler get installed before we send SIGTERM.
+    await asyncio.sleep(0.3)
+
+    exit_code = await _terminate_process_group(process)
+
+    assert exit_code is not None
+    assert exit_code != 0
+
+
+@pytest.mark.asyncio
 async def test_execute_process_times_out_despite_inherited_pipe() -> None:
     """A grandchild holding the pipe open cannot defeat the timeout bound."""
     from orcheo.nodes.ai.cli.base import execute_process
