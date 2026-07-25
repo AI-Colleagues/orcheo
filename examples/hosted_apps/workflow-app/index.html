@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A workflow-backed application hosted and run by Orcheo."
+    />
+    <title>Orcheo Workflow Greeting</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="intro" aria-labelledby="page-title">
+        <p class="eyebrow">ORCHEO HOSTED APP · LIVE WORKFLOW</p>
+        <h1 id="page-title">A small hello with a real backend.</h1>
+        <p class="lede">
+          Submit your name. This app calls the bound Orcheo workflow, follows its
+          run, and renders only the output approved by the binding.
+        </p>
+
+        <div class="flow" aria-label="Request flow">
+          <span>Browser</span>
+          <span aria-hidden="true">→</span>
+          <span>greet</span>
+          <span aria-hidden="true">→</span>
+          <span>Workflow</span>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="form-title">
+        <div class="card-heading">
+          <div>
+            <p class="kicker">TRY THE BINDING</p>
+            <h2 id="form-title">Who should we greet?</h2>
+          </div>
+          <span class="binding">greet</span>
+        </div>
+
+        <form id="greeting-form">
+          <label for="name">Name</label>
+          <div class="field-row">
+            <input
+              id="name"
+              name="name"
+              type="text"
+              minlength="1"
+              maxlength="80"
+              autocomplete="name"
+              placeholder="Ada"
+              required
+            />
+            <button type="submit">Run workflow</button>
+          </div>
+        </form>
+
+        <p id="status" class="status" data-state="idle" aria-live="polite">
+          Ready when you are.
+        </p>
+
+        <div id="result" class="result" hidden>
+          <p class="result-label">WORKFLOW RESPONSE</p>
+          <p id="greeting" class="greeting"></p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>Static frontend</span>
+      <span aria-hidden="true">·</span>
+      <span>Same-origin runtime</span>
+      <span aria-hidden="true">·</span>
+      <span>No workflow IDs in the browser</span>
+    </footer>
+  </body>
+</html>

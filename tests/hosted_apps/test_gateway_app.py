@@ -108,3 +108,35 @@ def test_runtime_route_rejects_browser_identity_and_origin_bypass(
         ).status_code
         == 400
     )
+
+
+def test_runtime_read_accepts_same_origin_fetch_without_origin_header(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Safe same-origin GETs use Fetch Metadata when browsers omit Origin."""
+    client, _deployment_id = _gateway(tmp_path, monkeypatch)
+    path = "/__orcheo/runs/opaque-handle"
+
+    response = client.get(
+        path,
+        headers={
+            "host": "portal.apps.test",
+            "sec-fetch-site": "same-origin",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "App runtime is unavailable."
+
+    assert (
+        client.get(
+            path,
+            headers={
+                "host": "portal.apps.test",
+                "origin": "https://attacker.example",
+                "sec-fetch-site": "same-origin",
+            },
+        ).status_code
+        == 403
+    )
+    assert client.get(path, headers={"host": "portal.apps.test"}).status_code == 403

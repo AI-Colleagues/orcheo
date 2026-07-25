@@ -1,24 +1,38 @@
 """Gateway-only Hosted Apps backend routes outside workspace-selected APIs."""
 
 from __future__ import annotations
+import asyncio
+import hashlib
 import hmac
+import json
+import logging
 import os
 from typing import Annotated, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
+from orcheo.config import get_settings
+from orcheo.graph.builder import build_graph
 from orcheo.hosted_apps import AppBinding, AppRuntimeError, canonical_app_host
 from orcheo.hosted_apps.config import HostedAppsSettings, HostedAppsSettingsError
 from orcheo.hosted_apps.errors import AliasValidationError, HostedAppsDisabledError
+from orcheo.models import CredentialAccessContext
+from orcheo.persistence import create_checkpointer, create_graph_store
+from orcheo.runtime.credentials import CredentialResolver, credential_resolution
+from orcheo.runtime.runnable_config import merge_runnable_configs
+from orcheo.runtime.state_builder import build_initial_state
+from orcheo_backend.app.dependencies import get_repository, get_vault
 from orcheo_backend.app.hosted_apps.runtime_store import get_app_runtime_service
 from orcheo_backend.app.hosted_apps.store import get_hosted_apps_repository
 
 
+logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/internal/hosted-apps",
     include_in_schema=False,
     tags=["internal-hosted-apps"],
 )
+_local_runtime_tasks: set[asyncio.Task[None]] = set()
 
 
 class RuntimeAcceptRequest(BaseModel):
@@ -64,6 +78,90 @@ def _resolve_descriptor(host: str, repository: Any) -> dict[str, Any]:
         raise HostedAppsDisabledError("Hosted Apps runtime is disabled.")
     _canonical, alias = canonical_app_host(host, settings.base_domain)
     return repository.resolve_descriptor(alias)
+
+
+async def _execute_local_runtime_run(
+    *,
+    handle: str,
+    binding: AppBinding,
+    payload: Any,
+) -> None:
+    """Execute an accepted Hosted App run in local/single-node deployments."""
+    runtime = get_app_runtime_service()
+    try:
+        repository = get_repository()
+        version = await repository.get_version(binding.workflow_version_id)
+        if version.workflow_id != binding.workflow_id or version.workspace_id != str(
+            binding.workspace_id
+        ):
+            raise ValueError("Bound workflow version is outside the app workspace.")
+        executable = {
+            "graph_sha256": version.compute_checksum(),
+            "runnable_config": binding.runnable_config_snapshot,
+        }
+        digest = hashlib.sha256(
+            json.dumps(executable, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        if not hmac.compare_digest(digest, binding.workflow_execution_sha256):
+            raise ValueError("Bound workflow executable evidence is stale.")
+
+        execution_id = str(uuid4())
+        merged = merge_runnable_configs(binding.runnable_config_snapshot, None)
+        runtime_config = merged.to_runnable_config(execution_id)
+        state_config = merged.to_state_config(execution_id)
+        state = build_initial_state(
+            version.graph,
+            payload,
+            state_config,
+            str(binding.workspace_id),
+        )
+        resolver = CredentialResolver(
+            get_vault(),
+            context=CredentialAccessContext(
+                workflow_id=binding.workflow_id,
+                workspace_id=binding.workspace_id,
+            ),
+        )
+        settings = get_settings()
+        with credential_resolution(resolver):
+            async with create_checkpointer(settings) as checkpointer:
+                async with create_graph_store(settings) as graph_store:
+                    graph = build_graph(version.graph)
+                    compiled = graph.compile(
+                        checkpointer=checkpointer,
+                        store=graph_store,
+                    )
+                    final_state = await compiled.ainvoke(
+                        state,
+                        config=runtime_config,
+                    )
+        runtime.complete(handle, output={"final_state": final_state})
+    except Exception as exc:
+        logger.exception("Local Hosted App workflow execution failed")
+        runtime.complete(handle, error=str(exc))
+
+
+def _schedule_local_runtime_run(
+    *,
+    handle: str,
+    binding: AppBinding,
+    payload: Any,
+) -> None:
+    """Schedule inline execution only for supported local deployment modes."""
+    if os.getenv("ORCHEO_DEPLOYMENT_MODE", "").strip().lower() not in {
+        "local",
+        "single-node",
+    }:
+        return
+    task = asyncio.create_task(
+        _execute_local_runtime_run(
+            handle=handle,
+            binding=binding,
+            payload=payload,
+        )
+    )
+    _local_runtime_tasks.add(task)
+    task.add_done_callback(_local_runtime_tasks.discard)
 
 
 @router.get("/resolve", dependencies=[Depends(authenticate_app_gateway)])
@@ -122,6 +220,11 @@ async def accept_runtime_run(
             runtime_generation=int(descriptor["generation"]),
             visitor_user_id=None,
             session_id=None,
+        )
+        _schedule_local_runtime_run(
+            handle=result.handle,
+            binding=binding,
+            payload=body.payload,
         )
     except (StopIteration, KeyError, ValueError, AppRuntimeError):
         raise HTTPException(

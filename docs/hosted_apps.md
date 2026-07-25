@@ -67,3 +67,11 @@ does not count as login, cookie, redirect, Origin, or CSRF acceptance testing.
 Common validation failures include `index_missing`, `unsafe_path`, `path_collision`,
 `nested_archive`, `executable`, `reserved_path`, `inline_event_handler`, and
 `javascript_url`. Fix the named bundle construct and upload a new immutable deployment.
+
+## Examples
+
+- [`examples/hosted_apps/hello-app`](../examples/hosted_apps/hello-app/README.md)
+  is a minimal static-only bundle.
+- [`examples/hosted_apps/workflow-app`](../examples/hosted_apps/workflow-app/README.md)
+  uploads a restricted-mode-compatible workflow, binds it under the logical name
+  `greet`, invokes it from browser JavaScript, and polls the opaque app-run handle.

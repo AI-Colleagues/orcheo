@@ -125,6 +125,20 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
         if request.headers.get("sec-fetch-site") != "same-origin":
             raise HTTPException(status_code=403, detail="Fetch Metadata is invalid.")
 
+    def validate_browser_read(request: Request, host: str) -> None:
+        """Allow same-origin reads when browsers omit Origin on safe GET requests."""
+        raw_host = request.headers.get("host", host)
+        expected = {
+            f"https://{host}",
+            f"http://{raw_host}",
+            f"https://{raw_host}",
+        }
+        origin = request.headers.get("origin")
+        if origin is not None and origin not in expected:
+            raise HTTPException(status_code=403, detail="App Origin is invalid.")
+        if request.headers.get("sec-fetch-site") != "same-origin":
+            raise HTTPException(status_code=403, detail="Fetch Metadata is invalid.")
+
     async def runtime_request(
         method: str,
         path: str,
@@ -236,13 +250,7 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
             )
         except AliasValidationError as exc:
             raise HTTPException(status_code=404, detail="Unknown hosted app.") from exc
-        origin = request.headers.get("origin")
-        if origin not in {
-            f"https://{host}",
-            f"http://{request.headers.get('host', host)}",
-            f"https://{request.headers.get('host', host)}",
-        }:
-            raise HTTPException(status_code=403, detail="App Origin is invalid.")
+        validate_browser_read(request, host)
         result = await runtime_request("GET", f"runs/{handle}", params={"host": host})
         return Response(
             content=json.dumps(result, separators=(",", ":")),
