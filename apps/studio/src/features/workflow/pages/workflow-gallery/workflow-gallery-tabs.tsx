@@ -178,7 +178,7 @@ export const WorkflowGalleryTabs = ({
     ];
 
     return (
-      <div className="flex flex-col gap-1 pb-6">
+      <div className="flex flex-col gap-1 pb-2">
         {sections.map((section) => {
           const items = byTeam.get(section.key) ?? [];
           return (
@@ -196,6 +196,15 @@ export const WorkflowGalleryTabs = ({
             </TeamSection>
           );
         })}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mt-1 self-start"
+          onClick={onCreateTeam}
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          Add team
+        </Button>
       </div>
     );
   };
@@ -296,14 +305,14 @@ export const WorkflowGalleryTabs = ({
           renderColleagues()
         )}
 
-        {!isTemplateView && (
-          <div className="mt-4">
+        {!isTemplateView && teams.length === 0 ? (
+          <div className="mt-1">
             <Button variant="ghost" size="sm" onClick={onCreateTeam}>
               <Plus className="mr-2 h-4 w-4" />
-              New team
+              Add team
             </Button>
           </div>
-        )}
+        ) : null}
       </TabsContent>
     </Tabs>
   );
