@@ -17,8 +17,9 @@ class PackageVersionStatus(BaseModel):
 
 
 class SystemInfoResponse(BaseModel):
-    """Combined backend/CLI/studio version metadata."""
+    """Combined core/backend/CLI/studio version metadata."""
 
+    core: PackageVersionStatus
     backend: PackageVersionStatus
     cli: PackageVersionStatus
     studio: PackageVersionStatus
