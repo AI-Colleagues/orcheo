@@ -1,16 +1,19 @@
-"""Process-local Hosted Apps repository wiring pending Postgres configuration."""
+"""Hosted Apps repository wiring."""
 
 from __future__ import annotations
 import os
-from orcheo.hosted_apps import InMemoryHostedAppsRepository
+from orcheo.hosted_apps import (
+    HostedAppsRepository,
+    PostgresHostedAppsRepository,
+)
 from orcheo.hosted_apps.config import HostedAppsSettings, HostedAppsSettingsError
 
 
-_repository_ref: dict[str, InMemoryHostedAppsRepository | None] = {"repository": None}
+_repository_ref: dict[str, HostedAppsRepository | None] = {"repository": None}
 
 
-def _auto_enable_ephemeral_runtime(repository: InMemoryHostedAppsRepository) -> None:
-    """Enable ephemeral local/single-node runtime when startup requests it."""
+def _auto_enable_self_hosted_runtime(repository: HostedAppsRepository) -> None:
+    """Enable local/single-node delivery once without resetting durable state."""
     enabled = os.getenv("ORCHEO_HOSTED_APPS_AUTO_ENABLE_RUNTIME", "false")
     if enabled.strip().lower() not in {"1", "true", "yes"}:
         return
@@ -18,21 +21,30 @@ def _auto_enable_ephemeral_runtime(repository: InMemoryHostedAppsRepository) -> 
         settings = HostedAppsSettings.from_environment()
     except HostedAppsSettingsError:
         return
-    if settings.enabled and settings.deployment_mode in {"local", "single-node"}:
+    runtime = repository.get_runtime_generation()
+    if (
+        settings.enabled
+        and settings.deployment_mode in {"local", "single-node"}
+        and not runtime.enabled
+    ):
         repository.set_runtime_enabled(enabled=True, actor="system:stack-startup")
 
 
-def get_hosted_apps_repository() -> InMemoryHostedAppsRepository:
+def get_hosted_apps_repository() -> HostedAppsRepository:
     """Return the Hosted Apps repository used by the control-plane routes."""
     repository = _repository_ref["repository"]
     if repository is None:
-        repository = InMemoryHostedAppsRepository()
-        _auto_enable_ephemeral_runtime(repository)
+        dsn = os.getenv("ORCHEO_POSTGRES_DSN", "").strip()
+        if not dsn:
+            msg = "ORCHEO_POSTGRES_DSN must be set for Hosted Apps persistence."
+            raise ValueError(msg)
+        repository = PostgresHostedAppsRepository(dsn)
+        _auto_enable_self_hosted_runtime(repository)
         _repository_ref["repository"] = repository
     return repository
 
 
-def set_hosted_apps_repository(repository: InMemoryHostedAppsRepository | None) -> None:
+def set_hosted_apps_repository(repository: HostedAppsRepository | None) -> None:
     """Override the repository for tests and controlled embedded deployments."""
     _repository_ref["repository"] = repository
 

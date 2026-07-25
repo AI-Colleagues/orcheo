@@ -8,11 +8,13 @@ import zipfile
 import pytest
 from fastapi.testclient import TestClient
 
+from orcheo.hosted_apps import InMemoryHostedAppsRepository
 from orcheo.workspace import Role, WorkspaceContext
 from orcheo_backend.app.hosted_apps import (
-    get_hosted_apps_repository,
     reset_hosted_apps_repository,
+    set_hosted_apps_repository,
 )
+from orcheo_backend.app.hosted_apps.store import _auto_enable_self_hosted_runtime
 from orcheo_backend.app.authentication import RequestContext, get_request_context
 from orcheo_backend.app.authentication.dependencies import authenticate_request
 from orcheo_backend.app.workspace.dependencies import resolve_workspace_context
@@ -22,6 +24,7 @@ from orcheo_backend.app.workspace.dependencies import resolve_workspace_context
 def hosted_apps_environment(monkeypatch: pytest.MonkeyPatch):
     """Enable the fail-closed feature contract for each isolated test."""
     reset_hosted_apps_repository()
+    set_hosted_apps_repository(InMemoryHostedAppsRepository())
     monkeypatch.setenv("ORCHEO_HOSTED_APPS_ENABLED", "true")
     monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.test")
     monkeypatch.setenv("ORCHEO_APP_BUNDLE_BACKEND", "filesystem")
@@ -39,10 +42,11 @@ def test_ephemeral_startup_can_auto_enable_runtime(
     """Self-hosted stacks can serve apps without a platform bootstrap call."""
     monkeypatch.setenv("ORCHEO_DEPLOYMENT_MODE", deployment_mode)
     monkeypatch.setenv("ORCHEO_HOSTED_APPS_AUTO_ENABLE_RUNTIME", "true")
-    state = get_hosted_apps_repository().get_runtime_generation()
+    repository = InMemoryHostedAppsRepository()
+    _auto_enable_self_hosted_runtime(repository)
+    state = repository.get_runtime_generation()
     assert state.enabled is True
     assert state.updated_by == "system:stack-startup"
-    reset_hosted_apps_repository()
 
 
 def test_app_lifecycle_alias_conflict_and_workspace_denial(

@@ -67,6 +67,35 @@ class HostedAppsRepository(Protocol):
     def list_deployments(self, workspace_id: UUID, app_id: UUID) -> list[AppDeployment]:
         """List deployment candidates within one authoritative app scope."""
 
+    def save_binding(self, binding: AppBinding, *, actor: str) -> AppBinding:
+        """Create or replace one draft binding under a composite app scope."""
+
+    def list_bindings(self, workspace_id: UUID, app_id: UUID) -> list[AppBinding]:
+        """List live draft bindings for one app."""
+
+    def delete_binding(
+        self, workspace_id: UUID, app_id: UUID, binding_id: UUID, *, actor: str
+    ) -> None:
+        """Tombstone a draft binding."""
+
+    def invalidate_bindings_for_workflow(
+        self, workspace_id: UUID, workflow_id: UUID, *, actor: str
+    ) -> int:
+        """Invalidate app permission reviews that reference a changed workflow."""
+
+    def save_collection(
+        self, collection: AppCollection, *, actor: str
+    ) -> AppCollection:
+        """Create or replace one app-data collection."""
+
+    def list_collections(self, workspace_id: UUID, app_id: UUID) -> list[AppCollection]:
+        """List live collection definitions for one app."""
+
+    def delete_collection(
+        self, workspace_id: UUID, app_id: UUID, collection_id: UUID, *, actor: str
+    ) -> None:
+        """Tombstone an app-data collection."""
+
     def publish_release(self, release: AppRelease) -> HostedApp:
         """Atomically select a validated immutable release for its owning app."""
 
@@ -80,6 +109,37 @@ class HostedAppsRepository(Protocol):
 
     def resolve_descriptor(self, alias: str) -> dict[str, Any]:
         """Resolve one active alias to its immutable gateway descriptor."""
+
+    def list_audit_events(
+        self, workspace_id: UUID, app_id: UUID
+    ) -> list[PlatformAuditEvent]:
+        """List mutation audit evidence for one app."""
+
+    def reserve_platform_alias(self, alias: str, *, actor: str) -> AppAlias:
+        """Reserve a globally unavailable platform alias."""
+
+    def create_moderation_block(
+        self,
+        *,
+        target_kind: str,
+        target_id: str,
+        reason_code: str,
+        reason_detail: str | None,
+        actor: str,
+    ) -> ModerationBlock:
+        """Create a platform moderation override."""
+
+    def lift_moderation_block(self, block_id: UUID, *, actor: str) -> ModerationBlock:
+        """Lift one platform moderation override."""
+
+    def lookup_alias_owner(self, alias: str) -> dict[str, str] | None:
+        """Return platform-safe alias ownership metadata."""
+
+    def set_runtime_enabled(self, *, enabled: bool, actor: str) -> RuntimeGeneration:
+        """Change runtime availability and increment its cache generation."""
+
+    def assert_runtime_enabled(self, expected_generation: int | None = None) -> None:
+        """Fail closed when runtime delivery is unavailable or stale."""
 
 
 class InMemoryHostedAppsRepository:

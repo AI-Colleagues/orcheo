@@ -5,7 +5,7 @@ from typing import Annotated
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
-from orcheo.hosted_apps import InMemoryHostedAppsRepository
+from orcheo.hosted_apps import HostedAppsRepository
 from orcheo_backend.app.authentication import (
     RequestContext,
     authenticate_request,
@@ -25,9 +25,7 @@ router = APIRouter(
         Depends(require_scopes(MODERATION_SCOPE)),
     ],
 )
-RepositoryDep = Annotated[
-    InMemoryHostedAppsRepository, Depends(get_hosted_apps_repository)
-]
+RepositoryDep = Annotated[HostedAppsRepository, Depends(get_hosted_apps_repository)]
 operations_router = APIRouter(
     prefix="/platform/hosted-apps",
     tags=["platform-hosted-apps"],

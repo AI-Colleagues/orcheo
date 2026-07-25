@@ -22,7 +22,7 @@ from orcheo.hosted_apps import (
     DeploymentService,
     FilesystemBundleStore,
     HostedApp,
-    InMemoryHostedAppsRepository,
+    HostedAppsRepository,
     ReservedAliasError,
     validate_input_schema,
 )
@@ -52,9 +52,7 @@ from orcheo_backend.app.workspace import WorkspaceContextDep, require_role
 
 
 router = APIRouter(prefix="/apps", tags=["apps"])
-RepositoryDep = Annotated[
-    InMemoryHostedAppsRepository, Depends(get_hosted_apps_repository)
-]
+RepositoryDep = Annotated[HostedAppsRepository, Depends(get_hosted_apps_repository)]
 WorkflowRepositoryDep = Annotated[WorkflowRepository, Depends(get_repository)]
 
 

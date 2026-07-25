@@ -17,10 +17,12 @@ for key, value in (
 os.environ["ORCHEO_WORKFLOW_DEFINITION_MODE"] = "unrestricted"
 
 from orcheo.models import AesGcmCredentialCipher
+from orcheo.hosted_apps import InMemoryHostedAppsRepository
 from orcheo.vault import InMemoryCredentialVault
 from orcheo.workspace import InMemoryWorkspaceRepository
 from orcheo_backend.app import chatkit_runtime
 from orcheo_backend.app import dependencies as backend_dependencies
+from orcheo_backend.app.hosted_apps import store as hosted_apps_store
 from orcheo_backend.app.workspace import dependencies as workspace_dependencies
 
 
@@ -136,4 +138,9 @@ def _seed_in_memory_backend_state(
         chatkit_runtime._chatkit_server_ref,
         "server",
         SimpleNamespace(store=None),
+    )
+    monkeypatch.setitem(
+        hosted_apps_store._repository_ref,
+        "repository",
+        InMemoryHostedAppsRepository(),
     )

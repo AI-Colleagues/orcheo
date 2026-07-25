@@ -60,6 +60,7 @@ from orcheo.hosted_apps.models import (
     normalize_alias,
     normalize_logical_name,
 )
+from orcheo.hosted_apps.postgres_store import PostgresHostedAppsRepository
 from orcheo.hosted_apps.repository import (
     HostedAppsRepository,
     InMemoryHostedAppsRepository,
@@ -121,6 +122,7 @@ __all__ = [
     "ModerationBlock",
     "OPERATION_POLICY",
     "PlatformAuditEvent",
+    "PostgresHostedAppsRepository",
     "pkce_challenge",
     "PublicationState",
     "QuotaLease",
