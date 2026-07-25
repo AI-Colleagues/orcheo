@@ -1,11 +1,27 @@
 # Stage 1: Build the Studio app with placeholder values
 FROM node:20-alpine AS build
 
+ARG ORCHEO_RELEASE_CHANNEL=stable
+ARG ORCHEO_STUDIO_VERSION=
+
 WORKDIR /app
 
-# Install orcheo-studio from npm
-RUN npm init -y \
-    && npm install --silent orcheo-studio@latest
+RUN case "$ORCHEO_RELEASE_CHANNEL" in \
+      stable) studio_tag=latest ;; \
+      prerelease) \
+        if npm view orcheo-studio@prerelease version >/dev/null 2>&1; then \
+          studio_tag=prerelease; \
+        else \
+          studio_tag=latest; \
+        fi ;; \
+      *) echo "Unsupported release channel: $ORCHEO_RELEASE_CHANNEL" >&2; exit 1 ;; \
+    esac \
+    && npm init -y \
+    && if [ -n "$ORCHEO_STUDIO_VERSION" ]; then \
+      npm install --silent "orcheo-studio@${ORCHEO_STUDIO_VERSION}"; \
+    else \
+      npm install --silent "orcheo-studio@${studio_tag}"; \
+    fi
 
 # Set placeholder values for all VITE_ vars so they get baked into the JS
 # bundle. At container startup, an entrypoint script replaces these

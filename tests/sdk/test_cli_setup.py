@@ -463,7 +463,10 @@ def test_stack_asset_urls(monkeypatch):
     assert setup._resolve_stack_asset_base_url() == "https://custom"
     monkeypatch.delenv("ORCHEO_STACK_ASSET_BASE_URL", raising=False)
     assert setup._resolve_stack_asset_base_url(stack_version="1.0")
-    assert setup._is_prerelease_stack_version("1.0-beta")
+    assert setup._is_prerelease_stack_version("1.0.0-beta.1")
+    assert setup._is_prerelease_stack_version("1.0.0rc1")
+    assert not setup._is_prerelease_stack_version("1.0.0")
+    assert not setup._is_prerelease_stack_version("not-a-version")
     assert setup._normalize_stack_version("stack-v1.0") == "1.0"
     monkeypatch.setenv("ORCHEO_STACK_VERSION", "stack-v2.0")
     assert setup._resolve_stack_version(None) == "2.0"
@@ -511,7 +514,11 @@ def test_download_and_sync_stack_asset(tmp_path, monkeypatch):
 def test_sync_stack_assets_with_best_source(monkeypatch, tmp_path):
     monkeypatch.delenv("ORCHEO_STACK_ASSET_BASE_URL", raising=False)
     monkeypatch.setattr(setup, "_resolve_stack_version", lambda explicit: explicit)
-    monkeypatch.setattr(setup, "_discover_latest_stack_version", lambda console: "1.3")
+    monkeypatch.setattr(
+        setup,
+        "_discover_latest_stack_version",
+        lambda console, **kwargs: "1.3",
+    )
     calls = []
     monkeypatch.setattr(
         setup, "_sync_stack_assets_per_file", lambda *args, **kwargs: calls.append(True)
@@ -521,6 +528,24 @@ def test_sync_stack_assets_with_best_source(monkeypatch, tmp_path):
     )
     assert result == "1.3"
     assert calls
+
+
+def test_sync_staging_stack_requires_published_prerelease(monkeypatch, tmp_path):
+    monkeypatch.delenv("ORCHEO_STACK_ASSET_BASE_URL", raising=False)
+    monkeypatch.setattr(setup, "_resolve_stack_version", lambda explicit: explicit)
+    monkeypatch.setattr(
+        setup,
+        "_discover_latest_stack_version",
+        lambda console, **kwargs: None,
+    )
+
+    with pytest.raises(setup.typer.BadParameter, match="No published prerelease"):
+        setup._sync_stack_assets_with_best_source(
+            tmp_path,
+            stack_version=None,
+            console=make_console(),
+            prerelease=True,
+        )
 
 
 def test_build_env_updates(monkeypatch):
@@ -551,6 +576,8 @@ def test_build_env_updates(monkeypatch):
     assert updates["COMPOSE_PROFILES"] == ""
     assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain"
     assert updates["ORCHEO_STACK_IMAGE"] == f"{setup._STACK_IMAGE_REPOSITORY}:2.0"
+    assert updates["ORCHEO_STUDIO_IMAGE"] == (f"{setup._STUDIO_IMAGE_REPOSITORY}:2.0")
+    assert updates["ORCHEO_STACK_VERSION"] == "2.0"
     assert updates["ORCHEO_WORKFLOW_TRUST_MODE"] == "allow_client_uploads"
     assert updates["ORCHEO_WORKFLOW_DEFINITION_MODE"] == "unrestricted"
     assert defaults["ORCHEO_POSTGRES_PASSWORD"] == "safe"
@@ -1363,7 +1390,7 @@ def test_ensure_stack_env_file_preserves_existing_values_and_backfills_missing(
 def test_ensure_stack_assets_fresh(monkeypatch, tmp_path):
     monkeypatch.setenv("ORCHEO_STACK_DIR", str(tmp_path))
 
-    def stub_sync(stack_dir, stack_version, console):
+    def stub_sync(stack_dir, stack_version, console, **kwargs):
         template = stack_dir / ".env.example"
         template.write_text("ORCHEO_API_URL=http://template\n")
         return "1.0"
@@ -1410,7 +1437,7 @@ def test_ensure_stack_assets_existing_env(monkeypatch, tmp_path):
         "ORCHEO_API_URL=http://existing\nVITE_ORCHEO_BACKEND_URL=http://existing"
     )
 
-    def stub_sync(stack_dir, stack_version, console):
+    def stub_sync(stack_dir, stack_version, console, **kwargs):
         del stack_version, console
         (stack_dir / ".env.example").write_text(
             "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me\n", encoding="utf-8"
@@ -1466,7 +1493,12 @@ def test_ensure_stack_assets_writes_auth_for_preserved_https_backend(
         "ORCHEO_API_URL=https://api.beta.orcheo.cloud\n", encoding="utf-8"
     )
 
-    def stub_sync(stack_dir: Path, stack_version: str | None, console: Console) -> str:
+    def stub_sync(
+        stack_dir: Path,
+        stack_version: str | None,
+        console: Console,
+        **kwargs: object,
+    ) -> str:
         del stack_version, console
         (stack_dir / ".env.example").write_text("", encoding="utf-8")
         return "1.0"

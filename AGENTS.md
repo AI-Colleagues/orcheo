@@ -76,7 +76,7 @@ Tip: Prefix with `uv run` when invoking tools directly, e.g. `uv run pytest -k n
 - `make docker-restart` — Restart all Docker Compose services
 - `make docker-build` — Build Docker images
 - `make docker-logs` — Follow logs from all services
-- `make staging-up` / `staging-down` / `staging-restart` / `staging-build` / `staging-logs` / `staging-config` — same lifecycle against the staging compose environment (`make staging-env` prepares its env file)
+- `orcheo install --staging --start-stack` — install the newest published prerelease stack and Studio images.
 
 ### Package Management
 - Uses `uv` for dependency management (see uv.lock); Python 3.12+ required.

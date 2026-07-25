@@ -19,6 +19,7 @@ from typing import Literal
 from urllib.parse import quote, urlsplit
 from urllib.request import urlopen
 import typer
+from packaging.version import InvalidVersion, Version
 from rich.console import Console
 
 
@@ -36,11 +37,13 @@ _GITHUB_CONTENTS_API_URL = (
     "https://api.github.com/repos/AI-Colleagues/orcheo/contents/deploy/stack"
 )
 _STACK_IMAGE_REPOSITORY = "ghcr.io/ai-colleagues/orcheo-stack"
+_STUDIO_IMAGE_REPOSITORY = "ghcr.io/ai-colleagues/orcheo-studio"
 _CHATKIT_WIDGETS_DIR = "chatkit_widgets"
 _STACK_ASSET_FILES = (
     "docker-compose.yml",
     "Caddyfile",
     "Dockerfile.orcheo",
+    "resolve_orcheo_packages.py",
     ".env.example",
 )
 _CHATKIT_DOMAIN_KEY_PLACEHOLDER = "domain_pk_replace_me"
@@ -1277,7 +1280,10 @@ def _resolve_stack_asset_base_url(*, stack_version: str | None = None) -> str:
 
 
 def _is_prerelease_stack_version(version: str) -> bool:
-    return "-" in version
+    try:
+        return Version(version).is_prerelease
+    except InvalidVersion:
+        return False
 
 
 def _normalize_stack_version(version: str | None) -> str | None:
@@ -1296,7 +1302,36 @@ def _resolve_stack_version(explicit: str | None) -> str | None:
     return _normalize_stack_version(os.getenv("ORCHEO_STACK_VERSION"))
 
 
-def _discover_latest_stack_version(console: Console) -> str | None:
+def _stack_version_candidate(
+    tag: object,
+    *,
+    prerelease: bool,
+) -> tuple[Version, str] | None:
+    """Return a comparable stack version from one GitHub tag entry."""
+    if not isinstance(tag, dict):
+        return None
+    tag_name = tag.get("name")
+    if not isinstance(tag_name, str) or not tag_name.startswith(
+        _STACK_RELEASE_TAG_PREFIX
+    ):
+        return None
+    version = _normalize_stack_version(tag_name)
+    if version is None:
+        return None
+    try:
+        parsed = Version(version)
+    except InvalidVersion:
+        return None
+    if parsed.is_prerelease != prerelease:
+        return None
+    return parsed, version
+
+
+def _discover_latest_stack_version(
+    console: Console,
+    *,
+    prerelease: bool = False,
+) -> str | None:
     tags_url = f"{_GITHUB_TAGS_API_URL}?per_page=100"
     try:
         with urlopen(tags_url, timeout=10) as response:  # noqa: S310
@@ -1316,20 +1351,15 @@ def _discover_latest_stack_version(console: Console) -> str | None:
         )
         return None
 
+    candidates: list[tuple[Version, str]] = []
     for tag in tags:
-        if not isinstance(tag, dict):
-            continue
-        tag_name = tag.get("name")
-        if not isinstance(tag_name, str):
-            continue
-        if not tag_name.startswith(_STACK_RELEASE_TAG_PREFIX):
-            continue
+        candidate = _stack_version_candidate(tag, prerelease=prerelease)
+        if candidate is not None:
+            candidates.append(candidate)
 
-        version = _normalize_stack_version(tag_name)
-        if version is not None and not _is_prerelease_stack_version(version):
-            return version
-
-    return None
+    if not candidates:
+        return None
+    return max(candidates, key=lambda candidate: candidate[0])[1]
 
 
 def _list_chatkit_widget_paths(
@@ -1441,13 +1471,28 @@ def _sync_stack_assets_with_best_source(
     *,
     stack_version: str | None,
     console: Console,
+    prerelease: bool = False,
 ) -> str | None:
     resolved_stack_version = _resolve_stack_version(stack_version)
     configured_stack_asset_base_url = _normalize_optional_value(
         os.getenv("ORCHEO_STACK_ASSET_BASE_URL")
     )
+    if (
+        prerelease
+        and configured_stack_asset_base_url is not None
+        and resolved_stack_version is None
+    ):
+        raise typer.BadParameter(
+            "--staging with ORCHEO_STACK_ASSET_BASE_URL requires an explicit "
+            "prerelease ORCHEO_STACK_VERSION."
+        )
     if configured_stack_asset_base_url is None and resolved_stack_version is None:
-        resolved_stack_version = _discover_latest_stack_version(console)
+        resolved_stack_version = _discover_latest_stack_version(
+            console,
+            prerelease=prerelease,
+        )
+    if prerelease and resolved_stack_version is None:
+        raise typer.BadParameter("No published prerelease stack version was found.")
 
     _sync_stack_assets_per_file(
         stack_dir,
@@ -1571,8 +1616,12 @@ def _build_env_updates(
         updates["ORCHEO_AUTH_AUDIENCE"] = audience
         updates["VITE_ORCHEO_AUTH_DISABLED"] = "false"
     if requested_stack_version:
+        updates["ORCHEO_STACK_VERSION"] = requested_stack_version
         updates["ORCHEO_STACK_IMAGE"] = (
             f"{_STACK_IMAGE_REPOSITORY}:{requested_stack_version}"
+        )
+        updates["ORCHEO_STUDIO_IMAGE"] = (
+            f"{_STUDIO_IMAGE_REPOSITORY}:{requested_stack_version}"
         )
 
     defaults = build_generated_stack_env_defaults()
@@ -1741,15 +1790,26 @@ def _ensure_stack_assets(
     config: SetupConfig,
     console: Console,
     stack_version: str | None = None,
+    staging: bool = False,
 ) -> tuple[Path, Path]:
     stack_dir = _resolve_stack_project_dir()
     stack_dir.mkdir(parents=True, exist_ok=True)
 
     requested_stack_version = _resolve_stack_version(stack_version)
+    if (
+        staging
+        and requested_stack_version is not None
+        and not _is_prerelease_stack_version(requested_stack_version)
+    ):
+        raise typer.BadParameter(
+            "--staging requires a prerelease ORCHEO_STACK_VERSION or no configured "
+            "stack version."
+        )
     synced_stack_version = _sync_stack_assets_with_best_source(
         stack_dir,
         stack_version=requested_stack_version,
         console=console,
+        prerelease=staging,
     )
 
     env_file = stack_dir / ".env"
@@ -1760,7 +1820,7 @@ def _ensure_stack_assets(
 
     updates, defaults = _build_env_updates(
         config,
-        requested_stack_version=requested_stack_version,
+        requested_stack_version=synced_stack_version,
     )
     env_template = stack_dir / ".env.example"
     if not env_template.exists():
@@ -2125,12 +2185,14 @@ def execute_setup(
     *,
     console: Console,
     stack_version: str | None = None,
+    staging: bool = False,
 ) -> None:
     """Run setup/upgrade actions based on the selected options."""
     stack_dir, env_file = _ensure_stack_assets(
         config=config,
         console=console,
         stack_version=stack_version,
+        staging=staging,
     )
     config.stack_project_dir = str(stack_dir)
     config.stack_env_file = str(env_file)

@@ -110,8 +110,8 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo config list` | List all configured CLI profiles. |
 | `orcheo code template [-o <file>] [--name <name>]` | Generate a minimal Python LangGraph workflow template file. |
 | `orcheo code scaffold <workflow>` | Generate Python SDK code snippets to invoke an existing workflow. |
-| `orcheo install [--yes] [--mode install\|upgrade] [--stack-version <version>] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided Docker-stack setup/upgrade (asset sync, `.env` updates, optional compose startup). |
-| `orcheo install upgrade [--yes] [--stack-version <version>] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided upgrade shortcut command. |
+| `orcheo install [--yes] [--mode install\|upgrade] [--stack-version <version>\|--staging] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided Docker-stack setup/upgrade. `--staging` installs the newest published prerelease stack. |
+| `orcheo install upgrade [--yes] [--stack-version <version>\|--staging] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided upgrade shortcut command. |
 | `orcheo install ensure-stack-env` | Create or backfill a stack env file without running the full install flow. |
 | `orcheo browser-aware` | Start the browser context bridge server. |
 | `orcheo context` | Inspect browser context from Studio tabs. |
@@ -119,7 +119,8 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 `orcheo install` syncs stack assets into `~/.orcheo/stack` (or
 `ORCHEO_STACK_DIR`). Files are refreshed when upstream content differs.
 Use `--stack-version` (or `ORCHEO_STACK_VERSION`) to pin stack assets to a
-specific `stack-v*` tag and set `ORCHEO_STACK_IMAGE` accordingly.
+specific `stack-v*` tag. Use `--staging` to resolve the newest prerelease.
+Both paths pin matching `ORCHEO_STACK_IMAGE` and `ORCHEO_STUDIO_IMAGE` values.
 When startup is enabled (`--start-stack`), setup then runs Docker Compose
 (Docker must be installed). Setup also prompts for
 `VITE_ORCHEO_CHATKIT_DOMAIN_KEY`; you can skip and continue, but ChatKit UI

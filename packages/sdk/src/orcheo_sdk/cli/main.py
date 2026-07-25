@@ -281,6 +281,7 @@ def _run_install_flow(
     yes: bool,
     mode: str | None,
     stack_version: str | None,
+    staging: bool = False,
     backend_url: str | None,
     studio_url: str | None,
     auth_mode: str | None,
@@ -301,6 +302,8 @@ def _run_install_flow(
     smtp_use_tls: bool | None = None,
 ) -> None:
     """Run guided install/upgrade for Orcheo components."""
+    if staging and stack_version is not None:
+        raise typer.BadParameter("Use either --staging or --stack-version, not both.")
     mode_value = forced_mode or cast(SetupMode | None, _parse_setup_mode(mode))
     auth_value = cast(AuthMode | None, _parse_auth_mode(auth_mode))
     config = run_setup(
@@ -325,7 +328,12 @@ def _run_install_flow(
         smtp_from_email=smtp_from_email,
         smtp_use_tls=smtp_use_tls,
     )
-    execute_setup(config, console=console, stack_version=stack_version)
+    execute_setup(
+        config,
+        console=console,
+        stack_version=stack_version,
+        staging=staging,
+    )
     print_summary(config, console=console)
     _install_agent_skills(console=console, should_install=config.install_agent_skills)
 
@@ -418,6 +426,13 @@ def install_command(
             ),
         ),
     ] = None,
+    staging: Annotated[
+        bool,
+        typer.Option(
+            "--staging",
+            help=("Install the newest published prerelease stack and Studio images."),
+        ),
+    ] = False,
     backend_url: Annotated[
         str | None,
         typer.Option("--backend-url", help="Backend URL for CLI config."),
@@ -553,6 +568,7 @@ def install_command(
         yes=yes,
         mode=mode,
         stack_version=stack_version,
+        staging=staging,
         backend_url=backend_url,
         studio_url=studio_url,
         auth_mode=auth_mode,
@@ -589,6 +605,15 @@ def install_upgrade_command(
             ),
         ),
     ] = None,
+    staging: Annotated[
+        bool,
+        typer.Option(
+            "--staging",
+            help=(
+                "Upgrade to the newest published prerelease stack and Studio images."
+            ),
+        ),
+    ] = False,
     backend_url: Annotated[
         str | None,
         typer.Option("--backend-url", help="Backend URL for CLI config."),
@@ -673,6 +698,7 @@ def install_upgrade_command(
         yes=yes,
         mode=None,
         stack_version=stack_version,
+        staging=staging,
         backend_url=backend_url,
         studio_url=studio_url,
         auth_mode=auth_mode,
