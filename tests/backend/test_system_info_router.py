@@ -34,6 +34,7 @@ def test_system_info_success(monkeypatch: pytest.MonkeyPatch) -> None:
         versioning,
         "_read_current_version",
         lambda package: {
+            "orcheo": "0.0.9",
             "orcheo-backend": "0.1.0",
             "orcheo-sdk": "0.2.0",
             "orcheo-studio": "0.3.0",
@@ -51,6 +52,9 @@ def test_system_info_success(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["core"]["current_version"] == "0.0.9"
+    assert payload["core"]["latest_version"] == "0.5.0"
+    assert payload["core"]["update_available"] is True
     assert payload["backend"]["current_version"] == "0.1.0"
     assert payload["backend"]["latest_version"] == "0.5.0"
     assert payload["backend"]["update_available"] is True
@@ -68,6 +72,7 @@ def test_system_info_registry_failure_fallback(monkeypatch: pytest.MonkeyPatch) 
         versioning,
         "_read_current_version",
         lambda package: {
+            "orcheo": "0.0.9",
             "orcheo-backend": "0.1.0",
             "orcheo-sdk": "0.2.0",
             "orcheo-studio": "0.3.0",
@@ -81,6 +86,8 @@ def test_system_info_registry_failure_fallback(monkeypatch: pytest.MonkeyPatch) 
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["core"]["latest_version"] is None
+    assert payload["core"]["update_available"] is False
     assert payload["backend"]["latest_version"] is None
     assert payload["backend"]["update_available"] is False
     assert payload["cli"]["latest_version"] is None

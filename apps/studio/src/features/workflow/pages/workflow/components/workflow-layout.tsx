@@ -13,11 +13,6 @@ import type {
   ChatKitStartScreenPrompt,
   ChatKitSupportedModel,
 } from "@features/workflow/lib/workflow-storage.types";
-import type {
-  Credential,
-  CredentialInput,
-  CredentialUpdateInput,
-} from "@features/workflow/types/credential-vault";
 
 interface ChatState {
   isChatOpen: boolean;
@@ -58,15 +53,6 @@ interface WorkflowLayoutProps {
       name: string;
       onNameChange?: (name: string) => void;
     };
-    credentials: Credential[];
-    isCredentialsLoading: boolean;
-    onAddCredential?: (credential: CredentialInput) => Promise<void> | void;
-    onUpdateCredential?: (
-      id: string,
-      updates: CredentialUpdateInput,
-    ) => Promise<void> | void;
-    onDeleteCredential?: (id: string) => Promise<void> | void;
-    onRevealCredentialSecret?: (id: string) => Promise<string | null>;
   };
   tabsProps: {
     activeTab: string;
@@ -92,12 +78,6 @@ export function WorkflowLayout({
         activeTab={tabsProps.activeTab}
         onTabChange={tabsProps.onTabChange}
         currentWorkflow={headerProps.currentWorkflow}
-        credentials={headerProps.credentials}
-        isCredentialsLoading={headerProps.isCredentialsLoading}
-        onAddCredential={headerProps.onAddCredential}
-        onUpdateCredential={headerProps.onUpdateCredential}
-        onDeleteCredential={headerProps.onDeleteCredential}
-        onRevealCredentialSecret={headerProps.onRevealCredentialSecret}
       />
 
       <div className="flex-1 flex flex-col min-h-0">

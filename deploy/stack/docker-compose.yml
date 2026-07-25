@@ -84,12 +84,14 @@ services:
       ORCHEO_WORKFLOW_TRUST_MODE: ${ORCHEO_WORKFLOW_TRUST_MODE:-}
       ORCHEO_WORKFLOW_DEFINITION_MODE: ${ORCHEO_WORKFLOW_DEFINITION_MODE:-unrestricted}
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
-      ORCHEO_HOSTED_APPS_ENABLED: ${ORCHEO_HOSTED_APPS_ENABLED:-false}
+      ORCHEO_HOSTED_APPS_ENABLED: ${ORCHEO_HOSTED_APPS_ENABLED:-true}
       ORCHEO_APPS_BASE_DOMAIN: ${ORCHEO_APPS_BASE_DOMAIN:-apps.localhost}
       ORCHEO_APP_BUNDLE_BACKEND: ${ORCHEO_APP_BUNDLE_BACKEND:-filesystem}
       ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT: /data/app-bundles
       ORCHEO_DEPLOYMENT_MODE: ${ORCHEO_DEPLOYMENT_MODE:-single-node}
       ORCHEO_APP_GATEWAY_SECRET: ${ORCHEO_APP_GATEWAY_SECRET:-}
+      ORCHEO_HOSTED_APPS_VALIDATION_QUEUE: ${ORCHEO_HOSTED_APPS_VALIDATION_QUEUE:-hosted-app-validation}
+      ORCHEO_HOSTED_APPS_AUTO_ENABLE_RUNTIME: ${ORCHEO_HOSTED_APPS_AUTO_ENABLE_RUNTIME:-true}
       PYTHONUNBUFFERED: "1"
     depends_on:
       redis:
@@ -156,12 +158,13 @@ services:
 
   app-gateway:
     image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
-    profiles:
-      - hosted-apps
     env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
     logging: *default-logging
+    ports:
+      - "127.0.0.1:${ORCHEO_APP_GATEWAY_LOCAL_PORT:-2030}:2030"
     environment:
-      ORCHEO_APPS_BASE_DOMAIN: ${ORCHEO_APPS_BASE_DOMAIN:?set ORCHEO_APPS_BASE_DOMAIN}
+      ORCHEO_HOSTED_APPS_ENABLED: ${ORCHEO_HOSTED_APPS_ENABLED:-true}
+      ORCHEO_APPS_BASE_DOMAIN: ${ORCHEO_APPS_BASE_DOMAIN:-apps.localhost}
       ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT: /data/app-bundles
       ORCHEO_APP_GATEWAY_BACKEND_URL: http://backend:2025
       ORCHEO_APP_GATEWAY_SECRET: ${ORCHEO_APP_GATEWAY_SECRET:-}
@@ -176,23 +179,28 @@ services:
         condition: service_healthy
     command: uv run --package orcheo-app-gateway uvicorn orcheo_app_gateway.main:create_app --factory --host 0.0.0.0 --port 2030
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:2030/healthz > /dev/null"]
+      test:
+        [
+          "CMD-SHELL",
+          'case "$$ORCHEO_HOSTED_APPS_ENABLED" in 1|true|yes) endpoint=readyz ;; *) endpoint=healthz ;; esac; curl -fsS "http://localhost:2030/$$endpoint" > /dev/null',
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   validation-worker:
     image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
-    profiles:
-      - hosted-apps
     env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
     logging: *default-logging
     environment:
       REDIS_URL: redis://redis:6379/0
       ORCHEO_POSTGRES_DSN: postgresql://${ORCHEO_POSTGRES_USER}:${ORCHEO_POSTGRES_PASSWORD}@postgres:5432/${ORCHEO_POSTGRES_DB}
-      ORCHEO_HOSTED_APPS_VALIDATION_QUEUE: hosted-app-validation
+      ORCHEO_HOSTED_APPS_ENABLED: ${ORCHEO_HOSTED_APPS_ENABLED:-true}
+      ORCHEO_HOSTED_APPS_VALIDATION_QUEUE: ${ORCHEO_HOSTED_APPS_VALIDATION_QUEUE:-hosted-app-validation}
       ORCHEO_APP_BUNDLE_BACKEND: ${ORCHEO_APP_BUNDLE_BACKEND:-filesystem}
       ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT: /data/app-bundles
+      ORCHEO_DEPLOYMENT_MODE: ${ORCHEO_DEPLOYMENT_MODE:-single-node}
       PYTHONUNBUFFERED: "1"
     volumes:
       - orcheo_app_bundles:/data/app-bundles
@@ -201,15 +209,18 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    command: python -m celery -A orcheo_backend.worker.celery_app worker --loglevel=info --queues=hosted-app-validation --concurrency=1
+    command: >
+      sh -c 'python -m celery -A orcheo_backend.worker.celery_app worker
+      --loglevel=info
+      --queues="$$ORCHEO_HOSTED_APPS_VALIDATION_QUEUE"
+      --concurrency=1'
 
   hosted-app-cleanup:
     image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
-    profiles:
-      - hosted-apps
     env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
     logging: *default-logging
     environment:
+      ORCHEO_APP_BUNDLE_BACKEND: ${ORCHEO_APP_BUNDLE_BACKEND:-filesystem}
       ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT: /data/app-bundles
       ORCHEO_HOSTED_APPS_PARTIAL_RETENTION_SECONDS: ${ORCHEO_HOSTED_APPS_PARTIAL_RETENTION_SECONDS:-86400}
       ORCHEO_HOSTED_APPS_CLEANUP_INTERVAL_SECONDS: ${ORCHEO_HOSTED_APPS_CLEANUP_INTERVAL_SECONDS:-900}
@@ -274,6 +285,8 @@ services:
       VITE_ORCHEO_CHATKIT_DOMAIN_KEY: ${VITE_ORCHEO_CHATKIT_DOMAIN_KEY:-domain_pk_replace_me}
       VITE_ORCHEO_ALLOWED_HOSTS: ${VITE_ORCHEO_ALLOWED_HOSTS:-localhost,127.0.0.1}
       VITE_ORCHEO_APPS_BASE_DOMAIN: ${ORCHEO_APPS_BASE_DOMAIN:-apps.localhost}
+      # Leave empty for normal HTTPS; the Studio defaults *.localhost to 2030.
+      VITE_ORCHEO_APPS_PORT: ${VITE_ORCHEO_APPS_PORT:-}
     depends_on:
       - backend
     healthcheck:
@@ -284,7 +297,7 @@ services:
       start_period: 10s
 
   caddy:
-    image: caddy:2
+    image: ${ORCHEO_CADDY_IMAGE:-caddy:2}
     logging: *default-logging
     profiles:
       - public-ingress
@@ -299,6 +312,7 @@ services:
       - "${ORCHEO_CADDY_HTTPS_BIND:-0.0.0.0}:443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./app-tls:/etc/orcheo/app-tls:ro
       - caddy_data:/data
       - caddy_config:/config
 

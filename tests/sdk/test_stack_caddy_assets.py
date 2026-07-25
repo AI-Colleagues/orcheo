@@ -15,6 +15,9 @@ COMPOSE_FILE = STACK_DIR / "docker-compose.yml"
 STAGING_COMPOSE_FILE = STACK_DIR / "docker-compose.staging.yml"
 CADDYFILE = STACK_DIR / "Caddyfile"
 ENV_EXAMPLE = STACK_DIR / ".env.example"
+STUDIO_DOCKERFILE = STACK_DIR / "Dockerfile.studio"
+STAGING_STUDIO_DOCKERFILE = STACK_DIR / "Dockerfile.studio.staging"
+STUDIO_ENTRYPOINT = STACK_DIR / "studio-entrypoint.sh"
 COMPOSE_CONFIG_ENV = {
     "VITE_ORCHEO_CHATKIT_DOMAIN_KEY": "domain_pk_test",
 }
@@ -37,6 +40,13 @@ def test_stack_compose_defines_public_ingress_and_direct_ports() -> None:
         "127.0.0.1:${ORCHEO_STUDIO_LOCAL_PORT:-2026}:2026"
         in services["studio"]["ports"]
     )
+    assert (
+        "127.0.0.1:${ORCHEO_APP_GATEWAY_LOCAL_PORT:-2030}:2030"
+        in services["app-gateway"]["ports"]
+    )
+    assert "profiles" not in services["app-gateway"]
+    assert "profiles" not in services["validation-worker"]
+    assert "profiles" not in services["hosted-app-cleanup"]
     assert services["backend"]["healthcheck"]["test"] == [
         "CMD-SHELL",
         "curl -fsS http://localhost:2025/api/system/health > /dev/null",
@@ -54,7 +64,9 @@ def test_stack_compose_defines_public_ingress_and_direct_ports() -> None:
     assert services["caddy"]["depends_on"]["backend"]["condition"] == "service_healthy"
     assert services["caddy"]["depends_on"]["studio"]["condition"] == "service_healthy"
     assert services["caddy"]["profiles"] == ["public-ingress"]
+    assert services["caddy"]["image"] == "${ORCHEO_CADDY_IMAGE:-caddy:2}"
     assert "./Caddyfile:/etc/caddy/Caddyfile:ro" in services["caddy"]["volumes"]
+    assert "./app-tls:/etc/orcheo/app-tls:ro" in services["caddy"]["volumes"]
     assert "caddy_data:/data" in services["caddy"]["volumes"]
     assert "caddy_config:/config" in services["caddy"]["volumes"]
     assert (
@@ -80,6 +92,7 @@ def test_caddyfile_routes_studio_api_and_websockets() -> None:
     assert "health_uri /api/system/health" in content
     assert "lb_policy round_robin" in content
     assert "reverse_proxy {$ORCHEO_CADDY_STUDIO_UPSTREAM:studio:2026}" in content
+    assert "import /etc/orcheo/app-tls/Caddyfile" in content
 
 
 def test_env_example_documents_public_ingress_contract() -> None:
@@ -88,6 +101,8 @@ def test_env_example_documents_public_ingress_contract() -> None:
     assert "ORCHEO_PUBLIC_INGRESS_ENABLED=false" in content
     assert "ORCHEO_PUBLIC_HOST=" in content
     assert "COMPOSE_PROFILES=" in content
+    assert "ORCHEO_HOSTED_APPS_ENABLED=true" in content
+    assert "ORCHEO_APP_GATEWAY_LOCAL_PORT=2030" in content
     assert "ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:2025" in content
     assert "VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1" in content
 
@@ -116,6 +131,19 @@ def test_staging_compose_builds_local_images_from_repo_source() -> None:
         "context": "../..",
         "dockerfile": "deploy/stack/Dockerfile.studio.staging",
     }
+
+
+def test_studio_images_inject_hosted_app_address_settings() -> None:
+    for path in (STUDIO_DOCKERFILE, STAGING_STUDIO_DOCKERFILE):
+        content = path.read_text(encoding="utf-8")
+        assert (
+            "VITE_ORCHEO_APPS_BASE_DOMAIN=__VITE_ORCHEO_APPS_BASE_DOMAIN__" in content
+        )
+        assert "VITE_ORCHEO_APPS_PORT=__VITE_ORCHEO_APPS_PORT__" in content
+
+    entrypoint = STUDIO_ENTRYPOINT.read_text(encoding="utf-8")
+    assert '"VITE_ORCHEO_APPS_BASE_DOMAIN"' in entrypoint
+    assert '"VITE_ORCHEO_APPS_PORT"' in entrypoint
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="docker is not available")
@@ -167,8 +195,6 @@ def test_staging_stack_compose_config_renders(tmp_path: Path) -> None:
         [
             "docker",
             "compose",
-            "--profile",
-            "hosted-apps",
             "-f",
             str(temp_stack_dir / "docker-compose.yml"),
             "-f",

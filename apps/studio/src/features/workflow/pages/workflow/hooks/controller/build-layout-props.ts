@@ -30,12 +30,6 @@ export interface WorkflowLayoutProps {
       name: string;
       onNameChange?: (name: string) => void;
     };
-    credentials: WorkflowResources["credentials"]["credentials"];
-    isCredentialsLoading: boolean;
-    onAddCredential: WorkflowResources["credentials"]["handleAddCredential"];
-    onUpdateCredential: WorkflowResources["credentials"]["handleUpdateCredential"];
-    onDeleteCredential: WorkflowResources["credentials"]["handleDeleteCredential"];
-    onRevealCredentialSecret: WorkflowResources["credentials"]["handleRevealCredentialSecret"];
   };
   tabsProps: {
     activeTab: string;
@@ -141,13 +135,6 @@ export function buildWorkflowLayoutProps(
         name: core.metadata.workflowName,
         onNameChange: core.metadata.setWorkflowName,
       },
-      credentials: resources.credentials.credentials,
-      isCredentialsLoading: resources.credentials.isCredentialsLoading,
-      onAddCredential: resources.credentials.handleAddCredential,
-      onUpdateCredential: resources.credentials.handleUpdateCredential,
-      onDeleteCredential: resources.credentials.handleDeleteCredential,
-      onRevealCredentialSecret:
-        resources.credentials.handleRevealCredentialSecret,
     },
     tabsProps: {
       activeTab: core.ui.activeTab,

@@ -677,6 +677,18 @@ def test_install_upgrade_command_forces_upgrade(
     assert called == ["None"]
 
 
+def test_install_help_lists_production_hosted_apps_options(
+    runner: CliRunner,
+) -> None:
+    result = runner.invoke(app, ["install", "--help"], terminal_width=140)
+
+    assert result.exit_code == 0
+    assert "--hosted-apps" in result.stdout
+    assert "--apps-base-domain" in result.stdout
+    assert "--app-tls-cert-file" in result.stdout
+    assert "proxy CIDRs trusted" in result.stdout
+
+
 def test_stack_command_errors_and_success(monkeypatch: pytest.MonkeyPatch) -> None:
     console = Console()
     monkeypatch.setattr(main_mod, "_resolve_install_console", lambda ctx: console)

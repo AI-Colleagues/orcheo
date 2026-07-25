@@ -1,13 +1,46 @@
 # Hosted Apps operator runbook
 
-Hosted Apps is disabled unless `ORCHEO_HOSTED_APPS_ENABLED=true`, the workspace is
-allowlisted when an allowlist is configured, and all required domain, storage, gateway,
-and runtime-generation settings validate. Disablement retains metadata and objects.
+Hosted Apps is enabled by default for local installs. Public installs explicitly prompt
+the operator to opt in. Apps serve traffic only when the workspace is allowlisted when
+an allowlist is configured and all required domain, storage, gateway, TLS, proxy, and
+runtime-generation settings validate. Setting `ORCHEO_HOSTED_APPS_ENABLED=false`
+retains metadata and objects while disabling access.
 
-Before enabling the profile, run `uv run orcheo-hosted-apps-preflight`. It validates
-the base domain and wildcard DNS probe, TLS method, dedicated gateway secret, trusted
-proxy CIDRs/hops, Postgres runtime state, validation queue, and selected bundle-storage
-configuration.
+`orcheo install` runs the Hosted Apps preflight before starting Compose. It validates
+the base domain and wildcard DNS probe, TLS certificate paths, dedicated gateway secret,
+trusted proxy CIDRs/hops, Postgres runtime state, validation queue, and bundle-storage
+configuration. Run `uv run orcheo-hosted-apps-preflight` for later manual checks.
+
+## Guided production install
+
+With public ingress selected, interactive `orcheo install` asks whether to enable Hosted
+Apps. When enabled, it prompts for:
+
+- the bare wildcard base domain, such as `apps.example.com`;
+- an optional comma-separated workspace rollout allowlist;
+- trusted proxy CIDRs and a fixed forwarding-hop count;
+- a readable wildcard certificate and private-key file.
+
+The installer generates the gateway identity, copies the certificate and key into the
+managed stack with restricted permissions, writes the Caddy TLS directive, validates
+wildcard DNS, and only then starts Compose.
+
+For non-interactive provisioning, provide the production values explicitly:
+
+```bash
+orcheo install --yes --public-ingress \
+  --public-host orcheo.example.com \
+  --hosted-apps \
+  --apps-base-domain apps.example.com \
+  --app-tls-cert-file /secure/wildcard-apps.pem \
+  --app-tls-key-file /secure/wildcard-apps-key.pem \
+  --app-trusted-proxy-cidrs 172.16.0.0/12 \
+  --app-trusted-proxy-hops 1 \
+  --start-stack
+```
+
+Before using `--start-stack`, both the Studio/API hostname and a probe hostname beneath
+the app wildcard domain must resolve to the installation host.
 
 ## Network and service topology
 
@@ -19,28 +52,27 @@ Configure trusted proxy CIDRs/hops explicitly. The gateway strips browser Author
 workspace, workflow, actor, forwarding, and internal-service headers. Backend internal
 routes accept only the dedicated gateway identity and are excluded from public OpenAPI.
 
-The `hosted-apps` Compose profile starts the gateway and a dedicated
-`hosted-app-validation` Celery consumer with concurrency one. Validation must never share
-the workflow-worker queue. Monitor queue lag, object-store latency, and orphan cleanup.
+Normal Compose startup includes the gateway, cleanup process, and a dedicated
+`hosted-app-validation` Celery consumer with concurrency one. The global feature flag
+still fails closed until configuration passes. Validation must never share the
+workflow-worker queue. Monitor queue lag, object-store latency, and orphan cleanup.
 
 ## Storage
 
-Production uses a private S3-compatible bucket with server-only credentials. Configure an
-endpoint, region, bucket, access key, and secret through stack secret handling. Objects
-are written to unique immutable deployment prefixes; assets are written idempotently,
-the authoritative manifest is verified and written last, and only then is the deployment
-marked ready.
+The bundled installer currently supports the filesystem backend for local or explicit
+single-node installs. It persists bundles in the `orcheo_app_bundles` named volume.
 
-The filesystem backend is accepted only for local or explicit single-node installs.
-MinIO is not bundled by default: operators either provide external S3-compatible storage
-or deliberately add and own a supported MinIO topology.
+The S3 store primitives exist, but the production presigned-upload API is not complete.
+The installer therefore rejects an existing S3 Hosted Apps topology instead of accepting
+credentials for a deployment-upload path that cannot work. MinIO is not bundled.
 
 ## Wildcard TLS
 
-Use either an operator-provided wildcard certificate mounted into ingress or a
-DNS-01-capable Caddy build/provider with narrowly scoped DNS credentials. Do not issue a
-certificate per alias. Verify DNS, certificate chain, exact-host routing, and trusted IP
-derivation before enabling the feature.
+The bundled installer supports an operator-provided wildcard certificate. It copies the
+certificate and key into `~/.orcheo/stack/app-tls/` and mounts that directory read-only
+into Caddy. DNS-01 requires a custom Caddy build and provider integration managed outside
+the bundled installer. Do not issue a certificate per alias. Verify DNS, certificate
+chain, exact-host routing, and trusted IP derivation before enabling the feature.
 
 ## Emergency response
 

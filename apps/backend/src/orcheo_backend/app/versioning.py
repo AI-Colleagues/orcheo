@@ -175,10 +175,14 @@ def _build_payload() -> dict[str, Any]:
     timeout = _read_timeout_seconds()
     retries = _read_retries()
 
+    core_current = _read_current_version("orcheo")
     backend_current = _read_current_version("orcheo-backend")
     cli_current = _read_current_version("orcheo-sdk")
     studio_current = _read_studio_current_version()
 
+    core_latest = _get_cached_latest_version(
+        "orcheo", _fetch_pypi_latest, timeout=timeout, retries=retries
+    )
     backend_latest = _get_cached_latest_version(
         "orcheo-backend", _fetch_pypi_latest, timeout=timeout, retries=retries
     )
@@ -192,6 +196,14 @@ def _build_payload() -> dict[str, Any]:
     checked_at = datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
 
     return {
+        "core": {
+            "package": "orcheo",
+            "current_version": core_current,
+            "latest_version": core_latest,
+            "minimum_recommended_version": None,
+            "release_notes_url": None,
+            "update_available": _update_available(core_current, core_latest),
+        },
         "backend": {
             "package": "orcheo-backend",
             "current_version": backend_current,

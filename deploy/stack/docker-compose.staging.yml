@@ -22,14 +22,17 @@ services:
   app-gateway:
     image: orcheo-stack:staging-local
     build: *orcheo_staging_build
+    # The base stack publishes the gateway and starts it without a profile.
 
   validation-worker:
     image: orcheo-stack:staging-local
     build: *orcheo_staging_build
+    # The base stack supplies the shared bundle volume and dedicated queue.
 
   hosted-app-cleanup:
     image: orcheo-stack:staging-local
     build: *orcheo_staging_build
+    # The base stack supplies the writable shared bundle volume.
 
   studio:
     image: orcheo-studio:staging-local

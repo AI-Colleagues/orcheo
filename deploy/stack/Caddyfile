@@ -13,5 +13,6 @@
 
 *.{$ORCHEO_APPS_BASE_DOMAIN:apps.localhost} {
 	encode zstd gzip
+	import /etc/orcheo/app-tls/Caddyfile
 	reverse_proxy {$ORCHEO_APP_GATEWAY_UPSTREAM:app-gateway:2030}
 }

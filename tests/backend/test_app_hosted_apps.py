@@ -9,7 +9,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orcheo.workspace import Role, WorkspaceContext
-from orcheo_backend.app.hosted_apps import reset_hosted_apps_repository
+from orcheo_backend.app.hosted_apps import (
+    get_hosted_apps_repository,
+    reset_hosted_apps_repository,
+)
 from orcheo_backend.app.authentication import RequestContext, get_request_context
 from orcheo_backend.app.authentication.dependencies import authenticate_request
 from orcheo_backend.app.workspace.dependencies import resolve_workspace_context
@@ -25,6 +28,20 @@ def hosted_apps_environment(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", "/tmp/orcheo-test-apps")
     monkeypatch.setenv("ORCHEO_DEPLOYMENT_MODE", "local")
     yield
+    reset_hosted_apps_repository()
+
+
+@pytest.mark.parametrize("deployment_mode", ["local", "single-node"])
+def test_ephemeral_startup_can_auto_enable_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    deployment_mode: str,
+) -> None:
+    """Self-hosted stacks can serve apps without a platform bootstrap call."""
+    monkeypatch.setenv("ORCHEO_DEPLOYMENT_MODE", deployment_mode)
+    monkeypatch.setenv("ORCHEO_HOSTED_APPS_AUTO_ENABLE_RUNTIME", "true")
+    state = get_hosted_apps_repository().get_runtime_generation()
+    assert state.enabled is True
+    assert state.updated_by == "system:stack-startup"
     reset_hosted_apps_repository()
 
 

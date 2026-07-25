@@ -38,6 +38,16 @@ def _utc_now() -> datetime:
     return datetime.now(tz=UTC)
 
 
+def _workspace_quotas_from_payload(payload: dict[str, Any]) -> WorkspaceQuotas:
+    """Deserialize quotas while tolerating fields written by newer releases."""
+    known_quotas = {
+        name: value
+        for name, value in payload.items()
+        if name in WorkspaceQuotas.model_fields
+    }
+    return WorkspaceQuotas(**known_quotas)
+
+
 class PostgresWorkspaceRepository:
     """Persistent workspace store backed by PostgreSQL."""
 
@@ -610,7 +620,7 @@ class PostgresWorkspaceRepository:
             slug=str(row["slug"]),
             name=str(row["name"]),
             status=WorkspaceStatus(str(row["status"])),
-            quotas=WorkspaceQuotas(**cast(dict[str, Any], quotas_payload)),
+            quotas=_workspace_quotas_from_payload(cast(dict[str, Any], quotas_payload)),
             deleted_at=cast(datetime, deleted_at) if deleted_at else None,
             created_at=cast(datetime, row["created_at"]),
             updated_at=cast(datetime, row["updated_at"]),

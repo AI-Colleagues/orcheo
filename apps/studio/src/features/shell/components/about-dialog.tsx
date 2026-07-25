@@ -9,7 +9,7 @@ import { Badge } from "@/design-system/ui/badge";
 import { getSystemInfo, type SystemInfoResponse } from "@/lib/api";
 import { getStudioVersion } from "@/lib/config";
 
-const UPDATE_CHECK_CACHE_KEY = "orcheo.studio.system_info.v1";
+const UPDATE_CHECK_CACHE_KEY = "orcheo.studio.system_info.v2";
 const UPDATE_DISMISS_CACHE_KEY = "orcheo.studio.system_info.dismissed.v1";
 const UPDATE_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -241,6 +241,7 @@ export default function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
 
   const rows = [
     { label: "Studio", value: studioVersion },
+    { label: "Core", value: cachedInfo?.core?.current_version ?? "unknown" },
     { label: "Backend", value: liveBackendVersion ?? "unknown" },
     { label: "CLI", value: cachedInfo?.cli.current_version ?? "unknown" },
   ];

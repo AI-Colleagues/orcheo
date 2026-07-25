@@ -7,7 +7,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/design-system/ui/tabs";
-import { Loader2, Search, Upload, Zap } from "lucide-react";
+import { Loader2, Plus, Search, Upload, Zap } from "lucide-react";
 import { type Workflow } from "@features/workflow/data/workflow-data";
 import { formatCandidateGroupName } from "@features/workflow/data/templates/candidate-badges";
 import { type ApiTeam } from "@features/workflow/lib/workflow-storage-api";
@@ -44,6 +44,7 @@ interface WorkflowGalleryTabsProps {
     candidateId: string,
   ) => Promise<void> | void;
   onDeleteTeam?: (teamId: string) => void;
+  onCreateTeam?: () => void;
 }
 
 export const WorkflowGalleryTabs = ({
@@ -64,6 +65,7 @@ export const WorkflowGalleryTabs = ({
   onDeleteWorkflow,
   onUpdateCandidateWorkflow,
   onDeleteTeam,
+  onCreateTeam,
 }: WorkflowGalleryTabsProps) => {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const uploadsAllowed = useUploadsAllowed();
@@ -292,6 +294,15 @@ export const WorkflowGalleryTabs = ({
           </div>
         ) : (
           renderColleagues()
+        )}
+
+        {!isTemplateView && (
+          <div className="mt-4">
+            <Button variant="ghost" size="sm" onClick={onCreateTeam}>
+              <Plus className="mr-2 h-4 w-4" />
+              New team
+            </Button>
+          </div>
         )}
       </TabsContent>
     </Tabs>
