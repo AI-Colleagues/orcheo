@@ -99,6 +99,9 @@ def test_staging_compose_builds_local_images_from_repo_source() -> None:
     assert services["backend"]["image"] == "orcheo-stack:staging-local"
     assert services["worker"]["image"] == "orcheo-stack:staging-local"
     assert services["celery-beat"]["image"] == "orcheo-stack:staging-local"
+    assert services["app-gateway"]["image"] == "orcheo-stack:staging-local"
+    assert services["validation-worker"]["image"] == "orcheo-stack:staging-local"
+    assert services["hosted-app-cleanup"]["image"] == "orcheo-stack:staging-local"
     assert services["studio"]["image"] == "orcheo-studio:staging-local"
     assert services["backend"]["build"] == {
         "context": "../..",
@@ -106,6 +109,9 @@ def test_staging_compose_builds_local_images_from_repo_source() -> None:
     }
     assert services["worker"]["build"] == services["backend"]["build"]
     assert services["celery-beat"]["build"] == services["backend"]["build"]
+    assert services["app-gateway"]["build"] == services["backend"]["build"]
+    assert services["validation-worker"]["build"] == services["backend"]["build"]
+    assert services["hosted-app-cleanup"]["build"] == services["backend"]["build"]
     assert services["studio"]["build"] == {
         "context": "../..",
         "dockerfile": "deploy/stack/Dockerfile.studio.staging",
@@ -161,6 +167,8 @@ def test_staging_stack_compose_config_renders(tmp_path: Path) -> None:
         [
             "docker",
             "compose",
+            "--profile",
+            "hosted-apps",
             "-f",
             str(temp_stack_dir / "docker-compose.yml"),
             "-f",

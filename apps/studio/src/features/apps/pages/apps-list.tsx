@@ -12,7 +12,7 @@ import type { HostedApp } from "../data/sample-apps";
 export default function AppsList() {
   const { workspaceSlug } = useParams<{ workspaceSlug?: string }>();
   const navigate = useNavigate();
-  const apps = useApps();
+  const { apps, loading, error } = useApps(workspaceSlug);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const { setPageContext } = usePageContext();
 
@@ -37,7 +37,11 @@ export default function AppsList() {
           </Button>
         </div>
 
-        {apps.length === 0 ? (
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading apps…</p>
+        ) : error ? (
+          <p className="text-sm text-destructive">{error}</p>
+        ) : apps.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No apps yet. Create one to host a static web app backed by your
             workflows.
@@ -49,7 +53,7 @@ export default function AppsList() {
                 key={app.id}
                 app={app}
                 onOpen={openApp}
-                onTogglePublish={(target) => toggleAppPublish(target.id)}
+                onTogglePublish={(target) => void toggleAppPublish(target)}
               />
             ))}
           </div>
@@ -59,8 +63,8 @@ export default function AppsList() {
       <CreateAppDialog
         open={isCreateOpen}
         onOpenChange={setIsCreateOpen}
-        onCreate={(name, alias) => {
-          const app = createApp(name, alias);
+        onCreate={async (name, alias) => {
+          const app = await createApp(name, alias);
           navigate(getWorkspaceAppPath(workspaceSlug, app.id));
         }}
       />

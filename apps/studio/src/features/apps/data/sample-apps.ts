@@ -17,6 +17,7 @@ export interface AppDeployment {
   files: number;
   created: string;
   active: boolean;
+  status?: "pending" | "validating" | "ready" | "failed" | "expired";
 }
 
 export interface AppBinding {
@@ -25,6 +26,7 @@ export interface AppBinding {
   version: string;
   rate: string;
   access: AppBindingAccess;
+  digest?: string;
 }
 
 export interface AppCollection {
@@ -45,9 +47,26 @@ export interface HostedApp {
   deployments: AppDeployment[];
   bindings: AppBinding[];
   collections: AppCollection[];
+  permissionRevision: number;
+  publishedPermissionRevision?: number | null;
+  audit?: { id: string; action: string; actor: string; created: string }[];
 }
 
-export const APPS_BASE_DOMAIN = "apps.orcheo.cloud";
+export const APPS_BASE_DOMAIN =
+  import.meta.env.VITE_ORCHEO_APPS_BASE_DOMAIN ?? "apps.localhost";
+
+const isLocalAppsDomain =
+  APPS_BASE_DOMAIN === "localhost" || APPS_BASE_DOMAIN.endsWith(".localhost");
+
+export const APPS_PORT =
+  import.meta.env.VITE_ORCHEO_APPS_PORT?.trim() ||
+  (isLocalAppsDomain ? "2030" : "");
+
+export const getHostedAppAddress = (alias: string): string =>
+  `${alias}.${APPS_BASE_DOMAIN}${APPS_PORT ? `:${APPS_PORT}` : ""}`;
+
+export const getHostedAppUrl = (alias: string): string =>
+  `${isLocalAppsDomain ? "http" : "https"}://${getHostedAppAddress(alias)}/`;
 
 export const SAMPLE_APPS: HostedApp[] = [
   {
@@ -104,6 +123,7 @@ export const SAMPLE_APPS: HostedApp[] = [
         access: "private",
       },
     ],
+    permissionRevision: 1,
   },
   {
     id: "app-status-page",
@@ -126,6 +146,7 @@ export const SAMPLE_APPS: HostedApp[] = [
     ],
     bindings: [],
     collections: [],
+    permissionRevision: 1,
   },
   {
     id: "app-internal-ops",
@@ -179,6 +200,7 @@ export const SAMPLE_APPS: HostedApp[] = [
         access: "shared",
       },
     ],
+    permissionRevision: 1,
   },
   {
     id: "app-onboarding-demo",
@@ -191,5 +213,6 @@ export const SAMPLE_APPS: HostedApp[] = [
     deployments: [],
     bindings: [],
     collections: [],
+    permissionRevision: 1,
   },
 ];

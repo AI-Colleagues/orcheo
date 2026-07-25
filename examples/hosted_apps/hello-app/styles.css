@@ -1,0 +1,74 @@
+:root {
+  color: #f5f7ff;
+  background: #080b16;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  display: grid;
+  min-height: 100vh;
+  margin: 0;
+  place-items: center;
+  background:
+    radial-gradient(circle at 20% 20%, rgb(91 76 255 / 35%), transparent 35%),
+    radial-gradient(circle at 80% 80%, rgb(21 210 184 / 25%), transparent 30%),
+    #080b16;
+}
+
+.shell {
+  width: min(42rem, calc(100% - 2rem));
+  padding: clamp(2rem, 8vw, 5rem);
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 2rem;
+  background: rgb(12 16 33 / 82%);
+  box-shadow: 0 2rem 6rem rgb(0 0 0 / 45%);
+}
+
+.eyebrow {
+  margin: 0 0 1rem;
+  color: #8c80ff;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2.8rem, 10vw, 5.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.06em;
+}
+
+.lede {
+  max-width: 34rem;
+  margin: 1.5rem 0 2rem;
+  color: #b9c0d9;
+  font-size: 1.1rem;
+  line-height: 1.65;
+}
+
+button {
+  padding: 0.8rem 1rem;
+  border: 0;
+  border-radius: 0.75rem;
+  color: #090b14;
+  background: #7de7d6;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #a0f2e5;
+}
+
+.status {
+  min-height: 1.5rem;
+  margin: 1rem 0 0;
+  color: #7de7d6;
+}

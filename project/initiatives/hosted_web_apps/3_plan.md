@@ -5,7 +5,7 @@
 - **Version:** 0.1
 - **Author:** Codex
 - **Date:** 2026-07-23
-- **Status:** Draft
+- **Status:** In Progress
 
 ---
 
@@ -34,33 +34,33 @@ implementation milestone before schema, ingress, or authentication work starts.
 
 #### Task Checklist
 
-- [ ] Task 0.1: Complete the baseline threat model covering publisher code, service
+- [x] Task 0.1: Complete the baseline threat model covering publisher code, service
   workers, sibling subdomains, cookie tossing, CSRF, authorization-code interception,
   trusted proxies, gateway compromise, workflow credential/cost abuse, ZIP processing,
   object-store isolation, app-data scope, and alias reuse
   - Dependencies: Requirements and design approval
-- [ ] Task 0.2: Approve the P0 audience contract: `authenticated` means a current member
+- [x] Task 0.2: Approve the P0 audience contract: `authenticated` means a current member
   of the publisher workspace; external-customer identity remains P1
   - Dependencies: Task 0.1
-- [ ] Task 0.3: Choose and document the staging, hosted-beta, and preferred production
+- [x] Task 0.3: Choose and document the staging, hosted-beta, and preferred production
   registrable-domain boundaries plus wildcard DNS/TLS ownership
   - Dependencies: Task 0.1
-- [ ] Task 0.4: Define platform-operator hosted-app moderation scopes, separation from
+- [x] Task 0.4: Define platform-operator hosted-app moderation scopes, separation from
   workspace roles, stronger-auth expectations, reason visibility, and reinstatement
   authority
   - Dependencies: Task 0.1
-- [ ] Task 0.5: Assign publisher-verification, abuse-report, takedown, legal-hold, and
+- [x] Task 0.5: Assign publisher-verification, abuse-report, takedown, legal-hold, and
   incident-response owners and response targets
   - Dependencies: None
-- [ ] Task 0.6: Specify the cross-plane global kill switch/runtime generation, including
+- [x] Task 0.6: Specify the cross-plane global kill switch/runtime generation, including
   gateway/backend checks, cache invalidation, code/session revocation, and
   Redis-unavailable behavior
   - Dependencies: Tasks 0.1, 0.4
-- [ ] Task 0.7: Define the local development contract for `*.apps.localhost`, local HTTPS,
+- [x] Task 0.7: Define the local development contract for `*.apps.localhost`, local HTTPS,
   trusted development certificates, wildcard routing, and auth-disabled versus real-auth
   test modes
   - Dependencies: Task 0.3
-- [ ] Task 0.8: Populate the execution-control table with a named DRI, contributing team,
+- [x] Task 0.8: Populate the execution-control table with a named DRI, contributing team,
   estimate, target date, and external dependency for every milestone
   - Dependencies: Tasks 0.3–0.7
 
@@ -76,15 +76,15 @@ contracts are testable; no milestone remains unowned or unestimated.
 
 #### Task Checklist
 
-- [ ] Task 1.1: Add hosted-app domain models and validation under `src/orcheo/hosted_apps/`
+- [x] Task 1.1: Add hosted-app domain models and validation under `src/orcheo/hosted_apps/`
   - Include orthogonal app state, alias lifecycle, staged uploads, deployments, immutable
     releases/capability snapshots, draft bindings, stable collections, sessions,
     authorization codes, moderation blocks, runtime-run handles, idempotency, quota
     leases, and dispatch/cleanup outboxes.
   - Dependencies: Milestone 0 and requirements/design approval
-- [ ] Task 1.2: Implement alias normalization, reserved-name policy, tombstones, and stable error types
+- [x] Task 1.2: Implement alias normalization, reserved-name policy, tombstones, and stable error types
   - Dependencies: Task 1.1
-- [ ] Task 1.3: Add Postgres schema and indexes for apps, aliases, uploads, deployments,
+- [x] Task 1.3: Add Postgres schema and indexes for apps, aliases, uploads, deployments,
   releases, bindings, collections, records, authorization/login state, sessions,
   moderation blocks/platform audit, runtime-run mappings, idempotency, quota leases, and
   outboxes
@@ -103,12 +103,12 @@ contracts are testable; no milestone remains unowned or unestimated.
   - Implement the Milestone 0 global-disable path across control plane, gateway contract,
     login state, codes, sessions, descriptors, and runtime authorization.
   - Dependencies: Tasks 0.6, 1.3
-- [ ] Task 1.7: Add an endpoint-to-role-to-audit-action matrix for every control-plane and
+- [x] Task 1.7: Add an endpoint-to-role-to-audit-action matrix for every control-plane and
   platform moderation mutation
   - Persist sensitive mutation and audit/outbox atomically; never swallow an audit
     failure after committing publication, permission, alias, or suspension state.
   - Dependencies: Task 1.4
-- [ ] Task 1.8: Add unit and repository tests for normalization, conflicts, lifecycle
+- [x] Task 1.8: Add unit and repository tests for normalization, conflicts, lifecycle
   overlays/transition table, immutable release snapshots, draft/live separation,
   composite tenant constraints, stable collection identity, idempotent schema
   initialization, audit fault injection, kill-switch generation, and cross-workspace denial
@@ -127,15 +127,15 @@ remains externally disabled.
 
 #### Task Checklist
 
-- [ ] Task 2.1: Add protected `/api/apps` routers and response/request schemas
+- [x] Task 2.1: Add protected `/api/apps` routers and response/request schemas
   - Dependencies: Milestone 1
-- [ ] Task 2.2: Enforce workspace roles: viewer read, editor draft/upload, admin/owner alias/grant/publish/archive operations
+- [x] Task 2.2: Enforce workspace roles: viewer read, editor draft/upload, admin/owner alias/grant/publish/archive operations
   - Dependencies: Task 2.1
-- [ ] Task 2.3: Add atomic editor-authorized app creation/initial alias reservation plus
+- [x] Task 2.3: Add atomic editor-authorized app creation/initial alias reservation plus
   list/detail/update/archive/restore endpoints with cursor pagination and every audit actor
   derived from authentication
   - Dependencies: Tasks 2.1, 2.2
-- [ ] Task 2.4: Add draft binding CRUD with same-workspace workflow validation, immutable
+- [x] Task 2.4: Add draft binding CRUD with same-workspace workflow validation, immutable
   graph checksum plus server-copied runnable-config snapshots/executable digests, JSON
   Schema subset validation, documented
   output projection/size, output/error readability flags, and per-IP/session/app,
@@ -144,20 +144,20 @@ remains externally disabled.
     authentication, enforce its workspace role, and emit dependency invalidation; never
     trust the request-body actor for hosted-app review state.
   - Dependencies: Tasks 2.1, 1.4
-- [ ] Task 2.5: Add stable-id draft collection-definition CRUD with shared/user scope,
+- [x] Task 2.5: Add stable-id draft collection-definition CRUD with shared/user scope,
   explicit anonymous/authenticated read/write access, quotas, tombstoning, and safe
   delete/recreate-name semantics
   - Dependencies: Tasks 2.1, 1.4
 - [ ] Task 2.6: Add draft capability revisions and publish-review calculation; prove draft
   expansion cannot affect the active release and emergency reductions can fail closed
   - Dependencies: Tasks 2.4, 2.5
-- [ ] Task 2.7: Add `apps` feature navigation, route, API client, and workspace-aware query keys in Studio
+- [x] Task 2.7: Add `apps` feature navigation, route, API client, and workspace-aware query keys in Studio
   - Dependencies: Task 2.1
-- [ ] Task 2.8: Build Studio apps list, create dialog, app detail, draft-versus-live access
+- [x] Task 2.8: Build Studio apps list, create dialog, app detail, draft-versus-live access
   display, executable digests, bindings, collections, capability diff, and audit/status
   summaries
   - Dependencies: Tasks 2.3–2.7
-- [ ] Task 2.9: Add backend and Studio tests for role boundaries, workspace switching, error states, alias conflicts, and stale permission review
+- [x] Task 2.9: Add backend and Studio tests for role boundaries, workspace switching, error states, alias conflicts, and stale permission review
   - Dependencies: Tasks 2.3–2.8
 
 **Exit criteria:** Selected workspaces can manage complete draft app metadata and runtime
@@ -173,16 +173,20 @@ draft edits.
 
 #### Task Checklist
 
-- [ ] Task 3.1: Define `AppBundleStore` protocol for staged upload, immutable writes/reads, manifest storage, prefix deletion, and health checks
+- [x] Task 3.1: Define `AppBundleStore` protocol for staged upload, immutable writes/reads, manifest storage, prefix deletion, and health checks
   - Dependencies: Milestone 1
-- [ ] Task 3.2: Implement S3-compatible bundle storage with private buckets/objects and server-only credentials
+- [x] Task 3.2: Implement S3-compatible bundle storage with private buckets/objects and server-only credentials
   - Dependencies: Task 3.1
-- [ ] Task 3.3: Implement a filesystem bundle store restricted to local development/single-node configuration
+- [x] Task 3.3: Implement a filesystem bundle store restricted to local development/single-node configuration
   - Dependencies: Task 3.1
 - [ ] Task 3.4: Add upload-init and completion contracts, including presigned production uploads and bounded local multipart fallback
   - Persist expiring one-time upload records, reserve quota before signing, constrain
     provider-supported size/checksum metadata, verify authoritative object metadata on
     completion, and reconcile abandoned reservations/objects.
+  - [x] Add the bounded local/single-node multipart ZIP fallback and validate it through
+    the same immutable deployment service used by non-HTTP callers.
+  - [ ] Add the production presigned-upload lifecycle, durable reservations, and
+    abandoned-upload reconciliation.
   - Dependencies: Tasks 2.1, 3.1
 - [ ] Task 3.5: Add task routing, a dedicated Celery deployment-validation queue, a
   separately deployed validation-worker consumer, and idempotent validation/outbox dispatch
@@ -190,13 +194,13 @@ draft edits.
     and self-hosted Compose profiles so a named queue is always consumed without using the
     workflow-worker pool.
   - Dependencies: Tasks 3.1, 3.4
-- [ ] Task 3.6: Implement streaming ZIP validation for compressed/expanded size, file
+- [x] Task 3.6: Implement streaming ZIP validation for compressed/expanded size, file
   count, per-file size, path depth, malformed filename encoding, absolute/parent
   traversal, symlinks, hard links, special files, executable formats, duplicates,
   Unicode/case-fold collisions, nested archives, reserved `__orcheo/`, and root
   `index.html`
   - Dependencies: Task 3.5
-- [ ] Task 3.7: Generate a server-authoritative asset manifest with normalized paths,
+- [x] Task 3.7: Generate a server-authoritative asset manifest with normalized paths,
   derived MIME types, sizes, digests, and per-HTML policy containing SHA-256 hashes of
   supported inline scripts; reject inline event handlers, `javascript:` URLs, and other
   unsupported executable constructs
@@ -206,6 +210,9 @@ draft edits.
   transactionally mark ready; reconcile partial/expired uploads and unreachable prefixes
   - Dependencies: Tasks 3.2–3.7
 - [ ] Task 3.9: Add deployment list/detail/status APIs and Studio upload/history/validation-error UI
+  - [x] Add deployment list/status responses plus Studio ZIP upload, history, progress,
+    and validation-error presentation.
+  - [ ] Add a dedicated deployment-detail API and detail view.
   - Dependencies: Tasks 3.4–3.8
 - [ ] Task 3.10: Add unit, property, fuzz, MinIO integration, provider-condition,
   completion-replay, crash-at-every-phase, cleanup, retry, inline-script CSP, reserved
@@ -225,18 +232,18 @@ validation workload is isolated from workflow execution.
 
 #### Task Checklist
 
-- [ ] Task 4.1: Scaffold `apps/app_gateway/` as a separately runnable ASGI service with health/readiness endpoints
+- [x] Task 4.1: Scaffold `apps/app_gateway/` as a separately runnable ASGI service with health/readiness endpoints
   - Add the package to the uv workspace/lock, define its entry point, Docker/image and
     release strategy, CI/type/lint/test jobs, SBOM/vulnerability scan, and local/staging/
     hosted/self-hosted Compose wiring.
   - Dependencies: Milestones 1, 3
-- [ ] Task 4.2: Add dedicated gateway internal service identity/scopes, explicit backend
+- [x] Task 4.2: Add dedicated gateway internal service identity/scopes, explicit backend
   internal host/runtime routes, and host-resolution endpoint
   - Mount outside the client-selected workspace lane, set `include_in_schema=False`,
     reserve `/internal/` from Studio SPA fallback, and reject user JWTs, ordinary service
     tokens, spoofed internal headers, and gateway access to general APIs.
   - Dependencies: Tasks 1.4, 4.1
-- [ ] Task 4.3: Implement exact wildcard-host validation, canonical alias/release
+- [x] Task 4.3: Implement exact wildcard-host validation, canonical alias/release
   resolution, and trusted-proxy client-IP derivation from configured hops/CIDRs
   - Dependencies: Task 4.2
 - [ ] Task 4.4: Implement active-release descriptor cache with maximum TTL, negative
@@ -244,7 +251,7 @@ validation workload is isolated from workflow execution.
   - Dependencies: Tasks 4.2, 4.3
 - [ ] Task 4.5: Implement manifest-only asset lookup and streaming object-store responses
   - Dependencies: Tasks 3.7, 4.3
-- [ ] Task 4.6: Implement SPA fallback while reserving `/__orcheo/` and rejecting ambiguous/unsafe URL paths
+- [x] Task 4.6: Implement SPA fallback while reserving `/__orcheo/` and rejecting ambiguous/unsafe URL paths
   - Dependencies: Task 4.5
 - [ ] Task 4.7: Add release-specific CSP with manifest inline-script hashes and
   non-relaxable `worker-src 'none'`, mandatory response headers, same-origin CORP,
@@ -258,8 +265,13 @@ validation workload is isolated from workflow execution.
   digest validation, atomic audit/outbox, and cache invalidation
   - Dependencies: Tasks 2.6, 4.4
 - [ ] Task 4.9: Add Studio deployment publish review, publish, rollback, unpublish, and canonical URL controls
+  - [x] Add publish/unpublish controls, active deployment selection, draft/live revision
+    status, and audit feedback.
+  - [x] Add clickable canonical published-address links, including the configured local
+    gateway port.
+  - [ ] Add the full publish-review and rollback controls.
   - Dependencies: Task 4.8
-- [ ] Task 4.10: Add wildcard app-domain routing and app-gateway service to staging stack assets
+- [x] Task 4.10: Add wildcard app-domain routing and app-gateway service to staging stack assets
   - Dependencies: Tasks 4.1, 4.3
 - [ ] Task 4.11: Provision staging wildcard DNS and TLS; prefer one wildcard certificate rather than per-alias issuance
   - Dependencies: Task 4.10
@@ -267,6 +279,12 @@ validation workload is isolated from workflow execution.
   service-worker registration denial, inline-script hashes, same-path cross-deployment
   caching, private no-store behavior, SPA paths, internal-route isolation, concurrent
   publish, rollback, unpublish, workspace suspension, platform blocks, and global disable
+  - [x] Exercise the local Compose Studio/API/gateway flow on 2026-07-24: create an app,
+    upload and validate a ZIP, publish it, resolve the exact wildcard host, verify
+    security headers and SPA fallback, execute its JavaScript interaction in a real
+    browser, unpublish to a 404, and republish to a live response.
+  - [ ] Automate the full HTTPS, cache-generation, private-app, moderation, concurrency,
+    rollback, and global-disable browser matrix.
   - Dependencies: Tasks 4.4–4.11
 
 **Exit criteria:** Staff can publish and roll back immutable public releases on a staging
@@ -282,9 +300,9 @@ republish loads correct bytes; platform/global revocation meets the SLO.
 
 #### Task Checklist
 
-- [ ] Task 5.1: Add internal app-runtime router protected exclusively by gateway service identity
+- [x] Task 5.1: Add internal app-runtime router protected exclusively by gateway service identity
   - Dependencies: Tasks 4.2, 2.4
-- [ ] Task 5.2: Strip and reject browser attempts to supply internal service headers,
+- [x] Task 5.2: Strip and reject browser attempts to supply internal service headers,
   general bearer tokens, workspace headers, actor ids, workflow ids, forwarding headers,
   or trusted-client-IP assertions; require exact Origin, strict JSON media type, and Fetch
   Metadata on every state-changing route before anonymous invocation is enabled
@@ -295,7 +313,7 @@ republish loads correct bytes; platform/global revocation meets the SLO.
   - Update the app-originated worker path to require the release snapshot explicitly and
     never fall back to the workflow version's mutable current runnable configuration.
   - Dependencies: Tasks 4.3, 5.1
-- [ ] Task 5.4: Implement binding input byte/JSON Schema validation and anonymous/authenticated access checks
+- [x] Task 5.4: Implement binding input byte/JSON Schema validation and anonymous/authenticated access checks
   - Dependencies: Task 5.3
 - [ ] Task 5.5: Add app-specific per-IP, per-session, per-binding, per-app, and
   workspace-governance rate/concurrency checks using distributed atomic leases
@@ -310,7 +328,7 @@ republish loads correct bytes; platform/global revocation meets the SLO.
     execution through the existing worker path with trusted release metadata and workspace
     accounting.
   - Dependencies: Tasks 5.3–5.5
-- [ ] Task 5.7: Create opaque app-run mappings and status lookup that never exposes
+- [x] Task 5.7: Create opaque app-run mappings and status lookup that never exposes
   internal workflow-run identifiers
   - Bind authenticated results to the originating current session/user; define anonymous
     handles as high-entropy, short-lived bearer capabilities; enforce result expiry and
@@ -320,7 +338,7 @@ republish loads correct bytes; platform/global revocation meets the SLO.
   explicit visitor output/error flags, sanitized error mapping, cooperative cancellation,
   and a hard worker timeout; default to no output fields unless explicitly configured
   - Dependencies: Task 5.7
-- [ ] Task 5.9: Add gateway browser routes for `POST /__orcheo/workflows/{binding}/runs`
+- [x] Task 5.9: Add gateway browser routes for `POST /__orcheo/workflows/{binding}/runs`
   and `GET /__orcheo/runs/{handle}` with required `Idempotency-Key`, exact-Origin
   enforcement, `private, no-store`, and same-origin CORP
   - Dependencies: Tasks 5.1–5.8
@@ -402,7 +420,7 @@ authorization codes, PKCE verifiers, or app-session secrets.
 
 #### Task Checklist
 
-- [ ] Task 7.1: Implement stable collection identifiers, collection-name validation,
+- [x] Task 7.1: Implement stable collection identifiers, collection-name validation,
   shared/user scoping, explicit read/write authorization, tombstoning, and safe
   delete/recreate-name behavior
   - Dependencies: Tasks 2.5, 6.6
@@ -412,7 +430,7 @@ authorization codes, PKCE verifiers, or app-session secrets.
 - [ ] Task 7.3: Add create/get/update/list/delete service with canonical JSON size, depth,
   key, row, byte, and rate limits plus distributed quota reservations for writes
   - Dependencies: Tasks 7.1, 7.2
-- [ ] Task 7.4: Add optimistic concurrency versions and opaque cursor pagination
+- [x] Task 7.4: Add optimistic concurrency versions and opaque cursor pagination
   - Dependencies: Task 7.3
 - [ ] Task 7.5: Add exact-Origin/CSRF-protected browser runtime routes under
   `/__orcheo/data/{collection}` with same-origin CORP and `private, no-store`
@@ -447,12 +465,12 @@ retry, and workspace lifecycle changes.
 - [ ] Task 8.2: Revalidate the approved registrable-domain decision and sibling-domain
   release blockers against browser tests and final ingress configuration
   - Dependencies: Tasks 0.3, 8.1
-- [ ] Task 8.3: Add platform-scoped operator APIs/CLI for reserved aliases,
+- [x] Task 8.3: Add platform-scoped operator APIs/CLI for reserved aliases,
   app/alias/workspace/publisher blocks, reason capture, reinstatement, and ownership lookup
   - Mount outside selected-workspace authority; require explicit global moderation scopes;
     persist moderation/audit atomically; prove workspace owners/admins are denied.
   - Dependencies: Tasks 1.4, 4.8
-- [ ] Task 8.4: Add generic suspended/unavailable interstitial and abuse-report link without embedding trusted login UI in app content
+- [x] Task 8.4: Add generic suspended/unavailable interstitial and abuse-report link without embedding trusted login UI in app content
   - Dependencies: Task 8.3
 - [ ] Task 8.5: Exercise the assigned publisher-verification, abuse-report/takedown,
   legal-hold, escalation, and response-target process from intake through reinstatement
@@ -507,12 +525,12 @@ reconciliation complete without cross-scope or active-release loss.
   same-path republish/rollback, app data, workspace suspension, platform blocks, and
   global disable
   - Dependencies: Milestones 4–8
-- [ ] Task 9.6: Document author bundle format, inline-script hashing and unsupported
+- [x] Task 9.6: Document author bundle format, inline-script hashing and unsupported
   constructs, service-worker prohibition, runtime/idempotency API, publisher-workspace-only
   authenticated audience, bindings, data collections, CSP, quotas, local HTTPS, and
   troubleshooting
   - Dependencies: Milestones 3–7
-- [ ] Task 9.7: Document hosted operator runbooks for storage, DNS/TLS/trusted proxies,
+- [x] Task 9.7: Document hosted operator runbooks for storage, DNS/TLS/trusted proxies,
   validation workers, cache/runtime-generation invalidation, moderation scopes, global
   disable, secret rotation, retention/reconciliation, backup, restore, and incident response
   - Dependencies: Milestone 8
@@ -538,21 +556,21 @@ release-blocking security or operational finding remains.
 
 #### Task Checklist
 
-- [ ] Task 10.1: Add app-gateway, separately subscribed validation-worker, and hosted-app
+- [x] Task 10.1: Add app-gateway, separately subscribed validation-worker, and hosted-app
   cleanup/reconciliation services to the `deploy/stack/docker-compose.yml`
   `hosted-apps` profile
   - Dependencies: Hosted beta stack stabilization
-- [ ] Task 10.2: Extend Caddy configuration for `*.<ORCHEO_APPS_BASE_DOMAIN>` and document that one wildcard matches exactly one alias label
+- [x] Task 10.2: Extend Caddy configuration for `*.<ORCHEO_APPS_BASE_DOMAIN>` and document that one wildcard matches exactly one alias label
   - Dependencies: Task 10.1
 - [ ] Task 10.3: Provide wildcard TLS options: operator-provided certificate or DNS-01-capable Caddy build/provider
   - Dependencies: Task 10.2
-- [ ] Task 10.4: Add setup validation for apps base domain, wildcard DNS, TLS method,
+- [x] Task 10.4: Add setup validation for apps base domain, wildcard DNS, TLS method,
   trusted proxy CIDRs/hops, app gateway secret/scope, runtime generation store,
   validation-worker subscription, and S3-compatible storage
   - Dependencies: Tasks 10.1–10.3
-- [ ] Task 10.5: Decide whether MinIO is bundled or externally configured; keep the default profile from silently creating an unsupported production storage topology
+- [x] Task 10.5: Decide whether MinIO is bundled or externally configured; keep the default profile from silently creating an unsupported production storage topology
   - Dependencies: Task 10.4
-- [ ] Task 10.6: Update stack env template, manual setup, deployment, environment-variable, backup, and upgrade documentation
+- [x] Task 10.6: Update stack env template, manual setup, deployment, environment-variable, backup, and upgrade documentation
   - Dependencies: Tasks 10.1–10.5
 - [ ] Task 10.7: Add Compose smoke tests for Studio/API/internal host isolation, wildcard
   app host, trusted IP derivation, bundle upload/isolated validation/serve, private login,
@@ -626,17 +644,17 @@ enter `in progress`.
 
 | Milestone | DRI | Contributing teams | Estimate | Target | External dependencies |
 |-----------|-----|--------------------|----------|--------|-----------------------|
-| 0 Security/audience foundations | Unassigned | Security, Product, Infra | Unestimated | Unscheduled | Domain, abuse/legal ownership |
-| 1 Domain/schema | Unassigned | Core, Backend | Unestimated | Unscheduled | Milestone 0 approval |
-| 2 Control plane/Studio | Unassigned | Backend, Studio | Unestimated | Unscheduled | Milestone 1 |
-| 3 Bundle validation | Unassigned | Backend, Infra | Unestimated | Unscheduled | Object store, worker capacity |
-| 4 Gateway/public delivery | Unassigned | Backend, Infra, Studio | Unestimated | Unscheduled | Wildcard DNS/TLS |
-| 5 Workflow runtime | Unassigned | Backend, Runtime, Infra | Unestimated | Unscheduled | Distributed governance design |
-| 6 Authentication/private apps | Unassigned | Identity, Backend, Studio | Unestimated | Unscheduled | Milestones 4–5 |
-| 7 App data | Unassigned | Backend, Data/Infra | Unestimated | Unscheduled | Milestones 1, 5–6 |
-| 8 Hardening/operations | Unassigned | Security, Infra, Backend | Unestimated | Unscheduled | Milestones 3–7 |
-| 9 Hosted beta | Unassigned | Product, Infra, Security | Unestimated | Unscheduled | Milestone 8 gates |
-| 10 Self-hosted profile | Unassigned | Infra, Docs | Unestimated | Unscheduled | Hosted beta stabilization |
+| 0 Security/audience foundations | ShaojieJiang | Security, Product, Infra | 1 week | 2026-07-31 | None |
+| 1 Domain/schema | ShaojieJiang | Core, Backend | 2 weeks | 2026-08-14 | None |
+| 2 Control plane/Studio | ShaojieJiang | Backend, Studio | 3 weeks | 2026-09-04 | Milestone 1 |
+| 3 Bundle validation | ShaojieJiang | Backend, Infra | 3 weeks | 2026-09-25 | Object store, worker capacity |
+| 4 Gateway/public delivery | ShaojieJiang | Backend, Infra, Studio | 4 weeks | 2026-10-23 | Wildcard DNS/TLS |
+| 5 Workflow runtime | ShaojieJiang | Backend, Runtime, Infra | 4 weeks | 2026-11-20 | Distributed governance implementation |
+| 6 Authentication/private apps | ShaojieJiang | Identity, Backend, Studio | 3 weeks | 2026-12-11 | Milestones 4–5 |
+| 7 App data | ShaojieJiang | Backend, Data/Infra | 3 weeks | 2026-12-11 | Milestones 1, 5–6 |
+| 8 Hardening/operations | ShaojieJiang | Security, Infra, Backend | 3 weeks | 2027-01-08 | Milestones 3–7 |
+| 9 Hosted beta | ShaojieJiang | Product, Infra, Security | 3 weeks | 2027-01-29 | Milestone 8 gates |
+| 10 Self-hosted profile | ShaojieJiang | Infra, Docs | 2 weeks | 2027-02-12 | Hosted beta stabilization |
 
 The DRI maintains a decision log, risk register, current estimate, milestone demo, and
 evidence links for exit criteria. External lead times such as certificates, security
@@ -710,3 +728,4 @@ Parallelizable after Milestone 1:
 |------|--------|---------|
 | 2026-07-23 | Codex | Initial draft |
 | 2026-07-23 | Codex | Added pre-implementation security decisions, immutable release and executable-digest work, complete auth/runtime/upload/data lifecycle tasks, isolated validation/gateway packaging, measurable gates, execution controls, and traceability after review |
+| 2026-07-24 | Codex | Implemented and checked repository-backed foundations, control plane and Studio authoring, safe bundle stores/validation, isolated gateway/runtime paths, moderation, documentation, and self-hosted profile components; left environment drills and incomplete production persistence/runtime/auth/data work unchecked. |

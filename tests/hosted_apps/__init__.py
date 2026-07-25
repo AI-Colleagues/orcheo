@@ -1,0 +1,1 @@
+"""Hosted Apps tests."""

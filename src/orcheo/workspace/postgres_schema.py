@@ -1,12 +1,14 @@
 """Postgres schema definitions for the workspace core tables."""
 
 from __future__ import annotations
+from orcheo.hosted_apps.postgres_schema import POSTGRES_HOSTED_APPS_SCHEMA
 
 
 __all__ = ["POSTGRES_WORKSPACE_SCHEMA"]
 
 
-POSTGRES_WORKSPACE_SCHEMA = """
+POSTGRES_WORKSPACE_SCHEMA = (
+    """
 CREATE TABLE IF NOT EXISTS workspaces (
     id UUID PRIMARY KEY,
     slug TEXT NOT NULL UNIQUE,
@@ -76,3 +78,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_invitations_pending_email
     ON workspace_invitations(workspace_id, email)
     WHERE status = 'pending';
 """
+    + POSTGRES_HOSTED_APPS_SCHEMA
+)

@@ -69,6 +69,57 @@ jobs:
       - name: Check style against standards
         run: uv run make lint
 
+  app-gateway:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install workspace dependencies
+        run: uv sync --all-packages --all-groups
+
+      - name: Lint and type-check gateway
+        run: |
+          uv run ruff check apps/app_gateway/src src/orcheo/hosted_apps tests/hosted_apps
+          uv run mypy apps/app_gateway/src/orcheo_app_gateway src/orcheo/hosted_apps/gateway.py
+
+      - name: Test gateway and Hosted Apps security contracts
+        run: uv run pytest tests/hosted_apps -q
+
+      - name: Build gateway-containing stack image
+        run: docker build -f Dockerfile.backend -t orcheo-app-gateway:${{ github.sha }} .
+
+      - name: Generate image SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: orcheo-app-gateway:${{ github.sha }}
+          artifact-name: app-gateway-sbom.spdx.json
+          format: spdx-json
+
+      - name: Scan image for known vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: orcheo-app-gateway:${{ github.sha }}
+          format: sarif
+          output: app-gateway-trivy.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+      - name: Upload vulnerability results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: app-gateway-trivy.sarif
+
   coverage-tests:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest

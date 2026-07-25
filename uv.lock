@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "agentensor",
     "orcheo",
+    "orcheo-app-gateway",
     "orcheo-backend",
     "orcheo-sdk",
 ]
@@ -3631,6 +3632,25 @@ docs = [
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.28.1" },
 ]
 examples = [{ name = "orcheo-backend", editable = "apps/backend" }]
+
+[[package]]
+name = "orcheo-app-gateway"
+version = "0.1.0"
+source = { editable = "apps/app_gateway" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "orcheo" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.104.0" },
+    { name = "httpx", specifier = ">=0.25.0" },
+    { name = "orcheo", editable = "." },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.24.0" },
+]
 
 [[package]]
 name = "orcheo-backend"

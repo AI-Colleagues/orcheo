@@ -29,6 +29,7 @@ RUN chmod +x /usr/local/bin/orcheo-entrypoint
 COPY pyproject.toml uv.lock README.md ./
 COPY packages/ packages/
 COPY apps/backend/ apps/backend/
+COPY apps/app_gateway/ apps/app_gateway/
 COPY src/ src/
 
 RUN uv sync --frozen

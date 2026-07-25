@@ -19,7 +19,10 @@ import {
   DropdownMenuTrigger,
 } from "@/design-system/ui/dropdown-menu";
 import type { HostedApp } from "../data/sample-apps";
-import { APPS_BASE_DOMAIN } from "../data/sample-apps";
+import {
+  getHostedAppAddress,
+  getHostedAppUrl,
+} from "../data/sample-apps";
 import {
   AppHealthBadge,
   AppStateBadge,
@@ -62,7 +65,20 @@ export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
             ) : (
               <Lock className="h-3 w-3 shrink-0" />
             )}
-            {app.alias}.{APPS_BASE_DOMAIN}
+            {app.state === "published" ? (
+              <a
+                href={getHostedAppUrl(app.alias)}
+                target="_blank"
+                rel="noreferrer"
+                className="truncate underline-offset-4 hover:text-foreground hover:underline"
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+              >
+                {getHostedAppAddress(app.alias)}
+              </a>
+            ) : (
+              <span className="truncate">{getHostedAppAddress(app.alias)}</span>
+            )}
           </div>
         </div>
         <DropdownMenu>
@@ -92,7 +108,10 @@ export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
                 Unpublish
               </DropdownMenuItem>
             ) : (
-              <DropdownMenuItem onClick={() => onTogglePublish(app)}>
+              <DropdownMenuItem
+                disabled={!app.deployments.some((item) => item.status === "ready")}
+                onClick={() => onTogglePublish(app)}
+              >
                 <Rocket className="mr-2 h-4 w-4" />
                 Publish
               </DropdownMenuItem>

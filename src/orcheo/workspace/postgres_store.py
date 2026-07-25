@@ -60,10 +60,9 @@ class PostgresWorkspaceRepository:
 
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
-            for statement in POSTGRES_WORKSPACE_SCHEMA.strip().split(";"):
-                sql = statement.strip()
-                if sql:
-                    conn.execute(sql)
+            # Execute as one PostgreSQL script so dollar-quoted functions and
+            # transaction blocks in additive feature schemas remain intact.
+            conn.execute(POSTGRES_WORKSPACE_SCHEMA)
 
     def create_workspace(self, workspace: Workspace) -> Workspace:
         """Persist a new workspace; raises on slug conflict."""

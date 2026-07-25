@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -23,8 +23,15 @@ import {
 } from "@/design-system/ui/dropdown-menu";
 import { usePageContext } from "@/hooks/use-page-context";
 import { getWorkspaceAppsPath } from "@/lib/workspace-routing";
-import { APPS_BASE_DOMAIN } from "../data/sample-apps";
-import { toggleAppPublish, useApp } from "../data/apps-store";
+import {
+  getHostedAppAddress,
+  getHostedAppUrl,
+} from "../data/sample-apps";
+import {
+  toggleAppPublish,
+  uploadAppBundle,
+  useApp,
+} from "../data/apps-store";
 import {
   AppHealthBadge,
   AppStateBadge,
@@ -38,22 +45,57 @@ export default function AppDetail() {
     appId: string;
   }>();
   const navigate = useNavigate();
-  const app = useApp(appId);
+  const { app, loading, error } = useApp(appId, workspaceSlug);
   const { setPageContext } = usePageContext();
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [publishing, setPublishing] = useState(false);
 
   useEffect(() => {
     setPageContext({ page: "other" });
   }, [setPageContext]);
 
-  if (!app) {
+  if (loading || !app) {
     return (
       <main className="flex h-full min-h-0 items-center justify-center p-8">
-        <p className="text-sm text-muted-foreground">App not found.</p>
+        <p className={error ? "text-sm text-destructive" : "text-sm text-muted-foreground"}>
+          {error ?? (loading ? "Loading app…" : "App not found.")}
+        </p>
       </main>
     );
   }
 
   const published = app.state === "published";
+  const handlePublish = async () => {
+    setActionError(null);
+    setPublishing(true);
+    try {
+      await toggleAppPublish(app);
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Unable to update publication.",
+      );
+    } finally {
+      setPublishing(false);
+    }
+  };
+  const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const bundle = input.files?.[0];
+    if (!bundle) return;
+    setActionError(null);
+    setUploading(true);
+    try {
+      await uploadAppBundle(app.id, bundle);
+      input.value = "";
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Unable to upload deployment.",
+      );
+    } finally {
+      setUploading(false);
+    }
+  };
 
   return (
     <main className="flex h-full min-h-0 flex-col overflow-auto p-8">
@@ -78,8 +120,23 @@ export default function AppDetail() {
               ) : (
                 <Lock className="h-3.5 w-3.5" />
               )}
-              {app.alias}.{APPS_BASE_DOMAIN}
-              <ExternalLink className="h-3 w-3 opacity-60" />
+              {published ? (
+                <a
+                  href={getHostedAppUrl(app.alias)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex min-w-0 items-center gap-1.5 underline-offset-4 hover:text-foreground hover:underline"
+                >
+                  <span className="truncate">
+                    {getHostedAppAddress(app.alias)}
+                  </span>
+                  <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
+                </a>
+              ) : (
+                <span className="truncate">
+                  {getHostedAppAddress(app.alias)}
+                </span>
+              )}
             </div>
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
               <AppVisibilityBadge visibility={app.visibility} />
@@ -89,14 +146,21 @@ export default function AppDetail() {
           </div>
 
           {published ? (
-            <Button variant="outline" onClick={() => toggleAppPublish(app.id)}>
+            <Button
+              variant="outline"
+              disabled={publishing}
+              onClick={() => void handlePublish()}
+            >
               <Pause className="mr-2 h-4 w-4" />
-              Unpublish
+              {publishing ? "Updating…" : "Unpublish"}
             </Button>
           ) : (
-            <Button onClick={() => toggleAppPublish(app.id)}>
+            <Button
+              disabled={publishing}
+              onClick={() => void handlePublish()}
+            >
               <Rocket className="mr-2 h-4 w-4" />
-              Publish
+              {publishing ? "Publishing…" : "Publish"}
             </Button>
           )}
 
@@ -124,6 +188,12 @@ export default function AppDetail() {
           </DropdownMenu>
         </div>
 
+        {actionError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {actionError}
+          </p>
+        ) : null}
+
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {[
             { label: "Deployments", value: app.deployments.length },
@@ -146,10 +216,14 @@ export default function AppDetail() {
           <Card className="flex flex-col gap-3 p-4">
             <div className="flex items-center justify-between">
               <h2 className="font-semibold text-foreground">Deployments</h2>
-              <Button variant="outline" size="sm">
-                <Upload className="mr-2 h-3.5 w-3.5" />
-                Upload
-              </Button>
+              <input
+                aria-label="Upload deployment ZIP"
+                type="file"
+                accept=".zip,application/zip"
+                disabled={uploading}
+                onChange={(event) => void handleUpload(event)}
+                className="max-w-56 text-xs text-muted-foreground file:mr-2 file:rounded-md file:border file:border-border file:bg-background file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-foreground hover:file:bg-accent"
+              />
             </div>
             {app.deployments.length === 0 ? (
               <p className="text-sm text-muted-foreground">
@@ -215,6 +289,11 @@ export default function AppDetail() {
                           {binding.workflow} · v{binding.version} ·{" "}
                           {binding.rate}
                         </div>
+                        {binding.digest ? (
+                          <div className="truncate font-mono text-[11px] text-muted-foreground/70">
+                            executable sha256:{binding.digest.slice(0, 16)}
+                          </div>
+                        ) : null}
                       </div>
                       <IntentBadge
                         intent={
@@ -261,6 +340,55 @@ export default function AppDetail() {
               )}
             </Card>
           </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Card className="flex flex-col gap-3 p-4">
+            <h2 className="font-semibold text-foreground">
+              Draft versus live access
+            </h2>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Draft revision</span>
+              <span className="font-mono">{app.permissionRevision}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Published revision</span>
+              <span className="font-mono">
+                {app.publishedPermissionRevision ?? "not published"}
+              </span>
+            </div>
+            {app.publishedPermissionRevision !== null &&
+            app.publishedPermissionRevision !== undefined &&
+            app.publishedPermissionRevision !== app.permissionRevision ? (
+              <IntentBadge intent="warning">
+                review required before publish
+              </IntentBadge>
+            ) : (
+              <IntentBadge intent="success">access is in sync</IntentBadge>
+            )}
+          </Card>
+
+          <Card className="flex flex-col gap-3 p-4">
+            <h2 className="font-semibold text-foreground">Recent activity</h2>
+            {app.audit?.length ? (
+              <div className="flex flex-col divide-y divide-border">
+                {app.audit.slice(-8).reverse().map((event) => (
+                  <div key={event.id} className="py-2 text-sm">
+                    <div className="font-medium text-foreground">
+                      {event.action}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {event.actor} · {event.created}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No activity has been recorded for this app.
+              </p>
+            )}
+          </Card>
         </div>
       </div>
     </main>

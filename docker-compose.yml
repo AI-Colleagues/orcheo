@@ -58,6 +58,7 @@ services:
       ORCHEO_AUTH_AUDIENCE: ${ORCHEO_AUTH_AUDIENCE:-orcheo-api}
       ORCHEO_AUTH_DEV_LOGIN_ENABLED: ${ORCHEO_AUTH_DEV_LOGIN_ENABLED:-false}
       ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN: ${ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN:-}
+      ORCHEO_AUTH_BOOTSTRAP_TOKEN_SCOPES: ${ORCHEO_AUTH_BOOTSTRAP_TOKEN_SCOPES:-}
       ORCHEO_SMTP_HOST: ${ORCHEO_SMTP_HOST:-}
       ORCHEO_SMTP_PORT: ${ORCHEO_SMTP_PORT:-587}
       ORCHEO_SMTP_USERNAME: ${ORCHEO_SMTP_USERNAME:-}
@@ -71,6 +72,12 @@ services:
       ORCHEO_CANDIDATES_GITHUB_TOKEN: ${ORCHEO_CANDIDATES_GITHUB_TOKEN:-}
       ORCHEO_PLUGIN_DIR: /data/plugins
       ORCHEO_CACHE_DIR: /data/cache/orcheo
+      ORCHEO_HOSTED_APPS_ENABLED: ${ORCHEO_HOSTED_APPS_ENABLED:-false}
+      ORCHEO_APPS_BASE_DOMAIN: ${ORCHEO_APPS_BASE_DOMAIN:-apps.localhost}
+      ORCHEO_APP_BUNDLE_BACKEND: ${ORCHEO_APP_BUNDLE_BACKEND:-filesystem}
+      ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT: /data/app-bundles
+      ORCHEO_APP_GATEWAY_SECRET: ${ORCHEO_APP_GATEWAY_SECRET:-}
+      ORCHEO_DEPLOYMENT_MODE: local
       ORCHEO_WORKFLOW_TRUST_MODE: ${ORCHEO_WORKFLOW_TRUST_MODE:-allow_client_uploads}
       ORCHEO_WORKFLOW_DEFINITION_MODE: ${ORCHEO_WORKFLOW_DEFINITION_MODE:-unrestricted}
       # Use system Python from base image instead of downloading
@@ -200,10 +207,42 @@ services:
       VITE_ORCHEO_AUTH_DISABLED: ${VITE_ORCHEO_AUTH_DISABLED:-false}
       VITE_ORCHEO_CHATKIT_DOMAIN_KEY: ${VITE_ORCHEO_CHATKIT_DOMAIN_KEY:-domain_pk_6954ef8b091c8190b0734f266b51edd00094f73ed7d04989}
       VITE_ORCHEO_ALLOWED_HOSTS: ${VITE_ORCHEO_ALLOWED_HOSTS:-}
+      VITE_ORCHEO_APPS_BASE_DOMAIN: ${ORCHEO_APPS_BASE_DOMAIN:-apps.localhost}
+      VITE_ORCHEO_APPS_PORT: ${ORCHEO_APP_GATEWAY_PORT:-2030}
     depends_on:
       - backend
     command: >
       sh -c 'if [ ! -d node_modules ] || [ -z "$$(ls -A node_modules 2>/dev/null)" ]; then npm ci; fi && npm run dev -- --host 0.0.0.0'
+
+  app-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    profiles:
+      - hosted-apps
+    env_file: .env
+    ports:
+      - "2030:2030"
+    volumes:
+      - .:/app
+      - orcheo_data:/data
+      - app_gateway_venv:/app/.venv
+      - uv_cache:/data/cache/uv
+    environment:
+      HOME: /data/home
+      UV_CACHE_DIR: /data/cache/uv
+      ORCHEO_APPS_BASE_DOMAIN: ${ORCHEO_APPS_BASE_DOMAIN:-apps.localhost}
+      ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT: /data/app-bundles
+      ORCHEO_APP_GATEWAY_BACKEND_URL: http://backend:2025
+      ORCHEO_APP_GATEWAY_SECRET: ${ORCHEO_APP_GATEWAY_SECRET:-}
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      backend:
+        condition: service_started
+    command: >
+      uv run --package orcheo-app-gateway uvicorn
+      orcheo_app_gateway.main:create_app --factory
+      --host 0.0.0.0 --port 2030 --reload
 
 volumes:
   postgres_data:
@@ -214,3 +253,4 @@ volumes:
   backend_venv:
   worker_venv:
   celery_venv:
+  app_gateway_venv:

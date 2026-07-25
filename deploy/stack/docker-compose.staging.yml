@@ -19,6 +19,18 @@ services:
     image: orcheo-stack:staging-local
     build: *orcheo_staging_build
 
+  app-gateway:
+    image: orcheo-stack:staging-local
+    build: *orcheo_staging_build
+
+  validation-worker:
+    image: orcheo-stack:staging-local
+    build: *orcheo_staging_build
+
+  hosted-app-cleanup:
+    image: orcheo-stack:staging-local
+    build: *orcheo_staging_build
+
   studio:
     image: orcheo-studio:staging-local
     build:

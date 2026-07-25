@@ -10,3 +10,8 @@
 
 	reverse_proxy {$ORCHEO_CADDY_STUDIO_UPSTREAM:studio:2026}
 }
+
+*.{$ORCHEO_APPS_BASE_DOMAIN:apps.localhost} {
+	encode zstd gzip
+	reverse_proxy {$ORCHEO_APP_GATEWAY_UPSTREAM:app-gateway:2030}
+}
