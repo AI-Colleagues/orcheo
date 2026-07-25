@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { getActiveWorkspace } from "@/lib/api";
 import { usePageContext } from "@/hooks/use-page-context";
-import { Button } from "@/design-system/ui/button";
-import { Plus } from "lucide-react";
 import { WorkflowGalleryTabs } from "@/features/workflow/pages/workflow-gallery/workflow-gallery-tabs";
 import { OnboardTeamDialog } from "@/features/workflow/pages/workflow-gallery/onboard-team-dialog";
 import { CreateTeamDialog } from "@/features/workflow/pages/workflow-gallery/create-team-dialog";
@@ -86,17 +84,9 @@ export default function WorkflowGallery() {
             onDeleteWorkflow={handleDeleteWorkflow}
             onUpdateCandidateWorkflow={handleUpdateCandidateWorkflow}
             onDeleteTeam={handleDeleteTeam}
+            onCreateTeam={openCreateTeamDialog}
           />
         </div>
-
-        {!isTemplateView && (
-          <div className="absolute bottom-4 left-4">
-            <Button variant="outline" size="sm" onClick={openCreateTeamDialog}>
-              <Plus className="mr-2 h-4 w-4" />
-              New team
-            </Button>
-          </div>
-        )}
       </main>
 
       <CreateTeamDialog
