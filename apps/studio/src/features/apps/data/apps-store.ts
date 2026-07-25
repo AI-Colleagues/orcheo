@@ -141,7 +141,8 @@ export function useApps(workspaceKey: string | undefined): {
             setState({
               apps: [],
               loading: false,
-              error: error instanceof Error ? error.message : "Unable to load apps.",
+              error:
+                error instanceof Error ? error.message : "Unable to load apps.",
             });
         });
     };
@@ -186,13 +187,7 @@ export function useApp(
         .then(([item, deployments, bindings, collections, audit]) => {
           if (active)
             setState({
-              app: appFromApi(
-                item,
-                deployments,
-                bindings,
-                collections,
-                audit,
-              ),
+              app: appFromApi(item, deployments, bindings, collections, audit),
               loading: false,
               error: null,
             });
@@ -202,7 +197,8 @@ export function useApp(
             setState({
               app: undefined,
               loading: false,
-              error: error instanceof Error ? error.message : "Unable to load app.",
+              error:
+                error instanceof Error ? error.message : "Unable to load app.",
             });
         });
     };

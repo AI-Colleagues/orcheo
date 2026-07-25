@@ -46,7 +46,10 @@ export function IntentBadge({
     >
       {dot && (
         <span
-          className={cn("h-1.5 w-1.5 rounded-full", INTENT_DOT_CLASSNAME[intent])}
+          className={cn(
+            "h-1.5 w-1.5 rounded-full",
+            INTENT_DOT_CLASSNAME[intent],
+          )}
         />
       )}
       {children}

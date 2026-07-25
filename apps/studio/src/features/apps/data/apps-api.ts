@@ -53,10 +53,7 @@ export interface AppAuditApi {
   created_at: string;
 }
 
-const request = async <T>(
-  path: string,
-  init: RequestInit = {},
-): Promise<T> => {
+const request = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
   const isMultipart = init.body instanceof FormData;
   const response = await authFetch(buildBackendHttpUrl(path), {
     ...init,
@@ -76,7 +73,8 @@ const request = async <T>(
     const message =
       typeof detail === "string"
         ? detail
-        : detail?.message ?? `Hosted Apps request failed (${response.status}).`;
+        : (detail?.message ??
+          `Hosted Apps request failed (${response.status}).`);
     throw new Error(message);
   }
   return response.json() as Promise<T>;

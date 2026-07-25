@@ -23,15 +23,8 @@ import {
 } from "@/design-system/ui/dropdown-menu";
 import { usePageContext } from "@/hooks/use-page-context";
 import { getWorkspaceAppsPath } from "@/lib/workspace-routing";
-import {
-  getHostedAppAddress,
-  getHostedAppUrl,
-} from "../data/sample-apps";
-import {
-  toggleAppPublish,
-  uploadAppBundle,
-  useApp,
-} from "../data/apps-store";
+import { getHostedAppAddress, getHostedAppUrl } from "../data/sample-apps";
+import { toggleAppPublish, uploadAppBundle, useApp } from "../data/apps-store";
 import {
   AppHealthBadge,
   AppStateBadge,
@@ -58,7 +51,11 @@ export default function AppDetail() {
   if (loading || !app) {
     return (
       <main className="flex h-full min-h-0 items-center justify-center p-8">
-        <p className={error ? "text-sm text-destructive" : "text-sm text-muted-foreground"}>
+        <p
+          className={
+            error ? "text-sm text-destructive" : "text-sm text-muted-foreground"
+          }
+        >
           {error ?? (loading ? "Loading app…" : "App not found.")}
         </p>
       </main>
@@ -73,7 +70,9 @@ export default function AppDetail() {
       await toggleAppPublish(app);
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "Unable to update publication.",
+        error instanceof Error
+          ? error.message
+          : "Unable to update publication.",
       );
     } finally {
       setPublishing(false);
@@ -155,10 +154,7 @@ export default function AppDetail() {
               {publishing ? "Updating…" : "Unpublish"}
             </Button>
           ) : (
-            <Button
-              disabled={publishing}
-              onClick={() => void handlePublish()}
-            >
+            <Button disabled={publishing} onClick={() => void handlePublish()}>
               <Rocket className="mr-2 h-4 w-4" />
               {publishing ? "Publishing…" : "Publish"}
             </Button>
@@ -205,9 +201,7 @@ export default function AppDetail() {
               <div className="text-xl font-semibold text-foreground">
                 {stat.value}
               </div>
-              <div className="text-xs text-muted-foreground">
-                {stat.label}
-              </div>
+              <div className="text-xs text-muted-foreground">{stat.label}</div>
             </Card>
           ))}
         </div>
@@ -372,16 +366,19 @@ export default function AppDetail() {
             <h2 className="font-semibold text-foreground">Recent activity</h2>
             {app.audit?.length ? (
               <div className="flex flex-col divide-y divide-border">
-                {app.audit.slice(-8).reverse().map((event) => (
-                  <div key={event.id} className="py-2 text-sm">
-                    <div className="font-medium text-foreground">
-                      {event.action}
+                {app.audit
+                  .slice(-8)
+                  .reverse()
+                  .map((event) => (
+                    <div key={event.id} className="py-2 text-sm">
+                      <div className="font-medium text-foreground">
+                        {event.action}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {event.actor} · {event.created}
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      {event.actor} · {event.created}
-                    </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">

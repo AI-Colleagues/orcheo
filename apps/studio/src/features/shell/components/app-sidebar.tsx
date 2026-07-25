@@ -65,7 +65,12 @@ function NavItem({ icon, label, active, external, to, onClick }: NavItemProps) {
   }
 
   return (
-    <button type="button" onClick={onClick} aria-label={label} className="w-full">
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className="w-full"
+    >
       {content}
     </button>
   );
@@ -137,9 +142,8 @@ export default function AppSidebar({
             <TooltipContent side="bottom" className="max-w-sm">
               Beta Disclaimer &amp; Terms: Orcheo Cloud is a free beta for
               evaluation and testing, provided as-is. Data, workflows, and
-              credentials may be reset, deleted, or not migrated, so do not
-              use it as your only storage for critical production data; read
-              the{" "}
+              credentials may be reset, deleted, or not migrated, so do not use
+              it as your only storage for critical production data; read the{" "}
               <a
                 href="https://ai-colleagues.com/terms"
                 target="_blank"

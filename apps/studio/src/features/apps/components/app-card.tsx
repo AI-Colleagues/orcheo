@@ -19,10 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/design-system/ui/dropdown-menu";
 import type { HostedApp } from "../data/sample-apps";
-import {
-  getHostedAppAddress,
-  getHostedAppUrl,
-} from "../data/sample-apps";
+import { getHostedAppAddress, getHostedAppUrl } from "../data/sample-apps";
 import {
   AppHealthBadge,
   AppStateBadge,
@@ -93,7 +90,10 @@ export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}>
+          <DropdownMenuContent
+            align="end"
+            onClick={(event) => event.stopPropagation()}
+          >
             <DropdownMenuItem>
               <Upload className="mr-2 h-4 w-4" />
               Upload deployment
@@ -109,7 +109,9 @@ export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem
-                disabled={!app.deployments.some((item) => item.status === "ready")}
+                disabled={
+                  !app.deployments.some((item) => item.status === "ready")
+                }
                 onClick={() => onTogglePublish(app)}
               >
                 <Rocket className="mr-2 h-4 w-4" />
@@ -132,7 +134,9 @@ export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
       </div>
 
       <div className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
-        <span>{activeDeployment ? activeDeployment.version : "no active build"}</span>
+        <span>
+          {activeDeployment ? activeDeployment.version : "no active build"}
+        </span>
         <span>·</span>
         <span>{app.deployments.length} deploys</span>
         <span className="ml-auto">{app.updated}</span>

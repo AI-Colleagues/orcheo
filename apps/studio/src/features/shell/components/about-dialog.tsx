@@ -145,9 +145,7 @@ interface AboutDialogProps {
 }
 
 export default function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
-  const [cachedInfo, setCachedInfo] = useState<SystemInfoResponse | null>(
-    null,
-  );
+  const [cachedInfo, setCachedInfo] = useState<SystemInfoResponse | null>(null);
   const [liveBackendVersion, setLiveBackendVersion] = useState<string | null>(
     null,
   );
@@ -254,11 +252,7 @@ export default function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
           Studio, backend, and CLI version information.
         </DialogDescription>
         <div className="flex items-center gap-3">
-          <img
-            src="/favicon.ico"
-            alt="Orcheo"
-            className="h-9 w-9 rounded-md"
-          />
+          <img src="/favicon.ico" alt="Orcheo" className="h-9 w-9 rounded-md" />
           <div>
             <div className="font-semibold text-foreground">Orcheo</div>
             <div className="text-xs text-muted-foreground">
@@ -271,7 +265,10 @@ export default function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
           <table className="w-full text-sm">
             <tbody>
               {rows.map((row) => (
-                <tr key={row.label} className="border-b border-border last:border-0">
+                <tr
+                  key={row.label}
+                  className="border-b border-border last:border-0"
+                >
                   <td className="px-3 py-2 text-muted-foreground">
                     {row.label}
                   </td>
@@ -294,9 +291,7 @@ export default function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
                 {line}
               </p>
             ))}
-            <p className="text-muted-foreground">
-              Run: orcheo install upgrade
-            </p>
+            <p className="text-muted-foreground">Run: orcheo install upgrade</p>
             <button
               type="button"
               className="text-left text-muted-foreground underline"

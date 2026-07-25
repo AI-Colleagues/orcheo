@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  getHostedAppAddress,
-  getHostedAppUrl,
-} from "./sample-apps";
+import { getHostedAppAddress, getHostedAppUrl } from "./sample-apps";
 
 describe("hosted app URLs", () => {
   it("includes the local app gateway port", () => {

@@ -1,10 +1,6 @@
 export type AppVisibility = "public" | "private";
 export type AppState =
-  | "draft"
-  | "published"
-  | "unpublished"
-  | "suspended"
-  | "archived";
+  "draft" | "published" | "unpublished" | "suspended" | "archived";
 export type AppHealth = "healthy" | "unknown" | "error";
 export type AppBindingAccess = "anonymous" | "authenticated";
 export type AppCollectionAccess = "shared" | "private";
