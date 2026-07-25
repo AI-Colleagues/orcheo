@@ -1,5 +1,8 @@
 FROM python:3.12-slim
 
+ARG ORCHEO_RELEASE_CHANNEL=stable
+ARG ORCHEO_PACKAGE_REQUIREMENTS=
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
@@ -23,10 +26,30 @@ RUN mkdir -p /data/home \
     && groupadd --gid 1000 orcheo \
     && useradd --uid 1000 --gid 1000 --home-dir /data/home --create-home --shell /bin/sh orcheo
 COPY orcheo-entrypoint.sh /usr/local/bin/orcheo-entrypoint
+COPY resolve_orcheo_packages.py /usr/local/bin/resolve_orcheo_packages.py
 RUN chmod +x /usr/local/bin/orcheo-entrypoint
 
-# Always build with --no-cache to ensure latest packages are installed
-RUN uv pip install --system --no-cache -U orcheo orcheo-backend orcheo-sdk
+# Resolve first-party packages as one compatible set. Stable images exclude
+# first-party prereleases; prerelease images select a newer prerelease whenever
+# one exists and otherwise fall back to the newest stable package.
+RUN case "$ORCHEO_RELEASE_CHANNEL" in \
+      stable|prerelease) ;; \
+      *) echo "Unsupported release channel: $ORCHEO_RELEASE_CHANNEL" >&2; exit 1 ;; \
+    esac \
+    && if [ -n "$ORCHEO_PACKAGE_REQUIREMENTS" ]; then \
+      for requirement in $ORCHEO_PACKAGE_REQUIREMENTS; do \
+        printf '%s\n' "$requirement"; \
+      done > /tmp/orcheo-requirements.txt; \
+    else \
+      uv run --no-project --with packaging \
+        python /usr/local/bin/resolve_orcheo_packages.py \
+        --channel "$ORCHEO_RELEASE_CHANNEL" \
+        --output /tmp/orcheo-requirements.txt; \
+    fi \
+    && uv pip install --system --no-cache -U \
+      --prerelease if-necessary-or-explicit \
+      -r /tmp/orcheo-requirements.txt \
+    && rm /tmp/orcheo-requirements.txt
 RUN uv run python -m playwright install --with-deps chromium chromium-headless-shell \
     && chown -R orcheo:orcheo "$PLAYWRIGHT_BROWSERS_PATH"
 RUN HOME=/data/home UV_TOOL_DIR=/usr/local/share/uv/tools UV_TOOL_BIN_DIR=/usr/local/bin \

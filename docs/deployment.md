@@ -137,37 +137,21 @@ Bundled Caddy is appropriate for standard self-hosted installs and moderate scal
 - WAF, bot management, or DDoS shielding
 - platform-native ingress on Kubernetes or managed container platforms
 
-## Source-Built Staging Host
+## Published Prerelease Staging Host
 
-Use this recipe when the staging machine deploys from a full git checkout and should stay close to the production stack without waiting for package or image releases.
+Use the published prerelease channel when a staging host should validate the same
+artifacts that prerelease users will install:
 
-1. **Pull the latest code on the staging host**
-   ```bash
-   git pull
-   ```
-2. **Configure stack environment values**
-   - `make staging-*` reuses `~/.orcheo/stack/.env` when it already exists.
-   - On first run it creates `~/.orcheo/stack/.env` from `deploy/stack/.env.example`, then preserves later edits while backfilling newly introduced keys.
-3. **Build the staging images from source**
-   ```bash
-   make staging-build
-   ```
-4. **Start the production-style staging stack**
-   ```bash
-   make staging-up
-   ```
-5. **Inspect or stop the stack when needed**
-   ```bash
-   make staging-config
-   make staging-logs
-   make staging-down
-   ```
+```bash
+orcheo install --staging --start-stack
+```
 
-The staging targets combine `deploy/stack/docker-compose.yml` with `deploy/stack/docker-compose.staging.yml`. This keeps the same runtime topology as production while swapping published images for local source builds:
+The installer resolves the newest `stack-vX.Y.Z-{alpha,beta,rc}.N` tag, syncs
+the stack assets from that exact tag, and pins both the stack and Studio images
+to the resolved version. Use `--stack-version` instead when the host must remain
+on one exact prerelease.
 
-- backend, worker, and beat are built from the monorepo checkout
-- Studio is built from local `apps/studio` source and served by nginx
-- there are no source bind mounts, Vite dev server processes, or backend `--reload` flags
+For unreleased source development, use the root `docker-compose.yml`.
 
 ## Cloudflare Tunnel Or Similar Split-Origin Tunnel
 

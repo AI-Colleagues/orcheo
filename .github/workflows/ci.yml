@@ -278,12 +278,20 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           if [[ "$tag" == core-v* ]]; then
             echo "package=orcheo" >> "$GITHUB_OUTPUT"
+            echo "project_file=pyproject.toml" >> "$GITHUB_OUTPUT"
+            echo "tag_prefix=core-v" >> "$GITHUB_OUTPUT"
           elif [[ "$tag" == backend-v* ]]; then
             echo "package=orcheo-backend" >> "$GITHUB_OUTPUT"
+            echo "project_file=apps/backend/pyproject.toml" >> "$GITHUB_OUTPUT"
+            echo "tag_prefix=backend-v" >> "$GITHUB_OUTPUT"
           elif [[ "$tag" == sdk-v* ]]; then
             echo "package=orcheo-sdk" >> "$GITHUB_OUTPUT"
+            echo "project_file=packages/sdk/pyproject.toml" >> "$GITHUB_OUTPUT"
+            echo "tag_prefix=sdk-v" >> "$GITHUB_OUTPUT"
           elif [[ "$tag" == agentensor-v* ]]; then
             echo "package=agentensor" >> "$GITHUB_OUTPUT"
+            echo "project_file=packages/agentensor/pyproject.toml" >> "$GITHUB_OUTPUT"
+            echo "tag_prefix=agentensor-v" >> "$GITHUB_OUTPUT"
           else
             echo "Unsupported tag prefix: $tag" >&2
             exit 1
@@ -292,6 +300,45 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --all-groups
+
+      - name: Verify package version matches tag
+        env:
+          PROJECT_FILE: ${{ steps.package.outputs.project_file }}
+          TAG_PREFIX: ${{ steps.package.outputs.tag_prefix }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          uv run python - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+          from packaging.version import InvalidVersion, Version
+
+          tag_name = os.environ["TAG_NAME"]
+          tag_prefix = os.environ["TAG_PREFIX"]
+          if not tag_name.startswith(tag_prefix):
+              raise SystemExit(f"Tag {tag_name!r} does not start with {tag_prefix!r}.")
+          tag_version = tag_name.removeprefix(tag_prefix)
+          pattern = r"\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?"
+          if re.fullmatch(pattern, tag_version) is None:
+              raise SystemExit(
+                  "Release tags must use X.Y.Z or X.Y.Z-{alpha,beta,rc}.N."
+              )
+
+          project = tomllib.loads(
+              Path(os.environ["PROJECT_FILE"]).read_text(encoding="utf-8")
+          )
+          package_version = project["project"]["version"]
+          try:
+              matches = Version(tag_version) == Version(package_version)
+          except InvalidVersion as exc:
+              raise SystemExit(f"Invalid release version: {exc}") from exc
+          if not matches:
+              raise SystemExit(
+                  f"Tag version {tag_version} does not match package version "
+                  f"{package_version}."
+              )
+          PY
 
       - name: Build ${{ steps.package.outputs.package }}
         run: |
@@ -308,9 +355,24 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.meta.outputs.version }}
+      channel: ${{ steps.meta.outputs.channel }}
+      phase: ${{ steps.meta.outputs.phase }}
+      package_requirements: ${{ steps.packages.outputs.requirements }}
+      studio_version: ${{ steps.studio-package.outputs.version }}
       stack_repo: ${{ steps.meta.outputs.stack_repo }}
       studio_repo: ${{ steps.meta.outputs.studio_repo }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
       - name: Determine image metadata
         id: meta
         run: |
@@ -320,10 +382,45 @@ jobs:
             echo "Invalid stack tag: $tag" >&2
             exit 1
           fi
+          if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            channel="stable"
+            phase=""
+          elif [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$ ]]; then
+            channel="prerelease"
+            phase="${BASH_REMATCH[1]}"
+          else
+            echo "Stack versions must use X.Y.Z or X.Y.Z-{alpha,beta,rc}.N: $version" >&2
+            exit 1
+          fi
           owner_lc=$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+          echo "phase=${phase}" >> "$GITHUB_OUTPUT"
           echo "stack_repo=ghcr.io/${owner_lc}/orcheo-stack" >> "$GITHUB_OUTPUT"
           echo "studio_repo=ghcr.io/${owner_lc}/orcheo-studio" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve first-party Python packages
+        id: packages
+        run: |
+          uv run --no-project --with packaging \
+            python deploy/stack/resolve_orcheo_packages.py \
+            --channel "${{ steps.meta.outputs.channel }}" \
+            --output /tmp/orcheo-requirements.txt
+          requirements=$(tr '\n' ' ' < /tmp/orcheo-requirements.txt)
+          echo "requirements=${requirements% }" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve Studio package
+        id: studio-package
+        run: |
+          if [[ "${{ steps.meta.outputs.channel }}" == "stable" ]]; then
+            studio_tag="latest"
+          elif npm view orcheo-studio@prerelease version >/dev/null 2>&1; then
+            studio_tag="prerelease"
+          else
+            studio_tag="latest"
+          fi
+          version=$(npm view "orcheo-studio@${studio_tag}" version)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
   image-build:
     needs: [stack-image-metadata]
@@ -369,6 +466,10 @@ jobs:
           context: ${{ matrix.image.context }}
           file: ${{ matrix.image.file }}
           platforms: linux/${{ matrix.platform.arch }}
+          build-args: |
+            ORCHEO_RELEASE_CHANNEL=${{ needs.stack-image-metadata.outputs.channel }}
+            ORCHEO_PACKAGE_REQUIREMENTS=${{ needs.stack-image-metadata.outputs.package_requirements }}
+            ORCHEO_STUDIO_VERSION=${{ needs.stack-image-metadata.outputs.studio_version }}
           outputs: type=image,name=${{ matrix.image.repo }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
@@ -421,9 +522,15 @@ jobs:
         run: |
           repo="${{ matrix.image.repo }}"
           version="${{ needs.stack-image-metadata.outputs.version }}"
-          docker buildx imagetools create \
-            -t "${repo}:${version}" \
-            -t "${repo}:latest" \
+          channel="${{ needs.stack-image-metadata.outputs.channel }}"
+          phase="${{ needs.stack-image-metadata.outputs.phase }}"
+          tag_args=(-t "${repo}:${version}")
+          if [[ "$channel" == "stable" ]]; then
+            tag_args+=(-t "${repo}:latest")
+          else
+            tag_args+=(-t "${repo}:prerelease" -t "${repo}:${phase}")
+          fi
+          docker buildx imagetools create "${tag_args[@]}" \
             $(printf "${repo}@sha256:%s " *)
 
       - name: Inspect image
@@ -476,6 +583,7 @@ jobs:
         run: |
           npm ci
       - name: Verify version matches tag
+        id: version
         run: |
           tag="${GITHUB_REF_NAME}"
           version="${tag#studio-v}"
@@ -484,11 +592,20 @@ jobs:
             echo "Error: Tag version ($version) does not match package.json version ($pkg_version)" >&2
             exit 1
           fi
+          if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            npm_tag="latest"
+          elif [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$ ]]; then
+            npm_tag="prerelease"
+          else
+            echo "Studio versions must use X.Y.Z or X.Y.Z-{alpha,beta,rc}.N: $version" >&2
+            exit 1
+          fi
+          echo "npm_tag=${npm_tag}" >> "$GITHUB_OUTPUT"
           echo "Version check passed: $version"
       - name: Build
         run: npm run build
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --tag "${{ steps.version.outputs.npm_tag }}"
 
   desktop-tauri-release:
     needs: [lint, coverage, postgres-persistence, studio]
@@ -539,6 +656,10 @@ jobs:
           version="${GITHUB_REF_NAME#desktop-v}"
           pkg_version=$(node -p "require('./apps/desktop/tauri/package.json').version")
           tauri_version=$(node -p "require('./apps/desktop/tauri/src-tauri/tauri.conf.json').version")
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-((alpha|beta|rc)\.[0-9]+))?$ ]]; then
+            echo "Desktop versions must use X.Y.Z or X.Y.Z-{alpha,beta,rc}.N: $version" >&2
+            exit 1
+          fi
           if [[ "$version" != "$pkg_version" ]]; then
             echo "Error: Tag version ($version) does not match package.json version ($pkg_version)" >&2
             exit 1
@@ -578,6 +699,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: false
+          prerelease: ${{ contains(github.ref_name, '-alpha.') || contains(github.ref_name, '-beta.') || contains(github.ref_name, '-rc.') }}
           fail_on_unmatched_files: true
           files: dist/desktop-tauri/*.dmg
           name: Orcheo Desktop ${{ github.ref_name }}
