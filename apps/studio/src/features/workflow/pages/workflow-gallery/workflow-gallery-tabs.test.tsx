@@ -296,4 +296,41 @@ describe("WorkflowGalleryTabs", () => {
     expect(screen.getByRole("button", { name: /Engineering 0/i })).toBeTruthy();
     expect(screen.queryByTestId("workflow-card")).toBeNull();
   });
+
+  it("places the add-team control with the colleague team sections", async () => {
+    const onCreateTeam = vi.fn();
+    renderTabs(
+      <WorkflowGalleryTabs
+        selectedTab="all"
+        onSelectedTabChange={vi.fn()}
+        isLoading={false}
+        sortedWorkflows={[]}
+        tabCounts={{ all: 0, pinned: 0, templates: 0 }}
+        isTemplateView={false}
+        teams={[
+          { id: "team-default", slug: "acme", name: "Acme", is_default: true },
+        ]}
+        workspaceLabel="Acme"
+        searchQuery=""
+        onSearchQueryChange={vi.fn()}
+        onImportStarterPack={vi.fn()}
+        onOpenWorkflow={vi.fn()}
+        onUseTemplate={vi.fn()}
+        onExportWorkflow={vi.fn()}
+        onDeleteWorkflow={vi.fn()}
+        onCreateTeam={onCreateTeam}
+      />,
+    );
+
+    const addTeam = screen.getByRole("button", { name: /add team/i });
+    expect(
+      screen
+        .getByRole("button", { name: /Acme 0/i })
+        .compareDocumentPosition(addTeam),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    const { default: userEvent } = await import("@testing-library/user-event");
+    await userEvent.setup().click(addTeam);
+    expect(onCreateTeam).toHaveBeenCalledOnce();
+  });
 });
