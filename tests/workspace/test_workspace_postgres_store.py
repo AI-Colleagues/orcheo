@@ -334,6 +334,26 @@ def test_postgres_workspace_repository_lists_and_parses_rows(
     assert "WHERE status = 'active'" not in connection.queries[1][0]
 
 
+def test_postgres_workspace_repository_ignores_newer_quota_fields(
+    fake_connect: tuple[FakeConnection, str],
+) -> None:
+    """Rows written by a newer release remain readable after a rollback."""
+    connection, dsn = fake_connect
+    repo = PostgresWorkspaceRepository(dsn)
+    workspace = Workspace(slug="acme", name="Acme")
+    row = _workspace_row(workspace)
+    row["quotas"] = {
+        **workspace.quotas.model_dump(),
+        "max_hosted_apps": 25,
+        "max_app_sessions": 10_000,
+    }
+    connection._responses.append({"row": row})
+
+    restored = repo.get_workspace(workspace.id)
+
+    assert restored.quotas == workspace.quotas
+
+
 def test_postgres_workspace_repository_missing_workspace_and_status_paths(
     fake_connect: tuple[FakeConnection, str],
 ) -> None:
