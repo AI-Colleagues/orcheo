@@ -24,6 +24,7 @@ from orcheo.hosted_apps.errors import (
     ReservedAliasError,
 )
 from orcheo.hosted_apps.gateway import (
+    build_hosted_app_url,
     canonical_app_host,
     derive_client_ip,
     is_safe_app_path,
@@ -109,6 +110,7 @@ __all__ = [
     "BundleFile",
     "BundleManifest",
     "BundleValidationError",
+    "build_hosted_app_url",
     "canonical_app_host",
     "derive_client_ip",
     "DEFAULT_RESERVED_ALIASES",

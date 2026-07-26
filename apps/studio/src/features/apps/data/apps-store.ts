@@ -67,6 +67,7 @@ const appFromApi = (
   id: item.id,
   name: item.name,
   alias: item.alias,
+  url: item.url,
   visibility: item.visibility,
   state: item.state,
   health: item.state === "suspended" ? "error" : "unknown",

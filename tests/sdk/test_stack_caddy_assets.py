@@ -103,7 +103,7 @@ def test_env_example_documents_public_ingress_contract() -> None:
     assert "ORCHEO_APP_GATEWAY_LOCAL_PORT=2030" in content
     assert "ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:2025" in content
     assert "VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1" in content
-    assert "ORCHEO_APPS_BASE_DOMAIN=beta.orcheo.cloud" in content
+    assert "ORCHEO_APPS_BASE_DOMAIN=apps.localhost" in content
 
 
 def test_studio_images_inject_hosted_app_address_settings() -> None:

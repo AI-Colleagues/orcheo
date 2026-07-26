@@ -20,7 +20,7 @@ import {
 } from "@/design-system/ui/dropdown-menu";
 import { canPublishApp } from "../data/apps-store";
 import type { HostedApp } from "../data/sample-apps";
-import { getHostedAppAddress, getHostedAppUrl } from "../data/sample-apps";
+import { getHostedAppAddress } from "../data/sample-apps";
 import {
   AppHealthBadge,
   AppStateBadge,
@@ -66,17 +66,17 @@ export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
             )}
             {app.state === "published" ? (
               <a
-                href={getHostedAppUrl(app.alias)}
+                href={app.url}
                 target="_blank"
                 rel="noreferrer"
                 className="truncate underline-offset-4 hover:text-foreground hover:underline"
                 onClick={(event) => event.stopPropagation()}
                 onKeyDown={(event) => event.stopPropagation()}
               >
-                {getHostedAppAddress(app.alias)}
+                {getHostedAppAddress(app.url)}
               </a>
             ) : (
-              <span className="truncate">{getHostedAppAddress(app.alias)}</span>
+              <span className="truncate">{getHostedAppAddress(app.url)}</span>
             )}
           </div>
         </div>

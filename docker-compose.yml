@@ -75,6 +75,7 @@ services:
       ORCHEO_CACHE_DIR: /data/cache/orcheo
       ORCHEO_HOSTED_APPS_ENABLED: ${ORCHEO_HOSTED_APPS_ENABLED:-true}
       ORCHEO_APPS_BASE_DOMAIN: ${ORCHEO_APPS_BASE_DOMAIN:-apps.localhost}
+      ORCHEO_APP_GATEWAY_PORT: ${ORCHEO_APP_GATEWAY_PORT:-2030}
       ORCHEO_APP_BUNDLE_BACKEND: ${ORCHEO_APP_BUNDLE_BACKEND:-filesystem}
       ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT: /data/app-bundles
       # Local-development default only; production stack setup generates a secret.

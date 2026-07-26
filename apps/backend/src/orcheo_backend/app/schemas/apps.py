@@ -58,6 +58,7 @@ class HostedAppResponse(BaseModel):
     active_deployment_id: UUID | None
     permission_revision: int
     published_permission_revision: int | None
+    url: str
     created_at: datetime
     updated_at: datetime
 
@@ -67,6 +68,7 @@ class HostedAppResponse(BaseModel):
         app: HostedApp,
         *,
         alias: str,
+        url: str,
         active_deployment_id: UUID | None = None,
     ) -> HostedAppResponse:
         """Build a response without exposing any storage or runtime secrets."""
@@ -84,6 +86,7 @@ class HostedAppResponse(BaseModel):
             active_deployment_id=active_deployment_id,
             permission_revision=app.permission_revision,
             published_permission_revision=app.published_permission_revision,
+            url=url,
             created_at=app.created_at,
             updated_at=app.updated_at,
         )

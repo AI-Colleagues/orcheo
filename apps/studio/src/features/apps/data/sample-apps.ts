@@ -39,6 +39,7 @@ export interface HostedApp {
   id: string;
   name: string;
   alias: string;
+  url: string;
   visibility: AppVisibility;
   state: AppState;
   health: AppHealth;
@@ -59,17 +60,17 @@ const getAppsPort = (baseDomain: string): string => {
     : "";
 };
 
-export const getHostedAppAddress = (alias: string): string => {
-  const baseDomain = getAppsBaseDomain();
-  const port = getAppsPort(baseDomain);
-  return `${alias}.${baseDomain}${port ? `:${port}` : ""}`;
+export const getHostedAppAddress = (url: string): string => {
+  return new URL(url).host;
 };
 
 export const getHostedAppUrl = (alias: string): string => {
   const baseDomain = getAppsBaseDomain();
   const isLocal =
     baseDomain === "localhost" || baseDomain.endsWith(".localhost");
-  return `${isLocal ? "http" : "https"}://${getHostedAppAddress(alias)}/`;
+  const port = getAppsPort(baseDomain);
+  const address = `${alias}.${baseDomain}${port ? `:${port}` : ""}`;
+  return `${isLocal ? "http" : "https"}://${address}/`;
 };
 
 export const SAMPLE_APPS: HostedApp[] = [
@@ -77,6 +78,7 @@ export const SAMPLE_APPS: HostedApp[] = [
     id: "app-research-digest",
     name: "Research Digest",
     alias: "research-digest",
+    url: getHostedAppUrl("research-digest"),
     visibility: "public",
     state: "published",
     health: "healthy",
@@ -133,6 +135,7 @@ export const SAMPLE_APPS: HostedApp[] = [
     id: "app-status-page",
     name: "Status Page",
     alias: "status",
+    url: getHostedAppUrl("status"),
     visibility: "public",
     state: "published",
     health: "healthy",
@@ -156,6 +159,7 @@ export const SAMPLE_APPS: HostedApp[] = [
     id: "app-internal-ops",
     name: "Internal Ops Console",
     alias: "internal-ops",
+    url: getHostedAppUrl("internal-ops"),
     visibility: "private",
     state: "unpublished",
     health: "unknown",
@@ -210,6 +214,7 @@ export const SAMPLE_APPS: HostedApp[] = [
     id: "app-onboarding-demo",
     name: "Onboarding Demo",
     alias: "onboarding-demo",
+    url: getHostedAppUrl("onboarding-demo"),
     visibility: "public",
     state: "draft",
     health: "unknown",

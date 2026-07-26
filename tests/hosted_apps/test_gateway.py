@@ -5,10 +5,35 @@ from __future__ import annotations
 import pytest
 from orcheo.hosted_apps import (
     AliasValidationError,
+    build_hosted_app_url,
     canonical_app_host,
     derive_client_ip,
     is_safe_app_path,
 )
+
+
+def test_hosted_app_url_uses_local_gateway_origin() -> None:
+    """Local hosted apps use the development gateway's reachable HTTP URL."""
+    assert (
+        build_hosted_app_url("portal", "apps.localhost")
+        == "http://portal.apps.localhost:2030/"
+    )
+
+
+def test_hosted_app_url_accepts_a_custom_local_gateway_port() -> None:
+    """A remapped local gateway port is reflected in the canonical URL."""
+    assert (
+        build_hosted_app_url("portal", "apps.localhost", local_port=2130)
+        == "http://portal.apps.localhost:2130/"
+    )
+
+
+def test_hosted_app_url_uses_public_https_origin() -> None:
+    """Public hosted apps use HTTPS without a development port."""
+    assert (
+        build_hosted_app_url("portal", "beta.orcheo.cloud")
+        == "https://portal.beta.orcheo.cloud/"
+    )
 
 
 def test_gateway_accepts_one_exact_alias_label() -> None:

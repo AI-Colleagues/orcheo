@@ -15,8 +15,18 @@ export interface HostedAppApi {
   active_deployment_id: string | null;
   permission_revision: number;
   published_permission_revision: number | null;
+  url: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface AppPublishApi {
+  app_id: string;
+  active_release_id: string;
+  active_deployment_id: string;
+  published_permission_revision: number;
+  state: "published";
+  url: string;
 }
 
 export interface AppDeploymentApi {
@@ -145,10 +155,13 @@ export const publishHostedApp = (
   appId: string,
   deploymentId: string,
   permissionRevision: number,
-): Promise<void> =>
-  request(`/api/apps/${appId}/deployments/${deploymentId}/publish`, {
-    method: "POST",
-    body: JSON.stringify({
-      acknowledged_permission_revision: permissionRevision,
-    }),
-  });
+): Promise<AppPublishApi> =>
+  request<AppPublishApi>(
+    `/api/apps/${appId}/deployments/${deploymentId}/publish`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        acknowledged_permission_revision: permissionRevision,
+      }),
+    },
+  );

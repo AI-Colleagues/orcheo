@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
@@ -28,6 +29,7 @@ from orcheo.hosted_apps import (
     HostedApp,
     HostedAppsRepository,
     ReservedAliasError,
+    build_hosted_app_url,
     validate_input_schema,
 )
 from orcheo.hosted_apps.config import HostedAppsSettings, HostedAppsSettingsError
@@ -131,6 +133,30 @@ def _deployment_response(deployment: AppDeployment) -> AppDeploymentResponse:
         validation_error_code=deployment.validation_error_code,
         validation_error_message=deployment.validation_error_message,
         created_at=deployment.created_at,
+    )
+
+
+def _hosted_app_url(alias: str) -> str:
+    """Build an app URL from the same domain configuration used by the gateway."""
+    settings = HostedAppsSettings.from_environment()
+    if settings.base_domain is None:  # pragma: no cover - guarded by _ensure_enabled
+        raise HostedAppsSettingsError("Hosted Apps base domain is not configured.")
+    local_port = int(os.getenv("ORCHEO_APP_GATEWAY_PORT", "2030"))
+    return build_hosted_app_url(alias, settings.base_domain, local_port=local_port)
+
+
+def _hosted_app_response(
+    app: HostedApp,
+    *,
+    alias: str,
+    active_deployment_id: UUID | None = None,
+) -> HostedAppResponse:
+    """Return app metadata with its canonical gateway URL."""
+    return HostedAppResponse.from_domain(
+        app,
+        alias=alias,
+        url=_hosted_app_url(alias),
+        active_deployment_id=active_deployment_id,
     )
 
 
@@ -242,7 +268,7 @@ async def list_apps(
     )
     return HostedAppListResponse(
         apps=[
-            HostedAppResponse.from_domain(
+            _hosted_app_response(
                 app,
                 alias=alias.alias,
             )
@@ -279,7 +305,7 @@ async def create_app(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": exc.code, "message": str(exc)},
         ) from exc
-    return HostedAppResponse.from_domain(app, alias=request.alias.strip().lower())
+    return _hosted_app_response(app, alias=request.alias.strip().lower())
 
 
 @router.get("/{app_id}", response_model=HostedAppResponse)
@@ -302,7 +328,7 @@ async def get_app(
     active_deployment_id = await run_in_threadpool(
         repository.get_active_deployment_id, workspace.workspace_id, app.id
     )
-    return HostedAppResponse.from_domain(
+    return _hosted_app_response(
         app,
         alias=alias.alias,
         active_deployment_id=active_deployment_id,
@@ -344,7 +370,7 @@ async def update_app(
     alias = await run_in_threadpool(
         repository.get_alias, workspace.workspace_id, app.id
     )
-    return HostedAppResponse.from_domain(app, alias=alias.alias)
+    return _hosted_app_response(app, alias=alias.alias)
 
 
 @router.post("/{app_id}/archive", response_model=HostedAppResponse)
@@ -369,7 +395,7 @@ async def archive_app(
     alias = await run_in_threadpool(
         repository.get_alias, workspace.workspace_id, app.id
     )
-    return HostedAppResponse.from_domain(app, alias=alias.alias)
+    return _hosted_app_response(app, alias=alias.alias)
 
 
 @router.post("/{app_id}/restore", response_model=HostedAppResponse)
@@ -394,7 +420,7 @@ async def restore_app(
     alias = await run_in_threadpool(
         repository.get_alias, workspace.workspace_id, app.id
     )
-    return HostedAppResponse.from_domain(app, alias=alias.alias)
+    return _hosted_app_response(app, alias=alias.alias)
 
 
 @router.put("/{app_id}/alias", response_model=HostedAppResponse)
@@ -426,7 +452,7 @@ async def replace_alias(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": exc.code, "message": str(exc)},
         ) from exc
-    return HostedAppResponse.from_domain(app, alias=alias.alias)
+    return _hosted_app_response(app, alias=alias.alias)
 
 
 @router.get("/{app_id}/bindings", response_model=list[AppBindingResponse])
@@ -896,14 +922,13 @@ async def publish_app(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "hosted_apps.publish_conflict", "message": str(exc)},
         ) from exc
-    settings = HostedAppsSettings.from_environment()
     return AppPublishResponse(
         app_id=app.id,
         active_release_id=release.id,
         active_deployment_id=deployment_id,
         published_permission_revision=release.permission_revision,
         state=published.derived_state,
-        url=f"https://{alias.alias}.{settings.base_domain}",
+        url=_hosted_app_url(alias.alias),
     )
 
 
@@ -928,4 +953,4 @@ async def unpublish_app(
     alias = await run_in_threadpool(
         repository.get_alias, workspace.workspace_id, app.id
     )
-    return HostedAppResponse.from_domain(app, alias=alias.alias)
+    return _hosted_app_response(app, alias=alias.alias)

@@ -22,7 +22,7 @@ const getDefaultBackendUrl = (): string => {
 };
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
-const DEFAULT_APPS_BASE_DOMAIN = "beta.orcheo.cloud";
+const DEFAULT_APPS_BASE_DOMAIN = "apps.localhost";
 
 const isPermittedProtocol = (protocol: string): boolean =>
   ["http:", "https:", "ws:", "wss:"].includes(protocol);
@@ -104,7 +104,7 @@ export const getAppsBaseDomain = (): string => {
       .every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))
   ) {
     console.warn(
-      "Invalid VITE_ORCHEO_APPS_BASE_DOMAIN provided, falling back to beta.orcheo.cloud.",
+      "Invalid VITE_ORCHEO_APPS_BASE_DOMAIN provided, falling back to apps.localhost.",
     );
     return DEFAULT_APPS_BASE_DOMAIN;
   }

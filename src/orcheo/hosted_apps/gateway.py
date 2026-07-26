@@ -7,7 +7,24 @@ from orcheo.hosted_apps.errors import AliasValidationError
 from orcheo.hosted_apps.models import normalize_alias
 
 
-__all__ = ["canonical_app_host", "derive_client_ip", "is_safe_app_path"]
+__all__ = [
+    "build_hosted_app_url",
+    "canonical_app_host",
+    "derive_client_ip",
+    "is_safe_app_path",
+]
+
+
+def build_hosted_app_url(
+    alias: str, base_domain: str, *, local_port: int = 2030
+) -> str:
+    """Return the externally visitable URL for one hosted-app alias."""
+    normalized_alias = normalize_alias(alias)
+    domain = base_domain.strip().lower().rstrip(".")
+    is_local = domain == "localhost" or domain.endswith(".localhost")
+    scheme = "http" if is_local else "https"
+    port = f":{local_port}" if is_local else ""
+    return f"{scheme}://{normalized_alias}.{domain}{port}/"
 
 
 def canonical_app_host(host: str, base_domain: str) -> tuple[str, str]:

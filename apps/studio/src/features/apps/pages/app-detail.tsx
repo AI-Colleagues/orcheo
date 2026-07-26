@@ -23,7 +23,7 @@ import {
 } from "@/design-system/ui/dropdown-menu";
 import { usePageContext } from "@/hooks/use-page-context";
 import { getWorkspaceAppsPath } from "@/lib/workspace-routing";
-import { getHostedAppAddress, getHostedAppUrl } from "../data/sample-apps";
+import { getHostedAppAddress } from "../data/sample-apps";
 import {
   canPublishApp,
   getPublishBlockedReason,
@@ -136,20 +136,18 @@ export default function AppDetail() {
               )}
               {published ? (
                 <a
-                  href={getHostedAppUrl(app.alias)}
+                  href={app.url}
                   target="_blank"
                   rel="noreferrer"
                   className="flex min-w-0 items-center gap-1.5 underline-offset-4 hover:text-foreground hover:underline"
                 >
                   <span className="truncate">
-                    {getHostedAppAddress(app.alias)}
+                    {getHostedAppAddress(app.url)}
                   </span>
                   <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
                 </a>
               ) : (
-                <span className="truncate">
-                  {getHostedAppAddress(app.alias)}
-                </span>
+                <span className="truncate">{getHostedAppAddress(app.url)}</span>
               )}
             </div>
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5">

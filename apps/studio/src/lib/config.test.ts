@@ -66,10 +66,10 @@ describe("getAppsBaseDomain", () => {
     expect(getAppsBaseDomain()).toBe("apps.example.com");
   });
 
-  it("falls back to the hosted beta domain for invalid input", () => {
+  it("falls back to the local apps domain for invalid input", () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.stubEnv("VITE_ORCHEO_APPS_BASE_DOMAIN", "https://apps.example.com");
 
-    expect(getAppsBaseDomain()).toBe("beta.orcheo.cloud");
+    expect(getAppsBaseDomain()).toBe("apps.localhost");
   });
 });

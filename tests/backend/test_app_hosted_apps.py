@@ -326,6 +326,11 @@ def test_local_bundle_upload_validates_and_publishes(
     )
     assert published.status_code == 200
     assert published.json()["state"] == "published"
+    assert published.json()["url"] == "https://example-upload.apps.test/"
+    assert (
+        client.get(f"/api/apps/{created['id']}").json()["url"]
+        == "https://example-upload.apps.test/"
+    )
     assert (
         client.get(f"/api/apps/{created['id']}").json()["active_deployment_id"]
         == deployment["id"]
