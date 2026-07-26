@@ -1,5 +1,9 @@
 import { useCallback, useSyncExternalStore } from "react";
-import { SAMPLE_APPS, type HostedApp } from "./sample-apps";
+import {
+  SAMPLE_APPS,
+  SAMPLE_APPS_WORKSPACE_SLUG,
+  type HostedApp,
+} from "./sample-apps";
 
 const RESERVED_ALIASES = new Set([
   "admin",
@@ -14,7 +18,6 @@ const EMPTY_APPS: readonly HostedApp[] = Object.freeze([]);
 
 let appsByWorkspace = new Map<string, readonly HostedApp[]>();
 let listenersByWorkspace = new Map<string, Set<() => void>>();
-let sampleWorkspaceSlug: string | null = null;
 let fallbackIdSequence = 0;
 
 const cloneApp = (app: HostedApp): HostedApp => ({
@@ -47,11 +50,8 @@ const ensureWorkspaceApps = (workspaceSlug: string): readonly HostedApp[] => {
     return existing;
   }
 
-  if (sampleWorkspaceSlug === null) {
-    sampleWorkspaceSlug = workspaceSlug;
-  }
   const initialApps =
-    workspaceSlug === sampleWorkspaceSlug
+    workspaceSlug === SAMPLE_APPS_WORKSPACE_SLUG
       ? Object.freeze(SAMPLE_APPS.map((app) => freezeApp(cloneApp(app))))
       : EMPTY_APPS;
   appsByWorkspace.set(workspaceSlug, initialApps);
@@ -143,6 +143,7 @@ export const createApp = (
   if (aliasError) {
     throw new Error(aliasError);
   }
+  const apps = getApps(normalizedWorkspace);
   if (appAliasExists(normalizedAlias)) {
     throw new Error(`The alias "${normalizedAlias}" is already in use.`);
   }
@@ -159,7 +160,6 @@ export const createApp = (
     bindings: [],
     collections: [],
   });
-  const apps = getApps(normalizedWorkspace);
   appsByWorkspace.set(normalizedWorkspace, Object.freeze([app, ...apps]));
   emit(normalizedWorkspace);
   return app;
@@ -237,6 +237,5 @@ export function useApp(
 export const resetAppsStoreForTests = (): void => {
   appsByWorkspace = new Map();
   listenersByWorkspace = new Map();
-  sampleWorkspaceSlug = null;
   fallbackIdSequence = 0;
 };

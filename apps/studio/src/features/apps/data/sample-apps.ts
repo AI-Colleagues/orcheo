@@ -43,6 +43,8 @@ export interface HostedApp {
   collections: AppCollection[];
 }
 
+export const SAMPLE_APPS_WORKSPACE_SLUG = "ai-company";
+
 export const SAMPLE_APPS: HostedApp[] = [
   {
     id: "app-research-digest",
