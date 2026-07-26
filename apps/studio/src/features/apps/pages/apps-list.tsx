@@ -12,8 +12,9 @@ import type { HostedApp } from "../data/sample-apps";
 export default function AppsList() {
   const { workspaceSlug } = useParams<{ workspaceSlug?: string }>();
   const navigate = useNavigate();
-  const apps = useApps(workspaceSlug);
+  const { apps, loading, error } = useApps(workspaceSlug);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const { setPageContext } = usePageContext();
 
   useEffect(() => {
@@ -37,7 +38,15 @@ export default function AppsList() {
           </Button>
         </div>
 
-        {apps.length === 0 ? (
+        {actionError ? (
+          <p className="text-sm text-destructive">{actionError}</p>
+        ) : null}
+
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading apps…</p>
+        ) : error ? (
+          <p className="text-sm text-destructive">{error}</p>
+        ) : apps.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No apps yet. Create one to host a static web app backed by your
             workflows.
@@ -49,9 +58,18 @@ export default function AppsList() {
                 key={app.id}
                 app={app}
                 onOpen={openApp}
-                onTogglePublish={(target) =>
-                  toggleAppPublish(workspaceSlug, target.id)
-                }
+                onTogglePublish={(target) => {
+                  setActionError(null);
+                  void toggleAppPublish(target).catch(
+                    (toggleError: unknown) => {
+                      setActionError(
+                        toggleError instanceof Error
+                          ? toggleError.message
+                          : "Unable to update publication state.",
+                      );
+                    },
+                  );
+                }}
               />
             ))}
           </div>
@@ -61,8 +79,8 @@ export default function AppsList() {
       <CreateAppDialog
         open={isCreateOpen}
         onOpenChange={setIsCreateOpen}
-        onCreate={(name, alias) => {
-          const app = createApp(workspaceSlug, name, alias);
+        onCreate={async (name, alias) => {
+          const app = await createApp(name, alias);
           navigate(getWorkspaceAppPath(workspaceSlug, app.id));
         }}
       />

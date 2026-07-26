@@ -22,6 +22,7 @@ runtime_root="/data/agent-runtimes"
 cache_dir="${ORCHEO_CACHE_DIR:-/data/cache/orcheo}"
 plugin_dir="${ORCHEO_PLUGIN_DIR:-/data/plugins}"
 uv_cache_dir="${UV_CACHE_DIR:-/data/cache/uv}"
+app_bundle_dir="${ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT:-}"
 workspace_root="/workspace/agents"
 skill_ref="${ORCHEO_AGENT_SKILL_REF:-AI-Colleagues/agent-skills/orcheo}"
 
@@ -117,7 +118,13 @@ if [ "$(id -u)" -eq 0 ]; then
   ensure_dir "$runtime_root" true
   ensure_dir "$cache_dir" true
   ensure_dir "$plugin_dir" true
-  ensure_dir "$uv_cache_dir" true
+  # Multiple Compose services share the uv cache and start concurrently. Only
+  # claim the cache root here; recursively walking it races with uv creating and
+  # removing temporary files in sibling containers.
+  ensure_dir "$uv_cache_dir"
+  if [ "${ORCHEO_APP_BUNDLE_BACKEND:-}" = "filesystem" ]; then
+    ensure_dir "$app_bundle_dir"
+  fi
   ensure_dir /workspace
 
   if [ ! -e "$workspace_root" ]; then

@@ -18,9 +18,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/design-system/ui/dropdown-menu";
-import { getAppsBaseDomain } from "@/lib/config";
 import { canPublishApp } from "../data/apps-store";
 import type { HostedApp } from "../data/sample-apps";
+import { getHostedAppAddress, getHostedAppUrl } from "../data/sample-apps";
 import {
   AppHealthBadge,
   AppStateBadge,
@@ -36,7 +36,6 @@ interface AppCardProps {
 export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
   const activeDeployment = app.deployments.find((d) => d.active);
   const publishAllowed = canPublishApp(app);
-  const appsBaseDomain = getAppsBaseDomain();
 
   return (
     <Card
@@ -65,7 +64,20 @@ export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
             ) : (
               <Lock className="h-3 w-3 shrink-0" />
             )}
-            {app.alias}.{appsBaseDomain}
+            {app.state === "published" ? (
+              <a
+                href={getHostedAppUrl(app.alias)}
+                target="_blank"
+                rel="noreferrer"
+                className="truncate underline-offset-4 hover:text-foreground hover:underline"
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+              >
+                {getHostedAppAddress(app.alias)}
+              </a>
+            ) : (
+              <span className="truncate">{getHostedAppAddress(app.alias)}</span>
+            )}
           </div>
         </div>
         <DropdownMenu>

@@ -14,7 +14,7 @@ import { Label } from "@/design-system/ui/label";
 interface CreateAppDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (name: string, alias: string) => void;
+  onCreate: (name: string, alias: string) => Promise<void>;
 }
 
 const toSlug = (name: string): string =>
@@ -50,7 +50,7 @@ export function CreateAppDialog({
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const trimmedName = name.trim();
     const trimmedAlias = alias.trim() || toSlug(name);
     if (!trimmedName || !trimmedAlias) {
@@ -58,13 +58,11 @@ export function CreateAppDialog({
       return;
     }
     try {
-      onCreate(trimmedName, trimmedAlias);
+      await onCreate(trimmedName, trimmedAlias);
       onOpenChange(false);
-    } catch (createError) {
+    } catch (cause) {
       setError(
-        createError instanceof Error
-          ? createError.message
-          : "Unable to create the app.",
+        cause instanceof Error ? cause.message : "Unable to create the app.",
       );
     }
   };
@@ -89,7 +87,7 @@ export function CreateAppDialog({
               value={name}
               onChange={(event) => handleNameChange(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") handleSubmit();
+                if (event.key === "Enter") void handleSubmit();
               }}
               autoFocus
             />
@@ -105,7 +103,7 @@ export function CreateAppDialog({
                 setAlias(toSlug(event.target.value));
               }}
               onKeyDown={(event) => {
-                if (event.key === "Enter") handleSubmit();
+                if (event.key === "Enter") void handleSubmit();
               }}
             />
             <p className="text-xs text-muted-foreground">
@@ -119,7 +117,7 @@ export function CreateAppDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit}>Create app</Button>
+          <Button onClick={() => void handleSubmit()}>Create app</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

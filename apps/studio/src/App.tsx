@@ -29,6 +29,7 @@ import AppShell from "@features/shell/components/app-shell";
 import Feedback from "@features/shell/pages/feedback";
 import AppsList from "@features/apps/pages/apps-list";
 import AppDetail from "@features/apps/pages/app-detail";
+import AppAuthorize from "@features/apps/pages/app-authorize";
 
 const syncWorkspaceSlug = (workspaceSlug?: string) => {
   if (!workspaceSlug) {
@@ -136,6 +137,7 @@ export default function OrcheoStudioApp() {
 
           <Route element={<RequireAuth />}>
             <Route path="/invitations/accept" element={<InvitationAccept />} />
+            <Route path="/apps/authorize" element={<AppAuthorize />} />
             <Route element={<RequireWorkspace />}>
               <Route element={<AppShellLayout />}>
                 <Route path="/" element={<WorkspaceHomeRedirect />} />

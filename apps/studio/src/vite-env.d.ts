@@ -5,6 +5,7 @@ interface ImportMetaEnv {
   readonly VITE_ORCHEO_CHATKIT_DOMAIN_KEY?: string;
   readonly VITE_ORCHEO_AUTH_DISABLED?: string;
   readonly VITE_ORCHEO_APPS_BASE_DOMAIN?: string;
+  readonly VITE_ORCHEO_APPS_PORT?: string;
 }
 
 interface ImportMeta {

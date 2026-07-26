@@ -1,107 +1,166 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as api from "./apps-api";
 import {
   canPublishApp,
   createApp,
-  getApps,
   getPublishBlockedReason,
-  resetAppsStoreForTests,
-  toggleAppPublish,
+  useApp,
+  useApps,
 } from "./apps-store";
-import { SAMPLE_APPS, SAMPLE_APPS_WORKSPACE_SLUG } from "./sample-apps";
 
-describe("apps store", () => {
+vi.mock("./apps-api", () => ({
+  createHostedApp: vi.fn(),
+  getHostedApp: vi.fn(),
+  listAppAudit: vi.fn(),
+  listBindings: vi.fn(),
+  listCollections: vi.fn(),
+  listDeployments: vi.fn(),
+  listHostedApps: vi.fn(),
+  publishHostedApp: vi.fn(),
+  unpublishHostedApp: vi.fn(),
+  uploadHostedAppBundle: vi.fn(),
+}));
+
+const app = {
+  id: "app-1",
+  workspace_id: "workspace-1",
+  alias: "portal",
+  name: "Portal",
+  description: null,
+  visibility: "public" as const,
+  publication_state: "draft" as const,
+  state: "draft" as const,
+  is_archived: false,
+  active_release_id: null,
+  active_deployment_id: null,
+  permission_revision: 1,
+  published_permission_revision: null,
+  created_at: "2026-07-24T10:00:00Z",
+  updated_at: "2026-07-24T10:00:00Z",
+};
+
+describe("Hosted Apps workspace data", () => {
   beforeEach(() => {
-    resetAppsStoreForTests();
+    vi.clearAllMocks();
+    vi.mocked(api.listHostedApps).mockResolvedValue([app]);
   });
 
-  it("seeds sample apps in a fixed workspace and partitions app state", () => {
-    const workspaceBApps = getApps("workspace-b");
-    const sampleWorkspaceApps = getApps(SAMPLE_APPS_WORKSPACE_SLUG);
-
-    expect(workspaceBApps).toHaveLength(0);
-    expect(sampleWorkspaceApps).toHaveLength(SAMPLE_APPS.length);
-
-    const created = createApp(
-      "workspace-b",
-      "Workspace B app",
-      "workspace-b-app",
+  it("refetches with a new workspace-aware key", async () => {
+    const { result, rerender } = renderHook(
+      ({ workspace }) => useApps(workspace),
+      { initialProps: { workspace: "workspace-a" } },
     );
-
-    expect(getApps(SAMPLE_APPS_WORKSPACE_SLUG)).not.toContainEqual(created);
-    expect(getApps("workspace-b")[0]).toEqual(created);
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.apps[0]?.alias).toBe("portal");
+    rerender({ workspace: "workspace-b" });
+    await waitFor(() => expect(api.listHostedApps).toHaveBeenCalledTimes(2));
   });
 
-  it("keeps aliases globally unique and validates their format", () => {
-    createApp("workspace-b", "First app", "global-alias");
-
-    expect(() =>
-      createApp(SAMPLE_APPS_WORKSPACE_SLUG, "Duplicate app", "global-alias"),
-    ).toThrow('The alias "global-alias" is already in use.');
-    expect(() =>
-      createApp(SAMPLE_APPS_WORKSPACE_SLUG, "Reserved app", "admin"),
-    ).toThrow('"admin" is reserved');
-    expect(() =>
-      createApp(SAMPLE_APPS_WORKSPACE_SLUG, "Short app", "ab"),
-    ).toThrow("between 3 and 48 characters");
+  it("surfaces API errors without retaining another workspace's apps", async () => {
+    vi.mocked(api.listHostedApps).mockRejectedValueOnce(
+      new Error("App access denied."),
+    );
+    const { result } = renderHook(() => useApps("workspace-a"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.apps).toEqual([]);
+    expect(result.current.error).toBe("App access denied.");
   });
 
-  it("reserves sample aliases before the sample workspace is queried", () => {
-    expect(() =>
-      createApp(SAMPLE_APPS_WORKSPACE_SLUG, "Duplicate status", "status"),
-    ).toThrow('The alias "status" is already in use.');
+  it("creates through the authenticated API instead of local sample state", async () => {
+    vi.mocked(api.createHostedApp).mockResolvedValue(app);
+    await act(async () => {
+      const created = await createApp("Portal", "portal");
+      expect(created.id).toBe("app-1");
+    });
+    expect(api.createHostedApp).toHaveBeenCalledWith("Portal", "portal");
   });
 
-  it("does not expose a mutable app-list reference", () => {
-    const apps = getApps(SAMPLE_APPS_WORKSPACE_SLUG);
-
-    expect(Object.isFrozen(apps)).toBe(true);
-    expect(Object.isFrozen(apps[0])).toBe(true);
-    expect(Object.isFrozen(apps[0].deployments[0])).toBe(true);
-  });
-
-  it("blocks suspended and archived lifecycle states from publishing", () => {
-    const published = getApps(SAMPLE_APPS_WORKSPACE_SLUG)[0];
+  it("blocks invalid lifecycle states and apps without a ready deployment", () => {
+    const baseApp = {
+      id: "app-1",
+      name: "Portal",
+      alias: "portal",
+      visibility: "public" as const,
+      health: "unknown" as const,
+      updated: "just now",
+      deployments: [],
+      bindings: [],
+      collections: [],
+      permissionRevision: 1,
+    };
 
     for (const state of ["suspended", "archived"] as const) {
-      const app = { ...published, state };
-      expect(canPublishApp(app)).toBe(false);
-      expect(getPublishBlockedReason(app)).toBe(
+      const hostedApp = { ...baseApp, state };
+      expect(canPublishApp(hostedApp)).toBe(false);
+      expect(getPublishBlockedReason(hostedApp)).toBe(
         `A ${state} app cannot be published.`,
       );
     }
+
+    const draft = { ...baseApp, state: "draft" as const };
+    expect(canPublishApp(draft)).toBe(false);
+    expect(getPublishBlockedReason(draft)).toBe(
+      "Upload and validate a deployment before publishing.",
+    );
   });
 
-  it("requires an active deployment before publishing", () => {
-    const draft = getApps(SAMPLE_APPS_WORKSPACE_SLUG).find(
-      (app) => app.id === "app-onboarding-demo",
-    );
-    expect(draft).toBeDefined();
-    expect(canPublishApp(draft!)).toBe(false);
+  it("maps deployment manifest bindings for publish review", async () => {
+    vi.mocked(api.getHostedApp).mockResolvedValue({
+      ...app,
+      publication_state: "published",
+      state: "published",
+      active_release_id: "release-1",
+      active_deployment_id: "deployment-1",
+    });
+    vi.mocked(api.listDeployments).mockResolvedValue([
+      {
+        id: "deployment-1",
+        status: "ready",
+        archive_sha256: "a".repeat(64),
+        manifest_sha256: "b".repeat(64),
+        app_manifest: {
+          schema_version: 1,
+          bindings: {
+            greet: {
+              workflow: "hosted-app-greeting",
+              version: 1,
+              access_mode: "anonymous",
+              input_schema: {},
+              output_projection: {},
+              visitor_can_read_output: true,
+              visitor_can_read_sanitized_errors: true,
+              limits: { per_app_per_minute: 200 },
+            },
+            farewell: {
+              workflow: "hosted-app-farewell",
+              version: 1,
+              access_mode: "anonymous",
+              input_schema: {},
+              output_projection: {},
+              visitor_can_read_output: true,
+              visitor_can_read_sanitized_errors: true,
+              limits: { per_app_per_minute: 200 },
+            },
+          },
+        },
+        validation_error_code: null,
+        validation_error_message: null,
+        created_at: "2026-07-26T08:00:00Z",
+      },
+    ]);
+    vi.mocked(api.listBindings).mockResolvedValue([]);
+    vi.mocked(api.listCollections).mockResolvedValue([]);
+    vi.mocked(api.listAppAudit).mockResolvedValue([]);
 
-    expect(() =>
-      toggleAppPublish(SAMPLE_APPS_WORKSPACE_SLUG, "app-onboarding-demo"),
-    ).toThrow("An active deployment is required before publishing.");
+    const { result } = renderHook(() => useApp("app-1", "workspace-a"));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
     expect(
-      getApps(SAMPLE_APPS_WORKSPACE_SLUG).find(
-        (app) => app.id === "app-onboarding-demo",
-      )?.state,
-    ).toBe("draft");
-  });
-
-  it("allows published apps with active deployments to unpublish and republish", () => {
-    toggleAppPublish(SAMPLE_APPS_WORKSPACE_SLUG, "app-research-digest");
-    const unpublished = getApps(SAMPLE_APPS_WORKSPACE_SLUG).find(
-      (app) => app.id === "app-research-digest",
-    );
-    expect(unpublished?.state).toBe("unpublished");
-    expect(canPublishApp(unpublished!)).toBe(true);
-
-    toggleAppPublish(SAMPLE_APPS_WORKSPACE_SLUG, "app-research-digest");
-
-    expect(
-      getApps(SAMPLE_APPS_WORKSPACE_SLUG).find(
-        (app) => app.id === "app-research-digest",
-      )?.state,
-    ).toBe("published");
+      result.current.app?.deployments[0]?.manifestBindings?.map(
+        (binding) => binding.name,
+      ),
+    ).toEqual(["greet", "farewell"]);
+    expect(result.current.app?.deployments[0]?.active).toBe(true);
   });
 });

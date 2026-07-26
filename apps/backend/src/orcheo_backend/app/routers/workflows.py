@@ -3,7 +3,7 @@
 from __future__ import annotations
 import asyncio
 import logging
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from orcheo.config import get_settings
@@ -25,11 +25,12 @@ from orcheo.workflow.mermaid import (
     render_mermaid_from_graph_payload,
     render_mermaid_from_graph_payload_full_env,
 )
-from orcheo.workspace import WorkspaceNotFoundError
+from orcheo.workspace import Role, WorkspaceContext, WorkspaceNotFoundError
 from orcheo_backend.app.authentication import (
     AuthorizationError,
     AuthorizationPolicy,
     RequestContext,
+    authenticate_request,
     get_authorization_policy,
 )
 from orcheo_backend.app.authentication.settings import load_auth_settings
@@ -42,6 +43,7 @@ from orcheo_backend.app.configurable_merge import (
 )
 from orcheo_backend.app.dependencies import RepositoryDep
 from orcheo_backend.app.errors import WorkspaceQuotaExceededError, raise_not_found
+from orcheo_backend.app.hosted_apps import get_hosted_apps_repository
 from orcheo_backend.app.managed_workflows import (
     ensure_managed_vibe_workflow,
 )
@@ -78,6 +80,7 @@ from orcheo_backend.app.workspace import (
     WorkspaceContextDep,
     WorkspaceServiceDep,
     get_workspace_repository,
+    require_role,
 )
 from orcheo_backend.app.workspace_governance import ensure_workspace_workflow_quota
 
@@ -1041,7 +1044,8 @@ async def update_workflow_version_runnable_config(
     version_number: int,
     request: WorkflowVersionRunnableConfigUpdateRequest,
     repository: RepositoryDep,
-    workspace: WorkspaceContextDep,
+    workspace: Annotated[WorkspaceContext, Depends(require_role(Role.EDITOR))],
+    auth: Annotated[RequestContext | None, Depends(authenticate_request)] = None,
 ) -> WorkflowVersion:
     """Update runnable config for an existing workflow version."""
     tid = str(workspace.workspace_id)
@@ -1055,7 +1059,12 @@ async def update_workflow_version_runnable_config(
             workflow.id,
             version_number=version_number,
             runnable_config=_serialize_runnable_config(request.runnable_config),
-            actor=request.actor,
+            actor=auth.subject if auth is not None else request.actor,
+        )
+        get_hosted_apps_repository().invalidate_bindings_for_workflow(
+            workspace.workspace_id,
+            workflow.id,
+            actor=auth.subject if auth is not None else request.actor,
         )
         return _attach_mermaid(version)
     except WorkflowNotFoundError as exc:

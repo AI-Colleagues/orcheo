@@ -32,7 +32,10 @@ nav:
       - Manual Setup: manual_setup.md
       - Studio: studio.md
       - Environment Variables: environment_variables.md
-      - Authentication: authentication_guide.md
+  - Authentication: authentication_guide.md
+  - Hosted Apps:
+      - Author guide: hosted_apps.md
+      - Operator runbook: hosted_apps_operations.md
       - First-party Auth Rollout: first_party_auth_rollout.md
       - Lark App Setup: integrations/lark_app_setup.md
       - LinkedIn Credentials Setup: integrations/linkedin_credentials_setup.md

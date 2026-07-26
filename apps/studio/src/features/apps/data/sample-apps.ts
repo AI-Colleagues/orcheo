@@ -1,3 +1,5 @@
+import { getAppsBaseDomain } from "@/lib/config";
+
 export type AppVisibility = "public" | "private";
 export type AppState =
   "draft" | "published" | "unpublished" | "suspended" | "archived";
@@ -13,6 +15,8 @@ export interface AppDeployment {
   files: number;
   created: string;
   active: boolean;
+  status?: "pending" | "validating" | "ready" | "failed" | "expired";
+  manifestBindings?: AppBinding[] | null;
 }
 
 export interface AppBinding {
@@ -21,6 +25,7 @@ export interface AppBinding {
   version: string;
   rate: string;
   access: AppBindingAccess;
+  digest?: string;
 }
 
 export interface AppCollection {
@@ -41,9 +46,31 @@ export interface HostedApp {
   deployments: AppDeployment[];
   bindings: AppBinding[];
   collections: AppCollection[];
+  permissionRevision: number;
+  publishedPermissionRevision?: number | null;
+  audit?: { id: string; action: string; actor: string; created: string }[];
 }
 
-export const SAMPLE_APPS_WORKSPACE_SLUG = "ai-company";
+const getAppsPort = (baseDomain: string): string => {
+  const configured = import.meta.env.VITE_ORCHEO_APPS_PORT?.trim();
+  if (configured) return configured;
+  return baseDomain === "localhost" || baseDomain.endsWith(".localhost")
+    ? "2030"
+    : "";
+};
+
+export const getHostedAppAddress = (alias: string): string => {
+  const baseDomain = getAppsBaseDomain();
+  const port = getAppsPort(baseDomain);
+  return `${alias}.${baseDomain}${port ? `:${port}` : ""}`;
+};
+
+export const getHostedAppUrl = (alias: string): string => {
+  const baseDomain = getAppsBaseDomain();
+  const isLocal =
+    baseDomain === "localhost" || baseDomain.endsWith(".localhost");
+  return `${isLocal ? "http" : "https"}://${getHostedAppAddress(alias)}/`;
+};
 
 export const SAMPLE_APPS: HostedApp[] = [
   {
@@ -100,6 +127,7 @@ export const SAMPLE_APPS: HostedApp[] = [
         access: "private",
       },
     ],
+    permissionRevision: 1,
   },
   {
     id: "app-status-page",
@@ -122,6 +150,7 @@ export const SAMPLE_APPS: HostedApp[] = [
     ],
     bindings: [],
     collections: [],
+    permissionRevision: 1,
   },
   {
     id: "app-internal-ops",
@@ -175,6 +204,7 @@ export const SAMPLE_APPS: HostedApp[] = [
         access: "shared",
       },
     ],
+    permissionRevision: 1,
   },
   {
     id: "app-onboarding-demo",
@@ -187,5 +217,6 @@ export const SAMPLE_APPS: HostedApp[] = [
     deployments: [],
     bindings: [],
     collections: [],
+    permissionRevision: 1,
   },
 ];

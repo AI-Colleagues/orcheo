@@ -21,6 +21,7 @@ from urllib.request import urlopen
 import typer
 from packaging.version import InvalidVersion, Version
 from rich.console import Console
+from orcheo.hosted_apps.setup_validation import validate_hosted_apps_setup
 
 
 AuthMode = Literal["api-key", "oauth"]
@@ -91,6 +92,15 @@ class SetupConfig:
     smtp_password: str | None = None
     smtp_from_email: str | None = None
     smtp_use_tls: bool = True
+    hosted_apps_enabled: bool = False
+    apps_base_domain: str = "apps.localhost"
+    hosted_apps_workspace_allowlist: str = ""
+    app_gateway_secret: str | None = None
+    app_trusted_proxy_cidrs: str = ""
+    app_trusted_proxy_hops: int = 0
+    app_tls_method: str = "local"
+    app_tls_cert_file: str | None = None
+    app_tls_key_file: str | None = None
 
 
 def _run_command(command: list[str], *, console: Console) -> None:
@@ -1128,6 +1138,346 @@ def _resolve_smtp_email_config(
     )
 
 
+@dataclass(slots=True)
+class HostedAppsInstallConfig:
+    """Resolved Hosted Apps settings for the bundled single-node stack."""
+
+    enabled: bool
+    base_domain: str
+    workspace_allowlist: str
+    gateway_secret: str
+    trusted_proxy_cidrs: str
+    trusted_proxy_hops: int
+    tls_method: str
+    tls_cert_file: str | None
+    tls_key_file: str | None
+
+
+def _normalize_apps_base_domain(value: str) -> str:
+    """Normalize one bare registrable app-hosting domain."""
+    candidate = value.strip().lower()
+    if candidate.startswith("*."):
+        candidate = candidate[2:]
+    if "://" in candidate or "/" in candidate or "." not in candidate:
+        raise typer.BadParameter(
+            "The Hosted Apps base domain must be a bare DNS name such as "
+            "apps.example.com."
+        )
+    return _normalize_public_host(candidate)
+
+
+def _resolve_readable_file(value: str | None, *, option_name: str) -> str:
+    """Resolve a required readable file supplied to the production installer."""
+    normalized = _normalize_optional_value(value)
+    if normalized is None:
+        raise typer.BadParameter(
+            f"{option_name} is required when Hosted Apps uses public ingress."
+        )
+    path = Path(normalized).expanduser().resolve()
+    if not path.is_file() or not os.access(path, os.R_OK):
+        raise typer.BadParameter(f"{option_name} must reference a readable file.")
+    return str(path)
+
+
+def _resolve_hosted_apps_enabled(
+    hosted_apps: bool | None,
+    *,
+    public_ingress_enabled: bool,
+    yes: bool,
+    env_file: Path,
+    env_exists: bool,
+) -> bool:
+    """Resolve enablement without silently opting public installs into hosting."""
+    existing_enabled = (
+        _parse_bool_value(_read_env_value(env_file, "ORCHEO_HOSTED_APPS_ENABLED"))
+        if env_exists
+        else None
+    )
+    if hosted_apps is not None:
+        return hosted_apps
+    if public_ingress_enabled and not yes:
+        return typer.confirm(
+            "Enable Hosted Apps for this public installation?",
+            default=existing_enabled if existing_enabled is not None else False,
+        )
+    if public_ingress_enabled:
+        return existing_enabled if existing_enabled is not None else False
+    return existing_enabled if existing_enabled is not None else True
+
+
+def _validate_supported_hosted_apps_storage(
+    *, enabled: bool, env_file: Path, env_exists: bool
+) -> None:
+    """Reject existing topologies that this installer cannot safely manage."""
+    if not enabled or not env_exists:
+        return
+    existing_bundle_backend = _read_env_value(env_file, "ORCHEO_APP_BUNDLE_BACKEND")
+    existing_deployment_mode = _read_env_value(env_file, "ORCHEO_DEPLOYMENT_MODE")
+    if existing_bundle_backend not in {None, "filesystem"}:
+        raise typer.BadParameter(
+            "The bundled Hosted Apps installer currently supports filesystem "
+            "bundle storage only. Preserve custom S3 deployments outside this "
+            "installer until the production presigned-upload flow is available."
+        )
+    if existing_deployment_mode not in {None, "local", "single-node"}:
+        raise typer.BadParameter(
+            "The bundled Hosted Apps installer supports local or single-node "
+            "deployments only."
+        )
+
+
+def _resolve_hosted_apps_domain_and_allowlist(
+    *,
+    enabled: bool,
+    apps_base_domain: str | None,
+    hosted_apps_workspace_allowlist: str | None,
+    public_ingress_enabled: bool,
+    public_host: str | None,
+    yes: bool,
+    env_file: Path,
+    env_exists: bool,
+) -> tuple[str, str]:
+    """Resolve the wildcard domain and optional workspace rollout allowlist."""
+    existing_domain = (
+        _read_env_value(env_file, "ORCHEO_APPS_BASE_DOMAIN") if env_exists else None
+    )
+    default_domain = existing_domain or (
+        f"apps.{public_host}"
+        if public_ingress_enabled and public_host is not None
+        else "apps.localhost"
+    )
+    selected_domain = apps_base_domain
+    if enabled and public_ingress_enabled and selected_domain is None and not yes:
+        selected_domain = typer.prompt(
+            "Hosted Apps base domain",
+            default=default_domain,
+        )
+    base_domain = _normalize_apps_base_domain(selected_domain or default_domain)
+
+    existing_allowlist = (
+        _read_env_value(env_file, "ORCHEO_HOSTED_APPS_WORKSPACE_ALLOWLIST")
+        if env_exists
+        else None
+    )
+    workspace_allowlist = (
+        hosted_apps_workspace_allowlist
+        if hosted_apps_workspace_allowlist is not None
+        else existing_allowlist or ""
+    )
+    if enabled and public_ingress_enabled and not yes:
+        workspace_allowlist = typer.prompt(
+            "Hosted Apps workspace allowlist (comma-separated; empty allows all)",
+            default=workspace_allowlist,
+            show_default=bool(workspace_allowlist),
+        ).strip()
+    return base_domain, workspace_allowlist
+
+
+def _resolve_app_gateway_secret(
+    *, manual_secrets: bool, yes: bool, env_file: Path, env_exists: bool
+) -> str:
+    """Preserve, prompt for, or generate the dedicated gateway identity."""
+    existing_secret = (
+        _normalize_optional_value(
+            _read_env_value(env_file, "ORCHEO_APP_GATEWAY_SECRET")
+        )
+        if env_exists
+        else None
+    )
+    gateway_secret = existing_secret
+    if gateway_secret is None and manual_secrets and not yes:
+        gateway_secret = typer.prompt(
+            "Hosted Apps gateway secret",
+            hide_input=True,
+        ).strip()
+    if gateway_secret is None:
+        gateway_secret = secrets.token_hex(32)
+    if len(gateway_secret) < 32:
+        raise typer.BadParameter(
+            "The Hosted Apps gateway secret must be at least 32 characters."
+        )
+    return gateway_secret
+
+
+def _resolve_app_proxy_config(
+    *,
+    enabled: bool,
+    app_trusted_proxy_cidrs: str | None,
+    app_trusted_proxy_hops: int | None,
+    public_ingress_enabled: bool,
+    yes: bool,
+    env_file: Path,
+    env_exists: bool,
+) -> tuple[str, int]:
+    """Resolve the exact forwarding boundary used for app client addresses."""
+    existing_cidrs = (
+        _read_env_value(env_file, "ORCHEO_APP_TRUSTED_PROXY_CIDRS")
+        if env_exists
+        else None
+    )
+    trusted_proxy_cidrs = (
+        app_trusted_proxy_cidrs
+        if app_trusted_proxy_cidrs is not None
+        else existing_cidrs or ("172.16.0.0/12" if public_ingress_enabled else "")
+    )
+    existing_hops_raw = (
+        _read_env_value(env_file, "ORCHEO_APP_TRUSTED_PROXY_HOPS")
+        if env_exists
+        else None
+    )
+    trusted_proxy_hops = (
+        app_trusted_proxy_hops
+        if app_trusted_proxy_hops is not None
+        else _parse_int_value(existing_hops_raw) or (1 if public_ingress_enabled else 0)
+    )
+    if enabled and public_ingress_enabled and not yes:
+        trusted_proxy_cidrs = typer.prompt(
+            "Trusted proxy CIDRs for the app gateway",
+            default=trusted_proxy_cidrs,
+        ).strip()
+        trusted_proxy_hops = (
+            _parse_int_value(
+                typer.prompt(
+                    "Trusted proxy hop count",
+                    default=str(trusted_proxy_hops),
+                )
+            )
+            or 0
+        )
+    return trusted_proxy_cidrs, trusted_proxy_hops
+
+
+def _resolve_app_tls_config(
+    *,
+    enabled: bool,
+    app_tls_cert_file: str | None,
+    app_tls_key_file: str | None,
+    public_ingress_enabled: bool,
+    yes: bool,
+    env_file: Path,
+    env_exists: bool,
+) -> tuple[str, str | None, str | None]:
+    """Resolve the bundled Caddy local or provided-certificate configuration."""
+    if not enabled or not public_ingress_enabled:
+        return "local", None, None
+    existing_tls_method = (
+        _read_env_value(env_file, "ORCHEO_APP_TLS_METHOD") if env_exists else None
+    )
+    if existing_tls_method not in {None, "local", "provided"}:
+        raise typer.BadParameter(
+            "The bundled installer currently supports operator-provided wildcard "
+            "certificates for public Hosted Apps. Configure custom DNS-01 ingress "
+            "outside the bundled installer."
+        )
+    existing_cert = (
+        _read_env_value(env_file, "ORCHEO_APP_TLS_CERT_FILE") if env_exists else None
+    )
+    existing_key = (
+        _read_env_value(env_file, "ORCHEO_APP_TLS_KEY_FILE") if env_exists else None
+    )
+    selected_cert = app_tls_cert_file or existing_cert
+    selected_key = app_tls_key_file or existing_key
+    if not yes:
+        selected_cert = typer.prompt(
+            "Wildcard TLS certificate file",
+            default=selected_cert or "",
+            show_default=bool(selected_cert),
+        )
+        selected_key = typer.prompt(
+            "Wildcard TLS private-key file",
+            default=selected_key or "",
+            show_default=bool(selected_key),
+        )
+    return (
+        "provided",
+        _resolve_readable_file(
+            selected_cert,
+            option_name="--app-tls-cert-file",
+        ),
+        _resolve_readable_file(
+            selected_key,
+            option_name="--app-tls-key-file",
+        ),
+    )
+
+
+def _resolve_hosted_apps_config(
+    *,
+    hosted_apps: bool | None,
+    apps_base_domain: str | None,
+    hosted_apps_workspace_allowlist: str | None,
+    app_tls_cert_file: str | None,
+    app_tls_key_file: str | None,
+    app_trusted_proxy_cidrs: str | None,
+    app_trusted_proxy_hops: int | None,
+    public_ingress_enabled: bool,
+    public_host: str | None,
+    yes: bool,
+    manual_secrets: bool,
+    env_file: Path,
+    env_exists: bool,
+) -> HostedAppsInstallConfig:
+    """Resolve local defaults or the complete supported public-app topology."""
+    enabled = _resolve_hosted_apps_enabled(
+        hosted_apps,
+        public_ingress_enabled=public_ingress_enabled,
+        yes=yes,
+        env_file=env_file,
+        env_exists=env_exists,
+    )
+    _validate_supported_hosted_apps_storage(
+        enabled=enabled,
+        env_file=env_file,
+        env_exists=env_exists,
+    )
+    base_domain, workspace_allowlist = _resolve_hosted_apps_domain_and_allowlist(
+        enabled=enabled,
+        apps_base_domain=apps_base_domain,
+        hosted_apps_workspace_allowlist=hosted_apps_workspace_allowlist,
+        public_ingress_enabled=public_ingress_enabled,
+        public_host=public_host,
+        yes=yes,
+        env_file=env_file,
+        env_exists=env_exists,
+    )
+    gateway_secret = _resolve_app_gateway_secret(
+        manual_secrets=manual_secrets,
+        yes=yes,
+        env_file=env_file,
+        env_exists=env_exists,
+    )
+    trusted_proxy_cidrs, trusted_proxy_hops = _resolve_app_proxy_config(
+        enabled=enabled,
+        app_trusted_proxy_cidrs=app_trusted_proxy_cidrs,
+        app_trusted_proxy_hops=app_trusted_proxy_hops,
+        public_ingress_enabled=public_ingress_enabled,
+        yes=yes,
+        env_file=env_file,
+        env_exists=env_exists,
+    )
+    tls_method, tls_cert_file, tls_key_file = _resolve_app_tls_config(
+        enabled=enabled,
+        app_tls_cert_file=app_tls_cert_file,
+        app_tls_key_file=app_tls_key_file,
+        public_ingress_enabled=public_ingress_enabled,
+        yes=yes,
+        env_file=env_file,
+        env_exists=env_exists,
+    )
+
+    return HostedAppsInstallConfig(
+        enabled=enabled,
+        base_domain=base_domain,
+        workspace_allowlist=workspace_allowlist,
+        gateway_secret=gateway_secret,
+        trusted_proxy_cidrs=trusted_proxy_cidrs,
+        trusted_proxy_hops=trusted_proxy_hops,
+        tls_method=tls_method,
+        tls_cert_file=tls_cert_file,
+        tls_key_file=tls_key_file,
+    )
+
+
 def _backend_url_requires_https_auth(backend_url: str) -> bool:
     parsed = urlsplit(backend_url)
     return parsed.scheme == "https" and bool(parsed.netloc)
@@ -1586,6 +1936,22 @@ def _build_env_updates(
         "ORCHEO_CADDY_STUDIO_UPSTREAM": config.studio_upstream,
         "ORCHEO_WORKFLOW_TRUST_MODE": trust_mode,
         "ORCHEO_WORKFLOW_DEFINITION_MODE": definition_mode,
+        "ORCHEO_HOSTED_APPS_ENABLED": str(config.hosted_apps_enabled).lower(),
+        "ORCHEO_HOSTED_APPS_AUTO_ENABLE_RUNTIME": "true",
+        "ORCHEO_APPS_BASE_DOMAIN": config.apps_base_domain,
+        "ORCHEO_HOSTED_APPS_WORKSPACE_ALLOWLIST": (
+            config.hosted_apps_workspace_allowlist
+        ),
+        "ORCHEO_APP_BUNDLE_BACKEND": "filesystem",
+        "ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT": "/data/app-bundles",
+        "ORCHEO_DEPLOYMENT_MODE": "single-node",
+        "ORCHEO_APP_GATEWAY_SECRET": config.app_gateway_secret or "",
+        "ORCHEO_APP_TRUSTED_PROXY_CIDRS": config.app_trusted_proxy_cidrs,
+        "ORCHEO_APP_TRUSTED_PROXY_HOPS": str(config.app_trusted_proxy_hops),
+        "ORCHEO_HOSTED_APPS_VALIDATION_QUEUE": "hosted-app-validation",
+        "ORCHEO_APP_TLS_METHOD": config.app_tls_method,
+        "ORCHEO_APP_TLS_CERT_FILE": config.app_tls_cert_file or "",
+        "ORCHEO_APP_TLS_KEY_FILE": config.app_tls_key_file or "",
     }
     if config.auth_mode == "api-key" and config.api_key:
         updates["ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN"] = config.api_key
@@ -1634,6 +2000,7 @@ def build_generated_stack_env_defaults() -> dict[str, str]:
         "ORCHEO_POSTGRES_PASSWORD": secrets.token_urlsafe(16),
         "ORCHEO_VAULT_ENCRYPTION_KEY": secrets.token_hex(32),
         "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY": secrets.token_urlsafe(32),
+        "ORCHEO_APP_GATEWAY_SECRET": secrets.token_hex(32),
     }
 
 
@@ -1753,7 +2120,9 @@ def ensure_stack_env_file(
             if key not in existing_assignments
         }
         for key, value in (generated_defaults or {}).items():
-            if key not in existing_assignments:
+            if key not in existing_assignments or (
+                key == "ORCHEO_APP_GATEWAY_SECRET" and not existing_assignments[key]
+            ):
                 defaults_to_apply[key] = value
 
     if defaults_to_apply:
@@ -1783,6 +2152,77 @@ def _preserve_existing_stack_browser_urls(
         ):
             if _read_env_value(env_file, key) is not None:
                 updates.pop(key, None)
+
+
+def _configure_hosted_apps_tls(
+    config: SetupConfig,
+    *,
+    stack_dir: Path,
+) -> None:
+    """Write the Caddy TLS snippet and copy operator-provided wildcard keys."""
+    tls_dir = stack_dir / "app-tls"
+    tls_dir.mkdir(parents=True, exist_ok=True)
+    directive_file = tls_dir / "Caddyfile"
+
+    if (
+        config.hosted_apps_enabled
+        and config.public_ingress_enabled
+        and config.app_tls_method == "provided"
+    ):
+        certificate_source = Path(config.app_tls_cert_file or "")
+        key_source = Path(config.app_tls_key_file or "")
+        certificate_target = tls_dir / "cert.pem"
+        key_target = tls_dir / "key.pem"
+        try:
+            if certificate_source.resolve() != certificate_target.resolve():
+                shutil.copy2(certificate_source, certificate_target)
+            if key_source.resolve() != key_target.resolve():
+                shutil.copy2(key_source, key_target)
+        except (OSError, TypeError, ValueError) as exc:
+            raise typer.BadParameter(
+                "Unable to copy the provided Hosted Apps TLS certificate or key."
+            ) from exc
+        certificate_target.chmod(0o600)
+        key_target.chmod(0o600)
+        config.app_tls_cert_file = str(certificate_target.resolve())
+        config.app_tls_key_file = str(key_target.resolve())
+        directive = "tls /etc/orcheo/app-tls/cert.pem /etc/orcheo/app-tls/key.pem\n"
+    else:
+        directive = "tls internal\n"
+
+    directive_file.write_text(directive, encoding="utf-8")
+    directive_file.chmod(0o644)
+
+
+def _run_hosted_apps_preflight(
+    config: SetupConfig,
+    *,
+    env_file: Path,
+    console: Console,
+) -> None:
+    """Validate the resolved Hosted Apps topology before Compose starts."""
+    if not config.hosted_apps_enabled:
+        console.print(
+            "[cyan]Hosted Apps disabled; skipping app-hosting preflight.[/cyan]"
+        )
+        return
+
+    environment = {**os.environ, **_read_env_assignments(env_file)}
+    if config.app_tls_cert_file is not None:
+        environment["ORCHEO_APP_TLS_CERT_FILE"] = config.app_tls_cert_file
+    if config.app_tls_key_file is not None:
+        environment["ORCHEO_APP_TLS_KEY_FILE"] = config.app_tls_key_file
+    try:
+        facts = validate_hosted_apps_setup(
+            environment,
+            check_dns=config.public_ingress_enabled and config.start_stack,
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        raise typer.BadParameter(f"Hosted Apps preflight failed: {exc}") from exc
+
+    console.print("[green]Hosted Apps preflight passed:[/green]")
+    for fact in facts:
+        console.print(f"  {fact}")
 
 
 def _ensure_stack_assets(
@@ -1869,6 +2309,13 @@ def run_setup(
     smtp_password: str | None = None,
     smtp_from_email: str | None = None,
     smtp_use_tls: bool | None = None,
+    hosted_apps: bool | None = None,
+    apps_base_domain: str | None = None,
+    hosted_apps_workspace_allowlist: str | None = None,
+    app_tls_cert_file: str | None = None,
+    app_tls_key_file: str | None = None,
+    app_trusted_proxy_cidrs: str | None = None,
+    app_trusted_proxy_hops: int | None = None,
 ) -> SetupConfig:
     """Collect interactive/non-interactive setup options."""
     stack_env_file = _resolve_stack_env_file()
@@ -1893,6 +2340,21 @@ def run_setup(
         env_file=stack_env_file,
         env_exists=has_existing_stack_env,
         mode=resolved_mode,
+    )
+    resolved_hosted_apps = _resolve_hosted_apps_config(
+        hosted_apps=hosted_apps,
+        apps_base_domain=apps_base_domain,
+        hosted_apps_workspace_allowlist=hosted_apps_workspace_allowlist,
+        app_tls_cert_file=app_tls_cert_file,
+        app_tls_key_file=app_tls_key_file,
+        app_trusted_proxy_cidrs=app_trusted_proxy_cidrs,
+        app_trusted_proxy_hops=app_trusted_proxy_hops,
+        public_ingress_enabled=resolved_public_ingress_enabled,
+        public_host=resolved_public_host,
+        yes=yes,
+        manual_secrets=manual_secrets,
+        env_file=stack_env_file,
+        env_exists=has_existing_stack_env,
     )
     default_backend_url = (
         f"https://{resolved_public_host}"
@@ -2029,6 +2491,15 @@ def run_setup(
         smtp_password=resolved_smtp.password,
         smtp_from_email=resolved_smtp.from_email,
         smtp_use_tls=resolved_smtp.use_tls,
+        hosted_apps_enabled=resolved_hosted_apps.enabled,
+        apps_base_domain=resolved_hosted_apps.base_domain,
+        hosted_apps_workspace_allowlist=resolved_hosted_apps.workspace_allowlist,
+        app_gateway_secret=resolved_hosted_apps.gateway_secret,
+        app_trusted_proxy_cidrs=resolved_hosted_apps.trusted_proxy_cidrs,
+        app_trusted_proxy_hops=resolved_hosted_apps.trusted_proxy_hops,
+        app_tls_method=resolved_hosted_apps.tls_method,
+        app_tls_cert_file=resolved_hosted_apps.tls_cert_file,
+        app_tls_key_file=resolved_hosted_apps.tls_key_file,
     )
 
 
@@ -2197,6 +2668,16 @@ def execute_setup(
     config.stack_project_dir = str(stack_dir)
     config.stack_env_file = str(env_file)
     _warn_chatkit_domain_key_missing(env_file=env_file, console=console)
+    _configure_hosted_apps_tls(config, stack_dir=stack_dir)
+    _upsert_env_values(
+        env_file,
+        {
+            "ORCHEO_APP_TLS_CERT_FILE": config.app_tls_cert_file or "",
+            "ORCHEO_APP_TLS_KEY_FILE": config.app_tls_key_file or "",
+        },
+        console=console,
+    )
+    _run_hosted_apps_preflight(config, env_file=env_file, console=console)
     _, use_privileged_docker = _prepare_stack_start(config, console=console)
 
     if config.start_stack and _has_binary("docker"):
@@ -2220,6 +2701,13 @@ def print_summary(config: SetupConfig, *, console: Console) -> None:
         "public_host": config.public_host,
         "publish_local_ports": config.publish_local_ports,
         "backend_upstreams": config.backend_upstreams,
+        "hosted_apps_enabled": config.hosted_apps_enabled,
+        "apps_base_domain": (
+            config.apps_base_domain if config.hosted_apps_enabled else None
+        ),
+        "app_tls_method": (
+            config.app_tls_method if config.hosted_apps_enabled else None
+        ),
         "stack_assets_synced": True,
         "stack_started": config.start_stack,
         "stack_project_dir": config.stack_project_dir,
@@ -2248,6 +2736,12 @@ def print_summary(config: SetupConfig, *, console: Console) -> None:
             "[yellow]Scope:[/yellow] Use bundled Caddy for reachable self-hosted "
             "hosts. Keep Cloudflare Tunnel for localhost or NAT-restricted setups."
         )
+        if config.hosted_apps_enabled:
+            console.print(
+                "[yellow]Hosted Apps DNS:[/yellow] point "
+                f"*.{config.apps_base_domain} at this host. The supplied wildcard "
+                "certificate is copied into the managed stack directory."
+            )
 
     console.print("\nNext steps:")
     console.print(
