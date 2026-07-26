@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +13,7 @@ import {
   setSidebarCollapsed,
 } from "@/lib/sidebar-session";
 import { cn } from "@/lib/utils";
+import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
 import AppSidebar from "./app-sidebar";
 
 const SIDEBAR_WIDTH_CLASS = "w-60";
@@ -26,6 +27,8 @@ export default function AppShell({ children }: AppShellProps) {
   const [peek, setPeek] = useState(false);
   const [isVaultOpen, setIsVaultOpen] = useState(false);
   const { setVaultOpen } = usePageContext();
+  const authUser = useMemo(() => getAuthenticatedUserProfile(), []);
+  const actorName = authUser?.subject ?? authUser?.email ?? undefined;
 
   const {
     credentials,
@@ -34,7 +37,7 @@ export default function AppShell({ children }: AppShellProps) {
     onUpdateCredential,
     onDeleteCredential,
     onRevealCredentialSecret,
-  } = useCredentialVault();
+  } = useCredentialVault({ actorName });
 
   const handleToggleCollapsed = () => {
     setCollapsed((previous) => {

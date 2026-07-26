@@ -12,7 +12,7 @@ import type { HostedApp } from "../data/sample-apps";
 export default function AppsList() {
   const { workspaceSlug } = useParams<{ workspaceSlug?: string }>();
   const navigate = useNavigate();
-  const apps = useApps();
+  const apps = useApps(workspaceSlug);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const { setPageContext } = usePageContext();
 
@@ -49,7 +49,9 @@ export default function AppsList() {
                 key={app.id}
                 app={app}
                 onOpen={openApp}
-                onTogglePublish={(target) => toggleAppPublish(target.id)}
+                onTogglePublish={(target) =>
+                  toggleAppPublish(workspaceSlug, target.id)
+                }
               />
             ))}
           </div>
@@ -60,7 +62,7 @@ export default function AppsList() {
         open={isCreateOpen}
         onOpenChange={setIsCreateOpen}
         onCreate={(name, alias) => {
-          const app = createApp(name, alias);
+          const app = createApp(workspaceSlug, name, alias);
           navigate(getWorkspaceAppPath(workspaceSlug, app.id));
         }}
       />

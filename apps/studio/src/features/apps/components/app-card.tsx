@@ -18,8 +18,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/design-system/ui/dropdown-menu";
+import { getAppsBaseDomain } from "@/lib/config";
+import { canPublishApp } from "../data/apps-store";
 import type { HostedApp } from "../data/sample-apps";
-import { APPS_BASE_DOMAIN } from "../data/sample-apps";
 import {
   AppHealthBadge,
   AppStateBadge,
@@ -34,6 +35,8 @@ interface AppCardProps {
 
 export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
   const activeDeployment = app.deployments.find((d) => d.active);
+  const publishAllowed = canPublishApp(app);
+  const appsBaseDomain = getAppsBaseDomain();
 
   return (
     <Card
@@ -62,7 +65,7 @@ export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
             ) : (
               <Lock className="h-3 w-3 shrink-0" />
             )}
-            {app.alias}.{APPS_BASE_DOMAIN}
+            {app.alias}.{appsBaseDomain}
           </div>
         </div>
         <DropdownMenu>
@@ -77,7 +80,10 @@ export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}>
+          <DropdownMenuContent
+            align="end"
+            onClick={(event) => event.stopPropagation()}
+          >
             <DropdownMenuItem>
               <Upload className="mr-2 h-4 w-4" />
               Upload deployment
@@ -92,7 +98,10 @@ export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
                 Unpublish
               </DropdownMenuItem>
             ) : (
-              <DropdownMenuItem onClick={() => onTogglePublish(app)}>
+              <DropdownMenuItem
+                disabled={!publishAllowed}
+                onClick={() => onTogglePublish(app)}
+              >
                 <Rocket className="mr-2 h-4 w-4" />
                 Publish
               </DropdownMenuItem>
@@ -113,7 +122,9 @@ export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
       </div>
 
       <div className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
-        <span>{activeDeployment ? activeDeployment.version : "no active build"}</span>
+        <span>
+          {activeDeployment ? activeDeployment.version : "no active build"}
+        </span>
         <span>·</span>
         <span>{app.deployments.length} deploys</span>
         <span className="ml-auto">{app.updated}</span>

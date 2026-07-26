@@ -89,6 +89,7 @@ def test_env_example_documents_public_ingress_contract() -> None:
     assert "COMPOSE_PROFILES=" in content
     assert "ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:2025" in content
     assert "VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1" in content
+    assert "ORCHEO_APPS_BASE_DOMAIN=beta.orcheo.cloud" in content
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="docker is not available")

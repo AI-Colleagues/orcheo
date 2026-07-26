@@ -317,11 +317,6 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-
       - name: Determine image metadata
         id: meta
         run: |
@@ -354,21 +349,16 @@ jobs:
           uv run --no-project --with packaging \
             python deploy/stack/resolve_orcheo_packages.py \
             --channel "${{ steps.meta.outputs.channel }}" \
-            --output /tmp/orcheo-requirements.txt
+            --repository-root . \
+            --output /tmp/orcheo-requirements.txt \
+            --studio-output /tmp/orcheo-studio-version.txt
           requirements=$(tr '\n' ' ' < /tmp/orcheo-requirements.txt)
           echo "requirements=${requirements% }" >> "$GITHUB_OUTPUT"
 
       - name: Resolve Studio package
         id: studio-package
         run: |
-          if [[ "${{ steps.meta.outputs.channel }}" == "stable" ]]; then
-            studio_tag="latest"
-          elif npm view orcheo-studio@prerelease version >/dev/null 2>&1; then
-            studio_tag="prerelease"
-          else
-            studio_tag="latest"
-          fi
-          version=$(npm view "orcheo-studio@${studio_tag}" version)
+          version=$(tr -d '\n' < /tmp/orcheo-studio-version.txt)
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
   image-build:

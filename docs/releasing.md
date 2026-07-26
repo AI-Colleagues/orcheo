@@ -88,10 +88,9 @@ Release tags:     0.45.0-alpha.1 -> 0.45.0-beta.1 -> 0.45.0-rc.1 -> 0.45.0
 Never reuse a published version. Increment the phase number when replacing an
 alpha, beta, or release candidate.
 
-Stack prereleases resolve the newest public version of each first-party Python
-package, selecting a prerelease when it is newer than the stable package.
-Stable stacks resolve only stable first-party packages. Studio uses the npm
-`prerelease` channel for prerelease stacks and `latest` for stable stacks.
+Stack images install the exact first-party Python and Studio versions declared
+by the tagged repository revision. Stable stack tags reject prerelease package
+versions; prerelease stack tags may combine stable and prerelease packages.
 
 ## Package-specific Notes
 ### orcheo (core)
@@ -113,8 +112,11 @@ Stable stacks resolve only stable first-party packages. Studio uses the npm
 
 ### stack image
 1. Run `(cd deploy/stack && uv run bump2version <part>)` to update the stack version.
-2. Ensure `deploy/stack/` contains the intended compose and widget assets.
-3. Push the release commit and tag: `git push origin HEAD && git push origin stack-vX.Y.Z`.
+2. Ensure the Python and Studio versions declared by the tagged revision have
+   already been published. Stack builds pin those exact versions so rebuilding
+   the same tag remains deterministic.
+3. Ensure `deploy/stack/` contains the intended compose and widget assets.
+4. Push the release commit and tag: `git push origin HEAD && git push origin stack-vX.Y.Z`.
 
 ### desktop apps
 1. Run `(cd apps/desktop && uv run bump2version <part>)` to update both the

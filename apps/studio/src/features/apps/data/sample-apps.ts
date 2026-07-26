@@ -1,10 +1,6 @@
 export type AppVisibility = "public" | "private";
 export type AppState =
-  | "draft"
-  | "published"
-  | "unpublished"
-  | "suspended"
-  | "archived";
+  "draft" | "published" | "unpublished" | "suspended" | "archived";
 export type AppHealth = "healthy" | "unknown" | "error";
 export type AppBindingAccess = "anonymous" | "authenticated";
 export type AppCollectionAccess = "shared" | "private";
@@ -46,8 +42,6 @@ export interface HostedApp {
   bindings: AppBinding[];
   collections: AppCollection[];
 }
-
-export const APPS_BASE_DOMAIN = "apps.orcheo.cloud";
 
 export const SAMPLE_APPS: HostedApp[] = [
   {

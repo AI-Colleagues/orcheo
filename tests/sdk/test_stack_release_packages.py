@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 from packaging.version import Version
@@ -85,6 +86,89 @@ def test_stable_channel_fails_without_stable_package() -> None:
 
     with pytest.raises(ValueError, match="No stable package versions"):
         resolver.select_version(_payload("1.0.0a1", "1.0.0rc1"), "stable")
+
+
+def _write_project_version(root: Path, relative_path: str, version: str) -> None:
+    path = root / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f'[project]\nname = "fixture"\nversion = "{version}"\n',
+        encoding="utf-8",
+    )
+
+
+def test_declared_versions_make_tagged_stack_rebuilds_deterministic(
+    tmp_path: Path,
+) -> None:
+    resolver = _load_resolver()
+    _write_project_version(tmp_path, "pyproject.toml", "1.2.3")
+    _write_project_version(tmp_path, "apps/backend/pyproject.toml", "2.3.4")
+    _write_project_version(tmp_path, "packages/sdk/pyproject.toml", "3.4.5")
+    _write_project_version(tmp_path, "packages/agentensor/pyproject.toml", "4.5.6")
+    studio_package = tmp_path / "apps/studio/package.json"
+    studio_package.parent.mkdir(parents=True)
+    studio_package.write_text('{"version": "5.6.7-rc.1"}\n', encoding="utf-8")
+
+    requirements = resolver.resolve_declared_requirements(tmp_path, "stable")
+    studio_version = resolver.resolve_declared_studio_version(tmp_path, "prerelease")
+
+    assert requirements == [
+        "orcheo==1.2.3",
+        "orcheo-backend==2.3.4",
+        "orcheo-sdk==3.4.5",
+        "agentensor==4.5.6",
+    ]
+    assert studio_version == "5.6.7-rc.1"
+
+
+def test_stable_stack_rejects_declared_prerelease(tmp_path: Path) -> None:
+    resolver = _load_resolver()
+    _write_project_version(tmp_path, "pyproject.toml", "1.2.3rc1")
+    for relative_path in (
+        "apps/backend/pyproject.toml",
+        "packages/sdk/pyproject.toml",
+        "packages/agentensor/pyproject.toml",
+    ):
+        _write_project_version(tmp_path, relative_path, "1.2.3")
+
+    with pytest.raises(ValueError, match="Stable stack releases"):
+        resolver.resolve_declared_requirements(tmp_path, "stable")
+
+
+def test_registry_fetch_retries_transient_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolver = _load_resolver()
+    attempts = 0
+
+    class Response:
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"releases": {"1.0.0": [{"yanked": false}]}}'
+
+    def fake_urlopen(url: str, timeout: int) -> Response:
+        nonlocal attempts
+        del url, timeout
+        attempts += 1
+        if attempts < 3:
+            raise OSError("temporary registry failure")
+        return Response()
+
+    monkeypatch.setattr(resolver, "urlopen", fake_urlopen)
+
+    payload = resolver._fetch_package_payload(
+        "orcheo",
+        timeout_seconds=1,
+        retries=2,
+    )
+
+    assert attempts == 3
+    assert resolver.select_version(payload, "stable") == Version("1.0.0")
 
 
 def test_stack_dockerfiles_accept_release_resolution_build_args() -> None:

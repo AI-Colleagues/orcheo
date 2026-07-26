@@ -57,8 +57,16 @@ export function CreateAppDialog({
       setError("Both name and alias are required.");
       return;
     }
-    onCreate(trimmedName, trimmedAlias);
-    onOpenChange(false);
+    try {
+      onCreate(trimmedName, trimmedAlias);
+      onOpenChange(false);
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : "Unable to create the app.",
+      );
+    }
   };
 
   return (

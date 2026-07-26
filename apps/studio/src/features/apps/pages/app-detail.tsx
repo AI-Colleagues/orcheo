@@ -22,9 +22,14 @@ import {
   DropdownMenuTrigger,
 } from "@/design-system/ui/dropdown-menu";
 import { usePageContext } from "@/hooks/use-page-context";
+import { getAppsBaseDomain } from "@/lib/config";
 import { getWorkspaceAppsPath } from "@/lib/workspace-routing";
-import { APPS_BASE_DOMAIN } from "../data/sample-apps";
-import { toggleAppPublish, useApp } from "../data/apps-store";
+import {
+  canPublishApp,
+  getPublishBlockedReason,
+  toggleAppPublish,
+  useApp,
+} from "../data/apps-store";
 import {
   AppHealthBadge,
   AppStateBadge,
@@ -38,8 +43,9 @@ export default function AppDetail() {
     appId: string;
   }>();
   const navigate = useNavigate();
-  const app = useApp(appId);
+  const app = useApp(workspaceSlug, appId);
   const { setPageContext } = usePageContext();
+  const appsBaseDomain = getAppsBaseDomain();
 
   useEffect(() => {
     setPageContext({ page: "other" });
@@ -54,6 +60,8 @@ export default function AppDetail() {
   }
 
   const published = app.state === "published";
+  const publishAllowed = canPublishApp(app);
+  const publishBlockedReason = getPublishBlockedReason(app);
 
   return (
     <main className="flex h-full min-h-0 flex-col overflow-auto p-8">
@@ -78,7 +86,7 @@ export default function AppDetail() {
               ) : (
                 <Lock className="h-3.5 w-3.5" />
               )}
-              {app.alias}.{APPS_BASE_DOMAIN}
+              {app.alias}.{appsBaseDomain}
               <ExternalLink className="h-3 w-3 opacity-60" />
             </div>
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
@@ -89,12 +97,19 @@ export default function AppDetail() {
           </div>
 
           {published ? (
-            <Button variant="outline" onClick={() => toggleAppPublish(app.id)}>
+            <Button
+              variant="outline"
+              onClick={() => toggleAppPublish(workspaceSlug, app.id)}
+            >
               <Pause className="mr-2 h-4 w-4" />
               Unpublish
             </Button>
           ) : (
-            <Button onClick={() => toggleAppPublish(app.id)}>
+            <Button
+              disabled={!publishAllowed}
+              title={publishBlockedReason ?? undefined}
+              onClick={() => toggleAppPublish(workspaceSlug, app.id)}
+            >
               <Rocket className="mr-2 h-4 w-4" />
               Publish
             </Button>
@@ -135,9 +150,7 @@ export default function AppDetail() {
               <div className="text-xl font-semibold text-foreground">
                 {stat.value}
               </div>
-              <div className="text-xs text-muted-foreground">
-                {stat.label}
-              </div>
+              <div className="text-xs text-muted-foreground">{stat.label}</div>
             </Card>
           ))}
         </div>
