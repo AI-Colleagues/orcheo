@@ -144,6 +144,8 @@ jobs:
             paths: tests/nodes
           - shard: sdk
             paths: tests/sdk
+          - shard: hosted-apps
+            paths: tests/hosted_apps
           - shard: core
             paths: >-
               tests/graph tests/listeners tests/triggers tests/triggers_layer
