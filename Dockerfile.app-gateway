@@ -1,0 +1,41 @@
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 AS builder
+
+COPY apps/app_gateway/requirements.lock /tmp/requirements.lock
+RUN uv pip install \
+    --target /deps \
+    --no-cache \
+    --require-hashes \
+    -r /tmp/requirements.lock
+
+FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+WORKDIR /app
+
+RUN groupadd --gid 1000 orcheo \
+    && useradd \
+        --uid 1000 \
+        --gid 1000 \
+        --no-create-home \
+        --shell /usr/sbin/nologin \
+        orcheo
+
+COPY --from=builder /deps /usr/local/lib/python3.12/site-packages
+COPY apps/app_gateway/src/orcheo_app_gateway /app/orcheo_app_gateway
+# Copy only the dependency-light shared validation modules used by the gateway.
+# Namespace packages avoid importing the full Orcheo backend dependency graph.
+COPY src/orcheo/hosted_apps/errors.py /app/orcheo/hosted_apps/errors.py
+COPY src/orcheo/hosted_apps/gateway.py /app/orcheo/hosted_apps/gateway.py
+COPY src/orcheo/hosted_apps/models.py /app/orcheo/hosted_apps/models.py
+COPY src/orcheo/models/base.py /app/orcheo/models/base.py
+
+USER orcheo
+EXPOSE 2030
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:2030/healthz', timeout=2).read()"]
+
+CMD ["python", "-m", "uvicorn", "orcheo_app_gateway.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "2030"]

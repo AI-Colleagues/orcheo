@@ -15,12 +15,12 @@ from uuid import UUID
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
-from orcheo.hosted_apps import (
+from orcheo.hosted_apps.errors import AliasValidationError
+from orcheo.hosted_apps.gateway import (
     canonical_app_host,
     derive_client_ip,
     is_safe_app_path,
 )
-from orcheo.hosted_apps.errors import AliasValidationError
 
 
 _SECURITY_HEADERS = {

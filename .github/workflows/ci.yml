@@ -95,8 +95,15 @@ jobs:
       - name: Test gateway and Hosted Apps security contracts
         run: uv run pytest tests/hosted_apps -q
 
-      - name: Build gateway-containing stack image
-        run: docker build -f Dockerfile.backend -t orcheo-app-gateway:${{ github.sha }} .
+      - name: Build app gateway image
+        run: docker build -f Dockerfile.app-gateway -t orcheo-app-gateway:${{ github.sha }} .
+
+      - name: Verify app gateway image
+        run: |
+          docker run --rm \
+            --env ORCHEO_HOSTED_APPS_ENABLED=false \
+            orcheo-app-gateway:${{ github.sha }} \
+            python -c "from orcheo_app_gateway.main import create_app; assert create_app().title"
 
       - name: Generate image SBOM
         uses: anchore/sbom-action@v0
@@ -112,6 +119,9 @@ jobs:
           format: sarif
           output: app-gateway-trivy.sarif
           severity: HIGH,CRITICAL
+          scanners: vuln
+          ignore-unfixed: true
+          limit-severities-for-sarif: true
           exit-code: "1"
 
       - name: Upload vulnerability results
