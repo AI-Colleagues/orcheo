@@ -43,6 +43,7 @@ def hosted_apps_environment(monkeypatch: pytest.MonkeyPatch):
     repository = InMemoryHostedAppsRepository()
     set_hosted_apps_repository(repository)
     monkeypatch.setenv("ORCHEO_HOSTED_APPS_ENABLED", "true")
+    monkeypatch.delenv("ORCHEO_HOSTED_APPS_WORKSPACE_ALLOWLIST", raising=False)
     monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.test")
     monkeypatch.setenv("ORCHEO_APP_BUNDLE_BACKEND", "filesystem")
     monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", "/tmp/orcheo-test-apps")
@@ -106,6 +107,7 @@ def test_app_lifecycle_alias_conflict_and_workspace_denial(
 def test_central_pkce_authorization_requires_current_app_workspace_member(
     client: TestClient,
     hosted_apps_environment: InMemoryHostedAppsRepository,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The Studio authorization bridge issues only an exact-host member code."""
     auth = RequestContext(subject="member-1", identity_type="user")
@@ -158,6 +160,61 @@ def test_central_pkce_authorization_requires_current_app_workspace_member(
     assert callback.netloc == "private-portal.apps.test"
     assert parse_qs(callback.query)["state"] == [state]
     assert parse_qs(callback.query)["code"]
+
+    assert (
+        client.post(
+            "/api/hosted-apps/auth/authorize",
+            json={
+                "host": "private-portal.apps.test",
+                "redirect_uri": "https://wrong.apps.test/__orcheo/auth/callback",
+                "code_challenge": "c" * 43,
+                "state": state,
+            },
+        ).status_code
+        == 400
+    )
+    assert (
+        client.post(
+            "/api/hosted-apps/auth/authorize",
+            json={
+                "host": "missing.apps.test",
+                "redirect_uri": "https://missing.apps.test/__orcheo/auth/callback",
+                "code_challenge": "c" * 43,
+                "state": state,
+            },
+        ).status_code
+        == 404
+    )
+    monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.localhost")
+    client.app.dependency_overrides[authenticate_request] = lambda: auth
+    assert (
+        client.post(
+            "/api/hosted-apps/auth/authorize",
+            json={
+                "host": "private-portal.apps.localhost",
+                "redirect_uri": "http://private-portal.apps.localhost/__orcheo/auth/callback",
+                "code_challenge": "c" * 43,
+                "state": state,
+            },
+        ).status_code
+        == 200
+    )
+    monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.test")
+    client.app.dependency_overrides[authenticate_request] = lambda: RequestContext(
+        subject="not-a-member", identity_type="user"
+    )
+    assert (
+        client.post(
+            "/api/hosted-apps/auth/authorize",
+            json={
+                "host": "private-portal.apps.test",
+                "redirect_uri": "https://private-portal.apps.test/__orcheo/auth/callback",
+                "code_challenge": "c" * 43,
+                "state": state,
+            },
+        ).status_code
+        == 403
+    )
 
 
 def test_collection_crud_uses_stable_ids_and_updates_review_revision(
@@ -381,3 +438,407 @@ def test_manifest_upload_resolves_two_workflows_and_freezes_release(
     assert len({binding["workflow_id"] for binding in bindings}) == 2
     assert all(binding["workflow_execution_sha256"] for binding in bindings)
     assert client.get(f"/api/apps/{created['id']}/bindings").json() == []
+
+
+def test_draft_mutations_bindings_and_collections_cover_control_plane_branches(
+    client: TestClient,
+    repository: InMemoryWorkflowRepository,
+) -> None:
+    """Draft policy, capability, and collection endpoints preserve stable identities."""
+    created = client.post(
+        "/api/apps", json={"name": "Portal", "alias": "control-plane"}
+    ).json()
+    app_id = created["id"]
+    updated = client.patch(
+        f"/api/apps/{app_id}",
+        json={"name": "Renamed", "description": "draft"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Renamed"
+    archived = client.post(f"/api/apps/{app_id}/archive")
+    assert archived.status_code == 200
+    assert archived.json()["is_archived"] is True
+    restored = client.post(f"/api/apps/{app_id}/restore")
+    assert restored.status_code == 200
+    replacement = client.put(
+        f"/api/apps/{app_id}/alias", json={"alias": "control-plane-new"}
+    )
+    assert replacement.status_code == 200
+
+    async def seed() -> tuple[UUID, UUID]:
+        workflow = await repository.create_workflow(
+            name="Lookup",
+            handle="control-plane-workflow",
+            slug=None,
+            description=None,
+            tags=None,
+            draft_access=WorkflowDraftAccess.PERSONAL,
+            actor="test-user",
+            workspace_id=created["workspace_id"],
+        )
+        version = await repository.create_version(
+            workflow.id,
+            graph={"nodes": []},
+            metadata={},
+            notes=None,
+            created_by="test-user",
+        )
+        return workflow.id, version.id
+
+    workflow_id, version_id = asyncio.run(seed())
+    binding = {
+        "name": "lookup",
+        "workflow_id": str(workflow_id),
+        "workflow_version_id": str(version_id),
+        "access_mode": "anonymous",
+        "input_schema": {"type": "object"},
+        "output_projection": {"fields": ["answer"]},
+        "limits": {"timeout_seconds": 60},
+    }
+    created_binding = client.post(f"/api/apps/{app_id}/bindings", json=binding)
+    assert created_binding.status_code == 201
+    binding_id = created_binding.json()["id"]
+    changed_binding = dict(binding, name="lookup-v2")
+    changed = client.put(
+        f"/api/apps/{app_id}/bindings/{binding_id}", json=changed_binding
+    )
+    assert changed.status_code == 200
+    assert changed.json()["id"] == binding_id
+    invalid_update = client.put(
+        f"/api/apps/{app_id}/bindings/{binding_id}",
+        json=dict(changed_binding, input_schema={"type": "object", "pattern": "bad"}),
+    )
+    assert invalid_update.status_code == 400
+    assert client.delete(f"/api/apps/{app_id}/bindings/{binding_id}").status_code == 204
+    bad_binding = client.post(
+        f"/api/apps/{app_id}/bindings",
+        json=dict(binding, input_schema={"type": "object", "pattern": "bad"}),
+    )
+    assert bad_binding.status_code == 400
+
+    collection = {
+        "name": "records",
+        "scope": "shared",
+        "read_access": "anonymous",
+        "write_access": "anonymous",
+        "max_document_bytes": 4096,
+        "max_records": 10,
+    }
+    created_collection = client.post(f"/api/apps/{app_id}/collections", json=collection)
+    assert created_collection.status_code == 201
+    collection_id = created_collection.json()["id"]
+    changed_collection = client.put(
+        f"/api/apps/{app_id}/collections/{collection_id}",
+        json=dict(collection, max_records=20),
+    )
+    assert changed_collection.status_code == 200
+    assert (
+        client.delete(f"/api/apps/{app_id}/collections/{collection_id}").status_code
+        == 204
+    )
+    assert client.get(f"/api/apps/{app_id}/deployments").status_code == 200
+    assert client.get(f"/api/apps/{app_id}/audit").status_code == 200
+    assert client.get("/api/apps", params={"cursor": "__8"}).status_code == 400
+    assert client.get(f"/api/apps/{uuid4()}").status_code == 404
+
+
+def test_hosted_apps_upload_error_contract_and_platform_operations(
+    client: TestClient,
+    hosted_apps_environment: InMemoryHostedAppsRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Upload validation and platform operations expose stable error/status codes."""
+    created = client.post(
+        "/api/apps", json={"name": "Upload", "alias": "upload-errors"}
+    ).json()
+    app_id = created["id"]
+    assert (
+        client.post(
+            f"/api/apps/{app_id}/deployments/upload",
+            files={"bundle": ("not-a-zip.txt", b"bytes", "text/plain")},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            f"/api/apps/{app_id}/deployments/upload",
+            files={"bundle": ("empty.zip", b"", "application/zip")},
+        ).status_code
+        == 413
+    )
+    operator = RequestContext(
+        subject="operator",
+        identity_type="service",
+        scopes=frozenset(
+            {"platform:hosted-apps:moderate", "platform:hosted-apps:runtime-control"}
+        ),
+    )
+    client.app.dependency_overrides[authenticate_request] = lambda: operator
+    client.app.dependency_overrides[get_request_context] = lambda: operator
+    reserved = client.post(
+        "/api/platform/hosted-apps/reserved-aliases", json={"alias": "reserved"}
+    )
+    assert reserved.status_code == 201
+    assert (
+        client.post(
+            "/api/platform/hosted-apps/reserved-aliases", json={"alias": "reserved"}
+        ).status_code
+        == 409
+    )
+    assert (
+        client.get("/api/platform/hosted-apps/aliases/unknown/owner").status_code == 404
+    )
+    assert (
+        client.get("/api/platform/hosted-apps/aliases/not%40valid/owner").status_code
+        == 404
+    )
+    assert (
+        client.get("/api/platform/hosted-apps/aliases/reserved/owner").json()["kind"]
+        == "platform"
+    )
+    assert client.get("/api/platform/hosted-apps/runtime").status_code == 200
+    changed = client.put("/api/platform/hosted-apps/runtime", json={"enabled": True})
+    assert changed.status_code == 200
+    assert client.get("/api/platform/hosted-apps/runtime").json()["enabled"] is True
+    missing_reinstate = client.post(
+        f"/api/platform/hosted-apps/blocks/{uuid4()}/reinstate"
+    )
+    assert missing_reinstate.status_code == 404
+    monkeypatch.setattr(
+        hosted_apps_environment,
+        "get_runtime_generation",
+        lambda: (_ for _ in ()).throw(RuntimeError("unavailable")),
+    )
+    assert client.get("/api/platform/hosted-apps/runtime").status_code == 503
+
+
+def test_hosted_apps_route_error_contracts_and_configuration_guards(
+    client: TestClient,
+    hosted_apps_environment: InMemoryHostedAppsRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Workspace APIs return stable errors for missing resources and bad drafts."""
+    created = client.post(
+        "/api/apps", json={"name": "Route Errors", "alias": "route-errors"}
+    ).json()
+    app_id = created["id"]
+    other = client.post(
+        "/api/apps", json={"name": "Other Route", "alias": "other-route"}
+    ).json()
+    assert (
+        client.post("/api/apps", json={"name": "Bad Alias", "alias": "api"}).status_code
+        == 400
+    )
+    assert (
+        client.patch(
+            f"/api/apps/{app_id}", json={"name": "Renamed", "description": "desc"}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(f"/api/apps/{app_id}", json={"visibility": "private"}).status_code
+        == 200
+    )
+    missing = str(uuid4())
+    for path, method in (
+        (f"/api/apps/{missing}", "get"),
+        (f"/api/apps/{missing}", "patch"),
+        (f"/api/apps/{missing}/archive", "post"),
+        (f"/api/apps/{missing}/restore", "post"),
+        (f"/api/apps/{missing}/alias", "put"),
+        (f"/api/apps/{missing}/bindings", "get"),
+        (f"/api/apps/{missing}/collections", "get"),
+        (f"/api/apps/{missing}/audit", "get"),
+        (f"/api/apps/{missing}/deployments", "get"),
+        (f"/api/apps/{missing}/deployments/upload", "post"),
+        (f"/api/apps/{missing}/unpublish", "post"),
+    ):
+        kwargs = {}
+        if method == "patch":
+            kwargs["json"] = {"name": "missing"}
+        elif method == "put":
+            kwargs["json"] = {"alias": "new-route"}
+        elif method == "post" and path.endswith("upload"):
+            kwargs["files"] = {"bundle": ("empty.zip", b"", "application/zip")}
+        assert getattr(client, method)(path, **kwargs).status_code == 404
+
+    assert (
+        client.put(
+            f"/api/apps/{app_id}/alias", json={"alias": other["alias"]}
+        ).status_code
+        == 409
+    )
+    assert (
+        client.put(f"/api/apps/{app_id}/alias", json={"alias": "api"}).status_code
+        == 400
+    )
+    binding = {
+        "name": "missing-binding",
+        "workflow_id": str(uuid4()),
+        "workflow_version_id": str(uuid4()),
+        "access_mode": "anonymous",
+    }
+    assert client.post(f"/api/apps/{missing}/bindings", json=binding).status_code == 404
+    assert (
+        client.put(f"/api/apps/{app_id}/bindings/{uuid4()}", json=binding).status_code
+        == 404
+    )
+    assert client.delete(f"/api/apps/{app_id}/bindings/{uuid4()}").status_code == 404
+    assert (
+        client.post(
+            f"/api/apps/{missing}/collections",
+            json={
+                "name": "missing-data",
+                "scope": "shared",
+                "read_access": "anonymous",
+                "write_access": "anonymous",
+                "max_document_bytes": 100,
+                "max_records": 10,
+            },
+        ).status_code
+        == 404
+    )
+    collection = {
+        "name": "route-data",
+        "scope": "shared",
+        "read_access": "anonymous",
+        "write_access": "anonymous",
+        "max_document_bytes": 100,
+        "max_records": 10,
+    }
+    first = client.post(f"/api/apps/{app_id}/collections", json=collection)
+    assert first.status_code == 201
+    assert client.get(f"/api/apps/{app_id}/collections").status_code == 200
+    assert (
+        client.post(f"/api/apps/{app_id}/collections", json=collection).status_code
+        == 409
+    )
+    collection_id = first.json()["id"]
+    assert (
+        client.put(
+            f"/api/apps/{app_id}/collections/{uuid4()}", json=collection
+        ).status_code
+        == 404
+    )
+    assert client.delete(f"/api/apps/{app_id}/collections/{uuid4()}").status_code == 404
+    second_collection = dict(collection, name="route-data-2")
+    second = client.post(f"/api/apps/{app_id}/collections", json=second_collection)
+    assert second.status_code == 201
+    assert (
+        client.put(
+            f"/api/apps/{app_id}/collections/{second.json()['id']}", json=collection
+        ).status_code
+        == 409
+    )
+    assert (
+        client.post(
+            f"/api/apps/{app_id}/deployments/{uuid4()}/publish",
+            json={"acknowledged_permission_revision": 1},
+        ).status_code
+        == 404
+    )
+    editor = WorkspaceContext(
+        workspace_id=UUID(created["workspace_id"]),
+        workspace_slug="test",
+        user_id="editor",
+        role=Role.EDITOR,
+    )
+    original_workspace_override = client.app.dependency_overrides.get(
+        resolve_workspace_context
+    )
+    client.app.dependency_overrides[resolve_workspace_context] = lambda: editor
+    assert (
+        client.patch(f"/api/apps/{app_id}", json={"visibility": "private"}).status_code
+        == 403
+    )
+    if original_workspace_override is not None:
+        client.app.dependency_overrides[resolve_workspace_context] = (
+            original_workspace_override
+        )
+    else:
+        client.app.dependency_overrides.pop(resolve_workspace_context, None)
+    assert client.post(f"/api/apps/{app_id}/unpublish").status_code == 200
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_BACKEND", "s3")
+    assert (
+        client.post(
+            f"/api/apps/{app_id}/deployments/upload",
+            files={"bundle": ("bundle.zip", b"zip", "application/zip")},
+        ).status_code
+        == 409
+    )
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_BACKEND", "filesystem")
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", "/tmp/orcheo-route-errors")
+    invalid_archive = BytesIO()
+    with zipfile.ZipFile(invalid_archive, "w") as bundle:
+        bundle.writestr("missing-index.js", "x")
+    assert (
+        client.post(
+            f"/api/apps/{app_id}/deployments/upload",
+            files={
+                "bundle": ("invalid.zip", invalid_archive.getvalue(), "application/zip")
+            },
+        ).status_code
+        == 422
+    )
+    manifest_archive = BytesIO()
+    with zipfile.ZipFile(manifest_archive, "w") as bundle:
+        bundle.writestr("index.html", "<h1>manifest</h1>")
+        bundle.writestr(
+            "orcheo.app.json",
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "bindings": {
+                        "missing": {
+                            "workflow": "missing-workflow",
+                            "version": 1,
+                            "access_mode": "anonymous",
+                        }
+                    },
+                }
+            ),
+        )
+    manifest_upload = client.post(
+        f"/api/apps/{app_id}/deployments/upload",
+        files={
+            "bundle": ("manifest.zip", manifest_archive.getvalue(), "application/zip")
+        },
+    )
+    assert manifest_upload.status_code == 422
+    failed_deployment = hosted_apps_environment.list_deployments(
+        UUID(created["workspace_id"]), UUID(app_id)
+    )[-1]
+    assert (
+        client.post(
+            f"/api/apps/{app_id}/deployments/{failed_deployment.id}/publish",
+            json={"acknowledged_permission_revision": created["permission_revision"]},
+        ).status_code
+        == 409
+    )
+    valid_archive = BytesIO()
+    with zipfile.ZipFile(valid_archive, "w") as bundle:
+        bundle.writestr("index.html", "<h1>valid</h1>")
+    valid_upload = client.post(
+        f"/api/apps/{app_id}/deployments/upload",
+        files={"bundle": ("valid.zip", valid_archive.getvalue(), "application/zip")},
+    )
+    assert valid_upload.status_code == 201
+    valid_deployment = hosted_apps_environment.list_deployments(
+        UUID(created["workspace_id"]), UUID(app_id)
+    )[-1]
+    assert (
+        client.post(
+            f"/api/apps/{app_id}/deployments/{valid_deployment.id}/publish",
+            json={"acknowledged_permission_revision": created["permission_revision"]},
+        ).status_code
+        == 409
+    )
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", "/tmp/orcheo-test-apps")
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_BACKEND", "filesystem")
+    monkeypatch.setenv("ORCHEO_HOSTED_APPS_WORKSPACE_ALLOWLIST", str(uuid4()))
+    assert client.get("/api/apps").status_code == 404
+    monkeypatch.setenv(
+        "ORCHEO_HOSTED_APPS_WORKSPACE_ALLOWLIST", str(created["workspace_id"])
+    )
+    monkeypatch.setenv("ORCHEO_HOSTED_APPS_ENABLED", "not-a-bool")
+    assert client.get("/api/apps").status_code == 503

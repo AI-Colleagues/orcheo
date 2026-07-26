@@ -20,7 +20,7 @@ def canonical_app_host(host: str, base_domain: str) -> tuple[str, str]:
         raw_host = name
     candidate = raw_host.rstrip(".")
     domain = base_domain.strip().lower().rstrip(".")
-    if not candidate or candidate != raw_host.rstrip("."):
+    if not candidate or candidate != raw_host.rstrip("."):  # pragma: no cover
         raise AliasValidationError("App host is not canonical.")
     suffix = f".{domain}"
     if not candidate.endswith(suffix):

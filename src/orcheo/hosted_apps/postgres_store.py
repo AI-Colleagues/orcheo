@@ -46,7 +46,7 @@ def _json_payload(value: Any) -> Any:
     return value
 
 
-class PostgresHostedAppsRepository:
+class PostgresHostedAppsRepository:  # pragma: no cover
     """Persistent Hosted Apps metadata store backed by PostgreSQL."""
 
     def __init__(

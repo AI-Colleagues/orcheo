@@ -5,7 +5,10 @@ from __future__ import annotations
 from uuid import uuid4
 import pytest
 from orcheo.hosted_apps import (
+    AliasTombstonedError,
     AliasConflictError,
+    AppBinding,
+    AppCollection,
     AppDeployment,
     AppRelease,
     AppVisibility,
@@ -198,3 +201,185 @@ def test_platform_block_overrides_published_app_until_reinstated() -> None:
     assert repository.resolve_descriptor("moderated-app")["state"] == "suspended"
     repository.lift_moderation_block(block.id, actor="operator")
     assert repository.resolve_descriptor("moderated-app")["state"] == "published"
+
+
+def test_reference_repository_edge_invariants() -> None:
+    """Exercise duplicate, stale, tombstone, and release-integrity guards."""
+    repository = InMemoryHostedAppsRepository()
+    app = _app()
+    repository.create_app_with_alias(app, "repo-edge")
+    with pytest.raises(ValueError, match="already exists"):
+        repository.create_app_with_alias(app, "repo-edge")
+    repository._apps[app.id].active_release_id = uuid4()  # noqa: SLF001
+    with pytest.raises(RuntimeError, match="active release"):
+        repository.get_active_deployment_id(app.workspace_id, app.id)
+    repository._aliases.pop("repo-edge")  # noqa: SLF001
+    with pytest.raises(KeyError):
+        repository.get_alias(app.workspace_id, app.id)
+
+    deployment = AppDeployment(
+        app_id=app.id,
+        workspace_id=app.workspace_id,
+        status=DeploymentStatus.READY,
+        created_by="author",
+    )
+    repository._apps[app.id].active_release_id = None  # noqa: SLF001
+    repository.add_deployment(deployment)
+    with pytest.raises(ValueError, match="already exists"):
+        repository.add_deployment(deployment)
+    with pytest.raises(ValueError, match="ready"):
+        repository.publish_release(
+            AppRelease(
+                workspace_id=app.workspace_id,
+                app_id=app.id,
+                deployment_id=uuid4(),
+                permission_revision=1,
+                visibility=AppVisibility.PUBLIC,
+                capability_snapshot={},
+                csp_snapshot={},
+                snapshot_sha256="a" * 64,
+                created_by="author",
+            )
+        )
+    binding = AppBinding(
+        workspace_id=app.workspace_id,
+        app_id=app.id,
+        name="edge-binding",
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        workflow_execution_sha256="a" * 64,
+        access_mode="anonymous",
+    )
+    repository.save_binding(binding, actor="author")
+    with pytest.raises(ValueError, match="binding"):
+        repository.save_binding(
+            binding.model_copy(update={"id": uuid4()}), actor="author"
+        )
+    wrong_binding = binding.model_copy(update={"app_id": uuid4()})
+    with pytest.raises(KeyError):
+        repository.save_binding(wrong_binding, actor="author")
+    foreign_app = _app(app.workspace_id)
+    repository.create_app_with_alias(foreign_app, "foreign-edge")
+    foreign_binding = binding.model_copy(
+        update={"app_id": foreign_app.id, "id": uuid4(), "name": "foreign-binding"}
+    )
+    repository.save_binding(foreign_binding, actor="author")
+    with pytest.raises(KeyError):
+        repository.save_binding(
+            foreign_binding.model_copy(update={"app_id": app.id}), actor="author"
+        )
+    assert (
+        repository.invalidate_bindings_for_workflow(
+            app.workspace_id, binding.workflow_id, actor="author"
+        )
+        == 2
+    )
+    wrong_collection = AppCollection(
+        workspace_id=app.workspace_id,
+        app_id=app.id,
+        name="edge-data",
+        scope="shared",
+        read_access="anonymous",
+        write_access="anonymous",
+        max_document_bytes=100,
+        max_records=10,
+    )
+    repository.save_collection(wrong_collection, actor="author")
+    with pytest.raises(KeyError):
+        repository.save_collection(
+            wrong_collection.model_copy(update={"app_id": uuid4()}),
+            actor="author",
+        )
+    foreign_collection = wrong_collection.model_copy(
+        update={"app_id": foreign_app.id, "id": uuid4(), "name": "foreign-data"}
+    )
+    repository.save_collection(foreign_collection, actor="author")
+    with pytest.raises(KeyError):
+        repository.save_collection(
+            foreign_collection.model_copy(update={"app_id": app.id}), actor="author"
+        )
+    repository._apps[app.id].is_archived = True  # noqa: SLF001
+    archived_release = AppRelease(
+        workspace_id=app.workspace_id,
+        app_id=app.id,
+        deployment_id=deployment.id,
+        permission_revision=repository._apps[app.id].permission_revision,  # noqa: SLF001
+        visibility=AppVisibility.PUBLIC,
+        capability_snapshot={},
+        csp_snapshot={},
+        snapshot_sha256="d" * 64,
+        created_by="author",
+    )
+    with pytest.raises(ValueError, match="Archived"):
+        repository.publish_release(archived_release)
+    repository._apps[app.id].is_archived = False  # noqa: SLF001
+    duplicate_release = archived_release.model_copy(
+        update={"id": uuid4(), "snapshot_sha256": "e" * 64}
+    )
+    repository.publish_release(duplicate_release)
+    with pytest.raises(ValueError, match="already exists"):
+        repository.publish_release(duplicate_release)
+    with pytest.raises(ValueError, match="moderation target"):
+        repository.create_moderation_block(
+            target_kind="invalid",
+            target_id="target",
+            reason_code="bad",
+            reason_detail=None,
+            actor="operator",
+        )
+    block = repository.create_moderation_block(
+        target_kind="app",
+        target_id=str(app.id),
+        reason_code="abuse",
+        reason_detail=None,
+        actor="operator",
+    )
+    assert repository.lift_moderation_block(block.id, actor="operator").lifted_at
+    assert repository.lift_moderation_block(block.id, actor="operator").lifted_at
+    with pytest.raises(KeyError):
+        repository.lift_moderation_block(uuid4(), actor="operator")
+    repository.set_runtime_enabled(enabled=True, actor="operator")
+    with pytest.raises(Exception):
+        repository.assert_runtime_enabled(expected_generation=99)
+    missing_release_app = _app(app.workspace_id)
+    repository.create_app_with_alias(missing_release_app, "missing-release")
+    repository._apps[missing_release_app.id].active_release_id = uuid4()  # noqa: SLF001
+    repository._apps[
+        missing_release_app.id
+    ].publication_state = PublicationState.PUBLISHED  # noqa: SLF001
+    with pytest.raises(KeyError, match="release"):
+        repository.resolve_descriptor("missing-release")
+
+
+def test_reference_repository_alias_tombstone_and_release_guards() -> None:
+    """Expired tombstones can be reclaimed while live ones remain reserved."""
+    repository = InMemoryHostedAppsRepository()
+    app = _app()
+    repository.create_app_with_alias(app, "tombstone-edge")
+    repository.reserve_alias(app, "tombstone-new", actor="author")
+    assert repository._prepare_alias(app, "tombstone-new").app_id == app.id  # noqa: SLF001
+    with pytest.raises(AliasTombstonedError):
+        repository.reserve_alias(
+            app.model_copy(update={"created_by": "other"}),
+            "tombstone-edge",
+            actor="other",
+        )
+    alias = repository._aliases["tombstone-edge"]  # noqa: SLF001
+    alias.reserved_kind = type(alias.reserved_kind).TOMBSTONE
+    alias.app_id = None
+    alias.workspace_id = None
+    alias.tombstoned_until = alias.updated_at
+    assert (
+        repository.reserve_alias(app, "tombstone-edge", actor="author").app_id == app.id
+    )
+
+
+def test_platform_alias_audit_failure_is_propagated() -> None:
+    """Platform reservations do not hide durable audit failures."""
+
+    def fail_audit(_event) -> None:
+        raise RuntimeError("audit unavailable")
+
+    repository = InMemoryHostedAppsRepository(audit_hook=fail_audit)
+    with pytest.raises(RuntimeError, match="audit unavailable"):
+        repository.reserve_platform_alias("blocked", actor="operator")

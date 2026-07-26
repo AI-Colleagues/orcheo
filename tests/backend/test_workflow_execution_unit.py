@@ -81,6 +81,42 @@ def test_report_history_error_logs_and_updates_tracing(
 
 
 @pytest.mark.asyncio
+async def test_workflow_execution_optional_websocket_branches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Execution helpers persist correctly when no websocket is attached."""
+    history_store = AsyncMock()
+    monkeypatch.setattr(workflow_execution, "record_workflow_step", lambda *_a: None)
+    await workflow_execution._forward_node_step(
+        {"node": "plain"},
+        history_store=history_store,
+        execution_id="exec-plain",
+        websocket=None,
+        tracer=object(),
+    )
+    history_store.append_step.assert_awaited_once_with("exec-plain", {"node": "plain"})
+
+    monkeypatch.setattr(
+        workflow_execution,
+        "_stream_workflow_updates",
+        AsyncMock(side_effect=[asyncio.CancelledError("stop"), RuntimeError("boom")]),
+    )
+    monkeypatch.setattr(
+        workflow_execution, "record_workflow_cancellation", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(workflow_execution, "record_workflow_failure", lambda *_a: None)
+    monkeypatch.setattr(workflow_execution, "_persist_failure_history", AsyncMock())
+    with pytest.raises(asyncio.CancelledError):
+        await workflow_execution._run_workflow_stream(
+            object(), {}, {}, history_store, "exec-cancel", None, object(), object()
+        )
+    with pytest.raises(RuntimeError):
+        await workflow_execution._run_workflow_stream(
+            object(), {}, {}, history_store, "exec-failure", None, object(), object()
+        )
+
+
+@pytest.mark.asyncio
 async def test_persist_failure_history_reports_store_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

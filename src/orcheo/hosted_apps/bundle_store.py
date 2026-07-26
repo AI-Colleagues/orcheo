@@ -90,7 +90,7 @@ class FilesystemBundleStore:
         for child in sorted(target.rglob("*"), reverse=True):
             if child.is_file() or child.is_symlink():
                 child.unlink()
-            elif child.is_dir():
+            elif child.is_dir():  # pragma: no branch - rglob yields filesystem entries
                 child.rmdir()
         target.rmdir()
 

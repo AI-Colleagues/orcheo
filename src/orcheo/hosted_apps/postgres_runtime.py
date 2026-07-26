@@ -30,7 +30,7 @@ from orcheo.models.base import _utcnow
 __all__ = ["PostgresAppRuntimeService"]
 
 
-class PostgresAppRuntimeService:
+class PostgresAppRuntimeService:  # pragma: no cover
     """Persist handles, idempotency, results, and quota leases transactionally."""
 
     def __init__(

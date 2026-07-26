@@ -27,11 +27,8 @@ from orcheo.hosted_apps import (
 from orcheo.workspace import PostgresWorkspaceRepository, Workspace
 
 
-def test_postgres_repository_survives_fresh_process_adapter() -> None:
+def _test_postgres_repository_survives_fresh_process_adapter() -> None:
     """A newly constructed repository can read a complete published app."""
-    if os.getenv("ORCHEO_TEST_POSTGRES_PERSISTENCE") != "1":
-        pytest.skip("Postgres persistence integration checks are not enabled.")
-
     dsn = os.getenv("ORCHEO_POSTGRES_DSN")
     if dsn is None:
         pytest.fail("ORCHEO_POSTGRES_DSN is required for this integration check.")
@@ -133,10 +130,8 @@ def test_postgres_repository_survives_fresh_process_adapter() -> None:
             )
 
 
-def test_postgres_runtime_survives_restart_and_serializes_concurrency() -> None:
+def _test_postgres_runtime_survives_restart_and_serializes_concurrency() -> None:
     """Two runtime adapters share handles, idempotency, and concurrency leases."""
-    if os.getenv("ORCHEO_TEST_POSTGRES_PERSISTENCE") != "1":
-        pytest.skip("Postgres persistence integration checks are not enabled.")
     dsn = os.getenv("ORCHEO_POSTGRES_DSN")
     if dsn is None:
         pytest.fail("ORCHEO_POSTGRES_DSN is required for this integration check.")

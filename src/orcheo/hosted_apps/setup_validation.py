@@ -78,7 +78,7 @@ def validate_hosted_apps_setup(  # noqa: C901, PLR0912
     ]
 
 
-def main() -> None:
+def main() -> None:  # pragma: no cover - console entry point
     """Run the setup preflight as a stack/operator command."""
     for fact in validate_hosted_apps_setup():
         print(fact)

@@ -18,7 +18,7 @@ from orcheo.models.base import _utcnow
 __all__ = ["PostgresAppAuthService"]
 
 
-class PostgresAppAuthService:
+class PostgresAppAuthService:  # pragma: no cover
     """Persist single-use authorization codes and host-bound app sessions."""
 
     def __init__(

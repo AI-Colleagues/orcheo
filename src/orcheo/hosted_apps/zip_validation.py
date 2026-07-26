@@ -210,7 +210,7 @@ def _validate_zip(
         expanded_bytes += actual_size
         _reject_executable_bytes(path, first_bytes)
         if path == _APP_MANIFEST_PATH:
-            if content is None:
+            if content is None:  # pragma: no cover
                 raise AssertionError("App manifest content was not retained.")
             app_manifest = _parse_app_manifest(content)
             continue

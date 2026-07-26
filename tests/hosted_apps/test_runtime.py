@@ -1,6 +1,8 @@
 """Security and idempotency tests for app-scoped workflow runtime."""
 
 from uuid import uuid4
+from collections import deque
+from datetime import timedelta
 
 import pytest
 
@@ -10,7 +12,10 @@ from orcheo.hosted_apps import (
     AppRuntimeError,
     AppRuntimeLimitError,
     AppRuntimeService,
+    validate_input_schema,
 )
+from orcheo.hosted_apps.runtime import _project_output, _validate_schema
+from orcheo.models.base import _utcnow
 
 
 def _binding(*, authenticated: bool = False) -> AppBinding:
@@ -44,6 +49,7 @@ def _accept(
     key: str = "request-1",
     user: str | None = None,
     session_id=None,
+    client_ip: str | None = None,
 ):
     return service.accept(
         binding,
@@ -58,6 +64,7 @@ def _accept(
         visitor_user_id=user,
         session_id=session_id,
         anonymous_visitor_id="visitor-1",
+        client_ip=client_ip,
     )
 
 
@@ -280,3 +287,94 @@ def test_anonymous_idempotency_is_bound_to_gateway_visitor_identity() -> None:
         **common,
     )
     assert replay.handle == first.handle
+
+
+def test_runtime_lifecycle_pruning_governance_and_schema_edges() -> None:
+    """Runtime state is bounded across timeout, replay, quota, and schema edges."""
+    service = AppRuntimeService(handle_ttl_seconds=1)
+    binding = _binding()
+    accepted = _accept(service, binding, key="timeout")
+    state = service._runs[accepted.handle]  # noqa: SLF001
+    state.timeout_at = _utcnow() - timedelta(seconds=1)
+    result = service.status(
+        accepted.handle,
+        workspace_id=binding.workspace_id,
+        app_id=binding.app_id,
+        runtime_generation=7,
+        visitor_user_id=None,
+        session_id=None,
+    )
+    assert result.status == "failed"
+    service.complete(accepted.handle, output={"answer": "ignored"})
+    service.cancel(accepted.handle)
+    state.mapping.expires_at = _utcnow() - timedelta(seconds=1)
+    service._invocation_windows["old"] = deque(  # noqa: SLF001
+        [_utcnow() - timedelta(minutes=2)]
+    )
+    _accept(service, binding, key="after-prune")
+    assert accepted.handle not in service._runs  # noqa: SLF001
+    assert "old" not in service._invocation_windows  # noqa: SLF001
+
+    limited = _binding()
+    limited.limits = {"per_ip_per_minute": 1, "per_session_per_minute": 1}
+    with pytest.raises(AppRuntimeLimitError, match="Client identity"):
+        service.accept(
+            limited,
+            workspace_id=limited.workspace_id,
+            app_id=limited.app_id,
+            release_id=uuid4(),
+            deployment_id=uuid4(),
+            binding_snapshot_sha256="b" * 64,
+            payload={"query": "ok"},
+            idempotency_key="missing-ip",
+            runtime_generation=7,
+            visitor_user_id=None,
+            session_id=None,
+            anonymous_visitor_id="visitor-1",
+        )
+    session_id = uuid4()
+    _accept(
+        service,
+        limited,
+        key="session-1",
+        session_id=session_id,
+        client_ip="198.51.100.1",
+    )
+    with pytest.raises(AppRuntimeLimitError, match="rate"):
+        _accept(
+            service,
+            limited,
+            key="session-2",
+            session_id=session_id,
+            client_ip="198.51.100.1",
+        )
+
+    assert _project_output("not-an-object", {"fields": ["answer"]}) is None
+    assert _project_output({"answer": 1}, {"fields": ["answer", 1]}) == {"answer": 1}
+    with pytest.raises(AppRuntimeError):
+        _validate_schema("x", {"type": "integer"})
+    with pytest.raises(AppRuntimeError):
+        _validate_schema("x", {"enum": ["y"]})
+    with pytest.raises(AppRuntimeError):
+        _validate_schema("x", {"type": "string", "minLength": 2, "maxLength": 1})
+    with pytest.raises(AppRuntimeError):
+        _validate_schema(2, {"type": "number", "minimum": 3, "maximum": 4})
+    with pytest.raises(AppRuntimeError):
+        _validate_schema([], {"type": "array", "minItems": 1, "maxItems": 2})
+    with pytest.raises(AppRuntimeError):
+        _validate_schema([1], {"type": "array", "items": {"type": "string"}})
+    with pytest.raises(AppRuntimeError):
+        _validate_schema({}, {"type": "object", "required": ["x"]})
+    with pytest.raises(AppRuntimeError):
+        _validate_schema(
+            {"x": 1, "y": 2},
+            {"type": "object", "properties": {"x": {}}, "additionalProperties": False},
+        )
+    with pytest.raises(AppRuntimeError):
+        validate_input_schema({"type": "unknown"})
+    with pytest.raises(AppRuntimeError):
+        validate_input_schema({"properties": []})
+    with pytest.raises(AppRuntimeError):
+        validate_input_schema({"properties": {}, "required": ["x"]})
+    with pytest.raises(AppRuntimeError):
+        validate_input_schema({"items": []})

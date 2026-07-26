@@ -47,12 +47,12 @@ def main() -> None:
         os.environ.get("ORCHEO_HOSTED_APPS_PARTIAL_RETENTION_SECONDS", "86400")
     )
     interval = int(os.environ.get("ORCHEO_HOSTED_APPS_CLEANUP_INTERVAL_SECONDS", "900"))
-    while True:
+    while True:  # pragma: no cover - daemon mode is exercised by deployment probes
         reconcile_filesystem(root, retention_seconds=retention)
         if args.once:
             return
         time.sleep(interval)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - module entry point
     main()

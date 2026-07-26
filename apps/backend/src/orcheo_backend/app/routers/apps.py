@@ -742,7 +742,7 @@ async def upload_local_deployment(
         )
     if bundle.filename is None or not bundle.filename.lower().endswith(".zip"):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
                 "code": "hosted_apps.upload.archive_required",
                 "message": "Deployment bundle must be a ZIP archive.",
@@ -754,7 +754,7 @@ async def upload_local_deployment(
     source.seek(0)
     if archive_size <= 0 or archive_size > settings.max_archive_bytes:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail={
                 "code": "hosted_apps.bundle.archive_too_large",
                 "message": (
@@ -784,7 +784,7 @@ async def upload_local_deployment(
         failed = await run_in_threadpool(service.get_deployment, deployment.id)
         await run_in_threadpool(repository.add_deployment, failed)
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": exc.code, "message": str(exc)},
         ) from exc
     if completed.app_manifest is not None:
@@ -801,7 +801,7 @@ async def upload_local_deployment(
             completed.validation_error_message = str(exc)
             await run_in_threadpool(repository.add_deployment, completed)
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail={
                     "code": completed.validation_error_code,
                     "message": completed.validation_error_message,
