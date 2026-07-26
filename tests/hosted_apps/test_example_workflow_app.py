@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 import zipfile
 
@@ -13,8 +14,23 @@ from orcheo.hosted_apps.zip_validation import validate_bundle
 
 
 EXAMPLE_ROOT = (
-    Path(__file__).resolve().parents[2] / "examples" / "hosted_apps" / "workflow-app"
+    Path(__file__).resolve().parents[2]
+    / "colleague-candidates"
+    / "colleague-experts"
+    / "apps"
+    / "workflow-app"
 )
+_BUNDLE_FILES = ("index.html", "styles.css", "app.js", "orcheo.app.json")
+
+
+def _example_bundle() -> BytesIO:
+    """Build the example's browser bundle from the relocated app fixtures."""
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        for filename in _BUNDLE_FILES:
+            bundle.write(EXAMPLE_ROOT / filename, arcname=filename)
+    archive.seek(0)
+    return archive
 
 
 @pytest.mark.parametrize(
@@ -62,8 +78,7 @@ async def test_example_workflows_return_structured_messages(
 
 def test_example_browser_bundle_passes_hosted_app_validation() -> None:
     """The browser assets and private app manifest form a valid Hosted App ZIP."""
-    archive_path = EXAMPLE_ROOT.parent / "workflow-app.zip"
-    with archive_path.open("rb") as archive:
+    with _example_bundle() as archive:
         manifest = validate_bundle(archive)
 
     assert manifest.index == "index.html"
@@ -71,15 +86,16 @@ def test_example_browser_bundle_passes_hosted_app_validation() -> None:
     assert manifest.app_manifest is not None
     assert set(manifest.app_manifest.bindings) == {"greet", "farewell"}
 
-    with zipfile.ZipFile(archive_path) as bundle:
-        assert set(bundle.namelist()) == {
-            "index.html",
-            "styles.css",
-            "app.js",
-            "orcheo.app.json",
-        }
-        for name in ("index.html", "styles.css", "app.js", "orcheo.app.json"):
-            assert bundle.read(name) == (EXAMPLE_ROOT / name).read_bytes()
+    with _example_bundle() as archive:
+        with zipfile.ZipFile(archive) as bundle:
+            assert set(bundle.namelist()) == {
+                "index.html",
+                "styles.css",
+                "app.js",
+                "orcheo.app.json",
+            }
+            for name in ("index.html", "styles.css", "app.js", "orcheo.app.json"):
+                assert bundle.read(name) == (EXAMPLE_ROOT / name).read_bytes()
 
 
 def test_example_client_uses_only_logical_workflow_bindings() -> None:
@@ -94,8 +110,7 @@ def test_example_client_uses_only_logical_workflow_bindings() -> None:
 
 def test_example_manifest_declares_two_distinct_workflows() -> None:
     """Each UI function maps to a portable, exact workflow-version request."""
-    archive_path = EXAMPLE_ROOT.parent / "workflow-app.zip"
-    with archive_path.open("rb") as archive:
+    with _example_bundle() as archive:
         manifest = validate_bundle(archive)
 
     assert manifest.app_manifest is not None
