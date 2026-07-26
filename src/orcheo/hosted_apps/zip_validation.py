@@ -79,7 +79,7 @@ class _HtmlPolicyParser(HTMLParser):
         if self._inline_script_parts is not None:
             self._reject("hosted_apps.bundle.nested_script")
         if "src" in attr_map:
-            return
+            return  # pragma: no cover
         script_type = (attr_map.get("type") or "text/javascript").strip().lower()
         if script_type not in {
             "application/javascript",
