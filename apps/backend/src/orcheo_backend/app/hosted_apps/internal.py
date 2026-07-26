@@ -51,6 +51,11 @@ class RuntimeAcceptRequest(BaseModel):
     payload: Any
     idempotency_key: str = Field(min_length=1, max_length=256)
     client_ip: str
+    anonymous_visitor_id: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
 
 
 class AuthExchangeRequest(BaseModel):
@@ -269,6 +274,7 @@ async def accept_runtime_run(
             runtime_generation=int(descriptor["generation"]),
             visitor_user_id=session.user_id if session else None,
             session_id=session.id if session else None,
+            anonymous_visitor_id=body.anonymous_visitor_id,
             workflow_run_id=execution_id,
             client_ip=body.client_ip,
         )

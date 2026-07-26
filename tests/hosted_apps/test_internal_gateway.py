@@ -122,6 +122,7 @@ def test_internal_runtime_resolves_binding_from_release_snapshot(
             "payload": {"query": "hello"},
             "idempotency_key": "same-request",
             "client_ip": "198.51.100.10",
+            "anonymous_visitor_id": "c" * 64,
         },
     )
     assert accepted.status_code == 200
@@ -135,6 +136,7 @@ def test_internal_runtime_resolves_binding_from_release_snapshot(
             "payload": {"query": "hello"},
             "idempotency_key": "same-request",
             "client_ip": "198.51.100.10",
+            "anonymous_visitor_id": "c" * 64,
         },
     )
     assert replay.json()["handle"] == handle
@@ -189,6 +191,7 @@ def test_authenticated_binding_uses_the_exact_host_app_session(monkeypatch) -> N
             "payload": {"query": "hello"},
             "idempotency_key": "authenticated-request",
             "client_ip": "198.51.100.10",
+            "anonymous_visitor_id": "c" * 64,
         },
     )
     assert response.status_code == 200

@@ -57,6 +57,7 @@ def _accept(
         runtime_generation=7,
         visitor_user_id=user,
         session_id=session_id,
+        anonymous_visitor_id="visitor-1",
     )
 
 
@@ -74,6 +75,7 @@ def test_accept_is_idempotent_and_rejects_changed_payload() -> None:
         "runtime_generation": 2,
         "visitor_user_id": None,
         "session_id": None,
+        "anonymous_visitor_id": "visitor-1",
     }
     first = service.accept(binding, payload={"query": "a"}, **kwargs)
     replay = service.accept(binding, payload={"query": "a"}, **kwargs)
@@ -186,6 +188,7 @@ def test_declared_rate_and_concurrency_limits_are_enforced() -> None:
         runtime_generation=7,
         visitor_user_id=None,
         session_id=None,
+        anonymous_visitor_id="visitor-1",
         client_ip="198.51.100.10",
     )
     with pytest.raises(AppRuntimeLimitError, match="concurrency"):
@@ -201,6 +204,7 @@ def test_declared_rate_and_concurrency_limits_are_enforced() -> None:
             runtime_generation=7,
             visitor_user_id=None,
             session_id=None,
+            anonymous_visitor_id="visitor-1",
             client_ip="198.51.100.10",
         )
     service.complete(first.handle, output={"answer": "done"})
@@ -216,6 +220,7 @@ def test_declared_rate_and_concurrency_limits_are_enforced() -> None:
         runtime_generation=7,
         visitor_user_id=None,
         session_id=None,
+        anonymous_visitor_id="visitor-1",
         client_ip="198.51.100.10",
     )
     service.complete(second.handle, output={"answer": "done"})
@@ -232,12 +237,13 @@ def test_declared_rate_and_concurrency_limits_are_enforced() -> None:
             runtime_generation=7,
             visitor_user_id=None,
             session_id=None,
+            anonymous_visitor_id="visitor-1",
             client_ip="198.51.100.10",
         )
 
 
-def test_anonymous_idempotency_is_bound_to_client_ip() -> None:
-    """One anonymous visitor cannot conflict with another visitor's key."""
+def test_anonymous_idempotency_is_bound_to_gateway_visitor_identity() -> None:
+    """IP changes cannot merge visitors or split one visitor's idempotent retry."""
     service = AppRuntimeService()
     binding = _binding()
     common = {
@@ -255,12 +261,22 @@ def test_anonymous_idempotency_is_bound_to_client_ip() -> None:
         binding,
         payload={"query": "first"},
         client_ip="198.51.100.10",
+        anonymous_visitor_id="visitor-1",
         **common,
     )
     second = service.accept(
         binding,
         payload={"query": "second"},
-        client_ip="198.51.100.11",
+        client_ip="198.51.100.10",
+        anonymous_visitor_id="visitor-2",
         **common,
     )
     assert second.handle != first.handle
+    replay = service.accept(
+        binding,
+        payload={"query": "first"},
+        client_ip="203.0.113.8",
+        anonymous_visitor_id="visitor-1",
+        **common,
+    )
+    assert replay.handle == first.handle

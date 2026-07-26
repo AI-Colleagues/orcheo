@@ -226,6 +226,7 @@ def test_postgres_runtime_survives_restart_and_serializes_concurrency() -> None:
             "runtime_generation": 1,
             "visitor_user_id": None,
             "session_id": None,
+            "anonymous_visitor_id": "visitor-1",
             "client_ip": "198.51.100.10",
         }
         accepted = first_runtime.accept(

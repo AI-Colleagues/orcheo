@@ -82,6 +82,7 @@ class PostgresAppRuntimeService:
         runtime_generation: int,
         visitor_user_id: str | None,
         session_id: UUID | None,
+        anonymous_visitor_id: str | None,
         workflow_run_id: UUID | None = None,
         client_ip: str | None = None,
     ) -> AppRuntimeResult:
@@ -108,11 +109,12 @@ class PostgresAppRuntimeService:
             raise AppRuntimeError("Workflow input exceeds the configured byte limit.")
         _validate_schema(payload, binding.input_schema)
 
-        owner = (
-            str(session_id)
-            if session_id
-            else f"anonymous:{client_ip or visitor_user_id or ''}"
-        )
+        if session_id is not None:
+            owner = str(session_id)
+        elif anonymous_visitor_id:
+            owner = f"anonymous:{anonymous_visitor_id}"
+        else:
+            raise AppRuntimeError("Anonymous visitor identity is required.")
         scope_hash = _hash(
             "|".join(
                 [

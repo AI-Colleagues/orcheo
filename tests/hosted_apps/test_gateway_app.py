@@ -143,6 +143,80 @@ def test_runtime_read_accepts_same_origin_fetch_without_origin_header(
     assert client.get(path, headers={"host": "portal.apps.test"}).status_code == 403
 
 
+def test_runtime_uses_signed_visitor_cookie_across_ip_changes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Anonymous retries use an opaque gateway identity instead of source IP."""
+    forwarded: list[dict[str, object]] = []
+
+    class BackendClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def request(self, *_args, **kwargs):
+            forwarded.append(kwargs["json"])
+            return httpx.Response(
+                200,
+                json={"handle": "opaque-handle", "status": "accepted"},
+            )
+
+    root = tmp_path / "bundles"
+    root.mkdir()
+    monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.test")
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", str(root))
+    monkeypatch.setenv("ORCHEO_APP_GATEWAY_BACKEND_URL", "http://backend")
+    monkeypatch.setenv("ORCHEO_APP_GATEWAY_SECRET", "g" * 64)
+    monkeypatch.setattr(
+        "orcheo_app_gateway.main.httpx.AsyncClient",
+        lambda **_kwargs: BackendClient(),
+    )
+    app = create_app()
+    headers = {
+        "content-type": "application/json",
+        "origin": "https://portal.apps.test",
+        "sec-fetch-site": "same-origin",
+        "idempotency-key": "request-1",
+    }
+    first_client = TestClient(
+        app,
+        base_url="https://portal.apps.test",
+        client=("198.51.100.10", 443),
+    )
+    first = first_client.post(
+        "/__orcheo/workflows/lookup/runs",
+        headers=headers,
+        content="{}",
+    )
+
+    assert first.status_code == 200
+    cookie = first.headers["set-cookie"]
+    assert "__Host-orcheo-app-visitor=" in cookie
+    assert "HttpOnly" in cookie
+    assert "Secure" in cookie
+    assert "SameSite=strict" in cookie
+
+    second_client = TestClient(
+        app,
+        base_url="https://portal.apps.test",
+        client=("203.0.113.8", 443),
+        cookies=first_client.cookies,
+    )
+    second = second_client.post(
+        "/__orcheo/workflows/lookup/runs",
+        headers=headers,
+        content="{}",
+    )
+
+    assert second.status_code == 200
+    assert len(forwarded) == 2
+    assert forwarded[0]["client_ip"] != forwarded[1]["client_ip"]
+    assert forwarded[0]["anonymous_visitor_id"] == forwarded[1]["anonymous_visitor_id"]
+    assert "set-cookie" not in second.headers
+
+
 def test_gateway_starts_pkce_login_with_signed_httponly_transaction(
     tmp_path: Path, monkeypatch
 ) -> None:

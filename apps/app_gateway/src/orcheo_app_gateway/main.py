@@ -35,6 +35,8 @@ _SECURITY_HEADERS = {
 }
 _APP_SESSION_COOKIE = "__Host-orcheo-app-session"
 _APP_AUTH_COOKIE = "__Host-orcheo-app-auth"
+_APP_VISITOR_COOKIE = "__Host-orcheo-app-visitor"
+_APP_VISITOR_COOKIE_MAX_AGE = 365 * 24 * 60 * 60
 
 
 def _load_descriptors(path: Path) -> dict[str, dict[str, Any]]:
@@ -233,6 +235,56 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
                 status_code=400, detail="App login has expired."
             ) from exc
 
+    def resolve_anonymous_visitor(
+        request: Request, host: str
+    ) -> tuple[str, str | None]:
+        """Return a gateway-authenticated visitor id and any replacement cookie."""
+        if not gateway_secret:
+            raise HTTPException(status_code=503, detail="App runtime is unavailable.")
+        cookie = request.cookies.get(_APP_VISITOR_COOKIE)
+        raw_id: str | None = None
+        if cookie and len(cookie) <= 128:
+            try:
+                candidate, signature = cookie.rsplit(".", 1)
+                expected = hmac.new(
+                    gateway_secret.encode(),
+                    f"{host}:{candidate}".encode(),
+                    hashlib.sha256,
+                ).hexdigest()
+                if (
+                    len(candidate) >= 32
+                    and len(signature) == 64
+                    and hmac.compare_digest(signature, expected)
+                ):
+                    raw_id = candidate
+            except ValueError:
+                pass
+        replacement: str | None = None
+        if raw_id is None:
+            raw_id = secrets.token_urlsafe(32)
+            signature = hmac.new(
+                gateway_secret.encode(),
+                f"{host}:{raw_id}".encode(),
+                hashlib.sha256,
+            ).hexdigest()
+            replacement = f"{raw_id}.{signature}"
+        visitor_id = hashlib.sha256(f"{host}:{raw_id}".encode()).hexdigest()
+        return visitor_id, replacement
+
+    def set_anonymous_visitor_cookie(response: Response, value: str | None) -> None:
+        """Persist an exact-host opaque identity without exposing it to app code."""
+        if value is None:
+            return
+        response.set_cookie(
+            _APP_VISITOR_COOKIE,
+            value,
+            max_age=_APP_VISITOR_COOKIE_MAX_AGE,
+            httponly=True,
+            secure=True,
+            samesite="strict",
+            path="/",
+        )
+
     async def session_authenticated(request: Request, host: str) -> bool:
         """Introspect the exact-host HttpOnly app session."""
         secret = request.cookies.get(_APP_SESSION_COOKIE)
@@ -299,6 +351,7 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
             raise HTTPException(
                 status_code=400, detail="Client IP forwarding is invalid."
             ) from exc
+        anonymous_visitor_id, visitor_cookie = resolve_anonymous_visitor(request, host)
         result = await internal_request(
             "POST",
             "runtime/runs",
@@ -308,10 +361,11 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
                 "payload": payload,
                 "idempotency_key": idempotency_key,
                 "client_ip": client_ip,
+                "anonymous_visitor_id": anonymous_visitor_id,
             },
             session_secret=request.cookies.get(_APP_SESSION_COOKIE),
         )
-        return Response(
+        response = Response(
             content=json.dumps(result, separators=(",", ":")),
             media_type="application/json",
             headers={
@@ -319,6 +373,8 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
                 "Cache-Control": "private, no-store",
             },
         )
+        set_anonymous_visitor_cookie(response, visitor_cookie)
+        return response
 
     @app.get("/__orcheo/runs/{handle}", include_in_schema=False)
     async def read_runtime_run(handle: str, request: Request) -> Response:
