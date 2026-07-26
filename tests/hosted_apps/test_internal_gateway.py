@@ -14,6 +14,7 @@ from orcheo.hosted_apps import (
     HostedApp,
     InMemoryHostedAppsRepository,
 )
+from orcheo_backend.app.hosted_apps import internal as internal_routes
 from orcheo_backend.app.hosted_apps.internal import router
 from orcheo_backend.app.hosted_apps.runtime_store import reset_app_runtime_service
 from orcheo_backend.app.hosted_apps.store import get_hosted_apps_repository
@@ -101,6 +102,12 @@ def test_internal_runtime_resolves_binding_from_release_snapshot(
     monkeypatch,
 ) -> None:
     reset_app_runtime_service()
+    scheduled: list[dict] = []
+    monkeypatch.setattr(
+        internal_routes,
+        "_schedule_local_runtime_run",
+        lambda **kwargs: scheduled.append(kwargs),
+    )
     client = _client(monkeypatch)
     headers = {"X-Orcheo-App-Gateway-Token": "dedicated-secret"}
     accepted = client.post(
@@ -128,6 +135,8 @@ def test_internal_runtime_resolves_binding_from_release_snapshot(
         },
     )
     assert replay.json()["handle"] == handle
+    assert len(scheduled) == 1
+    assert scheduled[0]["handle"] == handle
     status_response = client.get(
         f"/internal/hosted-apps/runtime/runs/{handle}",
         params={"host": "gateway-test.apps.test"},

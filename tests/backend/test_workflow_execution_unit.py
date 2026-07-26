@@ -131,6 +131,111 @@ def test_build_initial_state_langgraph_formats() -> None:
     assert state_with_config["foo"] == "bar"
 
 
+@pytest.mark.asyncio
+async def test_execute_workflow_recorded_persists_trace_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Transport-independent executions should populate the workflow trace store."""
+    workflow_id = UUID(int=1)
+    history_store = AsyncMock()
+    history_store.start_run = AsyncMock()
+    history_store.append_step = AsyncMock()
+    history_store.mark_completed = AsyncMock()
+    monkeypatch.setattr(workflow_execution, "get_history_store", lambda: history_store)
+    monkeypatch.setattr(workflow_execution, "get_settings", lambda: {"test": True})
+    monkeypatch.setattr(workflow_execution, "get_repository", lambda: object())
+    monkeypatch.setattr(
+        workflow_execution, "resolve_workflow_workspace_id", _echo_workspace_id
+    )
+    monkeypatch.setattr(workflow_execution, "get_vault", lambda: object())
+    monkeypatch.setattr(
+        workflow_execution,
+        "credential_context_from_workflow",
+        lambda workflow_id, workspace_id=None: {
+            "workflow_id": workflow_id,
+            "workspace_id": workspace_id,
+        },
+    )
+    monkeypatch.setattr(
+        workflow_execution, "CredentialResolver", lambda *args, **kwargs: object()
+    )
+    monkeypatch.setattr(
+        workflow_execution, "credential_resolution", contextlib.nullcontext
+    )
+    monkeypatch.setattr(workflow_execution, "get_tracer", lambda name: object())
+
+    class SpanContext:
+        span = object()
+        trace_id = "trace-id"
+        started_at = datetime.now(tz=UTC)
+
+    @contextlib.contextmanager
+    def fake_workflow_span(*args: Any, **kwargs: Any):
+        yield SpanContext()
+
+    monkeypatch.setattr(workflow_execution, "workflow_span", fake_workflow_span)
+    completion_spans: list[object] = []
+    monkeypatch.setattr(
+        workflow_execution,
+        "record_workflow_completion",
+        lambda span: completion_spans.append(span),
+    )
+    close_sessions = AsyncMock()
+    monkeypatch.setattr(
+        workflow_execution,
+        "close_browser_sessions_for_scope",
+        close_sessions,
+    )
+
+    class AsyncContext:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    compiled = object()
+
+    class Graph:
+        def compile(self, *, checkpointer: object, store: object) -> object:
+            return compiled
+
+    monkeypatch.setattr(backend_app_module, "build_graph", lambda config: Graph())
+    monkeypatch.setattr(
+        backend_app_module,
+        "create_checkpointer",
+        lambda settings: AsyncContext(),
+    )
+    monkeypatch.setattr(
+        backend_app_module,
+        "create_graph_store",
+        lambda settings: AsyncContext(),
+    )
+    stream = AsyncMock(return_value={"structured_response": {"greeting": "Hello!"}})
+    monkeypatch.setattr(workflow_execution, "_run_workflow_stream", stream)
+
+    result = await workflow_execution.execute_workflow_recorded(
+        workflow_id,
+        {"format": LANGGRAPH_SCRIPT_FORMAT},
+        {"name": "Ada"},
+        "app-run-1",
+        workspace_id="workspace-1",
+        stored_runnable_config={},
+    )
+
+    assert result == {"structured_response": {"greeting": "Hello!"}}
+    history_store.start_run.assert_awaited_once()
+    assert history_store.start_run.await_args.kwargs["trace_id"] == "trace-id"
+    assert history_store.start_run.await_args.kwargs["workspace_id"] == "workspace-1"
+    history_store.append_step.assert_awaited_once_with(
+        "app-run-1", {"status": "completed"}
+    )
+    history_store.mark_completed.assert_awaited_once_with("app-run-1")
+    assert stream.await_args.args[5] is None
+    assert completion_spans == [SpanContext.span]
+    close_sessions.assert_awaited_once_with("app-run-1")
+
+
 def test_build_initial_state_langgraph_non_mapping_returns_inputs() -> None:
     data = ["value"]
     runtime_config = {"config": "value"}

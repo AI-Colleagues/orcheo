@@ -38,6 +38,7 @@ class AppRuntimeResult:
     status: str
     output: Any | None = None
     error: str | None = None
+    newly_accepted: bool = False
 
 
 @dataclass(slots=True)
@@ -90,6 +91,7 @@ class AppRuntimeService:
         runtime_generation: int,
         visitor_user_id: str | None,
         session_id: UUID | None,
+        workflow_run_id: UUID | None = None,
     ) -> AppRuntimeResult:
         """Authorize and idempotently accept one immutable binding invocation."""
         self._ensure_binding_scope(binding, workspace_id, app_id)
@@ -141,7 +143,7 @@ class AppRuntimeService:
                 deployment_id=deployment_id,
                 binding_id=binding.id,
                 binding_snapshot_sha256=binding_snapshot_sha256,
-                workflow_run_id=uuid4(),
+                workflow_run_id=workflow_run_id or uuid4(),
                 idempotency_key_hash=_hash(idempotency_key),
                 expires_at=expires_at,
                 visitor_user_id=visitor_user_id,
@@ -159,7 +161,11 @@ class AppRuntimeService:
                 ),
             )
             self._idempotency[scope_hash] = (request_hash, handle, expires_at)
-            return AppRuntimeResult(handle=handle, status="accepted")
+            return AppRuntimeResult(
+                handle=handle,
+                status="accepted",
+                newly_accepted=True,
+            )
 
     def status(
         self,

@@ -77,6 +77,8 @@ def test_accept_is_idempotent_and_rejects_changed_payload() -> None:
     first = service.accept(binding, payload={"query": "a"}, **kwargs)
     replay = service.accept(binding, payload={"query": "a"}, **kwargs)
     assert replay.handle == first.handle
+    assert first.newly_accepted is True
+    assert replay.newly_accepted is False
     with pytest.raises(AppRuntimeConflictError):
         service.accept(binding, payload={"query": "b"}, **kwargs)
 
