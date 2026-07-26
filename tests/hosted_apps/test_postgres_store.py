@@ -17,8 +17,12 @@ from orcheo.hosted_apps import (
     AppVisibility,
     DeploymentStatus,
     HostedApp,
+    AppRuntimeLimitError,
+    PostgresAppRuntimeService,
+    PostgresAppAuthService,
     PostgresHostedAppsRepository,
     PublicationState,
+    pkce_challenge,
 )
 from orcheo.workspace import PostgresWorkspaceRepository, Workspace
 
@@ -118,6 +122,159 @@ def test_postgres_repository_survives_fresh_process_adapter() -> None:
             "release.publish",
         ]
     finally:
+        workspace_repository.delete_workspace(workspace.id)
+        with connect(dsn) as conn:
+            conn.execute(
+                """
+                DELETE FROM hosted_app_platform_audit_events
+                 WHERE metadata @> %s
+                """,
+                (Jsonb({"workspace_id": str(workspace.id)}),),
+            )
+
+
+def test_postgres_runtime_survives_restart_and_serializes_concurrency() -> None:
+    """Two runtime adapters share handles, idempotency, and concurrency leases."""
+    if os.getenv("ORCHEO_TEST_POSTGRES_PERSISTENCE") != "1":
+        pytest.skip("Postgres persistence integration checks are not enabled.")
+    dsn = os.getenv("ORCHEO_POSTGRES_DSN")
+    if dsn is None:
+        pytest.fail("ORCHEO_POSTGRES_DSN is required for this integration check.")
+
+    workspace_repository = PostgresWorkspaceRepository(dsn)
+    workspace = Workspace(
+        slug=f"hosted-runtime-{uuid4().hex[:12]}",
+        name="Hosted Apps runtime test",
+    )
+    workspace_repository.create_workspace(workspace)
+    app = HostedApp(
+        workspace_id=workspace.id,
+        name="Runtime portal",
+        created_by="integration-test",
+    )
+    deployment = AppDeployment(
+        workspace_id=workspace.id,
+        app_id=app.id,
+        status=DeploymentStatus.READY,
+        created_by="integration-test",
+    )
+    binding = AppBinding(
+        workspace_id=workspace.id,
+        app_id=app.id,
+        name="submit",
+        workflow_id=uuid4(),
+        workflow_version_id=uuid4(),
+        workflow_execution_sha256="c" * 64,
+        access_mode="anonymous",
+        output_projection={"fields": ["answer"]},
+        visitor_can_read_output=True,
+        limits={"max_concurrency": 1},
+    )
+    release = AppRelease(
+        workspace_id=workspace.id,
+        app_id=app.id,
+        deployment_id=deployment.id,
+        permission_revision=2,
+        visibility=AppVisibility.PUBLIC,
+        capability_snapshot={"bindings": []},
+        csp_snapshot={},
+        snapshot_sha256="d" * 64,
+        created_by="integration-test",
+    )
+    repository = PostgresHostedAppsRepository(dsn)
+    first_runtime = PostgresAppRuntimeService(dsn)
+    second_runtime = PostgresAppRuntimeService(dsn)
+    first_auth = PostgresAppAuthService(dsn)
+    second_auth = PostgresAppAuthService(dsn)
+    try:
+        repository.create_app_with_alias(app, "runtime-portal")
+        repository.save_binding(binding, actor="integration-test")
+        repository.add_deployment(deployment)
+        repository.publish_release(release)
+        verifier = "v" * 64
+        redirect_uri = "https://runtime-portal.apps.test/__orcheo/auth/callback"
+        code = first_auth.issue_code(
+            app_id=app.id,
+            workspace_id=workspace.id,
+            user_id="member-1",
+            redirect_uri=redirect_uri,
+            code_challenge=pkce_challenge(verifier),
+        )
+        issued = second_auth.exchange(
+            raw_code=code,
+            verifier=verifier,
+            app_host="runtime-portal.apps.test",
+            redirect_uri=redirect_uri,
+            runtime_generation=1,
+            current_member=True,
+        )
+        assert (
+            first_auth.introspect(
+                issued.secret,
+                app_host="runtime-portal.apps.test",
+                runtime_generation=1,
+                current_member=True,
+            ).user_id
+            == "member-1"
+        )
+        common = {
+            "workspace_id": workspace.id,
+            "app_id": app.id,
+            "release_id": release.id,
+            "deployment_id": deployment.id,
+            "binding_snapshot_sha256": release.snapshot_sha256,
+            "runtime_generation": 1,
+            "visitor_user_id": None,
+            "session_id": None,
+            "client_ip": "198.51.100.10",
+        }
+        accepted = first_runtime.accept(
+            binding,
+            payload={"message": "first"},
+            idempotency_key="first",
+            **common,
+        )
+        assert (
+            second_runtime.status(
+                accepted.handle,
+                workspace_id=workspace.id,
+                app_id=app.id,
+                runtime_generation=1,
+                visitor_user_id=None,
+                session_id=None,
+            ).status
+            == "accepted"
+        )
+        with pytest.raises(AppRuntimeLimitError, match="concurrency"):
+            second_runtime.accept(
+                binding,
+                payload={"message": "second"},
+                idempotency_key="second",
+                **common,
+            )
+        first_runtime.complete(accepted.handle, output={"answer": "done"})
+        result = second_runtime.status(
+            accepted.handle,
+            workspace_id=workspace.id,
+            app_id=app.id,
+            runtime_generation=1,
+            visitor_user_id=None,
+            session_id=None,
+        )
+        assert result.status == "completed"
+        assert result.output == {"answer": "done"}
+        second_runtime.accept(
+            binding,
+            payload={"message": "second"},
+            idempotency_key="second",
+            **common,
+        )
+    finally:
+        first_runtime.close()
+        second_runtime.close()
+        first_auth.close()
+        second_auth.close()
+        repository.close()
         workspace_repository.delete_workspace(workspace.id)
         with connect(dsn) as conn:
             conn.execute(

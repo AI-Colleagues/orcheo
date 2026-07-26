@@ -29,7 +29,11 @@ const relativeTime = (value: string): string => {
   return Number.isNaN(date.valueOf()) ? "unknown" : date.toLocaleString();
 };
 
-const deployment = (item: AppDeploymentApi, index: number) => ({
+const deployment = (
+  item: AppDeploymentApi,
+  index: number,
+  activeDeploymentId: string | null,
+) => ({
   id: item.id,
   version: `deployment ${index + 1}`,
   digest: item.manifest_sha256
@@ -38,7 +42,7 @@ const deployment = (item: AppDeploymentApi, index: number) => ({
   size: "—",
   files: 0,
   created: relativeTime(item.created_at),
-  active: false,
+  active: item.id === activeDeploymentId,
   status: item.status,
   manifestBindings: item.app_manifest
     ? Object.entries(item.app_manifest.bindings).map(([name, binding]) => ({
@@ -67,7 +71,13 @@ const appFromApi = (
   state: item.state,
   health: item.state === "suspended" ? "error" : "unknown",
   updated: relativeTime(item.updated_at),
-  deployments: deployments.map(deployment),
+  deployments: deployments.map((deploymentItem, index) =>
+    deployment(
+      deploymentItem,
+      index,
+      item.state === "published" ? item.active_deployment_id : null,
+    ),
+  ),
   bindings: bindings.map((binding) => ({
     name: binding.name,
     workflow: binding.workflow_id,

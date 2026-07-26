@@ -1392,9 +1392,15 @@ def test_ensure_stack_env_file_preserves_existing_values_and_backfills_missing(
 
 def test_ensure_stack_env_file_generates_an_empty_gateway_secret(tmp_path):
     env_template = tmp_path / ".env.example"
-    env_template.write_text("ORCHEO_APP_GATEWAY_SECRET=\n", encoding="utf-8")
+    env_template.write_text(
+        "ORCHEO_APP_GATEWAY_SECRET=\nORCHEO_POSTGRES_PASSWORD=\n",
+        encoding="utf-8",
+    )
     env_file = tmp_path / ".env"
-    env_file.write_text("ORCHEO_APP_GATEWAY_SECRET=\n", encoding="utf-8")
+    env_file.write_text(
+        "ORCHEO_APP_GATEWAY_SECRET=\nORCHEO_POSTGRES_PASSWORD=\n",
+        encoding="utf-8",
+    )
 
     setup.ensure_stack_env_file(
         env_file=env_file,
@@ -1402,12 +1408,13 @@ def test_ensure_stack_env_file_generates_an_empty_gateway_secret(tmp_path):
         console=make_console(),
         generated_defaults={
             "ORCHEO_APP_GATEWAY_SECRET": "generated-gateway-secret",
+            "ORCHEO_POSTGRES_PASSWORD": "do-not-regenerate",
         },
     )
 
-    assert "ORCHEO_APP_GATEWAY_SECRET=generated-gateway-secret" in env_file.read_text(
-        encoding="utf-8"
-    )
+    result = env_file.read_text(encoding="utf-8")
+    assert "ORCHEO_APP_GATEWAY_SECRET=generated-gateway-secret" in result
+    assert "ORCHEO_POSTGRES_PASSWORD=\n" in result
 
 
 def test_ensure_stack_assets_fresh(monkeypatch, tmp_path):

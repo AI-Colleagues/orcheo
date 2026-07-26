@@ -46,6 +46,9 @@ def get_hosted_apps_repository() -> HostedAppsRepository:
 
 def set_hosted_apps_repository(repository: HostedAppsRepository | None) -> None:
     """Override the repository for tests and controlled embedded deployments."""
+    current = _repository_ref["repository"]
+    if isinstance(current, PostgresHostedAppsRepository) and current is not repository:
+        current.close()
     _repository_ref["repository"] = repository
 
 

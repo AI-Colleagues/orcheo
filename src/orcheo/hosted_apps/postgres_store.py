@@ -4,13 +4,14 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
-from psycopg import Connection, connect
+from psycopg import Connection
 from psycopg.errors import UniqueViolation
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
+from psycopg_pool import ConnectionPool
 from orcheo.hosted_apps.errors import (
     AliasConflictError,
     AliasTombstonedError,
@@ -58,24 +59,38 @@ class PostgresHostedAppsRepository:
         """Configure the database connection and initialize additive schema."""
         self._dsn = dsn
         self._alias_tombstone_days = alias_tombstone_days
+        self._pool = ConnectionPool(
+            conninfo=dsn,
+            min_size=0,
+            max_size=10,
+            kwargs={"row_factory": dict_row},
+            open=True,
+        )
         if ensure_schema:
             self._ensure_schema()
 
     @contextmanager
     def _connect(self) -> Iterator[Connection[Any]]:
-        connection = connect(self._dsn, row_factory=dict_row)
-        try:
-            yield connection
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
+        with self._pool.connection() as connection:
+            try:
+                yield connection
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
 
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
             conn.execute(POSTGRES_HOSTED_APPS_SCHEMA)
+
+    @property
+    def dsn(self) -> str:
+        """Return the configured DSN for colocated durable runtime adapters."""
+        return self._dsn
+
+    def close(self) -> None:
+        """Close pooled PostgreSQL connections during controlled shutdown."""
+        self._pool.close()
 
     @staticmethod
     def _app_from_row(row: Mapping[str, Any]) -> HostedApp:
@@ -391,6 +406,83 @@ class PostgresHostedAppsRepository:
                 (workspace_id,),
             ).fetchall()
         return [self._app_from_row(row) for row in rows]
+
+    def get_active_deployment_id(self, workspace_id: UUID, app_id: UUID) -> UUID | None:
+        """Return the deployment selected by the app's active release."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT release.deployment_id
+                  FROM hosted_apps AS app
+             LEFT JOIN hosted_app_releases AS release
+                    ON release.workspace_id = app.workspace_id
+                   AND release.app_id = app.id
+                   AND release.id = app.active_release_id
+                 WHERE app.workspace_id = %s
+                   AND app.id = %s
+                """,
+                (workspace_id, app_id),
+            ).fetchone()
+        if row is None:
+            raise KeyError("Hosted app was not found in this workspace.")
+        deployment_id = row["deployment_id"]
+        return UUID(str(deployment_id)) if deployment_id is not None else None
+
+    def list_apps_page(
+        self,
+        workspace_id: UUID,
+        *,
+        cursor: tuple[datetime, UUID] | None,
+        limit: int,
+    ) -> tuple[list[tuple[HostedApp, AppAlias]], bool]:
+        """Fetch one bounded page and its aliases in a single query."""
+        parameters: list[Any] = [workspace_id]
+        cursor_clause = ""
+        if cursor is not None:
+            cursor_clause = "AND (app.updated_at, app.id) < (%s, %s)"
+            parameters.extend(cursor)
+        parameters.append(limit + 1)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT app.*,
+                       alias.alias AS joined_alias,
+                       alias.reserved_kind AS joined_reserved_kind,
+                       alias.tombstoned_until AS joined_tombstoned_until,
+                       alias.created_at AS joined_alias_created_at,
+                       alias.updated_at AS joined_alias_updated_at
+                  FROM hosted_apps AS app
+                  JOIN hosted_app_aliases AS alias
+                    ON alias.workspace_id = app.workspace_id
+                   AND alias.app_id = app.id
+                   AND alias.reserved_kind = 'app'
+                 WHERE app.workspace_id = %s
+                   {cursor_clause}
+                 ORDER BY app.updated_at DESC, app.id DESC
+                 LIMIT %s
+                """,
+                parameters,
+            ).fetchall()
+        has_more = len(rows) > limit
+        pairs: list[tuple[HostedApp, AppAlias]] = []
+        for row in rows[:limit]:
+            app_payload = {
+                key: value
+                for key, value in row.items()
+                if not key.startswith("joined_")
+            }
+            app = self._app_from_row(app_payload)
+            alias = AppAlias(
+                alias=row["joined_alias"],
+                app_id=app.id,
+                workspace_id=app.workspace_id,
+                reserved_kind=row["joined_reserved_kind"],
+                tombstoned_until=row["joined_tombstoned_until"],
+                created_at=row["joined_alias_created_at"],
+                updated_at=row["joined_alias_updated_at"],
+            )
+            pairs.append((app, alias))
+        return pairs, has_more
 
     def update_app(
         self,

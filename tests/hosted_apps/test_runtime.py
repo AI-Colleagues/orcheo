@@ -8,6 +8,7 @@ from orcheo.hosted_apps import (
     AppBinding,
     AppRuntimeConflictError,
     AppRuntimeError,
+    AppRuntimeLimitError,
     AppRuntimeService,
 )
 
@@ -162,3 +163,104 @@ def test_output_defaults_to_no_fields() -> None:
         session_id=None,
     )
     assert result.output is None
+
+
+def test_declared_rate_and_concurrency_limits_are_enforced() -> None:
+    """Unique requests cannot exceed binding governance limits."""
+    service = AppRuntimeService()
+    binding = _binding()
+    binding.limits = {
+        "per_ip_per_minute": 2,
+        "per_app_per_minute": 2,
+        "max_concurrency": 1,
+    }
+    first = service.accept(
+        binding,
+        workspace_id=binding.workspace_id,
+        app_id=binding.app_id,
+        release_id=uuid4(),
+        deployment_id=uuid4(),
+        binding_snapshot_sha256="b" * 64,
+        payload={"query": "one"},
+        idempotency_key="one",
+        runtime_generation=7,
+        visitor_user_id=None,
+        session_id=None,
+        client_ip="198.51.100.10",
+    )
+    with pytest.raises(AppRuntimeLimitError, match="concurrency"):
+        service.accept(
+            binding,
+            workspace_id=binding.workspace_id,
+            app_id=binding.app_id,
+            release_id=uuid4(),
+            deployment_id=uuid4(),
+            binding_snapshot_sha256="b" * 64,
+            payload={"query": "two"},
+            idempotency_key="two",
+            runtime_generation=7,
+            visitor_user_id=None,
+            session_id=None,
+            client_ip="198.51.100.10",
+        )
+    service.complete(first.handle, output={"answer": "done"})
+    second = service.accept(
+        binding,
+        workspace_id=binding.workspace_id,
+        app_id=binding.app_id,
+        release_id=uuid4(),
+        deployment_id=uuid4(),
+        binding_snapshot_sha256="b" * 64,
+        payload={"query": "two"},
+        idempotency_key="two",
+        runtime_generation=7,
+        visitor_user_id=None,
+        session_id=None,
+        client_ip="198.51.100.10",
+    )
+    service.complete(second.handle, output={"answer": "done"})
+    with pytest.raises(AppRuntimeLimitError, match="rate"):
+        service.accept(
+            binding,
+            workspace_id=binding.workspace_id,
+            app_id=binding.app_id,
+            release_id=uuid4(),
+            deployment_id=uuid4(),
+            binding_snapshot_sha256="b" * 64,
+            payload={"query": "three"},
+            idempotency_key="three",
+            runtime_generation=7,
+            visitor_user_id=None,
+            session_id=None,
+            client_ip="198.51.100.10",
+        )
+
+
+def test_anonymous_idempotency_is_bound_to_client_ip() -> None:
+    """One anonymous visitor cannot conflict with another visitor's key."""
+    service = AppRuntimeService()
+    binding = _binding()
+    common = {
+        "workspace_id": binding.workspace_id,
+        "app_id": binding.app_id,
+        "release_id": uuid4(),
+        "deployment_id": uuid4(),
+        "binding_snapshot_sha256": "b" * 64,
+        "idempotency_key": "shared-browser-key",
+        "runtime_generation": 7,
+        "visitor_user_id": None,
+        "session_id": None,
+    }
+    first = service.accept(
+        binding,
+        payload={"query": "first"},
+        client_ip="198.51.100.10",
+        **common,
+    )
+    second = service.accept(
+        binding,
+        payload={"query": "second"},
+        client_ip="198.51.100.11",
+        **common,
+    )
+    assert second.handle != first.handle

@@ -1,15 +1,20 @@
 """Manifest-only static Hosted Apps gateway for local and stack deployment."""
 
 from __future__ import annotations
+import base64
+import hashlib
+import hmac
 import json
 import os
+import secrets
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 from uuid import UUID
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from orcheo.hosted_apps import (
     canonical_app_host,
     derive_client_ip,
@@ -28,6 +33,8 @@ _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
 }
+_APP_SESSION_COOKIE = "__Host-orcheo-app-session"
+_APP_AUTH_COOKIE = "__Host-orcheo-app-auth"
 
 
 def _load_descriptors(path: Path) -> dict[str, dict[str, Any]]:
@@ -48,6 +55,7 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
     )
     backend_url = os.getenv("ORCHEO_APP_GATEWAY_BACKEND_URL", "").rstrip("/")
     gateway_secret = os.getenv("ORCHEO_APP_GATEWAY_SECRET", "")
+    studio_url = os.getenv("ORCHEO_STUDIO_URL", "http://localhost:2026").rstrip("/")
     cache_seconds = min(
         max(int(os.getenv("ORCHEO_APP_DESCRIPTOR_CACHE_SECONDS", "30")), 1), 60
     )
@@ -95,7 +103,12 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
         else:
             local = _load_descriptors(descriptor_file).get(alias)
             descriptor = local if isinstance(local, dict) else None
-        descriptor_cache[alias] = (now + cache_seconds, descriptor)
+        # Backend resolution includes suspension and moderation state. Do not retain
+        # those decisions in the gateway process, so an operator action takes effect
+        # on the next request. Local descriptor files are immutable test/dev input
+        # and can still use the bounded cache.
+        if not backend_url:
+            descriptor_cache[alias] = (now + cache_seconds, descriptor)
         return descriptor
 
     def validate_browser_mutation(request: Request, host: str) -> None:
@@ -139,24 +152,28 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
         if request.headers.get("sec-fetch-site") != "same-origin":
             raise HTTPException(status_code=403, detail="Fetch Metadata is invalid.")
 
-    async def runtime_request(
+    async def internal_request(
         method: str,
         path: str,
         *,
         json_body: dict[str, Any] | None = None,
         params: dict[str, str] | None = None,
+        session_secret: str | None = None,
     ) -> dict[str, Any]:
-        """Call only the gateway-scoped backend runtime namespace."""
+        """Call only the dedicated gateway-scoped backend namespace."""
         if not backend_url or not gateway_secret:
             raise HTTPException(status_code=503, detail="App runtime is unavailable.")
+        headers = {"X-Orcheo-App-Gateway-Token": gateway_secret}
+        if session_secret:
+            headers["X-Orcheo-App-Session"] = session_secret
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.request(
                     method,
-                    f"{backend_url}/internal/hosted-apps/runtime/{path}",
+                    f"{backend_url}/internal/hosted-apps/{path}",
                     json=json_body,
                     params=params,
-                    headers={"X-Orcheo-App-Gateway-Token": gateway_secret},
+                    headers=headers,
                 )
         except httpx.HTTPError as exc:
             raise HTTPException(
@@ -164,12 +181,73 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
             ) from exc
         if response.status_code == 404:
             raise HTTPException(status_code=404, detail="App runtime is unavailable.")
+        if response.status_code in {401, 409, 429}:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=response.json().get(
+                    "detail", "App runtime request was rejected."
+                ),
+            )
         if response.status_code != 200:
             raise HTTPException(status_code=503, detail="App runtime is unavailable.")
         payload = response.json()
         if not isinstance(payload, dict):
             raise HTTPException(status_code=503, detail="App runtime is unavailable.")
         return payload
+
+    def encode_auth_transaction(payload: dict[str, Any]) -> str:
+        """Sign a short-lived HttpOnly transaction without server-side state."""
+        encoded = (
+            base64.urlsafe_b64encode(
+                json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+            )
+            .decode()
+            .rstrip("=")
+        )
+        signature = hmac.new(
+            gateway_secret.encode(), encoded.encode(), hashlib.sha256
+        ).hexdigest()
+        return f"{encoded}.{signature}"
+
+    def decode_auth_transaction(value: str | None) -> dict[str, Any]:
+        """Verify and decode one gateway-created auth transaction."""
+        if not value or not gateway_secret:
+            raise HTTPException(status_code=400, detail="App login has expired.")
+        try:
+            encoded, signature = value.rsplit(".", 1)
+            expected = hmac.new(
+                gateway_secret.encode(), encoded.encode(), hashlib.sha256
+            ).hexdigest()
+            if not hmac.compare_digest(signature, expected):
+                raise ValueError("signature")
+            padding = "=" * (-len(encoded) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(encoded + padding))
+            if (
+                not isinstance(payload, dict)
+                or float(payload["expires_at"]) <= time.time()
+            ):
+                raise ValueError("expiry")
+            return payload
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise HTTPException(
+                status_code=400, detail="App login has expired."
+            ) from exc
+
+    async def session_authenticated(request: Request, host: str) -> bool:
+        """Introspect the exact-host HttpOnly app session."""
+        secret = request.cookies.get(_APP_SESSION_COOKIE)
+        if not secret:
+            return False
+        try:
+            result = await internal_request(
+                "GET",
+                "auth/session",
+                params={"host": host},
+                session_secret=secret,
+            )
+        except HTTPException:
+            return False
+        return result.get("authenticated") is True
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz() -> dict[str, str]:
@@ -221,9 +299,9 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
             raise HTTPException(
                 status_code=400, detail="Client IP forwarding is invalid."
             ) from exc
-        result = await runtime_request(
+        result = await internal_request(
             "POST",
-            "runs",
+            "runtime/runs",
             json_body={
                 "host": host,
                 "binding": binding,
@@ -231,6 +309,7 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
                 "idempotency_key": idempotency_key,
                 "client_ip": client_ip,
             },
+            session_secret=request.cookies.get(_APP_SESSION_COOKIE),
         )
         return Response(
             content=json.dumps(result, separators=(",", ":")),
@@ -251,7 +330,12 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
         except AliasValidationError as exc:
             raise HTTPException(status_code=404, detail="Unknown hosted app.") from exc
         validate_browser_read(request, host)
-        result = await runtime_request("GET", f"runs/{handle}", params={"host": host})
+        result = await internal_request(
+            "GET",
+            f"runtime/runs/{handle}",
+            params={"host": host},
+            session_secret=request.cookies.get(_APP_SESSION_COOKIE),
+        )
         return Response(
             content=json.dumps(result, separators=(",", ":")),
             media_type="application/json",
@@ -260,6 +344,106 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
                 "Cache-Control": "private, no-store",
             },
         )
+
+    @app.get("/__orcheo/auth/start", include_in_schema=False)
+    async def start_app_auth(request: Request, return_to: str = "/") -> Response:
+        """Start central member authorization with a gateway-owned PKCE verifier."""
+        try:
+            host, alias = canonical_app_host(
+                request.headers.get("host", ""), base_domain
+            )
+        except AliasValidationError as exc:
+            raise HTTPException(status_code=404, detail="Unknown hosted app.") from exc
+        if not backend_url or not gateway_secret:
+            raise HTTPException(status_code=503, detail="App login is unavailable.")
+        descriptor = await resolve_descriptor(host, alias)
+        if not isinstance(descriptor, dict) or descriptor.get("state") == "suspended":
+            raise HTTPException(status_code=404, detail="Hosted app is unavailable.")
+        if not return_to.startswith("/") or return_to.startswith("//"):
+            raise HTTPException(status_code=400, detail="Invalid app return path.")
+        verifier = secrets.token_urlsafe(48)
+        challenge = (
+            base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
+            .decode()
+            .rstrip("=")
+        )
+        state = secrets.token_urlsafe(32)
+        scheme = "http" if host.endswith(".localhost") else "https"
+        redirect_uri = f"{scheme}://{host}/__orcheo/auth/callback"
+        transaction = encode_auth_transaction(
+            {
+                "host": host,
+                "verifier": verifier,
+                "state": state,
+                "redirect_uri": redirect_uri,
+                "return_to": return_to,
+                "expires_at": time.time() + 300,
+            }
+        )
+        authorize_query = urlencode(
+            {
+                "host": host,
+                "redirect_uri": redirect_uri,
+                "code_challenge": challenge,
+                "state": state,
+            }
+        )
+        destination = f"{studio_url}/apps/authorize?{authorize_query}"
+        response = RedirectResponse(destination, status_code=302)
+        response.set_cookie(
+            _APP_AUTH_COOKIE,
+            transaction,
+            max_age=300,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            path="/",
+        )
+        return response
+
+    @app.get("/__orcheo/auth/callback", include_in_schema=False)
+    async def finish_app_auth(
+        request: Request,
+        code: str,
+        state: str,
+    ) -> Response:
+        """Exchange a central code and issue the exact-host app session cookie."""
+        transaction = decode_auth_transaction(request.cookies.get(_APP_AUTH_COOKIE))
+        try:
+            host, _alias = canonical_app_host(
+                request.headers.get("host", ""), base_domain
+            )
+        except AliasValidationError as exc:
+            raise HTTPException(status_code=404, detail="Unknown hosted app.") from exc
+        if transaction.get("host") != host or not hmac.compare_digest(
+            str(transaction.get("state", "")), state
+        ):
+            raise HTTPException(status_code=400, detail="App login state is invalid.")
+        result = await internal_request(
+            "POST",
+            "auth/exchange",
+            json_body={
+                "host": host,
+                "code": code,
+                "verifier": transaction["verifier"],
+                "redirect_uri": transaction["redirect_uri"],
+            },
+        )
+        session_secret = result.get("session_secret")
+        if not isinstance(session_secret, str):
+            raise HTTPException(status_code=503, detail="App login is unavailable.")
+        response = RedirectResponse(str(transaction["return_to"]), status_code=302)
+        response.set_cookie(
+            _APP_SESSION_COOKIE,
+            session_secret,
+            max_age=43_200,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            path="/",
+        )
+        response.delete_cookie(_APP_AUTH_COOKIE, path="/", secure=True, httponly=True)
+        return response
 
     @app.get("/{asset_path:path}", include_in_schema=False)
     async def serve_asset(  # noqa: C901, PLR0912
@@ -278,10 +462,11 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
                 raise HTTPException(
                     status_code=404, detail="Hosted app is unavailable."
                 )
+            authenticated = await session_authenticated(request, _host)
             return Response(
                 content=json.dumps(
                     {
-                        "authenticated": False,
+                        "authenticated": authenticated,
                         "visibility": descriptor.get("visibility", "public"),
                     },
                     separators=(",", ":"),
@@ -309,11 +494,15 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
                     ),
                 },
             )
-        if (
-            not isinstance(descriptor, dict)
-            or descriptor.get("visibility") == "private"
-        ):
+        if not isinstance(descriptor, dict):
             raise HTTPException(status_code=404, detail="Hosted app is unavailable.")
+        private_requires_login = descriptor.get("visibility") == "private"
+        if private_requires_login and not await session_authenticated(request, _host):
+            return RedirectResponse(
+                f"/__orcheo/auth/start?{urlencode({'return_to': request.url.path})}",
+                status_code=302,
+                headers={**_SECURITY_HEADERS, "Cache-Control": "private, no-store"},
+            )
         try:
             deployment_id = UUID(str(descriptor["deployment_id"]))
         except (KeyError, ValueError) as exc:
@@ -350,7 +539,12 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
             .get(requested, {})
             .get("inline_script_hashes", [])
         )
-        script_sources = " ".join(["'self'", *inline_hashes])
+        quoted_hashes = [
+            f"'{value}'"
+            for value in inline_hashes
+            if isinstance(value, str) and value.startswith("sha256-")
+        ]
+        script_sources = " ".join(["'self'", *quoted_hashes])
         headers["Content-Security-Policy"] = (
             "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
             "object-src 'none'; worker-src 'none'; connect-src 'self'; "

@@ -62,6 +62,8 @@ from orcheo.hosted_apps.models import (
     normalize_alias,
     normalize_logical_name,
 )
+from orcheo.hosted_apps.postgres_auth import PostgresAppAuthService
+from orcheo.hosted_apps.postgres_runtime import PostgresAppRuntimeService
 from orcheo.hosted_apps.postgres_store import PostgresHostedAppsRepository
 from orcheo.hosted_apps.repository import (
     HostedAppsRepository,
@@ -70,6 +72,7 @@ from orcheo.hosted_apps.repository import (
 from orcheo.hosted_apps.runtime import (
     AppRuntimeConflictError,
     AppRuntimeError,
+    AppRuntimeLimitError,
     AppRuntimeResult,
     AppRuntimeService,
     validate_input_schema,
@@ -95,6 +98,7 @@ __all__ = [
     "AppRuntimeRun",
     "AppRuntimeConflictError",
     "AppRuntimeError",
+    "AppRuntimeLimitError",
     "AppRuntimeResult",
     "AppRuntimeService",
     "AppRecord",
@@ -127,6 +131,8 @@ __all__ = [
     "OPERATION_POLICY",
     "PlatformAuditEvent",
     "PostgresHostedAppsRepository",
+    "PostgresAppRuntimeService",
+    "PostgresAppAuthService",
     "pkce_challenge",
     "PublicationState",
     "QuotaLease",

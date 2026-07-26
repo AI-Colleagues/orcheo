@@ -27,6 +27,7 @@ const app = {
   state: "draft" as const,
   is_archived: false,
   active_release_id: null,
+  active_deployment_id: null,
   permission_revision: 1,
   published_permission_revision: null,
   created_at: "2026-07-24T10:00:00Z",
@@ -70,7 +71,13 @@ describe("Hosted Apps workspace data", () => {
   });
 
   it("maps deployment manifest bindings for publish review", async () => {
-    vi.mocked(api.getHostedApp).mockResolvedValue(app);
+    vi.mocked(api.getHostedApp).mockResolvedValue({
+      ...app,
+      publication_state: "published",
+      state: "published",
+      active_release_id: "release-1",
+      active_deployment_id: "deployment-1",
+    });
     vi.mocked(api.listDeployments).mockResolvedValue([
       {
         id: "deployment-1",
@@ -119,5 +126,6 @@ describe("Hosted Apps workspace data", () => {
         (binding) => binding.name,
       ),
     ).toEqual(["greet", "farewell"]);
+    expect(result.current.app?.deployments[0]?.active).toBe(true);
   });
 });

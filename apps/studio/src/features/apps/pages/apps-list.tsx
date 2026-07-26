@@ -14,6 +14,7 @@ export default function AppsList() {
   const navigate = useNavigate();
   const { apps, loading, error } = useApps(workspaceSlug);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const { setPageContext } = usePageContext();
 
   useEffect(() => {
@@ -37,6 +38,10 @@ export default function AppsList() {
           </Button>
         </div>
 
+        {actionError ? (
+          <p className="text-sm text-destructive">{actionError}</p>
+        ) : null}
+
         {loading ? (
           <p className="text-sm text-muted-foreground">Loading apps…</p>
         ) : error ? (
@@ -53,7 +58,18 @@ export default function AppsList() {
                 key={app.id}
                 app={app}
                 onOpen={openApp}
-                onTogglePublish={(target) => void toggleAppPublish(target)}
+                onTogglePublish={(target) => {
+                  setActionError(null);
+                  void toggleAppPublish(target).catch(
+                    (toggleError: unknown) => {
+                      setActionError(
+                        toggleError instanceof Error
+                          ? toggleError.message
+                          : "Unable to update publication state.",
+                      );
+                    },
+                  );
+                }}
               />
             ))}
           </div>

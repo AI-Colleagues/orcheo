@@ -4,10 +4,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 from orcheo.hosted_apps import (
     AliasConflictError,
     AliasTombstonedError,
@@ -72,13 +74,14 @@ def _encode_app_cursor(app: HostedApp) -> str:
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
-def _decode_app_cursor(cursor: str) -> tuple[str, str]:
+def _decode_app_cursor(cursor: str) -> tuple[datetime, UUID]:
     try:
         padding = "=" * (-len(cursor) % 4)
         timestamp, app_id = (
             base64.urlsafe_b64decode(cursor + padding).decode().split("|", 1)
         )
-        UUID(app_id)
+        parsed_timestamp = datetime.fromisoformat(timestamp)
+        parsed_app_id = UUID(app_id)
     except (UnicodeDecodeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -87,7 +90,7 @@ def _decode_app_cursor(cursor: str) -> tuple[str, str]:
                 "message": "App cursor is invalid.",
             },
         ) from exc
-    return timestamp, app_id
+    return parsed_timestamp, parsed_app_id
 
 
 def _ensure_enabled(workspace: WorkspaceContextDep) -> None:
@@ -231,24 +234,21 @@ async def list_apps(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ) -> HostedAppListResponse:
     """List apps only in the selected, authorized workspace."""
-    apps = repository.list_apps(workspace.workspace_id)
-    if cursor:
-        timestamp, app_id = _decode_app_cursor(cursor)
-        apps = [
-            app
-            for app in apps
-            if (app.updated_at.isoformat(), str(app.id)) < (timestamp, app_id)
-        ]
-    page = apps[:limit]
+    page, has_more = await run_in_threadpool(
+        repository.list_apps_page,
+        workspace.workspace_id,
+        cursor=_decode_app_cursor(cursor) if cursor else None,
+        limit=limit,
+    )
     return HostedAppListResponse(
         apps=[
             HostedAppResponse.from_domain(
                 app,
-                alias=repository.get_alias(workspace.workspace_id, app.id).alias,
+                alias=alias.alias,
             )
-            for app in page
+            for app, alias in page
         ],
-        next_cursor=_encode_app_cursor(page[-1]) if len(apps) > limit else None,
+        next_cursor=_encode_app_cursor(page[-1][0]) if has_more else None,
     )
 
 
@@ -268,7 +268,7 @@ async def create_app(
         created_by=auth.subject,
     )
     try:
-        repository.create_app_with_alias(app, request.alias)
+        await run_in_threadpool(repository.create_app_with_alias, app, request.alias)
     except (AliasConflictError, AliasTombstonedError) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -291,11 +291,22 @@ async def get_app(
 ) -> HostedAppResponse:
     """Return one app only if it is owned by the selected workspace."""
     try:
-        app = repository.get_app(workspace.workspace_id, app_id)
+        app = await run_in_threadpool(
+            repository.get_app, workspace.workspace_id, app_id
+        )
     except KeyError as exc:
         raise _not_found() from exc
-    alias = repository.get_alias(workspace.workspace_id, app.id)
-    return HostedAppResponse.from_domain(app, alias=alias.alias)
+    alias = await run_in_threadpool(
+        repository.get_alias, workspace.workspace_id, app.id
+    )
+    active_deployment_id = await run_in_threadpool(
+        repository.get_active_deployment_id, workspace.workspace_id, app.id
+    )
+    return HostedAppResponse.from_domain(
+        app,
+        alias=alias.alias,
+        active_deployment_id=active_deployment_id,
+    )
 
 
 @router.patch("/{app_id}", response_model=HostedAppResponse)
@@ -309,7 +320,9 @@ async def update_app(
 ) -> HostedAppResponse:
     """Update descriptive draft metadata; visibility requires an administrator."""
     try:
-        app = repository.get_app(workspace.workspace_id, app_id)
+        app = await run_in_threadpool(
+            repository.get_app, workspace.workspace_id, app_id
+        )
     except KeyError as exc:
         raise _not_found() from exc
     if request.visibility is not None and not workspace.has_role(Role.ADMIN):
@@ -327,8 +340,10 @@ async def update_app(
     if request.visibility is not None:
         app.visibility = AppVisibility(request.visibility)
         app.permission_revision += 1
-    repository.update_app(app, actor=auth.subject)
-    alias = repository.get_alias(workspace.workspace_id, app.id)
+    await run_in_threadpool(repository.update_app, app, actor=auth.subject)
+    alias = await run_in_threadpool(
+        repository.get_alias, workspace.workspace_id, app.id
+    )
     return HostedAppResponse.from_domain(app, alias=alias.alias)
 
 
@@ -342,12 +357,18 @@ async def archive_app(
 ) -> HostedAppResponse:
     """Archive an app without releasing its alias or deleting immutable history."""
     try:
-        app = repository.get_app(workspace.workspace_id, app_id)
+        app = await run_in_threadpool(
+            repository.get_app, workspace.workspace_id, app_id
+        )
     except KeyError as exc:
         raise _not_found() from exc
     app.is_archived = True
-    repository.update_app(app, actor=auth.subject, action="app.archive")
-    alias = repository.get_alias(workspace.workspace_id, app.id)
+    await run_in_threadpool(
+        repository.update_app, app, actor=auth.subject, action="app.archive"
+    )
+    alias = await run_in_threadpool(
+        repository.get_alias, workspace.workspace_id, app.id
+    )
     return HostedAppResponse.from_domain(app, alias=alias.alias)
 
 
@@ -361,12 +382,18 @@ async def restore_app(
 ) -> HostedAppResponse:
     """Restore an archived app while retaining its prior publication lifecycle."""
     try:
-        app = repository.get_app(workspace.workspace_id, app_id)
+        app = await run_in_threadpool(
+            repository.get_app, workspace.workspace_id, app_id
+        )
     except KeyError as exc:
         raise _not_found() from exc
     app.is_archived = False
-    repository.update_app(app, actor=auth.subject, action="app.restore")
-    alias = repository.get_alias(workspace.workspace_id, app.id)
+    await run_in_threadpool(
+        repository.update_app, app, actor=auth.subject, action="app.restore"
+    )
+    alias = await run_in_threadpool(
+        repository.get_alias, workspace.workspace_id, app.id
+    )
     return HostedAppResponse.from_domain(app, alias=alias.alias)
 
 
@@ -381,8 +408,12 @@ async def replace_alias(
 ) -> HostedAppResponse:
     """Reserve a replacement alias and tombstone the prior origin."""
     try:
-        app = repository.get_app(workspace.workspace_id, app_id)
-        alias = repository.reserve_alias(app, request.alias, actor=auth.subject)
+        app = await run_in_threadpool(
+            repository.get_app, workspace.workspace_id, app_id
+        )
+        alias = await run_in_threadpool(
+            repository.reserve_alias, app, request.alias, actor=auth.subject
+        )
     except KeyError as exc:
         raise _not_found() from exc
     except (AliasConflictError, AliasTombstonedError) as exc:
@@ -407,7 +438,9 @@ async def list_bindings(
 ) -> list[AppBindingResponse]:
     """List the mutable draft grants without exposing active release internals."""
     try:
-        items = repository.list_bindings(workspace.workspace_id, app_id)
+        items = await run_in_threadpool(
+            repository.list_bindings, workspace.workspace_id, app_id
+        )
     except KeyError as exc:
         raise _not_found() from exc
     return [_binding_response(item) for item in items]
@@ -429,14 +462,16 @@ async def create_binding(
 ) -> AppBindingResponse:
     """Create a same-workspace binding with copied executable evidence."""
     try:
-        repository.get_app(workspace.workspace_id, app_id)
+        await run_in_threadpool(repository.get_app, workspace.workspace_id, app_id)
         binding = await _build_binding(
             request,
             app_id=app_id,
             workspace_id=workspace.workspace_id,
             workflows=workflows,
         )
-        saved = repository.save_binding(binding, actor=auth.subject)
+        saved = await run_in_threadpool(
+            repository.save_binding, binding, actor=auth.subject
+        )
     except KeyError as exc:
         raise _not_found() from exc
     except (AppRuntimeError, ValueError) as exc:
@@ -460,9 +495,10 @@ async def update_binding(
 ) -> AppBindingResponse:
     """Replace a live draft binding while retaining its logical stable id."""
     try:
-        existing_ids = {
-            item.id for item in repository.list_bindings(workspace.workspace_id, app_id)
-        }
+        existing = await run_in_threadpool(
+            repository.list_bindings, workspace.workspace_id, app_id
+        )
+        existing_ids = {item.id for item in existing}
         if binding_id not in existing_ids:
             raise KeyError(binding_id)
         binding = await _build_binding(
@@ -472,7 +508,9 @@ async def update_binding(
             workflows=workflows,
             binding_id=binding_id,
         )
-        saved = repository.save_binding(binding, actor=auth.subject)
+        saved = await run_in_threadpool(
+            repository.save_binding, binding, actor=auth.subject
+        )
     except KeyError as exc:
         raise _not_found() from exc
     except (AppRuntimeError, ValueError) as exc:
@@ -496,8 +534,12 @@ async def delete_binding(
 ) -> None:
     """Tombstone a draft binding without modifying existing releases."""
     try:
-        repository.delete_binding(
-            workspace.workspace_id, app_id, binding_id, actor=auth.subject
+        await run_in_threadpool(
+            repository.delete_binding,
+            workspace.workspace_id,
+            app_id,
+            binding_id,
+            actor=auth.subject,
         )
     except KeyError as exc:
         raise _not_found() from exc
@@ -512,7 +554,9 @@ async def list_collections(
 ) -> list[AppCollectionResponse]:
     """List stable live draft collection definitions."""
     try:
-        items = repository.list_collections(workspace.workspace_id, app_id)
+        items = await run_in_threadpool(
+            repository.list_collections, workspace.workspace_id, app_id
+        )
     except KeyError as exc:
         raise _not_found() from exc
     return [_collection_response(item) for item in items]
@@ -527,7 +571,9 @@ async def list_app_audit(
 ) -> list[AppAuditResponse]:
     """Return app-level audit evidence without platform-only metadata."""
     try:
-        events = repository.list_audit_events(workspace.workspace_id, app_id)
+        events = await run_in_threadpool(
+            repository.list_audit_events, workspace.workspace_id, app_id
+        )
     except KeyError as exc:
         raise _not_found() from exc
     return [
@@ -556,8 +602,9 @@ async def create_collection(
 ) -> AppCollectionResponse:
     """Create a stable-id collection with explicit visitor authorization."""
     try:
-        repository.get_app(workspace.workspace_id, app_id)
-        saved = repository.save_collection(
+        await run_in_threadpool(repository.get_app, workspace.workspace_id, app_id)
+        saved = await run_in_threadpool(
+            repository.save_collection,
             AppCollection(
                 workspace_id=workspace.workspace_id,
                 app_id=app_id,
@@ -590,13 +637,14 @@ async def update_collection(
 ) -> AppCollectionResponse:
     """Replace collection policy without changing its stable identity."""
     try:
-        existing_ids = {
-            item.id
-            for item in repository.list_collections(workspace.workspace_id, app_id)
-        }
+        existing = await run_in_threadpool(
+            repository.list_collections, workspace.workspace_id, app_id
+        )
+        existing_ids = {item.id for item in existing}
         if collection_id not in existing_ids:
             raise KeyError(collection_id)
-        saved = repository.save_collection(
+        saved = await run_in_threadpool(
+            repository.save_collection,
             AppCollection(
                 id=collection_id,
                 workspace_id=workspace.workspace_id,
@@ -629,8 +677,12 @@ async def delete_collection(
 ) -> None:
     """Tombstone a collection so later name reuse gets a new stable scope."""
     try:
-        repository.delete_collection(
-            workspace.workspace_id, app_id, collection_id, actor=auth.subject
+        await run_in_threadpool(
+            repository.delete_collection,
+            workspace.workspace_id,
+            app_id,
+            collection_id,
+            actor=auth.subject,
         )
     except KeyError as exc:
         raise _not_found() from exc
@@ -645,7 +697,9 @@ async def list_deployments(
 ) -> list[AppDeploymentResponse]:
     """List validation status without exposing private object-store identifiers."""
     try:
-        deployments = repository.list_deployments(workspace.workspace_id, app_id)
+        deployments = await run_in_threadpool(
+            repository.list_deployments, workspace.workspace_id, app_id
+        )
     except KeyError as exc:
         raise _not_found() from exc
     return [_deployment_response(item) for item in deployments]
@@ -670,7 +724,7 @@ async def upload_local_deployment(
 ) -> AppDeploymentResponse:
     """Validate and materialize one bounded local/single-node deployment upload."""
     try:
-        repository.get_app(workspace.workspace_id, app_id)
+        await run_in_threadpool(repository.get_app, workspace.workspace_id, app_id)
     except KeyError as exc:
         raise _not_found() from exc
     settings = HostedAppsSettings.from_environment()
@@ -716,18 +770,19 @@ async def upload_local_deployment(
             max_file_count=settings.max_file_count,
         ),
     )
-    upload, deployment = service.initiate(
+    upload, deployment = await run_in_threadpool(
+        service.initiate,
         workspace_id=workspace.workspace_id,
         app_id=app_id,
         created_by=auth.subject,
         expected_size_bytes=archive_size,
     )
-    service.stage(upload.id, source)
+    await run_in_threadpool(service.stage, upload.id, source)
     try:
-        completed = service.complete(upload.id)
+        completed = await run_in_threadpool(service.complete, upload.id)
     except BundleValidationError as exc:
-        failed = service.get_deployment(deployment.id)
-        repository.add_deployment(failed)
+        failed = await run_in_threadpool(service.get_deployment, deployment.id)
+        await run_in_threadpool(repository.add_deployment, failed)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": exc.code, "message": str(exc)},
@@ -744,7 +799,7 @@ async def upload_local_deployment(
             completed.status = DeploymentStatus.FAILED
             completed.validation_error_code = "hosted_apps.bundle.binding_invalid"
             completed.validation_error_message = str(exc)
-            repository.add_deployment(completed)
+            await run_in_threadpool(repository.add_deployment, completed)
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={
@@ -752,7 +807,7 @@ async def upload_local_deployment(
                     "message": completed.validation_error_message,
                 },
             ) from exc
-    repository.add_deployment(completed)
+    await run_in_threadpool(repository.add_deployment, completed)
     return _deployment_response(completed)
 
 
@@ -772,13 +827,16 @@ async def publish_app(
 ) -> AppPublishResponse:
     """Publish or roll back by creating and selecting a new immutable release."""
     try:
-        app = repository.get_app(workspace.workspace_id, app_id)
-        alias = repository.get_alias(workspace.workspace_id, app_id)
-        deployment = next(
-            item
-            for item in repository.list_deployments(workspace.workspace_id, app_id)
-            if item.id == deployment_id
+        app = await run_in_threadpool(
+            repository.get_app, workspace.workspace_id, app_id
         )
+        alias = await run_in_threadpool(
+            repository.get_alias, workspace.workspace_id, app_id
+        )
+        deployments = await run_in_threadpool(
+            repository.list_deployments, workspace.workspace_id, app_id
+        )
+        deployment = next(item for item in deployments if item.id == deployment_id)
     except (KeyError, StopIteration) as exc:
         raise _not_found() from exc
     if deployment.app_manifest is not None:
@@ -798,7 +856,12 @@ async def publish_app(
                 },
             ) from exc
     else:
-        bindings = repository.list_bindings(workspace.workspace_id, app_id)
+        bindings = await run_in_threadpool(
+            repository.list_bindings, workspace.workspace_id, app_id
+        )
+    collections = await run_in_threadpool(
+        repository.list_collections, workspace.workspace_id, app_id
+    )
     snapshot = {
         "permission_revision": request.acknowledged_permission_revision,
         "visibility": app.visibility.value,
@@ -808,7 +871,7 @@ async def publish_app(
         ],
         "collections": [
             item.model_dump(mode="json", exclude={"workspace_id", "app_id"})
-            for item in repository.list_collections(workspace.workspace_id, app_id)
+            for item in collections
         ],
         "external_origins": list(app.external_origins),
     }
@@ -827,7 +890,7 @@ async def publish_app(
         created_by=auth.subject,
     )
     try:
-        published = repository.publish_release(release)
+        published = await run_in_threadpool(repository.publish_release, release)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -854,8 +917,15 @@ async def unpublish_app(
 ) -> HostedAppResponse:
     """Stop new delivery while preserving the last immutable release for rollback."""
     try:
-        app = repository.unpublish(workspace.workspace_id, app_id, actor=auth.subject)
+        app = await run_in_threadpool(
+            repository.unpublish,
+            workspace.workspace_id,
+            app_id,
+            actor=auth.subject,
+        )
     except KeyError as exc:
         raise _not_found() from exc
-    alias = repository.get_alias(workspace.workspace_id, app.id)
+    alias = await run_in_threadpool(
+        repository.get_alias, workspace.workspace_id, app.id
+    )
     return HostedAppResponse.from_domain(app, alias=alias.alias)

@@ -2120,7 +2120,9 @@ def ensure_stack_env_file(
             if key not in existing_assignments
         }
         for key, value in (generated_defaults or {}).items():
-            if not existing_assignments.get(key):
+            if key not in existing_assignments or (
+                key == "ORCHEO_APP_GATEWAY_SECRET" and not existing_assignments[key]
+            ):
                 defaults_to_apply[key] = value
 
     if defaults_to_apply:
@@ -2171,10 +2173,15 @@ def _configure_hosted_apps_tls(
         key_source = Path(config.app_tls_key_file or "")
         certificate_target = tls_dir / "cert.pem"
         key_target = tls_dir / "key.pem"
-        if certificate_source.resolve() != certificate_target.resolve():
-            shutil.copy2(certificate_source, certificate_target)
-        if key_source.resolve() != key_target.resolve():
-            shutil.copy2(key_source, key_target)
+        try:
+            if certificate_source.resolve() != certificate_target.resolve():
+                shutil.copy2(certificate_source, certificate_target)
+            if key_source.resolve() != key_target.resolve():
+                shutil.copy2(key_source, key_target)
+        except (OSError, TypeError, ValueError) as exc:
+            raise typer.BadParameter(
+                "Unable to copy the provided Hosted Apps TLS certificate or key."
+            ) from exc
         certificate_target.chmod(0o600)
         key_target.chmod(0o600)
         config.app_tls_cert_file = str(certificate_target.resolve())

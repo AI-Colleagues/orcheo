@@ -5,6 +5,7 @@ from typing import Annotated
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 from orcheo.hosted_apps import HostedAppsRepository
 from orcheo_backend.app.authentication import (
     RequestContext,
@@ -70,7 +71,11 @@ async def create_block(
     auth: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict:
     """Create an immediately effective platform block."""
-    block = repository.create_moderation_block(**body.model_dump(), actor=auth.subject)
+    block = await run_in_threadpool(
+        repository.create_moderation_block,
+        **body.model_dump(),
+        actor=auth.subject,
+    )
     return block.model_dump(mode="json")
 
 
@@ -82,7 +87,9 @@ async def reinstate_block(
 ) -> dict:
     """Lift one exact block without changing workspace-controlled state."""
     try:
-        block = repository.lift_moderation_block(block_id, actor=auth.subject)
+        block = await run_in_threadpool(
+            repository.lift_moderation_block, block_id, actor=auth.subject
+        )
     except KeyError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -99,7 +106,9 @@ async def reserve_alias(
 ) -> dict:
     """Reserve an alias globally for platform use."""
     try:
-        alias = repository.reserve_platform_alias(body.alias, actor=auth.subject)
+        alias = await run_in_threadpool(
+            repository.reserve_platform_alias, body.alias, actor=auth.subject
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
@@ -111,7 +120,7 @@ async def reserve_alias(
 async def lookup_alias_owner(alias: str, repository: RepositoryDep) -> dict:
     """Resolve alias ownership for authorized abuse and incident operators."""
     try:
-        owner = repository.lookup_alias_owner(alias)
+        owner = await run_in_threadpool(repository.lookup_alias_owner, alias)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Alias was not found."
@@ -130,11 +139,20 @@ async def update_runtime(
     auth: Annotated[RequestContext, Depends(get_request_context)],
 ) -> dict:
     """Increment the global generation on every enablement transition."""
-    state = repository.set_runtime_enabled(enabled=body.enabled, actor=auth.subject)
+    state = await run_in_threadpool(
+        repository.set_runtime_enabled, enabled=body.enabled, actor=auth.subject
+    )
     return state.model_dump(mode="json")
 
 
 @operations_router.get("/runtime")
 async def get_runtime(repository: RepositoryDep) -> dict:
     """Inspect the durable runtime generation without selected-workspace state."""
-    return repository.get_runtime_generation().model_dump(mode="json")
+    try:
+        runtime = await run_in_threadpool(repository.get_runtime_generation)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Hosted Apps runtime state is unavailable.",
+        ) from exc
+    return runtime.model_dump(mode="json")

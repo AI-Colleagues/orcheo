@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from uuid import uuid4
 
+import httpx
 from fastapi.testclient import TestClient
 
 from orcheo_app_gateway.main import create_app
@@ -52,7 +53,7 @@ def test_gateway_serves_only_manifest_assets_with_platform_headers(
     response = client.get("/", headers={"host": "portal.apps.test"})
     assert response.status_code == 200
     assert "worker-src 'none'" in response.headers["content-security-policy"]
-    assert "sha256-example" in response.headers["content-security-policy"]
+    assert "'sha256-example'" in response.headers["content-security-policy"]
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["cache-control"] == "no-cache"
 
@@ -140,3 +141,56 @@ def test_runtime_read_accepts_same_origin_fetch_without_origin_header(
         == 403
     )
     assert client.get(path, headers={"host": "portal.apps.test"}).status_code == 403
+
+
+def test_gateway_starts_pkce_login_with_signed_httponly_transaction(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The browser receives only the central redirect and opaque auth cookie."""
+
+    class BackendClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, *_args, **_kwargs):
+            return httpx.Response(
+                200,
+                json={
+                    "deployment_id": str(uuid4()),
+                    "visibility": "private",
+                    "state": "published",
+                },
+            )
+
+    root = tmp_path / "bundles"
+    root.mkdir()
+    monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.test")
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", str(root))
+    monkeypatch.setenv("ORCHEO_APP_GATEWAY_BACKEND_URL", "http://backend")
+    monkeypatch.setenv("ORCHEO_APP_GATEWAY_SECRET", "g" * 64)
+    monkeypatch.setenv("ORCHEO_STUDIO_URL", "https://studio.test")
+    monkeypatch.setattr(
+        "orcheo_app_gateway.main.httpx.AsyncClient",
+        lambda **_kwargs: BackendClient(),
+    )
+    client = TestClient(create_app())
+
+    response = client.get(
+        "/__orcheo/auth/start",
+        params={"return_to": "/dashboard"},
+        headers={"host": "portal.apps.test"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"].startswith(
+        "https://studio.test/apps/authorize?"
+    )
+    cookie = response.headers["set-cookie"]
+    assert "__Host-orcheo-app-auth=" in cookie
+    assert "HttpOnly" in cookie
+    assert "Secure" in cookie
+    assert "SameSite=lax" in cookie

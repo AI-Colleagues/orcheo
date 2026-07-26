@@ -196,16 +196,18 @@ def _validate_zip(
             )
         collision_keys.add(collision_key)
         _validate_member_constraints(path, info, limits)
-        expanded_bytes += info.file_size
-        if expanded_bytes > limits.max_expanded_bytes:
-            raise BundleValidationError(
-                "hosted_apps.bundle.expanded_too_large",
-                "Bundle expands beyond the allowed size.",
-            )
         with bundle.open(info) as source:
-            digest, content, first_bytes = _hash_member(
-                source, keep_content=_is_html(path) or path == _APP_MANIFEST_PATH
+            digest, content, first_bytes, actual_size = _hash_member(
+                source,
+                keep_content=_is_html(path) or path == _APP_MANIFEST_PATH,
+                max_file_bytes=(
+                    min(limits.max_file_bytes, limits.max_app_manifest_bytes)
+                    if path == _APP_MANIFEST_PATH
+                    else limits.max_file_bytes
+                ),
+                max_expanded_bytes=limits.max_expanded_bytes - expanded_bytes,
             )
+        expanded_bytes += actual_size
         _reject_executable_bytes(path, first_bytes)
         if path == _APP_MANIFEST_PATH:
             if content is None:
@@ -215,7 +217,7 @@ def _validate_zip(
         if content is not None:
             html_policy[path] = {"inline_script_hashes": _parse_html_policy(content)}
         files[path] = BundleFile(
-            size_bytes=info.file_size,
+            size_bytes=actual_size,
             sha256=digest,
             content_type=_content_type(path),
         )
@@ -295,13 +297,29 @@ def _validate_member_kind(info: zipfile.ZipInfo, path: str) -> None:
 
 
 def _hash_member(
-    source: IO[bytes], *, keep_content: bool
-) -> tuple[str, bytes | None, bytes]:
-    """Digest a member incrementally and retain only HTML for policy parsing."""
+    source: IO[bytes],
+    *,
+    keep_content: bool,
+    max_file_bytes: int,
+    max_expanded_bytes: int,
+) -> tuple[str, bytes | None, bytes, int]:
+    """Digest a member while independently bounding actual decompressed bytes."""
     digest = hashlib.sha256()
     parts: list[bytes] | None = [] if keep_content else None
     first_bytes = b""
+    actual_size = 0
     while chunk := source.read(1024 * 1024):
+        actual_size += len(chunk)
+        if actual_size > max_file_bytes:
+            raise BundleValidationError(
+                "hosted_apps.bundle.file_too_large",
+                "A bundle file exceeds the allowed size.",
+            )
+        if actual_size > max_expanded_bytes:
+            raise BundleValidationError(
+                "hosted_apps.bundle.expanded_too_large",
+                "Bundle expands beyond the allowed size.",
+            )
         digest.update(chunk)
         if len(first_bytes) < 8:
             first_bytes = (first_bytes + chunk)[:8]
@@ -311,6 +329,7 @@ def _hash_member(
         digest.hexdigest(),
         b"".join(parts) if parts is not None else None,
         first_bytes,
+        actual_size,
     )
 
 

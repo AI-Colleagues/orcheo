@@ -50,6 +50,9 @@ from orcheo_backend.app.dependencies import (
 )
 from orcheo_backend.app.history import RunHistoryStore
 from orcheo_backend.app.hosted_apps import (
+    auth_router as hosted_apps_auth_router,
+)
+from orcheo_backend.app.hosted_apps import (
     internal_router as hosted_apps_internal_router,
 )
 from orcheo_backend.app.identity.router import router as identity_api_router
@@ -213,6 +216,7 @@ def _build_api_router() -> APIRouter:
     router.include_router(triggers.public_webhook_router)
     router.include_router(hosted_apps_platform_router.router)
     router.include_router(hosted_apps_platform_router.operations_router)
+    router.include_router(hosted_apps_auth_router)
     router.include_router(protected_router)
     return router
 

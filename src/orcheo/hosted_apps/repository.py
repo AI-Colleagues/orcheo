@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from threading import RLock
 from typing import Any, Protocol
 from uuid import UUID
@@ -43,6 +43,18 @@ class HostedAppsRepository(Protocol):
 
     def list_apps(self, workspace_id: UUID) -> list[HostedApp]:
         """List apps belonging to the requested workspace only."""
+
+    def list_apps_page(
+        self,
+        workspace_id: UUID,
+        *,
+        cursor: tuple[datetime, UUID] | None,
+        limit: int,
+    ) -> tuple[list[tuple[HostedApp, AppAlias]], bool]:
+        """List one cursor page with aliases and whether more rows exist."""
+
+    def get_active_deployment_id(self, workspace_id: UUID, app_id: UUID) -> UUID | None:
+        """Return the deployment selected by the app's active release."""
 
     def update_app(
         self,
@@ -200,6 +212,35 @@ class InMemoryHostedAppsRepository:
                 key=lambda app: (app.updated_at, str(app.id)),
                 reverse=True,
             )
+
+    def get_active_deployment_id(self, workspace_id: UUID, app_id: UUID) -> UUID | None:
+        """Return the deployment selected by the app's active release."""
+        with self._lock:
+            app = self._ensure_app_scope(workspace_id, app_id)
+            if app.active_release_id is None:
+                return None
+            release = self._releases.get(app.active_release_id)
+            if release is None:
+                raise RuntimeError("Hosted app active release is unavailable.")
+            return release.deployment_id
+
+    def list_apps_page(
+        self,
+        workspace_id: UUID,
+        *,
+        cursor: tuple[datetime, UUID] | None,
+        limit: int,
+    ) -> tuple[list[tuple[HostedApp, AppAlias]], bool]:
+        """List one cursor page without loading the full workspace collection."""
+        apps = self.list_apps(workspace_id)
+        if cursor is not None:
+            apps = [app for app in apps if (app.updated_at, app.id) < cursor]
+        selected = apps[: limit + 1]
+        page = selected[:limit]
+        return (
+            [(app, self.get_alias(workspace_id, app.id)) for app in page],
+            len(selected) > limit,
+        )
 
     def update_app(
         self,

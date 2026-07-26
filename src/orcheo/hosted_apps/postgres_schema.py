@@ -256,6 +256,16 @@ CREATE TABLE IF NOT EXISTS hosted_app_runtime_runs (
     visitor_user_id TEXT,
     originating_session_id UUID REFERENCES hosted_app_sessions(id) ON DELETE SET NULL,
     idempotency_key_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'accepted',
+    output JSONB,
+    error TEXT,
+    runtime_generation BIGINT NOT NULL DEFAULT 0,
+    can_read_output BOOLEAN NOT NULL DEFAULT FALSE,
+    can_read_error BOOLEAN NOT NULL DEFAULT FALSE,
+    output_projection JSONB NOT NULL DEFAULT '{}'::jsonb,
+    max_output_bytes BIGINT NOT NULL DEFAULT 0,
+    timeout_at TIMESTAMPTZ,
+    quota_lease_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
     FOREIGN KEY (workspace_id, app_id)
@@ -263,10 +273,47 @@ CREATE TABLE IF NOT EXISTS hosted_app_runtime_runs (
     FOREIGN KEY (workspace_id, app_id, release_id)
         REFERENCES hosted_app_releases(workspace_id, app_id, id) ON DELETE RESTRICT,
     FOREIGN KEY (workspace_id, app_id, deployment_id)
-        REFERENCES hosted_app_deployments(workspace_id, app_id, id) ON DELETE RESTRICT,
-    FOREIGN KEY (workspace_id, app_id, binding_id)
-        REFERENCES hosted_app_bindings(workspace_id, app_id, id) ON DELETE RESTRICT
+        REFERENCES hosted_app_deployments(workspace_id, app_id, id) ON DELETE RESTRICT
 );
+
+ALTER TABLE hosted_app_runtime_runs
+    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'accepted',
+    ADD COLUMN IF NOT EXISTS output JSONB,
+    ADD COLUMN IF NOT EXISTS error TEXT,
+    ADD COLUMN IF NOT EXISTS runtime_generation BIGINT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS can_read_output BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS can_read_error BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS output_projection JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS max_output_bytes BIGINT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS timeout_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS quota_lease_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+CREATE INDEX IF NOT EXISTS idx_hosted_app_runtime_scope
+    ON hosted_app_runtime_runs(workspace_id, app_id, public_handle);
+
+DO $$
+DECLARE binding_constraint TEXT;
+BEGIN
+    SELECT constraint_name
+      INTO binding_constraint
+      FROM information_schema.constraint_column_usage
+     WHERE table_schema = current_schema()
+       AND table_name = 'hosted_app_bindings'
+       AND constraint_name IN (
+           SELECT constraint_name
+             FROM information_schema.table_constraints
+            WHERE table_schema = current_schema()
+              AND table_name = 'hosted_app_runtime_runs'
+              AND constraint_type = 'FOREIGN KEY'
+       )
+     LIMIT 1;
+    IF binding_constraint IS NOT NULL THEN
+        EXECUTE format(
+            'ALTER TABLE hosted_app_runtime_runs DROP CONSTRAINT %I',
+            binding_constraint
+        );
+    END IF;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS hosted_app_idempotency (
     id UUID PRIMARY KEY,
@@ -276,6 +323,8 @@ CREATE TABLE IF NOT EXISTS hosted_app_idempotency (
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_hosted_app_idempotency_expiry
+    ON hosted_app_idempotency(expires_at);
 
 CREATE TABLE IF NOT EXISTS hosted_app_quota_leases (
     id UUID PRIMARY KEY,

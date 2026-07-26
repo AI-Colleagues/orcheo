@@ -55,13 +55,20 @@ class HostedAppResponse(BaseModel):
     state: str
     is_archived: bool
     active_release_id: UUID | None
+    active_deployment_id: UUID | None
     permission_revision: int
     published_permission_revision: int | None
     created_at: datetime
     updated_at: datetime
 
     @classmethod
-    def from_domain(cls, app: HostedApp, *, alias: str) -> HostedAppResponse:
+    def from_domain(
+        cls,
+        app: HostedApp,
+        *,
+        alias: str,
+        active_deployment_id: UUID | None = None,
+    ) -> HostedAppResponse:
         """Build a response without exposing any storage or runtime secrets."""
         return cls(
             id=app.id,
@@ -74,6 +81,7 @@ class HostedAppResponse(BaseModel):
             state=app.derived_state,
             is_archived=app.is_archived,
             active_release_id=app.active_release_id,
+            active_deployment_id=active_deployment_id,
             permission_revision=app.permission_revision,
             published_permission_revision=app.published_permission_revision,
             created_at=app.created_at,

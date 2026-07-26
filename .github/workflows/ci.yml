@@ -255,7 +255,10 @@ jobs:
           ORCHEO_CHECKPOINT_BACKEND: postgres
           ORCHEO_TEST_POSTGRES_PERSISTENCE: "1"
         run: |
-          uv run pytest tests/integration/test_postgres_persistence.py -vv \
+          uv run pytest \
+            tests/integration/test_postgres_persistence.py \
+            tests/hosted_apps/test_postgres_store.py \
+            -vv \
             -o faulthandler_timeout=60
 
   build-and-release:

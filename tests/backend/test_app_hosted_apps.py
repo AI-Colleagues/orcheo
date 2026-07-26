@@ -4,6 +4,7 @@ import asyncio
 from io import BytesIO
 import json
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 import zipfile
 
@@ -11,11 +12,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from orcheo.hosted_apps import (
+    AppDeployment,
+    AppRelease,
+    AppVisibility,
+    DeploymentStatus,
     InMemoryHostedAppsRepository,
 )
 from orcheo.models import WorkflowDraftAccess
-from orcheo.workspace import Role, WorkspaceContext
+from orcheo.workspace import Role, WorkspaceContext, WorkspaceMembership
 from orcheo_backend.app.hosted_apps import (
+    reset_app_auth_service,
     reset_hosted_apps_repository,
     set_hosted_apps_repository,
 )
@@ -23,13 +29,17 @@ from orcheo_backend.app.hosted_apps.store import _auto_enable_self_hosted_runtim
 from orcheo_backend.app.authentication import RequestContext, get_request_context
 from orcheo_backend.app.authentication.dependencies import authenticate_request
 from orcheo_backend.app.repository import InMemoryWorkflowRepository
-from orcheo_backend.app.workspace.dependencies import resolve_workspace_context
+from orcheo_backend.app.workspace.dependencies import (
+    get_workspace_repository,
+    resolve_workspace_context,
+)
 
 
 @pytest.fixture(autouse=True)
 def hosted_apps_environment(monkeypatch: pytest.MonkeyPatch):
     """Enable the fail-closed feature contract for each isolated test."""
     reset_hosted_apps_repository()
+    reset_app_auth_service()
     repository = InMemoryHostedAppsRepository()
     set_hosted_apps_repository(repository)
     monkeypatch.setenv("ORCHEO_HOSTED_APPS_ENABLED", "true")
@@ -38,6 +48,7 @@ def hosted_apps_environment(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", "/tmp/orcheo-test-apps")
     monkeypatch.setenv("ORCHEO_DEPLOYMENT_MODE", "local")
     yield repository
+    reset_app_auth_service()
     reset_hosted_apps_repository()
 
 
@@ -90,6 +101,63 @@ def test_app_lifecycle_alias_conflict_and_workspace_denial(
         ).status_code
         == 403
     )
+
+
+def test_central_pkce_authorization_requires_current_app_workspace_member(
+    client: TestClient,
+    hosted_apps_environment: InMemoryHostedAppsRepository,
+) -> None:
+    """The Studio authorization bridge issues only an exact-host member code."""
+    auth = RequestContext(subject="member-1", identity_type="user")
+    client.app.dependency_overrides[authenticate_request] = lambda: auth
+    created = client.post(
+        "/api/apps", json={"name": "Private Portal", "alias": "private-portal"}
+    ).json()
+    workspace_id = UUID(created["workspace_id"])
+    app_id = UUID(created["id"])
+    get_workspace_repository().add_membership(
+        WorkspaceMembership(
+            workspace_id=workspace_id,
+            user_id=auth.subject,
+            role=Role.VIEWER,
+        )
+    )
+    deployment = AppDeployment(
+        workspace_id=workspace_id,
+        app_id=app_id,
+        status=DeploymentStatus.READY,
+        created_by="member-1",
+    )
+    hosted_apps_environment.add_deployment(deployment)
+    hosted_apps_environment.publish_release(
+        AppRelease(
+            workspace_id=workspace_id,
+            app_id=app_id,
+            deployment_id=deployment.id,
+            permission_revision=created["permission_revision"],
+            visibility=AppVisibility.PRIVATE,
+            capability_snapshot={"bindings": []},
+            csp_snapshot={},
+            snapshot_sha256="a" * 64,
+            created_by="member-1",
+        )
+    )
+    hosted_apps_environment.set_runtime_enabled(enabled=True, actor="operator")
+    state = "s" * 43
+    response = client.post(
+        "/api/hosted-apps/auth/authorize",
+        json={
+            "host": "private-portal.apps.test",
+            "redirect_uri": ("https://private-portal.apps.test/__orcheo/auth/callback"),
+            "code_challenge": "c" * 43,
+            "state": state,
+        },
+    )
+    assert response.status_code == 200
+    callback = urlparse(response.json()["redirect_url"])
+    assert callback.netloc == "private-portal.apps.test"
+    assert parse_qs(callback.query)["state"] == [state]
+    assert parse_qs(callback.query)["code"]
 
 
 def test_collection_crud_uses_stable_ids_and_updates_review_revision(
@@ -201,6 +269,10 @@ def test_local_bundle_upload_validates_and_publishes(
     )
     assert published.status_code == 200
     assert published.json()["state"] == "published"
+    assert (
+        client.get(f"/api/apps/{created['id']}").json()["active_deployment_id"]
+        == deployment["id"]
+    )
 
 
 def test_manifest_upload_resolves_two_workflows_and_freezes_release(

@@ -12,6 +12,7 @@ export interface HostedAppApi {
   state: "draft" | "published" | "unpublished" | "suspended" | "archived";
   is_archived: boolean;
   active_release_id: string | null;
+  active_deployment_id: string | null;
   permission_revision: number;
   published_permission_revision: number | null;
   created_at: string;
