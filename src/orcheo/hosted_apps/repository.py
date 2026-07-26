@@ -253,10 +253,19 @@ class InMemoryHostedAppsRepository:
     def add_deployment(self, deployment: AppDeployment) -> AppDeployment:
         """Persist only a deployment that belongs to an existing app and workspace."""
         with self._lock:
-            self._ensure_app_scope(deployment.workspace_id, deployment.app_id)
+            app = self._ensure_app_scope(deployment.workspace_id, deployment.app_id)
             if deployment.id in self._deployments:
                 raise ValueError("Hosted app deployment already exists.")
             self._deployments[deployment.id] = deployment.model_copy(deep=True)
+            if (
+                deployment.status is DeploymentStatus.READY
+                and deployment.app_manifest is not None
+            ):
+                self._record_audit(
+                    "deployment.manifest.request", deployment.created_by, app
+                )
+                app.permission_revision += 1
+                app.updated_at = _utcnow()
             return deployment.model_copy(deep=True)
 
     def list_deployments(self, workspace_id: UUID, app_id: UUID) -> list[AppDeployment]:

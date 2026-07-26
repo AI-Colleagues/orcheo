@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS hosted_app_deployments (
     ),
     archive_sha256 TEXT,
     manifest_sha256 TEXT,
+    app_manifest JSONB,
     validation_error_code TEXT,
     validation_error_message TEXT,
     created_by TEXT NOT NULL,
@@ -80,6 +81,8 @@ CREATE TABLE IF NOT EXISTS hosted_app_deployments (
         REFERENCES hosted_apps(workspace_id, id) ON DELETE CASCADE,
     UNIQUE (workspace_id, app_id, id)
 );
+ALTER TABLE hosted_app_deployments
+    ADD COLUMN IF NOT EXISTS app_manifest JSONB;
 CREATE INDEX IF NOT EXISTS idx_hosted_app_deployments_app
     ON hosted_app_deployments(workspace_id, app_id, created_at DESC);
 

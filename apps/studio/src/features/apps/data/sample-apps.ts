@@ -14,6 +14,7 @@ export interface AppDeployment {
   created: string;
   active: boolean;
   status?: "pending" | "validating" | "ready" | "failed" | "expired";
+  manifestBindings?: AppBinding[] | null;
 }
 
 export interface AppBinding {

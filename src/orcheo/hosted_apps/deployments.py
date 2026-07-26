@@ -108,6 +108,7 @@ class DeploymentService:
             deployment.status = DeploymentStatus.READY
             deployment.archive_sha256 = archive_digest
             deployment.manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
+            deployment.app_manifest = manifest.app_manifest
             deployment.validated_at = _utcnow()
             upload.actual_size_bytes = archive_size
             upload.actual_sha256 = archive_digest

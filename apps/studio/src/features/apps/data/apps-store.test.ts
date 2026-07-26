@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "./apps-api";
-import { createApp, useApps } from "./apps-store";
+import { createApp, useApp, useApps } from "./apps-store";
 
 vi.mock("./apps-api", () => ({
   createHostedApp: vi.fn(),
@@ -67,5 +67,57 @@ describe("Hosted Apps workspace data", () => {
       expect(created.id).toBe("app-1");
     });
     expect(api.createHostedApp).toHaveBeenCalledWith("Portal", "portal");
+  });
+
+  it("maps deployment manifest bindings for publish review", async () => {
+    vi.mocked(api.getHostedApp).mockResolvedValue(app);
+    vi.mocked(api.listDeployments).mockResolvedValue([
+      {
+        id: "deployment-1",
+        status: "ready",
+        archive_sha256: "a".repeat(64),
+        manifest_sha256: "b".repeat(64),
+        app_manifest: {
+          schema_version: 1,
+          bindings: {
+            greet: {
+              workflow: "hosted-app-greeting",
+              version: 1,
+              access_mode: "anonymous",
+              input_schema: {},
+              output_projection: {},
+              visitor_can_read_output: true,
+              visitor_can_read_sanitized_errors: true,
+              limits: { per_app_per_minute: 200 },
+            },
+            farewell: {
+              workflow: "hosted-app-farewell",
+              version: 1,
+              access_mode: "anonymous",
+              input_schema: {},
+              output_projection: {},
+              visitor_can_read_output: true,
+              visitor_can_read_sanitized_errors: true,
+              limits: { per_app_per_minute: 200 },
+            },
+          },
+        },
+        validation_error_code: null,
+        validation_error_message: null,
+        created_at: "2026-07-26T08:00:00Z",
+      },
+    ]);
+    vi.mocked(api.listBindings).mockResolvedValue([]);
+    vi.mocked(api.listCollections).mockResolvedValue([]);
+    vi.mocked(api.listAppAudit).mockResolvedValue([]);
+
+    const { result } = renderHook(() => useApp("app-1", "workspace-a"));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(
+      result.current.app?.deployments[0]?.manifestBindings?.map(
+        (binding) => binding.name,
+      ),
+    ).toEqual(["greet", "farewell"]);
   });
 });

@@ -4,7 +4,12 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from orcheo.hosted_apps import AppVisibility, HostedApp, PublicationState
+from orcheo.hosted_apps import (
+    AppManifest,
+    AppVisibility,
+    HostedApp,
+    PublicationState,
+)
 
 
 class AppCreateRequest(BaseModel):
@@ -115,6 +120,7 @@ class AppDeploymentResponse(BaseModel):
     status: str
     archive_sha256: str | None
     manifest_sha256: str | None
+    app_manifest: AppManifest | None
     validation_error_code: str | None
     validation_error_message: str | None
     created_at: datetime

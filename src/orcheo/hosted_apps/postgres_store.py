@@ -89,7 +89,10 @@ class PostgresHostedAppsRepository:
 
     @staticmethod
     def _deployment_from_row(row: Mapping[str, Any]) -> AppDeployment:
-        return AppDeployment(**dict(row))
+        payload = dict(row)
+        if "app_manifest" in payload:
+            payload["app_manifest"] = _json_payload(payload["app_manifest"])
+        return AppDeployment(**payload)
 
     @staticmethod
     def _binding_from_row(row: Mapping[str, Any]) -> AppBinding:
@@ -519,17 +522,19 @@ class PostgresHostedAppsRepository:
         """Persist an app-owned deployment candidate."""
         try:
             with self._connect() as conn:
-                self._get_app_locked(conn, deployment.workspace_id, deployment.app_id)
+                app = self._get_app_locked(
+                    conn, deployment.workspace_id, deployment.app_id
+                )
                 conn.execute(
                     """
                     INSERT INTO hosted_app_deployments (
                         id, workspace_id, app_id, status, archive_sha256,
-                        manifest_sha256, validation_error_code,
+                        manifest_sha256, app_manifest, validation_error_code,
                         validation_error_message, created_by, created_at,
                         validated_at
                     )
                     VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     """,
                     (
@@ -539,6 +544,11 @@ class PostgresHostedAppsRepository:
                         deployment.status.value,
                         deployment.archive_sha256,
                         deployment.manifest_sha256,
+                        (
+                            Jsonb(deployment.app_manifest.model_dump(mode="json"))
+                            if deployment.app_manifest is not None
+                            else None
+                        ),
                         deployment.validation_error_code,
                         deployment.validation_error_message,
                         deployment.created_by,
@@ -546,6 +556,27 @@ class PostgresHostedAppsRepository:
                         deployment.validated_at,
                     ),
                 )
+                if (
+                    deployment.status is DeploymentStatus.READY
+                    and deployment.app_manifest is not None
+                ):
+                    now = _utcnow()
+                    self._insert_app_audit(
+                        conn,
+                        "deployment.manifest.request",
+                        deployment.created_by,
+                        app,
+                    )
+                    conn.execute(
+                        """
+                        UPDATE hosted_apps
+                           SET permission_revision = permission_revision + 1,
+                               updated_at = %s
+                         WHERE workspace_id = %s
+                           AND id = %s
+                        """,
+                        (now, deployment.workspace_id, deployment.app_id),
+                    )
         except UniqueViolation as exc:
             raise ValueError("Hosted app deployment already exists.") from exc
         return deployment.model_copy(deep=True)

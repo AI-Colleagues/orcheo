@@ -3,6 +3,7 @@
 from __future__ import annotations
 import base64
 import hashlib
+import json
 import mimetypes
 import stat
 import unicodedata
@@ -11,8 +12,9 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import PurePosixPath
 from typing import IO, BinaryIO
+from pydantic import ValidationError
 from orcheo.hosted_apps.errors import BundleValidationError
-from orcheo.hosted_apps.models import BundleFile, BundleManifest
+from orcheo.hosted_apps.models import AppManifest, BundleFile, BundleManifest
 
 
 __all__ = ["BundleValidationLimits", "validate_bundle"]
@@ -38,6 +40,7 @@ _MIME_OVERRIDES = {
     ".svg": "image/svg+xml",
     ".wasm": "application/wasm",
 }
+_APP_MANIFEST_PATH = "orcheo.app.json"
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +52,7 @@ class BundleValidationLimits:
     max_file_count: int = 5_000
     max_file_bytes: int = 25 * 1024 * 1024
     max_path_depth: int = 16
+    max_app_manifest_bytes: int = 256 * 1024
 
 
 class _HtmlPolicyParser(HTMLParser):
@@ -176,6 +180,7 @@ def _validate_zip(
         )
     files: dict[str, BundleFile] = {}
     html_policy: dict[str, dict[str, tuple[str, ...]]] = {}
+    app_manifest: AppManifest | None = None
     collision_keys: set[str] = set()
     expanded_bytes = 0
     for info in infos:
@@ -190,16 +195,7 @@ def _validate_zip(
                 "Bundle contains colliding asset paths.",
             )
         collision_keys.add(collision_key)
-        if path.lower().endswith(_NESTED_ARCHIVE_SUFFIXES):
-            raise BundleValidationError(
-                "hosted_apps.bundle.nested_archive",
-                "Nested archives are not supported.",
-            )
-        if info.file_size > limits.max_file_bytes:
-            raise BundleValidationError(
-                "hosted_apps.bundle.file_too_large",
-                "A bundle file exceeds the allowed size.",
-            )
+        _validate_member_constraints(path, info, limits)
         expanded_bytes += info.file_size
         if expanded_bytes > limits.max_expanded_bytes:
             raise BundleValidationError(
@@ -208,9 +204,14 @@ def _validate_zip(
             )
         with bundle.open(info) as source:
             digest, content, first_bytes = _hash_member(
-                source, keep_content=_is_html(path)
+                source, keep_content=_is_html(path) or path == _APP_MANIFEST_PATH
             )
         _reject_executable_bytes(path, first_bytes)
+        if path == _APP_MANIFEST_PATH:
+            if content is None:
+                raise AssertionError("App manifest content was not retained.")
+            app_manifest = _parse_app_manifest(content)
+            continue
         if content is not None:
             html_policy[path] = {"inline_script_hashes": _parse_html_policy(content)}
         files[path] = BundleFile(
@@ -222,7 +223,37 @@ def _validate_zip(
         raise BundleValidationError(
             "hosted_apps.bundle.index_missing", "Bundle must contain root index.html."
         )
-    return BundleManifest(files=files, html_policy=html_policy)
+    return BundleManifest(
+        files=files,
+        html_policy=html_policy,
+        app_manifest=app_manifest,
+    )
+
+
+def _validate_member_constraints(
+    path: str, info: zipfile.ZipInfo, limits: BundleValidationLimits
+) -> None:
+    """Enforce per-member type, size, and deploy-time manifest constraints."""
+    if path.lower().endswith(_NESTED_ARCHIVE_SUFFIXES):
+        raise BundleValidationError(
+            "hosted_apps.bundle.nested_archive",
+            "Nested archives are not supported.",
+        )
+    if info.file_size > limits.max_file_bytes:
+        raise BundleValidationError(
+            "hosted_apps.bundle.file_too_large",
+            "A bundle file exceeds the allowed size.",
+        )
+    if path.casefold() == _APP_MANIFEST_PATH and path != _APP_MANIFEST_PATH:
+        raise BundleValidationError(
+            "hosted_apps.bundle.app_manifest_path_invalid",
+            f"App manifest must use the exact root path {_APP_MANIFEST_PATH!r}.",
+        )
+    if path == _APP_MANIFEST_PATH and info.file_size > limits.max_app_manifest_bytes:
+        raise BundleValidationError(
+            "hosted_apps.bundle.app_manifest_too_large",
+            "App manifest exceeds the allowed size.",
+        )
 
 
 def _normalize_member_path(filename: str, limits: BundleValidationLimits) -> str | None:
@@ -321,6 +352,35 @@ def _parse_html_policy(content: bytes) -> tuple[str, ...]:
     parser.feed(text)
     parser.close()
     return tuple(sorted(set(parser.inline_script_hashes)))
+
+
+def _parse_app_manifest(content: bytes) -> AppManifest:
+    """Decode the private deploy-time manifest using a strict bounded schema."""
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise BundleValidationError(
+            "hosted_apps.bundle.app_manifest_encoding_invalid",
+            "App manifest must be UTF-8 encoded.",
+        ) from exc
+    try:
+        payload = json.loads(text, object_pairs_hook=_unique_json_object)
+        return AppManifest.model_validate(payload)
+    except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+        raise BundleValidationError(
+            "hosted_apps.bundle.app_manifest_invalid",
+            "App manifest does not match the supported schema.",
+        ) from exc
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Reject duplicate JSON object keys instead of silently choosing a value."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate JSON key: {key}")
+        result[key] = value
+    return result
 
 
 def _content_type(path: str) -> str:

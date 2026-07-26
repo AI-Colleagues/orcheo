@@ -23,6 +23,22 @@ export interface AppDeploymentApi {
   status: "pending" | "validating" | "ready" | "failed" | "expired";
   archive_sha256: string | null;
   manifest_sha256: string | null;
+  app_manifest: {
+    schema_version: 1;
+    bindings: Record<
+      string,
+      {
+        workflow: string;
+        version: number;
+        access_mode: "anonymous" | "authenticated";
+        input_schema: Record<string, unknown>;
+        output_projection: Record<string, unknown>;
+        visitor_can_read_output: boolean;
+        visitor_can_read_sanitized_errors: boolean;
+        limits: Record<string, number>;
+      }
+    >;
+  } | null;
   validation_error_code: string | null;
   validation_error_message: string | null;
   created_at: string;

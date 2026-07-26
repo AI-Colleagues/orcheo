@@ -15,11 +15,13 @@ from orcheo.hosted_apps import (
     AppBinding,
     AppCollection,
     AppDeployment,
+    AppManifest,
     AppRelease,
     AppRuntimeError,
     AppVisibility,
     BundleValidationError,
     DeploymentService,
+    DeploymentStatus,
     FilesystemBundleStore,
     HostedApp,
     HostedAppsRepository,
@@ -33,6 +35,7 @@ from orcheo_backend.app.authentication import RequestContext, authenticate_reque
 from orcheo_backend.app.dependencies import get_repository
 from orcheo_backend.app.hosted_apps import get_hosted_apps_repository
 from orcheo_backend.app.repository import WorkflowRepository
+from orcheo_backend.app.repository.errors import RepositoryError
 from orcheo_backend.app.schemas.apps import (
     AppAliasRequest,
     AppAuditResponse,
@@ -121,6 +124,7 @@ def _deployment_response(deployment: AppDeployment) -> AppDeploymentResponse:
         status=deployment.status.value,
         archive_sha256=deployment.archive_sha256,
         manifest_sha256=deployment.manifest_sha256,
+        app_manifest=deployment.app_manifest,
         validation_error_code=deployment.validation_error_code,
         validation_error_message=deployment.validation_error_message,
         created_at=deployment.created_at,
@@ -175,6 +179,47 @@ async def _build_binding(
     if binding_id is not None:
         values["id"] = binding_id
     return AppBinding(**values)
+
+
+async def _resolve_manifest_bindings(
+    manifest: AppManifest,
+    *,
+    app_id: UUID,
+    workspace_id: UUID,
+    workflows: WorkflowRepository,
+) -> list[AppBinding]:
+    """Resolve portable workflow refs to exact same-workspace release grants."""
+    resolved: list[AppBinding] = []
+    for name, declaration in sorted(manifest.bindings.items()):
+        try:
+            workflow_id = await workflows.resolve_workflow_ref(
+                declaration.workflow,
+                include_archived=False,
+                workspace_id=str(workspace_id),
+            )
+            version = await workflows.get_version_by_number(
+                workflow_id, declaration.version
+            )
+            request = AppBindingRequest(
+                name=name,
+                workflow_id=workflow_id,
+                workflow_version_id=version.id,
+                **declaration.model_dump(exclude={"workflow", "version"}),
+            )
+            resolved.append(
+                await _build_binding(
+                    request,
+                    app_id=app_id,
+                    workspace_id=workspace_id,
+                    workflows=workflows,
+                )
+            )
+        except (RepositoryError, AppRuntimeError, ValueError) as exc:
+            raise ValueError(
+                f"Binding {name!r} could not resolve workflow "
+                f"{declaration.workflow!r} version {declaration.version}."
+            ) from exc
+    return resolved
 
 
 @router.get("", response_model=HostedAppListResponse)
@@ -618,6 +663,7 @@ async def upload_local_deployment(
         File(description="A prebuilt static ZIP with index.html at its root."),
     ],
     repository: RepositoryDep,
+    workflows: WorkflowRepositoryDep,
     workspace: Annotated[WorkspaceContext, Depends(require_role(Role.EDITOR))],
     auth: Annotated[RequestContext, Depends(authenticate_request)],
     _: Annotated[None, Depends(_ensure_enabled)],
@@ -686,6 +732,26 @@ async def upload_local_deployment(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": exc.code, "message": str(exc)},
         ) from exc
+    if completed.app_manifest is not None:
+        try:
+            await _resolve_manifest_bindings(
+                completed.app_manifest,
+                app_id=app_id,
+                workspace_id=workspace.workspace_id,
+                workflows=workflows,
+            )
+        except ValueError as exc:
+            completed.status = DeploymentStatus.FAILED
+            completed.validation_error_code = "hosted_apps.bundle.binding_invalid"
+            completed.validation_error_message = str(exc)
+            repository.add_deployment(completed)
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": completed.validation_error_code,
+                    "message": completed.validation_error_message,
+                },
+            ) from exc
     repository.add_deployment(completed)
     return _deployment_response(completed)
 
@@ -699,6 +765,7 @@ async def publish_app(
     deployment_id: UUID,
     request: AppPublishRequest,
     repository: RepositoryDep,
+    workflows: WorkflowRepositoryDep,
     workspace: Annotated[WorkspaceContext, Depends(require_role(Role.ADMIN))],
     auth: Annotated[RequestContext, Depends(authenticate_request)],
     _: Annotated[None, Depends(_ensure_enabled)],
@@ -707,14 +774,37 @@ async def publish_app(
     try:
         app = repository.get_app(workspace.workspace_id, app_id)
         alias = repository.get_alias(workspace.workspace_id, app_id)
-    except KeyError as exc:
+        deployment = next(
+            item
+            for item in repository.list_deployments(workspace.workspace_id, app_id)
+            if item.id == deployment_id
+        )
+    except (KeyError, StopIteration) as exc:
         raise _not_found() from exc
+    if deployment.app_manifest is not None:
+        try:
+            bindings = await _resolve_manifest_bindings(
+                deployment.app_manifest,
+                app_id=app_id,
+                workspace_id=workspace.workspace_id,
+                workflows=workflows,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "hosted_apps.binding_resolution_failed",
+                    "message": str(exc),
+                },
+            ) from exc
+    else:
+        bindings = repository.list_bindings(workspace.workspace_id, app_id)
     snapshot = {
         "permission_revision": request.acknowledged_permission_revision,
         "visibility": app.visibility.value,
         "bindings": [
             item.model_dump(mode="json", exclude={"workspace_id", "app_id"})
-            for item in repository.list_bindings(workspace.workspace_id, app_id)
+            for item in bindings
         ],
         "collections": [
             item.model_dump(mode="json", exclude={"workspace_id", "app_id"})

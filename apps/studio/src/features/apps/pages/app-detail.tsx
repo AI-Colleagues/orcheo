@@ -63,6 +63,13 @@ export default function AppDetail() {
   }
 
   const published = app.state === "published";
+  const readyDeployment = app.deployments.find(
+    (deployment) => deployment.status === "ready",
+  );
+  const manifestBindings = readyDeployment?.manifestBindings;
+  const reviewBindings = manifestBindings ?? app.bindings;
+  const manifestManaged =
+    manifestBindings !== null && manifestBindings !== undefined;
   const handlePublish = async () => {
     setActionError(null);
     setPublishing(true);
@@ -193,7 +200,7 @@ export default function AppDetail() {
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {[
             { label: "Deployments", value: app.deployments.length },
-            { label: "Workflow bindings", value: app.bindings.length },
+            { label: "Workflow bindings", value: reviewBindings.length },
             { label: "Data collections", value: app.collections.length },
             { label: "Last updated", value: app.updated },
           ].map((stat) => (
@@ -242,6 +249,14 @@ export default function AppDetail() {
                       <div className="font-mono text-xs text-muted-foreground/70">
                         {deployment.created}
                       </div>
+                      {deployment.manifestBindings ? (
+                        <div className="text-xs text-muted-foreground">
+                          {deployment.manifestBindings.length} declared workflow{" "}
+                          {deployment.manifestBindings.length === 1
+                            ? "binding"
+                            : "bindings"}
+                        </div>
+                      ) : null}
                     </div>
                     {deployment.active ? (
                       <IntentBadge intent="success" dot>
@@ -263,14 +278,21 @@ export default function AppDetail() {
               <h2 className="font-semibold text-foreground">
                 Workflow bindings
               </h2>
-              {app.bindings.length === 0 ? (
+              {manifestManaged ? (
+                <p className="text-xs text-muted-foreground">
+                  Declared by the newest ready deployment. Publish resolves and
+                  pins these workflow versions in the release.
+                </p>
+              ) : null}
+              {reviewBindings.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No bindings yet. Bind a workflow so the app can call it as a
-                  backend.
+                  {manifestManaged
+                    ? "This deployment declares no workflow bindings."
+                    : "No bindings yet. Bind a workflow so the app can call it as a backend."}
                 </p>
               ) : (
                 <div className="flex flex-col divide-y divide-border">
-                  {app.bindings.map((binding) => (
+                  {reviewBindings.map((binding) => (
                     <div
                       key={binding.name}
                       className="flex items-center justify-between gap-3 py-2.5"

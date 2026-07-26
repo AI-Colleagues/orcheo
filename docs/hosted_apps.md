@@ -17,6 +17,47 @@ script types are rejected. Supported inline scripts are SHA-256 hashed by the se
 included in the immutable release CSP. Service workers and installable/offline PWA
 behavior are unsupported: every response applies non-relaxable `worker-src 'none'`.
 
+### Declarative workflow bindings
+
+An optional root `orcheo.app.json` file can request one or more named workflow
+bindings:
+
+```json
+{
+  "schema_version": 1,
+  "bindings": {
+    "summarize": {
+      "workflow": "document-summarizer",
+      "version": 3,
+      "access_mode": "authenticated",
+      "input_schema": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": {"type": "string", "maxLength": 10000}
+        },
+        "additionalProperties": false
+      },
+      "output_projection": {"fields": ["final_state"]},
+      "visitor_can_read_output": true,
+      "limits": {"timeout_seconds": 120}
+    }
+  }
+}
+```
+
+Binding keys are the logical names used by browser code. `workflow` is a portable
+workflow ref or handle, while `version` is an exact positive version number. Upload
+validates the manifest and preflights every workflow in the app workspace. The file is
+private deployment metadata and is not served as an app asset.
+
+Publishing is the authority boundary: an administrator acknowledges the updated
+permission revision, Orcheo resolves the declarations again, and the release freezes
+the exact workflow id, workflow version id, executable digest, runnable configuration,
+schemas, disclosure flags, and limits. When `orcheo.app.json` is present, its bindings
+are the complete binding set for that deployment; without it, existing control-plane
+draft bindings continue to apply.
+
 ## Releases and caching
 
 A deployment is immutable after validation. Publishing creates a new immutable release
@@ -73,5 +114,6 @@ Common validation failures include `index_missing`, `unsafe_path`, `path_collisi
 - [`examples/hosted_apps/hello-app`](../examples/hosted_apps/hello-app/README.md)
   is a minimal static-only bundle.
 - [`examples/hosted_apps/workflow-app`](../examples/hosted_apps/workflow-app/README.md)
-  uploads a restricted-mode-compatible workflow, binds it under the logical name
-  `greet`, invokes it from browser JavaScript, and polls the opaque app-run handle.
+  uploads two restricted-mode-compatible workflows, declares the `greet` and
+  `farewell` bindings in `orcheo.app.json`, invokes either from browser JavaScript,
+  and polls the opaque app-run handle.

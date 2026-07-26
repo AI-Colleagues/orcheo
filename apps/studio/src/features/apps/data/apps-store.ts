@@ -40,6 +40,17 @@ const deployment = (item: AppDeploymentApi, index: number) => ({
   created: relativeTime(item.created_at),
   active: false,
   status: item.status,
+  manifestBindings: item.app_manifest
+    ? Object.entries(item.app_manifest.bindings).map(([name, binding]) => ({
+        name,
+        workflow: binding.workflow,
+        version: String(binding.version),
+        rate: binding.limits.per_app_per_minute
+          ? `${binding.limits.per_app_per_minute}/min`
+          : "workspace limits",
+        access: binding.access_mode,
+      }))
+    : null,
 });
 
 const appFromApi = (

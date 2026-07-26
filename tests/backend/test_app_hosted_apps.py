@@ -1,14 +1,19 @@
 """Hosted Apps control-plane integration and role-boundary tests."""
 
+import asyncio
 from io import BytesIO
+import json
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 import zipfile
 
 import pytest
 from fastapi.testclient import TestClient
 
-from orcheo.hosted_apps import InMemoryHostedAppsRepository
+from orcheo.hosted_apps import (
+    InMemoryHostedAppsRepository,
+)
+from orcheo.models import WorkflowDraftAccess
 from orcheo.workspace import Role, WorkspaceContext
 from orcheo_backend.app.hosted_apps import (
     reset_hosted_apps_repository,
@@ -17,6 +22,7 @@ from orcheo_backend.app.hosted_apps import (
 from orcheo_backend.app.hosted_apps.store import _auto_enable_self_hosted_runtime
 from orcheo_backend.app.authentication import RequestContext, get_request_context
 from orcheo_backend.app.authentication.dependencies import authenticate_request
+from orcheo_backend.app.repository import InMemoryWorkflowRepository
 from orcheo_backend.app.workspace.dependencies import resolve_workspace_context
 
 
@@ -24,13 +30,14 @@ from orcheo_backend.app.workspace.dependencies import resolve_workspace_context
 def hosted_apps_environment(monkeypatch: pytest.MonkeyPatch):
     """Enable the fail-closed feature contract for each isolated test."""
     reset_hosted_apps_repository()
-    set_hosted_apps_repository(InMemoryHostedAppsRepository())
+    repository = InMemoryHostedAppsRepository()
+    set_hosted_apps_repository(repository)
     monkeypatch.setenv("ORCHEO_HOSTED_APPS_ENABLED", "true")
     monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.test")
     monkeypatch.setenv("ORCHEO_APP_BUNDLE_BACKEND", "filesystem")
     monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", "/tmp/orcheo-test-apps")
     monkeypatch.setenv("ORCHEO_DEPLOYMENT_MODE", "local")
-    yield
+    yield repository
     reset_hosted_apps_repository()
 
 
@@ -194,3 +201,111 @@ def test_local_bundle_upload_validates_and_publishes(
     )
     assert published.status_code == 200
     assert published.json()["state"] == "published"
+
+
+def test_manifest_upload_resolves_two_workflows_and_freezes_release(
+    client: TestClient,
+    repository: InMemoryWorkflowRepository,
+    hosted_apps_environment: InMemoryHostedAppsRepository,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An admin publishes exact grants resolved from a portable bundle manifest."""
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", str(tmp_path))
+    created = client.post(
+        "/api/apps", json={"name": "Two workflows", "alias": "two-workflows"}
+    ).json()
+    workspace_id = created["workspace_id"]
+
+    async def seed_workflows() -> None:
+        for name, handle in (
+            ("Greeting", "hosted-app-greeting"),
+            ("Farewell", "hosted-app-farewell"),
+        ):
+            workflow = await repository.create_workflow(
+                name=name,
+                handle=handle,
+                slug=None,
+                description=None,
+                tags=None,
+                draft_access=WorkflowDraftAccess.PERSONAL,
+                actor="test-user",
+                workspace_id=workspace_id,
+            )
+            await repository.create_version(
+                workflow.id,
+                graph={},
+                metadata={},
+                notes=None,
+                created_by="test-user",
+            )
+
+    asyncio.run(seed_workflows())
+    binding_policy = {
+        "access_mode": "anonymous",
+        "input_schema": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {"name": {"type": "string", "maxLength": 80}},
+            "additionalProperties": False,
+        },
+        "output_projection": {"fields": ["final_state"]},
+        "visitor_can_read_output": True,
+        "visitor_can_read_sanitized_errors": True,
+        "limits": {"timeout_seconds": 60},
+    }
+    app_manifest = {
+        "schema_version": 1,
+        "bindings": {
+            "greet": {
+                "workflow": "hosted-app-greeting",
+                "version": 1,
+                **binding_policy,
+            },
+            "farewell": {
+                "workflow": "hosted-app-farewell",
+                "version": 1,
+                **binding_policy,
+            },
+        },
+    }
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("index.html", "<!doctype html><h1>Two workflows</h1>")
+        bundle.writestr("orcheo.app.json", json.dumps(app_manifest))
+
+    uploaded = client.post(
+        f"/api/apps/{created['id']}/deployments/upload",
+        files={
+            "bundle": (
+                "two-workflows.zip",
+                archive.getvalue(),
+                "application/zip",
+            )
+        },
+    )
+
+    assert uploaded.status_code == 201
+    deployment = uploaded.json()
+    assert set(deployment["app_manifest"]["bindings"]) == {"greet", "farewell"}
+    assert not (
+        tmp_path / "deployments" / deployment["id"] / "orcheo.app.json"
+    ).exists()
+    reviewed_revision = client.get(f"/api/apps/{created['id']}").json()[
+        "permission_revision"
+    ]
+    assert reviewed_revision == created["permission_revision"] + 1
+
+    published = client.post(
+        f"/api/apps/{created['id']}/deployments/{deployment['id']}/publish",
+        json={"acknowledged_permission_revision": reviewed_revision},
+    )
+
+    assert published.status_code == 200
+    release_id = UUID(published.json()["active_release_id"])
+    release = hosted_apps_environment._releases[release_id]  # noqa: SLF001
+    bindings = release.capability_snapshot["bindings"]
+    assert [binding["name"] for binding in bindings] == ["farewell", "greet"]
+    assert len({binding["workflow_id"] for binding in bindings}) == 2
+    assert all(binding["workflow_execution_sha256"] for binding in bindings)
+    assert client.get(f"/api/apps/{created['id']}/bindings").json() == []

@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 from pydantic import Field, field_validator
 from orcheo.hosted_apps.errors import AliasValidationError, ReservedAliasError
@@ -17,6 +17,8 @@ __all__ = [
     "AppBinding",
     "AppCollection",
     "AppDeployment",
+    "AppManifest",
+    "AppManifestBinding",
     "AppRelease",
     "AppRuntimeRun",
     "AppSession",
@@ -86,6 +88,83 @@ def normalize_logical_name(value: str) -> str:
         )
         raise ValueError(msg)
     return candidate
+
+
+class AppManifestBinding(OrcheoBaseModel):
+    """One logical workflow capability requested by an uploaded app bundle."""
+
+    workflow: str = Field(min_length=1, max_length=255)
+    version: int = Field(ge=1)
+    access_mode: Literal["anonymous", "authenticated"]
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    output_projection: dict[str, Any] = Field(default_factory=dict)
+    visitor_can_read_output: bool = False
+    visitor_can_read_sanitized_errors: bool = False
+    limits: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator("workflow", mode="before")
+    @classmethod
+    def _normalize_workflow_ref(cls, value: object) -> str:
+        candidate = str(value).strip()
+        if not candidate:
+            raise ValueError("Workflow references must not be empty.")
+        return candidate
+
+    @field_validator("limits")
+    @classmethod
+    def _validate_limits(cls, value: dict[str, int]) -> dict[str, int]:
+        maxima = {
+            "per_ip_per_minute": 10_000,
+            "per_session_per_minute": 10_000,
+            "per_app_per_minute": 100_000,
+            "max_concurrency": 100,
+            "timeout_seconds": 3_600,
+            "input_max_bytes": 1_048_576,
+            "output_max_bytes": 1_048_576,
+        }
+        if set(value) - set(maxima) or any(
+            amount <= 0 or amount > maxima[name] for name, amount in value.items()
+        ):
+            raise ValueError("Binding limits are invalid or unsupported.")
+        return value
+
+    @field_validator("output_projection")
+    @classmethod
+    def _validate_projection(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if not value:
+            return value
+        fields = value.get("fields")
+        if (
+            set(value) != {"fields"}
+            or not isinstance(fields, list)
+            or len(fields) > 100
+            or any(not isinstance(item, str) or not item for item in fields)
+        ):
+            raise ValueError(
+                "Output projection must contain only a bounded 'fields' list."
+            )
+        return value
+
+
+class AppManifest(OrcheoBaseModel):
+    """Deploy-time capability requests embedded at the root of an app ZIP."""
+
+    schema_version: Literal[1] = 1
+    bindings: dict[str, AppManifestBinding] = Field(
+        default_factory=dict, max_length=100
+    )
+
+    @field_validator("bindings")
+    @classmethod
+    def _validate_binding_names(
+        cls, value: dict[str, AppManifestBinding]
+    ) -> dict[str, AppManifestBinding]:
+        for name in value:
+            if normalize_logical_name(name) != name:
+                raise ValueError(
+                    "Manifest binding names must already be normalized logical names."
+                )
+        return value
 
 
 class AppVisibility(str, Enum):
@@ -208,6 +287,7 @@ class AppDeployment(OrcheoBaseModel):
     status: DeploymentStatus = DeploymentStatus.PENDING
     archive_sha256: str | None = None
     manifest_sha256: str | None = None
+    app_manifest: AppManifest | None = None
     validation_error_code: str | None = None
     validation_error_message: str | None = None
     created_by: str
@@ -295,6 +375,7 @@ class BundleManifest(OrcheoBaseModel):
     index: str = "index.html"
     files: dict[str, BundleFile]
     html_policy: dict[str, dict[str, tuple[str, ...]]] = Field(default_factory=dict)
+    app_manifest: AppManifest | None = None
 
 
 class AuthorizationCode(OrcheoBaseModel):
