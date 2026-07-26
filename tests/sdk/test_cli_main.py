@@ -687,11 +687,12 @@ def test_install_help_lists_production_hosted_apps_options(
     result = runner.invoke(app, ["install", "--help"], terminal_width=140)
 
     assert result.exit_code == 0
-    assert "--hosted-apps" in result.stdout
-    assert "--apps-base-domain" in result.stdout
-    assert "--app-tls-cert-file" in result.stdout
-    assert "proxy CIDRs trusted" in result.stdout
-    assert "--staging" in result.stdout
+    help_output = click.unstyle(result.stdout)
+    assert "--hosted-apps" in help_output
+    assert "--apps-base-domain" in help_output
+    assert "--app-tls-cert-file" in help_output
+    assert "proxy CIDRs trusted" in help_output
+    assert "--staging" in help_output
 
 
 def test_run_install_flow_rejects_staging_with_exact_version() -> None:
