@@ -21,6 +21,12 @@ EXAMPLE_ROOT = (
     / "workflow-app"
 )
 _BUNDLE_FILES = ("index.html", "styles.css", "app.js", "orcheo.app.json")
+_EXAMPLE_FILES = (*_BUNDLE_FILES, "workflow.py", "farewell_workflow.py")
+
+pytestmark = pytest.mark.skipif(
+    not all((EXAMPLE_ROOT / filename).is_file() for filename in _EXAMPLE_FILES),
+    reason="private colleague-experts Hosted Apps examples are not checked out",
+)
 
 
 def _example_bundle() -> BytesIO:

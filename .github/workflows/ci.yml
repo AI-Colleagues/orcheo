@@ -77,10 +77,10 @@ jobs:
       security-events: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -125,8 +125,8 @@ jobs:
           exit-code: "1"
 
       - name: Upload vulnerability results
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: ${{ !cancelled() && hashFiles('app-gateway-trivy.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: app-gateway-trivy.sarif
 
@@ -155,10 +155,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -171,7 +171,7 @@ jobs:
         run: uv run pytest ${{ matrix.paths }} --cov --cov-context=test --cov-report= -n auto
 
       - name: Store coverage data
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-data-${{ matrix.shard }}
           path: .coverage.${{ matrix.shard }}
