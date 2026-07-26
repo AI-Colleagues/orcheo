@@ -113,10 +113,27 @@ export const createApp = async (
   return created;
 };
 
+export const getPublishBlockedReason = (app: HostedApp): string | null => {
+  if (app.state !== "draft" && app.state !== "unpublished") {
+    return `A ${app.state} app cannot be published.`;
+  }
+  if (!app.deployments.some((item) => item.status === "ready")) {
+    return "Upload and validate a deployment before publishing.";
+  }
+  return null;
+};
+
+export const canPublishApp = (app: HostedApp): boolean =>
+  getPublishBlockedReason(app) === null;
+
 export const toggleAppPublish = async (app: HostedApp): Promise<void> => {
   if (app.state === "published") {
     await unpublishHostedApp(app.id);
   } else {
+    const blockedReason = getPublishBlockedReason(app);
+    if (blockedReason) {
+      throw new Error(blockedReason);
+    }
     const ready = app.deployments.find((item) => item.status === "ready");
     if (!ready) {
       throw new Error("Upload and validate a deployment before publishing.");

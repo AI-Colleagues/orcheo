@@ -24,7 +24,13 @@ import {
 import { usePageContext } from "@/hooks/use-page-context";
 import { getWorkspaceAppsPath } from "@/lib/workspace-routing";
 import { getHostedAppAddress, getHostedAppUrl } from "../data/sample-apps";
-import { toggleAppPublish, uploadAppBundle, useApp } from "../data/apps-store";
+import {
+  canPublishApp,
+  getPublishBlockedReason,
+  toggleAppPublish,
+  uploadAppBundle,
+  useApp,
+} from "../data/apps-store";
 import {
   AppHealthBadge,
   AppStateBadge,
@@ -70,6 +76,8 @@ export default function AppDetail() {
   const reviewBindings = manifestBindings ?? app.bindings;
   const manifestManaged =
     manifestBindings !== null && manifestBindings !== undefined;
+  const publishAllowed = canPublishApp(app);
+  const publishBlockedReason = getPublishBlockedReason(app);
   const handlePublish = async () => {
     setActionError(null);
     setPublishing(true);
@@ -161,7 +169,11 @@ export default function AppDetail() {
               {publishing ? "Updating…" : "Unpublish"}
             </Button>
           ) : (
-            <Button disabled={publishing} onClick={() => void handlePublish()}>
+            <Button
+              disabled={publishing || !publishAllowed}
+              title={publishBlockedReason ?? undefined}
+              onClick={() => void handlePublish()}
+            >
               <Rocket className="mr-2 h-4 w-4" />
               {publishing ? "Publishing…" : "Publish"}
             </Button>

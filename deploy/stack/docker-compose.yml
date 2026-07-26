@@ -283,9 +283,9 @@ services:
     environment:
       VITE_ORCHEO_BACKEND_URL: ${VITE_ORCHEO_BACKEND_URL:-http://localhost:2025}
       VITE_ORCHEO_AUTH_DISABLED: ${VITE_ORCHEO_AUTH_DISABLED:-false}
+      VITE_ORCHEO_APPS_BASE_DOMAIN: ${ORCHEO_APPS_BASE_DOMAIN:-beta.orcheo.cloud}
       VITE_ORCHEO_CHATKIT_DOMAIN_KEY: ${VITE_ORCHEO_CHATKIT_DOMAIN_KEY:-domain_pk_replace_me}
       VITE_ORCHEO_ALLOWED_HOSTS: ${VITE_ORCHEO_ALLOWED_HOSTS:-localhost,127.0.0.1}
-      VITE_ORCHEO_APPS_BASE_DOMAIN: ${ORCHEO_APPS_BASE_DOMAIN:-apps.localhost}
       # Leave empty for normal HTTPS; the Studio defaults *.localhost to 2030.
       VITE_ORCHEO_APPS_PORT: ${VITE_ORCHEO_APPS_PORT:-}
     depends_on:

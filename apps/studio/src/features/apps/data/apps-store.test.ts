@@ -1,7 +1,13 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "./apps-api";
-import { createApp, useApp, useApps } from "./apps-store";
+import {
+  canPublishApp,
+  createApp,
+  getPublishBlockedReason,
+  useApp,
+  useApps,
+} from "./apps-store";
 
 vi.mock("./apps-api", () => ({
   createHostedApp: vi.fn(),
@@ -68,6 +74,35 @@ describe("Hosted Apps workspace data", () => {
       expect(created.id).toBe("app-1");
     });
     expect(api.createHostedApp).toHaveBeenCalledWith("Portal", "portal");
+  });
+
+  it("blocks invalid lifecycle states and apps without a ready deployment", () => {
+    const baseApp = {
+      id: "app-1",
+      name: "Portal",
+      alias: "portal",
+      visibility: "public" as const,
+      health: "unknown" as const,
+      updated: "just now",
+      deployments: [],
+      bindings: [],
+      collections: [],
+      permissionRevision: 1,
+    };
+
+    for (const state of ["suspended", "archived"] as const) {
+      const hostedApp = { ...baseApp, state };
+      expect(canPublishApp(hostedApp)).toBe(false);
+      expect(getPublishBlockedReason(hostedApp)).toBe(
+        `A ${state} app cannot be published.`,
+      );
+    }
+
+    const draft = { ...baseApp, state: "draft" as const };
+    expect(canPublishApp(draft)).toBe(false);
+    expect(getPublishBlockedReason(draft)).toBe(
+      "Upload and validate a deployment before publishing.",
+    );
   });
 
   it("maps deployment manifest bindings for publish review", async () => {

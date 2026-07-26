@@ -1,3 +1,5 @@
+import { getAppsBaseDomain } from "@/lib/config";
+
 export type AppVisibility = "public" | "private";
 export type AppState =
   "draft" | "published" | "unpublished" | "suspended" | "archived";
@@ -49,21 +51,26 @@ export interface HostedApp {
   audit?: { id: string; action: string; actor: string; created: string }[];
 }
 
-export const APPS_BASE_DOMAIN =
-  import.meta.env.VITE_ORCHEO_APPS_BASE_DOMAIN ?? "apps.localhost";
+const getAppsPort = (baseDomain: string): string => {
+  const configured = import.meta.env.VITE_ORCHEO_APPS_PORT?.trim();
+  if (configured) return configured;
+  return baseDomain === "localhost" || baseDomain.endsWith(".localhost")
+    ? "2030"
+    : "";
+};
 
-const isLocalAppsDomain =
-  APPS_BASE_DOMAIN === "localhost" || APPS_BASE_DOMAIN.endsWith(".localhost");
+export const getHostedAppAddress = (alias: string): string => {
+  const baseDomain = getAppsBaseDomain();
+  const port = getAppsPort(baseDomain);
+  return `${alias}.${baseDomain}${port ? `:${port}` : ""}`;
+};
 
-export const APPS_PORT =
-  import.meta.env.VITE_ORCHEO_APPS_PORT?.trim() ||
-  (isLocalAppsDomain ? "2030" : "");
-
-export const getHostedAppAddress = (alias: string): string =>
-  `${alias}.${APPS_BASE_DOMAIN}${APPS_PORT ? `:${APPS_PORT}` : ""}`;
-
-export const getHostedAppUrl = (alias: string): string =>
-  `${isLocalAppsDomain ? "http" : "https"}://${getHostedAppAddress(alias)}/`;
+export const getHostedAppUrl = (alias: string): string => {
+  const baseDomain = getAppsBaseDomain();
+  const isLocal =
+    baseDomain === "localhost" || baseDomain.endsWith(".localhost");
+  return `${isLocal ? "http" : "https"}://${getHostedAppAddress(alias)}/`;
+};
 
 export const SAMPLE_APPS: HostedApp[] = [
   {

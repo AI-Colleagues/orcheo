@@ -342,11 +342,13 @@ def test_postgres_workspace_repository_ignores_newer_quota_fields(
     repo = PostgresWorkspaceRepository(dsn)
     workspace = Workspace(slug="acme", name="Acme")
     row = _workspace_row(workspace)
-    row["quotas"] = {
-        **workspace.quotas.model_dump(),
-        "max_hosted_apps": 25,
-        "max_app_sessions": 10_000,
-    }
+    row["quotas"] = json.dumps(
+        {
+            **workspace.quotas.model_dump(),
+            "max_hosted_apps": 25,
+            "max_app_sessions": 10_000,
+        }
+    )
     connection._responses.append({"row": row})
 
     restored = repo.get_workspace(workspace.id)

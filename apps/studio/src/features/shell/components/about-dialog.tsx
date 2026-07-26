@@ -142,9 +142,14 @@ const isDismissed = (): boolean => {
 interface AboutDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onUpdateAvailableChange?: (available: boolean) => void;
 }
 
-export default function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
+export default function AboutDialog({
+  open,
+  onOpenChange,
+  onUpdateAvailableChange,
+}: AboutDialogProps) {
   const [cachedInfo, setCachedInfo] = useState<SystemInfoResponse | null>(null);
   const [liveBackendVersion, setLiveBackendVersion] = useState<string | null>(
     null,
@@ -155,10 +160,6 @@ export default function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
   const studioVersion = getStudioVersion();
 
   useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
-
     const cache = parseCache(
       window.localStorage.getItem(UPDATE_CHECK_CACHE_KEY),
     );
@@ -195,7 +196,7 @@ export default function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
     return () => {
       active = false;
     };
-  }, [open]);
+  }, []);
 
   const studioUpdateAvailable = useMemo(() => {
     if (!cachedInfo) {
@@ -211,6 +212,10 @@ export default function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
     ((cachedInfo?.backend.update_available ?? false) ||
       studioUpdateAvailable) &&
     !dismissedReminder;
+
+  useEffect(() => {
+    onUpdateAvailableChange?.(showReminder);
+  }, [onUpdateAvailableChange, showReminder]);
 
   const updateLines = useMemo(() => {
     if (!cachedInfo) return [];

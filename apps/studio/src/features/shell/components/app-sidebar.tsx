@@ -15,14 +15,11 @@ import {
   getWorkspaceGalleryPath,
   getWorkspaceSlugFromPathname,
 } from "@/lib/workspace-routing";
+import { Github, LayoutGrid, PanelLeft, Users, Vault } from "lucide-react";
 import {
-  ExternalLink,
-  Github,
-  LayoutGrid,
-  PanelLeft,
-  Users,
-  Vault,
-} from "lucide-react";
+  isColleaguesSectionActive,
+  isPathWithinSection,
+} from "../lib/route-matchers";
 import ProfileMenu from "./profile-menu";
 
 interface AppSidebarProps {
@@ -35,12 +32,11 @@ interface NavItemProps {
   icon: ReactNode;
   label: string;
   active: boolean;
-  external?: boolean;
   to?: string;
   onClick?: () => void;
 }
 
-function NavItem({ icon, label, active, external, to, onClick }: NavItemProps) {
+function NavItem({ icon, label, active, to, onClick }: NavItemProps) {
   const content = (
     <span
       className={cn(
@@ -52,7 +48,6 @@ function NavItem({ icon, label, active, external, to, onClick }: NavItemProps) {
     >
       {icon}
       <span className="flex-1 truncate text-left">{label}</span>
-      {external && <ExternalLink className="h-3.5 w-3.5 opacity-60" />}
     </span>
   );
 
@@ -75,25 +70,6 @@ function NavItem({ icon, label, active, external, to, onClick }: NavItemProps) {
     </button>
   );
 }
-
-const isColleaguesSectionActive = (
-  pathname: string,
-  workspaceSlug: string | null,
-): boolean => {
-  if (!workspaceSlug) {
-    return pathname === "/";
-  }
-  const galleryPath = getWorkspaceGalleryPath(workspaceSlug);
-  if (pathname === galleryPath) {
-    return true;
-  }
-  const prefix = `/${workspaceSlug}/`;
-  if (!pathname.startsWith(prefix)) {
-    return false;
-  }
-  const rest = pathname.slice(prefix.length);
-  return !rest.startsWith("apps") && !rest.startsWith("workspace");
-};
 
 export default function AppSidebar({
   collapsed,
@@ -178,7 +154,7 @@ export default function AppSidebar({
         <NavItem
           icon={<LayoutGrid className="h-[18px] w-[18px] shrink-0" />}
           label="Apps"
-          active={pathname.startsWith(appsPath)}
+          active={isPathWithinSection(pathname, appsPath)}
           to={appsPath}
         />
         <NavItem
@@ -191,7 +167,6 @@ export default function AppSidebar({
           icon={<Github className="h-[18px] w-[18px] shrink-0" />}
           label="Feedback & issues"
           active={pathname === "/feedback"}
-          external
           to="/feedback"
         />
       </nav>

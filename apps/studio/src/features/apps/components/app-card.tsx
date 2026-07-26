@@ -18,6 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/design-system/ui/dropdown-menu";
+import { canPublishApp } from "../data/apps-store";
 import type { HostedApp } from "../data/sample-apps";
 import { getHostedAppAddress, getHostedAppUrl } from "../data/sample-apps";
 import {
@@ -34,6 +35,7 @@ interface AppCardProps {
 
 export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
   const activeDeployment = app.deployments.find((d) => d.active);
+  const publishAllowed = canPublishApp(app);
 
   return (
     <Card
@@ -109,9 +111,7 @@ export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem
-                disabled={
-                  !app.deployments.some((item) => item.status === "ready")
-                }
+                disabled={!publishAllowed}
                 onClick={() => onTogglePublish(app)}
               >
                 <Rocket className="mr-2 h-4 w-4" />

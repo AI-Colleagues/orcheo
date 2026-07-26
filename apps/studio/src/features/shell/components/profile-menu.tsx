@@ -72,6 +72,7 @@ export default function ProfileMenu() {
   );
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSlug, setWorkspaceSlugState] = useState("");
   const [workspaceSlugIsManual, setWorkspaceSlugIsManual] = useState(false);
@@ -238,6 +239,13 @@ export default function ProfileMenu() {
               </div>
             </div>
             <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+            {updateAvailable ? (
+              <span
+                className="h-2 w-2 shrink-0 rounded-full bg-warning"
+                aria-label="Update available"
+                title="Update available"
+              />
+            ) : null}
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" side="top" className="w-64">
@@ -374,7 +382,11 @@ export default function ProfileMenu() {
         </DialogContent>
       </Dialog>
 
-      <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
+      <AboutDialog
+        open={aboutOpen}
+        onOpenChange={setAboutOpen}
+        onUpdateAvailableChange={setUpdateAvailable}
+      />
     </>
   );
 }
