@@ -1,5 +1,13 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
 import App from "./App";
 
 // The app shell renders behind the first-party auth gate; this test exercises
@@ -11,6 +19,10 @@ beforeAll(() => {
 
 afterAll(() => {
   vi.unstubAllEnvs();
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 vi.mock("@/lib/api", async (importOriginal) => {
