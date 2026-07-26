@@ -15,6 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 RESOLVER_PATH = REPO_ROOT / "deploy" / "stack" / "resolve_orcheo_packages.py"
 STACK_DOCKERFILE = REPO_ROOT / "deploy" / "stack" / "Dockerfile.orcheo"
 STUDIO_DOCKERFILE = REPO_ROOT / "deploy" / "stack" / "Dockerfile.studio"
+APP_GATEWAY_DOCKERFILE = REPO_ROOT / "Dockerfile.app-gateway"
+RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 
 def _load_resolver() -> ModuleType:
@@ -174,9 +176,14 @@ def test_registry_fetch_retries_transient_failures(
 def test_stack_dockerfiles_accept_release_resolution_build_args() -> None:
     stack_content = STACK_DOCKERFILE.read_text(encoding="utf-8")
     studio_content = STUDIO_DOCKERFILE.read_text(encoding="utf-8")
+    gateway_content = APP_GATEWAY_DOCKERFILE.read_text(encoding="utf-8")
+    workflow_content = RELEASE_WORKFLOW.read_text(encoding="utf-8")
 
     assert "ARG ORCHEO_RELEASE_CHANNEL=stable" in stack_content
     assert "ARG ORCHEO_PACKAGE_REQUIREMENTS=" in stack_content
     assert "--prerelease if-necessary-or-explicit" in stack_content
     assert "ARG ORCHEO_STUDIO_VERSION=" in studio_content
     assert "orcheo-studio@${ORCHEO_STUDIO_VERSION}" in studio_content
+    assert "COPY apps/app_gateway/src/orcheo_app_gateway" in gateway_content
+    assert "app_gateway_repo=ghcr.io/${owner_lc}/orcheo-app-gateway" in workflow_content
+    assert "file: Dockerfile.app-gateway" in workflow_content

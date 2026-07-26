@@ -42,6 +42,15 @@ def test_stack_compose_defines_public_ingress_and_direct_ports() -> None:
         "127.0.0.1:${ORCHEO_APP_GATEWAY_LOCAL_PORT:-2030}:2030"
         in services["app-gateway"]["ports"]
     )
+    assert services["app-gateway"]["image"] == (
+        "${ORCHEO_APP_GATEWAY_IMAGE:-ghcr.io/ai-colleagues/orcheo-app-gateway:latest}"
+    )
+    assert "command" not in services["app-gateway"]
+    assert services["app-gateway"]["healthcheck"]["test"][:3] == [
+        "CMD",
+        "python",
+        "-c",
+    ]
     assert "profiles" not in services["app-gateway"]
     assert "profiles" not in services["validation-worker"]
     assert "profiles" not in services["hosted-app-cleanup"]
@@ -100,6 +109,10 @@ def test_env_example_documents_public_ingress_contract() -> None:
     assert "ORCHEO_PUBLIC_HOST=" in content
     assert "COMPOSE_PROFILES=" in content
     assert "ORCHEO_HOSTED_APPS_ENABLED=true" in content
+    assert (
+        "# ORCHEO_APP_GATEWAY_IMAGE="
+        "ghcr.io/ai-colleagues/orcheo-app-gateway:0.1.0" in content
+    )
     assert "ORCHEO_APP_GATEWAY_LOCAL_PORT=2030" in content
     assert "ORCHEO_CADDY_BACKEND_UPSTREAMS=backend:2025" in content
     assert "VITE_ORCHEO_ALLOWED_HOSTS=localhost,127.0.0.1" in content

@@ -120,7 +120,8 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 `ORCHEO_STACK_DIR`). Files are refreshed when upstream content differs.
 Use `--stack-version` (or `ORCHEO_STACK_VERSION`) to pin stack assets to a
 specific `stack-v*` tag. Use `--staging` to resolve the newest prerelease.
-Both paths pin matching `ORCHEO_STACK_IMAGE` and `ORCHEO_STUDIO_IMAGE` values.
+Both paths pin matching `ORCHEO_STACK_IMAGE`, `ORCHEO_STUDIO_IMAGE`, and
+`ORCHEO_APP_GATEWAY_IMAGE` values.
 When startup is enabled (`--start-stack`), setup then runs Docker Compose
 (Docker must be installed). Setup also prompts for
 `VITE_ORCHEO_CHATKIT_DOMAIN_KEY`; you can skip and continue, but ChatKit UI

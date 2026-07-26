@@ -111,8 +111,9 @@ orcheo install --staging --start-stack
 ```
 
 The command resolves the newest prerelease stack tag and writes exact,
-matching `ORCHEO_STACK_IMAGE` and `ORCHEO_STUDIO_IMAGE` pins. To test an
-unreleased checkout instead, use the root `docker-compose.yml`.
+matching `ORCHEO_STACK_IMAGE`, `ORCHEO_STUDIO_IMAGE`, and
+`ORCHEO_APP_GATEWAY_IMAGE` pins. To test an unreleased checkout instead, use
+the root `docker-compose.yml`.
 
 ### Local Testing Without OAuth
 

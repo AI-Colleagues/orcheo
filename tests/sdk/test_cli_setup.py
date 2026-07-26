@@ -577,6 +577,9 @@ def test_build_env_updates(monkeypatch):
     assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain"
     assert updates["ORCHEO_STACK_IMAGE"] == f"{setup._STACK_IMAGE_REPOSITORY}:2.0"
     assert updates["ORCHEO_STUDIO_IMAGE"] == (f"{setup._STUDIO_IMAGE_REPOSITORY}:2.0")
+    assert updates["ORCHEO_APP_GATEWAY_IMAGE"] == (
+        f"{setup._APP_GATEWAY_IMAGE_REPOSITORY}:2.0"
+    )
     assert updates["ORCHEO_STACK_VERSION"] == "2.0"
     assert updates["ORCHEO_WORKFLOW_TRUST_MODE"] == "allow_client_uploads"
     assert updates["ORCHEO_WORKFLOW_DEFINITION_MODE"] == "unrestricted"

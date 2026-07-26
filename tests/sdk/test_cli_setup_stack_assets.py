@@ -1909,6 +1909,10 @@ def test_ensure_stack_assets_uses_explicit_stack_version(
     assert (
         "ORCHEO_STUDIO_IMAGE=ghcr.io/ai-colleagues/orcheo-studio:0.5.0" in env_content
     )
+    assert (
+        "ORCHEO_APP_GATEWAY_IMAGE="
+        "ghcr.io/ai-colleagues/orcheo-app-gateway:0.5.0" in env_content
+    )
 
 
 def test_ensure_stack_assets_uses_env_stack_version(
@@ -1945,6 +1949,10 @@ def test_ensure_stack_assets_uses_env_stack_version(
     assert "ORCHEO_STACK_IMAGE=ghcr.io/ai-colleagues/orcheo-stack:0.6.1" in env_content
     assert (
         "ORCHEO_STUDIO_IMAGE=ghcr.io/ai-colleagues/orcheo-studio:0.6.1" in env_content
+    )
+    assert (
+        "ORCHEO_APP_GATEWAY_IMAGE="
+        "ghcr.io/ai-colleagues/orcheo-app-gateway:0.6.1" in env_content
     )
 
 
@@ -1985,6 +1993,10 @@ def test_ensure_stack_assets_custom_base_url_forces_per_file_mode(
         assert (stack_dir / relative_path).read_bytes() == payload
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
     assert "ORCHEO_STACK_IMAGE=ghcr.io/ai-colleagues/orcheo-stack:0.9.0" in env_content
+    assert (
+        "ORCHEO_APP_GATEWAY_IMAGE="
+        "ghcr.io/ai-colleagues/orcheo-app-gateway:0.9.0" in env_content
+    )
 
 
 def test_resolve_stack_version_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2097,6 +2109,10 @@ def test_ensure_stack_assets_staging_pins_prerelease_images(
     assert (
         "ORCHEO_STUDIO_IMAGE=ghcr.io/ai-colleagues/orcheo-studio:1.0.0-rc.2"
         in env_content
+    )
+    assert (
+        "ORCHEO_APP_GATEWAY_IMAGE="
+        "ghcr.io/ai-colleagues/orcheo-app-gateway:1.0.0-rc.2" in env_content
     )
 
 

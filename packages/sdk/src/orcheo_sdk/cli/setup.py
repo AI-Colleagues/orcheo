@@ -39,6 +39,7 @@ _GITHUB_CONTENTS_API_URL = (
 )
 _STACK_IMAGE_REPOSITORY = "ghcr.io/ai-colleagues/orcheo-stack"
 _STUDIO_IMAGE_REPOSITORY = "ghcr.io/ai-colleagues/orcheo-studio"
+_APP_GATEWAY_IMAGE_REPOSITORY = "ghcr.io/ai-colleagues/orcheo-app-gateway"
 _CHATKIT_WIDGETS_DIR = "chatkit_widgets"
 _STACK_ASSET_FILES = (
     "docker-compose.yml",
@@ -1988,6 +1989,9 @@ def _build_env_updates(
         )
         updates["ORCHEO_STUDIO_IMAGE"] = (
             f"{_STUDIO_IMAGE_REPOSITORY}:{requested_stack_version}"
+        )
+        updates["ORCHEO_APP_GATEWAY_IMAGE"] = (
+            f"{_APP_GATEWAY_IMAGE_REPOSITORY}:{requested_stack_version}"
         )
 
     defaults = build_generated_stack_env_defaults()

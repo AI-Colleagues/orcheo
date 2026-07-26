@@ -365,7 +365,7 @@ jobs:
           packages-dir: ${{ steps.package.outputs.dist_dir }}
 
   stack-image-metadata:
-    needs: [lint, coverage]
+    needs: [lint, coverage, app-gateway]
     if: "startsWith(github.ref, 'refs/tags/stack-v')"
     runs-on: ubuntu-latest
     outputs:
@@ -376,6 +376,7 @@ jobs:
       studio_version: ${{ steps.studio-package.outputs.version }}
       stack_repo: ${{ steps.meta.outputs.stack_repo }}
       studio_repo: ${{ steps.meta.outputs.studio_repo }}
+      app_gateway_repo: ${{ steps.meta.outputs.app_gateway_repo }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -408,6 +409,7 @@ jobs:
           echo "phase=${phase}" >> "$GITHUB_OUTPUT"
           echo "stack_repo=ghcr.io/${owner_lc}/orcheo-stack" >> "$GITHUB_OUTPUT"
           echo "studio_repo=ghcr.io/${owner_lc}/orcheo-studio" >> "$GITHUB_OUTPUT"
+          echo "app_gateway_repo=ghcr.io/${owner_lc}/orcheo-app-gateway" >> "$GITHUB_OUTPUT"
 
       - name: Resolve first-party Python packages
         id: packages
@@ -444,6 +446,10 @@ jobs:
             context: deploy/stack
             file: deploy/stack/Dockerfile.studio
             repo: ${{ needs.stack-image-metadata.outputs.studio_repo }}
+          - name: app-gateway
+            context: .
+            file: Dockerfile.app-gateway
+            repo: ${{ needs.stack-image-metadata.outputs.app_gateway_repo }}
         platform:
           - runner: ubuntu-latest
             arch: amd64
@@ -504,6 +510,8 @@ jobs:
             repo: ${{ needs.stack-image-metadata.outputs.stack_repo }}
           - name: studio
             repo: ${{ needs.stack-image-metadata.outputs.studio_repo }}
+          - name: app-gateway
+            repo: ${{ needs.stack-image-metadata.outputs.app_gateway_repo }}
     steps:
       - name: Download digests
         uses: actions/download-artifact@v4
