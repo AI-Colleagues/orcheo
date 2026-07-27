@@ -60,9 +60,10 @@ Use this path on a reachable self-hosted Linux host, such as a cloud VM or an on
    orcheo install --public-ingress --public-host orcheo.example.com --start-stack
    ```
    The guided installer asks whether to enable Hosted Apps. If selected, it also
-   collects the wildcard app domain, workspace allowlist, trusted-proxy boundary,
-   and operator-provided wildcard certificate/key, then runs the app-hosting
-   preflight before starting Compose.
+   collects the wildcard app domain and trusted-proxy boundary, then validates
+   the default operator-provided wildcard certificate/key paths documented in
+   [Hosted Apps operator runbook](hosted_apps_operations.md) before starting
+   Compose.
 3. **Verify the public origin**:
    - Public UI: `https://orcheo.example.com/`
    - Public API: `https://orcheo.example.com/api/system/info`

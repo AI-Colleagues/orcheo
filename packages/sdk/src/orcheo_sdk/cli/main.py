@@ -584,7 +584,7 @@ def install_command(
         str | None,
         typer.Option(
             "--apps-base-domain",
-            help="Bare wildcard base domain, for example apps.example.com.",
+            help="Bare wildcard base domain, for example example.com.",
         ),
     ] = None,
     hosted_apps_workspace_allowlist: Annotated[
@@ -598,14 +598,20 @@ def install_command(
         str | None,
         typer.Option(
             "--app-tls-cert-file",
-            help="Readable wildcard TLS certificate file for public app hosts.",
+            help=(
+                "Readable wildcard TLS certificate file for public app hosts; "
+                "defaults to ~/.orcheo/tls/apps-origin.pem."
+            ),
         ),
     ] = None,
     app_tls_key_file: Annotated[
         str | None,
         typer.Option(
             "--app-tls-key-file",
-            help="Readable wildcard TLS private-key file for public app hosts.",
+            help=(
+                "Readable wildcard TLS private-key file for public app hosts; "
+                "defaults to ~/.orcheo/tls/apps-origin-key.pem."
+            ),
         ),
     ] = None,
     app_trusted_proxy_cidrs: Annotated[
@@ -772,7 +778,7 @@ def install_upgrade_command(
         str | None,
         typer.Option(
             "--apps-base-domain",
-            help="Bare wildcard base domain, for example apps.example.com.",
+            help="Bare wildcard base domain, for example example.com.",
         ),
     ] = None,
     hosted_apps_workspace_allowlist: Annotated[
@@ -786,14 +792,20 @@ def install_upgrade_command(
         str | None,
         typer.Option(
             "--app-tls-cert-file",
-            help="Readable wildcard TLS certificate file for public app hosts.",
+            help=(
+                "Readable wildcard TLS certificate file for public app hosts; "
+                "defaults to ~/.orcheo/tls/apps-origin.pem."
+            ),
         ),
     ] = None,
     app_tls_key_file: Annotated[
         str | None,
         typer.Option(
             "--app-tls-key-file",
-            help="Readable wildcard TLS private-key file for public app hosts.",
+            help=(
+                "Readable wildcard TLS private-key file for public app hosts; "
+                "defaults to ~/.orcheo/tls/apps-origin-key.pem."
+            ),
         ),
     ] = None,
     app_trusted_proxy_cidrs: Annotated[

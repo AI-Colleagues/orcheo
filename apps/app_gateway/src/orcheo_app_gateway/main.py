@@ -10,11 +10,11 @@ import secrets
 import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from uuid import UUID
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from orcheo.hosted_apps.errors import AliasValidationError
 from orcheo.hosted_apps.gateway import (
     canonical_app_host,
@@ -112,6 +112,34 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
         if not backend_url:
             descriptor_cache[alias] = (now + cache_seconds, descriptor)
         return descriptor
+
+    async def read_deployment_object(deployment_id: UUID, path: str) -> bytes:
+        """Read a private deployment object through the backend or local fallback."""
+        if backend_url:
+            encoded_path = quote(path, safe="/")
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.get(
+                        f"{backend_url}/internal/hosted-apps/deployments/"
+                        f"{deployment_id}/assets/{encoded_path}",
+                        headers={"X-Orcheo-App-Gateway-Token": gateway_secret},
+                    )
+            except httpx.HTTPError as exc:
+                raise HTTPException(
+                    status_code=503, detail="Deployment asset is unavailable."
+                ) from exc
+            if response.status_code == 404:
+                raise FileNotFoundError(path)
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=503, detail="Deployment asset is unavailable."
+                )
+            return response.content
+        asset = root / "deployments" / str(deployment_id) / path
+        try:
+            return asset.read_bytes()
+        except OSError as exc:
+            raise FileNotFoundError(path) from exc
 
     def validate_browser_mutation(request: Request, host: str) -> None:
         """Enforce the browser-origin boundary before forwarding state changes."""
@@ -565,11 +593,19 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
             raise HTTPException(
                 status_code=503, detail="Invalid app descriptor."
             ) from exc
-        deployment_root = root / "deployments" / str(deployment_id)
         try:
-            manifest = json.loads((deployment_root / "__manifest__.json").read_text())
+            manifest = json.loads(
+                (
+                    await read_deployment_object(deployment_id, "__manifest__.json")
+                ).decode()
+            )
             files = manifest["files"]
-        except (OSError, KeyError, json.JSONDecodeError) as exc:
+        except (
+            FileNotFoundError,
+            KeyError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ) as exc:
             raise HTTPException(
                 status_code=503, detail="Deployment manifest is unavailable."
             ) from exc
@@ -580,11 +616,12 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
             requested = "index.html"
         if requested not in files:
             raise HTTPException(status_code=404, detail="Asset was not found.")
-        asset = deployment_root / requested
-        if not asset.is_file():
+        try:
+            asset = await read_deployment_object(deployment_id, requested)
+        except FileNotFoundError:
             raise HTTPException(
                 status_code=503, detail="Deployment asset is unavailable."
-            )
+            ) from None
         headers = dict(_SECURITY_HEADERS)
         headers["Cache-Control"] = "no-cache"
         digest = files[requested].get("sha256")
@@ -606,8 +643,10 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
             "object-src 'none'; worker-src 'none'; connect-src 'self'; "
             f"script-src {script_sources}"
         )
-        return FileResponse(
-            asset, media_type=files[requested]["content_type"], headers=headers
+        return Response(
+            content=asset,
+            media_type=files[requested]["content_type"],
+            headers=headers,
         )
 
     return app

@@ -26,6 +26,16 @@ def test_preflight_accepts_complete_single_node_setup(tmp_path: Path) -> None:
     assert "bundle_backend=filesystem" in facts
 
 
+def test_preflight_accepts_postgres_bundle_storage(tmp_path: Path) -> None:
+    environment = _environment(tmp_path)
+    environment["ORCHEO_APP_BUNDLE_BACKEND"] = "postgres"
+    environment.pop("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT")
+
+    facts = validate_hosted_apps_setup(environment, check_dns=False)
+
+    assert "bundle_backend=postgres" in facts
+
+
 def test_preflight_requires_dedicated_identity_and_consistent_proxy(
     tmp_path: Path,
 ) -> None:

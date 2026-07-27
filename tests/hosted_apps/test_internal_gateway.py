@@ -4,6 +4,7 @@ from datetime import timedelta
 import asyncio
 import hashlib
 import json
+from io import BytesIO
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -17,6 +18,7 @@ from orcheo.hosted_apps import (
     AppSession,
     AppVisibility,
     DeploymentStatus,
+    FilesystemBundleStore,
     HostedApp,
     InMemoryHostedAppsRepository,
     AppAuthError,
@@ -30,6 +32,10 @@ from orcheo_backend.app.hosted_apps import internal as internal_routes
 from orcheo_backend.app.hosted_apps.internal import router
 from orcheo_backend.app.hosted_apps.runtime_store import reset_app_runtime_service
 from orcheo_backend.app.hosted_apps.store import get_hosted_apps_repository
+from orcheo_backend.app.hosted_apps.store import (
+    reset_app_bundle_store,
+    set_app_bundle_store,
+)
 
 
 def _client(monkeypatch, *, access_mode: str = "anonymous") -> TestClient:
@@ -108,6 +114,30 @@ def test_internal_resolution_requires_only_dedicated_gateway_identity(
     assert response.status_code == 200
     assert response.json()["host"] == "gateway-test.apps.test"
     assert response.json()["visibility"] == "public"
+
+
+def test_internal_gateway_reads_private_bundle_asset(tmp_path, monkeypatch) -> None:
+    deployment_id = uuid4()
+    store = FilesystemBundleStore(tmp_path)
+    store.write_deployment_file(
+        deployment_id,
+        "index.html",
+        BytesIO(b"<h1>App</h1>"),
+    )
+    set_app_bundle_store(store)
+    try:
+        client = _client(monkeypatch)
+        path = f"/internal/hosted-apps/deployments/{deployment_id}/assets/index.html"
+        assert client.get(path).status_code == 401
+        response = client.get(
+            path,
+            headers={"X-Orcheo-App-Gateway-Token": "dedicated-secret"},
+        )
+        assert response.status_code == 200
+        assert response.content == b"<h1>App</h1>"
+        assert response.headers["cache-control"] == "private, no-store"
+    finally:
+        reset_app_bundle_store()
 
 
 def test_internal_runtime_resolves_binding_from_release_snapshot(

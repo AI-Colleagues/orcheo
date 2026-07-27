@@ -135,6 +135,41 @@ def test_repository_wiring_requires_dsn_and_closes_replaced_adapter(
     store.reset_hosted_apps_repository()
 
 
+def test_bundle_store_wiring_migrates_legacy_filesystem_objects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The installed PostgreSQL backend imports and then serves legacy objects."""
+    migrated = []
+
+    class FakeBundleStore:
+        def __init__(self, dsn: str) -> None:
+            self.dsn = dsn
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setenv("ORCHEO_HOSTED_APPS_ENABLED", "true")
+    monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.test")
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_BACKEND", "postgres")
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", str(tmp_path))
+    monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://test")
+    monkeypatch.setattr(store, "PostgresBundleStore", FakeBundleStore)
+    monkeypatch.setattr(
+        store,
+        "migrate_filesystem_bundles",
+        lambda root, target: migrated.append((root, target)) or 0,
+    )
+    store.reset_app_bundle_store()
+
+    bundle_store = store.get_app_bundle_store()
+
+    assert bundle_store.dsn == "postgresql://test"
+    assert migrated == [(tmp_path, bundle_store)]
+    store.reset_app_bundle_store()
+    assert bundle_store.closed is True
+
+
 def test_cleanup_rejects_broad_roots_and_removes_files(tmp_path: Path) -> None:
     """Cleanup handles both staging files and partial directories safely."""
     with pytest.raises(ValueError, match="too broad"):

@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 from datetime import datetime
-from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -25,7 +24,6 @@ from orcheo.hosted_apps import (
     BundleValidationError,
     DeploymentService,
     DeploymentStatus,
-    FilesystemBundleStore,
     HostedApp,
     HostedAppsRepository,
     ReservedAliasError,
@@ -37,7 +35,10 @@ from orcheo.hosted_apps.zip_validation import BundleValidationLimits
 from orcheo.workspace import Role, WorkspaceContext
 from orcheo_backend.app.authentication import RequestContext, authenticate_request
 from orcheo_backend.app.dependencies import get_repository
-from orcheo_backend.app.hosted_apps import get_hosted_apps_repository
+from orcheo_backend.app.hosted_apps import (
+    get_app_bundle_store,
+    get_hosted_apps_repository,
+)
 from orcheo_backend.app.repository import WorkflowRepository
 from orcheo_backend.app.repository.errors import RepositoryError
 from orcheo_backend.app.schemas.apps import (
@@ -754,11 +755,7 @@ async def upload_local_deployment(
     except KeyError as exc:
         raise _not_found() from exc
     settings = HostedAppsSettings.from_environment()
-    if (
-        settings.bundle_backend != "filesystem"
-        or settings.filesystem_root is None
-        or settings.deployment_mode not in {"local", "single-node"}
-    ):
+    if settings.bundle_backend not in {"filesystem", "postgres"}:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -789,7 +786,7 @@ async def upload_local_deployment(
             },
         )
     service = DeploymentService(
-        FilesystemBundleStore(Path(settings.filesystem_root)),
+        get_app_bundle_store(),
         limits=BundleValidationLimits(
             max_archive_bytes=settings.max_archive_bytes,
             max_expanded_bytes=settings.max_expanded_bytes,

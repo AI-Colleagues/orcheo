@@ -9,7 +9,16 @@ import logging
 import os
 from typing import Annotated, Any
 from uuid import UUID, uuid4
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 from orcheo.hosted_apps import (
@@ -27,7 +36,10 @@ from orcheo.workspace import WorkspaceMembershipError
 from orcheo_backend.app.dependencies import get_repository
 from orcheo_backend.app.hosted_apps.auth_store import get_app_auth_service
 from orcheo_backend.app.hosted_apps.runtime_store import get_app_runtime_service
-from orcheo_backend.app.hosted_apps.store import get_hosted_apps_repository
+from orcheo_backend.app.hosted_apps.store import (
+    get_app_bundle_store,
+    get_hosted_apps_repository,
+)
 from orcheo_backend.app.workflow_execution import execute_workflow_recorded
 from orcheo_backend.app.workspace.dependencies import get_workspace_repository
 
@@ -232,6 +244,44 @@ async def resolve_host(
             detail="Hosted app was not found.",
         ) from None
     return {"host": canonical_host, **descriptor}
+
+
+def _read_deployment_asset(deployment_id: UUID, asset_path: str) -> bytes:
+    """Read one validated deployment object through the configured store."""
+    with get_app_bundle_store().open_deployment_file(
+        deployment_id, asset_path
+    ) as source:
+        return source.read()
+
+
+@router.get(
+    "/deployments/{deployment_id}/assets/{asset_path:path}",
+    dependencies=[Depends(authenticate_app_gateway)],
+)
+async def read_deployment_asset(
+    deployment_id: UUID,
+    asset_path: str,
+) -> Response:
+    """Return one private deployment object to the authenticated app gateway."""
+    try:
+        content = await run_in_threadpool(
+            _read_deployment_asset, deployment_id, asset_path
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment asset was not found.",
+        ) from None
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Deployment asset path is invalid.",
+        ) from None
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @router.post("/runtime/runs", dependencies=[Depends(authenticate_app_gateway)])

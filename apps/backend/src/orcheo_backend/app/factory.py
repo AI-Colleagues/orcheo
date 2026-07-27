@@ -55,6 +55,7 @@ from orcheo_backend.app.hosted_apps import (
 from orcheo_backend.app.hosted_apps import (
     internal_router as hosted_apps_internal_router,
 )
+from orcheo_backend.app.hosted_apps import reset_app_bundle_store
 from orcheo_backend.app.identity.router import router as identity_api_router
 from orcheo_backend.app.listener_runtime_service import ListenerRuntimeService
 from orcheo_backend.app.logging_config import configure_logging
@@ -175,6 +176,7 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         await listener_runtime.stop()
         await cancel_chatkit_cleanup_task()
+        reset_app_bundle_store()
 
 
 def _build_api_router() -> APIRouter:

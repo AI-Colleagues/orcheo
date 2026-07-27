@@ -60,6 +60,8 @@ _WINDOWS_DOCKER_DESKTOP_DOWNLOADS = {
 }
 _DOCKER_READY_POLL_INTERVAL_SECONDS = 5
 _DEFAULT_DOCKER_READY_TIMEOUT_SECONDS = 180
+_DEFAULT_APP_TLS_CERT_FILE = "~/.orcheo/tls/apps-origin.pem"
+_DEFAULT_APP_TLS_KEY_FILE = "~/.orcheo/tls/apps-origin-key.pem"
 
 
 @dataclass(slots=True)
@@ -1161,8 +1163,7 @@ def _normalize_apps_base_domain(value: str) -> str:
         candidate = candidate[2:]
     if "://" in candidate or "/" in candidate or "." not in candidate:
         raise typer.BadParameter(
-            "The Hosted Apps base domain must be a bare DNS name such as "
-            "apps.example.com."
+            "The Hosted Apps base domain must be a bare DNS name such as example.com."
         )
     return _normalize_public_host(candidate)
 
@@ -1172,23 +1173,25 @@ def _resolve_readable_file(value: str | None, *, option_name: str) -> str:
     normalized = _normalize_optional_value(value)
     if normalized is None:
         raise typer.BadParameter(
-            f"{option_name} is required when Hosted Apps uses public ingress."
+            f"{option_name} is required when Hosted Apps uses a non-local backend."
         )
     path = Path(normalized).expanduser().resolve()
     if not path.is_file() or not os.access(path, os.R_OK):
-        raise typer.BadParameter(f"{option_name} must reference a readable file.")
+        raise typer.BadParameter(
+            f"{option_name} must reference a readable file: {path}"
+        )
     return str(path)
 
 
 def _resolve_hosted_apps_enabled(
     hosted_apps: bool | None,
     *,
-    public_ingress_enabled: bool,
+    external_backend: bool,
     yes: bool,
     env_file: Path,
     env_exists: bool,
 ) -> bool:
-    """Resolve enablement without silently opting public installs into hosting."""
+    """Resolve enablement without silently opting external installs into hosting."""
     existing_enabled = (
         _parse_bool_value(_read_env_value(env_file, "ORCHEO_HOSTED_APPS_ENABLED"))
         if env_exists
@@ -1196,13 +1199,10 @@ def _resolve_hosted_apps_enabled(
     )
     if hosted_apps is not None:
         return hosted_apps
-    if public_ingress_enabled and not yes:
-        return typer.confirm(
-            "Enable Hosted Apps for this public installation?",
-            default=existing_enabled if existing_enabled is not None else False,
-        )
-    if public_ingress_enabled:
-        return existing_enabled if existing_enabled is not None else False
+    if external_backend and not yes:
+        return typer.confirm("Enable Hosted Apps?", default=True)
+    if external_backend:
+        return existing_enabled if existing_enabled is not None else True
     return existing_enabled if existing_enabled is not None else True
 
 
@@ -1214,11 +1214,11 @@ def _validate_supported_hosted_apps_storage(
         return
     existing_bundle_backend = _read_env_value(env_file, "ORCHEO_APP_BUNDLE_BACKEND")
     existing_deployment_mode = _read_env_value(env_file, "ORCHEO_DEPLOYMENT_MODE")
-    if existing_bundle_backend not in {None, "filesystem"}:
+    if existing_bundle_backend not in {None, "filesystem", "postgres"}:
         raise typer.BadParameter(
-            "The bundled Hosted Apps installer currently supports filesystem "
-            "bundle storage only. Preserve custom S3 deployments outside this "
-            "installer until the production presigned-upload flow is available."
+            "The bundled Hosted Apps installer currently supports PostgreSQL "
+            "bundle storage and migration from its legacy filesystem backend. "
+            "Preserve custom S3 deployments outside this installer."
         )
     if existing_deployment_mode not in {None, "local", "single-node"}:
         raise typer.BadParameter(
@@ -1232,7 +1232,8 @@ def _resolve_hosted_apps_domain_and_allowlist(
     enabled: bool,
     apps_base_domain: str | None,
     hosted_apps_workspace_allowlist: str | None,
-    public_ingress_enabled: bool,
+    external_backend: bool,
+    backend_url: str,
     public_host: str | None,
     yes: bool,
     env_file: Path,
@@ -1242,13 +1243,21 @@ def _resolve_hosted_apps_domain_and_allowlist(
     existing_domain = (
         _read_env_value(env_file, "ORCHEO_APPS_BASE_DOMAIN") if env_exists else None
     )
+    backend_host = urlsplit(backend_url).hostname
+    inferred_domain = (
+        public_host
+        if external_backend and public_host is not None
+        else backend_host
+        if external_backend and backend_host is not None
+        else None
+    )
     default_domain = existing_domain or (
-        f"apps.{public_host}"
-        if public_ingress_enabled and public_host is not None
+        inferred_domain
+        if inferred_domain is not None and "." in inferred_domain
         else "apps.localhost"
     )
     selected_domain = apps_base_domain
-    if enabled and public_ingress_enabled and selected_domain is None and not yes:
+    if enabled and external_backend and selected_domain is None and not yes:
         selected_domain = typer.prompt(
             "Hosted Apps base domain",
             default=default_domain,
@@ -1265,12 +1274,6 @@ def _resolve_hosted_apps_domain_and_allowlist(
         if hosted_apps_workspace_allowlist is not None
         else existing_allowlist or ""
     )
-    if enabled and public_ingress_enabled and not yes:
-        workspace_allowlist = typer.prompt(
-            "Hosted Apps workspace allowlist (comma-separated; empty allows all)",
-            default=workspace_allowlist,
-            show_default=bool(workspace_allowlist),
-        ).strip()
     return base_domain, workspace_allowlist
 
 
@@ -1305,7 +1308,7 @@ def _resolve_app_proxy_config(
     enabled: bool,
     app_trusted_proxy_cidrs: str | None,
     app_trusted_proxy_hops: int | None,
-    public_ingress_enabled: bool,
+    external_backend: bool,
     yes: bool,
     env_file: Path,
     env_exists: bool,
@@ -1319,7 +1322,7 @@ def _resolve_app_proxy_config(
     trusted_proxy_cidrs = (
         app_trusted_proxy_cidrs
         if app_trusted_proxy_cidrs is not None
-        else existing_cidrs or ("172.16.0.0/12" if public_ingress_enabled else "")
+        else existing_cidrs or ("172.16.0.0/12" if external_backend else "")
     )
     existing_hops_raw = (
         _read_env_value(env_file, "ORCHEO_APP_TRUSTED_PROXY_HOPS")
@@ -1329,9 +1332,9 @@ def _resolve_app_proxy_config(
     trusted_proxy_hops = (
         app_trusted_proxy_hops
         if app_trusted_proxy_hops is not None
-        else _parse_int_value(existing_hops_raw) or (1 if public_ingress_enabled else 0)
+        else _parse_int_value(existing_hops_raw) or (1 if external_backend else 0)
     )
-    if enabled and public_ingress_enabled and not yes:
+    if enabled and external_backend and not yes:
         trusted_proxy_cidrs = typer.prompt(
             "Trusted proxy CIDRs for the app gateway",
             default=trusted_proxy_cidrs,
@@ -1353,13 +1356,13 @@ def _resolve_app_tls_config(
     enabled: bool,
     app_tls_cert_file: str | None,
     app_tls_key_file: str | None,
-    public_ingress_enabled: bool,
+    external_backend: bool,
     yes: bool,
     env_file: Path,
     env_exists: bool,
 ) -> tuple[str, str | None, str | None]:
     """Resolve the bundled Caddy local or provided-certificate configuration."""
-    if not enabled or not public_ingress_enabled:
+    if not enabled or not external_backend:
         return "local", None, None
     existing_tls_method = (
         _read_env_value(env_file, "ORCHEO_APP_TLS_METHOD") if env_exists else None
@@ -1376,19 +1379,8 @@ def _resolve_app_tls_config(
     existing_key = (
         _read_env_value(env_file, "ORCHEO_APP_TLS_KEY_FILE") if env_exists else None
     )
-    selected_cert = app_tls_cert_file or existing_cert
-    selected_key = app_tls_key_file or existing_key
-    if not yes:
-        selected_cert = typer.prompt(
-            "Wildcard TLS certificate file",
-            default=selected_cert or "",
-            show_default=bool(selected_cert),
-        )
-        selected_key = typer.prompt(
-            "Wildcard TLS private-key file",
-            default=selected_key or "",
-            show_default=bool(selected_key),
-        )
+    selected_cert = app_tls_cert_file or existing_cert or _DEFAULT_APP_TLS_CERT_FILE
+    selected_key = app_tls_key_file or existing_key or _DEFAULT_APP_TLS_KEY_FILE
     return (
         "provided",
         _resolve_readable_file(
@@ -1411,17 +1403,18 @@ def _resolve_hosted_apps_config(
     app_tls_key_file: str | None,
     app_trusted_proxy_cidrs: str | None,
     app_trusted_proxy_hops: int | None,
-    public_ingress_enabled: bool,
+    backend_url: str,
     public_host: str | None,
     yes: bool,
     manual_secrets: bool,
     env_file: Path,
     env_exists: bool,
 ) -> HostedAppsInstallConfig:
-    """Resolve local defaults or the complete supported public-app topology."""
+    """Resolve local defaults or the complete supported external-app topology."""
+    external_backend = not _backend_url_uses_loopback_host(backend_url)
     enabled = _resolve_hosted_apps_enabled(
         hosted_apps,
-        public_ingress_enabled=public_ingress_enabled,
+        external_backend=external_backend,
         yes=yes,
         env_file=env_file,
         env_exists=env_exists,
@@ -1435,7 +1428,8 @@ def _resolve_hosted_apps_config(
         enabled=enabled,
         apps_base_domain=apps_base_domain,
         hosted_apps_workspace_allowlist=hosted_apps_workspace_allowlist,
-        public_ingress_enabled=public_ingress_enabled,
+        external_backend=external_backend,
+        backend_url=backend_url,
         public_host=public_host,
         yes=yes,
         env_file=env_file,
@@ -1451,7 +1445,7 @@ def _resolve_hosted_apps_config(
         enabled=enabled,
         app_trusted_proxy_cidrs=app_trusted_proxy_cidrs,
         app_trusted_proxy_hops=app_trusted_proxy_hops,
-        public_ingress_enabled=public_ingress_enabled,
+        external_backend=external_backend,
         yes=yes,
         env_file=env_file,
         env_exists=env_exists,
@@ -1460,7 +1454,7 @@ def _resolve_hosted_apps_config(
         enabled=enabled,
         app_tls_cert_file=app_tls_cert_file,
         app_tls_key_file=app_tls_key_file,
-        public_ingress_enabled=public_ingress_enabled,
+        external_backend=external_backend,
         yes=yes,
         env_file=env_file,
         env_exists=env_exists,
@@ -1484,9 +1478,10 @@ def _backend_url_requires_https_auth(backend_url: str) -> bool:
     return parsed.scheme == "https" and bool(parsed.netloc)
 
 
-def _is_loopback_backend_url(backend_url: str) -> bool:
+def _backend_url_uses_loopback_host(backend_url: str) -> bool:
+    """Return whether a backend URL names localhost or another loopback host."""
     parsed = urlsplit(backend_url)
-    if parsed.scheme not in {"http", "ws"} or not parsed.hostname:
+    if not parsed.hostname:
         return False
     host = parsed.hostname.strip().lower()
     if host == "localhost" or host.endswith(".localhost"):
@@ -1495,6 +1490,13 @@ def _is_loopback_backend_url(backend_url: str) -> bool:
         return ipaddress.ip_address(host).is_loopback
     except ValueError:
         return False
+
+
+def _is_loopback_backend_url(backend_url: str) -> bool:
+    parsed = urlsplit(backend_url)
+    return parsed.scheme in {"http", "ws"} and _backend_url_uses_loopback_host(
+        backend_url
+    )
 
 
 def _is_local_hosting(config: SetupConfig) -> bool:
@@ -1943,7 +1945,7 @@ def _build_env_updates(
         "ORCHEO_HOSTED_APPS_WORKSPACE_ALLOWLIST": (
             config.hosted_apps_workspace_allowlist
         ),
-        "ORCHEO_APP_BUNDLE_BACKEND": "filesystem",
+        "ORCHEO_APP_BUNDLE_BACKEND": "postgres",
         "ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT": "/data/app-bundles",
         "ORCHEO_DEPLOYMENT_MODE": "single-node",
         "ORCHEO_APP_GATEWAY_SECRET": config.app_gateway_secret or "",
@@ -2345,21 +2347,6 @@ def run_setup(
         env_exists=has_existing_stack_env,
         mode=resolved_mode,
     )
-    resolved_hosted_apps = _resolve_hosted_apps_config(
-        hosted_apps=hosted_apps,
-        apps_base_domain=apps_base_domain,
-        hosted_apps_workspace_allowlist=hosted_apps_workspace_allowlist,
-        app_tls_cert_file=app_tls_cert_file,
-        app_tls_key_file=app_tls_key_file,
-        app_trusted_proxy_cidrs=app_trusted_proxy_cidrs,
-        app_trusted_proxy_hops=app_trusted_proxy_hops,
-        public_ingress_enabled=resolved_public_ingress_enabled,
-        public_host=resolved_public_host,
-        yes=yes,
-        manual_secrets=manual_secrets,
-        env_file=stack_env_file,
-        env_exists=has_existing_stack_env,
-    )
     default_backend_url = (
         f"https://{resolved_public_host}"
         if resolved_public_ingress_enabled and resolved_public_host is not None
@@ -2380,6 +2367,11 @@ def run_setup(
         default_backend_url=default_backend_url,
         preserve_existing_default=preserve_existing_backend_default,
     )
+    effective_backend_url = resolved_backend_url
+    if preserve_existing_backend_url and has_existing_stack_env:
+        preserved_backend_url = _read_env_value(stack_env_file, "ORCHEO_API_URL")
+        if preserved_backend_url is not None:
+            effective_backend_url = preserved_backend_url
     resolved_studio_url = _resolve_studio_url(
         studio_url,
         public_ingress_enabled=resolved_public_ingress_enabled,
@@ -2388,11 +2380,7 @@ def run_setup(
         env_file=stack_env_file,
         env_exists=has_existing_stack_env,
     )
-    auth_backend_url = resolved_backend_url
-    if preserve_existing_backend_url and has_existing_stack_env:
-        preserved_backend_url = _read_env_value(stack_env_file, "ORCHEO_API_URL")
-        if preserved_backend_url is not None:
-            auth_backend_url = preserved_backend_url
+    auth_backend_url = effective_backend_url
     existing_auth_mode = (
         _read_env_value(stack_env_file, "ORCHEO_AUTH_MODE")
         if has_existing_stack_env
@@ -2414,6 +2402,21 @@ def run_setup(
         env_exists=has_existing_stack_env,
     )
     resolved_auth_mode = _resolve_auth_mode(auth_mode, yes=yes)
+    resolved_hosted_apps = _resolve_hosted_apps_config(
+        hosted_apps=hosted_apps,
+        apps_base_domain=apps_base_domain,
+        hosted_apps_workspace_allowlist=hosted_apps_workspace_allowlist,
+        app_tls_cert_file=app_tls_cert_file,
+        app_tls_key_file=app_tls_key_file,
+        app_trusted_proxy_cidrs=app_trusted_proxy_cidrs,
+        app_trusted_proxy_hops=app_trusted_proxy_hops,
+        backend_url=effective_backend_url,
+        public_host=resolved_public_host,
+        yes=yes,
+        manual_secrets=manual_secrets,
+        env_file=stack_env_file,
+        env_exists=has_existing_stack_env,
+    )
 
     resolved_api_key = _resolve_api_key(
         resolved_auth_mode,

@@ -74,3 +74,19 @@ def test_complete_local_config_is_accepted() -> None:
     )
     assert settings.enabled is True
     assert settings.filesystem_root is not None
+
+
+def test_complete_postgres_config_is_accepted_without_filesystem_root() -> None:
+    """PostgreSQL stores package bytes without a machine-local path."""
+    settings = HostedAppsSettings.from_environment(
+        {
+            "ORCHEO_HOSTED_APPS_ENABLED": "true",
+            "ORCHEO_APPS_BASE_DOMAIN": "apps.example.test",
+            "ORCHEO_APP_BUNDLE_BACKEND": "postgres",
+            "ORCHEO_DEPLOYMENT_MODE": "single-node",
+        }
+    )
+
+    assert settings.enabled is True
+    assert settings.bundle_backend == "postgres"
+    assert settings.filesystem_root is None

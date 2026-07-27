@@ -1,4 +1,4 @@
-"""Hosted Apps filesystem cleanup and reconciliation process."""
+"""Hosted Apps bundle cleanup and reconciliation process."""
 
 from __future__ import annotations
 import argparse
@@ -7,6 +7,7 @@ import shutil
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from orcheo.hosted_apps import PostgresBundleStore
 
 
 def reconcile_filesystem(root: Path, *, retention_seconds: int) -> int:
@@ -35,6 +36,12 @@ def reconcile_filesystem(root: Path, *, retention_seconds: int) -> int:
     return removed
 
 
+def reconcile_postgres(store: PostgresBundleStore, *, retention_seconds: int) -> int:
+    """Delete expired staged PostgreSQL bundle objects."""
+    cutoff = datetime.now(UTC) - timedelta(seconds=retention_seconds)
+    return store.delete_expired_staging(cutoff)
+
+
 def main() -> None:
     """Run reconciliation periodically, or once for probes and maintenance."""
     parser = argparse.ArgumentParser()
@@ -47,11 +54,23 @@ def main() -> None:
         os.environ.get("ORCHEO_HOSTED_APPS_PARTIAL_RETENTION_SECONDS", "86400")
     )
     interval = int(os.environ.get("ORCHEO_HOSTED_APPS_CLEANUP_INTERVAL_SECONDS", "900"))
-    while True:  # pragma: no cover - daemon mode is exercised by deployment probes
-        reconcile_filesystem(root, retention_seconds=retention)
-        if args.once:
-            return
-        time.sleep(interval)
+    backend = os.environ.get("ORCHEO_APP_BUNDLE_BACKEND", "filesystem").strip().lower()
+    postgres_store = None
+    if backend == "postgres":
+        dsn = os.environ.get("ORCHEO_POSTGRES_DSN", "").strip()
+        postgres_store = PostgresBundleStore(dsn)
+    try:
+        while True:  # pragma: no cover - daemon mode is exercised by deployment probes
+            if postgres_store is not None:
+                reconcile_postgres(postgres_store, retention_seconds=retention)
+            else:
+                reconcile_filesystem(root, retention_seconds=retention)
+            if args.once:
+                return
+            time.sleep(interval)
+    finally:
+        if postgres_store is not None:
+            postgres_store.close()
 
 
 if __name__ == "__main__":  # pragma: no cover - module entry point
