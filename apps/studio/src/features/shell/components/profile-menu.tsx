@@ -248,7 +248,7 @@ export default function ProfileMenu() {
             ) : null}
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" side="top" className="w-64">
+        <DropdownMenuContent align="end" side="top" className="w-56">
           <DropdownMenuLabel>My account</DropdownMenuLabel>
           <DropdownMenuItem asChild>
             <Link to="/profile" className="flex w-full items-center gap-0">
@@ -262,17 +262,6 @@ export default function ProfileMenu() {
               <span>Settings</span>
             </Link>
           </DropdownMenuItem>
-          {selectedWorkspaceSlug && (
-            <DropdownMenuItem asChild>
-              <Link
-                to={`/${selectedWorkspaceSlug}/workspace`}
-                className="flex w-full items-center gap-0"
-              >
-                <Building2 className="mr-2 h-4 w-4" />
-                <span>Workspace Management</span>
-              </Link>
-            </DropdownMenuItem>
-          )}
           <DropdownMenuSeparator />
           <DropdownMenuLabel>Workspace</DropdownMenuLabel>
           <DropdownMenuSub>
@@ -281,20 +270,35 @@ export default function ProfileMenu() {
               <span>{currentWorkspace?.name ?? "Select workspace"}</span>
             </DropdownMenuSubTrigger>
             <DropdownMenuPortal>
-              <DropdownMenuSubContent className="w-64">
+              <DropdownMenuSubContent className="w-56">
                 {workspaces.length > 0 ? (
                   workspaces.map((workspace) => (
                     <DropdownMenuItem
                       key={workspace.workspace_id}
                       onClick={() => handleSelectWorkspace(workspace.slug)}
-                      className="flex items-center justify-between"
+                      className="group flex items-center justify-between"
                     >
                       <span className="truncate font-medium">
                         {workspace.name}
                       </span>
-                      {workspace.slug === currentWorkspace?.slug ? (
-                        <Check className="h-4 w-4 shrink-0" />
-                      ) : null}
+                      <span className="flex shrink-0 items-center gap-1">
+                        {workspace.slug === currentWorkspace?.slug ? (
+                          <Check className="h-4 w-4 shrink-0" />
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                          aria-label={`Manage ${workspace.name}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            navigate(`/${workspace.slug}/workspace`);
+                          }}
+                        >
+                          <Settings className="h-3.5 w-3.5" />
+                        </Button>
+                      </span>
                     </DropdownMenuItem>
                   ))
                 ) : (
