@@ -455,6 +455,9 @@ def test_hosted_apps_setup_scalar_validation_edges(
         setup_mod._resolve_readable_file(
             str(tmp_path / "missing"), option_name="--cert"
         )
+    with pytest.raises(typer.BadParameter, match="is required"):
+        setup_mod._resolve_readable_file(None, option_name="--cert")
+    assert setup_mod._backend_url_uses_loopback_host("not-a-url") is False
     env_file = tmp_path / ".env"
     env_file.write_text(
         "ORCHEO_APP_BUNDLE_BACKEND=s3\nORCHEO_DEPLOYMENT_MODE=local\n",

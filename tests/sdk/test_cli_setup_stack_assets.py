@@ -437,6 +437,7 @@ def test_run_setup_install_explicit_public_ingress_updates_backend_url_defaults(
         install_docker=False,
         yes=True,
         manual_secrets=False,
+        hosted_apps=False,
         console=Console(record=True),
     )
 
@@ -1520,6 +1521,7 @@ def test_run_setup_public_ingress_derives_public_env_contract(
         install_docker=False,
         yes=True,
         manual_secrets=False,
+        hosted_apps=False,
         console=Console(record=True),
     )
 

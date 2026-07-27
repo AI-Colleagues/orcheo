@@ -140,6 +140,36 @@ def test_internal_gateway_reads_private_bundle_asset(tmp_path, monkeypatch) -> N
         reset_app_bundle_store()
 
 
+def test_internal_gateway_deployment_asset_error_contracts(monkeypatch) -> None:
+    class _RaisingStore:
+        def __init__(self, exc: Exception) -> None:
+            self._exc = exc
+
+        def open_deployment_file(self, deployment_id: UUID, asset_path: str):
+            raise self._exc
+
+    deployment_id = uuid4()
+    client = _client(monkeypatch)
+    path = f"/internal/hosted-apps/deployments/{deployment_id}/assets/index.html"
+    headers = {"X-Orcheo-App-Gateway-Token": "dedicated-secret"}
+
+    set_app_bundle_store(_RaisingStore(FileNotFoundError()))
+    try:
+        response = client.get(path, headers=headers)
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Deployment asset was not found."
+    finally:
+        reset_app_bundle_store()
+
+    set_app_bundle_store(_RaisingStore(ValueError("bad path")))
+    try:
+        response = client.get(path, headers=headers)
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Deployment asset path is invalid."
+    finally:
+        reset_app_bundle_store()
+
+
 def test_internal_runtime_resolves_binding_from_release_snapshot(
     monkeypatch,
 ) -> None:

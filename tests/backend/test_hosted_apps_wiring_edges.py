@@ -171,6 +171,74 @@ def test_bundle_store_wiring_migrates_legacy_filesystem_objects(
     assert bundle_store.closed is True
 
 
+def test_bundle_store_wiring_postgres_requires_dsn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PostgreSQL bundle storage refuses to start without a configured DSN."""
+    monkeypatch.setenv("ORCHEO_HOSTED_APPS_ENABLED", "true")
+    monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.test")
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_BACKEND", "postgres")
+    monkeypatch.delenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", raising=False)
+    monkeypatch.delenv("ORCHEO_POSTGRES_DSN", raising=False)
+    store.reset_app_bundle_store()
+
+    with pytest.raises(ValueError, match="POSTGRES_DSN"):
+        store.get_app_bundle_store()
+
+    store.reset_app_bundle_store()
+
+
+def test_bundle_store_wiring_postgres_skips_migration_without_legacy_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No legacy filesystem migration runs when no legacy root is configured."""
+    migrated = []
+
+    class FakeBundleStore:
+        def __init__(self, dsn: str) -> None:
+            self.dsn = dsn
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setenv("ORCHEO_HOSTED_APPS_ENABLED", "true")
+    monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.test")
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_BACKEND", "postgres")
+    monkeypatch.delenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", raising=False)
+    monkeypatch.setenv("ORCHEO_POSTGRES_DSN", "postgresql://test")
+    monkeypatch.setattr(store, "PostgresBundleStore", FakeBundleStore)
+    monkeypatch.setattr(
+        store,
+        "migrate_filesystem_bundles",
+        lambda root, target: migrated.append((root, target)) or 0,
+    )
+    store.reset_app_bundle_store()
+
+    bundle_store = store.get_app_bundle_store()
+
+    assert bundle_store.dsn == "postgresql://test"
+    assert migrated == []
+    store.reset_app_bundle_store()
+
+
+def test_bundle_store_wiring_rejects_unsupported_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A backend without a bundled adapter fails closed instead of hanging."""
+    monkeypatch.setenv("ORCHEO_HOSTED_APPS_ENABLED", "true")
+    monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.test")
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_BACKEND", "s3")
+    monkeypatch.delenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", raising=False)
+    monkeypatch.delenv("ORCHEO_POSTGRES_DSN", raising=False)
+    store.reset_app_bundle_store()
+
+    with pytest.raises(ValueError, match="external upload adapter"):
+        store.get_app_bundle_store()
+
+    store.reset_app_bundle_store()
+
+
 def test_bundle_store_wiring_initializes_once_under_concurrency(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
