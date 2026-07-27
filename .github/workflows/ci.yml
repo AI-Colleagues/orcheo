@@ -334,10 +334,11 @@ jobs:
           if not tag_name.startswith(tag_prefix):
               raise SystemExit(f"Tag {tag_name!r} does not start with {tag_prefix!r}.")
           tag_version = tag_name.removeprefix(tag_prefix)
-          pattern = r"\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?"
+          pattern = r"\d+\.\d+\.\d+(?:(?:-(?:alpha|beta|rc)\.\d+)|(?:a|b|rc)\d+)?"
           if re.fullmatch(pattern, tag_version) is None:
               raise SystemExit(
-                  "Release tags must use X.Y.Z or X.Y.Z-{alpha,beta,rc}.N."
+                  "Release tags must use X.Y.Z, X.Y.Z-{alpha,beta,rc}.N, "
+                  "or the PEP 440 equivalent X.Y.Z{a,b,rc}N."
               )
 
           project = tomllib.loads(
