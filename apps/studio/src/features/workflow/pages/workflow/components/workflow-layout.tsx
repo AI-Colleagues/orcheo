@@ -1,7 +1,6 @@
 import React from "react";
 import { Tabs, TabsContent } from "@/design-system/ui/tabs";
 
-import TopNavigation from "@features/shared/components/top-navigation";
 import WorkflowTabs from "@features/workflow/components/panels/workflow-tabs";
 import { StudioChatBubble } from "@features/chatkit/components/studio-chat-bubble";
 import type { SettingsTabContentProps } from "@features/workflow/pages/workflow/components/settings-tab-content";
@@ -49,7 +48,12 @@ interface ChatState {
 }
 
 interface WorkflowLayoutProps {
-  topNavigationProps: React.ComponentProps<typeof TopNavigation>;
+  headerProps: {
+    currentWorkflow: {
+      name: string;
+      onNameChange?: (name: string) => void;
+    };
+  };
   tabsProps: {
     activeTab: string;
     onTabChange: (value: string) => void;
@@ -61,7 +65,7 @@ interface WorkflowLayoutProps {
 }
 
 export function WorkflowLayout({
-  topNavigationProps,
+  headerProps,
   tabsProps,
   workflowProps,
   traceProps,
@@ -69,12 +73,11 @@ export function WorkflowLayout({
   chat,
 }: WorkflowLayoutProps) {
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
-      <TopNavigation {...topNavigationProps} />
-
+    <div className="flex flex-col h-full overflow-hidden">
       <WorkflowTabs
         activeTab={tabsProps.activeTab}
         onTabChange={tabsProps.onTabChange}
+        currentWorkflow={headerProps.currentWorkflow}
       />
 
       <div className="flex-1 flex flex-col min-h-0">
@@ -116,14 +119,14 @@ export function WorkflowLayout({
 
       {chat && (
         <StudioChatBubble
-          title={topNavigationProps.currentWorkflow.name}
+          title={headerProps.currentWorkflow.name}
           user={chat.user}
           ai={chat.ai}
           workflowId={chat.workflowId}
           chatkitWorkflowId={chat.chatkitWorkflowId}
           sessionPayload={{
             workflowId: chat.chatkitWorkflowId ?? chat.workflowId,
-            workflowLabel: topNavigationProps.currentWorkflow.name,
+            workflowLabel: headerProps.currentWorkflow.name,
             chatNodeId: chat.activeChatNodeId,
           }}
           backendBaseUrl={chat.backendBaseUrl}

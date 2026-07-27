@@ -23,6 +23,7 @@ export interface PackageVersionStatus {
 }
 
 export interface SystemInfoResponse {
+  core: PackageVersionStatus;
   backend: PackageVersionStatus;
   cli: PackageVersionStatus;
   studio: PackageVersionStatus;

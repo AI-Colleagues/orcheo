@@ -439,3 +439,157 @@ def test_attempt_docker_autoinstall_unknown_platform(
 ) -> None:
     monkeypatch.setattr(setup_mod.platform, "system", lambda: "FreeBSD")
     assert not setup_mod._attempt_docker_autoinstall(console=Console())
+
+
+def test_hosted_apps_setup_scalar_validation_edges(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Installer helpers reject unsafe domains/files/topologies and weak secrets."""
+    assert (
+        setup_mod._normalize_apps_base_domain("*.Apps.Example.Test")
+        == "apps.example.test"
+    )
+    with pytest.raises(typer.BadParameter):
+        setup_mod._normalize_apps_base_domain("https://apps.example.test")
+    with pytest.raises(typer.BadParameter):
+        setup_mod._resolve_readable_file(
+            str(tmp_path / "missing"), option_name="--cert"
+        )
+    with pytest.raises(typer.BadParameter, match="is required"):
+        setup_mod._resolve_readable_file(None, option_name="--cert")
+    assert setup_mod._backend_url_uses_loopback_host("not-a-url") is False
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "ORCHEO_APP_BUNDLE_BACKEND=s3\nORCHEO_DEPLOYMENT_MODE=local\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(typer.BadParameter, match="filesystem"):
+        setup_mod._validate_supported_hosted_apps_storage(
+            enabled=True, env_file=env_file, env_exists=True
+        )
+    env_file.write_text(
+        "ORCHEO_APP_BUNDLE_BACKEND=filesystem\nORCHEO_DEPLOYMENT_MODE=hosted\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(typer.BadParameter, match="local"):
+        setup_mod._validate_supported_hosted_apps_storage(
+            enabled=True, env_file=env_file, env_exists=True
+        )
+    monkeypatch.setattr(setup_mod.typer, "prompt", lambda *_a, **_k: "short")
+    with pytest.raises(typer.BadParameter, match="32"):
+        setup_mod._resolve_app_gateway_secret(
+            manual_secrets=True, yes=False, env_file=env_file, env_exists=False
+        )
+    assert (
+        setup_mod._stack_version_candidate({"name": "stack-vbad"}, prerelease=False)
+        is None
+    )
+
+
+def test_hosted_apps_setup_preflight_and_tls_error_edges(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Installer preflight reports validation failures without starting Compose."""
+    config = setup_mod.SetupConfig(
+        mode="install",
+        backend_url="https://orcheo.example.test",
+        studio_url="https://orcheo.example.test",
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key=None,
+        public_ingress_enabled=True,
+        public_host="orcheo.example.test",
+        publish_local_ports=False,
+        backend_upstreams="backend:2025",
+        studio_upstream="studio:2026",
+        start_stack=False,
+        install_docker_if_missing=False,
+        hosted_apps_enabled=True,
+        apps_base_domain="apps.example.test",
+        app_tls_method="provided",
+        app_tls_cert_file=str(tmp_path / "missing-cert"),
+        app_tls_key_file=str(tmp_path / "missing-key"),
+    )
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        setup_mod,
+        "validate_hosted_apps_setup",
+        lambda *_a, **_k: (_ for _ in ()).throw(ValueError("bad setup")),
+    )
+    with pytest.raises(typer.BadParameter, match="preflight"):
+        setup_mod._run_hosted_apps_preflight(
+            config, env_file=env_file, console=Console()
+        )
+
+
+def test_hosted_apps_setup_remaining_edge_branches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cover installer certificate, staging, and public Hosted Apps summary paths."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("ORCHEO_APP_TLS_METHOD=dns-01\n", encoding="utf-8")
+    with pytest.raises(typer.BadParameter, match="DNS-01"):
+        setup_mod._resolve_app_tls_config(
+            enabled=True,
+            app_tls_cert_file=None,
+            app_tls_key_file=None,
+            external_backend=True,
+            public_ingress_enabled=True,
+            yes=True,
+            env_file=env_file,
+            env_exists=True,
+        )
+    monkeypatch.setenv("ORCHEO_STACK_ASSET_BASE_URL", "https://assets.test")
+    monkeypatch.setattr(setup_mod, "_resolve_stack_version", lambda _value: None)
+    with pytest.raises(typer.BadParameter, match="explicit"):
+        setup_mod._sync_stack_assets_with_best_source(
+            tmp_path / "stack", stack_version=None, console=Console(), prerelease=True
+        )
+
+    config = setup_mod.SetupConfig(
+        mode="install",
+        backend_url="https://orcheo.example.test",
+        studio_url="https://orcheo.example.test",
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key=None,
+        public_ingress_enabled=True,
+        public_host="orcheo.example.test",
+        publish_local_ports=False,
+        backend_upstreams="backend:2025",
+        studio_upstream="studio:2026",
+        start_stack=True,
+        install_docker_if_missing=False,
+        hosted_apps_enabled=True,
+        apps_base_domain="apps.example.test",
+        app_tls_method="provided",
+    )
+    stack_dir = tmp_path / "stack-tls"
+    tls_dir = stack_dir / "app-tls"
+    tls_dir.mkdir(parents=True)
+    cert = tls_dir / "cert.pem"
+    key = tls_dir / "key.pem"
+    cert.write_text("cert", encoding="utf-8")
+    key.write_text("key", encoding="utf-8")
+    config.app_tls_cert_file = str(cert)
+    config.app_tls_key_file = str(key)
+    setup_mod._configure_hosted_apps_tls(config, stack_dir=stack_dir)
+    assert (tls_dir / "Caddyfile").read_text(encoding="utf-8").startswith("tls ")
+    config.app_tls_cert_file = str(tmp_path / "missing-cert")
+    config.app_tls_key_file = str(tmp_path / "missing-key")
+    with pytest.raises(typer.BadParameter, match="Unable to copy"):
+        setup_mod._configure_hosted_apps_tls(config, stack_dir=tmp_path / "tls-error")
+
+    monkeypatch.delenv("ORCHEO_STACK_ASSET_BASE_URL", raising=False)
+    monkeypatch.setattr(
+        setup_mod, "_resolve_stack_project_dir", lambda: tmp_path / "assets"
+    )
+    monkeypatch.setattr(setup_mod, "_resolve_stack_version", lambda value: value)
+    with pytest.raises(typer.BadParameter, match="--staging requires"):
+        setup_mod._ensure_stack_assets(
+            config=config, console=Console(), stack_version="1.0", staging=True
+        )
+    summary_console = Console(file=io.StringIO(), record=True)
+    setup_mod.print_summary(config, console=summary_console)
+    assert "Hosted Apps DNS" in summary_console.file.getvalue()

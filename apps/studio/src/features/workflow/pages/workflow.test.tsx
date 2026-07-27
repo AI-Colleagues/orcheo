@@ -22,15 +22,15 @@ vi.mock(
 vi.mock("@features/workflow/pages/workflow/components/workflow-layout", () => ({
   WorkflowLayout: ({
     workflowProps,
-    topNavigationProps,
+    headerProps,
   }: {
     workflowProps: { workflowId: string | null };
-    topNavigationProps: { currentWorkflow: { name: string } };
+    headerProps: { currentWorkflow: { name: string } };
   }) => (
     <div data-testid="workflow-layout">
       <span data-testid="workflow-id">{workflowProps.workflowId ?? "new"}</span>
       <span data-testid="workflow-name">
-        {topNavigationProps.currentWorkflow.name}
+        {headerProps.currentWorkflow.name}
       </span>
     </div>
   ),
@@ -57,7 +57,7 @@ describe("WorkflowPage", () => {
     controllerMock.mockImplementation((workflowId?: string) => ({
       layoutProps: {
         workflowProps: { workflowId: workflowId ?? null },
-        topNavigationProps: {
+        headerProps: {
           currentWorkflow: {
             name: workflowId ?? "New Workflow",
           },

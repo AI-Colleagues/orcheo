@@ -104,6 +104,15 @@ class WorkspaceQuotas(OrcheoBaseModel):
     max_concurrent_runs: int = Field(default=25, ge=1)
     max_credentials: int = Field(default=200, ge=1)
     max_storage_rows: int = Field(default=1_000_000, ge=1)
+    max_hosted_apps: int = Field(default=25, ge=1)
+    max_app_upload_reservations: int = Field(default=5, ge=1)
+    max_app_deployments: int = Field(default=50, ge=1)
+    max_app_bundle_bytes: int = Field(default=250 * 1024 * 1024, ge=1)
+    max_app_storage_bytes: int = Field(default=1024 * 1024 * 1024, ge=1)
+    max_app_storage_rows: int = Field(default=100_000, ge=1)
+    max_app_sessions: int = Field(default=10_000, ge=1)
+    max_app_invocations_per_minute: int = Field(default=1_000, ge=1)
+    max_app_concurrent_runs: int = Field(default=25, ge=1)
 
 
 class WorkspaceAuditEvent(OrcheoBaseModel):

@@ -194,6 +194,7 @@ checkpoints.sqlite
 packages/plugins/
 
 # Miscellaneous
+*.pem
 homepage/
 orcheo-paper/
 orcheo-skill/

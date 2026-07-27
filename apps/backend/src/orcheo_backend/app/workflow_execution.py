@@ -174,22 +174,23 @@ async def _forward_node_step(
     *,
     history_store: RunHistoryStore,
     execution_id: str,
-    websocket: WebSocket,
+    websocket: WebSocket | None,
     tracer: Tracer,
 ) -> None:
-    """Persist and stream a single step payload to the connected client."""
+    """Persist a step and optionally stream it to a connected client."""
     # Tracing and history need the unsanitized payload: ``__trace`` carries the
     # AI model/provider metadata that ``record_workflow_step`` and later trace
     # responses read. Only the client-facing websocket copy is stripped.
     record_workflow_step(tracer, payload)
     history_step = await history_store.append_step(execution_id, payload)
-    await _safe_send_json(websocket, _sanitize_public_step_payload(payload))
-    await _emit_trace_update(
-        history_store,
-        websocket,
-        execution_id,
-        step=history_step,
-    )
+    if websocket is not None:
+        await _safe_send_json(websocket, _sanitize_public_step_payload(payload))
+        await _emit_trace_update(
+            history_store,
+            websocket,
+            execution_id,
+            step=history_step,
+        )
 
 
 async def _stream_workflow_updates(
@@ -198,10 +199,10 @@ async def _stream_workflow_updates(
     config: RunnableConfig,
     history_store: RunHistoryStore,
     execution_id: str,
-    websocket: WebSocket,
+    websocket: WebSocket | None,
     tracer: Tracer,
-) -> None:
-    """Stream workflow updates to the client while recording history."""
+) -> Any:
+    """Record workflow updates and optionally stream them to a client."""
 
     async def in_node_status_callback(payload: Mapping[str, Any]) -> None:
         if not isinstance(payload, Mapping):
@@ -231,23 +232,25 @@ async def _stream_workflow_updates(
             # model/provider metadata); strip it only from the websocket payload.
             record_workflow_step(tracer, tagged_step)
             history_step = await history_store.append_step(execution_id, tagged_step)
-            try:
-                await _safe_send_json(
-                    websocket, _sanitize_public_step_payload(tagged_step)
-                )
-            except Exception as exc:  # pragma: no cover
-                logger.error("Error processing messages: %s", exc)
-                raise
+            if websocket is not None:
+                try:
+                    await _safe_send_json(
+                        websocket, _sanitize_public_step_payload(tagged_step)
+                    )
+                except Exception as exc:  # pragma: no cover
+                    logger.error("Error processing messages: %s", exc)
+                    raise
 
-            await _emit_trace_update(
-                history_store,
-                websocket,
-                execution_id,
-                step=history_step,
-            )
+                await _emit_trace_update(
+                    history_store,
+                    websocket,
+                    execution_id,
+                    step=history_step,
+                )
 
     final_state = await compiled_graph.aget_state(cast(RunnableConfig, config))
     _log_final_state_debug(final_state.values)
+    return final_state.values
 
 
 async def _run_workflow_stream(
@@ -256,13 +259,13 @@ async def _run_workflow_stream(
     config: RunnableConfig,
     history_store: RunHistoryStore,
     execution_id: str,
-    websocket: WebSocket,
+    websocket: WebSocket | None,
     tracer: Tracer,
     span: Span,
-) -> None:
-    """Stream updates and handle cancellation or failure outcomes."""
+) -> Any:
+    """Record updates, optionally stream them, and handle failure outcomes."""
     try:
-        await _stream_workflow_updates(
+        return await _stream_workflow_updates(
             compiled_graph,
             state,
             config,
@@ -277,13 +280,14 @@ async def _run_workflow_stream(
         cancellation_payload = {"status": "cancelled", "reason": reason}
         await history_store.append_step(execution_id, cancellation_payload)
         await history_store.mark_cancelled(execution_id, reason=reason)
-        await _emit_trace_update(
-            history_store,
-            websocket,
-            execution_id,
-            include_root=True,
-            complete=True,
-        )
+        if websocket is not None:
+            await _emit_trace_update(
+                history_store,
+                websocket,
+                execution_id,
+                include_root=True,
+                complete=True,
+            )
         raise
     except RunHistoryError as exc:
         _report_history_error(
@@ -304,13 +308,14 @@ async def _run_workflow_stream(
             error_message,
             span,
         )
-        await _emit_trace_update(
-            history_store,
-            websocket,
-            execution_id,
-            include_root=True,
-            complete=True,
-        )
+        if websocket is not None:
+            await _emit_trace_update(
+                history_store,
+                websocket,
+                execution_id,
+                include_root=True,
+                complete=True,
+            )
         raise
 
 
@@ -441,6 +446,96 @@ async def _execute_trusted_workflow_in_worker(
                 tracer,
                 span,
             )
+
+
+async def execute_workflow_recorded(
+    workflow_id: UUID,
+    graph_config: dict[str, Any],
+    inputs: dict[str, Any],
+    execution_id: str,
+    *,
+    workspace_id: str | None = None,
+    stored_runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
+) -> Any:
+    """Execute a workflow without a websocket while recording its full trace."""
+    from orcheo_backend.app import build_graph, create_checkpointer, create_graph_store
+
+    settings = get_settings()
+    history_store = get_history_store()
+    workspace_id = await resolve_workflow_workspace_id(
+        get_repository(),
+        workflow_id,
+        workspace_id=workspace_id,
+    )
+    resolver = CredentialResolver(
+        get_vault(),
+        context=credential_context_from_workflow(
+            workflow_id,
+            workspace_id=workspace_id,
+        ),
+    )
+    tracer = get_tracer(__name__)
+    parsed_config, runtime_config, state_config, stored_config = (
+        _prepare_runnable_config(
+            execution_id,
+            None,
+            stored_runnable_config,
+        )
+    )
+
+    try:
+        with workflow_span(
+            tracer,
+            workflow_id=str(workflow_id),
+            execution_id=execution_id,
+            inputs=inputs,
+            runnable_config=parsed_config,
+        ) as span_context:
+            await history_store.start_run(
+                workflow_id=str(workflow_id),
+                execution_id=execution_id,
+                inputs=inputs,
+                trace_id=span_context.trace_id,
+                trace_started_at=span_context.started_at,
+                runnable_config=stored_config,
+                tags=parsed_config.tags,
+                callbacks=parsed_config.callbacks,
+                metadata=parsed_config.metadata,
+                run_name=parsed_config.run_name,
+                workspace_id=workspace_id,
+            )
+            with credential_resolution(resolver):
+                async with create_checkpointer(settings) as checkpointer:
+                    async with create_graph_store(settings) as graph_store:
+                        graph = build_graph(graph_config)
+                        compiled_graph = graph.compile(
+                            checkpointer=checkpointer,
+                            store=graph_store,
+                        )
+                        state = _build_initial_state(
+                            graph_config,
+                            inputs,
+                            state_config,
+                            workspace_id,
+                        )
+                        final_state = await _run_workflow_stream(
+                            compiled_graph,
+                            state,
+                            runtime_config,
+                            history_store,
+                            execution_id,
+                            None,
+                            tracer,
+                            span_context.span,
+                        )
+
+            completion_payload = {"status": "completed"}
+            record_workflow_completion(span_context.span)
+            await history_store.append_step(execution_id, completion_payload)
+            await history_store.mark_completed(execution_id)
+            return final_state
+    finally:
+        await close_browser_sessions_for_scope(execution_id)
 
 
 async def execute_workflow(

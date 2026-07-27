@@ -30,6 +30,19 @@ class AuthenticationError(Exception):
 class AuthorizationError(AuthenticationError):
     """Raised when an authenticated identity lacks required permissions."""
 
-    status_code: int = status.HTTP_403_FORBIDDEN
-    code: str = "auth.forbidden"
-    websocket_code: int = 4403
+    def __init__(
+        self,
+        message: str,
+        code: str = "auth.forbidden",
+        status_code: int = status.HTTP_403_FORBIDDEN,
+        headers: Mapping[str, str] | None = None,
+        websocket_code: int = 4403,
+    ) -> None:
+        """Initialize authorization failures with forbidden defaults."""
+        super().__init__(
+            message=message,
+            code=code,
+            status_code=status_code,
+            headers=headers,
+            websocket_code=websocket_code,
+        )

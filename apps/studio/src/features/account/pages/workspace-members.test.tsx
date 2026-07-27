@@ -50,27 +50,12 @@ vi.mock("@/hooks/use-toast", () => ({
   toast: toastMock,
 }));
 
-vi.mock("@/hooks/use-credential-vault", () => ({
-  default: () => ({
-    credentials: [],
-    isLoading: false,
-    onAddCredential: vi.fn(),
-    onUpdateCredential: vi.fn(),
-    onDeleteCredential: vi.fn(),
-    onRevealCredentialSecret: vi.fn(),
-  }),
-}));
-
 vi.mock("@/hooks/use-page-context", () => ({
   usePageContext: () => ({
     setPageContext: vi.fn(),
     setVaultOpen: vi.fn(),
     pageContext: { page: "workspace" },
   }),
-}));
-
-vi.mock("@features/shared/components/top-navigation", () => ({
-  default: () => <header data-testid="top-nav" />,
 }));
 
 vi.mock("@features/account/components/external-agents-section", () => ({

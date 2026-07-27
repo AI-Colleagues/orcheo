@@ -38,6 +38,16 @@ def _utc_now() -> datetime:
     return datetime.now(tz=UTC)
 
 
+def _workspace_quotas_from_payload(payload: dict[str, Any]) -> WorkspaceQuotas:
+    """Deserialize quotas while tolerating fields written by newer releases."""
+    known_quotas = {
+        name: value
+        for name, value in payload.items()
+        if name in WorkspaceQuotas.model_fields
+    }
+    return WorkspaceQuotas(**known_quotas)
+
+
 class PostgresWorkspaceRepository:
     """Persistent workspace store backed by PostgreSQL."""
 
@@ -60,10 +70,9 @@ class PostgresWorkspaceRepository:
 
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
-            for statement in POSTGRES_WORKSPACE_SCHEMA.strip().split(";"):
-                sql = statement.strip()
-                if sql:
-                    conn.execute(sql)
+            # Execute as one PostgreSQL script so dollar-quoted functions and
+            # transaction blocks in additive feature schemas remain intact.
+            conn.execute(POSTGRES_WORKSPACE_SCHEMA)
 
     def create_workspace(self, workspace: Workspace) -> Workspace:
         """Persist a new workspace; raises on slug conflict."""
@@ -611,7 +620,7 @@ class PostgresWorkspaceRepository:
             slug=str(row["slug"]),
             name=str(row["name"]),
             status=WorkspaceStatus(str(row["status"])),
-            quotas=WorkspaceQuotas(**cast(dict[str, Any], quotas_payload)),
+            quotas=_workspace_quotas_from_payload(cast(dict[str, Any], quotas_payload)),
             deleted_at=cast(datetime, deleted_at) if deleted_at else None,
             created_at=cast(datetime, row["created_at"]),
             updated_at=cast(datetime, row["updated_at"]),

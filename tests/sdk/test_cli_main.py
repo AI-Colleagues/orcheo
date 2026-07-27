@@ -442,12 +442,16 @@ def test_run_install_flow_forced_mode(monkeypatch: pytest.MonkeyPatch) -> None:
         run_setup_args.update(kwargs)
         return config
 
-    execute_kwargs: list[tuple[SetupConfig, str | None]] = []
+    execute_kwargs: list[tuple[SetupConfig, str | None, bool]] = []
 
     def fake_execute_setup(
-        cfg: SetupConfig, *, console: Console, stack_version: str | None
+        cfg: SetupConfig,
+        *,
+        console: Console,
+        stack_version: str | None,
+        staging: bool,
     ) -> None:
-        execute_kwargs.append((cfg, stack_version))
+        execute_kwargs.append((cfg, stack_version, staging))
 
     printed: list[SetupConfig] = []
 
@@ -484,7 +488,7 @@ def test_run_install_flow_forced_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
     assert run_setup_args.get("mode") == "upgrade"
-    assert execute_kwargs == [(config, "0.1.0")]
+    assert execute_kwargs == [(config, "0.1.0", False)]
     assert printed == [config]
 
 
@@ -675,6 +679,42 @@ def test_install_upgrade_command_forces_upgrade(
     ctx = typer.Context(click.Command("orcheo"))
     main_mod.install_upgrade_command(ctx)
     assert called == ["None"]
+
+
+def test_install_help_lists_production_hosted_apps_options(
+    runner: CliRunner,
+) -> None:
+    result = runner.invoke(app, ["install", "--help"], terminal_width=140)
+
+    assert result.exit_code == 0
+    help_output = click.unstyle(result.stdout)
+    assert "--hosted-apps" in help_output
+    assert "--apps-base-domain" in help_output
+    assert "--app-tls-cert-file" in help_output
+    assert "proxy CIDRs trusted" in help_output
+    assert "--staging" in help_output
+
+
+def test_run_install_flow_rejects_staging_with_exact_version() -> None:
+    with pytest.raises(typer.BadParameter, match="either --staging or --stack-version"):
+        main_mod._run_install_flow(
+            console=Console(),
+            yes=True,
+            mode="install",
+            stack_version="0.29.0-rc.1",
+            staging=True,
+            backend_url=None,
+            studio_url=None,
+            auth_mode=None,
+            api_key=None,
+            chatkit_domain_key=None,
+            public_ingress=None,
+            public_host=None,
+            publish_local_ports=None,
+            start_stack=False,
+            install_docker=False,
+            manual_secrets=False,
+        )
 
 
 def test_stack_command_errors_and_success(monkeypatch: pytest.MonkeyPatch) -> None:

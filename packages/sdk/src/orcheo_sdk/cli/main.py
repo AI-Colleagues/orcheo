@@ -281,6 +281,7 @@ def _run_install_flow(
     yes: bool,
     mode: str | None,
     stack_version: str | None,
+    staging: bool = False,
     backend_url: str | None,
     studio_url: str | None,
     auth_mode: str | None,
@@ -299,8 +300,17 @@ def _run_install_flow(
     smtp_password: str | None = None,
     smtp_from_email: str | None = None,
     smtp_use_tls: bool | None = None,
+    hosted_apps: bool | None = None,
+    apps_base_domain: str | None = None,
+    hosted_apps_workspace_allowlist: str | None = None,
+    app_tls_cert_file: str | None = None,
+    app_tls_key_file: str | None = None,
+    app_trusted_proxy_cidrs: str | None = None,
+    app_trusted_proxy_hops: int | None = None,
 ) -> None:
     """Run guided install/upgrade for Orcheo components."""
+    if staging and stack_version is not None:
+        raise typer.BadParameter("Use either --staging or --stack-version, not both.")
     mode_value = forced_mode or cast(SetupMode | None, _parse_setup_mode(mode))
     auth_value = cast(AuthMode | None, _parse_auth_mode(auth_mode))
     config = run_setup(
@@ -324,8 +334,20 @@ def _run_install_flow(
         smtp_password=smtp_password,
         smtp_from_email=smtp_from_email,
         smtp_use_tls=smtp_use_tls,
+        hosted_apps=hosted_apps,
+        apps_base_domain=apps_base_domain,
+        hosted_apps_workspace_allowlist=hosted_apps_workspace_allowlist,
+        app_tls_cert_file=app_tls_cert_file,
+        app_tls_key_file=app_tls_key_file,
+        app_trusted_proxy_cidrs=app_trusted_proxy_cidrs,
+        app_trusted_proxy_hops=app_trusted_proxy_hops,
     )
-    execute_setup(config, console=console, stack_version=stack_version)
+    execute_setup(
+        config,
+        console=console,
+        stack_version=stack_version,
+        staging=staging,
+    )
     print_summary(config, console=console)
     _install_agent_skills(console=console, should_install=config.install_agent_skills)
 
@@ -418,6 +440,13 @@ def install_command(
             ),
         ),
     ] = None,
+    staging: Annotated[
+        bool,
+        typer.Option(
+            "--staging",
+            help=("Install the newest published prerelease stack and Studio images."),
+        ),
+    ] = False,
     backend_url: Annotated[
         str | None,
         typer.Option("--backend-url", help="Backend URL for CLI config."),
@@ -544,6 +573,61 @@ def install_command(
             help="Use STARTTLS for the SMTP connection (sets ORCHEO_SMTP_USE_TLS).",
         ),
     ] = None,
+    hosted_apps: Annotated[
+        bool | None,
+        typer.Option(
+            "--hosted-apps/--no-hosted-apps",
+            help="Enable or disable app hosting in the installed stack.",
+        ),
+    ] = None,
+    apps_base_domain: Annotated[
+        str | None,
+        typer.Option(
+            "--apps-base-domain",
+            help="Bare wildcard base domain, for example example.com.",
+        ),
+    ] = None,
+    hosted_apps_workspace_allowlist: Annotated[
+        str | None,
+        typer.Option(
+            "--hosted-apps-workspace-allowlist",
+            help="Comma-separated workspace IDs allowed to use Hosted Apps.",
+        ),
+    ] = None,
+    app_tls_cert_file: Annotated[
+        str | None,
+        typer.Option(
+            "--app-tls-cert-file",
+            help=(
+                "Readable wildcard TLS certificate file for public app hosts; "
+                "defaults to ~/.orcheo/tls/apps-origin.pem."
+            ),
+        ),
+    ] = None,
+    app_tls_key_file: Annotated[
+        str | None,
+        typer.Option(
+            "--app-tls-key-file",
+            help=(
+                "Readable wildcard TLS private-key file for public app hosts; "
+                "defaults to ~/.orcheo/tls/apps-origin-key.pem."
+            ),
+        ),
+    ] = None,
+    app_trusted_proxy_cidrs: Annotated[
+        str | None,
+        typer.Option(
+            "--app-trusted-proxy-cidrs",
+            help="Comma-separated proxy CIDRs trusted by the app gateway.",
+        ),
+    ] = None,
+    app_trusted_proxy_hops: Annotated[
+        int | None,
+        typer.Option(
+            "--app-trusted-proxy-hops",
+            help="Fixed number of trusted forwarding hops before the app gateway.",
+        ),
+    ] = None,
 ) -> None:
     """Run guided install/upgrade for Orcheo components."""
     if ctx.invoked_subcommand is not None:
@@ -553,6 +637,7 @@ def install_command(
         yes=yes,
         mode=mode,
         stack_version=stack_version,
+        staging=staging,
         backend_url=backend_url,
         studio_url=studio_url,
         auth_mode=auth_mode,
@@ -570,6 +655,13 @@ def install_command(
         smtp_password=smtp_password,
         smtp_from_email=smtp_from_email,
         smtp_use_tls=smtp_use_tls,
+        hosted_apps=hosted_apps,
+        apps_base_domain=apps_base_domain,
+        hosted_apps_workspace_allowlist=hosted_apps_workspace_allowlist,
+        app_tls_cert_file=app_tls_cert_file,
+        app_tls_key_file=app_tls_key_file,
+        app_trusted_proxy_cidrs=app_trusted_proxy_cidrs,
+        app_trusted_proxy_hops=app_trusted_proxy_hops,
     )
 
 
@@ -589,6 +681,15 @@ def install_upgrade_command(
             ),
         ),
     ] = None,
+    staging: Annotated[
+        bool,
+        typer.Option(
+            "--staging",
+            help=(
+                "Upgrade to the newest published prerelease stack and Studio images."
+            ),
+        ),
+    ] = False,
     backend_url: Annotated[
         str | None,
         typer.Option("--backend-url", help="Backend URL for CLI config."),
@@ -666,6 +767,61 @@ def install_upgrade_command(
             help="Prompt for manual secret entry instead of auto-generating.",
         ),
     ] = False,
+    hosted_apps: Annotated[
+        bool | None,
+        typer.Option(
+            "--hosted-apps/--no-hosted-apps",
+            help="Enable or disable app hosting in the installed stack.",
+        ),
+    ] = None,
+    apps_base_domain: Annotated[
+        str | None,
+        typer.Option(
+            "--apps-base-domain",
+            help="Bare wildcard base domain, for example example.com.",
+        ),
+    ] = None,
+    hosted_apps_workspace_allowlist: Annotated[
+        str | None,
+        typer.Option(
+            "--hosted-apps-workspace-allowlist",
+            help="Comma-separated workspace IDs allowed to use Hosted Apps.",
+        ),
+    ] = None,
+    app_tls_cert_file: Annotated[
+        str | None,
+        typer.Option(
+            "--app-tls-cert-file",
+            help=(
+                "Readable wildcard TLS certificate file for public app hosts; "
+                "defaults to ~/.orcheo/tls/apps-origin.pem."
+            ),
+        ),
+    ] = None,
+    app_tls_key_file: Annotated[
+        str | None,
+        typer.Option(
+            "--app-tls-key-file",
+            help=(
+                "Readable wildcard TLS private-key file for public app hosts; "
+                "defaults to ~/.orcheo/tls/apps-origin-key.pem."
+            ),
+        ),
+    ] = None,
+    app_trusted_proxy_cidrs: Annotated[
+        str | None,
+        typer.Option(
+            "--app-trusted-proxy-cidrs",
+            help="Comma-separated proxy CIDRs trusted by the app gateway.",
+        ),
+    ] = None,
+    app_trusted_proxy_hops: Annotated[
+        int | None,
+        typer.Option(
+            "--app-trusted-proxy-hops",
+            help="Fixed number of trusted forwarding hops before the app gateway.",
+        ),
+    ] = None,
 ) -> None:
     """Run guided upgrade command with simplified syntax."""
     _run_install_flow(
@@ -673,6 +829,7 @@ def install_upgrade_command(
         yes=yes,
         mode=None,
         stack_version=stack_version,
+        staging=staging,
         backend_url=backend_url,
         studio_url=studio_url,
         auth_mode=auth_mode,
@@ -685,6 +842,13 @@ def install_upgrade_command(
         install_docker=install_docker,
         manual_secrets=manual_secrets,
         forced_mode="upgrade",
+        hosted_apps=hosted_apps,
+        apps_base_domain=apps_base_domain,
+        hosted_apps_workspace_allowlist=hosted_apps_workspace_allowlist,
+        app_tls_cert_file=app_tls_cert_file,
+        app_tls_key_file=app_tls_key_file,
+        app_trusted_proxy_cidrs=app_trusted_proxy_cidrs,
+        app_trusted_proxy_hops=app_trusted_proxy_hops,
     )
 
 

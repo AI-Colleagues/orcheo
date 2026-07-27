@@ -114,6 +114,7 @@ def _default_assets() -> dict[str, bytes]:
         "docker-compose.yml": b"services: {}\n",
         "Caddyfile": b'localhost { respond "ok" }\n',
         "Dockerfile.orcheo": b"FROM python:3.12-slim\n",
+        "resolve_orcheo_packages.py": b'PACKAGE_NAMES = ("orcheo",)\n',
         ".env.example": _ENV_EXAMPLE,
         "chatkit_widgets/Bounded number input.widget": b"bounded-input",
         "chatkit_widgets/Bounded number slider.widget": b"bounded-slider",
@@ -436,6 +437,7 @@ def test_run_setup_install_explicit_public_ingress_updates_backend_url_defaults(
         install_docker=False,
         yes=True,
         manual_secrets=False,
+        hosted_apps=False,
         console=Console(record=True),
     )
 
@@ -1519,6 +1521,7 @@ def test_run_setup_public_ingress_derives_public_env_contract(
         install_docker=False,
         yes=True,
         manual_secrets=False,
+        hosted_apps=False,
         console=Console(record=True),
     )
 
@@ -1905,6 +1908,13 @@ def test_ensure_stack_assets_uses_explicit_stack_version(
     assert f"{setup_mod._GITHUB_TAGS_API_URL}?per_page=100" not in calls
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
     assert "ORCHEO_STACK_IMAGE=ghcr.io/ai-colleagues/orcheo-stack:0.5.0" in env_content
+    assert (
+        "ORCHEO_STUDIO_IMAGE=ghcr.io/ai-colleagues/orcheo-studio:0.5.0" in env_content
+    )
+    assert (
+        "ORCHEO_APP_GATEWAY_IMAGE="
+        "ghcr.io/ai-colleagues/orcheo-app-gateway:0.5.0" in env_content
+    )
 
 
 def test_ensure_stack_assets_uses_env_stack_version(
@@ -1939,6 +1949,13 @@ def test_ensure_stack_assets_uses_env_stack_version(
 
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
     assert "ORCHEO_STACK_IMAGE=ghcr.io/ai-colleagues/orcheo-stack:0.6.1" in env_content
+    assert (
+        "ORCHEO_STUDIO_IMAGE=ghcr.io/ai-colleagues/orcheo-studio:0.6.1" in env_content
+    )
+    assert (
+        "ORCHEO_APP_GATEWAY_IMAGE="
+        "ghcr.io/ai-colleagues/orcheo-app-gateway:0.6.1" in env_content
+    )
 
 
 def test_ensure_stack_assets_custom_base_url_forces_per_file_mode(
@@ -1978,6 +1995,10 @@ def test_ensure_stack_assets_custom_base_url_forces_per_file_mode(
         assert (stack_dir / relative_path).read_bytes() == payload
     env_content = (stack_dir / ".env").read_text(encoding="utf-8")
     assert "ORCHEO_STACK_IMAGE=ghcr.io/ai-colleagues/orcheo-stack:0.9.0" in env_content
+    assert (
+        "ORCHEO_APP_GATEWAY_IMAGE="
+        "ghcr.io/ai-colleagues/orcheo-app-gateway:0.9.0" in env_content
+    )
 
 
 def test_resolve_stack_version_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2015,6 +2036,86 @@ def test_discover_latest_stack_version_from_tags_api(
     version = setup_mod._discover_latest_stack_version(Console(record=True))
     assert version == "0.8.2"
     assert calls == [f"{setup_mod._GITHUB_TAGS_API_URL}?per_page=100"]
+
+
+def test_discover_latest_prerelease_stack_version_from_tags_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    payload = json.dumps(
+        [
+            {"name": "stack-v1.0.0-alpha.2"},
+            {"name": "stack-v0.9.0"},
+            {"name": "stack-v1.0.0-rc.1"},
+            {"name": "stack-v1.0.0-beta.3"},
+        ]
+    ).encode("utf-8")
+    monkeypatch.setattr(
+        setup_mod,
+        "urlopen",
+        lambda url, timeout: _Response(payload),
+    )
+
+    version = setup_mod._discover_latest_stack_version(
+        Console(record=True),
+        prerelease=True,
+    )
+
+    assert version == "1.0.0-rc.1"
+
+
+def test_ensure_stack_assets_staging_pins_prerelease_images(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orcheo_sdk.cli import setup as setup_mod
+
+    stack_dir = tmp_path / "stack-prerelease"
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+    monkeypatch.delenv("ORCHEO_STACK_VERSION", raising=False)
+    monkeypatch.delenv("ORCHEO_STACK_ASSET_BASE_URL", raising=False)
+    monkeypatch.setattr(
+        setup_mod,
+        "_discover_latest_stack_version",
+        lambda console, **kwargs: "1.0.0-rc.2",
+    )
+    monkeypatch.setattr(
+        setup_mod,
+        "_sync_stack_assets_per_file",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        setup_mod,
+        "_sync_stack_asset",
+        lambda relative_path, target, **kwargs: (
+            target.mkdir(parents=True, exist_ok=True),
+            (target / relative_path).write_bytes(
+                _ENV_EXAMPLE if relative_path == ".env.example" else b""
+            ),
+        ),
+    )
+
+    setup_mod._ensure_stack_assets(
+        config=_setup_config(),
+        console=Console(record=True),
+        staging=True,
+    )
+
+    env_content = (stack_dir / ".env").read_text(encoding="utf-8")
+    assert "ORCHEO_STACK_VERSION=1.0.0-rc.2" in env_content
+    assert (
+        "ORCHEO_STACK_IMAGE=ghcr.io/ai-colleagues/orcheo-stack:1.0.0-rc.2"
+        in env_content
+    )
+    assert (
+        "ORCHEO_STUDIO_IMAGE=ghcr.io/ai-colleagues/orcheo-studio:1.0.0-rc.2"
+        in env_content
+    )
+    assert (
+        "ORCHEO_APP_GATEWAY_IMAGE="
+        "ghcr.io/ai-colleagues/orcheo-app-gateway:1.0.0-rc.2" in env_content
+    )
 
 
 def test_discover_latest_stack_version_soft_fails(

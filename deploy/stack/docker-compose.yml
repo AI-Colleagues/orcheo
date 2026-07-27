@@ -52,6 +52,7 @@ services:
       - "127.0.0.1:${ORCHEO_BACKEND_LOCAL_PORT:-2025}:2025"
     volumes:
       - orcheo_data:/data
+      - orcheo_app_bundles:/data/app-bundles
       - ./chatkit_widgets:/app/examples/chatkit_widgets/widgets:ro
     environment:
       HOME: /data/home
@@ -83,6 +84,15 @@ services:
       ORCHEO_WORKFLOW_TRUST_MODE: ${ORCHEO_WORKFLOW_TRUST_MODE:-}
       ORCHEO_WORKFLOW_DEFINITION_MODE: ${ORCHEO_WORKFLOW_DEFINITION_MODE:-unrestricted}
       ORCHEO_MCP_STDIO_LOG: /dev/stderr
+      ORCHEO_HOSTED_APPS_ENABLED: ${ORCHEO_HOSTED_APPS_ENABLED:-true}
+      ORCHEO_APPS_BASE_DOMAIN: ${ORCHEO_APPS_BASE_DOMAIN:-apps.localhost}
+      ORCHEO_APP_GATEWAY_PORT: ${ORCHEO_APP_GATEWAY_LOCAL_PORT:-2030}
+      ORCHEO_APP_BUNDLE_BACKEND: ${ORCHEO_APP_BUNDLE_BACKEND:-postgres}
+      ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT: /data/app-bundles
+      ORCHEO_DEPLOYMENT_MODE: ${ORCHEO_DEPLOYMENT_MODE:-single-node}
+      ORCHEO_APP_GATEWAY_SECRET: ${ORCHEO_APP_GATEWAY_SECRET:-}
+      ORCHEO_HOSTED_APPS_VALIDATION_QUEUE: ${ORCHEO_HOSTED_APPS_VALIDATION_QUEUE:-hosted-app-validation}
+      ORCHEO_HOSTED_APPS_AUTO_ENABLE_RUNTIME: ${ORCHEO_HOSTED_APPS_AUTO_ENABLE_RUNTIME:-true}
       PYTHONUNBUFFERED: "1"
     depends_on:
       redis:
@@ -147,6 +157,85 @@ services:
         condition: service_healthy
     command: python -m celery -A orcheo_backend.worker.celery_app worker --loglevel=info
 
+  app-gateway:
+    image: ${ORCHEO_APP_GATEWAY_IMAGE:-ghcr.io/ai-colleagues/orcheo-app-gateway:latest}
+    env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
+    logging: *default-logging
+    ports:
+      - "127.0.0.1:${ORCHEO_APP_GATEWAY_LOCAL_PORT:-2030}:2030"
+    environment:
+      ORCHEO_HOSTED_APPS_ENABLED: ${ORCHEO_HOSTED_APPS_ENABLED:-true}
+      ORCHEO_APPS_BASE_DOMAIN: ${ORCHEO_APPS_BASE_DOMAIN:-apps.localhost}
+      ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT: /data/app-bundles
+      ORCHEO_APP_GATEWAY_BACKEND_URL: http://backend:2025
+      ORCHEO_STUDIO_URL: ${ORCHEO_STUDIO_URL:-http://localhost:2026}
+      ORCHEO_APP_GATEWAY_SECRET: ${ORCHEO_APP_GATEWAY_SECRET:-}
+      ORCHEO_APP_DESCRIPTOR_CACHE_SECONDS: ${ORCHEO_APP_DESCRIPTOR_CACHE_SECONDS:-30}
+      ORCHEO_APP_TRUSTED_PROXY_CIDRS: ${ORCHEO_APP_TRUSTED_PROXY_CIDRS:-}
+      ORCHEO_APP_TRUSTED_PROXY_HOPS: ${ORCHEO_APP_TRUSTED_PROXY_HOPS:-0}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - orcheo_app_bundles:/data/app-bundles:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os, urllib.request; endpoint = 'readyz' if os.getenv('ORCHEO_HOSTED_APPS_ENABLED', '').lower() in {'1', 'true', 'yes'} else 'healthz'; urllib.request.urlopen(f'http://127.0.0.1:2030/{endpoint}', timeout=2).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  validation-worker:
+    image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
+    env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
+    logging: *default-logging
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ORCHEO_POSTGRES_DSN: postgresql://${ORCHEO_POSTGRES_USER}:${ORCHEO_POSTGRES_PASSWORD}@postgres:5432/${ORCHEO_POSTGRES_DB}
+      ORCHEO_HOSTED_APPS_ENABLED: ${ORCHEO_HOSTED_APPS_ENABLED:-true}
+      ORCHEO_HOSTED_APPS_VALIDATION_QUEUE: ${ORCHEO_HOSTED_APPS_VALIDATION_QUEUE:-hosted-app-validation}
+      ORCHEO_APP_BUNDLE_BACKEND: ${ORCHEO_APP_BUNDLE_BACKEND:-postgres}
+      ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT: /data/app-bundles
+      ORCHEO_DEPLOYMENT_MODE: ${ORCHEO_DEPLOYMENT_MODE:-single-node}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - orcheo_app_bundles:/data/app-bundles
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c 'python -m celery -A orcheo_backend.worker.celery_app worker
+      --loglevel=info
+      --queues="$$ORCHEO_HOSTED_APPS_VALIDATION_QUEUE"
+      --concurrency=1'
+
+  hosted-app-cleanup:
+    image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
+    env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
+    logging: *default-logging
+    environment:
+      ORCHEO_POSTGRES_DSN: postgresql://${ORCHEO_POSTGRES_USER}:${ORCHEO_POSTGRES_PASSWORD}@postgres:5432/${ORCHEO_POSTGRES_DB}
+      ORCHEO_APP_BUNDLE_BACKEND: ${ORCHEO_APP_BUNDLE_BACKEND:-postgres}
+      ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT: /data/app-bundles
+      ORCHEO_HOSTED_APPS_PARTIAL_RETENTION_SECONDS: ${ORCHEO_HOSTED_APPS_PARTIAL_RETENTION_SECONDS:-86400}
+      ORCHEO_HOSTED_APPS_CLEANUP_INTERVAL_SECONDS: ${ORCHEO_HOSTED_APPS_CLEANUP_INTERVAL_SECONDS:-900}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - orcheo_app_bundles:/data/app-bundles
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: python -m orcheo_backend.app.hosted_apps.cleanup
+
   celery-beat:
     image: ${ORCHEO_STACK_IMAGE:-ghcr.io/ai-colleagues/orcheo-stack:latest}
     env_file: ${ORCHEO_STACK_ENV_FILE:-.env}
@@ -200,8 +289,11 @@ services:
     environment:
       VITE_ORCHEO_BACKEND_URL: ${VITE_ORCHEO_BACKEND_URL:-http://localhost:2025}
       VITE_ORCHEO_AUTH_DISABLED: ${VITE_ORCHEO_AUTH_DISABLED:-false}
+      VITE_ORCHEO_APPS_BASE_DOMAIN: ${ORCHEO_APPS_BASE_DOMAIN:-apps.localhost}
       VITE_ORCHEO_CHATKIT_DOMAIN_KEY: ${VITE_ORCHEO_CHATKIT_DOMAIN_KEY:-domain_pk_replace_me}
       VITE_ORCHEO_ALLOWED_HOSTS: ${VITE_ORCHEO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      # Leave empty for normal HTTPS; the Studio defaults *.localhost to 2030.
+      VITE_ORCHEO_APPS_PORT: ${VITE_ORCHEO_APPS_PORT:-}
     depends_on:
       - backend
     healthcheck:
@@ -212,7 +304,7 @@ services:
       start_period: 10s
 
   caddy:
-    image: caddy:2
+    image: ${ORCHEO_CADDY_IMAGE:-caddy:2}
     logging: *default-logging
     profiles:
       - public-ingress
@@ -227,6 +319,7 @@ services:
       - "${ORCHEO_CADDY_HTTPS_BIND:-0.0.0.0}:443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./app-tls:/etc/orcheo/app-tls:ro
       - caddy_data:/data
       - caddy_config:/config
 
@@ -234,5 +327,6 @@ volumes:
   postgres_data:
   redis_data:
   orcheo_data:
+  orcheo_app_bundles:
   caddy_data:
   caddy_config:

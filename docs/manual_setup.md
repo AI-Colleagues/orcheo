@@ -19,11 +19,10 @@ For a complete containerized setup with PostgreSQL, Redis, Celery workers, and S
 
 ### Compose Modes
 
-Orcheo ships with two compose entrypoints plus a staging overlay:
+Orcheo ships with two compose entrypoints:
 
 - Root `docker-compose.yml` is for live local development. It bind-mounts source code, runs the backend with `--reload`, and serves Studio via the Vite dev server.
 - `deploy/stack/docker-compose.yml` is the production-style stack contract. It runs built images with no source bind mounts or hot reload.
-- `deploy/stack/docker-compose.staging.yml` layers on top of the production stack file to build those same services from the current repo checkout on the staging host.
 
 ### Quick Start
 
@@ -60,6 +59,11 @@ Use this path on a reachable self-hosted Linux host, such as a cloud VM or an on
    ```bash
    orcheo install --public-ingress --public-host orcheo.example.com --start-stack
    ```
+   The guided installer asks whether to enable Hosted Apps. If selected, it also
+   collects the wildcard app domain and trusted-proxy boundary, then validates
+   the default operator-provided wildcard certificate/key paths documented in
+   [Hosted Apps operator runbook](hosted_apps_operations.md) before starting
+   Compose.
 3. **Verify the public origin**:
    - Public UI: `https://orcheo.example.com/`
    - Public API: `https://orcheo.example.com/api/system/info`
@@ -98,31 +102,19 @@ docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DI
 docker compose -f "$STACK_DIR/docker-compose.yml" --project-directory "$STACK_DIR" up -d
 ```
 
-### Staging From A Repo Checkout
+### Published Prerelease Staging
 
-Use this flow when a staging machine should run the production-style stack but build images directly from unreleased source code in the current git checkout.
-
-```bash
-git pull
-# make staging-* will reuse ~/.orcheo/stack/.env when present,
-# or create it from deploy/stack/.env.example on first run
-make staging-build
-make staging-up
-```
-
-These targets use `deploy/stack/docker-compose.yml` together with `deploy/stack/docker-compose.staging.yml`. The resulting stack:
-
-- keeps the production service topology
-- builds backend, worker, beat, and Studio from local source
-- avoids source bind mounts and hot reload
-
-Useful commands:
+Use the prerelease channel to test published alpha, beta, or release-candidate
+artifacts with the production-style stack:
 
 ```bash
-make staging-config
-make staging-logs
-make staging-down
+orcheo install --staging --start-stack
 ```
+
+The command resolves the newest prerelease stack tag and writes exact,
+matching `ORCHEO_STACK_IMAGE`, `ORCHEO_STUDIO_IMAGE`, and
+`ORCHEO_APP_GATEWAY_IMAGE` pins. To test an unreleased checkout instead, use
+the root `docker-compose.yml`.
 
 ### Local Testing Without OAuth
 

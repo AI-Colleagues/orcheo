@@ -5,17 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import WorkspaceManagement from "./workspace-management";
 
-vi.mock("@/hooks/use-credential-vault", () => ({
-  default: () => ({
-    credentials: [],
-    isLoading: false,
-    onAddCredential: vi.fn(),
-    onUpdateCredential: vi.fn(),
-    onDeleteCredential: vi.fn(),
-    onRevealCredentialSecret: vi.fn(),
-  }),
-}));
-
 const setPageContextMock = vi.fn();
 vi.mock("@/hooks/use-page-context", () => ({
   usePageContext: () => ({
@@ -23,10 +12,6 @@ vi.mock("@/hooks/use-page-context", () => ({
     setVaultOpen: vi.fn(),
     pageContext: { page: "workspace" },
   }),
-}));
-
-vi.mock("@features/shared/components/top-navigation", () => ({
-  default: () => <header data-testid="top-nav" />,
 }));
 
 vi.mock("@features/account/pages/workspace-members", () => ({

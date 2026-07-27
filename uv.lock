@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "agentensor",
     "orcheo",
+    "orcheo-app-gateway",
     "orcheo-backend",
     "orcheo-sdk",
 ]
@@ -3633,6 +3634,25 @@ docs = [
 examples = [{ name = "orcheo-backend", editable = "apps/backend" }]
 
 [[package]]
+name = "orcheo-app-gateway"
+version = "0.1.0"
+source = { editable = "apps/app_gateway" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "orcheo" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.104.0" },
+    { name = "httpx", specifier = ">=0.25.0" },
+    { name = "orcheo", editable = "." },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.24.0" },
+]
+
+[[package]]
 name = "orcheo-backend"
 version = "0.38.4"
 source = { editable = "apps/backend" }
@@ -3677,6 +3697,7 @@ source = { editable = "packages/sdk" }
 dependencies = [
     { name = "httpx" },
     { name = "orcheo" },
+    { name = "packaging" },
     { name = "rich" },
     { name = "typer" },
 ]
@@ -3695,6 +3716,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "orcheo", editable = "." },
+    { name = "packaging", specifier = ">=24.0" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21.0" },

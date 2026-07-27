@@ -82,8 +82,7 @@ export default function WorkflowPage({ workflowId }: WorkflowPageProps) {
 
   const { setPageContext } = usePageContext();
   const activeWorkflowId = layoutProps.workflowProps.workflowId ?? null;
-  const workflowName =
-    layoutProps.topNavigationProps.currentWorkflow.name ?? null;
+  const workflowName = layoutProps.headerProps.currentWorkflow.name ?? null;
   const activeTab = layoutProps.tabsProps.activeTab;
 
   useEffect(() => {

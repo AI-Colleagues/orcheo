@@ -85,7 +85,7 @@ class ApiClient:
         if token:
             headers["Authorization"] = f"Bearer {token}"
         workspace = _resolve_active_workspace()
-        if workspace:
+        if workspace:  # pragma: no branch
             headers["X-Orcheo-Workspace"] = workspace
         return headers
 

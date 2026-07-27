@@ -5,10 +5,6 @@ import { WorkflowLayout } from "./workflow-layout";
 
 const studioChatBubbleMock = vi.fn(() => <div data-testid="chat-bubble" />);
 
-vi.mock("@features/shared/components/top-navigation", () => ({
-  default: () => <div data-testid="top-navigation" />,
-}));
-
 vi.mock("@features/workflow/components/panels/workflow-tabs", () => ({
   default: () => <div data-testid="workflow-tabs" />,
 }));
@@ -50,7 +46,7 @@ describe("WorkflowLayout", () => {
   it("passes workflow chatkit prompts and models to the Studio chat bubble", () => {
     render(
       <WorkflowLayout
-        topNavigationProps={
+        headerProps={
           {
             currentWorkflow: { name: "Workflow", id: "wf-1" },
           } as never
@@ -121,7 +117,7 @@ describe("WorkflowLayout", () => {
   it("keeps the workflow tab mounted but hidden when trace is active", () => {
     render(
       <WorkflowLayout
-        topNavigationProps={
+        headerProps={
           {
             currentWorkflow: { name: "Workflow", id: "wf-1" },
           } as never

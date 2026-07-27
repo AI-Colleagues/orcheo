@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildBackendHttpUrl,
   buildWorkflowWebSocketUrl,
+  getAppsBaseDomain,
   getBackendBaseUrl,
 } from "./config";
 
@@ -11,7 +12,9 @@ const setLocationOrigin = (origin: string) => {
 };
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("buildWorkflowWebSocketUrl", () => {
@@ -53,5 +56,20 @@ describe("getBackendBaseUrl", () => {
     setLocationOrigin("http://localhost:4173");
 
     expect(getBackendBaseUrl()).toBe("http://localhost:2025");
+  });
+});
+
+describe("getAppsBaseDomain", () => {
+  it("uses the configured hosted-app base domain", () => {
+    vi.stubEnv("VITE_ORCHEO_APPS_BASE_DOMAIN", "Apps.Example.COM.");
+
+    expect(getAppsBaseDomain()).toBe("apps.example.com");
+  });
+
+  it("falls back to the local apps domain for invalid input", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubEnv("VITE_ORCHEO_APPS_BASE_DOMAIN", "https://apps.example.com");
+
+    expect(getAppsBaseDomain()).toBe("apps.localhost");
   });
 });

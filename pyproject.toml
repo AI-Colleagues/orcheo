@@ -82,6 +82,7 @@ version = "0.44.4"
 orcheo-dev-server = "orcheo.tooling.commands:dev_server"
 orcheo-dev-studio = "orcheo.tooling.commands:studio_dev"
 orcheo-format = "orcheo.tooling.commands:format_code"
+orcheo-hosted-apps-preflight = "orcheo.hosted_apps.setup_validation:main"
 orcheo-lint = "orcheo.tooling.commands:lint"
 orcheo-seed-env = "orcheo.tooling.env:main"
 orcheo-studio-lint = "orcheo.tooling.commands:studio_lint"
@@ -179,4 +180,4 @@ orcheo-backend = {workspace = true}
 orcheo-sdk = {workspace = true}
 
 [tool.uv.workspace]
-members = ["apps/backend", "packages/agentensor", "packages/sdk", "."]
+members = ["apps/app_gateway", "apps/backend", "packages/agentensor", "packages/sdk", "."]

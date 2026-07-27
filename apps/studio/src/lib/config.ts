@@ -22,6 +22,7 @@ const getDefaultBackendUrl = (): string => {
 };
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
+const DEFAULT_APPS_BASE_DOMAIN = "apps.localhost";
 
 const isPermittedProtocol = (protocol: string): boolean =>
   ["http:", "https:", "ws:", "wss:"].includes(protocol);
@@ -89,6 +90,26 @@ export const buildBackendHttpUrl = (path: string, baseUrl?: string): string => {
 };
 
 export const getStudioVersion = (): string => __ORCHEO_STUDIO_VERSION__;
+
+export const getAppsBaseDomain = (): string => {
+  const fromEnv = String(import.meta.env?.VITE_ORCHEO_APPS_BASE_DOMAIN ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, "");
+  const candidate = fromEnv || DEFAULT_APPS_BASE_DOMAIN;
+  if (
+    candidate.length > 253 ||
+    !candidate
+      .split(".")
+      .every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))
+  ) {
+    console.warn(
+      "Invalid VITE_ORCHEO_APPS_BASE_DOMAIN provided, falling back to apps.localhost.",
+    );
+    return DEFAULT_APPS_BASE_DOMAIN;
+  }
+  return candidate;
+};
 
 export const buildWorkflowWebSocketUrl = (
   workflowId: string,

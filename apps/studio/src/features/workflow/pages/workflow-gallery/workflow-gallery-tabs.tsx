@@ -7,7 +7,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/design-system/ui/tabs";
-import { Loader2, Search, Upload, Zap } from "lucide-react";
+import { Loader2, Plus, Search, Upload, Zap } from "lucide-react";
 import { type Workflow } from "@features/workflow/data/workflow-data";
 import { formatCandidateGroupName } from "@features/workflow/data/templates/candidate-badges";
 import { type ApiTeam } from "@features/workflow/lib/workflow-storage-api";
@@ -44,6 +44,7 @@ interface WorkflowGalleryTabsProps {
     candidateId: string,
   ) => Promise<void> | void;
   onDeleteTeam?: (teamId: string) => void;
+  onCreateTeam?: () => void;
 }
 
 export const WorkflowGalleryTabs = ({
@@ -64,6 +65,7 @@ export const WorkflowGalleryTabs = ({
   onDeleteWorkflow,
   onUpdateCandidateWorkflow,
   onDeleteTeam,
+  onCreateTeam,
 }: WorkflowGalleryTabsProps) => {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const uploadsAllowed = useUploadsAllowed();
@@ -176,7 +178,7 @@ export const WorkflowGalleryTabs = ({
     ];
 
     return (
-      <div className="flex flex-col gap-1 pb-6">
+      <div className="flex flex-col gap-1 pb-2">
         {sections.map((section) => {
           const items = byTeam.get(section.key) ?? [];
           return (
@@ -194,6 +196,15 @@ export const WorkflowGalleryTabs = ({
             </TeamSection>
           );
         })}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mt-1 self-start"
+          onClick={onCreateTeam}
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          Add team
+        </Button>
       </div>
     );
   };
@@ -293,6 +304,15 @@ export const WorkflowGalleryTabs = ({
         ) : (
           renderColleagues()
         )}
+
+        {!isTemplateView && teams.length === 0 ? (
+          <div className="mt-1">
+            <Button variant="ghost" size="sm" onClick={onCreateTeam}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add team
+            </Button>
+          </div>
+        ) : null}
       </TabsContent>
     </Tabs>
   );

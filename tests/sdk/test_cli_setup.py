@@ -463,7 +463,10 @@ def test_stack_asset_urls(monkeypatch):
     assert setup._resolve_stack_asset_base_url() == "https://custom"
     monkeypatch.delenv("ORCHEO_STACK_ASSET_BASE_URL", raising=False)
     assert setup._resolve_stack_asset_base_url(stack_version="1.0")
-    assert setup._is_prerelease_stack_version("1.0-beta")
+    assert setup._is_prerelease_stack_version("1.0.0-beta.1")
+    assert setup._is_prerelease_stack_version("1.0.0rc1")
+    assert not setup._is_prerelease_stack_version("1.0.0")
+    assert not setup._is_prerelease_stack_version("not-a-version")
     assert setup._normalize_stack_version("stack-v1.0") == "1.0"
     monkeypatch.setenv("ORCHEO_STACK_VERSION", "stack-v2.0")
     assert setup._resolve_stack_version(None) == "2.0"
@@ -511,7 +514,11 @@ def test_download_and_sync_stack_asset(tmp_path, monkeypatch):
 def test_sync_stack_assets_with_best_source(monkeypatch, tmp_path):
     monkeypatch.delenv("ORCHEO_STACK_ASSET_BASE_URL", raising=False)
     monkeypatch.setattr(setup, "_resolve_stack_version", lambda explicit: explicit)
-    monkeypatch.setattr(setup, "_discover_latest_stack_version", lambda console: "1.3")
+    monkeypatch.setattr(
+        setup,
+        "_discover_latest_stack_version",
+        lambda console, **kwargs: "1.3",
+    )
     calls = []
     monkeypatch.setattr(
         setup, "_sync_stack_assets_per_file", lambda *args, **kwargs: calls.append(True)
@@ -521,6 +528,24 @@ def test_sync_stack_assets_with_best_source(monkeypatch, tmp_path):
     )
     assert result == "1.3"
     assert calls
+
+
+def test_sync_staging_stack_requires_published_prerelease(monkeypatch, tmp_path):
+    monkeypatch.delenv("ORCHEO_STACK_ASSET_BASE_URL", raising=False)
+    monkeypatch.setattr(setup, "_resolve_stack_version", lambda explicit: explicit)
+    monkeypatch.setattr(
+        setup,
+        "_discover_latest_stack_version",
+        lambda console, **kwargs: None,
+    )
+
+    with pytest.raises(setup.typer.BadParameter, match="No published prerelease"):
+        setup._sync_stack_assets_with_best_source(
+            tmp_path,
+            stack_version=None,
+            console=make_console(),
+            prerelease=True,
+        )
 
 
 def test_build_env_updates(monkeypatch):
@@ -551,6 +576,11 @@ def test_build_env_updates(monkeypatch):
     assert updates["COMPOSE_PROFILES"] == ""
     assert updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] == "domain"
     assert updates["ORCHEO_STACK_IMAGE"] == f"{setup._STACK_IMAGE_REPOSITORY}:2.0"
+    assert updates["ORCHEO_STUDIO_IMAGE"] == (f"{setup._STUDIO_IMAGE_REPOSITORY}:2.0")
+    assert updates["ORCHEO_APP_GATEWAY_IMAGE"] == (
+        f"{setup._APP_GATEWAY_IMAGE_REPOSITORY}:2.0"
+    )
+    assert updates["ORCHEO_STACK_VERSION"] == "2.0"
     assert updates["ORCHEO_WORKFLOW_TRUST_MODE"] == "allow_client_uploads"
     assert updates["ORCHEO_WORKFLOW_DEFINITION_MODE"] == "unrestricted"
     assert defaults["ORCHEO_POSTGRES_PASSWORD"] == "safe"
@@ -1306,6 +1336,7 @@ def test_ensure_stack_env_file_creates_env_and_generates_defaults(tmp_path):
         "ORCHEO_POSTGRES_PASSWORD=change-me\n"
         "ORCHEO_VAULT_ENCRYPTION_KEY=replace-with-64-hex-chars\n"
         "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY=strong-random-secret\n"
+        "ORCHEO_APP_GATEWAY_SECRET=\n"
         "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me\n",
         encoding="utf-8",
     )
@@ -1319,6 +1350,7 @@ def test_ensure_stack_env_file_creates_env_and_generates_defaults(tmp_path):
             "ORCHEO_POSTGRES_PASSWORD": "generated-password",
             "ORCHEO_VAULT_ENCRYPTION_KEY": "generated-vault-key",
             "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY": "generated-signing-key",
+            "ORCHEO_APP_GATEWAY_SECRET": "generated-gateway-secret",
         },
     )
 
@@ -1326,6 +1358,7 @@ def test_ensure_stack_env_file_creates_env_and_generates_defaults(tmp_path):
     assert "ORCHEO_POSTGRES_PASSWORD=generated-password" in result
     assert "ORCHEO_VAULT_ENCRYPTION_KEY=generated-vault-key" in result
     assert "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY=generated-signing-key" in result
+    assert "ORCHEO_APP_GATEWAY_SECRET=generated-gateway-secret" in result
     assert "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me" in result
 
 
@@ -1360,10 +1393,37 @@ def test_ensure_stack_env_file_preserves_existing_values_and_backfills_missing(
     assert "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me" in result
 
 
+def test_ensure_stack_env_file_generates_an_empty_gateway_secret(tmp_path):
+    env_template = tmp_path / ".env.example"
+    env_template.write_text(
+        "ORCHEO_APP_GATEWAY_SECRET=\nORCHEO_POSTGRES_PASSWORD=\n",
+        encoding="utf-8",
+    )
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "ORCHEO_APP_GATEWAY_SECRET=\nORCHEO_POSTGRES_PASSWORD=\n",
+        encoding="utf-8",
+    )
+
+    setup.ensure_stack_env_file(
+        env_file=env_file,
+        env_template=env_template,
+        console=make_console(),
+        generated_defaults={
+            "ORCHEO_APP_GATEWAY_SECRET": "generated-gateway-secret",
+            "ORCHEO_POSTGRES_PASSWORD": "do-not-regenerate",
+        },
+    )
+
+    result = env_file.read_text(encoding="utf-8")
+    assert "ORCHEO_APP_GATEWAY_SECRET=generated-gateway-secret" in result
+    assert "ORCHEO_POSTGRES_PASSWORD=\n" in result
+
+
 def test_ensure_stack_assets_fresh(monkeypatch, tmp_path):
     monkeypatch.setenv("ORCHEO_STACK_DIR", str(tmp_path))
 
-    def stub_sync(stack_dir, stack_version, console):
+    def stub_sync(stack_dir, stack_version, console, **kwargs):
         template = stack_dir / ".env.example"
         template.write_text("ORCHEO_API_URL=http://template\n")
         return "1.0"
@@ -1410,7 +1470,7 @@ def test_ensure_stack_assets_existing_env(monkeypatch, tmp_path):
         "ORCHEO_API_URL=http://existing\nVITE_ORCHEO_BACKEND_URL=http://existing"
     )
 
-    def stub_sync(stack_dir, stack_version, console):
+    def stub_sync(stack_dir, stack_version, console, **kwargs):
         del stack_version, console
         (stack_dir / ".env.example").write_text(
             "VITE_ORCHEO_CHATKIT_DOMAIN_KEY=domain_pk_replace_me\n", encoding="utf-8"
@@ -1466,7 +1526,12 @@ def test_ensure_stack_assets_writes_auth_for_preserved_https_backend(
         "ORCHEO_API_URL=https://api.beta.orcheo.cloud\n", encoding="utf-8"
     )
 
-    def stub_sync(stack_dir: Path, stack_version: str | None, console: Console) -> str:
+    def stub_sync(
+        stack_dir: Path,
+        stack_version: str | None,
+        console: Console,
+        **kwargs: object,
+    ) -> str:
         del stack_version, console
         (stack_dir / ".env.example").write_text("", encoding="utf-8")
         return "1.0"
@@ -1528,9 +1593,376 @@ def test_run_setup_generates_api_key(monkeypatch, tmp_path):
         yes=False,
         manual_secrets=False,
         console=console,
+        hosted_apps=False,
     )
     assert config.api_key == "tokenized"
     assert "Generated API key" in console.file.getvalue()
+
+
+def test_resolve_nonlocal_backend_hosted_apps_prompts_for_production_settings(
+    tmp_path, monkeypatch
+):
+    certificate = tmp_path / ".orcheo" / "tls" / "apps-origin.pem"
+    private_key = tmp_path / ".orcheo" / "tls" / "apps-origin-key.pem"
+    certificate.parent.mkdir(parents=True)
+    certificate.write_text("certificate", encoding="utf-8")
+    private_key.write_text("private-key", encoding="utf-8")
+    responses = {
+        "Hosted Apps base domain": "example.test",
+        "Trusted proxy CIDRs for the app gateway": "10.0.0.0/8",
+        "Trusted proxy hop count": "1",
+    }
+    confirmations = []
+
+    def confirm(prompt, *, default):
+        confirmations.append((prompt, default))
+        return True
+
+    monkeypatch.setattr(setup.typer, "confirm", confirm)
+    monkeypatch.setattr(
+        setup.typer,
+        "prompt",
+        lambda prompt, **kwargs: responses[prompt],
+    )
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(setup.secrets, "token_hex", lambda _: "g" * 64)
+
+    resolved = setup._resolve_hosted_apps_config(
+        hosted_apps=None,
+        apps_base_domain=None,
+        hosted_apps_workspace_allowlist=None,
+        app_tls_cert_file=None,
+        app_tls_key_file=None,
+        app_trusted_proxy_cidrs=None,
+        app_trusted_proxy_hops=None,
+        backend_url="https://orcheo.example.test",
+        public_host="orcheo.example.test",
+        public_ingress_enabled=True,
+        yes=False,
+        manual_secrets=False,
+        env_file=tmp_path / ".env",
+        env_exists=False,
+    )
+
+    assert resolved.enabled is True
+    assert resolved.base_domain == "example.test"
+    assert resolved.workspace_allowlist == ""
+    assert resolved.gateway_secret == "g" * 64
+    assert resolved.trusted_proxy_cidrs == "10.0.0.0/8"
+    assert resolved.trusted_proxy_hops == 1
+    assert resolved.tls_method == "provided"
+    assert resolved.tls_cert_file == str(certificate)
+    assert resolved.tls_key_file == str(private_key)
+    assert confirmations == [("Enable Hosted Apps?", True)]
+
+
+def test_hosted_apps_upgrade_prompt_preserves_disabled_state(
+    tmp_path, monkeypatch
+) -> None:
+    """Interactive upgrades do not silently enable a disabled public feature."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("ORCHEO_HOSTED_APPS_ENABLED=false\n", encoding="utf-8")
+    confirmations: list[tuple[str, bool]] = []
+
+    def confirm(prompt: str, *, default: bool) -> bool:
+        confirmations.append((prompt, default))
+        return default
+
+    monkeypatch.setattr(setup.typer, "confirm", confirm)
+
+    enabled = setup._resolve_hosted_apps_enabled(
+        None,
+        external_backend=True,
+        yes=False,
+        env_file=env_file,
+        env_exists=True,
+    )
+
+    assert enabled is False
+    assert confirmations == [("Enable Hosted Apps?", False)]
+
+
+def test_run_setup_prompts_for_hosted_apps_after_auth_mode(tmp_path, monkeypatch):
+    stack_dir = tmp_path / "stack"
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+    monkeypatch.setattr(setup.secrets, "token_hex", lambda _: "g" * 64)
+    events: list[str] = []
+
+    def prompt(message, *, default="", **_kwargs):
+        events.append(f"prompt:{message}")
+        return default
+
+    def confirm(message, *, default):
+        events.append(f"confirm:{message}")
+        if message == "Enable Hosted Apps?":
+            return False
+        return default
+
+    monkeypatch.setattr(setup.typer, "prompt", prompt)
+    monkeypatch.setattr(setup.typer, "confirm", confirm)
+
+    setup.run_setup(
+        mode="install",
+        backend_url="https://orcheo.example.test",
+        studio_url="https://orcheo.example.test",
+        auth_mode=None,
+        api_key=None,
+        chatkit_domain_key="domain",
+        public_ingress=True,
+        public_host="orcheo.example.test",
+        publish_local_ports=False,
+        start_stack=False,
+        install_docker=False,
+        yes=False,
+        manual_secrets=False,
+        console=make_console(),
+    )
+
+    assert events.index("prompt:Auth mode [api-key/oauth]") < events.index(
+        "confirm:Enable Hosted Apps?"
+    )
+
+
+def test_resolve_local_backend_hosted_apps_uses_local_defaults(tmp_path, monkeypatch):
+    def fail_prompt(*_args, **_kwargs):
+        pytest.fail("Local Hosted Apps setup should not prompt")
+
+    monkeypatch.setattr(setup.typer, "confirm", fail_prompt)
+    monkeypatch.setattr(setup.typer, "prompt", fail_prompt)
+    monkeypatch.setattr(setup.secrets, "token_hex", lambda _: "g" * 64)
+
+    resolved = setup._resolve_hosted_apps_config(
+        hosted_apps=None,
+        apps_base_domain=None,
+        hosted_apps_workspace_allowlist=None,
+        app_tls_cert_file=None,
+        app_tls_key_file=None,
+        app_trusted_proxy_cidrs=None,
+        app_trusted_proxy_hops=None,
+        backend_url="https://localhost:2025",
+        public_host=None,
+        public_ingress_enabled=False,
+        yes=False,
+        manual_secrets=False,
+        env_file=tmp_path / ".env",
+        env_exists=False,
+    )
+
+    assert resolved.enabled is True
+    assert resolved.base_domain == "apps.localhost"
+    assert resolved.workspace_allowlist == ""
+    assert resolved.trusted_proxy_cidrs == ""
+    assert resolved.trusted_proxy_hops == 0
+    assert resolved.tls_method == "local"
+    assert resolved.tls_cert_file is None
+    assert resolved.tls_key_file is None
+
+
+def test_noninteractive_public_hosted_apps_requires_wildcard_certificate(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(setup.secrets, "token_hex", lambda _: "g" * 64)
+
+    with pytest.raises(
+        setup.typer.BadParameter,
+        match="apps-origin.pem",
+    ):
+        setup._resolve_hosted_apps_config(
+            hosted_apps=True,
+            apps_base_domain="example.test",
+            hosted_apps_workspace_allowlist=None,
+            app_tls_cert_file=None,
+            app_tls_key_file=None,
+            app_trusted_proxy_cidrs="10.0.0.0/8",
+            app_trusted_proxy_hops=1,
+            backend_url="https://orcheo.example.test",
+            public_host="orcheo.example.test",
+            public_ingress_enabled=True,
+            yes=True,
+            manual_secrets=False,
+            env_file=tmp_path / ".env",
+            env_exists=False,
+        )
+
+
+def test_external_backend_without_bundled_ingress_does_not_require_tls_files(
+    tmp_path, monkeypatch
+) -> None:
+    """TLS inputs are required only for the public ingress managed by setup."""
+    monkeypatch.setattr(setup.secrets, "token_hex", lambda _: "g" * 64)
+
+    resolved = setup._resolve_hosted_apps_config(
+        hosted_apps=True,
+        apps_base_domain="example.test",
+        hosted_apps_workspace_allowlist=None,
+        app_tls_cert_file=None,
+        app_tls_key_file=None,
+        app_trusted_proxy_cidrs="10.0.0.0/8",
+        app_trusted_proxy_hops=1,
+        backend_url="https://orcheo.example.test",
+        public_host=None,
+        public_ingress_enabled=False,
+        yes=True,
+        manual_secrets=False,
+        env_file=tmp_path / ".env",
+        env_exists=False,
+    )
+
+    assert resolved.tls_method == "local"
+    assert resolved.tls_cert_file is None
+    assert resolved.tls_key_file is None
+
+
+def test_noninteractive_public_hosted_apps_uses_direct_domain_and_default_tls_paths(
+    tmp_path, monkeypatch
+):
+    certificate = tmp_path / ".orcheo" / "tls" / "apps-origin.pem"
+    private_key = tmp_path / ".orcheo" / "tls" / "apps-origin-key.pem"
+    certificate.parent.mkdir(parents=True)
+    certificate.write_text("certificate", encoding="utf-8")
+    private_key.write_text("private-key", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(setup.secrets, "token_hex", lambda _: "g" * 64)
+
+    resolved = setup._resolve_hosted_apps_config(
+        hosted_apps=True,
+        apps_base_domain=None,
+        hosted_apps_workspace_allowlist=None,
+        app_tls_cert_file=None,
+        app_tls_key_file=None,
+        app_trusted_proxy_cidrs="10.0.0.0/8",
+        app_trusted_proxy_hops=1,
+        backend_url="https://orcheo.example.test",
+        public_host="example.test",
+        public_ingress_enabled=True,
+        yes=True,
+        manual_secrets=False,
+        env_file=tmp_path / ".env",
+        env_exists=False,
+    )
+
+    assert resolved.base_domain == "example.test"
+    assert resolved.tls_cert_file == str(certificate)
+    assert resolved.tls_key_file == str(private_key)
+
+
+def test_run_setup_resolves_noninteractive_public_hosted_apps(tmp_path, monkeypatch):
+    stack_dir = tmp_path / "stack"
+    certificate = tmp_path / "wildcard.pem"
+    private_key = tmp_path / "wildcard-key.pem"
+    certificate.write_text("certificate", encoding="utf-8")
+    private_key.write_text("private-key", encoding="utf-8")
+    monkeypatch.setenv("ORCHEO_STACK_DIR", str(stack_dir))
+    monkeypatch.setattr(setup.secrets, "token_hex", lambda _: "g" * 64)
+
+    config = setup.run_setup(
+        mode="install",
+        backend_url=None,
+        studio_url=None,
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key=None,
+        public_ingress=True,
+        public_host="orcheo.example.test",
+        publish_local_ports=False,
+        start_stack=False,
+        install_docker=False,
+        yes=True,
+        manual_secrets=False,
+        console=make_console(),
+        hosted_apps=True,
+        apps_base_domain="example.test",
+        app_tls_cert_file=str(certificate),
+        app_tls_key_file=str(private_key),
+        app_trusted_proxy_cidrs="10.0.0.0/8",
+        app_trusted_proxy_hops=1,
+    )
+    updates, _defaults = setup._build_env_updates(config)
+
+    assert config.hosted_apps_enabled is True
+    assert config.app_tls_method == "provided"
+    assert updates["ORCHEO_HOSTED_APPS_ENABLED"] == "true"
+    assert updates["ORCHEO_APPS_BASE_DOMAIN"] == "example.test"
+    assert updates["ORCHEO_APP_BUNDLE_BACKEND"] == "postgres"
+    assert updates["ORCHEO_APP_GATEWAY_SECRET"] == "g" * 64
+    assert updates["ORCHEO_APP_TRUSTED_PROXY_CIDRS"] == "10.0.0.0/8"
+    assert updates["ORCHEO_APP_TRUSTED_PROXY_HOPS"] == "1"
+    assert updates["ORCHEO_APP_TLS_METHOD"] == "provided"
+
+
+def test_configure_hosted_apps_tls_copies_operator_certificate(tmp_path):
+    certificate = tmp_path / "source-cert.pem"
+    private_key = tmp_path / "source-key.pem"
+    certificate.write_text("certificate", encoding="utf-8")
+    private_key.write_text("private-key", encoding="utf-8")
+    stack_dir = tmp_path / "stack"
+    config = setup.SetupConfig(
+        mode="install",
+        backend_url="https://orcheo.example.test",
+        studio_url="https://orcheo.example.test",
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key=None,
+        public_ingress_enabled=True,
+        public_host="orcheo.example.test",
+        publish_local_ports=False,
+        backend_upstreams="backend:2025",
+        studio_upstream="studio:2026",
+        start_stack=False,
+        install_docker_if_missing=False,
+        hosted_apps_enabled=True,
+        apps_base_domain="apps.example.test",
+        app_tls_method="provided",
+        app_tls_cert_file=str(certificate),
+        app_tls_key_file=str(private_key),
+    )
+
+    setup._configure_hosted_apps_tls(config, stack_dir=stack_dir)
+
+    tls_dir = stack_dir / "app-tls"
+    assert (tls_dir / "cert.pem").read_text(encoding="utf-8") == "certificate"
+    assert (tls_dir / "key.pem").read_text(encoding="utf-8") == "private-key"
+    assert (tls_dir / "Caddyfile").read_text(encoding="utf-8") == (
+        "tls /etc/orcheo/app-tls/cert.pem /etc/orcheo/app-tls/key.pem\n"
+    )
+
+
+def test_hosted_apps_preflight_checks_dns_before_public_start(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("ORCHEO_HOSTED_APPS_ENABLED=true\n", encoding="utf-8")
+    captured: list[bool] = []
+
+    def fake_validate(environment, *, check_dns):
+        captured.append(check_dns)
+        return ["base_domain=apps.example.test"]
+
+    monkeypatch.setattr(setup, "validate_hosted_apps_setup", fake_validate)
+    config = setup.SetupConfig(
+        mode="install",
+        backend_url="https://orcheo.example.test",
+        studio_url="https://orcheo.example.test",
+        auth_mode="api-key",
+        api_key=None,
+        chatkit_domain_key=None,
+        public_ingress_enabled=True,
+        public_host="orcheo.example.test",
+        publish_local_ports=False,
+        backend_upstreams="backend:2025",
+        studio_upstream="studio:2026",
+        start_stack=True,
+        install_docker_if_missing=False,
+        hosted_apps_enabled=True,
+        apps_base_domain="apps.example.test",
+    )
+
+    setup._run_hosted_apps_preflight(
+        config,
+        env_file=env_file,
+        console=make_console(),
+    )
+
+    assert captured == [True]
 
 
 def test_read_health_poll_timeout_seconds(monkeypatch):

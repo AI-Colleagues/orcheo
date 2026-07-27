@@ -49,6 +49,13 @@ from orcheo_backend.app.dependencies import (
     set_vault,
 )
 from orcheo_backend.app.history import RunHistoryStore
+from orcheo_backend.app.hosted_apps import (
+    auth_router as hosted_apps_auth_router,
+)
+from orcheo_backend.app.hosted_apps import (
+    internal_router as hosted_apps_internal_router,
+)
+from orcheo_backend.app.hosted_apps import reset_app_bundle_store
 from orcheo_backend.app.identity.router import router as identity_api_router
 from orcheo_backend.app.listener_runtime_service import ListenerRuntimeService
 from orcheo_backend.app.logging_config import configure_logging
@@ -73,6 +80,8 @@ from orcheo_backend.app.routers import (
     websocket,
     workflows,
 )
+from orcheo_backend.app.routers import apps as hosted_apps_router
+from orcheo_backend.app.routers import apps_platform as hosted_apps_platform_router
 from orcheo_backend.app.routers import (
     chatkit as chatkit_router,
 )
@@ -110,7 +119,7 @@ async def _robots_txt() -> PlainTextResponse:
 # Backend namespaces mounted outside the API router (see _configure_application)
 # that a request path might fall through to without matching a literal route.
 # These must 404 as themselves rather than silently serving the SPA shell.
-_RESERVED_BACKEND_PREFIXES = ("api/", "hooks/", "assets/ck1/", "ws/")
+_RESERVED_BACKEND_PREFIXES = ("api/", "internal/", "hooks/", "assets/ck1/", "ws/")
 
 
 def _is_reserved_backend_path(path: str) -> bool:
@@ -167,6 +176,7 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         await listener_runtime.stop()
         await cancel_chatkit_cleanup_task()
+        reset_app_bundle_store()
 
 
 def _build_api_router() -> APIRouter:
@@ -193,6 +203,7 @@ def _build_api_router() -> APIRouter:
     protected_router.include_router(system.router)
     protected_router.include_router(workspaces_router.admin_router)
     protected_router.include_router(workspaces_router.router)
+    protected_router.include_router(hosted_apps_router.router)
 
     router.include_router(workflows.public_router)
     router.include_router(candidates.router)
@@ -205,6 +216,9 @@ def _build_api_router() -> APIRouter:
     # cannot provide Orcheo auth tokens. Security is enforced via webhook-level
     # validation (HMAC signatures, shared secrets) configured per workflow.
     router.include_router(triggers.public_webhook_router)
+    router.include_router(hosted_apps_platform_router.router)
+    router.include_router(hosted_apps_platform_router.operations_router)
+    router.include_router(hosted_apps_auth_router)
     router.include_router(protected_router)
     return router
 
@@ -290,6 +304,7 @@ def _configure_dependency_overrides(
 def _configure_application(application: FastAPI) -> None:
     """Install routes, handlers, and middleware on the FastAPI app."""
     application.include_router(api_router)
+    application.include_router(hosted_apps_internal_router)
     # Workspace-slug-prefixed webhook routes at /hooks/{workspace_slug}/{trigger_id}.
     # Mounted at the application root (not under /api) so external services
     # can reach them without an /api prefix.

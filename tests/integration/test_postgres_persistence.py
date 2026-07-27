@@ -8,6 +8,10 @@ from langchain_core.runnables.config import RunnableConfig
 from langgraph.checkpoint.base import CheckpointMetadata, empty_checkpoint
 from orcheo import config
 from orcheo.persistence import create_checkpointer
+from tests.hosted_apps.test_postgres_store import (
+    _test_postgres_repository_survives_fresh_process_adapter,
+    _test_postgres_runtime_survives_restart_and_serializes_concurrency,
+)
 
 
 @pytest.mark.asyncio
@@ -69,3 +73,6 @@ async def test_postgres_checkpointer_round_trip(
             assert stored.checkpoint["id"] == checkpoint["id"]
 
             await checkpointer.adelete_thread(thread_id)
+
+    _test_postgres_repository_survives_fresh_process_adapter()
+    _test_postgres_runtime_survives_restart_and_serializes_concurrency()
