@@ -8,13 +8,20 @@ import json
 import os
 import secrets
 import time
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlencode
 from uuid import UUID
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from orcheo.hosted_apps.errors import AliasValidationError
 from orcheo.hosted_apps.gateway import (
     canonical_app_host,
@@ -140,6 +147,44 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
             return asset.read_bytes()
         except OSError as exc:
             raise FileNotFoundError(path) from exc
+
+    async def open_deployment_object_stream(
+        deployment_id: UUID, path: str
+    ) -> tuple[httpx.AsyncClient, httpx.Response]:
+        """Open a backend asset response without buffering its body."""
+        encoded_path = quote(path, safe="/")
+        client = httpx.AsyncClient(timeout=10.0)
+        try:
+            request = client.build_request(
+                "GET",
+                f"{backend_url}/internal/hosted-apps/deployments/"
+                f"{deployment_id}/assets/{encoded_path}",
+                headers={"X-Orcheo-App-Gateway-Token": gateway_secret},
+            )
+            response = await client.send(request, stream=True)
+        except httpx.HTTPError as exc:
+            await client.aclose()
+            raise HTTPException(
+                status_code=503, detail="Deployment asset is unavailable."
+            ) from exc
+        if response.status_code == 200:
+            return client, response
+        await response.aclose()
+        await client.aclose()
+        if response.status_code == 404:
+            raise FileNotFoundError(path)
+        raise HTTPException(status_code=503, detail="Deployment asset is unavailable.")
+
+    async def stream_deployment_object(
+        client: httpx.AsyncClient, response: httpx.Response
+    ) -> AsyncIterator[bytes]:
+        """Forward bounded upstream chunks and release the connection afterward."""
+        try:
+            async for chunk in response.aiter_raw():
+                yield chunk
+        finally:
+            await response.aclose()
+            await client.aclose()
 
     def validate_browser_mutation(request: Request, host: str) -> None:
         """Enforce the browser-origin boundary before forwarding state changes."""
@@ -616,12 +661,6 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
             requested = "index.html"
         if requested not in files:
             raise HTTPException(status_code=404, detail="Asset was not found.")
-        try:
-            asset = await read_deployment_object(deployment_id, requested)
-        except FileNotFoundError:
-            raise HTTPException(
-                status_code=503, detail="Deployment asset is unavailable."
-            ) from None
         headers = dict(_SECURITY_HEADERS)
         headers["Cache-Control"] = "no-cache"
         digest = files[requested].get("sha256")
@@ -643,8 +682,28 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
             "object-src 'none'; worker-src 'none'; connect-src 'self'; "
             f"script-src {script_sources}"
         )
-        return Response(
-            content=asset,
+        if backend_url:
+            try:
+                (
+                    upstream_client,
+                    upstream_response,
+                ) = await open_deployment_object_stream(deployment_id, requested)
+            except FileNotFoundError:
+                raise HTTPException(
+                    status_code=503, detail="Deployment asset is unavailable."
+                ) from None
+            return StreamingResponse(
+                stream_deployment_object(upstream_client, upstream_response),
+                media_type=files[requested]["content_type"],
+                headers=headers,
+            )
+        asset = root / "deployments" / str(deployment_id) / requested
+        if not asset.is_file():
+            raise HTTPException(
+                status_code=503, detail="Deployment asset is unavailable."
+            )
+        return FileResponse(
+            asset,
             media_type=files[requested]["content_type"],
             headers=headers,
         )

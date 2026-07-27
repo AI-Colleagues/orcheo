@@ -102,3 +102,5 @@ def test_migrate_filesystem_bundles_to_postgres(tmp_path: Path) -> None:
     assert store.open_deployment_file(deployment_id, "index.html").read() == (
         b"<h1>App</h1>"
     )
+    assert not staging.exists()
+    assert migrate_filesystem_bundles(tmp_path, store) == 2

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path, PurePosixPath
@@ -323,6 +323,9 @@ def _migrate_staging_objects(root: Path, target: AppBundleStore) -> int:
                 continue
             with archive.open("rb") as source:
                 target.write_staged(upload_id, source)
+            archive.unlink()
+            with suppress(OSError):
+                archive.parent.rmdir()
             migrated += 1
     return migrated
 

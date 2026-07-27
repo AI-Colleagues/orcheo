@@ -1200,7 +1200,10 @@ def _resolve_hosted_apps_enabled(
     if hosted_apps is not None:
         return hosted_apps
     if external_backend and not yes:
-        return typer.confirm("Enable Hosted Apps?", default=True)
+        return typer.confirm(
+            "Enable Hosted Apps?",
+            default=existing_enabled if existing_enabled is not None else True,
+        )
     if external_backend:
         return existing_enabled if existing_enabled is not None else True
     return existing_enabled if existing_enabled is not None else True
@@ -1357,12 +1360,13 @@ def _resolve_app_tls_config(
     app_tls_cert_file: str | None,
     app_tls_key_file: str | None,
     external_backend: bool,
+    public_ingress_enabled: bool,
     yes: bool,
     env_file: Path,
     env_exists: bool,
 ) -> tuple[str, str | None, str | None]:
     """Resolve the bundled Caddy local or provided-certificate configuration."""
-    if not enabled or not external_backend:
+    if not enabled or not external_backend or not public_ingress_enabled:
         return "local", None, None
     existing_tls_method = (
         _read_env_value(env_file, "ORCHEO_APP_TLS_METHOD") if env_exists else None
@@ -1405,6 +1409,7 @@ def _resolve_hosted_apps_config(
     app_trusted_proxy_hops: int | None,
     backend_url: str,
     public_host: str | None,
+    public_ingress_enabled: bool,
     yes: bool,
     manual_secrets: bool,
     env_file: Path,
@@ -1455,6 +1460,7 @@ def _resolve_hosted_apps_config(
         app_tls_cert_file=app_tls_cert_file,
         app_tls_key_file=app_tls_key_file,
         external_backend=external_backend,
+        public_ingress_enabled=public_ingress_enabled,
         yes=yes,
         env_file=env_file,
         env_exists=env_exists,
@@ -2412,6 +2418,7 @@ def run_setup(
         app_trusted_proxy_hops=app_trusted_proxy_hops,
         backend_url=effective_backend_url,
         public_host=resolved_public_host,
+        public_ingress_enabled=resolved_public_ingress_enabled,
         yes=yes,
         manual_secrets=manual_secrets,
         env_file=stack_env_file,

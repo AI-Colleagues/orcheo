@@ -3,6 +3,7 @@
 from __future__ import annotations
 import os
 from pathlib import Path
+from threading import RLock
 from orcheo.hosted_apps import (
     AppBundleStore,
     FilesystemBundleStore,
@@ -18,6 +19,7 @@ _repository_ref: dict[str, HostedAppsRepository | None] = {"repository": None}
 _bundle_store_ref: dict[str, AppBundleStore | None] = {"store": None}
 _bundle_store_key: dict[str, tuple[str, str, str] | None] = {"key": None}
 _bundle_store_override: dict[str, bool] = {"enabled": False}
+_bundle_store_lock = RLock()
 
 
 def _auto_enable_self_hosted_runtime(repository: HostedAppsRepository) -> None:
@@ -54,35 +56,45 @@ def get_hosted_apps_repository() -> HostedAppsRepository:
 
 def get_app_bundle_store() -> AppBundleStore:
     """Return the configured durable bundle object store."""
-    settings = HostedAppsSettings.from_environment()
-    dsn = os.getenv("ORCHEO_POSTGRES_DSN", "").strip()
-    filesystem_root = str(settings.filesystem_root or "")
-    configuration_key = (settings.bundle_backend or "", dsn, filesystem_root)
-    current = _bundle_store_ref["store"]
-    if current is not None and _bundle_store_override["enabled"]:
-        return current
-    if current is not None and _bundle_store_key["key"] == configuration_key:
-        return current
-    _close_bundle_store(current)
-    if settings.bundle_backend == "postgres":
-        if not dsn:
-            raise ValueError(
-                "ORCHEO_POSTGRES_DSN must be set for PostgreSQL bundle storage."
-            )
-        store: AppBundleStore = PostgresBundleStore(dsn)
-        if settings.filesystem_root is not None:
-            migrate_filesystem_bundles(settings.filesystem_root, store)
-    elif (
-        settings.bundle_backend == "filesystem" and settings.filesystem_root is not None
-    ):
-        store = FilesystemBundleStore(Path(settings.filesystem_root))
-    else:
-        raise HostedAppsSettingsError(
-            "The configured bundle backend requires an external upload adapter."
-        )
-    _bundle_store_ref["store"] = store
-    _bundle_store_key["key"] = configuration_key
-    return store
+    with _bundle_store_lock:
+        settings = HostedAppsSettings.from_environment()
+        dsn = os.getenv("ORCHEO_POSTGRES_DSN", "").strip()
+        filesystem_root = str(settings.filesystem_root or "")
+        configuration_key = (settings.bundle_backend or "", dsn, filesystem_root)
+        current = _bundle_store_ref["store"]
+        if current is not None and _bundle_store_override["enabled"]:
+            return current
+        if current is not None and _bundle_store_key["key"] == configuration_key:
+            return current
+        _close_bundle_store(current)
+        _bundle_store_ref["store"] = None
+        _bundle_store_key["key"] = None
+        store: AppBundleStore | None = None
+        try:
+            if settings.bundle_backend == "postgres":
+                if not dsn:
+                    raise ValueError(
+                        "ORCHEO_POSTGRES_DSN must be set for PostgreSQL bundle storage."
+                    )
+                store = PostgresBundleStore(dsn)
+                if settings.filesystem_root is not None:
+                    migrate_filesystem_bundles(settings.filesystem_root, store)
+            elif (
+                settings.bundle_backend == "filesystem"
+                and settings.filesystem_root is not None
+            ):
+                store = FilesystemBundleStore(Path(settings.filesystem_root))
+            else:
+                raise HostedAppsSettingsError(
+                    "The configured bundle backend requires an external upload adapter."
+                )
+        except Exception:
+            _close_bundle_store(store)
+            raise
+        assert store is not None
+        _bundle_store_ref["store"] = store
+        _bundle_store_key["key"] = configuration_key
+        return store
 
 
 def _close_bundle_store(store: AppBundleStore | None) -> None:
@@ -93,18 +105,20 @@ def _close_bundle_store(store: AppBundleStore | None) -> None:
 
 def set_app_bundle_store(store: AppBundleStore | None) -> None:
     """Override the bundle store for tests and embedded deployments."""
-    current = _bundle_store_ref["store"]
-    if current is not store:
-        _close_bundle_store(current)
-    _bundle_store_ref["store"] = store
-    _bundle_store_key["key"] = None
-    _bundle_store_override["enabled"] = store is not None
+    with _bundle_store_lock:
+        current = _bundle_store_ref["store"]
+        if current is not store:
+            _close_bundle_store(current)
+        _bundle_store_ref["store"] = store
+        _bundle_store_key["key"] = None
+        _bundle_store_override["enabled"] = store is not None
 
 
 def reset_app_bundle_store() -> None:
     """Discard the cached bundle store."""
-    set_app_bundle_store(None)
-    _bundle_store_override["enabled"] = False
+    with _bundle_store_lock:
+        set_app_bundle_store(None)
+        _bundle_store_override["enabled"] = False
 
 
 def set_hosted_apps_repository(repository: HostedAppsRepository | None) -> None:

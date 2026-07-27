@@ -65,3 +65,31 @@ def test_completion_rejects_replay_and_mismatched_bytes(tmp_path: Path) -> None:
     with pytest.raises(BundleValidationError) as replay:
         service.complete(upload.id)
     assert replay.value.code == "hosted_apps.upload.already_completed"
+
+
+def test_completion_removes_partially_written_deployment(tmp_path: Path) -> None:
+    """A storage failure cannot leave an unreachable deployment prefix behind."""
+
+    class FailingFilesystemStore(FilesystemBundleStore):
+        def write_deployment_file(self, deployment_id, path, source):
+            key = super().write_deployment_file(deployment_id, path, source)
+            if path == "assets/main.js":
+                raise RuntimeError("storage interrupted")
+            return key
+
+    data = _archive()
+    service = DeploymentService(
+        FailingFilesystemStore(tmp_path), limits=BundleValidationLimits()
+    )
+    upload, deployment = service.initiate(
+        workspace_id=uuid4(),
+        app_id=uuid4(),
+        created_by="author",
+        expected_size_bytes=len(data),
+    )
+    service.stage(upload.id, BytesIO(data))
+
+    with pytest.raises(RuntimeError, match="storage interrupted"):
+        service.complete(upload.id)
+
+    assert not (tmp_path / "deployments" / str(deployment.id)).exists()

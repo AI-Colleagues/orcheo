@@ -7,7 +7,8 @@ import hmac
 import json
 import logging
 import os
-from typing import Annotated, Any
+from collections.abc import Iterator
+from typing import Annotated, Any, BinaryIO
 from uuid import UUID, uuid4
 from fastapi import (
     APIRouter,
@@ -16,11 +17,11 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
-    Response,
     status,
 )
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
+from starlette.responses import StreamingResponse
 from orcheo.hosted_apps import (
     AppAuthError,
     AppBinding,
@@ -246,12 +247,16 @@ async def resolve_host(
     return {"host": canonical_host, **descriptor}
 
 
-def _read_deployment_asset(deployment_id: UUID, asset_path: str) -> bytes:
-    """Read one validated deployment object through the configured store."""
-    with get_app_bundle_store().open_deployment_file(
-        deployment_id, asset_path
-    ) as source:
-        return source.read()
+def _open_deployment_asset(deployment_id: UUID, asset_path: str) -> BinaryIO:
+    """Open one validated deployment object through the configured store."""
+    return get_app_bundle_store().open_deployment_file(deployment_id, asset_path)
+
+
+def _stream_deployment_asset(source: BinaryIO) -> Iterator[bytes]:
+    """Yield bounded chunks and close the underlying store object."""
+    with source:
+        while chunk := source.read(1024 * 1024):
+            yield chunk
 
 
 @router.get(
@@ -261,11 +266,11 @@ def _read_deployment_asset(deployment_id: UUID, asset_path: str) -> bytes:
 async def read_deployment_asset(
     deployment_id: UUID,
     asset_path: str,
-) -> Response:
+) -> StreamingResponse:
     """Return one private deployment object to the authenticated app gateway."""
     try:
-        content = await run_in_threadpool(
-            _read_deployment_asset, deployment_id, asset_path
+        source = await run_in_threadpool(
+            _open_deployment_asset, deployment_id, asset_path
         )
     except FileNotFoundError:
         raise HTTPException(
@@ -277,8 +282,8 @@ async def read_deployment_asset(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Deployment asset path is invalid.",
         ) from None
-    return Response(
-        content=content,
+    return StreamingResponse(
+        _stream_deployment_asset(source),
         media_type="application/octet-stream",
         headers={"Cache-Control": "private, no-store"},
     )

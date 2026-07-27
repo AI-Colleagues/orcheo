@@ -621,6 +621,7 @@ def test_hosted_apps_route_error_contracts_and_configuration_guards(
     client: TestClient,
     hosted_apps_environment: InMemoryHostedAppsRepository,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """Workspace APIs return stable errors for missing resources and bad drafts."""
     created = client.post(
@@ -772,7 +773,8 @@ def test_hosted_apps_route_error_contracts_and_configuration_guards(
         == 409
     )
     monkeypatch.setenv("ORCHEO_APP_BUNDLE_BACKEND", "filesystem")
-    monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", "/tmp/orcheo-route-errors")
+    bundle_root = tmp_path / "route-errors"
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", str(bundle_root))
     invalid_archive = BytesIO()
     with zipfile.ZipFile(invalid_archive, "w") as bundle:
         bundle.writestr("missing-index.js", "x")
@@ -813,6 +815,7 @@ def test_hosted_apps_route_error_contracts_and_configuration_guards(
     failed_deployment = hosted_apps_environment.list_deployments(
         UUID(created["workspace_id"]), UUID(app_id)
     )[-1]
+    assert not (bundle_root / "deployments" / str(failed_deployment.id)).exists()
     assert (
         client.post(
             f"/api/apps/{app_id}/deployments/{failed_deployment.id}/publish",

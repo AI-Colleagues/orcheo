@@ -73,6 +73,12 @@ def test_gateway_serves_postgres_backed_assets_through_backend(
         "html_policy": {"index.html": {"inline_script_hashes": []}},
     }
     requested_urls: list[str] = []
+    streamed_requests: list[bool] = []
+
+    class BackendStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b"<h1>Database "
+            yield b"app</h1>"
 
     class BackendClient:
         async def __aenter__(self):
@@ -97,6 +103,23 @@ def test_gateway_serves_postgres_backed_assets_through_backend(
                 return httpx.Response(200, content=b"<h1>Database app</h1>")
             return httpx.Response(404)
 
+        def build_request(self, method, url, **kwargs):
+            return httpx.Request(method, url, **kwargs)
+
+        async def send(self, request, *, stream):
+            requested_urls.append(str(request.url))
+            streamed_requests.append(stream)
+            if str(request.url).endswith("/assets/index.html"):
+                return httpx.Response(
+                    200,
+                    stream=BackendStream(),
+                    request=request,
+                )
+            return httpx.Response(404, request=request)
+
+        async def aclose(self):
+            return None
+
     monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.test")
     monkeypatch.setenv("ORCHEO_APP_GATEWAY_BACKEND_URL", "http://backend")
     monkeypatch.setenv("ORCHEO_APP_GATEWAY_SECRET", "g" * 64)
@@ -111,6 +134,7 @@ def test_gateway_serves_postgres_backed_assets_through_backend(
     assert response.text == "<h1>Database app</h1>"
     assert any(url.endswith("/assets/__manifest__.json") for url in requested_urls)
     assert any(url.endswith("/assets/index.html") for url in requested_urls)
+    assert streamed_requests == [True]
 
 
 def test_gateway_spa_fallback_does_not_mask_unsafe_or_reserved_paths(

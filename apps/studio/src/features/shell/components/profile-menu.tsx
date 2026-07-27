@@ -273,33 +273,32 @@ export default function ProfileMenu() {
               <DropdownMenuSubContent className="w-56">
                 {workspaces.length > 0 ? (
                   workspaces.map((workspace) => (
-                    <DropdownMenuItem
+                    <div
                       key={workspace.workspace_id}
-                      onClick={() => handleSelectWorkspace(workspace.slug)}
-                      className="group flex items-center justify-between"
+                      className="flex items-center"
                     >
-                      <span className="truncate font-medium">
-                        {workspace.name}
-                      </span>
-                      <span className="flex shrink-0 items-center gap-1">
+                      <DropdownMenuItem
+                        onSelect={() => handleSelectWorkspace(workspace.slug)}
+                        className="min-w-0 flex-1 justify-between"
+                      >
+                        <span className="truncate font-medium">
+                          {workspace.name}
+                        </span>
                         {workspace.slug === currentWorkspace?.slug ? (
                           <Check className="h-4 w-4 shrink-0" />
                         ) : null}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 opacity-0 group-hover:opacity-100"
-                          aria-label={`Manage ${workspace.name}`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            navigate(`/${workspace.slug}/workspace`);
-                          }}
-                        >
-                          <Settings className="h-3.5 w-3.5" />
-                        </Button>
-                      </span>
-                    </DropdownMenuItem>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        aria-label={`Manage ${workspace.name}`}
+                        title={`Manage ${workspace.name}`}
+                        className="w-8 shrink-0 justify-center px-0"
+                        onSelect={() =>
+                          navigate(`/${workspace.slug}/workspace`)
+                        }
+                      >
+                        <Settings className="h-3.5 w-3.5" />
+                      </DropdownMenuItem>
+                    </div>
                   ))
                 ) : (
                   <DropdownMenuItem disabled>

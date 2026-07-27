@@ -1637,6 +1637,7 @@ def test_resolve_nonlocal_backend_hosted_apps_prompts_for_production_settings(
         app_trusted_proxy_hops=None,
         backend_url="https://orcheo.example.test",
         public_host="orcheo.example.test",
+        public_ingress_enabled=True,
         yes=False,
         manual_secrets=False,
         env_file=tmp_path / ".env",
@@ -1653,6 +1654,32 @@ def test_resolve_nonlocal_backend_hosted_apps_prompts_for_production_settings(
     assert resolved.tls_cert_file == str(certificate)
     assert resolved.tls_key_file == str(private_key)
     assert confirmations == [("Enable Hosted Apps?", True)]
+
+
+def test_hosted_apps_upgrade_prompt_preserves_disabled_state(
+    tmp_path, monkeypatch
+) -> None:
+    """Interactive upgrades do not silently enable a disabled public feature."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("ORCHEO_HOSTED_APPS_ENABLED=false\n", encoding="utf-8")
+    confirmations: list[tuple[str, bool]] = []
+
+    def confirm(prompt: str, *, default: bool) -> bool:
+        confirmations.append((prompt, default))
+        return default
+
+    monkeypatch.setattr(setup.typer, "confirm", confirm)
+
+    enabled = setup._resolve_hosted_apps_enabled(
+        None,
+        external_backend=True,
+        yes=False,
+        env_file=env_file,
+        env_exists=True,
+    )
+
+    assert enabled is False
+    assert confirmations == [("Enable Hosted Apps?", False)]
 
 
 def test_run_setup_prompts_for_hosted_apps_after_auth_mode(tmp_path, monkeypatch):
@@ -1714,6 +1741,7 @@ def test_resolve_local_backend_hosted_apps_uses_local_defaults(tmp_path, monkeyp
         app_trusted_proxy_hops=None,
         backend_url="https://localhost:2025",
         public_host=None,
+        public_ingress_enabled=False,
         yes=False,
         manual_secrets=False,
         env_file=tmp_path / ".env",
@@ -1750,11 +1778,40 @@ def test_noninteractive_public_hosted_apps_requires_wildcard_certificate(
             app_trusted_proxy_hops=1,
             backend_url="https://orcheo.example.test",
             public_host="orcheo.example.test",
+            public_ingress_enabled=True,
             yes=True,
             manual_secrets=False,
             env_file=tmp_path / ".env",
             env_exists=False,
         )
+
+
+def test_external_backend_without_bundled_ingress_does_not_require_tls_files(
+    tmp_path, monkeypatch
+) -> None:
+    """TLS inputs are required only for the public ingress managed by setup."""
+    monkeypatch.setattr(setup.secrets, "token_hex", lambda _: "g" * 64)
+
+    resolved = setup._resolve_hosted_apps_config(
+        hosted_apps=True,
+        apps_base_domain="example.test",
+        hosted_apps_workspace_allowlist=None,
+        app_tls_cert_file=None,
+        app_tls_key_file=None,
+        app_trusted_proxy_cidrs="10.0.0.0/8",
+        app_trusted_proxy_hops=1,
+        backend_url="https://orcheo.example.test",
+        public_host=None,
+        public_ingress_enabled=False,
+        yes=True,
+        manual_secrets=False,
+        env_file=tmp_path / ".env",
+        env_exists=False,
+    )
+
+    assert resolved.tls_method == "local"
+    assert resolved.tls_cert_file is None
+    assert resolved.tls_key_file is None
 
 
 def test_noninteractive_public_hosted_apps_uses_direct_domain_and_default_tls_paths(
@@ -1778,6 +1835,7 @@ def test_noninteractive_public_hosted_apps_uses_direct_domain_and_default_tls_pa
         app_trusted_proxy_hops=1,
         backend_url="https://orcheo.example.test",
         public_host="example.test",
+        public_ingress_enabled=True,
         yes=True,
         manual_secrets=False,
         env_file=tmp_path / ".env",

@@ -749,7 +749,7 @@ async def upload_local_deployment(
     auth: Annotated[RequestContext, Depends(authenticate_request)],
     _: Annotated[None, Depends(_ensure_enabled)],
 ) -> AppDeploymentResponse:
-    """Validate and materialize one bounded local/single-node deployment upload."""
+    """Validate and materialize one bounded bundled deployment upload."""
     try:
         await run_in_threadpool(repository.get_app, workspace.workspace_id, app_id)
     except KeyError as exc:
@@ -785,8 +785,9 @@ async def upload_local_deployment(
                 ),
             },
         )
+    bundle_store = await run_in_threadpool(get_app_bundle_store)
     service = DeploymentService(
-        get_app_bundle_store(),
+        bundle_store,
         limits=BundleValidationLimits(
             max_archive_bytes=settings.max_archive_bytes,
             max_expanded_bytes=settings.max_expanded_bytes,
@@ -819,6 +820,7 @@ async def upload_local_deployment(
                 workflows=workflows,
             )
         except ValueError as exc:
+            await run_in_threadpool(service.discard_deployment, completed.id)
             completed.status = DeploymentStatus.FAILED
             completed.validation_error_code = "hosted_apps.bundle.binding_invalid"
             completed.validation_error_message = str(exc)
