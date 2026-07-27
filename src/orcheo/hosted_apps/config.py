@@ -95,10 +95,10 @@ class HostedAppsSettings:
                 "ORCHEO_APPS_BASE_DOMAIN is required when Hosted Apps is enabled."
             )
         _validate_base_domain(self.base_domain)
-        if self.bundle_backend not in {"filesystem", "s3"}:
+        if self.bundle_backend not in {"filesystem", "postgres", "s3"}:
             raise HostedAppsSettingsError(
-                "ORCHEO_APP_BUNDLE_BACKEND must be 's3' or 'filesystem' when "
-                "Hosted Apps is enabled."
+                "ORCHEO_APP_BUNDLE_BACKEND must be 'postgres', 's3', or "
+                "'filesystem' when Hosted Apps is enabled."
             )
         if self.bundle_backend == "filesystem" and self.filesystem_root is None:
             raise HostedAppsSettingsError(

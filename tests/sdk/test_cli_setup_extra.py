@@ -531,6 +531,7 @@ def test_hosted_apps_setup_remaining_edge_branches(
             enabled=True,
             app_tls_cert_file=None,
             app_tls_key_file=None,
+            external_backend=True,
             public_ingress_enabled=True,
             yes=True,
             env_file=env_file,

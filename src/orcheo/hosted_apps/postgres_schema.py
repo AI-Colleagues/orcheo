@@ -3,10 +3,22 @@
 from __future__ import annotations
 
 
-__all__ = ["POSTGRES_HOSTED_APPS_SCHEMA"]
+__all__ = ["POSTGRES_BUNDLE_OBJECTS_SCHEMA", "POSTGRES_HOSTED_APPS_SCHEMA"]
 
 
-POSTGRES_HOSTED_APPS_SCHEMA = """
+POSTGRES_BUNDLE_OBJECTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS hosted_app_bundle_objects (
+    object_key TEXT PRIMARY KEY,
+    content BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_hosted_app_bundle_objects_created
+    ON hosted_app_bundle_objects(created_at);
+"""
+
+
+POSTGRES_HOSTED_APPS_SCHEMA = (
+    """
 CREATE TABLE IF NOT EXISTS hosted_app_runtime_state (
     singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
     generation BIGINT NOT NULL DEFAULT 0,
@@ -414,3 +426,5 @@ CREATE TRIGGER hosted_app_release_ready
 BEFORE INSERT ON hosted_app_releases
 FOR EACH ROW EXECUTE FUNCTION validate_hosted_app_ready_release();
 """
+    + POSTGRES_BUNDLE_OBJECTS_SCHEMA
+)

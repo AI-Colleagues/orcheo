@@ -11,20 +11,26 @@ from orcheo_backend.app.hosted_apps.runtime_store import (
     reset_app_runtime_service,
 )
 from orcheo_backend.app.hosted_apps.store import (
+    get_app_bundle_store,
     get_hosted_apps_repository,
+    reset_app_bundle_store,
     reset_hosted_apps_repository,
+    set_app_bundle_store,
     set_hosted_apps_repository,
 )
 
 
 __all__ = [
+    "get_app_bundle_store",
     "get_hosted_apps_repository",
     "get_app_auth_service",
     "get_app_runtime_service",
     "auth_router",
     "internal_router",
+    "reset_app_bundle_store",
     "reset_hosted_apps_repository",
     "reset_app_auth_service",
     "reset_app_runtime_service",
+    "set_app_bundle_store",
     "set_hosted_apps_repository",
 ]

@@ -58,6 +58,85 @@ def test_gateway_serves_only_manifest_assets_with_platform_headers(
     assert response.headers["cache-control"] == "no-cache"
 
 
+def test_gateway_serves_postgres_backed_assets_through_backend(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Stack delivery reads durable assets through the gateway-only backend lane."""
+    deployment_id = uuid4()
+    manifest = {
+        "files": {
+            "index.html": {
+                "content_type": "text/html; charset=utf-8",
+                "sha256": "a" * 64,
+            }
+        },
+        "html_policy": {"index.html": {"inline_script_hashes": []}},
+    }
+    requested_urls: list[str] = []
+    streamed_requests: list[bool] = []
+
+    class BackendStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b"<h1>Database "
+            yield b"app</h1>"
+
+    class BackendClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url, **_kwargs):
+            requested_urls.append(url)
+            if url.endswith("/internal/hosted-apps/resolve"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "deployment_id": str(deployment_id),
+                        "visibility": "public",
+                    },
+                )
+            if url.endswith("/assets/__manifest__.json"):
+                return httpx.Response(200, content=json.dumps(manifest).encode())
+            if url.endswith("/assets/index.html"):
+                return httpx.Response(200, content=b"<h1>Database app</h1>")
+            return httpx.Response(404)
+
+        def build_request(self, method, url, **kwargs):
+            return httpx.Request(method, url, **kwargs)
+
+        async def send(self, request, *, stream):
+            requested_urls.append(str(request.url))
+            streamed_requests.append(stream)
+            if str(request.url).endswith("/assets/index.html"):
+                return httpx.Response(
+                    200,
+                    stream=BackendStream(),
+                    request=request,
+                )
+            return httpx.Response(404, request=request)
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.test")
+    monkeypatch.setenv("ORCHEO_APP_GATEWAY_BACKEND_URL", "http://backend")
+    monkeypatch.setenv("ORCHEO_APP_GATEWAY_SECRET", "g" * 64)
+    monkeypatch.setattr(
+        "orcheo_app_gateway.main.httpx.AsyncClient",
+        lambda **_kwargs: BackendClient(),
+    )
+
+    response = TestClient(create_app()).get("/", headers={"host": "portal.apps.test"})
+
+    assert response.status_code == 200
+    assert response.text == "<h1>Database app</h1>"
+    assert any(url.endswith("/assets/__manifest__.json") for url in requested_urls)
+    assert any(url.endswith("/assets/index.html") for url in requested_urls)
+    assert streamed_requests == [True]
+
+
 def test_gateway_spa_fallback_does_not_mask_unsafe_or_reserved_paths(
     tmp_path: Path, monkeypatch
 ) -> None:

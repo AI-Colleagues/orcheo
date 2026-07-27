@@ -116,11 +116,15 @@ class DeploymentService:
             upload.status = "completed"
             return deployment
         except BundleValidationError as exc:
+            self.discard_deployment(deployment.id)
             deployment.status = DeploymentStatus.FAILED
             deployment.validation_error_code = exc.code
             deployment.validation_error_message = str(exc)
             deployment.validated_at = _utcnow()
             upload.status = "failed"
+            raise
+        except Exception:
+            self.discard_deployment(deployment.id)
             raise
 
     def get_deployment(self, deployment_id: UUID) -> AppDeployment:
@@ -129,6 +133,10 @@ class DeploymentService:
             return self._deployments[deployment_id]
         except KeyError as exc:
             raise UploadNotFoundError(str(deployment_id)) from exc
+
+    def discard_deployment(self, deployment_id: UUID) -> None:
+        """Remove objects for a deployment that cannot become publishable."""
+        self._store.delete_prefix(f"deployments/{deployment_id}")
 
     def _write_assets(
         self, deployment_id: UUID, archive: BinaryIO, files: Mapping[str, object]

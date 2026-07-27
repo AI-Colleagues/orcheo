@@ -9,7 +9,9 @@ from orcheo.hosted_apps.auth import (
 from orcheo.hosted_apps.bundle_store import (
     AppBundleStore,
     FilesystemBundleStore,
+    PostgresBundleStore,
     S3BundleStore,
+    migrate_filesystem_bundles,
 )
 from orcheo.hosted_apps.config import HostedAppsSettings, HostedAppsSettingsError
 from orcheo.hosted_apps.data import AppDataConflictError, AppDataService, AppRecord
@@ -133,6 +135,7 @@ __all__ = [
     "OPERATION_POLICY",
     "PlatformAuditEvent",
     "PostgresHostedAppsRepository",
+    "PostgresBundleStore",
     "PostgresAppRuntimeService",
     "PostgresAppAuthService",
     "pkce_challenge",
@@ -144,6 +147,7 @@ __all__ = [
     "RuntimeGeneration",
     "S3BundleStore",
     "UploadNotFoundError",
+    "migrate_filesystem_bundles",
     "normalize_alias",
     "normalize_logical_name",
     "validate_input_schema",

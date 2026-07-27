@@ -1,12 +1,26 @@
 """Provider-neutral storage interfaces for untrusted Hosted Apps bundles."""
 
 from __future__ import annotations
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
+from datetime import datetime
+from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Protocol
 from uuid import UUID
+from psycopg import Connection
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
+from orcheo.hosted_apps.postgres_schema import POSTGRES_BUNDLE_OBJECTS_SCHEMA
 
 
-__all__ = ["AppBundleStore", "FilesystemBundleStore", "S3BundleStore"]
+__all__ = [
+    "AppBundleStore",
+    "FilesystemBundleStore",
+    "PostgresBundleStore",
+    "S3BundleStore",
+    "migrate_filesystem_bundles",
+]
 
 
 class AppBundleStore(Protocol):
@@ -39,8 +53,8 @@ class AppBundleStore(Protocol):
 class FilesystemBundleStore:
     """Private single-node store for local development and explicit dev installs.
 
-    The caller must never expose paths returned by this class to browsers. Production
-    deployments use an S3-compatible implementation instead.
+    The caller must never expose paths returned by this class to browsers. Installed
+    stacks use PostgreSQL; external deployments may use an S3-compatible adapter.
     """
 
     def __init__(self, root: Path) -> None:
@@ -123,6 +137,222 @@ class FilesystemBundleStore:
             msg = "Bundle storage paths must be non-empty relative POSIX paths."
             raise ValueError(msg)
         return path
+
+
+class PostgresBundleStore:
+    """Durable PostgreSQL object store for staged archives and app assets."""
+
+    def __init__(
+        self,
+        dsn: str,
+        *,
+        ensure_schema: bool = True,
+        pool: Any | None = None,
+    ) -> None:
+        """Open a bounded connection pool and ensure the additive object schema."""
+        if not dsn.strip() and pool is None:
+            raise ValueError("PostgreSQL bundle storage requires a database DSN.")
+        self._pool = pool or ConnectionPool(
+            conninfo=dsn,
+            min_size=0,
+            max_size=10,
+            kwargs={"row_factory": dict_row},
+            open=True,
+        )
+        self._owns_pool = pool is None
+        if ensure_schema:
+            with self._connect() as conn:
+                conn.execute(POSTGRES_BUNDLE_OBJECTS_SCHEMA)
+
+    @contextmanager
+    def _connect(self) -> Iterator[Connection[Any]]:
+        with self._pool.connection() as connection:
+            try:
+                yield connection
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+
+    def write_staged(self, upload_id: UUID, source: BinaryIO) -> str:
+        """Persist a staged ZIP in PostgreSQL under an opaque upload key."""
+        key = f"staging/{upload_id}/archive.zip"
+        self._write_object(key, source)
+        return key
+
+    def open_staged(self, staging_key: str) -> BinaryIO:
+        """Open a staged ZIP from PostgreSQL."""
+        key = self._validate_owned_key(staging_key, expected_root="staging")
+        return BytesIO(self._read_object(key))
+
+    def write_deployment_file(
+        self, deployment_id: UUID, path: str, source: BinaryIO
+    ) -> str:
+        """Persist one immutable validated deployment asset in PostgreSQL."""
+        safe_path = FilesystemBundleStore._safe_relative(path)
+        key = "/".join(("deployments", str(deployment_id), *safe_path.parts))
+        self._write_object(key, source)
+        return key
+
+    def write_manifest(self, deployment_id: UUID, source: BinaryIO) -> str:
+        """Persist the authoritative deployment manifest in PostgreSQL."""
+        key = f"deployments/{deployment_id}/__manifest__.json"
+        self._write_object(key, source)
+        return key
+
+    def open_deployment_file(self, deployment_id: UUID, path: str) -> BinaryIO:
+        """Open one server-authorized deployment asset from PostgreSQL."""
+        safe_path = FilesystemBundleStore._safe_relative(path)
+        key = "/".join(("deployments", str(deployment_id), *safe_path.parts))
+        return BytesIO(self._read_object(key))
+
+    def delete_prefix(self, prefix: str) -> None:
+        """Delete one server-owned object prefix without wildcard expansion."""
+        safe_prefix = self._validate_owned_key(prefix)
+        like_prefix = (
+            safe_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                DELETE FROM hosted_app_bundle_objects
+                 WHERE object_key = %s
+                    OR object_key LIKE %s ESCAPE '\\'
+                """,
+                (safe_prefix, f"{like_prefix}/%"),
+            )
+
+    def delete_expired_staging(self, cutoff: datetime) -> int:
+        """Delete staged uploads older than ``cutoff`` and return the row count."""
+        with self._connect() as conn:
+            result = conn.execute(
+                """
+                DELETE FROM hosted_app_bundle_objects
+                 WHERE object_key LIKE 'staging/%'
+                   AND created_at < %s
+                """,
+                (cutoff,),
+            )
+            return int(result.rowcount)
+
+    def healthcheck(self) -> None:
+        """Verify the bundle object table is reachable."""
+        with self._connect() as conn:
+            conn.execute("SELECT 1 FROM hosted_app_bundle_objects LIMIT 1")
+
+    def close(self) -> None:
+        """Close connections owned by this store."""
+        if self._owns_pool:
+            self._pool.close()
+
+    def _write_object(self, key: str, source: BinaryIO) -> None:
+        data = self._read_all(source)
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO hosted_app_bundle_objects (object_key, content)
+                VALUES (%s, %s)
+                ON CONFLICT (object_key) DO UPDATE
+                    SET object_key = EXCLUDED.object_key
+                RETURNING content
+                """,
+                (key, data),
+            ).fetchone()
+        existing = self._row_content(row)
+        if existing != data:
+            raise ValueError("Hosted Apps bundle objects are immutable.")
+
+    def _read_object(self, key: str) -> bytes:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT content
+                  FROM hosted_app_bundle_objects
+                 WHERE object_key = %s
+                """,
+                (key,),
+            ).fetchone()
+        if row is None:
+            raise FileNotFoundError(key)
+        return self._row_content(row)
+
+    @staticmethod
+    def _read_all(source: BinaryIO) -> bytes:
+        payload = BytesIO()
+        while chunk := source.read(1024 * 1024):
+            payload.write(chunk)
+        return payload.getvalue()
+
+    @staticmethod
+    def _row_content(row: Any) -> bytes:
+        if row is None:
+            raise FileNotFoundError("Hosted Apps bundle object was not found.")
+        value = row["content"] if isinstance(row, dict) else row[0]
+        return bytes(value)
+
+    @staticmethod
+    def _validate_owned_key(value: str, *, expected_root: str | None = None) -> str:
+        safe = FilesystemBundleStore._safe_relative(value).as_posix()
+        root = safe.partition("/")[0]
+        if root not in {"staging", "deployments"}:
+            raise ValueError("Bundle object key is outside the owned namespace.")
+        if expected_root is not None and root != expected_root:
+            raise ValueError("Bundle object key has the wrong namespace.")
+        return safe
+
+
+def migrate_filesystem_bundles(root: Path, target: AppBundleStore) -> int:
+    """Idempotently copy legacy filesystem bundle objects into ``target``."""
+    resolved = root.expanduser().resolve()
+    if not resolved.is_dir():
+        return 0
+    return _migrate_staging_objects(resolved, target) + _migrate_deployment_objects(
+        resolved, target
+    )
+
+
+def _migrate_staging_objects(root: Path, target: AppBundleStore) -> int:
+    """Copy well-formed legacy staging archives."""
+    migrated = 0
+    staging_root = root / "staging"
+    if staging_root.is_dir():
+        for archive in staging_root.glob("*/archive.zip"):
+            try:
+                upload_id = UUID(archive.parent.name)
+            except ValueError:
+                continue
+            with archive.open("rb") as source:
+                target.write_staged(upload_id, source)
+            archive.unlink()
+            with suppress(OSError):
+                archive.parent.rmdir()
+            migrated += 1
+    return migrated
+
+
+def _migrate_deployment_objects(root: Path, target: AppBundleStore) -> int:
+    """Copy well-formed legacy deployment assets and manifests."""
+    migrated = 0
+    deployments_root = root / "deployments"
+    if deployments_root.is_dir():
+        for deployment_root in deployments_root.iterdir():
+            if not deployment_root.is_dir():
+                continue
+            try:
+                deployment_id = UUID(deployment_root.name)
+            except ValueError:
+                continue
+            for asset in deployment_root.rglob("*"):
+                if not asset.is_file():
+                    continue
+                relative = asset.relative_to(deployment_root).as_posix()
+                with asset.open("rb") as source:
+                    if relative == "__manifest__.json":
+                        target.write_manifest(deployment_id, source)
+                    else:
+                        target.write_deployment_file(deployment_id, relative, source)
+                migrated += 1
+    return migrated
 
 
 class S3BundleStore:

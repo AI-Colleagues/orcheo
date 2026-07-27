@@ -7,11 +7,21 @@ import hmac
 import json
 import logging
 import os
-from typing import Annotated, Any
+from collections.abc import Iterator
+from typing import Annotated, Any, BinaryIO
 from uuid import UUID, uuid4
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
+from starlette.responses import StreamingResponse
 from orcheo.hosted_apps import (
     AppAuthError,
     AppBinding,
@@ -27,7 +37,10 @@ from orcheo.workspace import WorkspaceMembershipError
 from orcheo_backend.app.dependencies import get_repository
 from orcheo_backend.app.hosted_apps.auth_store import get_app_auth_service
 from orcheo_backend.app.hosted_apps.runtime_store import get_app_runtime_service
-from orcheo_backend.app.hosted_apps.store import get_hosted_apps_repository
+from orcheo_backend.app.hosted_apps.store import (
+    get_app_bundle_store,
+    get_hosted_apps_repository,
+)
 from orcheo_backend.app.workflow_execution import execute_workflow_recorded
 from orcheo_backend.app.workspace.dependencies import get_workspace_repository
 
@@ -232,6 +245,48 @@ async def resolve_host(
             detail="Hosted app was not found.",
         ) from None
     return {"host": canonical_host, **descriptor}
+
+
+def _open_deployment_asset(deployment_id: UUID, asset_path: str) -> BinaryIO:
+    """Open one validated deployment object through the configured store."""
+    return get_app_bundle_store().open_deployment_file(deployment_id, asset_path)
+
+
+def _stream_deployment_asset(source: BinaryIO) -> Iterator[bytes]:
+    """Yield bounded chunks and close the underlying store object."""
+    with source:
+        while chunk := source.read(1024 * 1024):
+            yield chunk
+
+
+@router.get(
+    "/deployments/{deployment_id}/assets/{asset_path:path}",
+    dependencies=[Depends(authenticate_app_gateway)],
+)
+async def read_deployment_asset(
+    deployment_id: UUID,
+    asset_path: str,
+) -> StreamingResponse:
+    """Return one private deployment object to the authenticated app gateway."""
+    try:
+        source = await run_in_threadpool(
+            _open_deployment_asset, deployment_id, asset_path
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment asset was not found.",
+        ) from None
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Deployment asset path is invalid.",
+        ) from None
+    return StreamingResponse(
+        _stream_deployment_asset(source),
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @router.post("/runtime/runs", dependencies=[Depends(authenticate_app_gateway)])
