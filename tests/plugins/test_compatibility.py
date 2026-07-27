@@ -95,6 +95,18 @@ def test_check_manifest_compatibility_version_not_satisfied() -> None:
     assert any("does not satisfy" in issue for issue in issues)
 
 
+def test_check_manifest_compatibility_running_prerelease_satisfies_specifier() -> None:
+    """A prerelease-versioned orcheo core (e.g. alpha builds) still satisfies
+    plugin specifiers that don't explicitly opt into prereleases."""
+    manifest = _make_manifest(orcheo_version=">=0.25,<1.0")
+    with patch(
+        "orcheo.plugins.compatibility.get_running_orcheo_version",
+        return_value="0.45.0a1",
+    ):
+        issues = check_manifest_compatibility(manifest)
+    assert issues == []
+
+
 # ---------------------------------------------------------------------------
 # classify_plugin_change
 # ---------------------------------------------------------------------------

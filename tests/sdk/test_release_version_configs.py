@@ -39,8 +39,8 @@ def test_python_release_configs_accept_pep440_prereleases(path: Path) -> None:
     assert pattern.fullmatch("1.2.3a1")
     assert pattern.fullmatch("1.2.3b2")
     assert pattern.fullmatch("1.2.3rc3")
-    assert settings.getboolean("commit") is False
-    assert settings.getboolean("tag") is False
+    assert settings.getboolean("commit") is True
+    assert settings.getboolean("tag") is True
 
 
 @pytest.mark.parametrize("path", SEMVER_CONFIGS)
@@ -53,5 +53,5 @@ def test_semver_release_configs_accept_prereleases(path: Path) -> None:
     assert pattern.fullmatch("1.2.3-alpha.1")
     assert pattern.fullmatch("1.2.3-beta.2")
     assert pattern.fullmatch("1.2.3-rc.3")
-    assert settings.getboolean("commit") is False
-    assert settings.getboolean("tag") is False
+    assert settings.getboolean("commit") is True
+    assert settings.getboolean("tag") is True

@@ -41,7 +41,7 @@ def check_manifest_compatibility(
         issues.append(f"invalid Orcheo version specifier: {manifest.orcheo_version}")
         return issues
     running = get_running_orcheo_version()
-    if running not in specifier:
+    if not specifier.contains(running, prereleases=True):
         issues.append(
             f"orcheo version {running} does not satisfy {manifest.orcheo_version}"
         )
