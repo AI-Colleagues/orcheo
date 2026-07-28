@@ -899,12 +899,13 @@ async def publish_app(
         bindings = await run_in_threadpool(
             repository.list_bindings, workspace.workspace_id, app_id
         )
+    visibility = request.visibility or app.visibility
     collections = await run_in_threadpool(
         repository.list_collections, workspace.workspace_id, app_id
     )
     snapshot = {
         "permission_revision": request.acknowledged_permission_revision,
-        "visibility": app.visibility.value,
+        "visibility": visibility.value,
         "bindings": [
             item.model_dump(mode="json", exclude={"workspace_id", "app_id"})
             for item in bindings
@@ -923,7 +924,7 @@ async def publish_app(
         app_id=app_id,
         deployment_id=deployment_id,
         permission_revision=request.acknowledged_permission_revision,
-        visibility=app.visibility,
+        visibility=visibility,
         capability_snapshot=snapshot,
         csp_snapshot={"external_origins": list(app.external_origins)},
         snapshot_sha256=snapshot_sha256,

@@ -487,6 +487,7 @@ class InMemoryHostedAppsRepository:
                 raise ValueError("Hosted app release already exists.")
             self._record_audit("release.publish", release.created_by, app)
             self._releases[release.id] = release.model_copy(deep=True)
+            app.visibility = release.visibility
             app.active_release_id = release.id
             app.publication_state = PublicationState.PUBLISHED
             app.published_permission_revision = release.permission_revision

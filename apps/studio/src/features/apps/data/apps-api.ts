@@ -158,6 +158,7 @@ export const publishHostedApp = (
   appId: string,
   deploymentId: string,
   permissionRevision: number,
+  visibility: HostedAppApi["visibility"],
 ): Promise<AppPublishApi> =>
   request<AppPublishApi>(
     `/api/apps/${appId}/deployments/${deploymentId}/publish`,
@@ -165,6 +166,7 @@ export const publishHostedApp = (
       method: "POST",
       body: JSON.stringify({
         acknowledged_permission_revision: permissionRevision,
+        visibility,
       }),
     },
   );

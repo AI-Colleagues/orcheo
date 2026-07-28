@@ -1,6 +1,7 @@
 """Central authenticated authorization endpoint for Hosted Apps PKCE."""
 
 from __future__ import annotations
+import os
 from typing import Annotated, Any
 from urllib.parse import urlencode
 from uuid import UUID
@@ -55,6 +56,10 @@ async def authorize_app(
     allowed_callbacks = {f"https://{body.host}/__orcheo/auth/callback"}
     if body.host.endswith(".localhost"):
         allowed_callbacks.add(f"http://{body.host}/__orcheo/auth/callback")
+        gateway_port = os.getenv("ORCHEO_APP_GATEWAY_PORT", "2030")
+        allowed_callbacks.add(
+            f"http://{body.host}:{gateway_port}/__orcheo/auth/callback"
+        )
     if body.redirect_uri not in allowed_callbacks:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -7,6 +7,7 @@ import { getWorkspaceAppPath } from "@/lib/workspace-routing";
 import { AppCard } from "../components/app-card";
 import { ArchiveAppDialog } from "../components/archive-app-dialog";
 import { CreateAppDialog } from "../components/create-app-dialog";
+import { PublishAppDialog } from "../components/publish-app-dialog";
 import {
   archiveApp,
   createApp,
@@ -23,6 +24,8 @@ export default function AppsList() {
   const [archiveTarget, setArchiveTarget] = useState<HostedApp | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [archiving, setArchiving] = useState(false);
+  const [publishTarget, setPublishTarget] = useState<HostedApp | null>(null);
+  const [publishing, setPublishing] = useState(false);
   const { setPageContext } = usePageContext();
 
   useEffect(() => {
@@ -85,6 +88,10 @@ export default function AppsList() {
                 onArchiveApp={setArchiveTarget}
                 onTogglePublish={(target) => {
                   setActionError(null);
+                  if (target.state !== "published") {
+                    setPublishTarget(target);
+                    return;
+                  }
                   void toggleAppPublish(target).catch(
                     (toggleError: unknown) => {
                       setActionError(
@@ -117,6 +124,30 @@ export default function AppsList() {
           if (!open && !archiving) setArchiveTarget(null);
         }}
         onConfirm={handleArchive}
+      />
+      <PublishAppDialog
+        open={publishTarget !== null}
+        isPending={publishing}
+        onOpenChange={(open) => {
+          if (!open && !publishing) setPublishTarget(null);
+        }}
+        onConfirm={async (visibility) => {
+          if (!publishTarget) return;
+          setActionError(null);
+          setPublishing(true);
+          try {
+            await toggleAppPublish(publishTarget, visibility);
+            setPublishTarget(null);
+          } catch (error) {
+            setActionError(
+              error instanceof Error
+                ? error.message
+                : "Unable to update publication state.",
+            );
+          } finally {
+            setPublishing(false);
+          }
+        }}
       />
     </main>
   );

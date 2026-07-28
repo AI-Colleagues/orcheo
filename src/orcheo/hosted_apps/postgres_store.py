@@ -1053,6 +1053,7 @@ class PostgresHostedAppsRepository:  # pragma: no cover
                         release.created_at,
                     ),
                 )
+                app.visibility = release.visibility
                 app.active_release_id = release.id
                 app.publication_state = PublicationState.PUBLISHED
                 app.published_permission_revision = release.permission_revision

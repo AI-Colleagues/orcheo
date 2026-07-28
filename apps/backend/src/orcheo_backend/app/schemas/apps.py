@@ -102,11 +102,12 @@ class HostedAppListResponse(BaseModel):
 
 
 class AppPublishRequest(BaseModel):
-    """Exact draft capability revision acknowledged by an administrator."""
+    """Release settings acknowledged and selected by an administrator."""
 
     model_config = ConfigDict(extra="forbid")
 
     acknowledged_permission_revision: int = Field(ge=1)
+    visibility: AppVisibility | None = None
 
 
 class AppPublishResponse(BaseModel):

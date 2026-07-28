@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+from http.cookies import SimpleCookie
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 import httpx
@@ -347,3 +349,72 @@ def test_gateway_starts_pkce_login_with_signed_httponly_transaction(
     assert "HttpOnly" in cookie
     assert "Secure" in cookie
     assert "SameSite=lax" in cookie
+
+
+def test_gateway_local_auth_callback_returns_to_requested_app_path(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Local callback URIs retain the gateway port and redirect after exchange."""
+
+    class BackendClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, *_args, **_kwargs):
+            return httpx.Response(
+                200,
+                json={
+                    "deployment_id": str(uuid4()),
+                    "visibility": "private",
+                    "state": "published",
+                },
+            )
+
+        async def request(self, method, url, **_kwargs):
+            assert method == "POST"
+            assert url.endswith("/internal/hosted-apps/auth/exchange")
+            return httpx.Response(200, json={"session_secret": "session-secret"})
+
+    root = tmp_path / "bundles"
+    root.mkdir()
+    monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.localhost")
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", str(root))
+    monkeypatch.setenv("ORCHEO_APP_GATEWAY_BACKEND_URL", "http://backend")
+    monkeypatch.setenv("ORCHEO_APP_GATEWAY_SECRET", "g" * 64)
+    monkeypatch.setenv("ORCHEO_STUDIO_URL", "http://localhost:2026")
+    monkeypatch.setattr(
+        "orcheo_app_gateway.main.httpx.AsyncClient",
+        lambda **_kwargs: BackendClient(),
+    )
+    client = TestClient(create_app(), base_url="http://portal.apps.localhost:2030")
+
+    started = client.get(
+        "/__orcheo/auth/start",
+        params={"return_to": "/dashboard"},
+        headers={"host": "portal.apps.localhost:2030"},
+        follow_redirects=False,
+    )
+
+    authorize_params = parse_qs(urlparse(started.headers["location"]).query)
+    assert authorize_params["redirect_uri"] == [
+        "http://portal.apps.localhost:2030/__orcheo/auth/callback"
+    ]
+    transaction = SimpleCookie(started.headers["set-cookie"])[
+        "__Host-orcheo-app-auth"
+    ].value
+    callback = client.get(
+        "/__orcheo/auth/callback",
+        params={"code": "authorization-code", "state": authorize_params["state"][0]},
+        headers={
+            "host": "portal.apps.localhost:2030",
+            "cookie": f"__Host-orcheo-app-auth={transaction}",
+        },
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 302
+    assert callback.headers["location"] == "/dashboard"
+    assert "__Host-orcheo-app-session=session-secret" in callback.headers["set-cookie"]

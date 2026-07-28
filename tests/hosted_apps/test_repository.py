@@ -62,7 +62,7 @@ def test_publish_requires_ready_deployment_current_revision_and_ownership() -> N
         app_id=app.id,
         deployment_id=deployment.id,
         permission_revision=app.permission_revision,
-        visibility=AppVisibility.PUBLIC,
+        visibility=AppVisibility.PRIVATE,
         capability_snapshot={},
         csp_snapshot={},
         snapshot_sha256="a" * 64,
@@ -71,6 +71,7 @@ def test_publish_requires_ready_deployment_current_revision_and_ownership() -> N
     published = repository.publish_release(release)
     assert published.publication_state is PublicationState.PUBLISHED
     assert published.active_release_id == release.id
+    assert published.visibility is AppVisibility.PRIVATE
 
 
 def test_runtime_generation_fails_closed_and_invalidates_cache() -> None:

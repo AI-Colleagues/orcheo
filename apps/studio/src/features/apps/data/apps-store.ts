@@ -17,7 +17,7 @@ import {
   type AppCollectionApi,
   type HostedAppApi,
 } from "./apps-api";
-import type { HostedApp } from "./sample-apps";
+import type { AppVisibility, HostedApp } from "./sample-apps";
 
 const listeners = new Set<() => void>();
 
@@ -133,7 +133,10 @@ export const getPublishBlockedReason = (app: HostedApp): string | null => {
 export const canPublishApp = (app: HostedApp): boolean =>
   getPublishBlockedReason(app) === null;
 
-export const toggleAppPublish = async (app: HostedApp): Promise<void> => {
+export const toggleAppPublish = async (
+  app: HostedApp,
+  visibility?: AppVisibility,
+): Promise<void> => {
   if (app.state === "published") {
     await unpublishHostedApp(app.id);
   } else {
@@ -145,7 +148,15 @@ export const toggleAppPublish = async (app: HostedApp): Promise<void> => {
     if (!ready) {
       throw new Error("Upload and validate a deployment before publishing.");
     }
-    await publishHostedApp(app.id, ready.id, app.permissionRevision);
+    if (!visibility) {
+      throw new Error("Choose who can access the app before publishing.");
+    }
+    await publishHostedApp(
+      app.id,
+      ready.id,
+      app.permissionRevision,
+      visibility,
+    );
   }
   notify();
 };

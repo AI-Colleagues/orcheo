@@ -199,6 +199,20 @@ def test_central_pkce_authorization_requires_current_app_workspace_member(
         ).status_code
         == 200
     )
+    assert (
+        client.post(
+            "/api/hosted-apps/auth/authorize",
+            json={
+                "host": "private-portal.apps.localhost",
+                "redirect_uri": (
+                    "http://private-portal.apps.localhost:2030/__orcheo/auth/callback"
+                ),
+                "code_challenge": "c" * 43,
+                "state": state,
+            },
+        ).status_code
+        == 200
+    )
     monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.test")
     client.app.dependency_overrides[authenticate_request] = lambda: RequestContext(
         subject="not-a-member", identity_type="user"
@@ -322,15 +336,17 @@ def test_local_bundle_upload_validates_and_publishes(
 
     published = client.post(
         f"/api/apps/{created['id']}/deployments/{deployment['id']}/publish",
-        json={"acknowledged_permission_revision": created["permission_revision"]},
+        json={
+            "acknowledged_permission_revision": created["permission_revision"],
+            "visibility": "private",
+        },
     )
     assert published.status_code == 200
     assert published.json()["state"] == "published"
     assert published.json()["url"] == "https://example-upload.apps.test/"
-    assert (
-        client.get(f"/api/apps/{created['id']}").json()["url"]
-        == "https://example-upload.apps.test/"
-    )
+    app_response = client.get(f"/api/apps/{created['id']}").json()
+    assert app_response["url"] == "https://example-upload.apps.test/"
+    assert app_response["visibility"] == "private"
     assert (
         client.get(f"/api/apps/{created['id']}").json()["active_deployment_id"]
         == deployment["id"]

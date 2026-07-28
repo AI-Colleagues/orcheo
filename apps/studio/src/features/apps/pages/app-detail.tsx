@@ -33,12 +33,14 @@ import {
   useApp,
 } from "../data/apps-store";
 import { ArchiveAppDialog } from "../components/archive-app-dialog";
+import { PublishAppDialog } from "../components/publish-app-dialog";
 import {
   AppHealthBadge,
   AppStateBadge,
   AppVisibilityBadge,
   IntentBadge,
 } from "../components/status-badges";
+import type { AppVisibility } from "../data/sample-apps";
 
 export default function AppDetail() {
   const { workspaceSlug, appId } = useParams<{
@@ -52,6 +54,7 @@ export default function AppDetail() {
   const [uploading, setUploading] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [isArchiveDialogOpen, setIsArchiveDialogOpen] = useState(false);
+  const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
   const [archiving, setArchiving] = useState(false);
 
   useEffect(() => {
@@ -82,17 +85,19 @@ export default function AppDetail() {
     manifestBindings !== null && manifestBindings !== undefined;
   const publishAllowed = canPublishApp(app);
   const publishBlockedReason = getPublishBlockedReason(app);
-  const handlePublish = async () => {
+  const handlePublish = async (visibility?: AppVisibility): Promise<boolean> => {
     setActionError(null);
     setPublishing(true);
     try {
-      await toggleAppPublish(app);
+      await toggleAppPublish(app, visibility);
+      return true;
     } catch (error) {
       setActionError(
         error instanceof Error
           ? error.message
           : "Unable to update publication.",
       );
+      return false;
     } finally {
       setPublishing(false);
     }
@@ -188,7 +193,7 @@ export default function AppDetail() {
             <Button
               disabled={publishing || !publishAllowed}
               title={publishBlockedReason ?? undefined}
-              onClick={() => void handlePublish()}
+              onClick={() => setIsPublishDialogOpen(true)}
             >
               <Rocket className="mr-2 h-4 w-4" />
               {publishing ? "Publishing…" : "Publish"}
@@ -450,6 +455,16 @@ export default function AppDetail() {
           if (!open && !archiving) setIsArchiveDialogOpen(false);
         }}
         onConfirm={handleArchive}
+      />
+      <PublishAppDialog
+        open={isPublishDialogOpen}
+        isPending={publishing}
+        onOpenChange={setIsPublishDialogOpen}
+        onConfirm={async (visibility) => {
+          if (await handlePublish(visibility)) {
+            setIsPublishDialogOpen(false);
+          }
+        }}
       />
     </main>
   );

@@ -477,10 +477,9 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
     @app.get("/__orcheo/auth/start", include_in_schema=False)
     async def start_app_auth(request: Request, return_to: str = "/") -> Response:
         """Start central member authorization with a gateway-owned PKCE verifier."""
+        request_host = request.headers.get("host", "")
         try:
-            host, alias = canonical_app_host(
-                request.headers.get("host", ""), base_domain
-            )
+            host, alias = canonical_app_host(request_host, base_domain)
         except AliasValidationError as exc:
             raise HTTPException(status_code=404, detail="Unknown hosted app.") from exc
         if not backend_url or not gateway_secret:
@@ -498,7 +497,12 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
         )
         state = secrets.token_urlsafe(32)
         scheme = "http" if host.endswith(".localhost") else "https"
-        redirect_uri = f"{scheme}://{host}/__orcheo/auth/callback"
+        callback_host = (
+            request_host.strip().lower().rstrip(".")
+            if host.endswith(".localhost")
+            else host
+        )
+        redirect_uri = f"{scheme}://{callback_host}/__orcheo/auth/callback"
         transaction = encode_auth_transaction(
             {
                 "host": host,
