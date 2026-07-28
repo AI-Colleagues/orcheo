@@ -25,12 +25,14 @@ import { usePageContext } from "@/hooks/use-page-context";
 import { getWorkspaceAppsPath } from "@/lib/workspace-routing";
 import { getHostedAppAddress } from "../data/sample-apps";
 import {
+  archiveApp,
   canPublishApp,
   getPublishBlockedReason,
   toggleAppPublish,
   uploadAppBundle,
   useApp,
 } from "../data/apps-store";
+import { ArchiveAppDialog } from "../components/archive-app-dialog";
 import {
   AppHealthBadge,
   AppStateBadge,
@@ -49,6 +51,8 @@ export default function AppDetail() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [isArchiveDialogOpen, setIsArchiveDialogOpen] = useState(false);
+  const [archiving, setArchiving] = useState(false);
 
   useEffect(() => {
     setPageContext({ page: "other" });
@@ -108,6 +112,20 @@ export default function AppDetail() {
       );
     } finally {
       setUploading(false);
+    }
+  };
+  const handleArchive = async () => {
+    setActionError(null);
+    setArchiving(true);
+    try {
+      await archiveApp(app.id);
+      navigate(getWorkspaceAppsPath(workspaceSlug));
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Unable to delete app.",
+      );
+    } finally {
+      setArchiving(false);
     }
   };
 
@@ -193,7 +211,11 @@ export default function AppDetail() {
                 Export bundle
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive">
+              <DropdownMenuItem
+                className="text-destructive"
+                disabled={app.state === "archived"}
+                onClick={() => setIsArchiveDialogOpen(true)}
+              >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete app
               </DropdownMenuItem>
@@ -420,6 +442,15 @@ export default function AppDetail() {
           </Card>
         </div>
       </div>
+      <ArchiveAppDialog
+        open={isArchiveDialogOpen}
+        appName={app.name}
+        isPending={archiving}
+        onOpenChange={(open) => {
+          if (!open && !archiving) setIsArchiveDialogOpen(false);
+        }}
+        onConfirm={handleArchive}
+      />
     </main>
   );
 }

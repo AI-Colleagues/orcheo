@@ -31,9 +31,15 @@ interface AppCardProps {
   app: HostedApp;
   onOpen: (app: HostedApp) => void;
   onTogglePublish: (app: HostedApp) => void;
+  onArchiveApp: (app: HostedApp) => void;
 }
 
-export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
+export function AppCard({
+  app,
+  onOpen,
+  onTogglePublish,
+  onArchiveApp,
+}: AppCardProps) {
   const activeDeployment = app.deployments.find((d) => d.active);
   const publishAllowed = canPublishApp(app);
 
@@ -119,7 +125,11 @@ export function AppCard({ app, onOpen, onTogglePublish }: AppCardProps) {
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive">
+            <DropdownMenuItem
+              className="text-destructive"
+              disabled={app.state === "archived"}
+              onClick={() => onArchiveApp(app)}
+            >
               <Trash2 className="mr-2 h-4 w-4" />
               Delete
             </DropdownMenuItem>

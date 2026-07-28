@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  archiveHostedApp,
   createHostedApp,
   getHostedApp,
   listAppAudit,
@@ -114,6 +115,11 @@ export const createApp = async (
   return created;
 };
 
+export const archiveApp = async (appId: string): Promise<void> => {
+  await archiveHostedApp(appId);
+  notify();
+};
+
 export const getPublishBlockedReason = (app: HostedApp): string | null => {
   if (app.state !== "draft" && app.state !== "unpublished") {
     return `A ${app.state} app cannot be published.`;
@@ -170,7 +176,9 @@ export function useApps(workspaceKey: string | undefined): {
         .then((items) => {
           if (active)
             setState({
-              apps: items.map((item) => appFromApi(item)),
+              apps: items
+                .filter((item) => !item.is_archived)
+                .map((item) => appFromApi(item)),
               loading: false,
               error: null,
             });
