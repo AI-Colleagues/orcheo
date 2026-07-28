@@ -844,7 +844,16 @@ def test_hosted_apps_route_error_contracts_and_configuration_guards(
     monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", "/tmp/orcheo-test-apps")
     monkeypatch.setenv("ORCHEO_APP_BUNDLE_BACKEND", "filesystem")
     monkeypatch.setenv("ORCHEO_HOSTED_APPS_WORKSPACE_ALLOWLIST", str(uuid4()))
-    assert client.get("/api/apps").status_code == 404
+    unavailable = client.get("/api/apps")
+    assert unavailable.status_code == 404
+    assert unavailable.json()["detail"] == {
+        "code": "hosted_apps.unavailable",
+        "message": (
+            "Hosted Apps are not enabled for this workspace. Ask an administrator "
+            "to enable Hosted Apps or add this workspace to the Hosted Apps "
+            "allowlist."
+        ),
+    }
     monkeypatch.setenv(
         "ORCHEO_HOSTED_APPS_WORKSPACE_ALLOWLIST", str(created["workspace_id"])
     )

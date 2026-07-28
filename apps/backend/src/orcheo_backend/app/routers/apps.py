@@ -72,6 +72,21 @@ def _not_found() -> HTTPException:
     )
 
 
+def _unavailable() -> HTTPException:
+    """Return a clear response when Hosted Apps is disabled for a workspace."""
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail={
+            "code": "hosted_apps.unavailable",
+            "message": (
+                "Hosted Apps are not enabled for this workspace. Ask an "
+                "administrator to enable Hosted Apps or add this workspace to "
+                "the Hosted Apps allowlist."
+            ),
+        },
+    )
+
+
 def _encode_app_cursor(app: HostedApp) -> str:
     raw = f"{app.updated_at.isoformat()}|{app.id}".encode()
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
@@ -108,7 +123,7 @@ def _ensure_enabled(workspace: WorkspaceContextDep) -> None:
     if not settings.enabled or not settings.allows_workspace(
         str(workspace.workspace_id)
     ):
-        raise _not_found()
+        raise _unavailable()
 
 
 def _binding_response(binding: AppBinding) -> AppBindingResponse:
