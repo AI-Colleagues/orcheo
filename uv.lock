@@ -3654,7 +3654,7 @@ requires-dist = [
 
 [[package]]
 name = "orcheo-backend"
-version = "0.39.0a2"
+version = "0.39.0a3"
 source = { editable = "apps/backend" }
 dependencies = [
     { name = "celery", extra = ["redis"] },
