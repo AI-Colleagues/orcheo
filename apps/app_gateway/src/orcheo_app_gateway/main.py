@@ -497,11 +497,13 @@ def create_app() -> FastAPI:  # noqa: C901, PLR0915
         )
         state = secrets.token_urlsafe(32)
         scheme = "http" if host.endswith(".localhost") else "https"
-        callback_host = (
-            request_host.strip().lower().rstrip(".")
-            if host.endswith(".localhost")
-            else host
-        )
+        callback_host = host
+        if host.endswith(".localhost"):
+            raw_host = request_host.strip().lower()
+            if raw_host.count(":") == 1:
+                _name, port = raw_host.rsplit(":", 1)
+                if port.isdigit():
+                    callback_host = f"{host}:{port}"
         redirect_uri = f"{scheme}://{callback_host}/__orcheo/auth/callback"
         transaction = encode_auth_transaction(
             {
