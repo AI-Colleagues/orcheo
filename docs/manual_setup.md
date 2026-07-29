@@ -199,7 +199,6 @@ For detailed authentication setup including bootstrap tokens, service tokens, an
 
 - **[CLI Reference](cli_reference.md)** — Command reference for the `orcheo` CLI
 - **[Studio](studio.md)** — Workflow monitor, config editor, and Credential Vault manager
-- **[Connect a Coding Agent](connect_coding_agent.md)** — Connect AI coding agents to Orcheo
 - **[Authentication Guide](authentication_guide.md)** — Detailed authentication configuration
 - **[Developer Guide](developer_guide.md)** — Contributing to Orcheo
 

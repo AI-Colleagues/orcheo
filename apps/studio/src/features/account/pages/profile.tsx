@@ -1,5 +1,4 @@
-import { useEffect, useMemo } from "react";
-import { usePageContext } from "@/hooks/use-page-context";
+import { useMemo } from "react";
 import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
 import type { ProfileUser } from "./profile/types";
 import { ProfileGeneralTab } from "./profile/components/profile-general-tab";
@@ -13,10 +12,6 @@ const LOCAL_DEV_PROFILE: ProfileUser = {
 };
 
 export default function Profile() {
-  const { setPageContext } = usePageContext();
-  useEffect(() => {
-    setPageContext({ page: "profile" });
-  }, [setPageContext]);
   const authUser = useMemo(() => getAuthenticatedUserProfile(), []);
   const user = useMemo<ProfileUser>(() => {
     if (!authUser) {

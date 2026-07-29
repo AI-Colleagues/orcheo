@@ -151,10 +151,14 @@ export const listAppAudit = (id: string): Promise<AppAuditApi[]> =>
 export const unpublishHostedApp = (id: string): Promise<HostedAppApi> =>
   request<HostedAppApi>(`/api/apps/${id}/unpublish`, { method: "POST" });
 
+export const archiveHostedApp = (id: string): Promise<HostedAppApi> =>
+  request<HostedAppApi>(`/api/apps/${id}/archive`, { method: "POST" });
+
 export const publishHostedApp = (
   appId: string,
   deploymentId: string,
   permissionRevision: number,
+  visibility: HostedAppApi["visibility"],
 ): Promise<AppPublishApi> =>
   request<AppPublishApi>(
     `/api/apps/${appId}/deployments/${deploymentId}/publish`,
@@ -162,6 +166,7 @@ export const publishHostedApp = (
       method: "POST",
       body: JSON.stringify({
         acknowledged_permission_revision: permissionRevision,
+        visibility,
       }),
     },
   );

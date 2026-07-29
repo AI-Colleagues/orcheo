@@ -457,6 +457,7 @@ class PostgresHostedAppsRepository:  # pragma: no cover
                    AND alias.app_id = app.id
                    AND alias.reserved_kind = 'app'
                  WHERE app.workspace_id = %s
+                   AND app.is_archived = FALSE
                    {cursor_clause}
                  ORDER BY app.updated_at DESC, app.id DESC
                  LIMIT %s
@@ -1022,7 +1023,11 @@ class PostgresHostedAppsRepository:  # pragma: no cover
                     raise ValueError(
                         "Release deployment is not a ready app-owned deployment."
                     )
-                if release.permission_revision != app.permission_revision:
+                visibility_changed = release.visibility != app.visibility
+                expected_revision = app.permission_revision + (
+                    1 if visibility_changed else 0
+                )
+                if release.permission_revision != expected_revision:
                     raise ValueError(
                         "Release must acknowledge the current permission revision."
                     )
@@ -1053,6 +1058,9 @@ class PostgresHostedAppsRepository:  # pragma: no cover
                         release.created_at,
                     ),
                 )
+                if visibility_changed:
+                    app.permission_revision = release.permission_revision
+                app.visibility = release.visibility
                 app.active_release_id = release.id
                 app.publication_state = PublicationState.PUBLISHED
                 app.published_permission_revision = release.permission_revision

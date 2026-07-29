@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  archiveHostedApp,
   createHostedApp,
   getHostedApp,
   listAppAudit,
@@ -16,7 +17,7 @@ import {
   type AppCollectionApi,
   type HostedAppApi,
 } from "./apps-api";
-import type { HostedApp } from "./sample-apps";
+import type { AppVisibility, HostedApp } from "./sample-apps";
 
 const listeners = new Set<() => void>();
 
@@ -114,6 +115,11 @@ export const createApp = async (
   return created;
 };
 
+export const archiveApp = async (appId: string): Promise<void> => {
+  await archiveHostedApp(appId);
+  notify();
+};
+
 export const getPublishBlockedReason = (app: HostedApp): string | null => {
   if (app.state !== "draft" && app.state !== "unpublished") {
     return `A ${app.state} app cannot be published.`;
@@ -127,7 +133,10 @@ export const getPublishBlockedReason = (app: HostedApp): string | null => {
 export const canPublishApp = (app: HostedApp): boolean =>
   getPublishBlockedReason(app) === null;
 
-export const toggleAppPublish = async (app: HostedApp): Promise<void> => {
+export const toggleAppPublish = async (
+  app: HostedApp,
+  visibility?: AppVisibility,
+): Promise<void> => {
   if (app.state === "published") {
     await unpublishHostedApp(app.id);
   } else {
@@ -139,7 +148,15 @@ export const toggleAppPublish = async (app: HostedApp): Promise<void> => {
     if (!ready) {
       throw new Error("Upload and validate a deployment before publishing.");
     }
-    await publishHostedApp(app.id, ready.id, app.permissionRevision);
+    if (!visibility) {
+      throw new Error("Choose who can access the app before publishing.");
+    }
+    await publishHostedApp(
+      app.id,
+      ready.id,
+      app.permissionRevision,
+      visibility,
+    );
   }
   notify();
 };
@@ -170,7 +187,9 @@ export function useApps(workspaceKey: string | undefined): {
         .then((items) => {
           if (active)
             setState({
-              apps: items.map((item) => appFromApi(item)),
+              apps: items
+                .filter((item) => !item.is_archived)
+                .map((item) => appFromApi(item)),
               loading: false,
               error: null,
             });

@@ -1,15 +1,8 @@
-import { useEffect } from "react";
 import { Github, ExternalLink } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
-import { usePageContext } from "@/hooks/use-page-context";
 import { ORCHEO_ISSUE_CHOOSER_URL } from "@features/shell/constants";
 
 export default function Feedback() {
-  const { setPageContext } = usePageContext();
-  useEffect(() => {
-    setPageContext({ page: "other" });
-  }, [setPageContext]);
-
   return (
     <main className="flex h-full min-h-0 items-center justify-center overflow-auto p-8">
       <div className="flex max-w-md flex-col items-center text-center">

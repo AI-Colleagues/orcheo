@@ -8,7 +8,6 @@ import {
   useParams,
 } from "react-router-dom";
 import { Toaster } from "@/design-system/ui/toaster";
-import { BrowserContextProvider } from "@/hooks/browser-context-provider";
 import WorkflowGallery from "@features/workflow/pages/workflow-gallery";
 import WorkflowPage from "@features/workflow/pages/workflow";
 import Login from "@features/auth/pages/login";
@@ -116,7 +115,7 @@ function WorkspaceWorkflowRoute() {
 export default function OrcheoStudioApp() {
   return (
     <Router>
-      <BrowserContextProvider>
+      <>
         <Routes>
           <Route path="/login" element={<Login />} />
 
@@ -183,7 +182,7 @@ export default function OrcheoStudioApp() {
           </Route>
         </Routes>
         <Toaster />
-      </BrowserContextProvider>
+      </>
     </Router>
   );
 }

@@ -16,7 +16,6 @@ import typer
 from rich.console import Console
 from orcheo_sdk.cli.agent_tool import agent_tool_app
 from orcheo_sdk.cli.auth import auth_app
-from orcheo_sdk.cli.browser_context.commands import browser_aware_app, context_app
 from orcheo_sdk.cli.cache import CacheManager
 from orcheo_sdk.cli.codegen import code_app
 from orcheo_sdk.cli.config import get_cache_dir, resolve_settings
@@ -120,8 +119,6 @@ app.add_typer(config_app, name="config")
 app.add_typer(agent_tool_app, name="agent-tool")
 app.add_typer(service_token_app, name="token")
 app.add_typer(workspace_app, name="workspace")
-app.add_typer(browser_aware_app, name="browser-aware")
-app.add_typer(context_app, name="context")
 install_app = typer.Typer(
     help="Install or upgrade the Orcheo stack components.",
     invoke_without_command=True,

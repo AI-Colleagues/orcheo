@@ -51,7 +51,7 @@ class HostedAppsRepository(Protocol):
         cursor: tuple[datetime, UUID] | None,
         limit: int,
     ) -> tuple[list[tuple[HostedApp, AppAlias]], bool]:
-        """List one cursor page with aliases and whether more rows exist."""
+        """List one cursor page of non-archived apps, with aliases and has-more flag."""
 
     def get_active_deployment_id(self, workspace_id: UUID, app_id: UUID) -> UUID | None:
         """Return the deployment selected by the app's active release."""
@@ -232,7 +232,7 @@ class InMemoryHostedAppsRepository:
         limit: int,
     ) -> tuple[list[tuple[HostedApp, AppAlias]], bool]:
         """List one cursor page without loading the full workspace collection."""
-        apps = self.list_apps(workspace_id)
+        apps = [app for app in self.list_apps(workspace_id) if not app.is_archived]
         if cursor is not None:
             apps = [app for app in apps if (app.updated_at, app.id) < cursor]
         selected = apps[: limit + 1]
@@ -479,7 +479,11 @@ class InMemoryHostedAppsRepository:
                 raise ValueError(
                     "Release deployment is not a ready app-owned deployment."
                 )
-            if release.permission_revision != app.permission_revision:
+            visibility_changed = release.visibility != app.visibility
+            expected_revision = app.permission_revision + (
+                1 if visibility_changed else 0
+            )
+            if release.permission_revision != expected_revision:
                 raise ValueError(
                     "Release must acknowledge the current permission revision."
                 )
@@ -487,6 +491,9 @@ class InMemoryHostedAppsRepository:
                 raise ValueError("Hosted app release already exists.")
             self._record_audit("release.publish", release.created_by, app)
             self._releases[release.id] = release.model_copy(deep=True)
+            if visibility_changed:
+                app.permission_revision = release.permission_revision
+            app.visibility = release.visibility
             app.active_release_id = release.id
             app.publication_state = PublicationState.PUBLISHED
             app.published_permission_revision = release.permission_revision

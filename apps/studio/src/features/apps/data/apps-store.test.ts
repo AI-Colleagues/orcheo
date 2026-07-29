@@ -2,14 +2,17 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "./apps-api";
 import {
+  archiveApp,
   canPublishApp,
   createApp,
   getPublishBlockedReason,
+  toggleAppPublish,
   useApp,
   useApps,
 } from "./apps-store";
 
 vi.mock("./apps-api", () => ({
+  archiveHostedApp: vi.fn(),
   createHostedApp: vi.fn(),
   getHostedApp: vi.fn(),
   listAppAudit: vi.fn(),
@@ -68,6 +71,23 @@ describe("Hosted Apps workspace data", () => {
     expect(result.current.error).toBe("App access denied.");
   });
 
+  it("hides archived apps from the normal list", async () => {
+    vi.mocked(api.listHostedApps).mockResolvedValue([
+      app,
+      {
+        ...app,
+        id: "archived-app",
+        state: "archived",
+        is_archived: true,
+      },
+    ]);
+
+    const { result } = renderHook(() => useApps("workspace-a"));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.apps.map((item) => item.id)).toEqual([app.id]);
+  });
+
   it("creates through the authenticated API instead of local sample state", async () => {
     vi.mocked(api.createHostedApp).mockResolvedValue(app);
     await act(async () => {
@@ -75,6 +95,55 @@ describe("Hosted Apps workspace data", () => {
       expect(created.id).toBe("app-1");
     });
     expect(api.createHostedApp).toHaveBeenCalledWith("Portal", "portal");
+  });
+
+  it("archives through the authenticated API", async () => {
+    vi.mocked(api.archiveHostedApp).mockResolvedValue(app);
+
+    await archiveApp(app.id);
+
+    expect(api.archiveHostedApp).toHaveBeenCalledWith(app.id);
+  });
+
+  it("publishes with the visibility chosen by the publisher", async () => {
+    vi.mocked(api.publishHostedApp).mockResolvedValue({
+      app_id: app.id,
+      active_release_id: "release-1",
+      active_deployment_id: "deployment-1",
+      published_permission_revision: app.permission_revision,
+      state: "published",
+      url: app.url,
+    });
+    const readyApp = {
+      ...app,
+      deployments: [
+        {
+          id: "deployment-1",
+          version: "deployment 1",
+          digest: "sha256:test",
+          size: "—",
+          files: 1,
+          created: "now",
+          active: false,
+          status: "ready" as const,
+        },
+      ],
+      bindings: [],
+      collections: [],
+      health: "unknown" as const,
+      updated: "now",
+      permissionRevision: app.permission_revision,
+      state: "draft" as const,
+    };
+
+    await toggleAppPublish(readyApp, "private");
+
+    expect(api.publishHostedApp).toHaveBeenCalledWith(
+      app.id,
+      "deployment-1",
+      app.permission_revision,
+      "private",
+    );
   });
 
   it("blocks invalid lifecycle states and apps without a ready deployment", () => {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useState, type ChangeEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -21,22 +21,25 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/design-system/ui/dropdown-menu";
-import { usePageContext } from "@/hooks/use-page-context";
 import { getWorkspaceAppsPath } from "@/lib/workspace-routing";
 import { getHostedAppAddress } from "../data/sample-apps";
 import {
+  archiveApp,
   canPublishApp,
   getPublishBlockedReason,
   toggleAppPublish,
   uploadAppBundle,
   useApp,
 } from "../data/apps-store";
+import { ArchiveAppDialog } from "../components/archive-app-dialog";
+import { PublishAppDialog } from "../components/publish-app-dialog";
 import {
   AppHealthBadge,
   AppStateBadge,
   AppVisibilityBadge,
   IntentBadge,
 } from "../components/status-badges";
+import type { AppVisibility } from "../data/sample-apps";
 
 export default function AppDetail() {
   const { workspaceSlug, appId } = useParams<{
@@ -45,14 +48,12 @@ export default function AppDetail() {
   }>();
   const navigate = useNavigate();
   const { app, loading, error } = useApp(appId, workspaceSlug);
-  const { setPageContext } = usePageContext();
   const [actionError, setActionError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [publishing, setPublishing] = useState(false);
-
-  useEffect(() => {
-    setPageContext({ page: "other" });
-  }, [setPageContext]);
+  const [isArchiveDialogOpen, setIsArchiveDialogOpen] = useState(false);
+  const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
+  const [archiving, setArchiving] = useState(false);
 
   if (loading || !app) {
     return (
@@ -78,17 +79,21 @@ export default function AppDetail() {
     manifestBindings !== null && manifestBindings !== undefined;
   const publishAllowed = canPublishApp(app);
   const publishBlockedReason = getPublishBlockedReason(app);
-  const handlePublish = async () => {
+  const handlePublish = async (
+    visibility?: AppVisibility,
+  ): Promise<boolean> => {
     setActionError(null);
     setPublishing(true);
     try {
-      await toggleAppPublish(app);
+      await toggleAppPublish(app, visibility);
+      return true;
     } catch (error) {
       setActionError(
         error instanceof Error
           ? error.message
           : "Unable to update publication.",
       );
+      return false;
     } finally {
       setPublishing(false);
     }
@@ -108,6 +113,20 @@ export default function AppDetail() {
       );
     } finally {
       setUploading(false);
+    }
+  };
+  const handleArchive = async () => {
+    setActionError(null);
+    setArchiving(true);
+    try {
+      await archiveApp(app.id);
+      navigate(getWorkspaceAppsPath(workspaceSlug));
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Unable to delete app.",
+      );
+    } finally {
+      setArchiving(false);
     }
   };
 
@@ -170,7 +189,7 @@ export default function AppDetail() {
             <Button
               disabled={publishing || !publishAllowed}
               title={publishBlockedReason ?? undefined}
-              onClick={() => void handlePublish()}
+              onClick={() => setIsPublishDialogOpen(true)}
             >
               <Rocket className="mr-2 h-4 w-4" />
               {publishing ? "Publishing…" : "Publish"}
@@ -193,7 +212,11 @@ export default function AppDetail() {
                 Export bundle
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive">
+              <DropdownMenuItem
+                className="text-destructive"
+                disabled={app.state === "archived"}
+                onClick={() => setIsArchiveDialogOpen(true)}
+              >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete app
               </DropdownMenuItem>
@@ -420,6 +443,26 @@ export default function AppDetail() {
           </Card>
         </div>
       </div>
+      <ArchiveAppDialog
+        open={isArchiveDialogOpen}
+        appName={app.name}
+        isPending={archiving}
+        onOpenChange={(open) => {
+          if (!open && !archiving) setIsArchiveDialogOpen(false);
+        }}
+        onConfirm={handleArchive}
+      />
+      <PublishAppDialog
+        open={isPublishDialogOpen}
+        currentVisibility={app.visibility}
+        isPending={publishing}
+        onOpenChange={setIsPublishDialogOpen}
+        onConfirm={async (visibility) => {
+          if (await handlePublish(visibility)) {
+            setIsPublishDialogOpen(false);
+          }
+        }}
+      />
     </main>
   );
 }

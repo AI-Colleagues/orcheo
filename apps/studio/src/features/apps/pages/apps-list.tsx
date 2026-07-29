@@ -1,12 +1,18 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
-import { usePageContext } from "@/hooks/use-page-context";
 import { getWorkspaceAppPath } from "@/lib/workspace-routing";
 import { AppCard } from "../components/app-card";
+import { ArchiveAppDialog } from "../components/archive-app-dialog";
 import { CreateAppDialog } from "../components/create-app-dialog";
-import { createApp, toggleAppPublish, useApps } from "../data/apps-store";
+import { PublishAppDialog } from "../components/publish-app-dialog";
+import {
+  archiveApp,
+  createApp,
+  toggleAppPublish,
+  useApps,
+} from "../data/apps-store";
 import type { HostedApp } from "../data/sample-apps";
 
 export default function AppsList() {
@@ -14,15 +20,29 @@ export default function AppsList() {
   const navigate = useNavigate();
   const { apps, loading, error } = useApps(workspaceSlug);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState<HostedApp | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const { setPageContext } = usePageContext();
-
-  useEffect(() => {
-    setPageContext({ page: "other" });
-  }, [setPageContext]);
-
+  const [archiving, setArchiving] = useState(false);
+  const [publishTarget, setPublishTarget] = useState<HostedApp | null>(null);
+  const [publishing, setPublishing] = useState(false);
   const openApp = (app: HostedApp) => {
     navigate(getWorkspaceAppPath(workspaceSlug, app.id));
+  };
+
+  const handleArchive = async () => {
+    if (!archiveTarget) return;
+    setActionError(null);
+    setArchiving(true);
+    try {
+      await archiveApp(archiveTarget.id);
+      setArchiveTarget(null);
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Unable to delete app.",
+      );
+    } finally {
+      setArchiving(false);
+    }
   };
 
   return (
@@ -58,8 +78,13 @@ export default function AppsList() {
                 key={app.id}
                 app={app}
                 onOpen={openApp}
+                onArchiveApp={setArchiveTarget}
                 onTogglePublish={(target) => {
                   setActionError(null);
+                  if (target.state !== "published") {
+                    setPublishTarget(target);
+                    return;
+                  }
                   void toggleAppPublish(target).catch(
                     (toggleError: unknown) => {
                       setActionError(
@@ -82,6 +107,40 @@ export default function AppsList() {
         onCreate={async (name, alias) => {
           const app = await createApp(name, alias);
           navigate(getWorkspaceAppPath(workspaceSlug, app.id));
+        }}
+      />
+      <ArchiveAppDialog
+        open={archiveTarget !== null}
+        appName={archiveTarget?.name ?? ""}
+        isPending={archiving}
+        onOpenChange={(open) => {
+          if (!open && !archiving) setArchiveTarget(null);
+        }}
+        onConfirm={handleArchive}
+      />
+      <PublishAppDialog
+        open={publishTarget !== null}
+        currentVisibility={publishTarget?.visibility}
+        isPending={publishing}
+        onOpenChange={(open) => {
+          if (!open && !publishing) setPublishTarget(null);
+        }}
+        onConfirm={async (visibility) => {
+          if (!publishTarget) return;
+          setActionError(null);
+          setPublishing(true);
+          try {
+            await toggleAppPublish(publishTarget, visibility);
+            setPublishTarget(null);
+          } catch (error) {
+            setActionError(
+              error instanceof Error
+                ? error.message
+                : "Unable to update publication state.",
+            );
+          } finally {
+            setPublishing(false);
+          }
         }}
       />
     </main>

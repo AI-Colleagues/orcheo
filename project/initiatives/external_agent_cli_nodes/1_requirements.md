@@ -12,7 +12,6 @@
 
 | Documents | Link | Owner | Name |
 |-----------|------|-------|------|
-| Browser Context Initiative | `project/initiatives/browser_context/1_requirements.md` | ShaojieJiang | Agent-to-Orcheo context bridge |
 | Deep Agent Skill Management | `project/initiatives/deep_agent_skill_management/1_requirements.md` | ShaojieJiang | Existing deep agent initiative |
 | Execution Worker Initiative | `project/initiatives/execution_worker/1_requirements.md` | ShaojieJiang | Worker execution model |
 | Stack Runtime Image | `deploy/stack/Dockerfile.orcheo` | ShaojieJiang | Managed runtime image |
@@ -49,7 +48,7 @@ Enable Orcheo workflows to delegate code- and agent-style tasks to the actual Cl
 
 ### Context, Problems, Opportunities
 
-Orcheo already supports deep agents and external coding-agent workflows through the browser context bridge, but it does not yet let a workflow run invoke the actual Claude Code or Codex products as execution nodes. The opportunity is to make these agents callable from the execution worker using the CLIs users already know, while keeping the first release operationally simple.
+Orcheo already supports deep agents and external coding-agent workflows, but it does not yet let a workflow run invoke the actual Claude Code or Codex products as execution nodes. The opportunity is to make these agents callable from the execution worker using the CLIs users already know, while keeping the first release operationally simple.
 
 The main challenge is not invoking a binary; it is owning the lifecycle around install state, upgrade cadence, authentication state, and worker topology. Backend and worker processes may run separately, and multi-worker deployments can drift if runtime state is stored globally or managed ad hoc. V1 should therefore avoid a broad configuration surface and avoid in-band upgrades during workflow execution, while still supporting latest-channel maintenance by default.
 

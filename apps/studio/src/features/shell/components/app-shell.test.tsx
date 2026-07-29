@@ -8,10 +8,6 @@ vi.mock("@/hooks/use-credential-vault", () => ({
   default: useCredentialVaultMock,
 }));
 
-vi.mock("@/hooks/use-page-context", () => ({
-  usePageContext: () => ({ setVaultOpen: vi.fn() }),
-}));
-
 vi.mock("@features/auth/lib/auth-session", () => ({
   getAuthenticatedUserProfile: () => ({
     subject: "user-123",
