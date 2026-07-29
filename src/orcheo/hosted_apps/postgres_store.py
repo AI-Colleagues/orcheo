@@ -837,14 +837,17 @@ class PostgresHostedAppsRepository:  # pragma: no cover
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT DISTINCT app.*
+                SELECT app.*
                   FROM hosted_apps AS app
-                  JOIN hosted_app_bindings AS binding
-                    ON binding.workspace_id = app.workspace_id
-                   AND binding.app_id = app.id
-                 WHERE binding.workspace_id = %s
-                   AND binding.workflow_id = %s
-                   AND binding.deleted_at IS NULL
+                 WHERE app.workspace_id = %s
+                   AND EXISTS (
+                       SELECT 1
+                         FROM hosted_app_bindings AS binding
+                        WHERE binding.workspace_id = app.workspace_id
+                          AND binding.app_id = app.id
+                          AND binding.workflow_id = %s
+                          AND binding.deleted_at IS NULL
+                   )
                  FOR UPDATE OF app
                 """,
                 (workspace_id, workflow_id),
