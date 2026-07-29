@@ -149,6 +149,19 @@ def test_commit_cron_dispatch_logs_and_reraises_failures(
     assert any("Failed to commit cron dispatch" in msg for msg in caplog.messages)
 
 
+def test_sync_cron_active_runs_noop_for_unconfigured_workflow() -> None:
+    """Syncing active runs for a workflow with no cron state is a no-op."""
+
+    layer = TriggerLayer()
+    workflow_id = uuid4()
+    run_id = uuid4()
+
+    layer.sync_cron_active_runs(workflow_id, {run_id})
+
+    assert layer._cron_states.get(workflow_id) is None
+    assert run_id not in layer._cron_run_index
+
+
 def test_concurrent_access_patterns() -> None:
     """Concurrent operations don't corrupt state."""
 
