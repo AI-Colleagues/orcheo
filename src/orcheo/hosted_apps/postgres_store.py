@@ -1023,7 +1023,11 @@ class PostgresHostedAppsRepository:  # pragma: no cover
                     raise ValueError(
                         "Release deployment is not a ready app-owned deployment."
                     )
-                if release.permission_revision != app.permission_revision:
+                visibility_changed = release.visibility != app.visibility
+                expected_revision = app.permission_revision + (
+                    1 if visibility_changed else 0
+                )
+                if release.permission_revision != expected_revision:
                     raise ValueError(
                         "Release must acknowledge the current permission revision."
                     )
@@ -1054,6 +1058,8 @@ class PostgresHostedAppsRepository:  # pragma: no cover
                         release.created_at,
                     ),
                 )
+                if visibility_changed:
+                    app.permission_revision = release.permission_revision
                 app.visibility = release.visibility
                 app.active_release_id = release.id
                 app.publication_state = PublicationState.PUBLISHED

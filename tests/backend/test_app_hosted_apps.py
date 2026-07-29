@@ -153,7 +153,10 @@ def test_central_pkce_authorization_requires_current_app_workspace_member(
             workspace_id=workspace_id,
             app_id=app_id,
             deployment_id=deployment.id,
-            permission_revision=created["permission_revision"],
+            # Publishing changes visibility from the default "public" to
+            # "private", a capability change that must acknowledge the
+            # revision bumped to reflect it.
+            permission_revision=created["permission_revision"] + 1,
             visibility=AppVisibility.PRIVATE,
             capability_snapshot={"bindings": []},
             csp_snapshot={},
@@ -351,6 +354,7 @@ def test_local_bundle_upload_validates_and_publishes(
     assert deployment["archive_sha256"]
     assert (tmp_path / "deployments" / deployment["id"] / "__manifest__.json").is_file()
 
+    assert created["visibility"] == "public"
     published = client.post(
         f"/api/apps/{created['id']}/deployments/{deployment['id']}/publish",
         json={
@@ -361,13 +365,54 @@ def test_local_bundle_upload_validates_and_publishes(
     assert published.status_code == 200
     assert published.json()["state"] == "published"
     assert published.json()["url"] == "https://example-upload.apps.test/"
+    # Changing visibility during publish is a capability change and must bump
+    # the revision, the same way `PATCH /{app_id}` does for a direct edit.
+    expected_revision = created["permission_revision"] + 1
+    assert published.json()["published_permission_revision"] == expected_revision
     app_response = client.get(f"/api/apps/{created['id']}").json()
     assert app_response["url"] == "https://example-upload.apps.test/"
     assert app_response["visibility"] == "private"
+    assert app_response["permission_revision"] == expected_revision
+    assert app_response["published_permission_revision"] == expected_revision
     assert (
         client.get(f"/api/apps/{created['id']}").json()["active_deployment_id"]
         == deployment["id"]
     )
+
+
+def test_publish_with_changed_visibility_and_stale_revision_conflicts(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A visibility change during publish still requires the current revision."""
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", str(tmp_path))
+    created = client.post(
+        "/api/apps", json={"name": "Stale Revision App", "alias": "stale-revision"}
+    ).json()
+    archive = BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("index.html", "<!doctype html><h1>Stale revision</h1>")
+    uploaded = client.post(
+        f"/api/apps/{created['id']}/deployments/upload",
+        files={"bundle": ("stale.zip", archive.getvalue(), "application/zip")},
+    )
+    deployment = uploaded.json()
+
+    # Someone else bumps the revision (e.g. changes visibility) after this
+    # client observed `created["permission_revision"]`.
+    patched = client.patch(f"/api/apps/{created['id']}", json={"visibility": "private"})
+    assert patched.json()["permission_revision"] == created["permission_revision"] + 1
+
+    conflict = client.post(
+        f"/api/apps/{created['id']}/deployments/{deployment['id']}/publish",
+        json={
+            "acknowledged_permission_revision": created["permission_revision"],
+            "visibility": "public",
+        },
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "hosted_apps.publish_conflict"
 
 
 def test_manifest_upload_resolves_two_workflows_and_freezes_release(

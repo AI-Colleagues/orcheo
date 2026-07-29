@@ -479,7 +479,11 @@ class InMemoryHostedAppsRepository:
                 raise ValueError(
                     "Release deployment is not a ready app-owned deployment."
                 )
-            if release.permission_revision != app.permission_revision:
+            visibility_changed = release.visibility != app.visibility
+            expected_revision = app.permission_revision + (
+                1 if visibility_changed else 0
+            )
+            if release.permission_revision != expected_revision:
                 raise ValueError(
                     "Release must acknowledge the current permission revision."
                 )
@@ -487,6 +491,8 @@ class InMemoryHostedAppsRepository:
                 raise ValueError("Hosted app release already exists.")
             self._record_audit("release.publish", release.created_by, app)
             self._releases[release.id] = release.model_copy(deep=True)
+            if visibility_changed:
+                app.permission_revision = release.permission_revision
             app.visibility = release.visibility
             app.active_release_id = release.id
             app.publication_state = PublicationState.PUBLISHED

@@ -900,11 +900,19 @@ async def publish_app(
             repository.list_bindings, workspace.workspace_id, app_id
         )
     visibility = request.visibility or app.visibility
+    # Changing visibility is a capability change, mirroring `update_app`'s
+    # bump on visibility edits. The repository re-validates this atomically
+    # against the live app record, so a stale guess here just yields a
+    # conflict rather than a silently wrong revision.
+    visibility_changed = visibility != app.visibility
+    permission_revision = request.acknowledged_permission_revision + (
+        1 if visibility_changed else 0
+    )
     collections = await run_in_threadpool(
         repository.list_collections, workspace.workspace_id, app_id
     )
     snapshot = {
-        "permission_revision": request.acknowledged_permission_revision,
+        "permission_revision": permission_revision,
         "visibility": visibility.value,
         "bindings": [
             item.model_dump(mode="json", exclude={"workspace_id", "app_id"})
@@ -923,7 +931,7 @@ async def publish_app(
         workspace_id=workspace.workspace_id,
         app_id=app_id,
         deployment_id=deployment_id,
-        permission_revision=request.acknowledged_permission_revision,
+        permission_revision=permission_revision,
         visibility=visibility,
         capability_snapshot=snapshot,
         csp_snapshot={"external_origins": list(app.external_origins)},

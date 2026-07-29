@@ -61,7 +61,9 @@ def test_publish_requires_ready_deployment_current_revision_and_ownership() -> N
         workspace_id=app.workspace_id,
         app_id=app.id,
         deployment_id=deployment.id,
-        permission_revision=app.permission_revision,
+        # The app defaults to public visibility, so publishing as private is
+        # a capability change and must acknowledge the bumped revision.
+        permission_revision=app.permission_revision + 1,
         visibility=AppVisibility.PRIVATE,
         capability_snapshot={},
         csp_snapshot={},
@@ -72,6 +74,7 @@ def test_publish_requires_ready_deployment_current_revision_and_ownership() -> N
     assert published.publication_state is PublicationState.PUBLISHED
     assert published.active_release_id == release.id
     assert published.visibility is AppVisibility.PRIVATE
+    assert published.permission_revision == app.permission_revision + 1
 
 
 def test_runtime_generation_fails_closed_and_invalidates_cache() -> None:
