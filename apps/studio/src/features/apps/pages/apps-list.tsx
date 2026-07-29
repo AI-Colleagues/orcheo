@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
-import { usePageContext } from "@/hooks/use-page-context";
 import { getWorkspaceAppPath } from "@/lib/workspace-routing";
 import { AppCard } from "../components/app-card";
 import { ArchiveAppDialog } from "../components/archive-app-dialog";
@@ -26,12 +25,6 @@ export default function AppsList() {
   const [archiving, setArchiving] = useState(false);
   const [publishTarget, setPublishTarget] = useState<HostedApp | null>(null);
   const [publishing, setPublishing] = useState(false);
-  const { setPageContext } = usePageContext();
-
-  useEffect(() => {
-    setPageContext({ page: "other" });
-  }, [setPageContext]);
-
   const openApp = (app: HostedApp) => {
     navigate(getWorkspaceAppPath(workspaceSlug, app.id));
   };

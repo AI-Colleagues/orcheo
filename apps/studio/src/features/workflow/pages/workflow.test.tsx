@@ -6,12 +6,6 @@ const controllerMock = vi.fn();
 const getWorkflowByIdMock = vi.fn();
 const listWorkflowsMock = vi.fn();
 
-vi.mock("@/hooks/use-page-context", () => ({
-  usePageContext: () => ({
-    setPageContext: vi.fn(),
-  }),
-}));
-
 vi.mock(
   "@features/workflow/pages/workflow/hooks/controller/use-workflow-controller",
   () => ({

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useState, type ChangeEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -21,7 +21,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/design-system/ui/dropdown-menu";
-import { usePageContext } from "@/hooks/use-page-context";
 import { getWorkspaceAppsPath } from "@/lib/workspace-routing";
 import { getHostedAppAddress } from "../data/sample-apps";
 import {
@@ -49,17 +48,12 @@ export default function AppDetail() {
   }>();
   const navigate = useNavigate();
   const { app, loading, error } = useApp(appId, workspaceSlug);
-  const { setPageContext } = usePageContext();
   const [actionError, setActionError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [isArchiveDialogOpen, setIsArchiveDialogOpen] = useState(false);
   const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
   const [archiving, setArchiving] = useState(false);
-
-  useEffect(() => {
-    setPageContext({ page: "other" });
-  }, [setPageContext]);
 
   if (loading || !app) {
     return (
@@ -85,7 +79,9 @@ export default function AppDetail() {
     manifestBindings !== null && manifestBindings !== undefined;
   const publishAllowed = canPublishApp(app);
   const publishBlockedReason = getPublishBlockedReason(app);
-  const handlePublish = async (visibility?: AppVisibility): Promise<boolean> => {
+  const handlePublish = async (
+    visibility?: AppVisibility,
+  ): Promise<boolean> => {
     setActionError(null);
     setPublishing(true);
     try {

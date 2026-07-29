@@ -1,20 +1,13 @@
-import { useEffect } from "react";
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "@/design-system/ui/tabs";
-import { usePageContext } from "@/hooks/use-page-context";
 import ServiceTokens from "@features/account/pages/service-tokens";
 import WorkspaceMembers from "@features/account/pages/workspace-members";
 
 export default function WorkspaceManagement() {
-  const { setPageContext } = usePageContext();
-  useEffect(() => {
-    setPageContext({ page: "workspace" });
-  }, [setPageContext]);
-
   return (
     <main className="h-full min-h-0 overflow-auto">
       <div className="mx-auto flex w-full max-w-7xl flex-col space-y-6 p-8 pt-6">

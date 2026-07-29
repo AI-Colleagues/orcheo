@@ -1,13 +1,6 @@
-import { useEffect } from "react";
-import { usePageContext } from "@/hooks/use-page-context";
 import AppearanceSettingsTab from "@features/account/components/settings/appearance-settings-tab";
 
 export default function Settings() {
-  const { setPageContext } = usePageContext();
-  useEffect(() => {
-    setPageContext({ page: "settings" });
-  }, [setPageContext]);
-
   return (
     <main className="h-full min-h-0 overflow-auto">
       <div className="mx-auto flex w-full max-w-7xl flex-col space-y-4 p-8 pt-6">

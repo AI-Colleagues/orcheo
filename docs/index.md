@@ -92,7 +92,6 @@ That's it! Your agent handles the complexity while you focus on describing what 
 
 - **[Manual Setup Guide](manual_setup.md)** — Installation and configuration
 - **[Studio](studio.md)** — Workflow monitor, default-config editor, and Credential Vault manager
-- **[Connect a Coding Agent](connect_coding_agent.md)** — Connect AI coding agents to Orcheo
 - **[Workflow Config Annotations](workflow_config_annotations.md)** — Declare typed configurable fields with a companion schema file
 - **[Conversational Search](examples/conversational_search.md)** — Step-by-step demos from basic RAG to production-ready search
 - **[Evaluation](examples/evaluation.md)** — QReCC and MultiDoc2Dial benchmark workflows

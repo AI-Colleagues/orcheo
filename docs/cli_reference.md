@@ -113,8 +113,6 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo install [--yes] [--mode install\|upgrade] [--stack-version <version>\|--staging] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided Docker-stack setup/upgrade. `--staging` installs the newest published prerelease stack. |
 | `orcheo install upgrade [--yes] [--stack-version <version>\|--staging] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided upgrade shortcut command. |
 | `orcheo install ensure-stack-env` | Create or backfill a stack env file without running the full install flow. |
-| `orcheo browser-aware` | Start the browser context bridge server. |
-| `orcheo context` | Inspect browser context from Studio tabs. |
 
 `orcheo install` syncs stack assets into `~/.orcheo/stack` (or
 `ORCHEO_STACK_DIR`). Files are refreshed when upstream content differs.

@@ -7,7 +7,6 @@ import {
 } from "@/design-system/ui/dialog";
 import CredentialsVault from "@features/workflow/components/dialogs/credentials-vault";
 import useCredentialVault from "@/hooks/use-credential-vault";
-import { usePageContext } from "@/hooks/use-page-context";
 import {
   getSidebarCollapsed,
   setSidebarCollapsed,
@@ -26,7 +25,6 @@ export default function AppShell({ children }: AppShellProps) {
   const [collapsed, setCollapsed] = useState(getSidebarCollapsed);
   const [peek, setPeek] = useState(false);
   const [isVaultOpen, setIsVaultOpen] = useState(false);
-  const { setVaultOpen } = usePageContext();
   const authUser = useMemo(() => getAuthenticatedUserProfile(), []);
   const actorName = authUser?.subject ?? authUser?.email ?? undefined;
 
@@ -50,7 +48,6 @@ export default function AppShell({ children }: AppShellProps) {
 
   const handleVaultOpenChange = (open: boolean) => {
     setIsVaultOpen(open);
-    setVaultOpen(open);
   };
 
   return (

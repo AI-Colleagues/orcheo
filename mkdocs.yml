@@ -39,7 +39,6 @@ nav:
       - First-party Auth Rollout: first_party_auth_rollout.md
       - Lark App Setup: integrations/lark_app_setup.md
       - LinkedIn Credentials Setup: integrations/linkedin_credentials_setup.md
-      - Connect a Coding Agent: connect_coding_agent.md
   - Examples:
       - Conversational Search: examples/conversational_search.md
       - Evaluation: examples/evaluation.md

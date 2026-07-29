@@ -36,14 +36,6 @@ vi.mock("@/hooks/use-toast", () => ({
   toast: toastMock,
 }));
 
-vi.mock("@/hooks/use-page-context", () => ({
-  usePageContext: () => ({
-    setPageContext: vi.fn(),
-    setVaultOpen: vi.fn(),
-    pageContext: { page: "workspace" },
-  }),
-}));
-
 interface TokenOverrides {
   identifier?: string;
   secret?: string | null;

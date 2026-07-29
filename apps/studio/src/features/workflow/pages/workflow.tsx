@@ -7,7 +7,6 @@ import {
   getWorkflowById,
   listWorkflows,
 } from "@features/workflow/lib/workflow-storage";
-import { usePageContext } from "@/hooks/use-page-context";
 
 interface WorkflowPageProps {
   workflowId?: string;
@@ -79,20 +78,6 @@ export default function WorkflowPage({ workflowId }: WorkflowPageProps) {
     resolvedWorkflowId,
     workflowId ?? null,
   );
-
-  const { setPageContext } = usePageContext();
-  const activeWorkflowId = layoutProps.workflowProps.workflowId ?? null;
-  const workflowName = layoutProps.headerProps.currentWorkflow.name ?? null;
-  const activeTab = layoutProps.tabsProps.activeTab;
-
-  useEffect(() => {
-    setPageContext({
-      page: "workflow",
-      workflowId: activeWorkflowId,
-      workflowName,
-      activeTab,
-    });
-  }, [setPageContext, activeWorkflowId, workflowName, activeTab]);
 
   if (workflowId && !resolvedWorkflowId) {
     if (loadError) {
