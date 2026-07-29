@@ -120,6 +120,7 @@ export default function AppsList() {
       />
       <PublishAppDialog
         open={publishTarget !== null}
+        currentVisibility={publishTarget?.visibility}
         isPending={publishing}
         onOpenChange={(open) => {
           if (!open && !publishing) setPublishTarget(null);

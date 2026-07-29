@@ -454,6 +454,7 @@ export default function AppDetail() {
       />
       <PublishAppDialog
         open={isPublishDialogOpen}
+        currentVisibility={app.visibility}
         isPending={publishing}
         onOpenChange={setIsPublishDialogOpen}
         onConfirm={async (visibility) => {

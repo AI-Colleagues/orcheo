@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Globe, Lock } from "lucide-react";
 
 import { Button } from "@/design-system/ui/button";
@@ -37,6 +37,7 @@ const PUBLISH_OPTIONS: PublishOption[] = [
 
 interface PublishAppDialogProps {
   open: boolean;
+  currentVisibility?: AppVisibility;
   isPending?: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: (visibility: AppVisibility) => Promise<void> | void;
@@ -44,16 +45,22 @@ interface PublishAppDialogProps {
 
 export function PublishAppDialog({
   open,
+  currentVisibility,
   isPending = false,
   onOpenChange,
   onConfirm,
 }: PublishAppDialogProps) {
-  const [selected, setSelected] = useState<AppVisibility>("public");
+  const [selected, setSelected] = useState<AppVisibility>(
+    currentVisibility ?? "public",
+  );
+
+  useEffect(() => {
+    if (open) {
+      setSelected(currentVisibility ?? "public");
+    }
+  }, [open, currentVisibility]);
 
   const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen) {
-      setSelected("public");
-    }
     onOpenChange(nextOpen);
   };
 
