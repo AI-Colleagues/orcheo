@@ -51,7 +51,7 @@ class HostedAppsRepository(Protocol):
         cursor: tuple[datetime, UUID] | None,
         limit: int,
     ) -> tuple[list[tuple[HostedApp, AppAlias]], bool]:
-        """List one cursor page with aliases and whether more rows exist."""
+        """List one cursor page of non-archived apps, with aliases and has-more flag."""
 
     def get_active_deployment_id(self, workspace_id: UUID, app_id: UUID) -> UUID | None:
         """Return the deployment selected by the app's active release."""
@@ -232,7 +232,7 @@ class InMemoryHostedAppsRepository:
         limit: int,
     ) -> tuple[list[tuple[HostedApp, AppAlias]], bool]:
         """List one cursor page without loading the full workspace collection."""
-        apps = self.list_apps(workspace_id)
+        apps = [app for app in self.list_apps(workspace_id) if not app.is_archived]
         if cursor is not None:
             apps = [app for app in apps if (app.updated_at, app.id) < cursor]
         selected = apps[: limit + 1]

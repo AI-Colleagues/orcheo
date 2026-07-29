@@ -457,6 +457,7 @@ class PostgresHostedAppsRepository:  # pragma: no cover
                    AND alias.app_id = app.id
                    AND alias.reserved_kind = 'app'
                  WHERE app.workspace_id = %s
+                   AND app.is_archived = FALSE
                    {cursor_clause}
                  ORDER BY app.updated_at DESC, app.id DESC
                  LIMIT %s

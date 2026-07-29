@@ -104,6 +104,23 @@ def test_app_lifecycle_alias_conflict_and_workspace_denial(
     )
 
 
+def test_archived_apps_are_excluded_from_the_listing_page(
+    client: TestClient,
+) -> None:
+    """Archiving an app must not push active apps out of the paginated list."""
+    first = client.post("/api/apps", json={"name": "Kept", "alias": "kept-app"}).json()
+    to_archive = client.post(
+        "/api/apps", json={"name": "Archive me", "alias": "archive-me"}
+    ).json()
+
+    archived = client.post(f"/api/apps/{to_archive['id']}/archive")
+    assert archived.status_code == 200
+
+    page = client.get("/api/apps", params={"limit": 1}).json()
+    assert page["next_cursor"] is None
+    assert [item["id"] for item in page["apps"]] == [first["id"]]
+
+
 def test_central_pkce_authorization_requires_current_app_workspace_member(
     client: TestClient,
     hosted_apps_environment: InMemoryHostedAppsRepository,
