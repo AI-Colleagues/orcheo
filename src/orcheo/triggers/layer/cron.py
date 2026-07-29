@@ -153,5 +153,25 @@ class CronTriggerMixin(TriggerLayerState):
         if state is not None:
             state.release_run(run_id)
 
+    def sync_cron_active_runs(self, workflow_id: UUID, run_ids: set[UUID]) -> None:
+        """Reconcile a workflow's cron overlap tracking against persisted state.
+
+        See CronTriggerState.sync_active_runs for why this periodic
+        reconciliation (rather than relying solely on register/release
+        calls) is necessary when dispatch and execution can happen in
+        different worker processes.
+        """
+        state = self._cron_states.get(workflow_id)
+        if state is None:
+            return
+        state.sync_active_runs(run_ids)
+        self._cron_run_index = {
+            stored_run_id: stored_workflow_id
+            for stored_run_id, stored_workflow_id in self._cron_run_index.items()
+            if stored_workflow_id != workflow_id
+        }
+        for run_id in run_ids:
+            self._cron_run_index[run_id] = workflow_id
+
 
 __all__ = ["CronTriggerMixin"]

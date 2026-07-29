@@ -1511,3 +1511,86 @@ async def test_refresh_cron_triggers_sync(monkeypatch: pytest.MonkeyPatch) -> No
 
     await repo._refresh_cron_triggers()
     assert w_id not in repo._trigger_layer._cron_states
+
+
+@pytest.mark.asyncio
+async def test_refresh_cron_triggers_reconciles_stale_active_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run registered active by a different worker process, but already
+    completed, must not permanently block cron dispatch.
+
+    Celery's prefork pool runs dispatch_cron_triggers and execute_run in
+    separate OS processes, each with independent in-memory trigger-layer
+    state. register_cron_run happens in the dispatcher's process while
+    release_cron_run happens in the executor's process and never reaches
+    the dispatcher's copy of the state. _refresh_cron_triggers must resync
+    overlap tracking against the database so a completed run doesn't block
+    dispatch forever.
+    """
+    repo = make_repository(monkeypatch, [], initialized=True)
+    w_id = uuid4()
+    stale_run_id = uuid4()
+
+    cron_conf = CronTriggerConfig(expression="*/5 * * * *", timezone="UTC")
+    repo._trigger_layer.configure_cron(w_id, cron_conf)  # noqa: SLF001
+
+    # Simulate a cron run registered active by a *different* worker process
+    # (this process never received the corresponding release call).
+    repo._trigger_layer._cron_states[w_id]._active_runs.add(  # noqa: SLF001
+        stale_run_id
+    )
+    assert repo._trigger_layer._cron_states[w_id].can_dispatch() is False  # noqa: SLF001
+
+    # The database shows the run already completed (absent from the active set).
+    responses = [
+        {
+            "rows": [
+                {
+                    "workflow_id": str(w_id),
+                    "config": cron_conf.model_dump(mode="json"),
+                    "last_dispatched_at": None,
+                    "active_cron_run_ids": [],
+                }
+            ]
+        }
+    ]
+    repo._pool = FakePool(FakeConnection(responses))  # type: ignore
+
+    await repo._refresh_cron_triggers()
+
+    assert repo._trigger_layer._cron_states[w_id].can_dispatch() is True  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_refresh_cron_triggers_preserves_genuinely_active_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run still pending/running in the database keeps blocking dispatch
+    after a refresh, even if this process never called register_cron_run
+    for it (e.g. it just hydrated mid-run)."""
+    repo = make_repository(monkeypatch, [], initialized=True)
+    w_id = uuid4()
+    active_run_id = uuid4()
+
+    cron_conf = CronTriggerConfig(expression="*/5 * * * *", timezone="UTC")
+    repo._trigger_layer.configure_cron(w_id, cron_conf)  # noqa: SLF001
+    assert repo._trigger_layer._cron_states[w_id].can_dispatch() is True  # noqa: SLF001
+
+    responses = [
+        {
+            "rows": [
+                {
+                    "workflow_id": str(w_id),
+                    "config": cron_conf.model_dump(mode="json"),
+                    "last_dispatched_at": None,
+                    "active_cron_run_ids": [str(active_run_id)],
+                }
+            ]
+        }
+    ]
+    repo._pool = FakePool(FakeConnection(responses))  # type: ignore
+
+    await repo._refresh_cron_triggers()
+
+    assert repo._trigger_layer._cron_states[w_id].can_dispatch() is False  # noqa: SLF001
