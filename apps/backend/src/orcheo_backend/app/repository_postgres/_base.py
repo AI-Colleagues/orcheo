@@ -399,24 +399,52 @@ class PostgresRepositoryBase:
                         )
 
     async def _refresh_cron_triggers(self) -> None:
-        """Refresh cron trigger configs to reflect the latest persisted state."""
+        """Refresh cron trigger configs to reflect the latest persisted state.
+
+        Also resyncs each workflow's cron overlap ("active run") tracking
+        against non-terminal cron-triggered runs in the database. That
+        in-memory tracking is normally advanced by register_cron_run /
+        release_cron_run, but those calls only mutate the state of the
+        worker process that makes them. Celery's prefork pool runs
+        dispatch_cron_triggers and execute_run in different OS processes,
+        so a run dispatched by one process is often completed by another,
+        whose release call never reaches the dispatcher's copy of the
+        state. Without this resync, the dispatcher's copy would believe
+        the run is still active forever, permanently blocking future
+        dispatches for that workflow.
+        """
         async with self._connection() as conn:
             cursor = await conn.execute(
                 """
-                SELECT c.workflow_id, c.config, c.last_dispatched_at
+                SELECT c.workflow_id,
+                       c.config,
+                       c.last_dispatched_at,
+                       COALESCE(
+                           ARRAY_AGG(r.id) FILTER (WHERE r.id IS NOT NULL),
+                           ARRAY[]::text[]
+                       ) AS active_cron_run_ids
                   FROM cron_triggers c
                   JOIN workflows w ON w.id = c.workflow_id
+                  LEFT JOIN workflow_runs r
+                    ON r.workflow_id = c.workflow_id
+                   AND r.triggered_by = 'cron'
+                   AND r.status IN ('pending', 'running')
                  WHERE w.is_archived = FALSE
+                 GROUP BY c.workflow_id, c.config, c.last_dispatched_at
                 """
             )
             rows = await cursor.fetchall()
 
         desired: dict[UUID, tuple[CronTriggerConfig, datetime | None]] = {}
+        active_runs: dict[UUID, set[UUID]] = {}
         for row in rows:
             workflow_id = UUID(row["workflow_id"])
             config = CronTriggerConfig.model_validate(row["config"])
             last_dispatched_at: datetime | None = row["last_dispatched_at"]
             desired[workflow_id] = (config, last_dispatched_at)
+            active_runs[workflow_id] = {
+                UUID(run_id) for run_id in (row.get("active_cron_run_ids") or [])
+            }
 
         current_states = self._trigger_layer._cron_states  # noqa: SLF001
         current_ids = set(current_states)
@@ -427,18 +455,16 @@ class PostgresRepositoryBase:
 
         for workflow_id, (config, last_dispatched_at) in desired.items():
             state = current_states.get(workflow_id)
-            if state is None:
-                self._trigger_layer.configure_cron(
-                    workflow_id, config, last_dispatched_at=last_dispatched_at
-                )
-                continue
-            if (
+            if state is None or (
                 state.config.model_dump(mode="json") != config.model_dump(mode="json")
                 or state.last_dispatched_at != last_dispatched_at
-            ):  # pragma: no branch
+            ):
                 self._trigger_layer.configure_cron(
                     workflow_id, config, last_dispatched_at=last_dispatched_at
                 )
+            self._trigger_layer.sync_cron_active_runs(
+                workflow_id, active_runs[workflow_id]
+            )
 
     async def close(self) -> None:
         """Close the connection pool."""

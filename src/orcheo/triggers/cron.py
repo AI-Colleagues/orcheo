@@ -248,6 +248,19 @@ class CronTriggerState:
         """Release an active run from overlap tracking."""
         self._active_runs.discard(run_id)
 
+    def sync_active_runs(self, run_ids: set[UUID]) -> None:
+        """Replace tracked active runs with an authoritative set.
+
+        Overlap tracking normally advances via register_run/release_run, but
+        those only mutate this process's in-memory state. A cron run is
+        often dispatched by one worker process and completed by another
+        (e.g. Celery's prefork pool), so the release never reaches this
+        copy and the trigger can appear permanently active. Callers should
+        periodically resync against a persisted source of truth (e.g. the
+        set of non-terminal runs for this workflow) to correct that drift.
+        """
+        self._active_runs = set(run_ids)
+
     def peek_due(self, *, now: datetime) -> datetime | None:
         """Return the next due execution time without advancing state."""
         self._ensure_next(now)
