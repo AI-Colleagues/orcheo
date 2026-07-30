@@ -6,6 +6,7 @@ import asyncio
 import builtins
 import inspect
 import sys
+import threading
 import types
 import uuid
 from collections.abc import Awaitable
@@ -281,12 +282,25 @@ def _run_awaitable_in_thread(awaitable: Awaitable[Any]) -> Any:
     """Execute ``awaitable`` on a dedicated thread to avoid loop nesting.
 
     The ingestion timeout is thread-scoped, so it cannot interrupt ``runner``.
-    Bound the wait with whatever budget is left instead, and never block on
-    shutdown: a script that hangs must not hold the calling thread hostage.
+    Bound the wait with whatever budget is left, and on timeout actually
+    cancel the in-flight task through its own loop instead of abandoning the
+    ``concurrent.futures.Future``: cancelling a future that has already
+    started running is a no-op, so the awaitable would otherwise keep
+    executing on an orphaned thread after ingestion has raised ``TimeoutError``.
     """
+    loop = asyncio.new_event_loop()
+    task_ready = threading.Event()
+    task_box: list[asyncio.Task[Any]] = []
 
     def runner() -> Any:
-        return asyncio.run(_await_awaitable(awaitable))
+        asyncio.set_event_loop(loop)
+        task = loop.create_task(_await_awaitable(awaitable))
+        task_box.append(task)
+        task_ready.set()
+        try:
+            return loop.run_until_complete(task)
+        finally:
+            loop.close()
 
     timeout = remaining_execution_time()
     executor = ThreadPoolExecutor(max_workers=1)
@@ -295,7 +309,8 @@ def _run_awaitable_in_thread(awaitable: Awaitable[Any]) -> Any:
         try:
             return future.result(timeout=timeout)
         except FuturesTimeoutError as exc:
-            future.cancel()
+            if task_ready.wait(timeout=1):
+                loop.call_soon_threadsafe(task_box[0].cancel)
             msg = "LangGraph script execution timed out"
             raise TimeoutError(msg) from exc
     finally:

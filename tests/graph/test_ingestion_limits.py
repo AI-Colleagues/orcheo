@@ -76,6 +76,33 @@ def test_ingest_script_enforces_timeout_on_helper_thread() -> None:
     assert time.monotonic() - started < 10
 
 
+def test_ingest_script_stops_helper_thread_after_timeout() -> None:
+    """Regression: on timeout, the helper thread's coroutine must be cancelled
+    through its own loop instead of merely abandoned. A ``future.cancel()``
+    on an already-running future is a no-op, so the ``asyncio.sleep`` used to
+    keep running to completion on an orphaned, non-daemon thread well after
+    ingestion had already raised ``TimeoutError``."""
+    script = "import asyncio\nawait asyncio.sleep(30)\n"
+
+    async def ingest_from_running_loop() -> None:
+        load_graph_from_script(script, execution_timeout_seconds=0.3)
+
+    baseline = threading.active_count()
+
+    with pytest.raises(
+        ScriptIngestionError, match="execution exceeded the configured timeout"
+    ):
+        asyncio.run(ingest_from_running_loop())
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and threading.active_count() > baseline:
+        time.sleep(0.05)
+
+    assert threading.active_count() <= baseline, (
+        "helper thread kept running the cancelled coroutine instead of stopping"
+    )
+
+
 def test_ingestion_does_not_poison_shared_worker_threads() -> None:
     """Regression: execution_timeout used to install a process-global trace hook
     via threading.settrace, which leaked into every thread spawned during the
