@@ -309,7 +309,7 @@ def _run_awaitable_in_thread(awaitable: Awaitable[Any]) -> Any:
         try:
             return future.result(timeout=timeout)
         except FuturesTimeoutError as exc:
-            if task_ready.wait(timeout=1):
+            if task_ready.wait(timeout=1):  # pragma: no branch
                 loop.call_soon_threadsafe(task_box[0].cancel)
             msg = "LangGraph script execution timed out"
             raise TimeoutError(msg) from exc
