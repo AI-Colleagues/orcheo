@@ -183,7 +183,9 @@ def _validate_class_method(
     """Validate a class method; return ``True`` if it is the ``run`` method."""
     if member.name != "run":
         raise WorkflowValidationError(
-            f"class '{class_name}' may only define a 'run' method, not '{member.name}'",
+            f"class '{class_name}' may only define a 'run' method, not "
+            f"'{member.name}'; define '{member.name}' as a nested function "
+            "inside 'run' instead",
             lineno=member.lineno,
         )
     if member.decorator_list:
