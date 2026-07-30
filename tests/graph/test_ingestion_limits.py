@@ -1,6 +1,11 @@
 """Tests covering ingestion size limits and timeouts."""
 
 from __future__ import annotations
+import asyncio
+import contextlib
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 import pytest
 from orcheo.graph.ingestion import (
     DEFAULT_SCRIPT_SIZE_LIMIT,
@@ -51,3 +56,86 @@ def test_ingest_script_enforces_execution_timeout() -> None:
         ScriptIngestionError, match="execution exceeded the configured timeout"
     ):
         load_graph_from_script(script, execution_timeout_seconds=0.1)
+
+
+def test_ingest_script_enforces_timeout_on_helper_thread() -> None:
+    """A top-level await ingested from inside an event loop runs on a helper
+    thread, which the thread-scoped timeout cannot interrupt; the wait itself
+    must be bounded instead, or the caller hangs forever."""
+    script = "import asyncio\nawait asyncio.sleep(30)\n"
+
+    async def ingest_from_running_loop() -> None:
+        load_graph_from_script(script, execution_timeout_seconds=0.5)
+
+    started = time.monotonic()
+    with pytest.raises(
+        ScriptIngestionError, match="execution exceeded the configured timeout"
+    ):
+        asyncio.run(ingest_from_running_loop())
+    # Must give up on its own budget, not once the script happens to finish.
+    assert time.monotonic() - started < 10
+
+
+def test_ingest_script_stops_helper_thread_after_timeout() -> None:
+    """Regression: on timeout, the helper thread's coroutine must be cancelled
+    through its own loop instead of merely abandoned. A ``future.cancel()``
+    on an already-running future is a no-op, so the ``asyncio.sleep`` used to
+    keep running to completion on an orphaned, non-daemon thread well after
+    ingestion had already raised ``TimeoutError``."""
+    script = "import asyncio\nawait asyncio.sleep(30)\n"
+
+    async def ingest_from_running_loop() -> None:
+        load_graph_from_script(script, execution_timeout_seconds=0.3)
+
+    baseline = threading.active_count()
+
+    with pytest.raises(
+        ScriptIngestionError, match="execution exceeded the configured timeout"
+    ):
+        asyncio.run(ingest_from_running_loop())
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and threading.active_count() > baseline:
+        time.sleep(0.05)
+
+    assert threading.active_count() <= baseline, (
+        "helper thread kept running the cancelled coroutine instead of stopping"
+    )
+
+
+def test_ingestion_does_not_poison_shared_worker_threads() -> None:
+    """Regression: execution_timeout used to install a process-global trace hook
+    via threading.settrace, which leaked into every thread spawned during the
+    window. Those threads kept a stale deadline for life and then raised
+    TimeoutError on their next line of unrelated work."""
+    script = "import time\ntime.sleep(0.2)\n"
+    at_barrier = threading.Barrier(2, timeout=20)
+
+    def unrelated_work() -> str:
+        return "ok"
+
+    def blocking_work() -> str:
+        at_barrier.wait()
+        return "ok"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        # Worker 1 runs an ingestion that finishes well inside its deadline.
+        ingesting = pool.submit(
+            load_graph_from_script, script, execution_timeout_seconds=0.5
+        )
+        time.sleep(0.05)
+        # Worker 2 is spawned while worker 1 holds the ingestion window open.
+        spawned = pool.submit(unrelated_work)
+
+        with contextlib.suppress(ScriptIngestionError):
+            ingesting.result(timeout=30)
+        assert spawned.result(timeout=30) == "ok"
+
+        # Let the ingestion's deadline fall into the past, then reuse the pool.
+        time.sleep(0.6)
+        # Two blocking tasks force *both* pooled workers to run, including the
+        # one born mid-window. A poisoned worker dies before it picks up its
+        # work item, so its future never resolves.
+        futures = [pool.submit(blocking_work) for _ in range(2)]
+        for future in futures:
+            assert future.result(timeout=30) == "ok"
