@@ -68,6 +68,36 @@ def validate_script_size(source: str, max_script_bytes: int | None) -> None:
         raise ScriptIngestionError(msg)
 
 
+_active_deadline = threading.local()
+
+
+def remaining_execution_time(*, time_module: Any | None = None) -> float | None:
+    """Return seconds left on this thread's active script timeout, if any.
+
+    Ingestion sometimes has to finish executing a script on a helper thread (an
+    ``orcheo_workflow`` coroutine awaited from synchronous code). The trace hook
+    installed by :func:`execution_timeout` is deliberately confined to the thread
+    that installed it, so callers that hand work to another thread must bound the
+    wait themselves using this remaining budget.
+    """
+    deadline = getattr(_active_deadline, "value", None)
+    if deadline is None:
+        return None
+    time_obj = time_module or time
+    return max(deadline - time_obj.perf_counter(), 0.0)
+
+
+@contextlib.contextmanager
+def _tracked_deadline(deadline: float | None) -> Generator[None, None, None]:
+    """Publish ``deadline`` as this thread's active timeout for the block."""
+    previous = getattr(_active_deadline, "value", None)
+    _active_deadline.value = deadline
+    try:
+        yield
+    finally:
+        _active_deadline.value = previous
+
+
 @contextlib.contextmanager
 def execution_timeout(
     timeout_seconds: float | None,
@@ -76,7 +106,14 @@ def execution_timeout(
     threading_module: Any | None = None,
     time_module: Any | None = None,
 ) -> Generator[None, None, None]:
-    """Enforce a wall-clock timeout around script execution."""
+    """Enforce a wall-clock timeout around script execution.
+
+    The timeout only ever applies to the calling thread. Both enforcement
+    mechanisms are deliberately thread-scoped: ``SIGALRM`` is delivered to the
+    main thread, and the ``sys.settrace`` fallback is per-thread state. Nothing
+    here touches process-global hooks, because ingestion runs concurrently on
+    shared worker pools and a leaked hook outlives the window it belongs to.
+    """
     if timeout_seconds is None or timeout_seconds <= 0:
         yield
         return
@@ -84,6 +121,8 @@ def execution_timeout(
     sys_obj = sys_module or sys
     threading_obj = threading_module or threading
     time_obj = time_module or time
+
+    deadline = time_obj.perf_counter() + timeout_seconds
 
     use_signal = (
         hasattr(signal, "setitimer")
@@ -101,40 +140,39 @@ def execution_timeout(
         try:
             signal.signal(signal.SIGALRM, _handle_timeout)
             signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
-            yield
+            with _tracked_deadline(deadline):
+                yield
         finally:
             signal.setitimer(signal.ITIMER_REAL, 0)
             signal.signal(signal.SIGALRM, previous_handler)
         return
 
-    deadline = time_obj.perf_counter() + timeout_seconds
+    owner_ident = threading_obj.get_ident()
 
     def _trace_timeout(_frame: FrameType | None, event: str, _arg: object) -> TraceFunc:
+        # sys.settrace is per-thread, but a script can copy the active hook onto
+        # other threads via threading.settrace. Refuse to fire anywhere except
+        # the thread that armed the deadline, so an expired budget can never
+        # kill an unrelated worker.
+        if threading_obj.get_ident() != owner_ident:
+            return _trace_timeout
         if event == "line" and time_obj.perf_counter() > deadline:
             raise TimeoutError("LangGraph script execution timed out")
         return _trace_timeout
 
     previous_trace = cast(TraceFunc | None, sys_obj.gettrace())
-    previous_thread_trace = cast(TraceFunc | None, threading_obj.gettrace())
 
     sys_obj.settrace(cast(Any, _trace_timeout))
-    threading_obj.settrace(cast(Any, _trace_timeout))
     try:
-        yield
+        with _tracked_deadline(deadline):
+            yield
     finally:
-        if previous_trace is None:
-            sys_obj.settrace(cast(Any, None))
-        else:
-            sys_obj.settrace(cast(Any, previous_trace))
-
-        if previous_thread_trace is None:
-            threading_obj.settrace(cast(Any, None))
-        else:
-            threading_obj.settrace(cast(Any, previous_thread_trace))
+        sys_obj.settrace(cast(Any, previous_trace))
 
 
 __all__ = [
     "execution_timeout",
+    "remaining_execution_time",
     "uploads_allowed",
     "validate_script_size",
 ]

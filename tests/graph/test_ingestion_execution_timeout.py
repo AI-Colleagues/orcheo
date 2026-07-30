@@ -12,46 +12,53 @@ def test_execution_timeout_disabled_for_non_positive_values() -> None:
         assert True
 
 
+class FakeSys:
+    def __init__(self, trace: object | None = None) -> None:
+        self._trace: object | None = trace
+        self.calls: list[object | None] = []
+
+    def gettrace(self) -> object | None:
+        return self._trace
+
+    def settrace(self, trace: object | None) -> None:
+        self.calls.append(trace)
+        self._trace = trace
+
+
+class FakeThreading:
+    """A non-main worker thread, forcing the trace-based fallback."""
+
+    def __init__(self, trace: object | None = None, ident: int = 4242) -> None:
+        self._trace: object | None = trace
+        self._current_thread = object()
+        self._main_thread = object()
+        self.ident = ident
+        self.calls: list[object | None] = []
+
+    def current_thread(self) -> object:
+        return self._current_thread
+
+    def main_thread(self) -> object:
+        return self._main_thread
+
+    def get_ident(self) -> int:
+        return self.ident
+
+    def gettrace(self) -> object | None:
+        return self._trace
+
+    def settrace(self, trace: object | None) -> None:
+        self.calls.append(trace)
+        self._trace = trace
+
+
 def test_execution_timeout_trace_fallback_enforces_deadline() -> None:
-    class FakeSys:
-        def __init__(self) -> None:
-            self._trace: object | None = None
-            self.calls: list[object | None] = []
-
-        def gettrace(self) -> object | None:
-            return self._trace
-
-        def settrace(self, trace: object | None) -> None:
-            self.calls.append(trace)
-            self._trace = trace
-
-    class FakeThreading:
-        def __init__(self) -> None:
-            self._trace: object | None = None
-            self._current_thread = object()
-            self._main_thread = object()
-            self.calls: list[object | None] = []
-
-        def current_thread(self) -> object:
-            return self._current_thread
-
-        def main_thread(self) -> object:
-            return self._main_thread
-
-        def gettrace(self) -> object | None:
-            return self._trace
-
-        def settrace(self, trace: object | None) -> None:
-            self.calls.append(trace)
-            self._trace = trace
-
     fake_sys = FakeSys()
     fake_threading = FakeThreading()
     perf_counter_values = itertools.chain([0.0, 0.2], itertools.repeat(0.2))
     fake_time = SimpleNamespace(perf_counter=lambda: next(perf_counter_values))
 
     original_trace = fake_sys.gettrace()
-    original_thread_trace = fake_threading.gettrace()
 
     with pytest.raises(TimeoutError):
         with execution_timeout(
@@ -67,46 +74,51 @@ def test_execution_timeout_trace_fallback_enforces_deadline() -> None:
             next_trace(None, "line", None)
 
     assert fake_sys.gettrace() is original_trace
-    assert fake_threading.gettrace() is original_thread_trace
     assert fake_sys.calls[-1] is None
-    assert fake_threading.calls[-1] is None
+
+
+def test_execution_timeout_never_touches_process_global_thread_hook() -> None:
+    """The hook must stay thread-local: threading.settrace leaks into every
+    thread spawned during the window and cannot be revoked afterwards."""
+    fake_sys = FakeSys()
+    fake_threading = FakeThreading()
+    fake_time = SimpleNamespace(perf_counter=lambda: 0.0)
+
+    with execution_timeout(
+        0.1,
+        sys_module=fake_sys,
+        threading_module=fake_threading,
+        time_module=fake_time,
+    ):
+        pass
+
+    assert fake_threading.calls == []
+    assert fake_threading.gettrace() is None
+
+
+def test_execution_timeout_trace_ignores_other_threads() -> None:
+    """A hook copied onto another thread must not raise there, however stale."""
+    fake_sys = FakeSys()
+    fake_threading = FakeThreading(ident=1)
+    perf_counter_values = itertools.chain([0.0], itertools.repeat(9_999.0))
+    fake_time = SimpleNamespace(perf_counter=lambda: next(perf_counter_values))
+
+    with execution_timeout(
+        0.1,
+        sys_module=fake_sys,
+        threading_module=fake_threading,
+        time_module=fake_time,
+    ):
+        trace = fake_sys.gettrace()
+        assert callable(trace)
+        # Same hook, different thread: long past the deadline, but not ours.
+        fake_threading.ident = 2
+        assert trace(None, "line", None) is trace
 
 
 def test_execution_timeout_restores_existing_traces() -> None:
-    class FakeSys:
-        def __init__(self) -> None:
-            self._trace: object | None = object()
-            self.calls: list[object | None] = []
-
-        def gettrace(self) -> object | None:
-            return self._trace
-
-        def settrace(self, trace: object | None) -> None:
-            self.calls.append(trace)
-            self._trace = trace
-
-    class FakeThreading:
-        def __init__(self) -> None:
-            self._trace: object | None = object()
-            self._current_thread = object()
-            self._main_thread = object()
-            self.calls: list[object | None] = []
-
-        def current_thread(self) -> object:
-            return self._current_thread
-
-        def main_thread(self) -> object:
-            return self._main_thread
-
-        def gettrace(self) -> object | None:
-            return self._trace
-
-        def settrace(self, trace: object | None) -> None:
-            self.calls.append(trace)
-            self._trace = trace
-
-    fake_sys = FakeSys()
-    fake_threading = FakeThreading()
+    fake_sys = FakeSys(trace=object())
+    fake_threading = FakeThreading(trace=object())
     fake_time = SimpleNamespace(perf_counter=lambda: 0.0)
 
     original_trace = fake_sys.gettrace()
@@ -124,9 +136,8 @@ def test_execution_timeout_restores_existing_traces() -> None:
         assert returned is trace
 
     assert fake_sys.gettrace() is original_trace
-    assert fake_threading.gettrace() is original_thread_trace
     assert fake_sys.calls[-1] is original_trace
-    assert fake_threading.calls[-1] is original_thread_trace
+    assert fake_threading.gettrace() is original_thread_trace
 
 
 def test_execution_timeout_signal_path_restores_alarm_handler() -> None:
@@ -156,7 +167,7 @@ def test_execution_timeout_signal_path_restores_alarm_handler() -> None:
             assert which == self.ITIMER_REAL
             self.itimer_calls.append(seconds)
 
-    class FakeThreading:
+    class FakeMainThreading:
         def __init__(self) -> None:
             self._main = object()
 
@@ -166,6 +177,9 @@ def test_execution_timeout_signal_path_restores_alarm_handler() -> None:
         def main_thread(self) -> object:
             return self._main
 
+        def get_ident(self) -> int:
+            return 1
+
         def gettrace(self) -> object | None:
             return None
 
@@ -173,7 +187,7 @@ def test_execution_timeout_signal_path_restores_alarm_handler() -> None:
             del trace
 
     fake_signal_obj = FakeSignal()
-    fake_threading = FakeThreading()
+    fake_threading = FakeMainThreading()
 
     import orcheo.graph.ingestion.sandbox as sandbox_module
 

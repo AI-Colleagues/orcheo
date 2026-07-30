@@ -10,6 +10,7 @@ import types
 import uuid
 from collections.abc import Awaitable
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Any, get_origin
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -20,6 +21,7 @@ from orcheo.graph.ingestion.config import (
 from orcheo.graph.ingestion.exceptions import ScriptIngestionError
 from orcheo.graph.ingestion.sandbox import (
     execution_timeout,
+    remaining_execution_time,
     validate_script_size,
 )
 
@@ -276,14 +278,28 @@ def _is_event_loop_running() -> bool:
 
 
 def _run_awaitable_in_thread(awaitable: Awaitable[Any]) -> Any:
-    """Execute ``awaitable`` on a dedicated thread to avoid loop nesting."""
+    """Execute ``awaitable`` on a dedicated thread to avoid loop nesting.
+
+    The ingestion timeout is thread-scoped, so it cannot interrupt ``runner``.
+    Bound the wait with whatever budget is left instead, and never block on
+    shutdown: a script that hangs must not hold the calling thread hostage.
+    """
 
     def runner() -> Any:
         return asyncio.run(_await_awaitable(awaitable))
 
-    with ThreadPoolExecutor(max_workers=1) as executor:
+    timeout = remaining_execution_time()
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
         future = executor.submit(runner)
-        return future.result()
+        try:
+            return future.result(timeout=timeout)
+        except FuturesTimeoutError as exc:
+            future.cancel()
+            msg = "LangGraph script execution timed out"
+            raise TimeoutError(msg) from exc
+    finally:
+        executor.shutdown(wait=False)
 
 
 def _run_awaitable_with_new_loop(awaitable: Awaitable[Any]) -> Any:
