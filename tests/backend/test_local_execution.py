@@ -189,3 +189,102 @@ def test_enqueue_run_falls_back_to_celery(monkeypatch: pytest.MonkeyPatch) -> No
         args=(str(run.id),),
         headers={"workspace_id": "workspace-1"},
     )
+
+
+@pytest.mark.asyncio
+async def test_drain_without_pending_runs_is_a_noop() -> None:
+    """Draining an idle backend does nothing."""
+    assert not local_execution._inprocess_run_tasks
+    await local_execution.drain_inprocess_runs()
+
+
+@pytest.mark.asyncio
+async def test_drain_awaits_runs_that_finish_in_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run that completes during the grace period is left alone."""
+    monkeypatch.setenv("ORCHEO_INPROCESS_EXECUTION", "true")
+    run = _make_run()
+    finished = asyncio.Event()
+
+    async def _execute(_run_id: str, _workspace_id: str | None) -> dict[str, str]:
+        finished.set()
+        return {"status": "succeeded"}
+
+    repository = MagicMock(mark_run_failed=AsyncMock())
+    with (
+        patch.object(local_execution, "execute_run_inprocess", new=_execute),
+        patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=repository
+        ),
+    ):
+        assert local_execution.schedule_run_inprocess(run) is True
+        await local_execution.drain_inprocess_runs(timeout=5)
+
+    assert finished.is_set()
+    repository.mark_run_failed.assert_not_awaited()
+    assert not local_execution._inprocess_run_tasks
+
+
+@pytest.mark.asyncio
+async def test_drain_fails_runs_that_outlast_the_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run still going at shutdown is cancelled and marked failed.
+
+    Left `running` in the database it would read as an active cron run
+    forever, and the default non-overlapping schedule would never fire again.
+    """
+    monkeypatch.setenv("ORCHEO_INPROCESS_EXECUTION", "true")
+    run = _make_run()
+    started = asyncio.Event()
+
+    async def _execute(_run_id: str, _workspace_id: str | None) -> dict[str, str]:
+        started.set()
+        await asyncio.sleep(60)
+        return {"status": "succeeded"}  # pragma: no cover - cancelled first
+
+    repository = MagicMock(mark_run_failed=AsyncMock())
+    with (
+        patch.object(local_execution, "execute_run_inprocess", new=_execute),
+        patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=repository
+        ),
+    ):
+        assert local_execution.schedule_run_inprocess(run) is True
+        await started.wait()
+        await local_execution.drain_inprocess_runs(timeout=0.01)
+
+    repository.mark_run_failed.assert_awaited_once()
+    assert repository.mark_run_failed.await_args.args == (run.id,)
+    assert repository.mark_run_failed.await_args.kwargs["actor"] == "worker"
+    assert not local_execution._inprocess_run_tasks
+
+
+@pytest.mark.asyncio
+async def test_drain_survives_a_repository_that_cannot_record_the_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shutdown is not derailed when the run cannot be marked failed."""
+    monkeypatch.setenv("ORCHEO_INPROCESS_EXECUTION", "true")
+    run = _make_run()
+    started = asyncio.Event()
+
+    async def _execute(_run_id: str, _workspace_id: str | None) -> dict[str, str]:
+        started.set()
+        await asyncio.sleep(60)
+        return {"status": "succeeded"}  # pragma: no cover - cancelled first
+
+    repository = MagicMock(mark_run_failed=AsyncMock(side_effect=ValueError("gone")))
+    with (
+        patch.object(local_execution, "execute_run_inprocess", new=_execute),
+        patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=repository
+        ),
+    ):
+        assert local_execution.schedule_run_inprocess(run) is True
+        await started.wait()
+        await local_execution.drain_inprocess_runs(timeout=0.01)
+
+    repository.mark_run_failed.assert_awaited_once()
+    assert not local_execution._inprocess_run_tasks

@@ -62,6 +62,7 @@ from orcheo_backend.app.hosted_apps import (
 from orcheo_backend.app.hosted_apps import reset_app_bundle_store
 from orcheo_backend.app.identity.router import router as identity_api_router
 from orcheo_backend.app.listener_runtime_service import ListenerRuntimeService
+from orcheo_backend.app.local_execution import drain_inprocess_runs
 from orcheo_backend.app.logging_config import configure_logging
 from orcheo_backend.app.managed_workflows import ensure_managed_vibe_workflow
 from orcheo_backend.app.plugin_installation_store import PluginInstallationStore
@@ -184,8 +185,11 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        # Stop dispatching before draining, so the drain is not racing a
+        # scheduler that keeps handing it new runs.
         if cron_scheduler is not None:
             await cron_scheduler.stop()
+        await drain_inprocess_runs()
         await listener_runtime.stop()
         await cancel_chatkit_cleanup_task()
         reset_app_bundle_store()

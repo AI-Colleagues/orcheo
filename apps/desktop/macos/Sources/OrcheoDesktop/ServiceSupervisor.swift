@@ -352,6 +352,23 @@ final class ServiceSupervisor {
         }
     }
 
+    private func inheritedBrokerResponds(
+        _ url: String,
+        configuration: DesktopConfiguration
+    ) -> Bool {
+        do {
+            _ = try runDesktopServiceScript(
+                name: "redis",
+                action: "ping",
+                configuration: configuration,
+                extraEnvironment: ["ORCHEO_DESKTOP_REDIS_PING_URL": url]
+            )
+            return true
+        } catch {
+            return false
+        }
+    }
+
     // Starts the bundled Redis so the Celery worker and beat have a broker.
     // A failure here is not fatal: the backend falls back to in-process cron
     // dispatch and execution, which needs no broker at all.
@@ -364,9 +381,20 @@ final class ServiceSupervisor {
         }
 
         if let inheritedURL = nonEmpty(environment["REDIS_URL"]) {
-            desktopLog?.write("Using inherited REDIS_URL for the Celery broker")
             environment["REDIS_URL"] = inheritedURL
-            brokerReady = true
+            // A non-empty REDIS_URL is a claim, not a live broker. Celery does
+            // not exit when its broker is unreachable, it retries forever, so
+            // trusting the string would turn the in-process fallbacks off and
+            // leave schedules dead while every process still looks healthy.
+            if inheritedBrokerResponds(inheritedURL, configuration: configuration) {
+                desktopLog?.write("Using inherited REDIS_URL for the Celery broker")
+                brokerReady = true
+            } else {
+                desktopLog?.write(
+                    "Inherited REDIS_URL is not answering; falling back to "
+                        + "in-process cron and execution"
+                )
+            }
             return
         }
 

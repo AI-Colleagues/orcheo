@@ -49,12 +49,19 @@ def test_inprocess_cron_enabled(
         ("not-a-number", DEFAULT_CRON_DISPATCH_INTERVAL_SECONDS),
         ("0", DEFAULT_CRON_DISPATCH_INTERVAL_SECONDS),
         ("-3", DEFAULT_CRON_DISPATCH_INTERVAL_SECONDS),
+        # float() accepts these and both compare False against <= 0, so
+        # without an explicit finiteness check they reach asyncio.wait_for,
+        # whose selector raises TypeError inside the event loop itself.
+        ("nan", DEFAULT_CRON_DISPATCH_INTERVAL_SECONDS),
+        ("NaN", DEFAULT_CRON_DISPATCH_INTERVAL_SECONDS),
+        ("inf", DEFAULT_CRON_DISPATCH_INTERVAL_SECONDS),
+        ("-inf", DEFAULT_CRON_DISPATCH_INTERVAL_SECONDS),
     ],
 )
 def test_cron_dispatch_interval_seconds(
     monkeypatch: pytest.MonkeyPatch, value: str | None, expected: float
 ) -> None:
-    """Invalid or non-positive intervals fall back to the default."""
+    """Invalid, non-positive, or non-finite intervals fall back to the default."""
     if value is None:
         monkeypatch.delenv("ORCHEO_CRON_DISPATCH_INTERVAL", raising=False)
     else:

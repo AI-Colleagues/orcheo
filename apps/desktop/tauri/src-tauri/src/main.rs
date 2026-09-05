@@ -977,6 +977,16 @@ fn configure_desktop_scheduling_mode(
     }
 }
 
+fn inherited_broker_responds(url: &str, configuration: &DesktopConfiguration) -> bool {
+    run_desktop_service_script_with_env(
+        "redis",
+        "ping",
+        configuration,
+        &[("ORCHEO_DESKTOP_REDIS_PING_URL", url.to_string())],
+    )
+    .is_ok()
+}
+
 // Starts the bundled Redis so the Celery worker and beat have a broker. A
 // failure here is not fatal: the backend falls back to in-process cron dispatch
 // and execution, which needs no broker at all. Returns whether a broker is
@@ -990,8 +1000,18 @@ fn configure_desktop_redis(
     }
 
     if let Some(inherited) = non_empty(environment.get("REDIS_URL")) {
-        environment.insert("REDIS_URL".to_string(), inherited);
-        return (true, false);
+        environment.insert("REDIS_URL".to_string(), inherited.clone());
+        // A non-empty REDIS_URL is a claim, not a live broker. Celery does not
+        // exit when its broker is unreachable, it retries forever, so trusting
+        // the string would turn the in-process fallbacks off and leave
+        // schedules dead while every process still looks healthy.
+        if inherited_broker_responds(&inherited, configuration) {
+            return (true, false);
+        }
+        eprintln!(
+            "Inherited REDIS_URL is not answering; falling back to in-process cron and execution"
+        );
+        return (false, false);
     }
 
     let Some(redis_bin_dir) = configuration.redis_bin_dir.as_ref() else {

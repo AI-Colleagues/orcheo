@@ -12,6 +12,7 @@ import asyncio
 import logging
 import os
 from typing import Any
+from uuid import UUID
 from orcheo.models import WorkflowRun
 
 
@@ -23,9 +24,13 @@ DEFAULT_INPROCESS_EXECUTION = True
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
 _FALSY_VALUES = {"0", "false", "no", "off"}
 
+DEFAULT_DRAIN_TIMEOUT_SECONDS = 30.0
+
 # Keep strong references so the event loop cannot garbage-collect a run
-# mid-execution (asyncio only holds weak references to running tasks).
-_inprocess_run_tasks: set[asyncio.Task[Any]] = set()
+# mid-execution (asyncio only holds weak references to running tasks), and so
+# shutdown can find every run still in flight. Maps each task to the run it
+# executes, which drain_inprocess_runs needs to mark a cancelled run failed.
+_inprocess_run_tasks: dict[asyncio.Task[Any], UUID] = {}
 
 
 def inprocess_execution_enabled() -> bool:
@@ -103,15 +108,67 @@ def schedule_run_inprocess(run: WorkflowRun) -> bool:
         _run_and_log(str(run.id), run.workspace_id),
         name=f"inprocess-run-{run.id}",
     )
-    _inprocess_run_tasks.add(task)
-    task.add_done_callback(_inprocess_run_tasks.discard)
+    _inprocess_run_tasks[task] = run.id
+    task.add_done_callback(_inprocess_run_tasks.pop)
     logger.info("Scheduled run %s for in-process execution", run.id)
     return True
 
 
+async def _fail_abandoned_run(run_id: UUID) -> None:
+    """Record that a run was cut short by backend shutdown."""
+    from orcheo_backend.app.dependencies import get_repository
+    from orcheo_backend.worker.tasks import WORKER_ACTOR
+
+    try:
+        await get_repository().mark_run_failed(
+            run_id,
+            actor=WORKER_ACTOR,
+            error="Run was cancelled because the backend shut down mid-execution.",
+        )
+    except Exception:
+        logger.exception("Could not mark abandoned in-process run %s as failed", run_id)
+
+
+async def drain_inprocess_runs(
+    timeout: float = DEFAULT_DRAIN_TIMEOUT_SECONDS,
+) -> None:
+    """Settle in-flight in-process runs before the event loop goes away.
+
+    Anything still running when the loop tears down is cancelled silently and
+    its database row is left ``running`` forever. Cron reads those rows as
+    active work, and the default schedule forbids overlap, so one stranded run
+    permanently blocks its workflow. Give each run ``timeout`` seconds to
+    finish, then cancel the rest and mark them failed so the next dispatch is
+    not blocked.
+    """
+    pending = list(_inprocess_run_tasks.items())
+    if not pending:
+        return
+
+    logger.info("Draining %d in-process run(s) before shutdown", len(pending))
+    tasks = [task for task, _ in pending]
+    _, unfinished = await asyncio.wait(tasks, timeout=timeout)
+    if not unfinished:
+        return
+
+    abandoned = [run_id for task, run_id in pending if task in unfinished]
+    logger.warning(
+        "Cancelling %d in-process run(s) that did not finish within %ss",
+        len(abandoned),
+        timeout,
+    )
+    for task in unfinished:
+        task.cancel()
+    await asyncio.gather(*unfinished, return_exceptions=True)
+    for run_id in abandoned:
+        await _fail_abandoned_run(run_id)
+
+
 __all__ = [
+    "DEFAULT_DRAIN_TIMEOUT_SECONDS",
     "DEFAULT_INPROCESS_EXECUTION",
     "INPROCESS_EXECUTION_ENV_VAR",
+    "drain_inprocess_runs",
     "execute_run_inprocess",
     "inprocess_execution_enabled",
     "schedule_run_inprocess",

@@ -83,6 +83,9 @@ Runtime (shared with the Tauri shell):
   worker and beat. Default to true when Redis is bundled; set to `false` to run
   everything in the backend process instead.
 - `REDIS_URL`: use an existing broker instead of starting the bundled Redis.
+  The shell probes it before trusting it, and falls back to in-process cron
+  and execution when nothing answers, because a Celery worker pointed at a
+  dead broker retries forever rather than exiting.
 - `ORCHEO_DESKTOP_REDIS_BIN_DIR`: directory holding `redis-server` /
   `redis-cli`, overriding the bundled copy.
 - `ORCHEO_INPROCESS_CRON`, `ORCHEO_INPROCESS_EXECUTION`: in-process cron

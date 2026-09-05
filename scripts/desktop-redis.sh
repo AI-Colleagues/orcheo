@@ -11,7 +11,7 @@ APP_SUPPORT_DIR="${2:-}"
 LOG_DIR="${3:-}"
 
 if [[ "${ACTION}" == "" || "${APP_SUPPORT_DIR}" == "" || "${LOG_DIR}" == "" ]]; then
-  echo "usage: desktop-redis.sh <start|stop> <app-support-dir> <log-dir>" >&2
+  echo "usage: desktop-redis.sh <start|stop|ping> <app-support-dir> <log-dir>" >&2
   exit 64
 fi
 
@@ -165,7 +165,58 @@ stop_local_redis() {
   fi
 }
 
+# Answers whether the broker named by ORCHEO_DESKTOP_REDIS_PING_URL is actually
+# reachable. The desktop shells inherit REDIS_URL from the environment and used
+# to take a non-empty string as proof of a live broker; a Celery worker pointed
+# at a dead one retries forever instead of exiting, so nothing would notice.
+ping_broker_url() {
+  local url="${ORCHEO_DESKTOP_REDIS_PING_URL:-}"
+  if [[ "${url}" == "" ]]; then
+    echo "Set ORCHEO_DESKTOP_REDIS_PING_URL to the broker URL to probe." >&2
+    exit 64
+  fi
+
+  # redis[s]://[[user][:password]@]host[:port][/db] - strip the scheme, then any
+  # credentials, then the path, and split off an optional port.
+  local hostport="${url#*://}"
+  hostport="${hostport##*@}"
+  hostport="${hostport%%/*}"
+
+  local host port
+  if [[ "${hostport}" == \[*\]* ]]; then
+    # Bracketed IPv6 literal: [::1] or [::1]:6379.
+    host="${hostport%%\]*}"
+    host="${host#\[}"
+    port="${hostport##*\]}"
+    port="${port#:}"
+  elif [[ "${hostport}" == *:* ]]; then
+    host="${hostport%:*}"
+    port="${hostport##*:}"
+  else
+    host="${hostport}"
+    port=""
+  fi
+  [[ "${port}" =~ ^[0-9]+$ ]] || port="6379"
+
+  if [[ "${host}" == "" ]]; then
+    echo "Could not read a host out of the broker URL." >&2
+    exit 69
+  fi
+
+  # -G bounds the connect, -w the wait for data, so an unroutable address fails
+  # in seconds instead of hanging the launch on the kernel's default timeout.
+  if nc -z -G 2 -w 2 "${host}" "${port}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "No Redis answering at ${host}:${port}." >&2
+  exit 69
+}
+
 case "${ACTION}" in
+  ping)
+    ping_broker_url
+    ;;
   start)
     redis_bin_dir="$(find_redis_bin_dir || true)"
     if [[ "${redis_bin_dir}" == "" ]]; then

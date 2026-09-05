@@ -5,11 +5,19 @@ separate scheduler process. Since neither is guaranteed to be running, the
 backend polls for due cron triggers on its own event loop by default. Set
 ``ORCHEO_INPROCESS_CRON=false`` wherever Celery Beat runs, so a schedule is not
 dispatched twice.
+
+The loop is only safe in a single-process backend. Its lock is process-local
+and ``dispatch_due_cron_runs`` reads ``last_dispatched_at``, creates the run,
+and writes the timestamp back over separate transactions, so two backend
+processes sharing a database can both see one occurrence as due and dispatch
+it. Turn the flag off for multi-worker or replicated deployments and let Beat,
+which is a singleton, own dispatch.
 """
 
 from __future__ import annotations
 import asyncio
 import logging
+import math
 import os
 from orcheo_backend.app.repository import WorkflowRepository
 
@@ -53,9 +61,12 @@ def cron_dispatch_interval_seconds() -> float:
             DEFAULT_CRON_DISPATCH_INTERVAL_SECONDS,
         )
         return DEFAULT_CRON_DISPATCH_INTERVAL_SECONDS
-    if interval <= 0:
+    # NaN and infinity survive float() and both compare False against <= 0.
+    # Either one reaches asyncio.wait_for, whose selector rejects it with a
+    # TypeError raised inside the event loop itself, taking the process down.
+    if not math.isfinite(interval) or interval <= 0:
         logger.warning(
-            "Ignoring non-positive %s=%r; using %ss",
+            "Ignoring non-positive or non-finite %s=%r; using %ss",
             CRON_DISPATCH_INTERVAL_ENV_VAR,
             raw,
             DEFAULT_CRON_DISPATCH_INTERVAL_SECONDS,
