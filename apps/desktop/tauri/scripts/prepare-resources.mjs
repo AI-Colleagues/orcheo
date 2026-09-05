@@ -21,6 +21,7 @@ const repoRoot = path.resolve(tauriDirectory, "../../..");
 const bundleRoot = path.join(tauriDirectory, "bundle");
 const stagedRepo = path.join(bundleRoot, "orcheo");
 const stagedPostgres = path.join(bundleRoot, "postgres");
+const stagedRedis = path.join(bundleRoot, "redis");
 const stagedPlaywright = path.join(bundleRoot, "ms-playwright");
 const releaseUvEnvironment = path.join(bundleRoot, ".release-python-env");
 
@@ -59,7 +60,10 @@ const requiredRootDirs = [
   "packages/agentensor",
   "packages/sdk",
 ];
-const requiredScriptFiles = ["scripts/desktop-postgres.sh"];
+const requiredScriptFiles = [
+  "scripts/desktop-postgres.sh",
+  "scripts/desktop-redis.sh",
+];
 
 function truthy(value) {
   return ["1", "true", "yes", "on"].includes(String(value ?? "").toLowerCase());
@@ -235,10 +239,12 @@ package = false
 
 rmSync(stagedRepo, { force: true, recursive: true });
 rmSync(stagedPostgres, { force: true, recursive: true });
+rmSync(stagedRedis, { force: true, recursive: true });
 rmSync(stagedPlaywright, { force: true, recursive: true });
 rmSync(releaseUvEnvironment, { force: true, recursive: true });
 mkdirSync(stagedRepo, { recursive: true });
 mkdirSync(stagedPostgres, { recursive: true });
+mkdirSync(stagedRedis, { recursive: true });
 mkdirSync(stagedPlaywright, { recursive: true });
 
 if (!existsSync(path.join(repoRoot, "apps/studio/dist/index.html"))) {
@@ -289,6 +295,13 @@ if (
 ) {
   run("bash", ["scripts/bundle-postgres-macos.sh", stagedPostgres]);
   prunePostgresDevelopmentFiles(stagedPostgres);
+}
+
+if (
+  process.platform === "darwin" &&
+  process.env.ORCHEO_TAURI_BUNDLE_REDIS !== "false"
+) {
+  run("bash", ["scripts/bundle-redis-macos.sh", stagedRedis]);
 }
 
 if (process.env.ORCHEO_TAURI_BUNDLE_PLAYWRIGHT !== "false") {
@@ -350,14 +363,21 @@ if (process.env.ORCHEO_TAURI_BUNDLE_PLAYWRIGHT !== "false") {
 // symlinks that point *inside* the same tree and are already portable as-is.
 // Dereferencing those would duplicate the framework payload 2-3x over.
 normalizeResourcePermissions(stagedPostgres);
+normalizeResourcePermissions(stagedRedis);
 
 const requiredFiles = usePublishedReleases
-  ? ["pyproject.toml", "uv.lock", "scripts/desktop-postgres.sh"]
+  ? [
+      "pyproject.toml",
+      "uv.lock",
+      "scripts/desktop-postgres.sh",
+      "scripts/desktop-redis.sh",
+    ]
   : [
       "pyproject.toml",
       "uv.lock",
       "apps/backend/src/orcheo_backend/app/__init__.py",
       "scripts/desktop-postgres.sh",
+      "scripts/desktop-redis.sh",
     ];
 
 if (
@@ -369,6 +389,13 @@ if (
     "../postgres/bin/pg_ctl",
     "../postgres/bin/postgres",
   );
+}
+
+if (
+  process.platform === "darwin" &&
+  process.env.ORCHEO_TAURI_BUNDLE_REDIS !== "false"
+) {
+  requiredFiles.push("../redis/bin/redis-server", "../redis/bin/redis-cli");
 }
 
 if (process.env.ORCHEO_TAURI_BUNDLE_PLAYWRIGHT !== "false") {

@@ -425,18 +425,18 @@ class TestHistoryHelpers:
 
 
 class TestExecuteRunAsync:
-    """Tests for _execute_run_async function."""
+    """Tests for execute_run_async function."""
 
     @pytest.mark.asyncio
     async def test_returns_error_when_load_fails(self) -> None:
         """Test that load failure returns error."""
-        from orcheo_backend.worker.tasks import _execute_run_async
+        from orcheo_backend.worker.tasks import execute_run_async
 
         with patch(
             "orcheo_backend.worker.tasks._load_and_validate_run",
             return_value=(None, {"status": "failed", "error": "Not found"}),
         ):
-            result = await _execute_run_async(str(uuid4()), "workspace-1")
+            result = await execute_run_async(str(uuid4()), "workspace-1")
 
         assert result["status"] == "failed"
 
@@ -445,7 +445,7 @@ class TestExecuteRunAsync:
         self, mock_run: MagicMock
     ) -> None:
         """Test that mark_started failure returns error."""
-        from orcheo_backend.worker.tasks import _execute_run_async
+        from orcheo_backend.worker.tasks import execute_run_async
 
         with patch(
             "orcheo_backend.worker.tasks._load_and_validate_run",
@@ -455,14 +455,14 @@ class TestExecuteRunAsync:
                 "orcheo_backend.worker.tasks._mark_run_started",
                 return_value={"status": "skipped", "reason": "Already started"},
             ):
-                result = await _execute_run_async(str(mock_run.id), "workspace-1")
+                result = await execute_run_async(str(mock_run.id), "workspace-1")
 
         assert result["status"] == "skipped"
 
     @pytest.mark.asyncio
     async def test_calls_execute_workflow_on_success(self, mock_run: MagicMock) -> None:
         """Test that _execute_workflow is called when validation succeeds."""
-        from orcheo_backend.worker.tasks import _execute_run_async
+        from orcheo_backend.worker.tasks import execute_run_async
 
         with patch(
             "orcheo_backend.worker.tasks._load_and_validate_run",
@@ -476,7 +476,7 @@ class TestExecuteRunAsync:
                     "orcheo_backend.worker.tasks._execute_workflow",
                     return_value={"status": "succeeded"},
                 ) as mock_execute:
-                    result = await _execute_run_async(str(mock_run.id), "workspace-1")
+                    result = await execute_run_async(str(mock_run.id), "workspace-1")
 
         assert result["status"] == "succeeded"
         mock_execute.assert_called_once_with(mock_run)

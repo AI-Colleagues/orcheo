@@ -12,11 +12,13 @@ has no such mode.
 - Opens a native window with a startup screen.
 - Starts the local FastAPI backend on `127.0.0.1`.
 - Bundles a trimmed Orcheo checkout into the app resources.
-- Bundles native Postgres (from Homebrew) and Playwright Chromium into the app
-  resources for offline runtime startup.
+- Bundles native Postgres and Redis (from Homebrew) and Playwright Chromium
+  into the app resources for offline runtime startup.
 - Points the backend at the built Studio bundle through `ORCHEO_STUDIO_DIST_DIR`.
-- Optionally starts the Celery worker and beat with the same environment flags
-  as the Tauri shell.
+- Starts the bundled Redis, then the Celery worker and beat against it, so
+  scheduled workflows run in their own process. If Redis is missing or fails to
+  start, the shell falls back to in-process cron dispatch and execution and the
+  app still works.
 - Opens the backend-served Studio app once `/api/system/health` returns 200.
 - Provides an app-menu ChatKit Settings dialog for saving a session-token
   signing key and restarting the local backend.
@@ -28,8 +30,9 @@ has no such mode.
 - Xcode Command Line Tools (`swift`).
 - Node.js and npm.
 - `uv`.
-- Homebrew, to source the bundled Postgres (or set
-  `ORCHEO_MACOS_POSTGRES_SOURCE_DIR` to an existing Postgres prefix).
+- Homebrew, to source the bundled Postgres and Redis (or set
+  `ORCHEO_MACOS_POSTGRES_SOURCE_DIR` / `ORCHEO_MACOS_REDIS_SOURCE_DIR` to
+  existing prefixes).
 
 ## Commands
 
@@ -76,8 +79,18 @@ Runtime (shared with the Tauri shell):
 - `ORCHEO_DESKTOP_BACKEND_COMMAND`: override backend launch command.
 - `ORCHEO_DESKTOP_WORKER_COMMAND`: override worker launch command.
 - `ORCHEO_DESKTOP_BEAT_COMMAND`: override beat launch command.
-- `ORCHEO_DESKTOP_START_WORKER=true`: start the Celery worker.
-- `ORCHEO_DESKTOP_START_BEAT=true`: start Celery beat.
+- `ORCHEO_DESKTOP_START_WORKER`, `ORCHEO_DESKTOP_START_BEAT`: start the Celery
+  worker and beat. Default to true when Redis is bundled; set to `false` to run
+  everything in the backend process instead.
+- `REDIS_URL`: use an existing broker instead of starting the bundled Redis.
+- `ORCHEO_DESKTOP_REDIS_BIN_DIR`: directory holding `redis-server` /
+  `redis-cli`, overriding the bundled copy.
+- `ORCHEO_INPROCESS_CRON`, `ORCHEO_INPROCESS_EXECUTION`: in-process cron
+  dispatch and run execution. The shell turns each off when the matching Celery
+  process is actually running against a live broker, and leaves them on
+  otherwise; set either variable explicitly to override.
+- `ORCHEO_CRON_DISPATCH_INTERVAL`: seconds between in-process cron polls
+  (default `60`).
 - `ORCHEO_DESKTOP_POSTGRES_DSN`: desktop-safe Postgres DSN. Without it, a
   managed desktop database is started via `scripts/desktop-postgres.sh`.
 - `ORCHEO_STUDIO_DIST_DIR` / `ORCHEO_DESKTOP_STUDIO_DIST_DIR`: built Studio
@@ -87,9 +100,13 @@ Runtime (shared with the Tauri shell):
 Build:
 
 - `ORCHEO_MACOS_BUNDLE_POSTGRES=false`: skip Postgres bundling.
+- `ORCHEO_MACOS_BUNDLE_REDIS=false`: skip Redis bundling. The app then falls
+  back to in-process cron and execution.
 - `ORCHEO_MACOS_BUNDLE_PLAYWRIGHT=false`: skip Playwright browser bundling.
 - `ORCHEO_MACOS_POSTGRES_SOURCE_DIR`: use an existing Postgres prefix instead
   of Homebrew.
+- `ORCHEO_MACOS_REDIS_SOURCE_DIR`: use an existing Redis prefix instead of
+  Homebrew.
 - `ORCHEO_MACOS_SKIP_STUDIO_BUILD=true`: reuse the existing Studio dist.
 - `ORCHEO_MACOS_SKIP_RESOURCES=true`: reuse the previously staged `bundle/`.
 - `ORCHEO_MACOS_APP_NAME`, `ORCHEO_MACOS_VERSION`, `ORCHEO_MACOS_BUILD`,
@@ -116,5 +133,8 @@ Settings...**.
 ## Current Boundaries
 
 Like the Tauri shell, the packaged app bundles the Orcheo source checkout,
-Postgres, and Playwright Chromium, but does not yet package Python, `uv`, or
-Redis; `uv` must be installed on the machine running the app.
+Postgres, Redis, and Playwright Chromium, but does not yet package Python or
+`uv`; `uv` must be installed on the machine running the app.
+
+The bundled Redis is Homebrew's `redis` formula, which ships under AGPL-3.0.
+Take that into account before redistributing the app.

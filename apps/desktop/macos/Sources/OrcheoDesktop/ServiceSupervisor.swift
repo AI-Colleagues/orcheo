@@ -5,6 +5,13 @@ final class ServiceSupervisor {
     private(set) var configuration: DesktopConfiguration?
     private var processes: [ManagedProcess] = []
     private var managedDesktopPostgres = false
+    private var managedDesktopRedis = false
+    // Set once the Celery broker is confirmed reachable. Worker and beat are
+    // only started when it is: without a broker they would spin uselessly, and
+    // the in-process paths are the better fallback.
+    private var brokerReady = false
+    private var workerProcess: ManagedProcess?
+    private var beatProcess: ManagedProcess?
     private var desktopLog: DesktopLog?
 
     var backendURL: URL? {
@@ -46,8 +53,8 @@ final class ServiceSupervisor {
                 environment: environment
             )
 
-            if configuration.startWorker {
-                try startProcess(
+            if configuration.startWorker && brokerReady {
+                workerProcess = try startProcess(
                     name: "worker",
                     command: configuration.workerCommand,
                     configuration: configuration,
@@ -55,8 +62,8 @@ final class ServiceSupervisor {
                 )
             }
 
-            if configuration.startBeat {
-                try startProcess(
+            if configuration.startBeat && brokerReady {
+                beatProcess = try startProcess(
                     name: "beat",
                     command: configuration.beatCommand,
                     configuration: configuration,
@@ -66,6 +73,10 @@ final class ServiceSupervisor {
 
             try await waitForBackend(configuration.backendURL)
             desktopLog?.write("Backend is healthy at \(configuration.backendURL.absoluteString)")
+            try await recoverFromDeadCeleryProcesses(
+                configuration: configuration,
+                environment: environment
+            )
             return configuration.backendURL
         } catch {
             desktopLog?.write("Service startup failed: \(error.localizedDescription)")
@@ -89,7 +100,11 @@ final class ServiceSupervisor {
             await process.stop()
         }
         processes.removeAll()
+        workerProcess = nil
+        beatProcess = nil
+        stopManagedDesktopRedis()
         stopManagedDesktopPostgres()
+        brokerReady = false
     }
 
     func recordDiagnostic(_ message: String) {
@@ -99,12 +114,13 @@ final class ServiceSupervisor {
         desktopLog?.write(message)
     }
 
+    @discardableResult
     private func startProcess(
         name: String,
         command: String,
         configuration: DesktopConfiguration,
         environment: [String: String]
-    ) throws {
+    ) throws -> ManagedProcess {
         let process = ManagedProcess(
             name: name,
             command: command,
@@ -116,6 +132,73 @@ final class ServiceSupervisor {
             environment: environment
         )
         processes.append(process)
+        return process
+    }
+
+    // The worker and beat start alongside the backend, so by the time it is
+    // healthy either has had time to fail (a bad command, a missing module, a
+    // broker that went away). Rather than leave cron silently dead, hand the
+    // work of whichever died back to the backend and restart it.
+    private func recoverFromDeadCeleryProcesses(
+        configuration: DesktopConfiguration,
+        environment: [String: String]
+    ) async throws {
+        let workerDead = configuration.startWorker && brokerReady
+            && !(workerProcess?.isRunning ?? false)
+        let beatDead = configuration.startBeat && brokerReady
+            && !(beatProcess?.isRunning ?? false)
+        guard workerDead || beatDead else {
+            return
+        }
+
+        if workerDead {
+            desktopLog?.write(
+                "Worker is not running; taking over run execution in the backend. "
+                    + "See \(configuration.logsDirectory.appendingPathComponent("worker.log").path)"
+            )
+        }
+        if beatDead {
+            desktopLog?.write(
+                "Beat is not running; taking over cron dispatch in the backend. "
+                    + "See \(configuration.logsDirectory.appendingPathComponent("beat.log").path)"
+            )
+        }
+
+        var recoveredEnvironment = environment
+        if beatDead {
+            recoveredEnvironment["ORCHEO_INPROCESS_CRON"] = "true"
+        }
+        if workerDead {
+            recoveredEnvironment["ORCHEO_INPROCESS_EXECUTION"] = "true"
+        }
+
+        try await restartBackend(
+            configuration: configuration,
+            environment: recoveredEnvironment
+        )
+    }
+
+    private func restartBackend(
+        configuration: DesktopConfiguration,
+        environment: [String: String]
+    ) async throws {
+        if let backend = processes.first {
+            await backend.stop()
+            processes.removeFirst()
+        }
+        let backend = try startProcess(
+            name: "backend",
+            command: configuration.backendCommand,
+            configuration: configuration,
+            environment: environment
+        )
+        // waitForBackend watches processes.first for an early exit.
+        processes.removeAll { $0 === backend }
+        processes.insert(backend, at: 0)
+        try await waitForBackend(configuration.backendURL)
+        desktopLog?.write(
+            "Backend restarted with in-process fallbacks at \(configuration.backendURL.absoluteString)"
+        )
     }
 
     private func processEnvironment(configuration: DesktopConfiguration) throws -> [String: String] {
@@ -138,6 +221,14 @@ final class ServiceSupervisor {
         environment["ORCHEO_AUTH_MODE"] = environment["ORCHEO_AUTH_MODE"] ?? "disabled"
         environment["ORCHEO_CORS_ALLOW_ORIGINS"] = "[\"\(configuration.backendURL.absoluteString)\"]"
         configureDesktopWorkflowUploadPolicy(environment: &environment)
+        configureDesktopRedis(
+            environment: &environment,
+            configuration: configuration
+        )
+        configureDesktopSchedulingMode(
+            environment: &environment,
+            configuration: configuration
+        )
         environment["ORCHEO_DESKTOP_APP_SUPPORT_DIR"] = configuration.appSupportDirectory.path
         environment["ORCHEO_DESKTOP_LOG_DIR"] = configuration.logsDirectory.path
         try configureDesktopPostgresDSN(
@@ -155,8 +246,34 @@ final class ServiceSupervisor {
             .appendingPathComponent("python-env")
             .path
         environment["PLAYWRIGHT_BROWSERS_PATH"] = configuration.playwrightBrowsersDirectory.path
+        configurePythonPath(environment: &environment, configuration: configuration)
         configureProcessPath(environment: &environment)
         return environment
+    }
+
+    // `orcheo-backend` is not a runtime dependency of the root project (only of
+    // the `examples` group), so `uv run` never installs it into the packaged
+    // environment. The backend command works around that with uvicorn's
+    // `--app-dir`; celery has no equivalent, so put the same directory on
+    // PYTHONPATH for every supervised process.
+    private func configurePythonPath(
+        environment: inout [String: String],
+        configuration: DesktopConfiguration
+    ) {
+        let backendSource = configuration.repoRoot
+            .appendingPathComponent("apps/backend/src")
+        guard FileManager.default.fileExists(atPath: backendSource.path) else {
+            return
+        }
+
+        var entries = [backendSource.path]
+        if let existing = nonEmpty(environment["PYTHONPATH"]) {
+            for entry in existing.split(separator: ":").map(String.init)
+            where !entries.contains(entry) {
+                entries.append(entry)
+            }
+        }
+        environment["PYTHONPATH"] = entries.joined(separator: ":")
     }
 
     // Finder launches inherit a minimal PATH that usually misses `uv` (and
@@ -196,6 +313,9 @@ final class ServiceSupervisor {
         desktopLog?.write("Studio dist: \(configuration.studioDistDirectory.path)")
         desktopLog?.write("Playwright browsers: \(configuration.playwrightBrowsersDirectory.path)")
         desktopLog?.write("Backend command: \(configuration.backendCommand)")
+        desktopLog?.write(
+            "Bundled Redis: \(configuration.redisBinDirectory?.path ?? "none")"
+        )
         desktopLog?.write("Worker enabled: \(configuration.startWorker)")
         desktopLog?.write("Beat enabled: \(configuration.startBeat)")
     }
@@ -211,6 +331,74 @@ final class ServiceSupervisor {
             && definitionMode.trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased() == "unrestricted" {
             environment["ORCHEO_WORKFLOW_TRUST_MODE"] = "allow_client_uploads"
+        }
+    }
+
+    // The backend dispatches cron triggers and executes runs in-process by
+    // default, which is what makes unattended schedules fire without Redis.
+    // When the user opted into running Beat or the worker themselves, turn the
+    // matching in-process path off so nothing is dispatched or executed twice.
+    private func configureDesktopSchedulingMode(
+        environment: inout [String: String],
+        configuration: DesktopConfiguration
+    ) {
+        if nonEmpty(environment["ORCHEO_INPROCESS_CRON"]) == nil {
+            environment["ORCHEO_INPROCESS_CRON"] =
+                (configuration.startBeat && brokerReady) ? "false" : "true"
+        }
+        if nonEmpty(environment["ORCHEO_INPROCESS_EXECUTION"]) == nil {
+            environment["ORCHEO_INPROCESS_EXECUTION"] =
+                (configuration.startWorker && brokerReady) ? "false" : "true"
+        }
+    }
+
+    // Starts the bundled Redis so the Celery worker and beat have a broker.
+    // A failure here is not fatal: the backend falls back to in-process cron
+    // dispatch and execution, which needs no broker at all.
+    private func configureDesktopRedis(
+        environment: inout [String: String],
+        configuration: DesktopConfiguration
+    ) {
+        guard configuration.startWorker || configuration.startBeat else {
+            return
+        }
+
+        if let inheritedURL = nonEmpty(environment["REDIS_URL"]) {
+            desktopLog?.write("Using inherited REDIS_URL for the Celery broker")
+            environment["REDIS_URL"] = inheritedURL
+            brokerReady = true
+            return
+        }
+
+        guard let redisBinDirectory = configuration.redisBinDirectory else {
+            desktopLog?.write(
+                "No bundled Redis found; falling back to in-process cron and execution"
+            )
+            return
+        }
+
+        do {
+            let url = try runDesktopServiceScript(
+                name: "redis",
+                action: "start",
+                configuration: configuration,
+                extraEnvironment: [
+                    "ORCHEO_DESKTOP_REDIS_BIN_DIR": redisBinDirectory.path
+                ]
+            )
+            guard let brokerURL = nonEmpty(url) else {
+                throw DesktopError.configuration(
+                    "Desktop Redis helper produced no broker URL."
+                )
+            }
+            environment["REDIS_URL"] = brokerURL
+            managedDesktopRedis = true
+            brokerReady = true
+        } catch {
+            desktopLog?.write(
+                "Desktop Redis failed to start (\(error.localizedDescription)); "
+                    + "falling back to in-process cron and execution"
+            )
         }
     }
 
@@ -298,17 +486,34 @@ final class ServiceSupervisor {
         action: String,
         configuration: DesktopConfiguration
     ) throws -> String {
+        try runDesktopServiceScript(
+            name: "postgres",
+            action: action,
+            configuration: configuration
+        )
+    }
+
+    // Shared runner for scripts/desktop-<name>.sh, which all take the same
+    // <action> <app-support-dir> <log-dir> arguments and print the URL the
+    // backend should connect to.
+    private func runDesktopServiceScript(
+        name: String,
+        action: String,
+        configuration: DesktopConfiguration,
+        extraEnvironment: [String: String] = [:]
+    ) throws -> String {
+        let label = name.capitalized
         let scriptURL = configuration.repoRoot
-            .appendingPathComponent("scripts/desktop-postgres.sh")
+            .appendingPathComponent("scripts/desktop-\(name).sh")
         if !FileManager.default.fileExists(atPath: scriptURL.path) {
             throw DesktopError.configuration(
-                "Desktop Postgres helper is missing at \(scriptURL.path)."
+                "Desktop \(label) helper is missing at \(scriptURL.path)."
             )
         }
 
         let process = Process()
         let outputPipe = Pipe()
-        desktopLog?.write("Running desktop Postgres helper: \(action)")
+        desktopLog?.write("Running desktop \(label) helper: \(action)")
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = [
             scriptURL.path,
@@ -317,7 +522,11 @@ final class ServiceSupervisor {
             configuration.logsDirectory.path,
         ]
         process.currentDirectoryURL = configuration.repoRoot
-        process.environment = ProcessInfo.processInfo.environment
+        var scriptEnvironment = ProcessInfo.processInfo.environment
+        for (key, value) in extraEnvironment {
+            scriptEnvironment[key] = value
+        }
+        process.environment = scriptEnvironment
         process.standardOutput = outputPipe
         process.standardError = outputPipe
 
@@ -329,18 +538,33 @@ final class ServiceSupervisor {
             encoding: .utf8
         )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         desktopLog?.write(
-            "Desktop Postgres helper \(action) exited with status \(process.terminationStatus)"
+            "Desktop \(label) helper \(action) exited with status \(process.terminationStatus)"
         )
         if !output.isEmpty {
-            desktopLog?.write("Desktop Postgres helper \(action) output: \(output)")
+            desktopLog?.write("Desktop \(label) helper \(action) output: \(output)")
         }
 
         if process.terminationStatus != 0 {
             throw DesktopError.configuration(output.isEmpty
-                ? "Desktop Postgres helper failed."
+                ? "Desktop \(label) helper failed."
                 : output)
         }
         return output
+    }
+
+    private func stopManagedDesktopRedis() {
+        guard managedDesktopRedis, let configuration else {
+            return
+        }
+        _ = try? runDesktopServiceScript(
+            name: "redis",
+            action: "stop",
+            configuration: configuration,
+            extraEnvironment: configuration.redisBinDirectory.map {
+                ["ORCHEO_DESKTOP_REDIS_BIN_DIR": $0.path]
+            } ?? [:]
+        )
+        managedDesktopRedis = false
     }
 
     private func stopManagedDesktopPostgres() {

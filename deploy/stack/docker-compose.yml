@@ -90,6 +90,10 @@ services:
       ORCHEO_APP_BUNDLE_BACKEND: ${ORCHEO_APP_BUNDLE_BACKEND:-postgres}
       ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT: /data/app-bundles
       ORCHEO_DEPLOYMENT_MODE: ${ORCHEO_DEPLOYMENT_MODE:-single-node}
+      # Celery Beat and the worker run as their own services here, so the
+      # backend must not also dispatch cron triggers or execute runs itself.
+      ORCHEO_INPROCESS_CRON: ${ORCHEO_INPROCESS_CRON:-false}
+      ORCHEO_INPROCESS_EXECUTION: ${ORCHEO_INPROCESS_EXECUTION:-false}
       ORCHEO_APP_GATEWAY_SECRET: ${ORCHEO_APP_GATEWAY_SECRET:-}
       ORCHEO_HOSTED_APPS_VALIDATION_QUEUE: ${ORCHEO_HOSTED_APPS_VALIDATION_QUEUE:-hosted-app-validation}
       ORCHEO_HOSTED_APPS_AUTO_ENABLE_RUNTIME: ${ORCHEO_HOSTED_APPS_AUTO_ENABLE_RUNTIME:-true}

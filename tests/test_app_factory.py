@@ -548,3 +548,99 @@ def test_create_app_does_not_require_sandbox_bootstrap() -> None:
 
     assert isinstance(app, FastAPI)
     assert factory_module.create_app is create_app
+
+
+def _stub_lifespan_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+    repository: object,
+    events: list[object],
+) -> None:
+    """Neutralize the lifespan's external dependencies for scheduler tests."""
+
+    class FakeListenerRuntime:
+        def __init__(self, repository: object, vault: object, runtime_store: object):
+            pass
+
+        async def start(self) -> None:
+            events.append("listener-start")
+
+        async def stop(self) -> None:
+            events.append("listener-stop")
+
+    monkeypatch.setattr(factory_module, "load_auth_settings", lambda refresh=True: None)
+    monkeypatch.setattr(factory_module, "load_enabled_plugins", lambda force=True: None)
+    monkeypatch.setattr(
+        factory_module,
+        "ensure_managed_vibe_workflow",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(factory_module, "get_chatkit_server", lambda: None)
+    monkeypatch.setattr(
+        factory_module,
+        "ensure_chatkit_cleanup_task",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "cancel_chatkit_cleanup_task",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(factory_module, "ListenerRuntimeService", FakeListenerRuntime)
+    monkeypatch.setattr(factory_module, "get_vault", lambda: object())
+    monkeypatch.setattr(
+        factory_module,
+        "get_listener_runtime_store",
+        lambda: object(),
+    )
+    monkeypatch.setattr(factory_module, "get_repository", lambda: repository)
+
+
+def test_lifespan_starts_cron_scheduler_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The in-process cron scheduler runs for the lifetime of the app."""
+
+    events: list[object] = []
+    repository = InMemoryWorkflowRepository()
+
+    class FakeCronScheduler:
+        def __init__(self, *, repository: object) -> None:
+            events.append(("init", repository))
+
+        async def start(self) -> None:
+            events.append("cron-start")
+
+        async def stop(self) -> None:
+            events.append("cron-stop")
+
+    _stub_lifespan_dependencies(monkeypatch, repository, events)
+    monkeypatch.setattr(factory_module, "inprocess_cron_enabled", lambda: True)
+    monkeypatch.setattr(factory_module, "CronSchedulerService", FakeCronScheduler)
+
+    app = create_app(repository)
+    with TestClient(app):
+        assert isinstance(app.state.cron_scheduler, FakeCronScheduler)
+
+    assert ("init", repository) in events
+    assert events.index("cron-start") > events.index("listener-start")
+    assert events.index("cron-stop") < events.index("listener-stop")
+
+
+def test_lifespan_skips_cron_scheduler_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without the flag, cron dispatch is left to Celery Beat."""
+
+    events: list[object] = []
+    repository = InMemoryWorkflowRepository()
+
+    def _unexpected(**kwargs: object) -> object:
+        raise AssertionError("cron scheduler should not be constructed")
+
+    _stub_lifespan_dependencies(monkeypatch, repository, events)
+    monkeypatch.setattr(factory_module, "inprocess_cron_enabled", lambda: False)
+    monkeypatch.setattr(factory_module, "CronSchedulerService", _unexpected)
+
+    app = create_app(repository)
+    with TestClient(app):
+        assert app.state.cron_scheduler is None

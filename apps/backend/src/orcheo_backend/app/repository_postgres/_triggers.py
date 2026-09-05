@@ -27,13 +27,22 @@ class _WorkflowWorkspaceLookup(Protocol):
 
 
 def _enqueue_run_for_execution(run: WorkflowRun) -> None:
-    """Enqueue a Celery task to execute the workflow run.
+    """Enqueue the workflow run for execution.
+
+    Single-process deployments (the desktop app) have no Celery broker, so with
+    ``ORCHEO_INPROCESS_EXECUTION`` enabled the run is executed on the backend
+    event loop instead. Otherwise the run is published to Celery.
 
     This function is best-effort: if Celery/Redis is unavailable,
     the run remains pending and can be retried manually.
 
     NOTE: This must only be called AFTER the run has been committed to the database.
     """
+    from orcheo_backend.app.local_execution import schedule_run_inprocess
+
+    if schedule_run_inprocess(run):
+        return
+
     try:
         from orcheo_backend.worker.tasks import execute_run
 

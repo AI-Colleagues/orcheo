@@ -83,6 +83,10 @@ services:
       ORCHEO_HOSTED_APPS_VALIDATION_QUEUE: ${ORCHEO_HOSTED_APPS_VALIDATION_QUEUE:-hosted-app-validation}
       ORCHEO_HOSTED_APPS_AUTO_ENABLE_RUNTIME: ${ORCHEO_HOSTED_APPS_AUTO_ENABLE_RUNTIME:-true}
       ORCHEO_DEPLOYMENT_MODE: local
+      # Celery Beat and the worker run as their own services here, so the
+      # backend must not also dispatch cron triggers or execute runs itself.
+      ORCHEO_INPROCESS_CRON: ${ORCHEO_INPROCESS_CRON:-false}
+      ORCHEO_INPROCESS_EXECUTION: ${ORCHEO_INPROCESS_EXECUTION:-false}
       ORCHEO_WORKFLOW_TRUST_MODE: ${ORCHEO_WORKFLOW_TRUST_MODE:-allow_client_uploads}
       ORCHEO_WORKFLOW_DEFINITION_MODE: ${ORCHEO_WORKFLOW_DEFINITION_MODE:-unrestricted}
       # Use system Python from base image instead of downloading

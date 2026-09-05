@@ -52,6 +52,10 @@ if [[ -x "${STAGED_BUNDLE_DIR}/postgres/bin/postgres" ]]; then
   cp -R "${STAGED_BUNDLE_DIR}/postgres" "${RESOURCES_DIR}/postgres"
 fi
 
+if [[ -x "${STAGED_BUNDLE_DIR}/redis/bin/redis-server" ]]; then
+  cp -R "${STAGED_BUNDLE_DIR}/redis" "${RESOURCES_DIR}/redis"
+fi
+
 if [[ -d "${STAGED_BUNDLE_DIR}/ms-playwright" ]]; then
   # cp -R preserves symlinks, which Chromium's versioned framework layout
   # (Framework.framework/Resources -> Versions/Current/..., etc.) requires;

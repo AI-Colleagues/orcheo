@@ -29,6 +29,10 @@ from orcheo_backend.app.chatkit_runtime import (
     get_chatkit_server,
     sensitive_logging_enabled,
 )
+from orcheo_backend.app.cron_scheduler import (
+    CronSchedulerService,
+    inprocess_cron_enabled,
+)
 from orcheo_backend.app.dependencies import (
     ListenerRuntimeStore,
     _create_repository,
@@ -165,15 +169,23 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
         runtime_store=get_listener_runtime_store(),
     )
     app.state.listener_runtime = listener_runtime
+    cron_scheduler: CronSchedulerService | None = None
+    if inprocess_cron_enabled():
+        cron_scheduler = CronSchedulerService(repository=get_repository())
+    app.state.cron_scheduler = cron_scheduler
     try:
         get_chatkit_server()
         await ensure_chatkit_cleanup_task()
     except Exception:
         pass
     await listener_runtime.start()
+    if cron_scheduler is not None:
+        await cron_scheduler.start()
     try:
         yield
     finally:
+        if cron_scheduler is not None:
+            await cron_scheduler.stop()
         await listener_runtime.stop()
         await cancel_chatkit_cleanup_task()
         reset_app_bundle_store()
