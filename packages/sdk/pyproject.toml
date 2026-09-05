@@ -8,7 +8,7 @@ dependencies = [
   "packaging>=24.0",
   "typer>=0.12.3",
   "rich>=13.7.0",
-  "orcheo>=0.45.0a5"
+  "orcheo>=0.45.0"
 ]
 description = "Client helpers for the Orcheo workflow orchestration platform"
 name = "orcheo-sdk"
