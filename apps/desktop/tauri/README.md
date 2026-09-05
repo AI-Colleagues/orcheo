@@ -93,7 +93,10 @@ on `PATH`; install Rust with rustup and restart the shell before rebuilding.
 - `ORCHEO_INPROCESS_CRON`, `ORCHEO_INPROCESS_EXECUTION`: in-process cron
   dispatch and run execution. The shell turns each off when the matching Celery
   process is actually running against a live broker, and leaves them on
-  otherwise; set either variable explicitly to override.
+  otherwise; set either variable explicitly to override. If the worker or beat
+  is found dead once the backend is healthy, the shell restarts the backend
+  with the matching fallback re-enabled rather than reporting a healthy launch
+  with cron silently broken.
 - `ORCHEO_CRON_DISPATCH_INTERVAL`: seconds between in-process cron polls
   (default `60`).
 - `ORCHEO_DESKTOP_POSTGRES_DSN`: desktop-safe Postgres DSN.

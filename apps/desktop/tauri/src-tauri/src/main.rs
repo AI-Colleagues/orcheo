@@ -61,10 +61,15 @@ struct DesktopStatus {
 }
 
 struct ManagedProcess {
+    name: String,
     child: Child,
     log_path: PathBuf,
     output_threads: Vec<JoinHandle<()>>,
 }
+
+const BACKEND_PROCESS: &str = "backend";
+const WORKER_PROCESS: &str = "worker";
+const BEAT_PROCESS: &str = "beat";
 
 #[tauri::command]
 fn start_orcheo(
@@ -428,7 +433,43 @@ fn start_runtime(app: &AppHandle) -> Result<DesktopRuntime, String> {
         backend_port,
         "/api/system/health",
     )?;
+    recover_from_dead_celery_processes(&mut runtime, &environment)?;
     Ok(runtime)
+}
+
+// The worker and beat start alongside the backend, so by the time it is
+// healthy either has had time to fail (a bad command, a missing module, a
+// broker that went away). The backend was launched with the matching
+// in-process fallback turned off on their behalf, so a silent exit here leaves
+// the session with no cron dispatcher or run executor at all. Hand the work of
+// whichever died back to the backend and restart it.
+fn recover_from_dead_celery_processes(
+    runtime: &mut DesktopRuntime,
+    environment: &HashMap<String, String>,
+) -> Result<(), String> {
+    let worker_dead = runtime.process_has_exited(WORKER_PROCESS)?;
+    let beat_dead = runtime.process_has_exited(BEAT_PROCESS)?;
+    if !worker_dead && !beat_dead {
+        return Ok(());
+    }
+
+    let mut recovered = environment.clone();
+    if worker_dead {
+        eprintln!(
+            "Worker is not running; taking over run execution in the backend. See {}",
+            runtime.configuration.logs_dir.join("worker.log").display()
+        );
+        recovered.insert("ORCHEO_INPROCESS_EXECUTION".to_string(), "true".to_string());
+    }
+    if beat_dead {
+        eprintln!(
+            "Beat is not running; taking over cron dispatch in the backend. See {}",
+            runtime.configuration.logs_dir.join("beat.log").display()
+        );
+        recovered.insert("ORCHEO_INPROCESS_CRON".to_string(), "true".to_string());
+    }
+
+    runtime.restart_backend(&recovered)
 }
 
 impl DesktopRuntime {
@@ -440,6 +481,7 @@ impl DesktopRuntime {
     ) -> Result<(), String> {
         let log_path = self.configuration.logs_dir.join(format!("{name}.log"));
         let process = ManagedProcess::start(
+            name,
             command,
             &self.configuration.repo_root,
             environment,
@@ -447,6 +489,48 @@ impl DesktopRuntime {
         )
         .map_err(|error| format!("Could not start {name}: {error}"))?;
         self.processes.push(process);
+        Ok(())
+    }
+
+    fn process_mut(&mut self, name: &str) -> Option<&mut ManagedProcess> {
+        self.processes
+            .iter_mut()
+            .find(|process| process.name == name)
+    }
+
+    // Whether a process this runtime actually started has since exited. One
+    // that was never started is not dead: the backend was already configured
+    // for its absence at launch.
+    fn process_has_exited(&mut self, name: &str) -> Result<bool, String> {
+        match self.process_mut(name) {
+            Some(process) => Ok(process.try_wait()?.is_some()),
+            None => Ok(false),
+        }
+    }
+
+    fn restart_backend(&mut self, environment: &HashMap<String, String>) -> Result<(), String> {
+        if let Some(index) = self
+            .processes
+            .iter()
+            .position(|process| process.name == BACKEND_PROCESS)
+        {
+            self.processes.remove(index).stop();
+        }
+
+        let backend_command = self.configuration.backend_command.clone();
+        self.start_process(BACKEND_PROCESS, &backend_command, environment)?;
+        // `stop` shuts processes down in reverse start order, so keep the
+        // backend first and it stays the last one to go.
+        if let Some(backend) = self.processes.pop() {
+            self.processes.insert(0, backend);
+        }
+
+        let backend_port = self.configuration.backend_port;
+        wait_for_backend(self, "127.0.0.1", backend_port, "/api/system/health")?;
+        eprintln!(
+            "Backend restarted with in-process fallbacks at {}",
+            self.configuration.backend_url
+        );
         Ok(())
     }
 
@@ -461,12 +545,7 @@ impl DesktopRuntime {
                 .configuration
                 .redis_bin_dir
                 .as_ref()
-                .map(|dir| {
-                    vec![(
-                        "ORCHEO_DESKTOP_REDIS_BIN_DIR",
-                        dir.display().to_string(),
-                    )]
-                })
+                .map(|dir| vec![("ORCHEO_DESKTOP_REDIS_BIN_DIR", dir.display().to_string())])
                 .unwrap_or_default();
             let _ = run_desktop_service_script_with_env(
                 "redis",
@@ -573,6 +652,7 @@ impl DesktopConfiguration {
 
 impl ManagedProcess {
     fn start(
+        name: &str,
         command: &str,
         working_dir: &Path,
         environment: &HashMap<String, String>,
@@ -612,6 +692,7 @@ impl ManagedProcess {
         }
 
         Ok(Self {
+            name: name.to_string(),
             child,
             log_path: log_path.to_path_buf(),
             output_threads,
@@ -1206,7 +1287,7 @@ fn wait_for_backend(
         if health_check(host, port, path).unwrap_or(false) {
             return Ok(());
         }
-        if let Some(backend) = runtime.processes.first_mut() {
+        if let Some(backend) = runtime.process_mut(BACKEND_PROCESS) {
             if let Some(status) = backend.try_wait()? {
                 let log_tail = read_log_tail(&backend.log_path, 4000);
                 let detail = if log_tail.is_empty() {
@@ -1397,20 +1478,8 @@ fn remove_chatkit_signing_key_file(app_support_dir: &Path) -> Result<(), String>
     }
 }
 
-fn bool_env(environment: &HashMap<String, String>, key: &str) -> bool {
-    environment
-        .get(key)
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(false)
-}
-
-// Like bool_env, but for flags whose default depends on what the build shipped
-// (worker and beat follow whether a broker is available).
+// Reads a boolean flag whose default depends on what the build shipped (worker
+// and beat follow whether a broker is available).
 fn bool_env_or(environment: &HashMap<String, String>, key: &str, default: bool) -> bool {
     match non_empty(environment.get(key)) {
         None => default,
