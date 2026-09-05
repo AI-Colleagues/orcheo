@@ -29,6 +29,10 @@ from orcheo_backend.app.chatkit_runtime import (
     get_chatkit_server,
     sensitive_logging_enabled,
 )
+from orcheo_backend.app.cron_scheduler import (
+    CronSchedulerService,
+    inprocess_cron_enabled,
+)
 from orcheo_backend.app.dependencies import (
     ListenerRuntimeStore,
     _create_repository,
@@ -58,6 +62,7 @@ from orcheo_backend.app.hosted_apps import (
 from orcheo_backend.app.hosted_apps import reset_app_bundle_store
 from orcheo_backend.app.identity.router import router as identity_api_router
 from orcheo_backend.app.listener_runtime_service import ListenerRuntimeService
+from orcheo_backend.app.local_execution import drain_inprocess_runs
 from orcheo_backend.app.logging_config import configure_logging
 from orcheo_backend.app.managed_workflows import ensure_managed_vibe_workflow
 from orcheo_backend.app.plugin_installation_store import PluginInstallationStore
@@ -165,15 +170,26 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
         runtime_store=get_listener_runtime_store(),
     )
     app.state.listener_runtime = listener_runtime
+    cron_scheduler: CronSchedulerService | None = None
+    if inprocess_cron_enabled():
+        cron_scheduler = CronSchedulerService(repository=get_repository())
+    app.state.cron_scheduler = cron_scheduler
     try:
         get_chatkit_server()
         await ensure_chatkit_cleanup_task()
     except Exception:
         pass
     await listener_runtime.start()
+    if cron_scheduler is not None:
+        await cron_scheduler.start()
     try:
         yield
     finally:
+        # Stop dispatching before draining, so the drain is not racing a
+        # scheduler that keeps handing it new runs.
+        if cron_scheduler is not None:
+            await cron_scheduler.stop()
+        await drain_inprocess_runs()
         await listener_runtime.stop()
         await cancel_chatkit_cleanup_task()
         reset_app_bundle_store()

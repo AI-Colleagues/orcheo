@@ -256,7 +256,7 @@ class TestExecuteRunTask:
 
             # Use new=MagicMock() to avoid AsyncMock creating unawaited coroutines
             with patch(
-                "orcheo_backend.worker.tasks._execute_run_async",
+                "orcheo_backend.worker.tasks.execute_run_async",
                 new=MagicMock(return_value=MagicMock()),
             ) as mock_execute_async:
                 fake_self = SimpleNamespace(

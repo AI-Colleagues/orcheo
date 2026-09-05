@@ -13,6 +13,7 @@ ROOT_DIR="$(cd "${APP_DIR}/../../.." && pwd)"
 BUNDLE_DIR="${APP_DIR}/bundle"
 STAGED_REPO="${BUNDLE_DIR}/orcheo"
 STAGED_POSTGRES="${BUNDLE_DIR}/postgres"
+STAGED_REDIS="${BUNDLE_DIR}/redis"
 STAGED_PLAYWRIGHT="${BUNDLE_DIR}/ms-playwright"
 
 if [[ ! -f "${ROOT_DIR}/apps/studio/dist/index.html" ]]; then
@@ -20,11 +21,11 @@ if [[ ! -f "${ROOT_DIR}/apps/studio/dist/index.html" ]]; then
   exit 1
 fi
 
-# Only the trimmed repo is staged unconditionally. Postgres and Playwright
-# staging dirs are created by their bundling steps below, so a skipped
-# component never leaves an empty directory behind -- the runtime prefers a
-# bundled directory whenever it merely exists.
-rm -rf "${STAGED_REPO}" "${STAGED_POSTGRES}" "${STAGED_PLAYWRIGHT}"
+# Only the trimmed repo is staged unconditionally. The Postgres, Redis and
+# Playwright staging dirs are created by their bundling steps below, so a
+# skipped component never leaves an empty directory behind -- the runtime
+# prefers a bundled directory whenever it merely exists.
+rm -rf "${STAGED_REPO}" "${STAGED_POSTGRES}" "${STAGED_REDIS}" "${STAGED_PLAYWRIGHT}"
 mkdir -p "${STAGED_REPO}"
 
 # The backend only needs the workspace members it actually depends on
@@ -34,7 +35,7 @@ mkdir -p "${STAGED_REPO}"
 # dead weight in a packaged app.
 REQUIRED_ROOT_FILES=(pyproject.toml uv.lock README.md .python-version)
 REQUIRED_ROOT_DIRS=(src apps/backend packages/agentensor packages/sdk)
-REQUIRED_SCRIPT_FILES=(scripts/desktop-postgres.sh)
+REQUIRED_SCRIPT_FILES=(scripts/desktop-postgres.sh scripts/desktop-redis.sh)
 
 RSYNC_EXCLUDES=(
   --exclude ".cache/"
@@ -97,6 +98,15 @@ if [[ "${ORCHEO_MACOS_BUNDLE_POSTGRES:-true}" != "false" ]]; then
   find "${STAGED_POSTGRES}" -type f ! -perm +111 -exec chmod 644 {} +
 fi
 
+if [[ "${ORCHEO_MACOS_BUNDLE_REDIS:-true}" != "false" ]]; then
+  echo "Bundling native Redis..."
+  bash "${ROOT_DIR}/scripts/bundle-redis-macos.sh" "${STAGED_REDIS}"
+
+  find "${STAGED_REDIS}" -type d -exec chmod 755 {} +
+  find "${STAGED_REDIS}" -type f -perm +111 -exec chmod 755 {} +
+  find "${STAGED_REDIS}" -type f ! -perm +111 -exec chmod 644 {} +
+fi
+
 if [[ "${ORCHEO_MACOS_BUNDLE_PLAYWRIGHT:-true}" != "false" ]]; then
   echo "Bundling Playwright Chromium..."
   mkdir -p "${STAGED_PLAYWRIGHT}"
@@ -119,6 +129,7 @@ REQUIRED_STAGED_FILES=(
   "${STAGED_REPO}/uv.lock"
   "${STAGED_REPO}/apps/backend/src/orcheo_backend/app/__init__.py"
   "${STAGED_REPO}/scripts/desktop-postgres.sh"
+  "${STAGED_REPO}/scripts/desktop-redis.sh"
 )
 
 if [[ "${ORCHEO_MACOS_BUNDLE_POSTGRES:-true}" != "false" ]]; then
@@ -126,6 +137,13 @@ if [[ "${ORCHEO_MACOS_BUNDLE_POSTGRES:-true}" != "false" ]]; then
     "${STAGED_POSTGRES}/bin/initdb"
     "${STAGED_POSTGRES}/bin/pg_ctl"
     "${STAGED_POSTGRES}/bin/postgres"
+  )
+fi
+
+if [[ "${ORCHEO_MACOS_BUNDLE_REDIS:-true}" != "false" ]]; then
+  REQUIRED_STAGED_FILES+=(
+    "${STAGED_REDIS}/bin/redis-server"
+    "${STAGED_REDIS}/bin/redis-cli"
   )
 fi
 

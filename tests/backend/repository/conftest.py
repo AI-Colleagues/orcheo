@@ -12,9 +12,14 @@ from orcheo_backend.app.repository import (
 
 
 @pytest.fixture(autouse=True)
-def mock_celery_enqueue(request: pytest.FixtureRequest) -> Generator[None, None, None]:
+def mock_celery_enqueue(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Generator[None, None, None]:
     """Disable Celery enqueue for all repository tests to avoid Redis hangs."""
     if request.node.get_closest_marker("no_mock_celery"):
+        # These tests exercise the real Celery publish path, which the backend
+        # otherwise skips in favour of in-process execution.
+        monkeypatch.setenv("ORCHEO_INPROCESS_EXECUTION", "false")
         yield
         return
     with patch(

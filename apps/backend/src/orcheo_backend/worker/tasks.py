@@ -457,7 +457,7 @@ async def _handle_execution_failure(
     return {"status": "failed", "error": error_message}
 
 
-async def _execute_run_async(run_id: str, workspace_id: str | None) -> dict[str, Any]:
+async def execute_run_async(run_id: str, workspace_id: str | None) -> dict[str, Any]:
     """Execute a workflow run asynchronously.
 
     Args:
@@ -493,7 +493,7 @@ def execute_run(self: Task, run_id: str) -> dict[str, Any]:
     headers = getattr(getattr(self, "request", None), "headers", None) or {}
     workspace_id = headers.get("workspace_id") or headers.get("x-orcheo-workspace-id")
     loop = _get_event_loop()
-    return loop.run_until_complete(_execute_run_async(run_id, workspace_id))
+    return loop.run_until_complete(execute_run_async(run_id, workspace_id))
 
 
 async def _dispatch_cron_triggers_async() -> list[str]:
@@ -531,4 +531,5 @@ def dispatch_cron_triggers(self: Task) -> dict[str, Any]:  # noqa: ARG001
 __all__ = [
     "dispatch_cron_triggers",
     "execute_run",
+    "execute_run_async",
 ]

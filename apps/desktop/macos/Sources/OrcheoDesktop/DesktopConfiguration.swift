@@ -7,6 +7,7 @@ struct DesktopConfiguration {
     let logsDirectory: URL
     let studioDistDirectory: URL
     let playwrightBrowsersDirectory: URL
+    let redisBinDirectory: URL?
     let backendPort: Int
     let backendURL: URL
     let backendCommand: String
@@ -39,6 +40,10 @@ struct DesktopConfiguration {
             environment: environment,
             appSupportDirectory: appSupportDirectory
         )
+        let redisBinDirectory = resolveRedisBinDirectory(
+            environment: environment,
+            repoRoot: repoRoot
+        )
 
         let backendCommand = environment["ORCHEO_DESKTOP_BACKEND_COMMAND"]
             ?? defaultBackendCommand(repoRoot: repoRoot, port: port)
@@ -56,13 +61,20 @@ struct DesktopConfiguration {
             logsDirectory: logsDirectory,
             studioDistDirectory: studioDistDirectory,
             playwrightBrowsersDirectory: playwrightBrowsersDirectory,
+            redisBinDirectory: redisBinDirectory,
             backendPort: port,
             backendURL: backendURL,
             backendCommand: backendCommand,
             workerCommand: workerCommand,
             beatCommand: beatCommand,
-            startWorker: environment.boolValue("ORCHEO_DESKTOP_START_WORKER"),
-            startBeat: environment.boolValue("ORCHEO_DESKTOP_START_BEAT")
+            startWorker: environment.boolValue(
+                "ORCHEO_DESKTOP_START_WORKER",
+                default: redisBinDirectory != nil
+            ),
+            startBeat: environment.boolValue(
+                "ORCHEO_DESKTOP_START_BEAT",
+                default: redisBinDirectory != nil
+            )
         )
     }
 
@@ -121,6 +133,44 @@ struct DesktopConfiguration {
         }
 
         return repoRoot.appendingPathComponent("apps/studio/dist")
+    }
+
+    // The bundled Redis is what lets the desktop app run the Celery worker and
+    // beat. Without it (a build with ORCHEO_MACOS_BUNDLE_REDIS=false, or a
+    // `swift run` from a checkout) the shell falls back to in-process cron
+    // dispatch and execution.
+    private static func resolveRedisBinDirectory(
+        environment: [String: String],
+        repoRoot: URL
+    ) -> URL? {
+        if let configured = environment["ORCHEO_DESKTOP_REDIS_BIN_DIR"],
+           !configured.isEmpty {
+            let candidate = URL(fileURLWithPath: configured)
+            return hasRedisServer(candidate) ? candidate : nil
+        }
+
+        if let resourceURL = Bundle.main.resourceURL {
+            let bundledRedis = resourceURL
+                .appendingPathComponent("redis")
+                .appendingPathComponent("bin")
+            if hasRedisServer(bundledRedis) {
+                return bundledRedis
+            }
+        }
+
+        let stagedRedis = repoRoot
+            .appendingPathComponent("apps/desktop/macos/bundle/redis/bin")
+        if hasRedisServer(stagedRedis) {
+            return stagedRedis
+        }
+
+        return nil
+    }
+
+    private static func hasRedisServer(_ directory: URL) -> Bool {
+        FileManager.default.isExecutableFile(
+            atPath: directory.appendingPathComponent("redis-server").path
+        )
     }
 
     private static func resolvePlaywrightBrowsersDirectory(
@@ -206,10 +256,17 @@ private func isLoopbackPortAvailable(_ port: Int) -> Bool {
 }
 
 extension Dictionary where Key == String, Value == String {
-    func boolValue(_ key: String) -> Bool {
-        guard let raw = self[key]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+    func boolValue(_ key: String, default defaultValue: Bool = false) -> Bool {
+        guard let raw = self[key]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !raw.isEmpty else {
+            return defaultValue
+        }
+        if ["1", "true", "yes", "on"].contains(raw) {
+            return true
+        }
+        if ["0", "false", "no", "off"].contains(raw) {
             return false
         }
-        return ["1", "true", "yes", "on"].contains(raw)
+        return defaultValue
     }
 }

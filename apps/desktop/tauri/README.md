@@ -9,11 +9,13 @@ macOS app in `apps/desktop/macos`.
 - Opens a small Tauri startup screen.
 - Starts the local FastAPI backend on `127.0.0.1`.
 - Bundles a trimmed Orcheo checkout into the app resources.
-- Bundles native Postgres on macOS and Playwright Chromium into the app
-  resources for offline runtime startup.
+- Bundles native Postgres and Redis on macOS and Playwright Chromium into the
+  app resources for offline runtime startup.
 - Points the backend at the built Studio bundle through `ORCHEO_STUDIO_DIST_DIR`.
-- Optionally starts the Celery worker and beat with the same environment flags as
-  the macOS wrapper.
+- Starts the bundled Redis, then the Celery worker and beat against it, so
+  scheduled workflows run in their own process. If Redis is missing or fails to
+  start, the shell falls back to in-process cron dispatch and execution and the
+  app still works.
 - Opens the backend-served Studio app once `/api/system/health` returns 200.
 - Provides an app-menu ChatKit Settings screen for saving a session-token
   signing key and restarting the local backend.
@@ -79,11 +81,28 @@ on `PATH`; install Rust with rustup and restart the shell before rebuilding.
 - `ORCHEO_DESKTOP_BACKEND_COMMAND`: override backend launch command.
 - `ORCHEO_DESKTOP_WORKER_COMMAND`: override worker launch command.
 - `ORCHEO_DESKTOP_BEAT_COMMAND`: override beat launch command.
-- `ORCHEO_DESKTOP_START_WORKER=true`: start the Celery worker.
-- `ORCHEO_DESKTOP_START_BEAT=true`: start Celery beat.
+- `ORCHEO_DESKTOP_START_WORKER`, `ORCHEO_DESKTOP_START_BEAT`: start the Celery
+  worker and beat. Default to true when Redis is bundled; set to `false` to run
+  everything in the backend process instead.
+- `REDIS_URL`: use an existing broker instead of starting the bundled Redis.
+  The shell probes it before trusting it, and falls back to in-process cron
+  and execution when nothing answers, because a Celery worker pointed at a
+  dead broker retries forever rather than exiting.
+- `ORCHEO_DESKTOP_REDIS_BIN_DIR`: directory holding `redis-server` /
+  `redis-cli`, overriding the bundled copy.
+- `ORCHEO_INPROCESS_CRON`, `ORCHEO_INPROCESS_EXECUTION`: in-process cron
+  dispatch and run execution. The shell turns each off when the matching Celery
+  process is actually running against a live broker, and leaves them on
+  otherwise; set either variable explicitly to override. If the worker or beat
+  is found dead once the backend is healthy, the shell restarts the backend
+  with the matching fallback re-enabled rather than reporting a healthy launch
+  with cron silently broken.
+- `ORCHEO_CRON_DISPATCH_INTERVAL`: seconds between in-process cron polls
+  (default `60`).
 - `ORCHEO_DESKTOP_POSTGRES_DSN`: desktop-safe Postgres DSN.
 - `ORCHEO_DESKTOP_STUDIO_DIST_DIR`: built Studio bundle directory.
 - `ORCHEO_TAURI_BUNDLE_POSTGRES=false`: skip macOS Postgres bundling.
+- `ORCHEO_TAURI_BUNDLE_REDIS=false`: skip macOS Redis bundling.
 - `ORCHEO_TAURI_BUNDLE_PLAYWRIGHT=false`: skip Playwright browser bundling.
 - `PLAYWRIGHT_BROWSERS_PATH`: existing Playwright browser cache.
 
