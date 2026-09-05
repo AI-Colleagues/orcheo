@@ -195,7 +195,7 @@ packages/plugins/
 
 # Miscellaneous
 *.pem
-homepage/
+orcheo-homepage/
 orcheo-paper/
 orcheo-skill/
 .claude/
