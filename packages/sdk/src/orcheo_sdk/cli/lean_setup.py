@@ -187,6 +187,10 @@ def _validate_supabase_dsn(value: str) -> str:
             "Enter a postgresql:// connection string from Supabase "
             "(Project Settings > Database)."
         )
+    if any(char.isspace() or not char.isprintable() for char in dsn):
+        raise click.UsageError(
+            "The connection string must be a single line; URL-encode spaces."
+        )
     if "'" in dsn:
         raise click.UsageError("URL-encode single quotes in the connection string.")
     return dsn
@@ -347,6 +351,13 @@ def _resolve_lean_settings(
         env_file=env_file,
         env_exists=env_exists,
     )
+    if auth_jwt_secret is None:
+        # The compose file requires the secret even while sign-in is off, so
+        # keep the existing one or generate it (a copied template leaves it
+        # blank).
+        auth_jwt_secret = (
+            _read_env_value(env_file, "ORCHEO_AUTH_JWT_SECRET") if env_exists else None
+        ) or secrets.token_hex(32)
     return LeanSettings(
         public_url=public_url,
         chatkit_domain_key=resolved_chatkit_domain_key,
@@ -373,6 +384,8 @@ def _build_lean_env_updates(
     if settings.postgres_dsn:
         # Single quotes keep Compose from interpolating `$` in the password.
         updates["ORCHEO_POSTGRES_DSN"] = f"'{settings.postgres_dsn}'"
+    if settings.auth_jwt_secret:
+        updates["ORCHEO_AUTH_JWT_SECRET"] = settings.auth_jwt_secret
     if settings.chatkit_domain_key:
         updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] = settings.chatkit_domain_key
     updates.update(build_smtp_env_updates(settings.smtp))
@@ -395,7 +408,6 @@ def _build_lean_generated_defaults() -> dict[str, str]:
         "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY": stack_defaults[
             "ORCHEO_CHATKIT_TOKEN_SIGNING_KEY"
         ],
-        "ORCHEO_AUTH_JWT_SECRET": secrets.token_hex(32),
         "ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN": secrets.token_urlsafe(32),
     }
 

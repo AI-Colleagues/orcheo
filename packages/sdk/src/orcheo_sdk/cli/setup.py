@@ -2057,6 +2057,28 @@ def build_required_auth_env_updates(
     }
 
 
+_ENV_VALUE_QUOTE_CHARS = frozenset("$#'\"\\")
+
+
+def quote_env_value(key: str, value: str) -> str:
+    """Quote ``value`` so Docker Compose reads it back from ``.env`` literally.
+
+    Compose interpolates ``$`` and treats `` #`` as a comment in unquoted values,
+    and keeps single-quoted values literal. A value containing a single quote
+    is double-quoted when it has nothing Compose would interpolate or unescape
+    there; any other value with a single quote is rejected.
+    """
+    if not any(char in _ENV_VALUE_QUOTE_CHARS for char in value):
+        return value
+    if "'" not in value:
+        return f"'{value}'"
+    if not any(char in '$"\\' for char in value):
+        return f'"{value}"'
+    raise typer.BadParameter(
+        f'{key} cannot combine a single quote with $, ", or \\ in the stack .env.'
+    )
+
+
 def build_smtp_env_updates(smtp: SmtpEmailConfig) -> dict[str, str]:
     """Return the ``ORCHEO_SMTP_*`` values to write when a host is configured."""
     if not smtp.host:
@@ -2064,9 +2086,15 @@ def build_smtp_env_updates(smtp: SmtpEmailConfig) -> dict[str, str]:
     return {
         "ORCHEO_SMTP_HOST": smtp.host,
         "ORCHEO_SMTP_PORT": str(smtp.port),
-        "ORCHEO_SMTP_USERNAME": smtp.username or "",
-        "ORCHEO_SMTP_PASSWORD": smtp.password or "",
-        "ORCHEO_SMTP_FROM_EMAIL": smtp.from_email or _DEFAULT_SMTP_FROM_EMAIL,
+        "ORCHEO_SMTP_USERNAME": quote_env_value(
+            "ORCHEO_SMTP_USERNAME", smtp.username or ""
+        ),
+        "ORCHEO_SMTP_PASSWORD": quote_env_value(
+            "ORCHEO_SMTP_PASSWORD", smtp.password or ""
+        ),
+        "ORCHEO_SMTP_FROM_EMAIL": quote_env_value(
+            "ORCHEO_SMTP_FROM_EMAIL", smtp.from_email or _DEFAULT_SMTP_FROM_EMAIL
+        ),
         "ORCHEO_SMTP_USE_TLS": str(smtp.use_tls).lower(),
     }
 
@@ -2114,6 +2142,12 @@ def _warn_chatkit_domain_key_missing(*, env_file: Path, console: Console) -> Non
     )
 
 
+def _ensure_single_line_env_values(values: dict[str, str]) -> None:
+    for key, value in values.items():
+        if "\n" in value or "\r" in value:
+            raise typer.BadParameter(f"{key} must be a single line.")
+
+
 def _upsert_env_values(
     env_file: Path,
     updates: dict[str, str],
@@ -2125,8 +2159,10 @@ def _upsert_env_values(
 
     Keys in *updates* always overwrite existing values.  Keys in *defaults*
     only overwrite when the key is already present in the file; missing keys
-    are appended.
+    are appended. Values must be single lines so they cannot inject extra
+    assignments.
     """
+    _ensure_single_line_env_values({**updates, **(defaults or {})})
     original = env_file.read_text(encoding="utf-8")
     lines = original.splitlines()
     pending_updates = dict(updates)
@@ -2412,6 +2448,14 @@ def _report_stack_preview(
     )
 
 
+def _read_env_values(env_file: Path) -> dict[str, str]:
+    """Return ``.env`` assignments with surrounding quotes removed."""
+    return {
+        key: _normalize_dotenv_value(value) or ""
+        for key, value in _read_env_assignments(env_file).items()
+    }
+
+
 def report_env_preview(
     env_file: Path,
     *,
@@ -2425,17 +2469,17 @@ def report_env_preview(
     values are masked.
     """
     if env_file.exists():
-        baseline = _read_env_assignments(env_file)
+        baseline = _read_env_values(env_file)
         heading = f"Would change these values in {env_file}:"
     else:
-        baseline = _read_env_assignments(template_file)
+        baseline = _read_env_values(template_file)
         heading = (
             f"Would create {env_file} from {template_file.name} with these values "
             "changed from the template:"
         )
     changes = [
         (key, baseline.get(key), value)
-        for key, value in _read_env_assignments(preview_env_file).items()
+        for key, value in _read_env_values(preview_env_file).items()
         if baseline.get(key) != value
     ]
     if not changes:

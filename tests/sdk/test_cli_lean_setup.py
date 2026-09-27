@@ -78,6 +78,7 @@ def _settings(**overrides: Any) -> lean_mod.LeanSettings:
             use_tls=True,
         ),
         "postgres_dsn": _DSN,
+        "auth_jwt_secret": "jwt-secret-for-tests",
     }
     values.update(overrides)
     return lean_mod.LeanSettings(**values)
@@ -790,7 +791,7 @@ def test_lean_settings_default_to_existing_env_values(
 
 def test_lean_env_updates_skip_unset_settings() -> None:
     assert lean_mod._build_lean_env_updates(
-        _settings(postgres_dsn=""), lean_version=None
+        _settings(postgres_dsn="", auth_jwt_secret=None), lean_version=None
     ) == {
         "ORCHEO_LEAN_IMAGE": "ghcr.io/ai-colleagues/orcheo-lean:latest",
         "ORCHEO_LEAN_PUBLIC_URL": "http://localhost:2025",
@@ -918,6 +919,9 @@ def test_lean_existing_required_auth_is_kept_for_http_url(
         ("mysql://host/db", "postgresql:// connection string"),
         ("postgresql:///db", "postgresql:// connection string"),
         ("postgresql://u:it's@host/db", "URL-encode single quotes"),
+        ("postgresql://u:p@host/db\nORCHEO_AUTH_MODE=disabled", "single line"),
+        ("postgresql://u:p w@host/db", "single line"),
+        ("postgresql://u:p@host/db\x00", "single line"),
     ],
 )
 def test_validate_supabase_dsn_rejects_bad_values(value: str, message: str) -> None:
@@ -1064,7 +1068,7 @@ def test_dry_run_masks_supabase_dsn(
     _dry_run(console, start_stack=False)
 
     output = console.export_text()
-    assert "  ORCHEO_POSTGRES_DSN:  -> ****res'" in output
+    assert "  ORCHEO_POSTGRES_DSN:  -> ****gres\n" in output
     assert "p%24ss" not in output
 
 
@@ -1108,3 +1112,39 @@ def test_install_lean_passes_supabase_and_domain_flags(
     assert result.exit_code == 0, result.output
     assert calls[0]["supabase_connection_string"] == _DSN
     assert calls[0]["login_email_domains"] == "example.com"
+
+
+@pytest.mark.parametrize("existing", ["", "kept-secret"])
+def test_lean_jwt_secret_is_kept_or_generated_without_required_sign_in(
+    _lean_env: Path, existing: str
+) -> None:
+    _lean_env.mkdir()
+    env_file = _lean_env / ".env"
+    env_file.write_text(
+        f"ORCHEO_AUTH_MODE=disabled\nORCHEO_AUTH_JWT_SECRET={existing}\n"
+    )
+
+    settings = lean_mod._resolve_lean_settings(
+        supabase_connection_string=_DSN,
+        login_email_domains=None,
+        backend_url=None,
+        chatkit_domain_key=None,
+        smtp_host=None,
+        smtp_port=None,
+        smtp_username=None,
+        smtp_password=None,
+        smtp_from_email=None,
+        smtp_use_tls=None,
+        yes=True,
+        env_file=env_file,
+    )
+
+    assert settings.auth_required is False
+    if existing:
+        assert settings.auth_jwt_secret == existing
+    else:
+        assert settings.auth_jwt_secret
+        assert len(settings.auth_jwt_secret) == 64
+    updates = lean_mod._build_lean_env_updates(settings, lean_version=None)
+    assert updates["ORCHEO_AUTH_JWT_SECRET"] == settings.auth_jwt_secret
+    assert "ORCHEO_AUTH_MODE" not in updates

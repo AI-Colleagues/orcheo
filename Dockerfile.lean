@@ -104,7 +104,6 @@ RUN mkdir -p "$ORCHEO_STUDIO_DIST_DIR" \
     && chown -R orcheo:orcheo "$ORCHEO_STUDIO_DIST_DIR"
 
 ENV ORCHEO_STUDIO_URL=http://localhost:2025 \
-    ORCHEO_STUDIO_URL=http://localhost:2025 \
     ORCHEO_INPROCESS_CRON=true \
     ORCHEO_INPROCESS_EXECUTION=true \
     ORCHEO_PLUGIN_DIR=/data/plugins \
