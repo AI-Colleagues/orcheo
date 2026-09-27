@@ -9,6 +9,7 @@ import pytest
 import typer
 from rich.console import Console
 from orcheo_sdk.cli.main import (
+    _resolve_stack_project,
     _resolve_stack_project_dir,
     _run_stack_command,
     app,
@@ -156,22 +157,15 @@ def test_stack_start_uses_lean_install_without_building(
 
 
 def test_stack_reports_missing_install(
-    runner: Any,
-    env: dict[str, str],
     monkeypatch: Any,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr("orcheo_sdk.cli.main.shutil.which", lambda _: "/usr/bin/docker")
+    monkeypatch.delenv("ORCHEO_STACK_DIR", raising=False)
+    monkeypatch.delenv("ORCHEO_LEAN_DIR", raising=False)
     monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
 
-    result = runner.invoke(
-        app,
-        ["--no-update-check", "stack", "--ps"],
-        env={**env, "ORCHEO_STACK_DIR": None, "ORCHEO_LEAN_DIR": None},
-    )
-
-    assert result.exit_code != 0
-    assert "orcheo install --lean" in result.output
+    with pytest.raises(typer.BadParameter, match="orcheo install --lean"):
+        _resolve_stack_project()
 
 
 def test_stack_start_shortcut_runs_compose_up_detached(
