@@ -23,19 +23,38 @@ pushed. Follow the steps below to prepare and cut a release.
 - PyPI trusted publishing configured for the repository (already set up in CI).
 
 ## Shared Release Checklist
-1. **Update version**: Bump the target package's `version` with `bump2version`
-   using the package-specific configuration files. Keep package versions
-   independent.
+1. **Update version**: Bump the target package's `version` with
+   `scripts/bump_version.py`, a thin wrapper that runs `bump2version` with the
+   package-specific configuration file. Run it from the repository root; the
+   package is one of `core`, `backend`, `sdk`, `agentensor`, `studio`,
+   `desktop`, `stack`, or `lean`. Keep package versions independent.
 
    ```bash
-   # examples
-   uv run bump2version --new-version 0.45.0a1 patch
-   (cd apps/backend && uv run bump2version --new-version 0.39.0b1 patch)
-   (cd packages/sdk && uv run bump2version --new-version 0.34.0rc1 patch)
-   (cd apps/studio && uv run bump2version --new-version 0.25.0-alpha.1 patch)
-   (cd deploy/stack && uv run bump2version --new-version 0.29.0-alpha.1 patch)
-   (cd deploy/lean && uv run bump2version --new-version 0.1.0-alpha.1 minor)
+   # stable releases (the default)
+   uv run scripts/bump_version.py core patch      # 0.45.1 -> 0.45.2
+   uv run scripts/bump_version.py backend minor   # 0.39.0 -> 0.40.0
+   uv run scripts/bump_version.py sdk major       # 0.35.1 -> 1.0.0
    ```
+
+   `major`, `minor`, and `patch` always produce a stable version. Prereleases
+   are opt-in with `--pre alpha|beta|rc`:
+
+   ```bash
+   # start a prerelease of the bumped version
+   uv run scripts/bump_version.py core minor --pre alpha    # 0.45.1 -> 0.46.0a1
+   uv run scripts/bump_version.py studio minor --pre alpha  # -> 0.26.0-alpha.1
+
+   # replace a prerelease within the same phase: a1 -> a2, -alpha.1 -> -alpha.2
+   uv run scripts/bump_version.py core prerel_num
+
+   # advance the phase: a -> b -> rc -> stable (-alpha -> -beta -> -rc -> stable)
+   uv run scripts/bump_version.py core prerel
+   ```
+
+   Other options such as `--dry-run --list` or `--no-tag` are forwarded to
+   `bump2version`. Running `bump2version` directly inside the package
+   directory behaves the same; without the wrapper, start a prerelease with
+   `--new-version`, e.g. `uv run bump2version --new-version 0.46.0a1 minor`.
 
    The configurations understand stable, alpha, beta, and release-candidate
    versions. Each run edits the version files, **commits** the change locally
@@ -108,9 +127,8 @@ versions; prerelease stack tags may combine stable and prerelease packages.
 
 ## Package-specific Notes
 ### orcheo (core)
-1. Run `uv run bump2version <part>` from the repository root, or provide an
-   exact prerelease with `--new-version`. This commits the bump and tags it
-   `core-v<version>` locally.
+1. Run `uv run scripts/bump_version.py core <part>` to update the version.
+   This commits the bump and tags it `core-v<version>` locally.
 2. If new public APIs were added, update `README.md` and relevant docs.
 3. Push the branch, open a PR, and merge. Then push the tag:
    `git push origin core-vX.Y.Z` (re-point it to the merged commit first if
@@ -119,14 +137,14 @@ versions; prerelease stack tags may combine stable and prerelease packages.
 ### orcheo-backend
 1. Ensure `apps/backend/pyproject.toml` references the desired `orcheo` version in
    its dependencies.
-2. Run `(cd apps/backend && uv run bump2version <part>)` to update the version.
+2. Run `uv run scripts/bump_version.py backend <part>` to update the version.
    This commits the bump and tags it `backend-v<version>` locally.
 3. Push the branch, open a PR, and merge. Then push the tag:
    `git push origin backend-vX.Y.Z` (re-point it to the merged commit first if
    the PR was squash-merged).
 
 ### orcheo-sdk
-1. Run `(cd packages/sdk && uv run bump2version <part>)` to update the version.
+1. Run `uv run scripts/bump_version.py sdk <part>` to update the version.
    This commits the bump and tags it `sdk-v<version>` locally.
 2. Update SDK documentation or examples if interfaces changed.
 3. Push the branch, open a PR, and merge. Then push the tag:
@@ -134,7 +152,7 @@ versions; prerelease stack tags may combine stable and prerelease packages.
    PR was squash-merged).
 
 ### stack image
-1. Run `(cd deploy/stack && uv run bump2version <part>)` to update the stack
+1. Run `uv run scripts/bump_version.py stack <part>` to update the stack
    version. This commits the bump and tags it `stack-v<version>` locally.
 2. Ensure the Python and Studio versions declared by the tagged revision have
    already been published. Stack builds pin those exact versions so rebuilding
@@ -145,7 +163,7 @@ versions; prerelease stack tags may combine stable and prerelease packages.
    the PR was squash-merged).
 
 ### lean image
-1. Run `(cd deploy/lean && uv run bump2version <part>)` to update the lean
+1. Run `uv run scripts/bump_version.py lean <part>` to update the lean
    version. This commits the bump and tags it `lean-v<version>` locally.
 2. Unlike stack images, the lean image does not pull published packages: CI
    builds `Dockerfile.lean` from the tagged revision's backend and Studio
@@ -156,7 +174,7 @@ versions; prerelease stack tags may combine stable and prerelease packages.
    and arm64, plus `latest`, or `prerelease` and the phase tag.
 
 ### desktop apps
-1. Run `(cd apps/desktop && uv run bump2version <part>)` to update both the
+1. Run `uv run scripts/bump_version.py desktop <part>` to update both the
    native macOS and Tauri app versions. This commits the bump and tags it
    `desktop-v<version>` locally.
 2. Increment the macOS bundle build number independently for each packaged
