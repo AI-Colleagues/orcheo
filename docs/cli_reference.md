@@ -111,6 +111,7 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo code template [-o <file>] [--name <name>]` | Generate a minimal Python LangGraph workflow template file. |
 | `orcheo code scaffold <workflow>` | Generate Python SDK code snippets to invoke an existing workflow. |
 | `orcheo install [--yes] [--mode install\|upgrade] [--stack-version <version>\|--staging] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided Docker-stack setup/upgrade. `--staging` installs the newest published prerelease stack. |
+| `orcheo install --lean [--yes] [--stack-version <version>\|--staging] [--start-stack\|--skip-stack]` | Install the single-image lean stack (`docker-compose-lean.yml`) into `~/.orcheo/lean`, configure its `.env`, and start it. |
 | `orcheo install upgrade [--yes] [--stack-version <version>\|--staging] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided upgrade shortcut command. |
 | `orcheo install ensure-stack-env` | Create or backfill a stack env file without running the full install flow. |
 
@@ -124,6 +125,17 @@ When startup is enabled (`--start-stack`), setup then runs Docker Compose
 (Docker must be installed). Setup also prompts for
 `VITE_ORCHEO_CHATKIT_DOMAIN_KEY`; you can skip and continue, but ChatKit UI
 features stay disabled until the key is set.
+
+`orcheo install --lean` installs the [lean single image](deployment.md#lean-single-image-backend-studio)
+instead. It downloads `docker-compose-lean.yml`, `deploy/lean/.env.example`, and
+the ChatKit widgets into `~/.orcheo/lean` (or `ORCHEO_LEAN_DIR`), creates `.env`
+from the template with generated secrets (an existing `.env` is kept and only
+backfilled), pins `ORCHEO_LEAN_IMAGE`, and runs `docker compose pull` and
+`up -d --no-build`. `--stack-version` (or `ORCHEO_LEAN_VERSION`) pins a
+`lean-v*` release and `--staging` picks the newest prerelease; otherwise the
+newest stable `lean-v*` tag is used. Studio and the API are served at
+`http://localhost:2025`. Stack-only options such as `--public-host` or
+`--hosted-apps` are rejected with `--lean`; edit the lean `.env` instead.
 
 ## Edge Naming
 

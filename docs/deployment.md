@@ -114,6 +114,13 @@ is read for it). Set `ORCHEO_LEAN_PUBLIC_URL` to the browser-facing origin used
 for sign-in links and CORS (default `http://localhost:2025`), and
 `ORCHEO_LEAN_PORT` to change the host port.
 
+Without a checkout, `orcheo install --lean` downloads the compose file and
+`deploy/lean/.env.example` for the newest `lean-v*` release into
+`~/.orcheo/lean`, writes `.env` with generated secrets and the pinned
+`ORCHEO_LEAN_IMAGE`, and starts the stack with the published image. The
+template keeps local defaults (auth disabled, CLI uploads allowed, port bound to
+127.0.0.1); switch `ORCHEO_AUTH_MODE` to `required` before exposing it.
+
 ### Single container
 
 Without a worker or Beat, the backend runs executions and cron triggers

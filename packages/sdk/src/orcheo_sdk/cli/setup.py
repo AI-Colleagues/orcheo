@@ -1665,16 +1665,15 @@ def _stack_version_candidate(
     tag: object,
     *,
     prerelease: bool,
+    tag_prefix: str = _STACK_RELEASE_TAG_PREFIX,
 ) -> tuple[Version, str] | None:
-    """Return a comparable stack version from one GitHub tag entry."""
+    """Return a comparable release version from one GitHub tag entry."""
     if not isinstance(tag, dict):
         return None
     tag_name = tag.get("name")
-    if not isinstance(tag_name, str) or not tag_name.startswith(
-        _STACK_RELEASE_TAG_PREFIX
-    ):
+    if not isinstance(tag_name, str) or not tag_name.startswith(tag_prefix):
         return None
-    version = _normalize_stack_version(tag_name)
+    version = _normalize_optional_value(tag_name.removeprefix(tag_prefix))
     if version is None:
         return None
     try:
@@ -1690,6 +1689,7 @@ def _discover_latest_stack_version(
     console: Console,
     *,
     prerelease: bool = False,
+    tag_prefix: str = _STACK_RELEASE_TAG_PREFIX,
 ) -> str | None:
     tags_url = f"{_GITHUB_TAGS_API_URL}?per_page=100"
     try:
@@ -1712,7 +1712,9 @@ def _discover_latest_stack_version(
 
     candidates: list[tuple[Version, str]] = []
     for tag in tags:
-        candidate = _stack_version_candidate(tag, prerelease=prerelease)
+        candidate = _stack_version_candidate(
+            tag, prerelease=prerelease, tag_prefix=tag_prefix
+        )
         if candidate is not None:
             candidates.append(candidate)
 
@@ -1783,24 +1785,37 @@ def _sync_stack_asset(
     stack_version: str | None,
     console: Console,
 ) -> None:
-    destination = stack_dir / relative_path
     remote_payload = _download_stack_asset(
         relative_path,
         stack_version=stack_version,
         console=console,
     )
+    _write_synced_asset(
+        stack_dir / relative_path,
+        remote_payload,
+        label=f"stack asset: {relative_path}",
+        console=console,
+    )
 
+
+def _write_synced_asset(
+    destination: Path,
+    payload: bytes,
+    *,
+    label: str,
+    console: Console,
+) -> None:
+    """Write a downloaded asset, skipping the write when it is unchanged."""
     if destination.exists():
-        local_payload = destination.read_bytes()
-        if local_payload == remote_payload:
+        if destination.read_bytes() == payload:
             return
-        destination.write_bytes(remote_payload)
-        console.print(f"[green]Updated stack asset: {relative_path}[/green]")
+        destination.write_bytes(payload)
+        console.print(f"[green]Updated {label}[/green]")
         return
 
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(remote_payload)
-    console.print(f"[green]Downloaded stack asset: {relative_path}[/green]")
+    destination.write_bytes(payload)
+    console.print(f"[green]Downloaded {label}[/green]")
 
 
 def _sync_stack_assets_per_file(
@@ -2577,16 +2592,19 @@ def _compose_profile_args(stack_dir: Path) -> list[str]:
     return args
 
 
-def _prepare_stack_start(
-    config: SetupConfig,
+def _prepare_docker_for_start(
     *,
+    install_docker_if_missing: bool,
     console: Console,
-) -> tuple[bool, bool]:
-    docker_installed_this_run = False
-    use_privileged_docker = False
+) -> tuple[bool, bool, bool]:
+    """Make Docker usable before starting a stack.
 
-    if config.start_stack and not _has_binary("docker"):
-        if not config.install_docker_if_missing:
+    Returns ``(can_start, docker_installed_this_run, use_privileged_docker)``.
+    """
+    docker_installed_this_run = False
+
+    if not _has_binary("docker"):
+        if not install_docker_if_missing:
             raise typer.BadParameter(
                 "Docker is required to start the stack, and you chose "
                 "--skip-docker-install. Install Docker and rerun setup."
@@ -2598,25 +2616,40 @@ def _prepare_stack_start(
                 "Install Docker (https://docs.docker.com/get-docker/) and "
                 "rerun with --start-stack.[/yellow]"
             )
-            config.start_stack = False
-            return docker_installed_this_run, use_privileged_docker
+            return False, docker_installed_this_run, False
         docker_installed_this_run = True
 
-    if config.start_stack and not _current_shell_has_docker_access():
-        if docker_installed_this_run:
-            console.print(
-                "[yellow]Docker was installed during setup, but this shell has not "
-                "picked up docker group access yet. Continuing with privileged "
-                "docker commands for this run.[/yellow]"
-            )
-            use_privileged_docker = True
-        else:
-            console.print(
-                "[yellow]Docker is installed, but this shell cannot access the "
-                "daemon yet. Run `newgrp docker` or re-login, then rerun with "
-                "--start-stack.[/yellow]"
-            )
-            config.start_stack = False
+    if _current_shell_has_docker_access():
+        return True, docker_installed_this_run, False
+    if docker_installed_this_run:
+        console.print(
+            "[yellow]Docker was installed during setup, but this shell has not "
+            "picked up docker group access yet. Continuing with privileged "
+            "docker commands for this run.[/yellow]"
+        )
+        return True, docker_installed_this_run, True
+    console.print(
+        "[yellow]Docker is installed, but this shell cannot access the "
+        "daemon yet. Run `newgrp docker` or re-login, then rerun with "
+        "--start-stack.[/yellow]"
+    )
+    return False, docker_installed_this_run, False
+
+
+def _prepare_stack_start(
+    config: SetupConfig,
+    *,
+    console: Console,
+) -> tuple[bool, bool]:
+    if not config.start_stack:
+        return False, False
+    can_start, docker_installed_this_run, use_privileged_docker = (
+        _prepare_docker_for_start(
+            install_docker_if_missing=config.install_docker_if_missing,
+            console=console,
+        )
+    )
+    config.start_stack = can_start
     return docker_installed_this_run, use_privileged_docker
 
 

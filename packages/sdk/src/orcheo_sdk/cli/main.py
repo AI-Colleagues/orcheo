@@ -24,6 +24,7 @@ from orcheo_sdk.cli.credential import credential_app
 from orcheo_sdk.cli.edge import edge_app
 from orcheo_sdk.cli.errors import APICallError, CLIConfigurationError, CLIError
 from orcheo_sdk.cli.http import ApiClient
+from orcheo_sdk.cli.lean_setup import run_lean_install
 from orcheo_sdk.cli.node import node_app
 from orcheo_sdk.cli.plugin import plugin_app
 from orcheo_sdk.cli.service_token import app as service_token_app
@@ -349,6 +350,16 @@ def _run_install_flow(
     _install_agent_skills(console=console, should_install=config.install_agent_skills)
 
 
+def _reject_stack_only_options_for_lean(options: dict[str, object]) -> None:
+    """Fail when stack-only install options are combined with ``--lean``."""
+    provided = [name for name, value in options.items() if value is not None]
+    if provided:
+        raise typer.BadParameter(
+            f"{', '.join(provided)} cannot be combined with --lean; "
+            "edit the lean stack .env instead."
+        )
+
+
 def _resolve_install_console(ctx: typer.Context) -> Console:
     state = ctx.obj if isinstance(ctx.obj, CLIState) else None
     return state.console if state is not None else Console()
@@ -433,7 +444,8 @@ def install_command(
         typer.Option(
             "--stack-version",
             help=(
-                "Pin stack assets to a specific release version (for example, 0.1.0)."
+                "Pin stack assets (or the lean image with --lean) to a specific "
+                "release version (for example, 0.1.0)."
             ),
         ),
     ] = None,
@@ -442,6 +454,17 @@ def install_command(
         typer.Option(
             "--staging",
             help=("Install the newest published prerelease stack and Studio images."),
+        ),
+    ] = False,
+    lean: Annotated[
+        bool,
+        typer.Option(
+            "--lean",
+            help=(
+                "Install the single-image lean stack (docker-compose-lean.yml) "
+                "under ~/.orcheo/lean: fetch its assets, configure .env from "
+                ".env.example, and start it with docker compose."
+            ),
         ),
     ] = False,
     backend_url: Annotated[
@@ -628,6 +651,43 @@ def install_command(
 ) -> None:
     """Run guided install/upgrade for Orcheo components."""
     if ctx.invoked_subcommand is not None:
+        return
+    if lean:
+        _reject_stack_only_options_for_lean(
+            {
+                "--mode": mode,
+                "--backend-url": backend_url,
+                "--studio-url": studio_url,
+                "--auth-mode": auth_mode,
+                "--api-key": api_key,
+                "--chatkit-domain-key": chatkit_domain_key,
+                "--public-ingress/--local-only": public_ingress,
+                "--public-host": public_host,
+                "--publish-local-ports/--hide-local-ports": publish_local_ports,
+                "--manual-secrets": manual_secrets or None,
+                "--smtp-host": smtp_host,
+                "--smtp-port": smtp_port,
+                "--smtp-username": smtp_username,
+                "--smtp-password": smtp_password,
+                "--smtp-from-email": smtp_from_email,
+                "--smtp-use-tls/--no-smtp-use-tls": smtp_use_tls,
+                "--hosted-apps/--no-hosted-apps": hosted_apps,
+                "--apps-base-domain": apps_base_domain,
+                "--hosted-apps-workspace-allowlist": hosted_apps_workspace_allowlist,
+                "--app-tls-cert-file": app_tls_cert_file,
+                "--app-tls-key-file": app_tls_key_file,
+                "--app-trusted-proxy-cidrs": app_trusted_proxy_cidrs,
+                "--app-trusted-proxy-hops": app_trusted_proxy_hops,
+            }
+        )
+        run_lean_install(
+            lean_version=stack_version,
+            staging=staging,
+            start_stack=start_stack,
+            install_docker=install_docker,
+            yes=yes,
+            console=_resolve_install_console(ctx),
+        )
         return
     _run_install_flow(  # pragma: no cover
         console=_resolve_install_console(ctx),
