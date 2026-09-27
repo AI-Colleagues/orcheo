@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   Tooltip,
@@ -8,6 +8,7 @@ import {
 } from "@/design-system/ui/tooltip";
 import { Badge } from "@/design-system/ui/badge";
 import { Button } from "@/design-system/ui/button";
+import { getSystemFeatures } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { getSelectedWorkspaceSlug } from "@/lib/workspace-session";
 import {
@@ -81,6 +82,32 @@ export default function AppSidebar({
     getWorkspaceSlugFromPathname(pathname) ?? getSelectedWorkspaceSlug();
 
   const appsPath = getWorkspaceAppsPath(workspaceSlug);
+  const [appsAvailability, setAppsAvailability] = useState<{
+    workspaceSlug: string | null;
+    enabled: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void getSystemFeatures(workspaceSlug)
+      .then(({ hosted_apps_enabled }) => {
+        if (active) {
+          setAppsAvailability({ workspaceSlug, enabled: hosted_apps_enabled });
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAppsAvailability({ workspaceSlug, enabled: false });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [workspaceSlug]);
+
+  const showApps =
+    appsAvailability?.workspaceSlug === workspaceSlug &&
+    appsAvailability.enabled;
 
   return (
     <div className="flex h-full flex-col gap-1 p-2">
@@ -151,12 +178,14 @@ export default function AppSidebar({
           active={isColleaguesSectionActive(pathname, workspaceSlug)}
           to={getWorkspaceGalleryPath(workspaceSlug)}
         />
-        <NavItem
-          icon={<LayoutGrid className="h-[18px] w-[18px] shrink-0" />}
-          label="Apps"
-          active={isPathWithinSection(pathname, appsPath)}
-          to={appsPath}
-        />
+        {showApps && (
+          <NavItem
+            icon={<LayoutGrid className="h-[18px] w-[18px] shrink-0" />}
+            label="Apps"
+            active={isPathWithinSection(pathname, appsPath)}
+            to={appsPath}
+          />
+        )}
         <NavItem
           icon={<Vault className="h-[18px] w-[18px] shrink-0" />}
           label="Credential Vault"

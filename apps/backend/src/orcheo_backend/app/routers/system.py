@@ -3,9 +3,11 @@
 from __future__ import annotations
 from fastapi import APIRouter
 from orcheo.graph.ingestion.sandbox import uploads_allowed
+from orcheo.hosted_apps.config import HostedAppsSettings, HostedAppsSettingsError
 from orcheo_backend.app.dependencies import PluginInstallationStoreDep
 from orcheo_backend.app.plugin_inventory import list_runtime_plugins
 from orcheo_backend.app.schemas.system import (
+    SystemFeaturesResponse,
     SystemInfoResponse,
     SystemPluginsResponse,
 )
@@ -29,6 +31,19 @@ def get_system_info() -> SystemInfoResponse:
     payload = get_system_info_payload()
     payload["uploads_allowed"] = uploads_allowed()
     return SystemInfoResponse.model_validate(payload)
+
+
+@router.get("/system/features", response_model=SystemFeaturesResponse)
+def get_system_features(workspace: WorkspaceContextDep) -> SystemFeaturesResponse:
+    """Return features available to the selected workspace."""
+    try:
+        settings = HostedAppsSettings.from_environment()
+    except HostedAppsSettingsError:
+        return SystemFeaturesResponse(hosted_apps_enabled=False)
+    return SystemFeaturesResponse(
+        hosted_apps_enabled=settings.enabled
+        and settings.allows_workspace(str(workspace.workspace_id))
+    )
 
 
 @router.get("/system/plugins", response_model=SystemPluginsResponse)

@@ -31,6 +31,10 @@ export interface SystemInfoResponse {
   uploads_allowed: boolean;
 }
 
+export interface SystemFeaturesResponse {
+  hosted_apps_enabled: boolean;
+}
+
 export interface ActiveWorkspaceResponse {
   workspace_id?: string;
   slug: string;
@@ -125,6 +129,21 @@ export async function getSystemInfo(
     throw new Error(errorData.detail || `HTTP ${response.status}`);
   }
 
+  return response.json();
+}
+
+export async function getSystemFeatures(
+  workspaceSlug: string | null,
+): Promise<SystemFeaturesResponse> {
+  const response = await authFetch(
+    buildBackendHttpUrl("/api/system/features"),
+    {
+      headers: workspaceSlug ? { "X-Orcheo-Workspace": workspaceSlug } : {},
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to fetch system features (${response.status}).`);
+  }
   return response.json();
 }
 
