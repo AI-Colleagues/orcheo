@@ -13,11 +13,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 from uuid import UUID
+from orcheo.identity.email_domains import is_email_domain_allowed
 from orcheo.identity.errors import (
     IdentityChallengeError,
     IdentityChallengeExpiredError,
     IdentityChallengeLockedError,
     IdentityChallengeNotFoundError,
+    IdentityEmailDomainNotAllowedError,
     IdentitySessionNotFoundError,
 )
 from orcheo.identity.models import (
@@ -132,15 +134,30 @@ class IdentityService:
         """Return the service clock value for deterministic auth flows."""
         return self._clock()
 
+    def is_email_allowed(self, email: str) -> bool:
+        """Return whether ``email`` is inside the sign-in domain allowlist."""
+        return is_email_domain_allowed(email, self._config.allowed_email_domains)
+
+    def _ensure_email_allowed(self, email: str, *, ip: str | None = None) -> None:
+        if self.is_email_allowed(email):
+            return
+        self._record("auth.email_domain_rejected", "failure", ip=ip)
+        raise IdentityEmailDomainNotAllowedError(
+            "Sign-in is limited to approved email domains."
+        )
+
     def start_challenge(self, email: str, *, redirect_to: str | None = None) -> None:
         """Issue a magic-link + OTP challenge and email it.
 
         No user row is created here; the account is materialized on first
         verification. The response is constant regardless of account existence
         so callers can keep the endpoint anti-enumerative. Raises ``ValueError``
-        only on a malformed email (a format error, not an existence oracle).
+        only on a malformed email (a format error, not an existence oracle), and
+        ``IdentityEmailDomainNotAllowedError`` when the domain is not allowed
+        (a published policy, not an account-existence oracle).
         """
         normalized = normalize_email(email)
+        self._ensure_email_allowed(normalized)
         now = self.now()
         raw_token = generate_magic_link_token()
         raw_code = generate_otp_code(self._config.otp_digits)
@@ -237,6 +254,9 @@ class IdentityService:
         user_agent: str | None,
         ip: str | None,
     ) -> VerificationResult:
+        # Re-check at redemption so a tightened allowlist applies to challenges
+        # issued before the change.
+        self._ensure_email_allowed(challenge.email, ip=ip)
         now = self._clock()
         try:
             consumed = self._repository.consume_challenge(challenge, consumed_at=now)
@@ -317,6 +337,11 @@ class IdentityService:
             raise IdentitySessionNotFoundError("Invalid or revoked refresh token.")
 
         user = self._repository.get_user(session.user_id)
+        if not self.is_email_allowed(user.email):
+            # The allowlist changed after sign-in: end this session.
+            self._repository.revoke_sessions_for_user(user.id)
+            self._record("auth.email_domain_rejected", "failure", subject=str(user.id))
+            raise IdentitySessionNotFoundError("Invalid or revoked refresh token.")
         raw_refresh = generate_refresh_token()
         rotated = session.model_copy(
             update={

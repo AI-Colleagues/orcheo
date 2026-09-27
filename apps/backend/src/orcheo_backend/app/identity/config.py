@@ -22,3 +22,5 @@ class IdentityConfig:
     otp_digits: int = 6
     otp_max_attempts: int = 5
     verify_base_url: str = "http://localhost:2026"
+    # Exact email domains allowed to sign in; empty allows every domain.
+    allowed_email_domains: tuple[str, ...] = ()

@@ -8,6 +8,7 @@ __all__ = [
     "IdentityChallengeExpiredError",
     "IdentityChallengeLockedError",
     "IdentityChallengeNotFoundError",
+    "IdentityEmailDomainNotAllowedError",
     "IdentityError",
     "IdentitySessionError",
     "IdentitySessionNotFoundError",
@@ -42,6 +43,10 @@ class IdentityChallengeExpiredError(IdentityChallengeError):
 
 class IdentityChallengeLockedError(IdentityChallengeError):
     """Raised when a challenge has exceeded its allowed attempts."""
+
+
+class IdentityEmailDomainNotAllowedError(IdentityError):
+    """Raised when an email's domain is outside the sign-in allowlist."""
 
 
 class IdentitySessionError(IdentityError):

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from orcheo.identity.errors import (
     IdentityChallengeExpiredError,
     IdentityChallengeLockedError,
+    IdentityEmailDomainNotAllowedError,
     IdentitySessionNotFoundError,
     UserNotFoundError,
 )
@@ -109,6 +110,13 @@ def _enforce_start_rate_limits(
     limiter.check_identity(email_key, now=now)
 
 
+def _email_domain_forbidden(exc: IdentityEmailDomainNotAllowedError) -> HTTPException:
+    return HTTPException(
+        status.HTTP_403_FORBIDDEN,
+        detail={"code": "auth.email_domain_not_allowed", "message": str(exc)},
+    )
+
+
 @router.post("/email/start", response_model=EmailStartResponse)
 async def email_start(
     payload: EmailStartRequest,
@@ -121,6 +129,10 @@ async def email_start(
     )
     try:
         service.start_challenge(payload.email, redirect_to=payload.redirect_to)
+    except IdentityEmailDomainNotAllowedError as exc:
+        # The domain allowlist is deployment policy, not account existence,
+        # so rejecting it explicitly does not create an enumeration oracle.
+        raise _email_domain_forbidden(exc) from exc
     except ValueError:
         # Malformed email — respond identically to avoid a format/existence
         # oracle. Nothing was sent.
@@ -158,6 +170,8 @@ async def email_verify(
         ) from exc
     except IdentityChallengeExpiredError as exc:
         raise HTTPException(status.HTTP_410_GONE, detail={"message": str(exc)}) from exc
+    except IdentityEmailDomainNotAllowedError as exc:
+        raise _email_domain_forbidden(exc) from exc
     except ValueError as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail={"message": str(exc)}
