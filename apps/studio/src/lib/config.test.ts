@@ -29,6 +29,16 @@ describe("buildWorkflowWebSocketUrl", () => {
       buildWorkflowWebSocketUrl("wf-1", "https://orcheo.example.com"),
     ).toBe("wss://orcheo.example.com/ws/workflow/wf-1");
   });
+
+  it("falls back to the same-origin backend for an empty base URL", () => {
+    // The lean image injects an empty VITE_ORCHEO_BACKEND_URL at runtime,
+    // after the minifier has already folded away the `||` fallback.
+    setLocationOrigin("http://localhost:2025");
+
+    expect(buildWorkflowWebSocketUrl("wf-1", "")).toBe(
+      "ws://localhost:2025/ws/workflow/wf-1",
+    );
+  });
 });
 
 describe("buildBackendHttpUrl", () => {
