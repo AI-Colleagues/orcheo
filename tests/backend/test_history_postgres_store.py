@@ -1049,3 +1049,22 @@ async def test_postgres_store_ensure_initialized_rollback_on_error(
     assert error_conn.rollbacks == 1
     assert error_conn.commits == 0
     assert store._initialized is False
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_prune_histories_older_than(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pruning deletes only finished histories completed before the cutoff."""
+    store = make_store(monkeypatch, [{"rowcount": 3}])
+    cutoff = datetime(2026, 1, 1, tzinfo=UTC)
+
+    pruned = await store.prune_histories_older_than(cutoff)
+
+    assert pruned == 3
+    conn = store._pool._connection  # type: ignore[union-attr]
+    query, params = conn.queries[0]
+    assert query.startswith("DELETE FROM execution_history")
+    assert "completed_at IS NOT NULL" in query
+    assert params == (cutoff,)
+    assert conn.commits == 1

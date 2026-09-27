@@ -45,6 +45,7 @@ def test_settings_defaults(
     monkeypatch.delenv("ORCHEO_VAULT_TOKEN_TTL_SECONDS", raising=False)
     monkeypatch.delenv("ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD", raising=False)
     monkeypatch.delenv("ORCHEO_TRACING_PREVIEW_MAX_LENGTH", raising=False)
+    monkeypatch.delenv("ORCHEO_TRACE_RETENTION_DAYS", raising=False)
     monkeypatch.setenv("ORCHEO_VAULT_ENCRYPTION_KEY", "test-vault-encryption-key")
 
     settings = config.get_settings(refresh=True)
@@ -65,6 +66,7 @@ def test_settings_defaults(
     assert settings.vault_token_ttl_seconds == 3600
     assert settings.tracing_high_token_threshold == 1000
     assert settings.tracing_preview_max_length == 512
+    assert settings.trace_retention_days == 7
 
 
 def test_settings_invalid_backend(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -272,6 +274,35 @@ def test_tracing_settings_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ORCHEO_TRACING_HIGH_TOKEN_THRESHOLD", raising=False)
     monkeypatch.delenv("ORCHEO_TRACING_PREVIEW_MAX_LENGTH", raising=False)
     config.get_settings(refresh=True)
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("14", 14), ("0", 0)])
+def test_trace_retention_days_override(
+    monkeypatch: pytest.MonkeyPatch, raw: str, expected: int
+) -> None:
+    """Trace retention is configurable, and ``0`` disables expiry."""
+
+    monkeypatch.setenv("ORCHEO_TRACE_RETENTION_DAYS", raw)
+    try:
+        settings = config.get_settings(refresh=True)
+        assert settings.trace_retention_days == expected
+    finally:
+        monkeypatch.delenv("ORCHEO_TRACE_RETENTION_DAYS", raising=False)
+        config.get_settings(refresh=True)
+
+
+def test_trace_retention_days_rejects_negative(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Negative trace retention windows are rejected."""
+
+    monkeypatch.setenv("ORCHEO_TRACE_RETENTION_DAYS", "-1")
+    try:
+        with pytest.raises(ValueError):
+            config.get_settings(refresh=True)
+    finally:
+        monkeypatch.delenv("ORCHEO_TRACE_RETENTION_DAYS", raising=False)
+        config.get_settings(refresh=True)
 
 
 def test_invalid_vault_backend(monkeypatch: pytest.MonkeyPatch) -> None:
