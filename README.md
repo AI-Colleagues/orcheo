@@ -8,6 +8,7 @@
 [![PyPI - Agentensor](https://img.shields.io/pypi/v/agentensor.svg?logo=python&label=agentensor)](https://pypi.org/project/agentensor/)
 [![npm - Studio](https://img.shields.io/npm/v/orcheo-studio.svg?logo=npm&label=studio)](https://www.npmjs.com/package/orcheo-studio)
 [![GHCR - Stack](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fghcr-badge.egpl.dev%2Fai-colleagues%2Forcheo-stack%2Flatest_tag%3Fignore%3Dlatest&query=%2F%2F*%5Blocal-name()%3D%27g%27%5D%5Blast()%5D%2F*%5Blocal-name()%3D%27text%27%5D%5Blast()%5D&logo=docker&label=stack)](https://github.com/AI-Colleagues/orcheo/pkgs/container/orcheo-stack)
+[![GHCR - Lean](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fghcr-badge.egpl.dev%2Fai-colleagues%2Forcheo-lean%2Flatest_tag%3Fignore%3Dlatest&query=%2F%2F*%5Blocal-name()%3D%27g%27%5D%5Blast()%5D%2F*%5Blocal-name()%3D%27text%27%5D%5Blast()%5D&logo=docker&label=lean)](https://github.com/AI-Colleagues/orcheo/pkgs/container/orcheo-lean)
 [![GHCR - Studio](https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fghcr-badge.egpl.dev%2Fai-colleagues%2Forcheo-studio%2Flatest_tag%3Fignore%3Dlatest&query=%2F%2F*%5Blocal-name()%3D%27g%27%5D%5Blast()%5D%2F*%5Blocal-name()%3D%27text%27%5D%5Blast()%5D&logo=docker&label=studio)](https://github.com/AI-Colleagues/orcheo/pkgs/container/orcheo-studio)
 [![Documentation](https://readthedocs.org/projects/orcheo/badge/?version=latest)](https://orcheo.readthedocs.io/en/latest/)
 
