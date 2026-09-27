@@ -1,7 +1,7 @@
 # Releasing Orcheo Packages
 
 This repository publishes four Python distributions independently, plus Studio,
-a versioned stack container image, and the desktop app:
+versioned stack and lean container images, and the desktop app:
 
 - `orcheo` – core orchestration engine (`core-v*` tags)
 - `orcheo-sdk` – Python SDK helpers (`sdk-v*` tags)
@@ -9,6 +9,8 @@ a versioned stack container image, and the desktop app:
 - `agentensor` – agent prompt tensors and optimizers (`agentensor-v*` tags)
 - `orcheo-studio` – npm Studio package (`studio-v*` tags)
 - `ghcr.io/ai-colleagues/orcheo-stack` – stack runtime image (`stack-v*` tags)
+- `ghcr.io/ai-colleagues/orcheo-lean` – single image with the backend and Studio
+  built from source (`lean-v*` tags)
 - Orcheo Desktop – native macOS and Tauri apps (`desktop-v*` tags)
 
 The release jobs inside `.github/workflows/ci.yml` publish the matching
@@ -32,6 +34,7 @@ pushed. Follow the steps below to prepare and cut a release.
    (cd packages/sdk && uv run bump2version --new-version 0.34.0rc1 patch)
    (cd apps/studio && uv run bump2version --new-version 0.25.0-alpha.1 patch)
    (cd deploy/stack && uv run bump2version --new-version 0.29.0-alpha.1 patch)
+   (cd deploy/lean && uv run bump2version --new-version 0.1.0-alpha.1 minor)
    ```
 
    The configurations understand stable, alpha, beta, and release-candidate
@@ -71,12 +74,13 @@ pushed. Follow the steps below to prepare and cut a release.
 | `agentensor` | `agentensor-vX.Y.Z` | `agentensor-vX.Y.Za1` |
 | `orcheo-studio` | `studio-vX.Y.Z` | `studio-vX.Y.Z-beta.1` |
 | stack images | `stack-vX.Y.Z` | `stack-vX.Y.Z-rc.1` |
+| lean image | `lean-vX.Y.Z` | `lean-vX.Y.Z-rc.1` |
 | desktop apps | `desktop-vX.Y.Z` | `desktop-vX.Y.Z-rc.1` |
 
 Python metadata uses canonical PEP 440 suffixes (`a1`, `b1`, and `rc1`), and
 `bump2version` tags the four Python packages (`orcheo`, `orcheo-backend`,
 `orcheo-sdk`, `agentensor`) with that same spelling, e.g. `core-v0.45.0a1`.
-Studio, the stack image, and desktop apps use SemVer prerelease spellings
+Studio, the stack and lean images, and desktop apps use SemVer prerelease spellings
 (`-alpha.N`, `-beta.N`, `-rc.N`) for both metadata and tags. CI's tag-format
 check for the Python packages accepts either spelling and normalizes with
 `packaging.version.Version` before comparing package metadata with the tag.
@@ -139,6 +143,17 @@ versions; prerelease stack tags may combine stable and prerelease packages.
 4. Push the branch, open a PR, and merge. Then push the tag:
    `git push origin stack-vX.Y.Z` (re-point it to the merged commit first if
    the PR was squash-merged).
+
+### lean image
+1. Run `(cd deploy/lean && uv run bump2version <part>)` to update the lean
+   version. This commits the bump and tags it `lean-v<version>` locally.
+2. Unlike stack images, the lean image does not pull published packages: CI
+   builds `Dockerfile.lean` from the tagged revision's backend and Studio
+   source, so nothing needs to be released to PyPI or npm first.
+3. Push the branch, open a PR, and merge. Then push the tag:
+   `git push origin lean-vX.Y.Z` (re-point it to the merged commit first if
+   the PR was squash-merged). CI publishes `orcheo-lean:<version>` for amd64
+   and arm64, plus `latest`, or `prerelease` and the phase tag.
 
 ### desktop apps
 1. Run `(cd apps/desktop && uv run bump2version <part>)` to update both the

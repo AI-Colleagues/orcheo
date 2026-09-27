@@ -22,6 +22,7 @@ on:
       - 'agentensor-v*'
       - 'studio-v*'
       - 'stack-v*'
+      - 'lean-v*'
       - 'desktop-v*'
   pull_request:
     branches:
@@ -550,6 +551,132 @@ jobs:
       - name: Inspect image
         run: |
           docker buildx imagetools inspect "${{ matrix.image.repo }}:${{ needs.stack-image-metadata.outputs.version }}"
+
+  lean-image-metadata:
+    needs: [lint, coverage, studio]
+    if: "startsWith(github.ref, 'refs/tags/lean-v')"
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      channel: ${{ steps.meta.outputs.channel }}
+      phase: ${{ steps.meta.outputs.phase }}
+      repo: ${{ steps.meta.outputs.repo }}
+    steps:
+      - name: Determine image metadata
+        id: meta
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#lean-v}"
+          if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            channel="stable"
+            phase=""
+          elif [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$ ]]; then
+            channel="prerelease"
+            phase="${BASH_REMATCH[1]}"
+          else
+            echo "Lean versions must use X.Y.Z or X.Y.Z-{alpha,beta,rc}.N: $version" >&2
+            exit 1
+          fi
+          owner_lc=$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+          echo "phase=${phase}" >> "$GITHUB_OUTPUT"
+          echo "repo=ghcr.io/${owner_lc}/orcheo-lean" >> "$GITHUB_OUTPUT"
+
+  lean-image-build:
+    needs: [lean-image-metadata]
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.platform.runner }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push lean image by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.lean
+          platforms: linux/${{ matrix.platform.arch }}
+          outputs: type=image,name=${{ needs.lean-image-metadata.outputs.repo }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-lean-${{ matrix.platform.arch }}-${{ github.run_attempt }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  lean-image-merge:
+    needs: [lean-image-metadata, lean-image-build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-lean-*-${{ github.run_attempt }}
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          repo="${{ needs.lean-image-metadata.outputs.repo }}"
+          version="${{ needs.lean-image-metadata.outputs.version }}"
+          channel="${{ needs.lean-image-metadata.outputs.channel }}"
+          phase="${{ needs.lean-image-metadata.outputs.phase }}"
+          tag_args=(-t "${repo}:${version}")
+          if [[ "$channel" == "stable" ]]; then
+            tag_args+=(-t "${repo}:latest")
+          else
+            tag_args+=(-t "${repo}:prerelease" -t "${repo}:${phase}")
+          fi
+          docker buildx imagetools create "${tag_args[@]}" \
+            $(printf "${repo}@sha256:%s " *)
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect "${{ needs.lean-image-metadata.outputs.repo }}:${{ needs.lean-image-metadata.outputs.version }}"
 
   studio:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
