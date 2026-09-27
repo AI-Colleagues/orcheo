@@ -18,6 +18,10 @@ from orcheo_sdk.cli.output import (
     render_json,
     render_table,
 )
+from orcheo_sdk.cli.stack_project import (
+    STACK_NOT_FOUND_MESSAGE,
+    resolve_installed_stack,
+)
 from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.services import (
     disable_plugin_data,
@@ -72,19 +76,16 @@ def _resolve_stack_project_dir() -> Path:
 
 
 def _stack_compose_base_args() -> list[str]:
-    stack_dir = _resolve_stack_project_dir()
-    compose_file = stack_dir / "docker-compose.yml"
-    if not compose_file.exists():
-        raise typer.BadParameter(
-            "Stack docker-compose file not found. Run 'orcheo install --yes' first."
-        )
+    project = resolve_installed_stack(_resolve_stack_project_dir())
+    if project is None:
+        raise typer.BadParameter(STACK_NOT_FOUND_MESSAGE)
     return [
         "docker",
         "compose",
         "-f",
-        str(compose_file),
+        str(project.compose_file),
         "--project-directory",
-        str(stack_dir),
+        str(project.project_dir),
     ]
 
 
@@ -101,8 +102,7 @@ def _use_stack_runtime(runtime: str) -> bool:
         return False
     if resolved == "stack":
         return True
-    stack_dir = _resolve_stack_project_dir()
-    return (stack_dir / "docker-compose.yml").exists()
+    return resolve_installed_stack(_resolve_stack_project_dir()) is not None
 
 
 def _run_stack_subprocess(

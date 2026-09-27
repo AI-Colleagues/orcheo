@@ -41,6 +41,9 @@ from orcheo_sdk.cli.setup import (
     report_docker_readiness,
     report_env_preview,
 )
+from orcheo_sdk.cli.stack_project import (
+    resolve_lean_project_dir as _resolve_lean_project_dir,
+)
 
 
 _LEAN_RELEASE_TAG_PREFIX = "lean-v"
@@ -69,13 +72,6 @@ class LeanSettings:
     auth_jwt_secret: str | None = None
     auth_issuer: str | None = None
     auth_audience: str | None = None
-
-
-def _resolve_lean_project_dir() -> Path:
-    configured = os.getenv("ORCHEO_LEAN_DIR")
-    if configured:
-        return Path(configured).expanduser()
-    return Path.home() / ".orcheo" / "lean"
 
 
 def _normalize_lean_version(version: str | None) -> str | None:

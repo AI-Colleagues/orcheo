@@ -9,6 +9,7 @@ import pytest
 import typer
 from rich.console import Console
 from orcheo_sdk.cli.main import (
+    _resolve_stack_project,
     _resolve_stack_project_dir,
     _run_stack_command,
     app,
@@ -110,6 +111,61 @@ def test_stack_logs_forwards_extra_args_to_compose(
         "2026-06-19",
         "backend",
     ]
+
+
+def test_stack_start_uses_lean_install_without_building(
+    runner: Any,
+    env: dict[str, str],
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    """Without a full stack, ``orcheo stack`` drives the lean install."""
+    lean_dir = tmp_path / ".orcheo" / "lean"
+    lean_dir.mkdir(parents=True)
+    compose_file = lean_dir / "docker-compose.yml"
+    compose_file.write_text("services: {}\n", encoding="utf-8")
+
+    executed: list[str] = []
+
+    def _run(command: list[str], *, check: bool) -> subprocess.CompletedProcess[str]:
+        del check
+        executed[:] = command
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("orcheo_sdk.cli.main.subprocess.run", _run)
+    monkeypatch.setattr("orcheo_sdk.cli.main.shutil.which", lambda _: "/usr/bin/docker")
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+
+    result = runner.invoke(
+        app,
+        ["--no-update-check", "stack", "--start"],
+        env={**env, "ORCHEO_STACK_DIR": None, "ORCHEO_LEAN_DIR": None},
+    )
+
+    assert result.exit_code == 0, result.output
+    assert executed == [
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "--project-directory",
+        str(lean_dir),
+        "up",
+        "-d",
+        "--no-build",
+    ]
+
+
+def test_stack_reports_missing_install(
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("ORCHEO_STACK_DIR", raising=False)
+    monkeypatch.delenv("ORCHEO_LEAN_DIR", raising=False)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+
+    with pytest.raises(typer.BadParameter, match="orcheo install --lean"):
+        _resolve_stack_project()
 
 
 def test_stack_start_shortcut_runs_compose_up_detached(

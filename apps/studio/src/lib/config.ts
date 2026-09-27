@@ -40,10 +40,10 @@ const isValidUrl = (value: string): boolean => {
 };
 
 const normaliseBaseUrl = (value: string): string => {
-  if (!value) {
-    return DEFAULT_BACKEND_URL;
-  }
   const trimmed = value.trim();
+  if (!trimmed) {
+    return getDefaultBackendUrl();
+  }
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
     return trimTrailingSlash(trimmed);
   }
