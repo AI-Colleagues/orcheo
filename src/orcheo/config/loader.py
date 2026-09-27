@@ -113,6 +113,9 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
                 "TRACING_PREVIEW_MAX_LENGTH",
                 _DEFAULTS["TRACING_PREVIEW_MAX_LENGTH"],
             ),
+            trace_retention_days=source.get(
+                "TRACE_RETENTION_DAYS", _DEFAULTS["TRACE_RETENTION_DAYS"]
+            ),
             workflow_definition_mode=source.get(
                 "WORKFLOW_DEFINITION_MODE",
                 _DEFAULTS["WORKFLOW_DEFINITION_MODE"],
@@ -175,6 +178,7 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
         "TRACING_HIGH_TOKEN_THRESHOLD", settings.tracing_high_token_threshold
     )
     normalized.set("TRACING_PREVIEW_MAX_LENGTH", settings.tracing_preview_max_length)
+    normalized.set("TRACE_RETENTION_DAYS", settings.trace_retention_days)
     normalized.set("WORKFLOW_DEFINITION_MODE", settings.workflow_definition_mode)
 
     return normalized

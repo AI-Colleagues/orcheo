@@ -104,6 +104,9 @@ class AppSettings(BaseModel):
         default=cast(int, _DEFAULTS["TRACING_PREVIEW_MAX_LENGTH"]),
         ge=16,
     )
+    trace_retention_days: int = Field(
+        default=cast(int, _DEFAULTS["TRACE_RETENTION_DAYS"]), ge=0
+    )
     workflow_definition_mode: WorkflowDefinitionMode = Field(
         default=cast(WorkflowDefinitionMode, _DEFAULTS["WORKFLOW_DEFINITION_MODE"])
     )
@@ -434,6 +437,20 @@ class AppSettings(BaseModel):
             return int(str(candidate_obj))
         except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
             msg = "ORCHEO_TRACING_PREVIEW_MAX_LENGTH must be a positive integer."
+            raise ValueError(msg) from exc
+
+    @field_validator("trace_retention_days", mode="before")
+    @classmethod
+    def _coerce_trace_retention_days(cls, value: object) -> int:
+        candidate_obj = (
+            value if value is not None else _DEFAULTS["TRACE_RETENTION_DAYS"]
+        )
+        if isinstance(candidate_obj, int):
+            return candidate_obj
+        try:
+            return int(str(candidate_obj))
+        except (TypeError, ValueError) as exc:
+            msg = "ORCHEO_TRACE_RETENTION_DAYS must be a non-negative integer."
             raise ValueError(msg) from exc
 
     def _validate_s3_config(self) -> None:

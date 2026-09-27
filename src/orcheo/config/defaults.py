@@ -46,6 +46,9 @@ _DEFAULTS: dict[str, object] = {
     "TRACING_INSECURE": False,
     "TRACING_HIGH_TOKEN_THRESHOLD": 1000,
     "TRACING_PREVIEW_MAX_LENGTH": 512,
+    # Days to keep execution histories (the source of workflow traces);
+    # ``0`` disables expiry.
+    "TRACE_RETENTION_DAYS": 7,
     # Default at this stage is ``unrestricted``; flipping the default to
     # ``restricted`` is a separate follow-up task.
     "WORKFLOW_DEFINITION_MODE": "unrestricted",

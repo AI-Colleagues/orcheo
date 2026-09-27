@@ -107,6 +107,10 @@ def test_coerce_port_and_tracing_helpers_reject_invalid_values() -> None:
     assert AppSettings._coerce_tracing_preview_max_length(False) == 0
     with pytest.raises(ValueError, match="TRACING_PREVIEW_MAX_LENGTH"):
         AppSettings._coerce_tracing_preview_max_length("bad")
+    assert AppSettings._coerce_trace_retention_days(None) == 7
+    assert AppSettings._coerce_trace_retention_days("14") == 14
+    with pytest.raises(ValueError, match="TRACE_RETENTION_DAYS"):
+        AppSettings._coerce_trace_retention_days("bad")
 
 
 def test_apply_runtime_defaults_restores_invalid_retention_days() -> None:

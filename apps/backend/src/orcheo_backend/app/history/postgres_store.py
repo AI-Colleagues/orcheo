@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS execution_history (
 );
 CREATE INDEX IF NOT EXISTS idx_execution_history_workflow
     ON execution_history(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_execution_history_completed_at
+    ON execution_history(completed_at);
 
 CREATE TABLE IF NOT EXISTS execution_history_steps (
     execution_id TEXT NOT NULL,
@@ -379,6 +381,25 @@ class PostgresRunHistoryStore:
             async with self._connection() as conn:
                 await conn.execute("DELETE FROM execution_history_steps")
                 await conn.execute("DELETE FROM execution_history")
+
+    async def prune_histories_older_than(self, cutoff: datetime) -> int:
+        """Delete finished histories (and their trace steps) completed before cutoff.
+
+        Runs that are still in progress are never pruned. Returns the number of
+        deleted execution histories.
+        """
+        await self._ensure_initialized()
+        async with self._lock:
+            async with self._connection() as conn:
+                cursor = await conn.execute(
+                    """
+                    DELETE FROM execution_history
+                     WHERE completed_at IS NOT NULL
+                       AND completed_at < %s
+                    """,
+                    (cutoff,),
+                )
+                return int(cursor.rowcount or 0)
 
     async def list_histories(
         self,

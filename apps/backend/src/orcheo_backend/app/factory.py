@@ -53,6 +53,10 @@ from orcheo_backend.app.dependencies import (
     set_vault,
 )
 from orcheo_backend.app.history import RunHistoryStore
+from orcheo_backend.app.history.retention import (
+    cancel_trace_retention_task,
+    ensure_trace_retention_task,
+)
 from orcheo_backend.app.hosted_apps import (
     auth_router as hosted_apps_auth_router,
 )
@@ -179,6 +183,7 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
         await ensure_chatkit_cleanup_task()
     except Exception:
         pass
+    await ensure_trace_retention_task()
     await listener_runtime.start()
     if cron_scheduler is not None:
         await cron_scheduler.start()
@@ -192,6 +197,7 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
         await drain_inprocess_runs()
         await listener_runtime.stop()
         await cancel_chatkit_cleanup_task()
+        await cancel_trace_retention_task()
         reset_app_bundle_store()
 
 
