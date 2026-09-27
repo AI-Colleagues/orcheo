@@ -27,6 +27,12 @@ class SystemInfoResponse(BaseModel):
     uploads_allowed: bool = True
 
 
+class SystemFeaturesResponse(BaseModel):
+    """Workspace-specific feature availability for Studio."""
+
+    hosted_apps_enabled: bool
+
+
 class SystemPluginStatus(BaseModel):
     """Plugin status as observed by the current backend process."""
 

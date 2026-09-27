@@ -110,8 +110,9 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo config list` | List all configured CLI profiles. |
 | `orcheo code template [-o <file>] [--name <name>]` | Generate a minimal Python LangGraph workflow template file. |
 | `orcheo code scaffold <workflow>` | Generate Python SDK code snippets to invoke an existing workflow. |
-| `orcheo install [--yes] [--mode install\|upgrade] [--stack-version <version>\|--staging] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided Docker-stack setup/upgrade. `--staging` installs the newest published prerelease stack. |
-| `orcheo install upgrade [--yes] [--stack-version <version>\|--staging] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided upgrade shortcut command. |
+| `orcheo install [--yes] [--dry-run] [--mode install\|upgrade] [--stack-version <version>\|--staging] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided Docker-stack setup/upgrade. `--staging` installs the newest published prerelease stack. |
+| `orcheo install --lean [--yes] [--stack-version <version>\|--staging] [--start-stack\|--skip-stack] [--dry-run]` | Install the single-image lean stack (`deploy/lean/docker-compose.yml`) into `~/.orcheo/lean`, configure its `.env`, and start it. |
+| `orcheo install upgrade [--yes] [--dry-run] [--stack-version <version>\|--staging] [--auth-mode api-key\|oauth] [--chatkit-domain-key <key>]` | Guided upgrade shortcut command. |
 | `orcheo install ensure-stack-env` | Create or backfill a stack env file without running the full install flow. |
 
 `orcheo install` syncs stack assets into `~/.orcheo/stack` (or
@@ -124,6 +125,45 @@ When startup is enabled (`--start-stack`), setup then runs Docker Compose
 (Docker must be installed). Setup also prompts for
 `VITE_ORCHEO_CHATKIT_DOMAIN_KEY`; you can skip and continue, but ChatKit UI
 features stay disabled until the key is set.
+
+`orcheo install --lean` installs the [lean single image](deployment.md#lean-single-image-backend-studio)
+instead. It downloads `docker-compose.yml` and `.env.example` from
+`deploy/lean/` into `~/.orcheo/lean` (or `ORCHEO_LEAN_DIR`; the ChatKit widgets
+ship inside the image), creates `.env`
+from the template with generated secrets (an existing `.env` is kept and only
+backfilled), pins `ORCHEO_LEAN_IMAGE`, and runs `docker compose pull` and
+`up -d --no-build`. `--stack-version` (or `ORCHEO_LEAN_VERSION`) pins a
+`lean-v*` release and `--staging` picks the newest prerelease; otherwise the
+newest stable `lean-v*` tag is used. Studio and the API are served at
+`http://localhost:2025`. It prompts only for the backend URL (the
+browser-facing origin, `ORCHEO_LEAN_PUBLIC_URL`), the Supabase connection
+string (`ORCHEO_POSTGRES_DSN`, required because the lean stack does not bundle
+PostgreSQL; input is hidden), the login email domains
+(`ORCHEO_AUTH_ALLOWED_EMAIL_DOMAINS`; Enter allows any domain and `*` clears an
+existing list), the ChatKit domain key, and the SMTP host, username, password,
+and sender address, defaulting to the current `.env` values.
+`--backend-url`, `--supabase-connection-string`, `--login-email-domains`,
+`--chatkit-domain-key`, and the `--smtp-*` flags set them non-interactively;
+`--supabase-connection-string` and `--login-email-domains` are only accepted
+with `--lean`. SMTP uses port 587 with STARTTLS
+unless `.env` or `--smtp-port`/`--no-smtp-use-tls` say otherwise. The stack is
+started, and Docker installed when missing, unless `--skip-stack` or
+`--skip-docker-install` is passed; public ingress and Hosted Apps stay off and
+the agent skill is not installed. As with the full install, an `https://`
+backend URL (or an existing `ORCHEO_AUTH_MODE=required`) turns on required
+sign-in, keeping or generating `ORCHEO_AUTH_JWT_SECRET` and defaulting the
+issuer to that URL without prompting. Other stack-only options such as
+`--public-host` or `--hosted-apps` are rejected with `--lean`.
+
+Add `--dry-run` to `orcheo install`, `orcheo install upgrade`, or
+`orcheo install --lean` to preview the flow without changing anything. The
+prompts run as usual, the release is resolved, and the assets are fetched for
+comparison; the command then reports which files would be downloaded or
+updated, which `.env` values would change (secrets are masked), whether Docker
+is ready, and the Compose commands it would run. It writes no files, installs
+nothing, and starts no containers. For the full stack, the asset and `.env`
+steps run against a temporary copy of the stack directory that is deleted
+afterwards, and the Hosted Apps preflight still runs.
 
 ## Edge Naming
 

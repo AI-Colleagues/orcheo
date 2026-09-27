@@ -1,0 +1,130 @@
+name: orcheo-lean
+# Lean image stack: one image (Dockerfile.lean: backend + Studio built from
+# source, with the ChatKit widgets baked in) runs the backend, the Celery
+# worker, and Celery Beat, alongside Redis. Studio is served by the backend on
+# the same origin. PostgreSQL is not bundled: set ORCHEO_POSTGRES_DSN to a
+# Supabase connection string.
+#
+# From the repository root:
+#
+#   cp deploy/lean/.env.example deploy/lean/.env   # then fill it in
+#   docker compose -f deploy/lean/docker-compose.yml up -d --build
+#
+# Set ORCHEO_LEAN_IMAGE (e.g. ghcr.io/ai-colleagues/orcheo-lean:0.1.0) and run
+# with --no-build to use a published image instead of building from source;
+# `orcheo install --lean` does this in ~/.orcheo/lean.
+# ORCHEO_LEAN_PUBLIC_URL is the browser-facing origin (magic links, CORS).
+#
+# Compose and the containers read the .env next to this file; values under
+# `environment` take precedence over it.
+
+x-orcheo-image: &orcheo-image
+  image: ${ORCHEO_LEAN_IMAGE:-orcheo-lean:local}
+  build:
+    # Repository root; installed copies use the published image (--no-build).
+    context: ../..
+    dockerfile: Dockerfile.lean
+  env_file:
+    - path: .env
+      required: false
+
+x-orcheo-env: &orcheo-env
+  HOME: /data/home
+  CODEX_HOME: /data/home/.codex
+  CLAUDE_CONFIG_DIR: /data/home/.claude
+  UV_CACHE_DIR: /data/cache/uv
+  REDIS_URL: redis://redis:6379/0
+  ORCHEO_POSTGRES_DSN: ${ORCHEO_POSTGRES_DSN:?set ORCHEO_POSTGRES_DSN to your Supabase connection string}
+  ORCHEO_VAULT_ENCRYPTION_KEY: ${ORCHEO_VAULT_ENCRYPTION_KEY:?set ORCHEO_VAULT_ENCRYPTION_KEY}
+  ORCHEO_AUTH_MODE: ${ORCHEO_AUTH_MODE:-required}
+  ORCHEO_AUTH_JWT_SECRET: ${ORCHEO_AUTH_JWT_SECRET:?set ORCHEO_AUTH_JWT_SECRET, e.g. openssl rand -hex 32}
+  ORCHEO_AUTH_ISSUER: ${ORCHEO_AUTH_ISSUER:-https://auth.orcheo.cloud}
+  ORCHEO_AUTH_AUDIENCE: ${ORCHEO_AUTH_AUDIENCE:-orcheo-api}
+  ORCHEO_AUTH_DEV_LOGIN_ENABLED: ${ORCHEO_AUTH_DEV_LOGIN_ENABLED:-false}
+  ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN: ${ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN:-}
+  ORCHEO_SMTP_HOST: ${ORCHEO_SMTP_HOST:-}
+  ORCHEO_SMTP_PORT: ${ORCHEO_SMTP_PORT:-587}
+  ORCHEO_SMTP_USERNAME: ${ORCHEO_SMTP_USERNAME:-}
+  ORCHEO_SMTP_PASSWORD: ${ORCHEO_SMTP_PASSWORD:-}
+  ORCHEO_SMTP_FROM_EMAIL: ${ORCHEO_SMTP_FROM_EMAIL:-no-reply@orcheo.cloud}
+  ORCHEO_SMTP_USE_TLS: ${ORCHEO_SMTP_USE_TLS:-true}
+  ORCHEO_STUDIO_URL: ${ORCHEO_LEAN_PUBLIC_URL:-http://localhost:2025}
+  ORCHEO_CANDIDATES_REPO: ${ORCHEO_CANDIDATES_REPO:-}
+  ORCHEO_CANDIDATES_REPO_REF: ${ORCHEO_CANDIDATES_REPO_REF:-}
+  ORCHEO_CANDIDATES_GITHUB_TOKEN: ${ORCHEO_CANDIDATES_GITHUB_TOKEN:-}
+  ORCHEO_PLUGIN_DIR: /data/plugins
+  ORCHEO_CACHE_DIR: /data/cache/orcheo
+  ORCHEO_WORKFLOW_TRUST_MODE: ${ORCHEO_WORKFLOW_TRUST_MODE:-}
+  ORCHEO_WORKFLOW_DEFINITION_MODE: ${ORCHEO_WORKFLOW_DEFINITION_MODE:-unrestricted}
+  # Hosted apps need the separate app gateway, which this stack does not run.
+  ORCHEO_HOSTED_APPS_ENABLED: "false"
+  ORCHEO_MCP_STDIO_LOG: /dev/stderr
+  PYTHONUNBUFFERED: "1"
+
+services:
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --appendfsync everysec
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    <<: *orcheo-image
+    ports:
+      - "127.0.0.1:${ORCHEO_LEAN_PORT:-2025}:2025"
+    volumes:
+      - orcheo_data:/data
+    environment:
+      <<: *orcheo-env
+      ORCHEO_CORS_ALLOW_ORIGINS: ${ORCHEO_LEAN_PUBLIC_URL:-http://localhost:2025}
+      # Celery Beat and the worker own cron dispatch and run execution.
+      ORCHEO_INPROCESS_CRON: "false"
+      ORCHEO_INPROCESS_EXECUTION: "false"
+      # Studio calls the backend on its own origin.
+      VITE_ORCHEO_BACKEND_URL: ""
+      VITE_ORCHEO_AUTH_DISABLED: ${VITE_ORCHEO_AUTH_DISABLED:-false}
+      VITE_ORCHEO_CHATKIT_DOMAIN_KEY: ${VITE_ORCHEO_CHATKIT_DOMAIN_KEY:-domain_pk_replace_me}
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker:
+    <<: *orcheo-image
+    volumes:
+      - orcheo_data:/data
+    environment:
+      <<: *orcheo-env
+      ORCHEO_BACKEND_INTERNAL_URL: http://backend:2025
+      # Workers do not serve Studio.
+      ORCHEO_STUDIO_DIST_DIR: ""
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    command: python -m celery -A orcheo_backend.worker.celery_app worker --loglevel=info
+
+  celery-beat:
+    <<: *orcheo-image
+    volumes:
+      - orcheo_data:/data
+    environment:
+      <<: *orcheo-env
+      ORCHEO_STUDIO_DIST_DIR: ""
+      ORCHEO_CELERY_BEAT_SCHEDULE_FILE: /data/celerybeat-schedule
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    command: >
+      sh -c 'python -m celery -A orcheo_backend.worker.celery_app beat --loglevel=info -s "$$ORCHEO_CELERY_BEAT_SCHEDULE_FILE"'
+
+volumes:
+  redis_data:
+  orcheo_data:

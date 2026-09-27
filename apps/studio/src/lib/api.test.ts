@@ -4,6 +4,7 @@ import {
   getActiveWorkspace,
   createWorkspace,
   executeNode,
+  getSystemFeatures,
   getSystemInfo,
   listWorkspaceMembers,
   removeWorkspaceMember,
@@ -187,6 +188,21 @@ describe("executeNode", () => {
       expect.stringContaining("/api/system/info"),
       expect.objectContaining({ method: "GET" }),
     );
+  });
+
+  it("fetches Hosted Apps availability for the route workspace", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ hosted_apps_enabled: false }),
+    });
+
+    expect(await getSystemFeatures("acme")).toEqual({
+      hosted_apps_enabled: false,
+    });
+    const [url, options] = (global.fetch as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(url).toContain("/api/system/features");
+    expect((options.headers as Headers).get("X-Orcheo-Workspace")).toBe("acme");
   });
 
   it("should fetch active workspace summary", async () => {

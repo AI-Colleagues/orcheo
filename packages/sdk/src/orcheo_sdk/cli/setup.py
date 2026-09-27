@@ -1048,12 +1048,14 @@ def _resolve_smtp_email_config(
     yes: bool,
     env_file: Path,
     env_exists: bool,
+    prompt_transport: bool = True,
 ) -> SmtpEmailConfig:
     """Resolve the SMTP transactional-email sender configuration.
 
     SMTP delivers both workspace invitations and first-party auth sign-in
     links/codes. With no host the backend logs links/codes instead of sending
-    email, so every SMTP setting is optional.
+    email, so every SMTP setting is optional. ``prompt_transport=False`` skips
+    the port and STARTTLS prompts, keeping existing or default values.
     """
     existing_host = (
         _read_env_value(env_file, "ORCHEO_SMTP_HOST") if env_exists else None
@@ -1099,7 +1101,10 @@ def _resolve_smtp_email_config(
     use_tls = smtp_use_tls if smtp_use_tls is not None else existing_use_tls
 
     if host is not None and not yes:
-        port = _parse_int_value(typer.prompt("SMTP port", default=str(port))) or port
+        if prompt_transport:
+            port = (
+                _parse_int_value(typer.prompt("SMTP port", default=str(port))) or port
+            )
         username = (
             _normalize_optional_value(
                 typer.prompt("SMTP username", default=username or "")
@@ -1126,10 +1131,11 @@ def _resolve_smtp_email_config(
             or from_email
             or _DEFAULT_SMTP_FROM_EMAIL
         )
-        use_tls = typer.confirm(
-            "Use STARTTLS for the SMTP connection?",
-            default=True if use_tls is None else use_tls,
-        )
+        if prompt_transport:
+            use_tls = typer.confirm(
+                "Use STARTTLS for the SMTP connection?",
+                default=True if use_tls is None else use_tls,
+            )
 
     return SmtpEmailConfig(
         host=host,
@@ -1665,16 +1671,15 @@ def _stack_version_candidate(
     tag: object,
     *,
     prerelease: bool,
+    tag_prefix: str = _STACK_RELEASE_TAG_PREFIX,
 ) -> tuple[Version, str] | None:
-    """Return a comparable stack version from one GitHub tag entry."""
+    """Return a comparable release version from one GitHub tag entry."""
     if not isinstance(tag, dict):
         return None
     tag_name = tag.get("name")
-    if not isinstance(tag_name, str) or not tag_name.startswith(
-        _STACK_RELEASE_TAG_PREFIX
-    ):
+    if not isinstance(tag_name, str) or not tag_name.startswith(tag_prefix):
         return None
-    version = _normalize_stack_version(tag_name)
+    version = _normalize_optional_value(tag_name.removeprefix(tag_prefix))
     if version is None:
         return None
     try:
@@ -1690,6 +1695,7 @@ def _discover_latest_stack_version(
     console: Console,
     *,
     prerelease: bool = False,
+    tag_prefix: str = _STACK_RELEASE_TAG_PREFIX,
 ) -> str | None:
     tags_url = f"{_GITHUB_TAGS_API_URL}?per_page=100"
     try:
@@ -1712,7 +1718,9 @@ def _discover_latest_stack_version(
 
     candidates: list[tuple[Version, str]] = []
     for tag in tags:
-        candidate = _stack_version_candidate(tag, prerelease=prerelease)
+        candidate = _stack_version_candidate(
+            tag, prerelease=prerelease, tag_prefix=tag_prefix
+        )
         if candidate is not None:
             candidates.append(candidate)
 
@@ -1783,24 +1791,47 @@ def _sync_stack_asset(
     stack_version: str | None,
     console: Console,
 ) -> None:
-    destination = stack_dir / relative_path
     remote_payload = _download_stack_asset(
         relative_path,
         stack_version=stack_version,
         console=console,
     )
+    _write_synced_asset(
+        stack_dir / relative_path,
+        remote_payload,
+        label=f"stack asset: {relative_path}",
+        console=console,
+    )
 
+
+def _write_synced_asset(
+    destination: Path,
+    payload: bytes,
+    *,
+    label: str,
+    console: Console,
+    dry_run: bool = False,
+) -> None:
+    """Write a downloaded asset, skipping the write when it is unchanged.
+
+    With ``dry_run`` the change is only reported.
+    """
     if destination.exists():
-        local_payload = destination.read_bytes()
-        if local_payload == remote_payload:
+        if destination.read_bytes() == payload:
             return
-        destination.write_bytes(remote_payload)
-        console.print(f"[green]Updated stack asset: {relative_path}[/green]")
+        if dry_run:
+            console.print(f"[yellow]Would update {label}[/yellow]")
+            return
+        destination.write_bytes(payload)
+        console.print(f"[green]Updated {label}[/green]")
         return
 
+    if dry_run:
+        console.print(f"[yellow]Would download {label}[/yellow]")
+        return
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(remote_payload)
-    console.print(f"[green]Downloaded stack asset: {relative_path}[/green]")
+    destination.write_bytes(payload)
+    console.print(f"[green]Downloaded {label}[/green]")
 
 
 def _sync_stack_assets_per_file(
@@ -1968,28 +1999,26 @@ def _build_env_updates(
         updates["ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN"] = ""
     if config.chatkit_domain_key:
         updates["VITE_ORCHEO_CHATKIT_DOMAIN_KEY"] = config.chatkit_domain_key
-    if config.smtp_host:
-        updates["ORCHEO_SMTP_HOST"] = config.smtp_host
-        updates["ORCHEO_SMTP_PORT"] = str(config.smtp_port)
-        updates["ORCHEO_SMTP_USERNAME"] = config.smtp_username or ""
-        updates["ORCHEO_SMTP_PASSWORD"] = config.smtp_password or ""
-        updates["ORCHEO_SMTP_FROM_EMAIL"] = (
-            config.smtp_from_email or _DEFAULT_SMTP_FROM_EMAIL
+    updates.update(
+        build_smtp_env_updates(
+            SmtpEmailConfig(
+                host=config.smtp_host,
+                port=config.smtp_port,
+                username=config.smtp_username,
+                password=config.smtp_password,
+                from_email=config.smtp_from_email,
+                use_tls=config.smtp_use_tls,
+            )
         )
-        updates["ORCHEO_SMTP_USE_TLS"] = str(config.smtp_use_tls).lower()
+    )
     if config.auth_mode_required:
-        jwt_secret = _normalize_optional_value(config.auth_jwt_secret)
-        if jwt_secret is None:
-            jwt_secret = secrets.token_hex(32)
-        issuer = _normalize_optional_value(config.auth_issuer) or _DEFAULT_AUTH_ISSUER
-        audience = (
-            _normalize_optional_value(config.auth_audience) or _DEFAULT_AUTH_AUDIENCE
+        updates.update(
+            build_required_auth_env_updates(
+                jwt_secret=config.auth_jwt_secret,
+                issuer=config.auth_issuer,
+                audience=config.auth_audience,
+            )
         )
-        updates["ORCHEO_AUTH_MODE"] = "required"
-        updates["ORCHEO_AUTH_JWT_SECRET"] = jwt_secret
-        updates["ORCHEO_AUTH_ISSUER"] = issuer
-        updates["ORCHEO_AUTH_AUDIENCE"] = audience
-        updates["VITE_ORCHEO_AUTH_DISABLED"] = "false"
     if requested_stack_version:
         updates["ORCHEO_STACK_VERSION"] = requested_stack_version
         updates["ORCHEO_STACK_IMAGE"] = (
@@ -2004,6 +2033,70 @@ def _build_env_updates(
 
     defaults = build_generated_stack_env_defaults()
     return updates, defaults
+
+
+def build_required_auth_env_updates(
+    *,
+    jwt_secret: str | None,
+    issuer: str | None,
+    audience: str | None,
+) -> dict[str, str]:
+    """Return the values that require first-party sign-in for the stack."""
+    return {
+        "ORCHEO_AUTH_MODE": "required",
+        "ORCHEO_AUTH_JWT_SECRET": (
+            _normalize_optional_value(jwt_secret) or secrets.token_hex(32)
+        ),
+        "ORCHEO_AUTH_ISSUER": (
+            _normalize_optional_value(issuer) or _DEFAULT_AUTH_ISSUER
+        ),
+        "ORCHEO_AUTH_AUDIENCE": (
+            _normalize_optional_value(audience) or _DEFAULT_AUTH_AUDIENCE
+        ),
+        "VITE_ORCHEO_AUTH_DISABLED": "false",
+    }
+
+
+_ENV_VALUE_QUOTE_CHARS = frozenset("$#'\"\\")
+
+
+def quote_env_value(key: str, value: str) -> str:
+    """Quote ``value`` so Docker Compose reads it back from ``.env`` literally.
+
+    Compose interpolates ``$`` and treats `` #`` as a comment in unquoted values,
+    and keeps single-quoted values literal. A value containing a single quote
+    is double-quoted when it has nothing Compose would interpolate or unescape
+    there; any other value with a single quote is rejected.
+    """
+    if not any(char in _ENV_VALUE_QUOTE_CHARS for char in value):
+        return value
+    if "'" not in value:
+        return f"'{value}'"
+    if not any(char in '$"\\' for char in value):
+        return f'"{value}"'
+    raise typer.BadParameter(
+        f'{key} cannot combine a single quote with $, ", or \\ in the stack .env.'
+    )
+
+
+def build_smtp_env_updates(smtp: SmtpEmailConfig) -> dict[str, str]:
+    """Return the ``ORCHEO_SMTP_*`` values to write when a host is configured."""
+    if not smtp.host:
+        return {}
+    return {
+        "ORCHEO_SMTP_HOST": smtp.host,
+        "ORCHEO_SMTP_PORT": str(smtp.port),
+        "ORCHEO_SMTP_USERNAME": quote_env_value(
+            "ORCHEO_SMTP_USERNAME", smtp.username or ""
+        ),
+        "ORCHEO_SMTP_PASSWORD": quote_env_value(
+            "ORCHEO_SMTP_PASSWORD", smtp.password or ""
+        ),
+        "ORCHEO_SMTP_FROM_EMAIL": quote_env_value(
+            "ORCHEO_SMTP_FROM_EMAIL", smtp.from_email or _DEFAULT_SMTP_FROM_EMAIL
+        ),
+        "ORCHEO_SMTP_USE_TLS": str(smtp.use_tls).lower(),
+    }
 
 
 def build_generated_stack_env_defaults() -> dict[str, str]:
@@ -2049,6 +2142,12 @@ def _warn_chatkit_domain_key_missing(*, env_file: Path, console: Console) -> Non
     )
 
 
+def _ensure_single_line_env_values(values: dict[str, str]) -> None:
+    for key, value in values.items():
+        if "\n" in value or "\r" in value:
+            raise typer.BadParameter(f"{key} must be a single line.")
+
+
 def _upsert_env_values(
     env_file: Path,
     updates: dict[str, str],
@@ -2060,8 +2159,10 @@ def _upsert_env_values(
 
     Keys in *updates* always overwrite existing values.  Keys in *defaults*
     only overwrite when the key is already present in the file; missing keys
-    are appended.
+    are appended. Values must be single lines so they cannot inject extra
+    assignments.
     """
+    _ensure_single_line_env_values({**updates, **(defaults or {})})
     original = env_file.read_text(encoding="utf-8")
     lines = original.splitlines()
     pending_updates = dict(updates)
@@ -2243,8 +2344,9 @@ def _ensure_stack_assets(
     console: Console,
     stack_version: str | None = None,
     staging: bool = False,
+    stack_dir: Path | None = None,
 ) -> tuple[Path, Path]:
-    stack_dir = _resolve_stack_project_dir()
+    stack_dir = stack_dir or _resolve_stack_project_dir()
     stack_dir.mkdir(parents=True, exist_ok=True)
 
     requested_stack_version = _resolve_stack_version(stack_version)
@@ -2297,6 +2399,226 @@ def _ensure_stack_assets(
 
     _upsert_env_values(env_file, updates, console=console)
     return stack_dir, env_file
+
+
+_SECRET_ENV_KEY_PATTERN = re.compile(r"(PASSWORD|SECRET|TOKEN|_KEY$|_DSN$)")
+
+
+def _copy_stack_state(stack_dir: Path, preview_dir: Path) -> None:
+    """Copy the files the installer reads or rewrites into a preview dir."""
+    for relative_path in (*_STACK_ASSET_FILES, ".env"):
+        source = stack_dir / relative_path
+        if source.is_file():
+            shutil.copy2(source, preview_dir / relative_path)
+    widgets_dir = stack_dir / _CHATKIT_WIDGETS_DIR
+    if widgets_dir.is_dir():
+        shutil.copytree(widgets_dir, preview_dir / _CHATKIT_WIDGETS_DIR)
+
+
+def _preview_env_value(key: str, value: str) -> str:
+    if value and _SECRET_ENV_KEY_PATTERN.search(key):
+        return _mask_secret(value)
+    return value
+
+
+def _report_stack_preview(
+    stack_dir: Path,
+    preview_dir: Path,
+    *,
+    console: Console,
+) -> None:
+    """Report how the preview dir differs from the real stack dir."""
+    for preview_file in sorted(preview_dir.rglob("*")):
+        relative_path = preview_file.relative_to(preview_dir).as_posix()
+        if not preview_file.is_file() or relative_path == ".env":
+            continue
+        current_file = stack_dir / relative_path
+        if not current_file.exists():
+            console.print(
+                f"[yellow]Would download stack asset: {relative_path}[/yellow]"
+            )
+        elif current_file.read_bytes() != preview_file.read_bytes():
+            console.print(f"[yellow]Would update stack asset: {relative_path}[/yellow]")
+
+    report_env_preview(
+        stack_dir / ".env",
+        preview_env_file=preview_dir / ".env",
+        template_file=preview_dir / ".env.example",
+        console=console,
+    )
+
+
+def _read_env_values(env_file: Path) -> dict[str, str]:
+    """Return ``.env`` assignments with surrounding quotes removed."""
+    return {
+        key: _normalize_dotenv_value(value) or ""
+        for key, value in _read_env_assignments(env_file).items()
+    }
+
+
+def report_env_preview(
+    env_file: Path,
+    *,
+    preview_env_file: Path,
+    template_file: Path,
+    console: Console,
+) -> None:
+    """Report how a previewed ``.env`` differs from the current one.
+
+    A missing ``env_file`` is compared against its template instead. Secret
+    values are masked.
+    """
+    if env_file.exists():
+        baseline = _read_env_values(env_file)
+        heading = f"Would change these values in {env_file}:"
+    else:
+        baseline = _read_env_values(template_file)
+        heading = (
+            f"Would create {env_file} from {template_file.name} with these values "
+            "changed from the template:"
+        )
+    changes = [
+        (key, baseline.get(key), value)
+        for key, value in _read_env_values(preview_env_file).items()
+        if baseline.get(key) != value
+    ]
+    if not changes:
+        console.print(f"[cyan]Would keep existing values in {env_file}[/cyan]")
+        return
+    console.print(f"[yellow]{heading}[/yellow]")
+    for key, old_value, new_value in changes:
+        new_text = _preview_env_value(key, new_value)
+        if old_value is None:
+            console.print(f"  {key}={new_text}")
+        else:
+            console.print(
+                f"  {key}: {_preview_env_value(key, old_value)} -> {new_text}"
+            )
+
+
+def _report_hosted_apps_tls_plan(
+    config: SetupConfig,
+    *,
+    stack_dir: Path,
+    console: Console,
+) -> None:
+    tls_dir = stack_dir / "app-tls"
+    if (
+        config.hosted_apps_enabled
+        and config.public_ingress_enabled
+        and config.app_tls_method == "provided"
+    ):
+        console.print(
+            "[yellow]Would copy the Hosted Apps TLS certificate "
+            f"({config.app_tls_cert_file}) and key ({config.app_tls_key_file}) "
+            f"into {tls_dir} and point ORCHEO_APP_TLS_CERT_FILE and "
+            "ORCHEO_APP_TLS_KEY_FILE at the copies.[/yellow]"
+        )
+        return
+    console.print(
+        f"[yellow]Would write {tls_dir / 'Caddyfile'} with 'tls internal'.[/yellow]"
+    )
+
+
+def report_docker_readiness(
+    *,
+    install_docker_if_missing: bool,
+    console: Console,
+) -> list[str] | None:
+    """Report whether Docker is ready to start a stack; return the docker CLI."""
+    docker_command = _docker_command()
+    if docker_command is None:
+        action = (
+            "would attempt an automatic install"
+            if install_docker_if_missing
+            else "setup would stop (--skip-docker-install)"
+        )
+        console.print(f"[yellow]Docker CLI not found; {action}.[/yellow]")
+    elif not _current_shell_has_docker_access():
+        console.print(
+            "[yellow]Docker CLI found, but this shell cannot reach the Docker "
+            "daemon; the stack would not start.[/yellow]"
+        )
+    else:
+        console.print("[cyan]Docker CLI and daemon are available.[/cyan]")
+    return docker_command
+
+
+def _report_stack_start_plan(
+    config: SetupConfig,
+    *,
+    stack_dir: Path,
+    preview_dir: Path,
+    console: Console,
+) -> None:
+    """Report the Docker steps that starting the stack would take."""
+    if not config.start_stack:
+        console.print("[cyan]Would skip starting the stack (--skip-stack).[/cyan]")
+        return
+    docker_command = report_docker_readiness(
+        install_docker_if_missing=config.install_docker_if_missing,
+        console=console,
+    )
+    compose_command = " ".join(
+        [
+            *(docker_command or ["docker"]),
+            "compose",
+            *_compose_profile_args(preview_dir),
+            "-f",
+            str(stack_dir / "docker-compose.yml"),
+            "--project-directory",
+            str(stack_dir),
+        ]
+    )
+    console.print(f"[yellow]Would run: {compose_command} pull[/yellow]")
+    console.print(f"[yellow]Would run: {compose_command} up -d[/yellow]")
+    healthcheck_url = _build_healthcheck_url(config)
+    if healthcheck_url is not None:
+        console.print(
+            "[yellow]Would wait for backend health at "
+            f"{healthcheck_url.rstrip('/')}/api/system/health[/yellow]"
+        )
+
+
+def preview_setup(
+    config: SetupConfig,
+    *,
+    console: Console,
+    stack_version: str | None = None,
+    staging: bool = False,
+) -> None:
+    """Report what ``execute_setup`` would change, without changing anything.
+
+    Asset syncing and ``.env`` generation run against a temporary copy of the
+    stack directory so the report matches a real run. Docker, Compose, and TLS
+    file copies are only described.
+    """
+    stack_dir = _resolve_stack_project_dir()
+    console.print(
+        "[bold cyan]Dry run: no files, containers, or Docker installs will be "
+        "changed.[/bold cyan]"
+    )
+    with tempfile.TemporaryDirectory(prefix="orcheo-install-dry-run-") as temp_dir:
+        preview_dir = Path(temp_dir)
+        _copy_stack_state(stack_dir, preview_dir)
+        _, preview_env_file = _ensure_stack_assets(
+            config=config,
+            console=Console(quiet=True),
+            stack_version=stack_version,
+            staging=staging,
+            stack_dir=preview_dir,
+        )
+        _report_stack_preview(stack_dir, preview_dir, console=console)
+        _report_hosted_apps_tls_plan(config, stack_dir=stack_dir, console=console)
+        _run_hosted_apps_preflight(config, env_file=preview_env_file, console=console)
+        _report_stack_start_plan(
+            config,
+            stack_dir=stack_dir,
+            preview_dir=preview_dir,
+            console=console,
+        )
+    config.stack_project_dir = str(stack_dir)
+    config.stack_env_file = str(stack_dir / ".env")
 
 
 def run_setup(
@@ -2577,16 +2899,19 @@ def _compose_profile_args(stack_dir: Path) -> list[str]:
     return args
 
 
-def _prepare_stack_start(
-    config: SetupConfig,
+def _prepare_docker_for_start(
     *,
+    install_docker_if_missing: bool,
     console: Console,
-) -> tuple[bool, bool]:
-    docker_installed_this_run = False
-    use_privileged_docker = False
+) -> tuple[bool, bool, bool]:
+    """Make Docker usable before starting a stack.
 
-    if config.start_stack and not _has_binary("docker"):
-        if not config.install_docker_if_missing:
+    Returns ``(can_start, docker_installed_this_run, use_privileged_docker)``.
+    """
+    docker_installed_this_run = False
+
+    if not _has_binary("docker"):
+        if not install_docker_if_missing:
             raise typer.BadParameter(
                 "Docker is required to start the stack, and you chose "
                 "--skip-docker-install. Install Docker and rerun setup."
@@ -2598,25 +2923,40 @@ def _prepare_stack_start(
                 "Install Docker (https://docs.docker.com/get-docker/) and "
                 "rerun with --start-stack.[/yellow]"
             )
-            config.start_stack = False
-            return docker_installed_this_run, use_privileged_docker
+            return False, docker_installed_this_run, False
         docker_installed_this_run = True
 
-    if config.start_stack and not _current_shell_has_docker_access():
-        if docker_installed_this_run:
-            console.print(
-                "[yellow]Docker was installed during setup, but this shell has not "
-                "picked up docker group access yet. Continuing with privileged "
-                "docker commands for this run.[/yellow]"
-            )
-            use_privileged_docker = True
-        else:
-            console.print(
-                "[yellow]Docker is installed, but this shell cannot access the "
-                "daemon yet. Run `newgrp docker` or re-login, then rerun with "
-                "--start-stack.[/yellow]"
-            )
-            config.start_stack = False
+    if _current_shell_has_docker_access():
+        return True, docker_installed_this_run, False
+    if docker_installed_this_run:
+        console.print(
+            "[yellow]Docker was installed during setup, but this shell has not "
+            "picked up docker group access yet. Continuing with privileged "
+            "docker commands for this run.[/yellow]"
+        )
+        return True, docker_installed_this_run, True
+    console.print(
+        "[yellow]Docker is installed, but this shell cannot access the "
+        "daemon yet. Run `newgrp docker` or re-login, then rerun with "
+        "--start-stack.[/yellow]"
+    )
+    return False, docker_installed_this_run, False
+
+
+def _prepare_stack_start(
+    config: SetupConfig,
+    *,
+    console: Console,
+) -> tuple[bool, bool]:
+    if not config.start_stack:
+        return False, False
+    can_start, docker_installed_this_run, use_privileged_docker = (
+        _prepare_docker_for_start(
+            install_docker_if_missing=config.install_docker_if_missing,
+            console=console,
+        )
+    )
+    config.start_stack = can_start
     return docker_installed_this_run, use_privileged_docker
 
 
@@ -2769,8 +3109,10 @@ def print_summary(config: SetupConfig, *, console: Console) -> None:
 __all__ = [
     "AuthMode",
     "SetupConfig",
+    "SmtpEmailConfig",
     "SetupMode",
     "execute_setup",
+    "preview_setup",
     "print_summary",
     "run_setup",
 ]

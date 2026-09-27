@@ -9,6 +9,7 @@ from orcheo.identity import (
     InMemoryIdentityRepository,
     PostgresIdentityRepository,
 )
+from orcheo.identity.email_domains import parse_email_domains
 from orcheo_backend.app.authentication.settings import load_auth_settings
 from orcheo_backend.app.email_config import build_transactional_email_sender
 from orcheo_backend.app.identity.config import (
@@ -93,6 +94,9 @@ def get_identity_config() -> IdentityConfig:
         otp_digits=int(settings.get("AUTH_OTP_DIGITS") or 6),
         otp_max_attempts=int(settings.get("AUTH_OTP_MAX_ATTEMPTS") or 5),
         verify_base_url=verify_base_url,
+        allowed_email_domains=parse_email_domains(
+            settings.get("AUTH_ALLOWED_EMAIL_DOMAINS")
+        ),
     )
 
 

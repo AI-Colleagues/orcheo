@@ -91,6 +91,74 @@ Use this recipe when you want an isolated environment that mimics production wit
 
 _Vault note_: Rotate `ORCHEO_VAULT_ENCRYPTION_KEY` regularly and back up the Postgres volume alongside the database.
 
+## Lean Single Image (Backend + Studio)
+
+`ghcr.io/ai-colleagues/orcheo-lean` packages the backend and Studio, both built
+from source at the tagged revision, into one image. The backend serves Studio
+on the same origin (port 2025), so there is no separate Studio container.
+
+### With Celery worker, Celery Beat, and Redis
+
+`deploy/lean/docker-compose.yml` runs the lean image three times (backend,
+worker, and Beat) next to Redis, with in-process execution and cron turned off on the
+backend. PostgreSQL is not bundled: the stack uses a Supabase database through
+`ORCHEO_POSTGRES_DSN`, which must be set. Use the Supabase session pooler
+connection string (Project Settings > Database); the direct connection is
+IPv6-only, which Docker networks do not reach by default.
+
+From the repository root, create `deploy/lean/.env` from the template and fill
+it in, then start the stack:
+
+```bash
+cp deploy/lean/.env.example deploy/lean/.env
+docker compose -f deploy/lean/docker-compose.yml up -d --build
+```
+
+Compose reads `deploy/lean/.env`, not the repository-root `.env`. `--build`
+builds `Dockerfile.lean` from your checkout; the image includes the ChatKit
+widgets from `deploy/stack/chatkit_widgets`, so nothing is mounted. To run a published
+image, set `ORCHEO_LEAN_IMAGE=ghcr.io/ai-colleagues/orcheo-lean:<version>` and
+use `--no-build`. `ORCHEO_POSTGRES_DSN` and `ORCHEO_VAULT_ENCRYPTION_KEY` must
+be set (the optional `.env` is read for them). Set `ORCHEO_LEAN_PUBLIC_URL` to the browser-facing origin used
+for sign-in links and CORS (default `http://localhost:2025`), and
+`ORCHEO_LEAN_PORT` to change the host port.
+
+Without a checkout, `orcheo install --lean` downloads `docker-compose.yml` and
+`.env.example` from `deploy/lean/` at the newest `lean-v*` release into
+`~/.orcheo/lean`, prompts for the Supabase connection string and the email
+domains allowed to sign in, writes `.env` with generated secrets and the pinned
+`ORCHEO_LEAN_IMAGE`, and starts the stack with the published image. The
+template keeps local defaults (auth disabled, CLI uploads allowed, port bound to
+127.0.0.1). An `https://` backend URL at the prompt switches sign-in to
+required; otherwise set `ORCHEO_AUTH_MODE=required` before exposing it.
+`ORCHEO_AUTH_ALLOWED_EMAIL_DOMAINS` limits sign-in to the listed domains once
+sign-in is required.
+
+### Single container
+
+Without a worker or Beat, the backend runs executions and cron triggers
+in-process, so PostgreSQL is the only other service:
+
+```bash
+docker run -d --name orcheo -p 2025:2025 \
+  -v orcheo_data:/data \
+  -e ORCHEO_POSTGRES_DSN=postgresql://orcheo:orcheo@db.example:5432/orcheo \
+  -e ORCHEO_VAULT_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+  -e ORCHEO_AUTH_MODE=required \
+  -e ORCHEO_AUTH_JWT_SECRET="$(openssl rand -hex 32)" \
+  -e ORCHEO_STUDIO_URL=https://orcheo.example.com \
+  ghcr.io/ai-colleagues/orcheo-lean:latest
+```
+
+Studio's `VITE_ORCHEO_*` settings are read from the container environment at
+startup, as with the stack Studio image. `VITE_ORCHEO_BACKEND_URL` can stay
+unset because Studio calls the backend on its own origin, and
+`VITE_ORCHEO_APPS_BASE_DOMAIN` defaults to `ORCHEO_APPS_BASE_DOMAIN`. Hosted
+apps still need the separate app gateway, so leave `ORCHEO_HOSTED_APPS_ENABLED`
+off with this image unless you run one. In single-container mode, run exactly
+one container per database: the in-process cron loop is only safe in a single
+backend process, so use the Compose setup above when you need more.
+
 ## Reachable Self-Hosted Host (Bundled Caddy)
 
 This is the standard public self-hosted recipe for Orcheo on a reachable Linux host. The bundled stack keeps backend, Studio, Postgres, Redis, worker, and beat on the Docker network while Caddy is the only service that needs public `80/443`.

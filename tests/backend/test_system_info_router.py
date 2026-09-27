@@ -135,6 +135,36 @@ def test_system_health_is_public_when_auth_required(
     assert health_response.json() == {"status": "ok"}
 
 
+def test_system_features_follow_hosted_apps_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Studio sees the same Hosted Apps rollout decision as app routes."""
+    monkeypatch.setenv("ORCHEO_AUTH_MODE", "disabled")
+    client = create_test_client()
+
+    monkeypatch.setenv("ORCHEO_HOSTED_APPS_ENABLED", "false")
+    response = client.get("/api/system/features")
+    assert response.status_code == 200
+    assert response.json() == {"hosted_apps_enabled": False}
+
+    monkeypatch.setenv("ORCHEO_HOSTED_APPS_ENABLED", "true")
+    monkeypatch.setenv("ORCHEO_APPS_BASE_DOMAIN", "apps.test")
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_BACKEND", "filesystem")
+    monkeypatch.setenv("ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT", "/tmp/orcheo-test-apps")
+    monkeypatch.setenv("ORCHEO_DEPLOYMENT_MODE", "local")
+    response = client.get("/api/system/features")
+    assert response.status_code == 200
+    assert response.json() == {"hosted_apps_enabled": True}
+
+    monkeypatch.setenv("ORCHEO_HOSTED_APPS_WORKSPACE_ALLOWLIST", "other-workspace")
+    response = client.get("/api/system/features")
+    assert response.json() == {"hosted_apps_enabled": False}
+
+    monkeypatch.setenv("ORCHEO_HOSTED_APPS_ENABLED", "not-a-bool")
+    response = client.get("/api/system/features")
+    assert response.json() == {"hosted_apps_enabled": False}
+
+
 def test_system_plugins_reports_backend_process_availability(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
