@@ -99,27 +99,40 @@ on the same origin (port 2025), so there is no separate Studio container.
 
 ### With Celery worker, Celery Beat, and Redis
 
-`docker-compose-lean.yml` runs the lean image three times (backend, worker, and
-Beat) next to PostgreSQL and Redis, with in-process execution and cron turned
-off on the backend:
+`deploy/lean/docker-compose.yml` runs the lean image three times (backend,
+worker, and Beat) next to Redis, with in-process execution and cron turned off on the
+backend. PostgreSQL is not bundled: the stack uses a Supabase database through
+`ORCHEO_POSTGRES_DSN`, which must be set. Use the Supabase session pooler
+connection string (Project Settings > Database); the direct connection is
+IPv6-only, which Docker networks do not reach by default.
+
+From the repository root, create `deploy/lean/.env` from the template and fill
+it in, then start the stack:
 
 ```bash
-docker compose -f docker-compose-lean.yml up -d --build
+cp deploy/lean/.env.example deploy/lean/.env
+docker compose -f deploy/lean/docker-compose.yml up -d --build
 ```
 
-`--build` builds `Dockerfile.lean` from your checkout. To run a published
+Compose reads `deploy/lean/.env`, not the repository-root `.env`. `--build`
+builds `Dockerfile.lean` from your checkout; the image includes the ChatKit
+widgets from `deploy/stack/chatkit_widgets`, so nothing is mounted. To run a published
 image, set `ORCHEO_LEAN_IMAGE=ghcr.io/ai-colleagues/orcheo-lean:<version>` and
-use `--no-build`. `ORCHEO_VAULT_ENCRYPTION_KEY` must be set (the optional `.env`
-is read for it). Set `ORCHEO_LEAN_PUBLIC_URL` to the browser-facing origin used
+use `--no-build`. `ORCHEO_POSTGRES_DSN` and `ORCHEO_VAULT_ENCRYPTION_KEY` must
+be set (the optional `.env` is read for them). Set `ORCHEO_LEAN_PUBLIC_URL` to the browser-facing origin used
 for sign-in links and CORS (default `http://localhost:2025`), and
 `ORCHEO_LEAN_PORT` to change the host port.
 
-Without a checkout, `orcheo install --lean` downloads the compose file and
-`deploy/lean/.env.example` for the newest `lean-v*` release into
-`~/.orcheo/lean`, writes `.env` with generated secrets and the pinned
+Without a checkout, `orcheo install --lean` downloads `docker-compose.yml` and
+`.env.example` from `deploy/lean/` at the newest `lean-v*` release into
+`~/.orcheo/lean`, prompts for the Supabase connection string and the email
+domains allowed to sign in, writes `.env` with generated secrets and the pinned
 `ORCHEO_LEAN_IMAGE`, and starts the stack with the published image. The
 template keeps local defaults (auth disabled, CLI uploads allowed, port bound to
-127.0.0.1); switch `ORCHEO_AUTH_MODE` to `required` before exposing it.
+127.0.0.1). An `https://` backend URL at the prompt switches sign-in to
+required; otherwise set `ORCHEO_AUTH_MODE=required` before exposing it.
+`ORCHEO_AUTH_ALLOWED_EMAIL_DOMAINS` limits sign-in to the listed domains once
+sign-in is required.
 
 ### Single container
 

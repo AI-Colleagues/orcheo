@@ -34,6 +34,7 @@ from orcheo_sdk.cli.setup import (
     build_generated_stack_env_defaults,
     ensure_stack_env_file,
     execute_setup,
+    preview_setup,
     print_summary,
     run_setup,
 )
@@ -305,6 +306,7 @@ def _run_install_flow(
     app_tls_key_file: str | None = None,
     app_trusted_proxy_cidrs: str | None = None,
     app_trusted_proxy_hops: int | None = None,
+    dry_run: bool = False,
 ) -> None:
     """Run guided install/upgrade for Orcheo components."""
     if staging and stack_version is not None:
@@ -340,6 +342,22 @@ def _run_install_flow(
         app_trusted_proxy_cidrs=app_trusted_proxy_cidrs,
         app_trusted_proxy_hops=app_trusted_proxy_hops,
     )
+    if dry_run:
+        preview_setup(
+            config,
+            console=console,
+            stack_version=stack_version,
+            staging=staging,
+        )
+        if config.install_agent_skills:
+            console.print(
+                "[yellow]Would install the Orcheo skill for Claude Code and "
+                "Codex.[/yellow]"
+            )
+        console.print(
+            "\n[bold green]Dry run complete; nothing was changed.[/bold green]"
+        )
+        return
     execute_setup(
         config,
         console=console,
@@ -461,9 +479,39 @@ def install_command(
         typer.Option(
             "--lean",
             help=(
-                "Install the single-image lean stack (docker-compose-lean.yml) "
+                "Install the single-image lean stack (deploy/lean/docker-compose.yml) "
                 "under ~/.orcheo/lean: fetch its assets, configure .env from "
                 ".env.example, and start it with docker compose."
+            ),
+        ),
+    ] = False,
+    supabase_connection_string: Annotated[
+        str | None,
+        typer.Option(
+            "--supabase-connection-string",
+            help=(
+                "With --lean, the Supabase PostgreSQL connection string (sets "
+                "ORCHEO_POSTGRES_DSN); use the session pooler string."
+            ),
+        ),
+    ] = None,
+    login_email_domains: Annotated[
+        str | None,
+        typer.Option(
+            "--login-email-domains",
+            help=(
+                "With --lean, comma-separated email domains allowed to sign in "
+                "(sets ORCHEO_AUTH_ALLOWED_EMAIL_DOMAINS); '*' allows any."
+            ),
+        ),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help=(
+                "Walk through the prompts and show what would be downloaded, "
+                "written, and run without changing files, Docker, or containers."
             ),
         ),
     ] = False,
@@ -652,25 +700,28 @@ def install_command(
     """Run guided install/upgrade for Orcheo components."""
     if ctx.invoked_subcommand is not None:
         return
+    lean_only_options = {
+        "--supabase-connection-string": supabase_connection_string,
+        "--login-email-domains": login_email_domains,
+    }
+    provided_lean_only = [
+        name for name, value in lean_only_options.items() if value is not None
+    ]
+    if provided_lean_only and not lean:
+        raise typer.BadParameter(
+            f"{', '.join(provided_lean_only)} can only be used with --lean."
+        )
     if lean:
         _reject_stack_only_options_for_lean(
             {
                 "--mode": mode,
-                "--backend-url": backend_url,
                 "--studio-url": studio_url,
                 "--auth-mode": auth_mode,
                 "--api-key": api_key,
-                "--chatkit-domain-key": chatkit_domain_key,
                 "--public-ingress/--local-only": public_ingress,
                 "--public-host": public_host,
                 "--publish-local-ports/--hide-local-ports": publish_local_ports,
                 "--manual-secrets": manual_secrets or None,
-                "--smtp-host": smtp_host,
-                "--smtp-port": smtp_port,
-                "--smtp-username": smtp_username,
-                "--smtp-password": smtp_password,
-                "--smtp-from-email": smtp_from_email,
-                "--smtp-use-tls/--no-smtp-use-tls": smtp_use_tls,
                 "--hosted-apps/--no-hosted-apps": hosted_apps,
                 "--apps-base-domain": apps_base_domain,
                 "--hosted-apps-workspace-allowlist": hosted_apps_workspace_allowlist,
@@ -687,6 +738,17 @@ def install_command(
             install_docker=install_docker,
             yes=yes,
             console=_resolve_install_console(ctx),
+            dry_run=dry_run,
+            backend_url=backend_url,
+            supabase_connection_string=supabase_connection_string,
+            login_email_domains=login_email_domains,
+            chatkit_domain_key=chatkit_domain_key,
+            smtp_host=smtp_host,
+            smtp_port=smtp_port,
+            smtp_username=smtp_username,
+            smtp_password=smtp_password,
+            smtp_from_email=smtp_from_email,
+            smtp_use_tls=smtp_use_tls,
         )
         return
     _run_install_flow(  # pragma: no cover
@@ -719,6 +781,7 @@ def install_command(
         app_tls_key_file=app_tls_key_file,
         app_trusted_proxy_cidrs=app_trusted_proxy_cidrs,
         app_trusted_proxy_hops=app_trusted_proxy_hops,
+        dry_run=dry_run,
     )
 
 
@@ -744,6 +807,16 @@ def install_upgrade_command(
             "--staging",
             help=(
                 "Upgrade to the newest published prerelease stack and Studio images."
+            ),
+        ),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help=(
+                "Walk through the prompts and show what would be downloaded, "
+                "written, and run without changing files, Docker, or containers."
             ),
         ),
     ] = False,
@@ -906,6 +979,7 @@ def install_upgrade_command(
         app_tls_key_file=app_tls_key_file,
         app_trusted_proxy_cidrs=app_trusted_proxy_cidrs,
         app_trusted_proxy_hops=app_trusted_proxy_hops,
+        dry_run=dry_run,
     )
 
 

@@ -111,6 +111,7 @@ not prompted: CLI options or existing values win, followed by the fixed
 | `ORCHEO_AUTH_CHALLENGE_TTL_MINUTES` | `15` | Integer > 0 | Lifetime of a magic-link/OTP email challenge (identity service). |
 | `ORCHEO_AUTH_SESSION_TTL_DAYS` | `30` | Integer > 0 | Lifetime of a refresh-token session (identity service). |
 | `ORCHEO_AUTH_OTP_DIGITS` | `6` | Integer ≥ 4 | Number of digits in the emailed OTP code (identity service). |
+| `ORCHEO_AUTH_ALLOWED_EMAIL_DOMAINS` | _unset_ (any domain) | Comma-separated domains (for example `example.com,b.org`) | Email domains allowed to sign in through the first-party IdP. Matching is exact, so subdomains must be listed separately. Requests from other domains get HTTP 403 at `/api/auth/email/start` and `/api/auth/email/verify`, and existing sessions for them stop refreshing (identity service). |
 | `ORCHEO_AUTH_OTP_MAX_ATTEMPTS` | `5` | Integer > 0 | OTP attempts before a challenge is locked out (identity service). |
 | `ORCHEO_AUTH_JWKS_URL` | _none_ | URL returning JWKS JSON | **Dormant.** Generic external-issuer JWKS endpoint, retained for the future enterprise-SSO initiative; unset for first-party auth (`authentication/settings.py`). |
 | `ORCHEO_AUTH_JWKS` / `ORCHEO_AUTH_JWKS_STATIC` | _none_ | JSON text or mapping containing JWKS data | Inline JWKS definitions as JSON/text for offline validation (`authentication/settings.py`). |
@@ -209,8 +210,9 @@ self-host/dev default).
 | `ORCHEO_POSTGRES_PASSWORD` | _auto-generated on install_ | Non-empty string | PostgreSQL password written to stack `.env` by `orcheo install` and consumed by `deploy/stack/docker-compose.yml` to configure the Postgres service and backend DSN. |
 | `ORCHEO_LEAN_DIR` | `~/.orcheo/lean` | Directory path | Target directory for `orcheo install --lean` assets and its generated `.env` (`cli/lean_setup.py`). |
 | `ORCHEO_LEAN_VERSION` | _unset_ | Lean release version string (for example `0.1.0` or `0.2.0-rc.1`) | Pins `orcheo install --lean` to a specific `lean-v*` release when `--stack-version` is not provided. |
-| `ORCHEO_LEAN_ASSET_BASE_URL` | _unset_ | HTTP(S) URL | Optional mirror of the repository root used by `orcheo install --lean` to download `docker-compose-lean.yml` and `deploy/lean/.env.example` (`cli/lean_setup.py`). |
-| `ORCHEO_LEAN_IMAGE` | `orcheo-lean:local` | Container image reference | Image used by `docker-compose-lean.yml`. `orcheo install --lean` pins it to `ghcr.io/ai-colleagues/orcheo-lean:<version>`. |
+| `ORCHEO_LEAN_ASSET_BASE_URL` | _unset_ | HTTP(S) URL | Optional mirror of the `deploy/lean` directory used by `orcheo install --lean` to download `docker-compose.yml` and `.env.example` (`cli/lean_setup.py`). |
+| `ORCHEO_POSTGRES_DSN` (lean stack) | _required_ | PostgreSQL URL | Supabase connection string for `deploy/lean/docker-compose.yml`, which does not bundle PostgreSQL. `orcheo install --lean` prompts for it and writes it single-quoted so `$` and `#` in the password survive Compose parsing. |
+| `ORCHEO_LEAN_IMAGE` | `orcheo-lean:local` | Container image reference | Image used by `deploy/lean/docker-compose.yml`. `orcheo install --lean` pins it to `ghcr.io/ai-colleagues/orcheo-lean:<version>`. |
 | `ORCHEO_STACK_ASSET_BASE_URL` | _unset_ | HTTP(S) URL | Optional custom mirror base URL for per-file stack asset downloads. When set, `orcheo install` skips GitHub tag discovery and downloads stack assets from this mirror (`cli/setup.py`). |
 | `ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS` | `60` | Integer ≥ 0 | Timeout window used by `orcheo install` when waiting for `docker compose` backend health checks (`cli/setup.py`). |
 | `ORCHEO_PUBLIC_INGRESS_ENABLED` | `false` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Enables the bundled Caddy ingress profile written by `orcheo install`. When false, backend and studio are accessible only via their direct localhost port bindings. |

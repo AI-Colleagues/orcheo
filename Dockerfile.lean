@@ -2,8 +2,8 @@
 #
 # The backend serves the Studio bundle itself (ORCHEO_STUDIO_DIST_DIR). By
 # default it also runs executions and cron triggers in-process, so a single
-# container plus PostgreSQL is enough; docker-compose-lean.yml instead runs the
-# same image as backend, Celery worker, and Celery Beat with Redis.
+# container plus PostgreSQL is enough; deploy/lean/docker-compose.yml instead
+# runs the same image as backend, Celery worker, and Celery Beat with Redis.
 
 # Stage 1: build Studio with placeholder values. The entrypoint replaces them
 # with runtime environment variable values at container startup.
@@ -83,6 +83,8 @@ RUN mkdir -p /data/home \
 COPY deploy/stack/orcheo-entrypoint.sh /usr/local/bin/orcheo-entrypoint
 COPY deploy/lean/lean-entrypoint.sh /usr/local/bin/orcheo-lean-entrypoint
 RUN chmod +x /usr/local/bin/orcheo-entrypoint /usr/local/bin/orcheo-lean-entrypoint
+# Bundled ChatKit widgets, read by the agent node; the stack mounts these instead.
+COPY deploy/stack/chatkit_widgets/ /app/examples/chatkit_widgets/widgets/
 
 COPY --from=python-build /opt/orcheo/venv /opt/orcheo/venv
 
