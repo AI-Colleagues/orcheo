@@ -105,7 +105,7 @@ This installs completion for your current shell (bash, zsh, fish, or PowerShell)
 | `orcheo token revoke <token-id> --reason <reason>` | Immediately invalidate a service token (`--reason` is required). |
 | `orcheo workspace list` / `me` / `use [<slug>]` | List workspaces, show the caller's memberships, and show or set the active workspace slug for the profile. |
 | `orcheo workspace create` / `invite` / `deactivate` / `reactivate` / `delete` / `purge-deleted` / `audit-log` | Administer workspaces: creation, member invitations, lifecycle, and audit events. |
-| `orcheo stack [--start\|--stop\|--restart\|--ps\|--pull\|--logs\|--down]` | Run common Docker Compose actions for the local Orcheo stack directory. |
+| `orcheo stack [--start\|--stop\|--restart\|--ps\|--pull\|--logs\|--down]` | Run common Docker Compose actions for the installed Orcheo stack: `~/.orcheo/stack`, or the lean install in `~/.orcheo/lean` when no full stack is installed. Set `ORCHEO_STACK_DIR` or `ORCHEO_LEAN_DIR` to pick one when both exist. |
 | `orcheo config [--profile <name>] [--api-url <url>] [--service-token <token>] [--studio-url <url>] [--env-file <path>]` | Write CLI profile settings to `cli.toml`. Supports OAuth options (see below). |
 | `orcheo config list` | List all configured CLI profiles. |
 | `orcheo code template [-o <file>] [--name <name>]` | Generate a minimal Python LangGraph workflow template file. |

@@ -38,6 +38,11 @@ from orcheo_sdk.cli.setup import (
     print_summary,
     run_setup,
 )
+from orcheo_sdk.cli.stack_project import (
+    STACK_NOT_FOUND_MESSAGE,
+    StackProject,
+    resolve_installed_stack,
+)
 from orcheo_sdk.cli.state import CLIState
 from orcheo_sdk.cli.update_check import maybe_print_update_notice
 from orcheo_sdk.cli.workflow import workflow_app
@@ -410,21 +415,23 @@ def _compose_profile_args(stack_dir: Path) -> list[str]:
     return profiles
 
 
-def _stack_compose_base_args() -> list[str]:
-    stack_dir = _resolve_stack_project_dir()
-    compose_file = stack_dir / "docker-compose.yml"
-    if not compose_file.exists():
-        raise typer.BadParameter(
-            "Stack docker-compose file not found. Run 'orcheo install --yes' first."
-        )
+def _resolve_stack_project() -> StackProject:
+    project = resolve_installed_stack(_resolve_stack_project_dir())
+    if project is None:
+        raise typer.BadParameter(STACK_NOT_FOUND_MESSAGE)
+    return project
+
+
+def _stack_compose_base_args(project: StackProject | None = None) -> list[str]:
+    project = project or _resolve_stack_project()
     return [
         "docker",
         "compose",
-        *_compose_profile_args(stack_dir),
+        *_compose_profile_args(project.project_dir),
         "-f",
-        str(compose_file),
+        str(project.compose_file),
         "--project-directory",
-        str(stack_dir),
+        str(project.project_dir),
     ]
 
 
@@ -1062,7 +1069,7 @@ def stack_command(
         typer.Option("--down", help="Stop and remove stack resources."),
     ] = False,
 ) -> None:
-    """Run common Docker Compose actions for the local Orcheo stack."""
+    """Run common Docker Compose actions for the installed full or lean stack."""
     if shutil.which("docker") is None:
         raise typer.BadParameter(
             "Docker is not installed or not in PATH. Install Docker and retry."
@@ -1092,10 +1099,14 @@ def stack_command(
         raise typer.BadParameter("Choose only one stack action at a time.")
 
     action = selected_actions[0]
-    compose_base_args = _stack_compose_base_args()
+    project = _resolve_stack_project()
+    compose_base_args = _stack_compose_base_args(project)
+    # The lean compose file also declares a source build that needs a full
+    # checkout, so start it from the published image only.
+    up_args = ["up", "-d", *(["--no-build"] if project.lean else [])]
     command_by_action = {
         "logs": [*compose_base_args, "logs", "-f"],
-        "start": [*compose_base_args, "up", "-d"],
+        "start": [*compose_base_args, *up_args],
         "stop": [*compose_base_args, "stop"],
         "restart": [*compose_base_args, "restart"],
         "ps": [*compose_base_args, "ps"],

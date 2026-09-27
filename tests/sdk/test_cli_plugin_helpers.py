@@ -78,6 +78,27 @@ def test_use_stack_runtime_variants(
     assert plugin_module._use_stack_runtime("auto") is True
 
 
+def test_stack_runtime_uses_lean_install(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    lean_dir = tmp_path / "lean"
+    lean_dir.mkdir()
+    compose_file = lean_dir / "docker-compose.yml"
+    compose_file.write_text("services: {}\n", encoding="utf-8")
+    monkeypatch.delenv("ORCHEO_STACK_DIR", raising=False)
+    monkeypatch.setenv("ORCHEO_LEAN_DIR", str(lean_dir))
+
+    assert plugin_module._use_stack_runtime("auto") is True
+    assert plugin_module._stack_compose_base_args() == [
+        "docker",
+        "compose",
+        "-f",
+        str(compose_file),
+        "--project-directory",
+        str(lean_dir),
+    ]
+
+
 def test_run_stack_subprocess_requires_docker(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(plugin_module.shutil, "which", lambda _: None)
     with pytest.raises(typer.BadParameter):

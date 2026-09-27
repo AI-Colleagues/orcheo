@@ -17,6 +17,7 @@ from orcheo_sdk.cli import main as main_mod
 from orcheo_sdk.cli.errors import APICallError, CLIError
 from orcheo_sdk.cli.main import app, run, run_human
 from orcheo_sdk.cli.setup import SetupConfig
+from orcheo_sdk.cli.stack_project import StackProject
 from orcheo_sdk.cli.state import CLIState
 
 
@@ -722,8 +723,13 @@ def test_stack_command_errors_and_success(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(main_mod, "_resolve_install_console", lambda ctx: console)
     monkeypatch.setattr(
         main_mod,
+        "_resolve_stack_project",
+        lambda: StackProject(Path("stack"), lean=False),
+    )
+    monkeypatch.setattr(
+        main_mod,
         "_stack_compose_base_args",
-        lambda: ["docker", "compose", "-f", "docker-compose.yml"],
+        lambda project=None: ["docker", "compose", "-f", "docker-compose.yml"],
     )
 
     monkeypatch.setattr(main_mod.shutil, "which", lambda name: None)
