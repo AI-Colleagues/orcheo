@@ -6,6 +6,7 @@ workflow diagram view renders a version's Mermaid graph.
 """
 
 from __future__ import annotations
+import re
 from functools import cache
 from importlib.resources import files
 from typing import Annotated, Any, Literal
@@ -210,6 +211,22 @@ def _register_credential_tools(server: FastMCP) -> None:
         return _result(f"Saved credential '{saved['name']}'.", saved)
 
 
+def _one_line(text: str) -> str:
+    """Collapse whitespace so user text cannot start new lines."""
+    return " ".join(text.split())
+
+
+def _fenced(language: str, body: str) -> str:
+    """Wrap ``body`` in a code fence longer than any backtick run inside it.
+
+    The body is user-authored, so a fixed fence could be closed early and
+    let the rest reach the model as text outside the block.
+    """
+    longest = max((len(run) for run in re.findall(r"`+", body)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return f"{fence}{language}\n{body}\n{fence}"
+
+
 def _register_diagram_tool(server: FastMCP) -> None:
     @server.tool(
         annotations=READ_ONLY,
@@ -231,7 +248,8 @@ def _register_diagram_tool(server: FastMCP) -> None:
             )
         mermaid = rendered["mermaid"]
         return _result(
-            f"Workflow '{record['name']}' v{number}:\n```mermaid\n{mermaid}\n```",
+            f"Workflow '{_one_line(record['name'])}' v{number}:\n"
+            f"{_fenced('mermaid', mermaid)}",
             {
                 "workflow_id": record["id"],
                 "name": record["name"],

@@ -74,7 +74,7 @@ def test_owner_workspace_can_still_reach_its_resources(
         ("delete", "/api/credentials/{credential_id}", None),
     ],
 )
-def test_foreign_credentials_are_forbidden(
+def test_foreign_credentials_are_not_found(
     api_client: TestClient,
     foreign_resources: dict[str, str],
     method: str,
@@ -85,7 +85,9 @@ def test_foreign_credentials_are_forbidden(
 
     response = api_client.request(method, path.format(**foreign_resources), json=body)
 
-    assert response.status_code == 403
+    # Not found rather than forbidden, so credential IDs from other
+    # workspaces cannot be probed for existence.
+    assert response.status_code == 404
 
 
 @pytest.mark.parametrize(

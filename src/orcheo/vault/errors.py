@@ -25,6 +25,14 @@ class WorkflowScopeError(VaultError):
     """Raised when a credential scope denies access for the provided context."""
 
 
+class CredentialWorkspaceMismatchError(CredentialNotFoundError, WorkflowScopeError):
+    """Raised when a credential belongs to a different workspace.
+
+    It is a scope violation, but callers should report it as not found so the
+    credential's existence is not revealed across workspaces.
+    """
+
+
 class RotationPolicyError(VaultError):
     """Raised when a rotation violates configured policies."""
 
@@ -32,6 +40,7 @@ class RotationPolicyError(VaultError):
 __all__ = [
     "VaultError",
     "CredentialNotFoundError",
+    "CredentialWorkspaceMismatchError",
     "CredentialTemplateNotFoundError",
     "GovernanceAlertNotFoundError",
     "DuplicateCredentialNameError",
