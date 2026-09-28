@@ -77,6 +77,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN printf '%s\n' '#!/bin/sh' 'exec uv tool run "$@"' > /usr/local/bin/uvx \
     && chmod +x /usr/local/bin/uvx
+
+# Coding-agent CLIs for CodexNode, ClaudeCodeNode, and AntigravityNode. They
+# install as root and run as the orcheo user, so they cannot self-update;
+# rebuild the image for newer releases (agy always installs the latest).
+# Logins live under /data/home on the volume, not in the image.
+ARG CODEX_VERSION=latest
+ARG CLAUDE_CODE_VERSION=latest
+RUN npm install -g \
+      "@openai/codex@${CODEX_VERSION}" \
+      "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+    && npm cache clean --force \
+    && curl -fsSL -o /tmp/agy-install.sh https://antigravity.google/cli/install.sh \
+    && HOME=/tmp/agy-home bash /tmp/agy-install.sh --dir /usr/local/bin \
+    && test -x /usr/local/bin/agy \
+    && rm -rf /tmp/agy-install.sh /tmp/agy-home /tmp/node-compile-cache
+ENV DISABLE_AUTOUPDATER=1
 RUN mkdir -p /data/home \
     && groupadd --gid 1000 orcheo \
     && useradd --uid 1000 --gid 1000 --home-dir /data/home --create-home --shell /bin/sh orcheo
