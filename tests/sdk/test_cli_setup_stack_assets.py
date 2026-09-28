@@ -1530,6 +1530,7 @@ def test_run_setup_public_ingress_derives_public_env_contract(
     assert updates["ORCHEO_API_URL"] == "https://orcheo.example.com"
     assert updates["VITE_ORCHEO_BACKEND_URL"] == "https://orcheo.example.com"
     assert updates["ORCHEO_STUDIO_URL"] == "https://orcheo.example.com"
+    assert updates["ORCHEO_PUBLIC_URL"] == "https://orcheo.example.com"
     assert updates["ORCHEO_AUTH_MODE"] == "required"
     assert updates["ORCHEO_AUTH_JWT_SECRET"] == "existing-secret"
     assert updates["ORCHEO_AUTH_ISSUER"] == "https://issuer.example.com/"

@@ -92,6 +92,9 @@ def test_caddyfile_routes_studio_api_and_websockets() -> None:
 
     assert "{$ORCHEO_CADDY_SITE_ADDRESS}" in content
     assert "@backend path /api/* /ws/*" in content
+    # MCP clients discover OAuth from the origin root (RFC 8414 / RFC 9728).
+    assert "/.well-known/oauth-*" in content
+    assert "/.well-known/openid-configuration*" in content
     assert (
         "reverse_proxy @backend {$ORCHEO_CADDY_BACKEND_UPSTREAMS:backend:2025}"
         in content

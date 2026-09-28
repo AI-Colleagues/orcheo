@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
 from orcheo.models import WorkflowRun
 from orcheo.vault.oauth import CredentialHealthError
+from orcheo.workspace.models import WorkspaceContext
 from orcheo_backend.app.dependencies import (
     CredentialServiceDep,
     HistoryStoreDep,
@@ -16,10 +17,15 @@ from orcheo_backend.app.errors import (
     raise_conflict,
     raise_not_found,
 )
-from orcheo_backend.app.history import RunHistoryNotFoundError
+from orcheo_backend.app.history import (
+    RunHistoryNotFoundError,
+    RunHistoryRecord,
+    RunHistoryStore,
+)
 from orcheo_backend.app.history_utils import history_to_response
 from orcheo_backend.app.repository import (
     WorkflowNotFoundError,
+    WorkflowRepository,
     WorkflowRunNotFoundError,
     WorkflowVersionNotFoundError,
 )
@@ -38,6 +44,46 @@ from orcheo_backend.app.workspace import WorkspaceContextDep
 
 
 router = APIRouter()
+
+
+async def _ensure_run_in_workspace(
+    repository: WorkflowRepository,
+    run_id: UUID,
+    workspace: WorkspaceContext,
+) -> None:
+    """404 unless the run belongs to the caller's workspace."""
+    try:
+        await repository.get_run(run_id, workspace_id=str(workspace.workspace_id))
+    except WorkflowRunNotFoundError as exc:
+        raise_not_found("Workflow run not found", exc)
+
+
+async def _load_history_in_workspace(
+    history_store: RunHistoryStore,
+    repository: WorkflowRepository,
+    execution_id: str,
+    workspace: WorkspaceContext,
+) -> RunHistoryRecord:
+    """Return an execution history, 404ing when it belongs to another workspace."""
+    try:
+        record = await history_store.get_history(execution_id)
+    except RunHistoryNotFoundError as exc:
+        raise_not_found("Execution history not found", exc)
+    workspace_id = str(workspace.workspace_id)
+    if record.workspace_id is not None:
+        if record.workspace_id != workspace_id:
+            raise_not_found(
+                "Execution history not found", RunHistoryNotFoundError(execution_id)
+            )
+        return record
+    # Histories recorded before workspace stamping only carry the workflow ID.
+    try:
+        await repository.get_workflow(
+            UUID(record.workflow_id), workspace_id=workspace_id
+        )
+    except (ValueError, WorkflowNotFoundError) as exc:
+        raise_not_found("Execution history not found", exc)
+    return record
 
 
 @router.post(
@@ -130,8 +176,10 @@ async def mark_run_started(
     run_id: UUID,
     request: RunActionRequest,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
 ) -> WorkflowRun:
     """Transition a run into the running state."""
+    await _ensure_run_in_workspace(repository, run_id, workspace)
     try:
         return await repository.mark_run_started(run_id, actor=request.actor)
     except WorkflowRunNotFoundError as exc:
@@ -145,8 +193,10 @@ async def mark_run_succeeded(
     run_id: UUID,
     request: RunSucceedRequest,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
 ) -> WorkflowRun:
     """Mark a workflow run as successful."""
+    await _ensure_run_in_workspace(repository, run_id, workspace)
     try:
         return await repository.mark_run_succeeded(
             run_id,
@@ -164,8 +214,10 @@ async def mark_run_failed(
     run_id: UUID,
     request: RunFailRequest,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
 ) -> WorkflowRun:
     """Mark a workflow run as failed."""
+    await _ensure_run_in_workspace(repository, run_id, workspace)
     try:
         return await repository.mark_run_failed(
             run_id,
@@ -183,8 +235,10 @@ async def mark_run_cancelled(
     run_id: UUID,
     request: RunCancelRequest,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
 ) -> WorkflowRun:
     """Cancel a workflow run."""
+    await _ensure_run_in_workspace(repository, run_id, workspace)
     try:
         return await repository.mark_run_cancelled(
             run_id,
@@ -225,12 +279,13 @@ async def list_workflow_execution_histories(
 async def get_execution_history(
     execution_id: str,
     history_store: HistoryStoreDep,
+    repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
 ) -> RunHistoryResponse:
     """Return the recorded execution history for a workflow run."""
-    try:
-        record = await history_store.get_history(execution_id)
-    except RunHistoryNotFoundError as exc:
-        raise_not_found("Execution history not found", exc)
+    record = await _load_history_in_workspace(
+        history_store, repository, execution_id, workspace
+    )
     return history_to_response(record)
 
 
@@ -241,12 +296,13 @@ async def get_execution_history(
 async def get_execution_trace(
     execution_id: str,
     history_store: HistoryStoreDep,
+    repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
 ) -> TraceResponse:
     """Return the trace metadata assembled from execution history."""
-    try:
-        record = await history_store.get_history(execution_id)
-    except RunHistoryNotFoundError as exc:
-        raise_not_found("Execution history not found", exc)
+    record = await _load_history_in_workspace(
+        history_store, repository, execution_id, workspace
+    )
     return build_trace_response(record)
 
 
@@ -258,12 +314,13 @@ async def replay_execution(
     execution_id: str,
     request: RunReplayRequest,
     history_store: HistoryStoreDep,
+    repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
 ) -> RunHistoryResponse:
     """Return a sliced view of the execution history for replay clients."""
-    try:
-        record = await history_store.get_history(execution_id)
-    except RunHistoryNotFoundError as exc:
-        raise_not_found("Execution history not found", exc)
+    record = await _load_history_in_workspace(
+        history_store, repository, execution_id, workspace
+    )
     return history_to_response(record, from_step=request.from_step)
 
 

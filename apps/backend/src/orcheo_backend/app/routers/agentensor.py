@@ -28,7 +28,9 @@ async def list_agentensor_checkpoints(
     limit: int = Query(20, ge=1, le=200),
 ) -> list[AgentensorCheckpointResponse]:
     """List checkpoints for the specified workflow."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, workspace_id=str(workspace.workspace_id)
+    )
     checkpoints = await store.list_checkpoints(
         str(workflow_uuid), limit=limit, workspace_id=str(workspace.workspace_id)
     )
@@ -44,9 +46,12 @@ async def get_agentensor_checkpoint(
     checkpoint_id: str,
     repository: RepositoryDep,
     store: CheckpointStoreDep,
+    workspace: WorkspaceContextDep,
 ) -> AgentensorCheckpointResponse:
     """Return a single checkpoint for the workflow."""
-    workflow_uuid = await resolve_workflow_ref_id(repository, workflow_ref)
+    workflow_uuid = await resolve_workflow_ref_id(
+        repository, workflow_ref, workspace_id=str(workspace.workspace_id)
+    )
     try:
         checkpoint = await store.get_checkpoint(checkpoint_id)
     except AgentensorCheckpointNotFoundError as exc:

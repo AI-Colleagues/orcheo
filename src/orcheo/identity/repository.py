@@ -7,11 +7,15 @@ from uuid import UUID
 from orcheo.identity.errors import (
     IdentityChallengeNotFoundError,
     IdentitySessionNotFoundError,
+    OAuthAuthorizationRequestNotFoundError,
+    OAuthClientNotFoundError,
     UserNotFoundError,
 )
 from orcheo.identity.models import (
     AuthEmailChallenge,
     AuthSession,
+    OAuthAuthorizationRequest,
+    OAuthClient,
     User,
     normalize_email,
 )
@@ -45,9 +49,6 @@ class IdentityRepository(Protocol):
     def get_challenge(self, challenge_id: UUID) -> AuthEmailChallenge:
         """Return the challenge identified by `challenge_id`."""
 
-    def get_challenge_by_token_hash(self, token_hash: str) -> AuthEmailChallenge:
-        """Return the challenge matching a magic-link token hash."""
-
     def find_active_challenge_for_email(
         self, email: str, *, now: datetime
     ) -> AuthEmailChallenge | None:
@@ -71,10 +72,48 @@ class IdentityRepository(Protocol):
         """Return the session matching a refresh-token hash."""
 
     def update_session(self, session: AuthSession) -> AuthSession:
-        """Persist rotation/revocation changes for an existing session."""
+        """Persist rotation/revocation changes for an existing session.
+
+        Revocation is permanent: a stale copy written by a racing refresh
+        cannot clear ``revoked_at``.
+        """
 
     def revoke_sessions_for_user(self, user_id: UUID) -> int:
         """Revoke every active session for a user; return the count revoked."""
+
+    def add_oauth_client(self, client: OAuthClient) -> OAuthClient:
+        """Persist a dynamically registered OAuth client."""
+
+    def get_oauth_client(self, client_id: str) -> OAuthClient:
+        """Return the OAuth client identified by `client_id`."""
+
+    def add_authorization_request(
+        self, request: OAuthAuthorizationRequest
+    ) -> OAuthAuthorizationRequest:
+        """Persist a pending OAuth authorization request."""
+
+    def get_authorization_request(self, request_id: str) -> OAuthAuthorizationRequest:
+        """Return the authorization request identified by `request_id`."""
+
+    def get_authorization_request_by_code_hash(
+        self, code_hash: str
+    ) -> OAuthAuthorizationRequest:
+        """Return the authorization request that issued a code hash."""
+
+    def update_authorization_request(
+        self, request: OAuthAuthorizationRequest
+    ) -> OAuthAuthorizationRequest:
+        """Persist the user's decision on a still-undecided authorization request.
+
+        Raises:
+            OAuthAuthorizationRequestNotFoundError: If the request is unknown
+                or already decided.
+        """
+
+    def consume_authorization_code(
+        self, request_id: str, *, consumed_at: datetime
+    ) -> OAuthAuthorizationRequest:
+        """Atomically mark an unconsumed authorization code as consumed."""
 
 
 class InMemoryIdentityRepository:
@@ -86,6 +125,8 @@ class InMemoryIdentityRepository:
         self._email_index: dict[str, UUID] = {}
         self._challenges: dict[UUID, AuthEmailChallenge] = {}
         self._sessions: dict[UUID, AuthSession] = {}
+        self._oauth_clients: dict[str, OAuthClient] = {}
+        self._authorization_requests: dict[str, OAuthAuthorizationRequest] = {}
 
     def create_user(self, user: User) -> User:
         """Persist a new user; raises on a duplicate email."""
@@ -131,13 +172,6 @@ class InMemoryIdentityRepository:
         if challenge is None:
             raise IdentityChallengeNotFoundError(str(challenge_id))
         return challenge
-
-    def get_challenge_by_token_hash(self, token_hash: str) -> AuthEmailChallenge:
-        """Return the challenge matching a magic-link token hash."""
-        for challenge in self._challenges.values():
-            if challenge.token_hash == token_hash:
-                return challenge
-        raise IdentityChallengeNotFoundError(token_hash)
 
     def find_active_challenge_for_email(
         self, email: str, *, now: datetime
@@ -193,9 +227,12 @@ class InMemoryIdentityRepository:
         raise IdentitySessionNotFoundError(refresh_token_hash)
 
     def update_session(self, session: AuthSession) -> AuthSession:
-        """Persist rotation/revocation changes for an existing session."""
-        if session.id not in self._sessions:
+        """Persist rotation/revocation changes; revocation is permanent."""
+        current = self._sessions.get(session.id)
+        if current is None:
             raise IdentitySessionNotFoundError(str(session.id))
+        if current.revoked_at is not None:
+            session = session.model_copy(update={"revoked_at": current.revoked_at})
         self._sessions[session.id] = session
         return session
 
@@ -210,3 +247,59 @@ class InMemoryIdentityRepository:
                 )
                 revoked += 1
         return revoked
+
+    def add_oauth_client(self, client: OAuthClient) -> OAuthClient:
+        """Persist a dynamically registered OAuth client."""
+        self._oauth_clients[client.client_id] = client
+        return client
+
+    def get_oauth_client(self, client_id: str) -> OAuthClient:
+        """Return the OAuth client identified by `client_id`."""
+        client = self._oauth_clients.get(client_id)
+        if client is None:
+            raise OAuthClientNotFoundError(client_id)
+        return client
+
+    def add_authorization_request(
+        self, request: OAuthAuthorizationRequest
+    ) -> OAuthAuthorizationRequest:
+        """Persist a pending OAuth authorization request."""
+        self._authorization_requests[request.id] = request
+        return request
+
+    def get_authorization_request(self, request_id: str) -> OAuthAuthorizationRequest:
+        """Return the authorization request identified by `request_id`."""
+        request = self._authorization_requests.get(request_id)
+        if request is None:
+            raise OAuthAuthorizationRequestNotFoundError(request_id)
+        return request
+
+    def get_authorization_request_by_code_hash(
+        self, code_hash: str
+    ) -> OAuthAuthorizationRequest:
+        """Return the authorization request that issued a code hash."""
+        for request in self._authorization_requests.values():
+            if request.code_hash == code_hash:
+                return request
+        raise OAuthAuthorizationRequestNotFoundError(code_hash)
+
+    def update_authorization_request(
+        self, request: OAuthAuthorizationRequest
+    ) -> OAuthAuthorizationRequest:
+        """Persist the user's decision on a still-undecided authorization request."""
+        current = self._authorization_requests.get(request.id)
+        if current is None or current.decided_at is not None:
+            raise OAuthAuthorizationRequestNotFoundError(request.id)
+        self._authorization_requests[request.id] = request
+        return request
+
+    def consume_authorization_code(
+        self, request_id: str, *, consumed_at: datetime
+    ) -> OAuthAuthorizationRequest:
+        """Atomically mark an unconsumed authorization code as consumed."""
+        current = self._authorization_requests.get(request_id)
+        if current is None or current.consumed_at is not None:
+            raise OAuthAuthorizationRequestNotFoundError(request_id)
+        consumed = current.model_copy(update={"consumed_at": consumed_at})
+        self._authorization_requests[request_id] = consumed
+        return consumed

@@ -1,6 +1,7 @@
 """Tests for credential health endpoints and helpers."""
 
 from __future__ import annotations
+from types import SimpleNamespace
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 import pytest
@@ -380,11 +381,14 @@ async def test_dispatch_cron_triggers_wraps_health_error() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def dispatch_due_cron_runs(self, now=None):
+        async def dispatch_due_cron_runs(self, now=None, workspace_id=None):
             raise _health_error(workflow_id)
 
     with pytest.raises(HTTPException) as exc_info:
-        await dispatch_cron_triggers(repository=Repository())
+        await dispatch_cron_triggers(
+            repository=Repository(),
+            admin=SimpleNamespace(workspace_id=uuid4()),  # type: ignore[arg-type]
+        )
 
     assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
@@ -397,6 +401,9 @@ async def test_dispatch_manual_runs_wraps_health_error() -> None:
         async def dispatch_manual_runs(self, request):
             raise _health_error(workflow_id)
 
+        async def resolve_workflow_ref(self, workflow_ref, **_kwargs):
+            return UUID(workflow_ref)
+
     manual_request = ManualDispatchRequest(
         workflow_id=workflow_id,
         actor="ops",
@@ -404,6 +411,10 @@ async def test_dispatch_manual_runs_wraps_health_error() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        await dispatch_manual_runs(manual_request, repository=Repository())
+        await dispatch_manual_runs(
+            manual_request,
+            repository=Repository(),
+            workspace=SimpleNamespace(workspace_id=uuid4()),
+        )
 
     assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT

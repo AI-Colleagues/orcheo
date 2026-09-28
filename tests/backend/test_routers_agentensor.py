@@ -88,6 +88,7 @@ async def test_get_agentensor_checkpoint_raises_not_found() -> None:
             checkpoint_id=uuid4().hex,
             repository=_Repository(),
             store=store,  # type: ignore[arg-type]
+            workspace=_MOCK_WORKSPACE,
         )
 
     assert exc_info.value.status_code == 404
@@ -105,6 +106,7 @@ async def test_get_agentensor_checkpoint_requires_matching_workflow() -> None:
             checkpoint_id=checkpoint.id,
             repository=_Repository(),
             store=store,  # type: ignore[arg-type]
+            workspace=_MOCK_WORKSPACE,
         )
 
     assert exc_info.value.status_code == 404
@@ -121,6 +123,7 @@ async def test_get_agentensor_checkpoint_returns_record() -> None:
         checkpoint_id=checkpoint.id,
         repository=_Repository(),
         store=store,  # type: ignore[arg-type]
+        workspace=_MOCK_WORKSPACE,
     )
 
     assert response.id == checkpoint.id

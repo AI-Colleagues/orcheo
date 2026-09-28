@@ -4,6 +4,7 @@ from orcheo.vault.base import BaseCredentialVault
 from orcheo.vault.errors import (
     CredentialNotFoundError,
     CredentialTemplateNotFoundError,
+    CredentialWorkspaceMismatchError,
     DuplicateCredentialNameError,
     GovernanceAlertNotFoundError,
     RotationPolicyError,
@@ -18,6 +19,7 @@ __all__ = [
     "VaultError",
     "CredentialNotFoundError",
     "CredentialTemplateNotFoundError",
+    "CredentialWorkspaceMismatchError",
     "GovernanceAlertNotFoundError",
     "DuplicateCredentialNameError",
     "WorkflowScopeError",

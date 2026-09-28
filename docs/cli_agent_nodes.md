@@ -51,6 +51,15 @@ codex login
 # Antigravity — install and authenticate per the provider's instructions
 ```
 
+!!! tip "Lean image"
+
+    The lean image (`Dockerfile.lean`) already ships `codex`, `claude`, and
+    `agy`, installed at their latest releases when the image is built. Pin
+    Codex or Claude Code with the `CODEX_VERSION` / `CLAUDE_CODE_VERSION` build
+    args. Authenticate through `deploy/lean/.env` (`CLAUDE_CODE_OAUTH_TOKEN`,
+    `CODEX_API_KEY`, `GEMINI_API_KEY`) or by logging in inside the worker as the
+    `orcheo` user; logins persist on the `/data` volume across image upgrades.
+
 No credentials are materialized, probed, or injected by the node — it only
 resolves the executable on `PATH` and runs it. If the binary is missing the node
 raises before spawning any subprocess:

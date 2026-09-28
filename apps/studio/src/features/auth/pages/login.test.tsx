@@ -75,7 +75,6 @@ describe("Login", () => {
       expect(startEmailChallenge).toHaveBeenCalledWith(
         "alice@example.com",
         "login",
-        "/",
       ),
     );
     expect(await screen.findByLabelText(/sign-in code/i)).toBeInTheDocument();

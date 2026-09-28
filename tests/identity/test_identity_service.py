@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime, timedelta
-from urllib.parse import parse_qs, urlparse
 import jwt
 import pytest
 from orcheo.identity import (
@@ -34,8 +33,8 @@ class CapturingSender:
     def last(self) -> AuthChallengeEmail:
         return self.sent[-1]
 
-    def token_from_link(self) -> str:
-        return self.last.magic_link_url.split("token=", 1)[1]
+    def sign_in(self, service: IdentityService, email: str = "alice@example.com"):
+        return service.verify_code(email, self.last.otp_code)
 
 
 def _service(
@@ -59,30 +58,17 @@ def _service(
     return service, sender, repo
 
 
-def test_start_challenge_sends_link_and_code() -> None:
-    service, sender, _ = _service()
+def test_start_challenge_sends_only_a_code() -> None:
+    service, sender, repo = _service(challenge_ttl_minutes=10)
     service.start_challenge("Alice@Example.com")
     assert sender.last.to == "alice@example.com"
-    assert "token=" in sender.last.magic_link_url
-    assert sender.last.magic_link_url.startswith("https://studio.test/auth/verify")
     assert sender.last.otp_code.isdigit()
-
-
-def test_start_challenge_preserves_safe_redirect() -> None:
-    service, sender, _ = _service()
-    service.start_challenge("Alice@Example.com", redirect_to="/workflows/123?tab=run")
-
-    parsed = urlparse(sender.last.magic_link_url)
-    query = parse_qs(parsed.query)
-    assert query["redirect"] == ["/workflows/123?tab=run"]
-
-
-def test_start_challenge_ignores_unsafe_redirect() -> None:
-    service, sender, _ = _service()
-    service.start_challenge("Alice@Example.com", redirect_to="//evil.test/path")
-
-    parsed = urlparse(sender.last.magic_link_url)
-    assert "redirect" not in parse_qs(parsed.query)
+    assert sender.last.expires_in_minutes == 10
+    challenge = repo.find_active_challenge_for_email(
+        "alice@example.com", now=datetime.now(tz=UTC)
+    )
+    assert challenge is not None
+    assert challenge.token_hash is None
 
 
 def test_start_challenge_rejects_malformed_email() -> None:
@@ -91,10 +77,10 @@ def test_start_challenge_rejects_malformed_email() -> None:
         service.start_challenge("not-an-email")
 
 
-def test_verify_token_creates_user_and_mints_claims() -> None:
+def test_verify_code_creates_user_and_mints_claims() -> None:
     service, sender, repo = _service()
     service.start_challenge("alice@example.com")
-    result = service.verify_token(sender.token_from_link())
+    result = sender.sign_in(service)
 
     assert result.user.email == "alice@example.com"
     assert result.user.email_verified is True
@@ -113,21 +99,20 @@ def test_verify_token_creates_user_and_mints_claims() -> None:
     assert "workflows:execute" in claims["scopes"]
 
 
-def test_verify_token_is_single_use() -> None:
+def test_verify_code_is_single_use() -> None:
     service, sender, _ = _service()
     service.start_challenge("alice@example.com")
-    token = sender.token_from_link()
-    service.verify_token(token)
-    with pytest.raises(IdentityChallengeExpiredError):
-        service.verify_token(token)
+    sender.sign_in(service)
+    with pytest.raises(IdentityChallengeError):
+        sender.sign_in(service)
 
 
-def test_verify_token_returning_user_is_reused() -> None:
+def test_verify_code_returning_user_is_reused() -> None:
     service, sender, repo = _service()
     service.start_challenge("alice@example.com")
-    first = service.verify_token(sender.token_from_link())
+    first = sender.sign_in(service)
     service.start_challenge("alice@example.com")
-    second = service.verify_token(sender.token_from_link())
+    second = sender.sign_in(service)
     assert first.user.id == second.user.id
     assert repo.get_user_by_email("alice@example.com") is not None
 
@@ -157,16 +142,15 @@ def test_verify_expired_challenge_rejected() -> None:
     now = {"t": datetime(2026, 1, 1, tzinfo=UTC)}
     service, sender, _ = _service(clock=lambda: now["t"], challenge_ttl_minutes=15)
     service.start_challenge("alice@example.com")
-    token = sender.token_from_link()
     now["t"] = now["t"] + timedelta(minutes=16)
-    with pytest.raises(IdentityChallengeExpiredError):
-        service.verify_token(token)
+    with pytest.raises(IdentityChallengeError):
+        sender.sign_in(service)
 
 
 def test_refresh_rotates_and_old_token_fails() -> None:
     service, sender, _ = _service()
     service.start_challenge("alice@example.com")
-    issued = service.verify_token(sender.token_from_link()).tokens
+    issued = sender.sign_in(service).tokens
 
     rotated = service.refresh(issued.refresh_token)
     assert rotated.refresh_token != issued.refresh_token
@@ -180,7 +164,7 @@ def test_refresh_rotates_and_old_token_fails() -> None:
 def test_logout_revokes_sessions_and_blocks_refresh() -> None:
     service, sender, _ = _service()
     service.start_challenge("alice@example.com")
-    result = service.verify_token(sender.token_from_link())
+    result = sender.sign_in(service)
 
     revoked = service.logout(str(result.user.id))
     assert revoked == 1
@@ -188,12 +172,11 @@ def test_logout_revokes_sessions_and_blocks_refresh() -> None:
         service.refresh(result.tokens.refresh_token)
 
 
-def test_verify_token_atomic_consume_failure_blocks_session(
+def test_verify_code_atomic_consume_failure_blocks_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service, sender, repo = _service()
     service.start_challenge("alice@example.com")
-    token = sender.token_from_link()
 
     def consume_race(*args: object, **kwargs: object) -> object:
         raise IdentityChallengeNotFoundError("already-consumed")
@@ -201,6 +184,6 @@ def test_verify_token_atomic_consume_failure_blocks_session(
     monkeypatch.setattr(repo, "consume_challenge", consume_race)
 
     with pytest.raises(IdentityChallengeExpiredError):
-        service.verify_token(token)
+        sender.sign_in(service)
 
     assert repo.get_user_by_email("alice@example.com") is None

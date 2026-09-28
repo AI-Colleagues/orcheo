@@ -8,16 +8,19 @@ from .authenticator import (
 )
 from .context import RequestContext
 from .dependencies import (
+    PREAUTHENTICATED_SCOPE_KEY,
     _auth_rate_limiter_cache,
     _authenticator_cache,
     _extract_bearer_token,
     _token_manager_cache,
+    authenticate_oauth_resource_request,
     authenticate_request,
     authenticate_websocket,
     get_auth_rate_limiter,
     get_authenticator,
     get_request_context,
     get_service_token_manager,
+    is_oauth_client_context,
     reset_authentication_state,
 )
 from .errors import AuthenticationError, AuthorizationError
@@ -70,6 +73,7 @@ _parse_string_items = parse_string_items
 
 
 __all__ = [
+    "PREAUTHENTICATED_SCOPE_KEY",
     "AuthEvent",
     "AuthRateLimiter",
     "AuthTelemetry",
@@ -111,6 +115,7 @@ __all__ = [
     "extract_email_verified",
     "extract_identity",
     "auth_telemetry",
+    "authenticate_oauth_resource_request",
     "authenticate_request",
     "authenticate_websocket",
     "ensure_scopes",
@@ -121,6 +126,7 @@ __all__ = [
     "get_request_context",
     "get_service_token_manager",
     "httpx",
+    "is_oauth_client_context",
     "load_auth_settings",
     "require_scopes",
     "require_workspace_access",

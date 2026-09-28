@@ -3,7 +3,7 @@ import {
   logoutSession,
   refreshSession,
   startEmailChallenge,
-  verifyEmailToken,
+  verifyEmailCode,
 } from "./auth-api";
 import { getAuthTokens, setAuthTokens } from "./auth-session";
 
@@ -28,17 +28,12 @@ afterEach(() => {
 describe("auth-api", () => {
   it("posts to email/start and resolves on success", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ status: "sent" }));
-    await startEmailChallenge(
-      "alice@example.com",
-      "signup",
-      "/workflows/abc?tab=runs",
-    );
+    await startEmailChallenge("alice@example.com", "signup");
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toContain("/api/auth/email/start");
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
       email: "alice@example.com",
       intent: "signup",
-      redirect_to: "/workflows/abc?tab=runs",
     });
   });
 
@@ -49,7 +44,7 @@ describe("auth-api", () => {
     );
   });
 
-  it("persists tokens after verifying a magic-link token", async () => {
+  it("persists tokens after verifying a sign-in code", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         access_token: "access-1",
@@ -58,8 +53,13 @@ describe("auth-api", () => {
         user: { id: "u1", email: "alice@example.com", email_verified: true },
       }),
     );
-    const user = await verifyEmailToken("magic");
+    const user = await verifyEmailCode("alice@example.com", "123456");
     expect(user?.email).toBe("alice@example.com");
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      email: "alice@example.com",
+      code: "123456",
+    });
     const stored = getAuthTokens();
     expect(stored?.accessToken).toBe("access-1");
     expect(stored?.refreshToken).toBe("refresh-1");
@@ -73,7 +73,7 @@ describe("auth-api", () => {
         400,
       ),
     );
-    await expect(verifyEmailToken("bad")).rejects.toThrow(
+    await expect(verifyEmailCode("alice@example.com", "bad")).rejects.toThrow(
       /invalid or expired/i,
     );
   });

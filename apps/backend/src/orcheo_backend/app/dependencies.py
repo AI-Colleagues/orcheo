@@ -264,11 +264,15 @@ async def resolve_workflow_ref_id(
 async def resolve_optional_workflow_ref_id(
     repository: WorkflowRepository,
     workflow_ref: str | None,
+    *,
+    workspace_id: str | None = None,
 ) -> UUID | None:
     """Resolve an optional workflow ref to the canonical UUID."""
     if workflow_ref is None:
         return None
-    return await resolve_workflow_ref_id(repository, workflow_ref)
+    return await resolve_workflow_ref_id(
+        repository, workflow_ref, workspace_id=workspace_id
+    )
 
 
 __all__ = [

@@ -9,7 +9,11 @@ dependencies = [
   "orcheo>=0.45.1",
   "celery[redis]>=5.3.0",
   "redis>=5.0.0",
-  "httpx>=0.25.0"
+  "httpx>=0.25.0",
+  "fastmcp>=3.4.7,<4",
+  # OAuth protocol types (AuthorizationParams, OAuthClientInformationFull, ...)
+  # that FastMCP builds on but does not re-export.
+  "mcp>=1.24.0,<2"
 ]
 description = "Deployment wrapper around the Orcheo FastAPI application"
 name = "orcheo-backend"
@@ -36,6 +40,9 @@ Source = "https://github.com/AI-Colleagues/orcheo/tree/main/apps/backend"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+"orcheo_backend.app.mcp_server" = ["ui/*.html", "ui/*.js"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

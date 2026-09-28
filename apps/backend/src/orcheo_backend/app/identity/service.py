@@ -1,7 +1,7 @@
 """First-party identity service: challenges, verification, and token issuance.
 
-This is the orchestration layer of the passwordless email IdP. It issues
-single-use magic-link + OTP challenges, verifies them with attempt lockout,
+This is the orchestration layer of the passwordless email IdP. It emails
+single-use sign-in codes, verifies them with attempt lockout,
 creates-or-finds the internal :class:`User` on first verification, mints the
 HS256 access token validated by ``authentication/``, and manages rotating
 refresh-token sessions (refresh + server-side revocation/logout).
@@ -11,7 +11,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from urllib.parse import urlencode
 from uuid import UUID
 from orcheo.identity.email_domains import is_email_domain_allowed
 from orcheo.identity.errors import (
@@ -27,6 +26,7 @@ from orcheo.identity.models import (
     AuthSession,
     ChallengePurpose,
     User,
+    UserStatus,
     normalize_email,
 )
 from orcheo.identity.repository import IdentityRepository
@@ -43,7 +43,6 @@ from orcheo_backend.app.authentication.telemetry import (
 from orcheo_backend.app.identity.config import IdentityConfig
 from orcheo_backend.app.identity.tokens import (
     coerce_user_id,
-    generate_magic_link_token,
     generate_otp_code,
     generate_refresh_token,
     hash_secret,
@@ -53,16 +52,6 @@ from orcheo_backend.app.identity.tokens import (
 
 
 __all__ = ["IdentityService", "IssuedTokens", "VerificationResult"]
-
-
-def _safe_relative_redirect(value: str | None) -> str | None:
-    """Return a same-origin relative redirect path, or None when unsafe."""
-    if value is None:
-        return None
-    stripped = value.strip()
-    if stripped.startswith("/") and not stripped.startswith("//"):
-        return stripped
-    return None
 
 
 @dataclass(frozen=True)
@@ -146,8 +135,8 @@ class IdentityService:
             "Sign-in is limited to approved email domains."
         )
 
-    def start_challenge(self, email: str, *, redirect_to: str | None = None) -> None:
-        """Issue a magic-link + OTP challenge and email it.
+    def start_challenge(self, email: str) -> None:
+        """Email a single-use sign-in code.
 
         No user row is created here; the account is materialized on first
         verification. The response is constant regardless of account existence
@@ -159,30 +148,20 @@ class IdentityService:
         normalized = normalize_email(email)
         self._ensure_email_allowed(normalized)
         now = self.now()
-        raw_token = generate_magic_link_token()
         raw_code = generate_otp_code(self._config.otp_digits)
-        expires_at = now + timedelta(minutes=self._config.challenge_ttl_minutes)
         challenge = AuthEmailChallenge(
             email=normalized,
-            token_hash=hash_secret(raw_token),
             code_hash=hash_secret(raw_code),
             purpose=ChallengePurpose.LOGIN_OR_SIGNUP,
-            expires_at=expires_at,
+            expires_at=now + timedelta(minutes=self._config.challenge_ttl_minutes),
         )
         self._repository.add_challenge(challenge)
-        base = self._config.verify_base_url.rstrip("/")
-        query = {"token": raw_token}
-        safe_redirect = _safe_relative_redirect(redirect_to)
-        if safe_redirect is not None:
-            query["redirect"] = safe_redirect
-        magic_link_url = f"{base}/auth/verify?{urlencode(query)}"
         try:
             self._email_sender.send_auth_challenge(
                 AuthChallengeEmail(
                     to=normalized,
-                    magic_link_url=magic_link_url,
                     otp_code=raw_code,
-                    expires_at=expires_at,
+                    expires_in_minutes=self._config.challenge_ttl_minutes,
                 )
             )
         except Exception:
@@ -193,21 +172,6 @@ class IdentityService:
         self._record("auth.challenge_sent", "success")
 
     # -- challenge verification ----------------------------------------------
-
-    def verify_token(
-        self,
-        token: str,
-        *,
-        user_agent: str | None = None,
-        ip: str | None = None,
-    ) -> VerificationResult:
-        """Verify a magic-link token and return an authenticated session."""
-        try:
-            challenge = self._repository.get_challenge_by_token_hash(hash_secret(token))
-        except IdentityChallengeNotFoundError as exc:
-            raise IdentityChallengeError("Invalid or expired link.") from exc
-        self._ensure_redeemable(challenge)
-        return self._redeem(challenge, user_agent=user_agent, ip=ip)
 
     def verify_code(
         self,
@@ -235,13 +199,6 @@ class IdentityService:
             raise IdentityChallengeError("Invalid or expired code.")
 
         return self._redeem(challenge, user_agent=user_agent, ip=ip)
-
-    def _ensure_redeemable(self, challenge: AuthEmailChallenge) -> None:
-        now = self._clock()
-        if challenge.is_consumed() or challenge.is_expired(now=now):
-            self._record("auth.verify_expired", "failure")
-            raise IdentityChallengeExpiredError("Invalid or expired link.")
-        self._ensure_not_locked(challenge)
 
     def _ensure_not_locked(self, challenge: AuthEmailChallenge) -> None:
         if challenge.attempts >= self._config.otp_max_attempts:
@@ -308,7 +265,22 @@ class IdentityService:
             expires_in=expires_in,
         )
 
-    def _mint_access(self, user: User, *, now: datetime) -> tuple[str, int]:
+    def _mint_access(
+        self,
+        user: User,
+        *,
+        now: datetime,
+        session: AuthSession | None = None,
+    ) -> tuple[str, int]:
+        if session is None or session.oauth_client_id is None:
+            return mint_access_token(
+                user=user,
+                secret=self._config.jwt_secret,
+                issuer=self._config.issuer,
+                audience=self._config.audience,
+                ttl_seconds=self._config.access_ttl_seconds,
+                now=now,
+            )
         return mint_access_token(
             user=user,
             secret=self._config.jwt_secret,
@@ -316,6 +288,8 @@ class IdentityService:
             audience=self._config.audience,
             ttl_seconds=self._config.access_ttl_seconds,
             now=now,
+            scopes=session.scopes or (),
+            extra_claims={"client_id": session.oauth_client_id},
         )
 
     def refresh(self, refresh_token: str) -> IssuedTokens:
@@ -333,29 +307,114 @@ class IdentityService:
             raise IdentitySessionNotFoundError(
                 "Invalid or revoked refresh token."
             ) from exc
-        if not session.is_active(now=now):
+        if not session.is_active(now=now) or session.oauth_client_id is not None:
+            # OAuth grants rotate only through the token endpoint, bound to
+            # their client and approved scopes.
             raise IdentitySessionNotFoundError("Invalid or revoked refresh token.")
+        return self._rotate_session(session, now=now)
 
+    def _rotate_session(
+        self,
+        session: AuthSession,
+        *,
+        now: datetime,
+        scopes: list[str] | None = None,
+    ) -> IssuedTokens:
         user = self._repository.get_user(session.user_id)
+        if session.oauth_client_id is not None and user.status != UserStatus.ACTIVE:
+            raise IdentitySessionNotFoundError("Invalid or revoked refresh token.")
         if not self.is_email_allowed(user.email):
             # The allowlist changed after sign-in: end this session.
             self._repository.revoke_sessions_for_user(user.id)
             self._record("auth.email_domain_rejected", "failure", subject=str(user.id))
             raise IdentitySessionNotFoundError("Invalid or revoked refresh token.")
         raw_refresh = generate_refresh_token()
-        rotated = session.model_copy(
-            update={
-                "refresh_token_hash": hash_secret(raw_refresh),
-                "expires_at": now + timedelta(days=self._config.session_ttl_days),
-            }
-        )
+        update: dict[str, object] = {
+            "refresh_token_hash": hash_secret(raw_refresh),
+            "expires_at": now + timedelta(days=self._config.session_ttl_days),
+        }
+        if scopes is not None:
+            update["scopes"] = scopes
+        rotated = session.model_copy(update=update)
         self._repository.update_session(rotated)
-        access_token, expires_in = self._mint_access(user, now=now)
+        access_token, expires_in = self._mint_access(user, now=now, session=rotated)
         return IssuedTokens(
             access_token=access_token,
             refresh_token=raw_refresh,
             expires_in=expires_in,
         )
+
+    # -- OAuth grants --------------------------------------------------------
+
+    def issue_oauth_session(
+        self,
+        user_id: UUID,
+        *,
+        client_id: str,
+        scopes: list[str],
+    ) -> IssuedTokens:
+        """Start a refresh-token session granted to an OAuth client.
+
+        Raises:
+            IdentitySessionNotFoundError: If the user can no longer sign in.
+        """
+        now = self._clock()
+        user = self._repository.get_user(user_id)
+        if user.status != UserStatus.ACTIVE or not self.is_email_allowed(user.email):
+            raise IdentitySessionNotFoundError("User can no longer sign in.")
+        raw_refresh = generate_refresh_token()
+        session = AuthSession(
+            user_id=user.id,
+            refresh_token_hash=hash_secret(raw_refresh),
+            expires_at=now + timedelta(days=self._config.session_ttl_days),
+            oauth_client_id=client_id,
+            scopes=list(scopes),
+        )
+        self._repository.add_session(session)
+        self._record("auth.oauth_grant", "success", subject=str(user.id))
+        access_token, expires_in = self._mint_access(user, now=now, session=session)
+        return IssuedTokens(
+            access_token=access_token,
+            refresh_token=raw_refresh,
+            expires_in=expires_in,
+        )
+
+    def find_oauth_session(
+        self, refresh_token: str, *, client_id: str
+    ) -> AuthSession | None:
+        """Return the active session behind an OAuth client's refresh token."""
+        try:
+            session = self._repository.get_session_by_refresh_hash(
+                hash_secret(refresh_token)
+            )
+        except IdentitySessionNotFoundError:
+            return None
+        if session.oauth_client_id != client_id or not session.is_active(
+            now=self._clock()
+        ):
+            return None
+        return session
+
+    def refresh_oauth_session(
+        self,
+        refresh_token: str,
+        *,
+        client_id: str,
+        scopes: list[str],
+    ) -> IssuedTokens:
+        """Rotate an OAuth client's refresh token, optionally narrowing scopes."""
+        session = self.find_oauth_session(refresh_token, client_id=client_id)
+        if session is None:
+            raise IdentitySessionNotFoundError("Invalid or revoked refresh token.")
+        return self._rotate_session(session, now=self._clock(), scopes=scopes)
+
+    def revoke_oauth_session(self, refresh_token: str, *, client_id: str) -> None:
+        """Revoke an OAuth client's grant; unknown tokens are ignored."""
+        session = self.find_oauth_session(refresh_token, client_id=client_id)
+        if session is not None:
+            self._repository.update_session(
+                session.model_copy(update={"revoked_at": self._clock()})
+            )
 
     def logout(self, user_id: str | UUID) -> int:
         """Revoke every active session for a user (log out everywhere)."""

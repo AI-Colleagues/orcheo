@@ -7,6 +7,7 @@ from typing import Any, Protocol, cast
 from uuid import UUID
 from orcheo.models import WorkflowRun
 from orcheo.triggers.cron import CronTriggerConfig
+from orcheo.triggers.layer.models import CronDispatchPlan
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookRequest, WebhookTriggerConfig
 from orcheo.vault.oauth import CredentialHealthError
@@ -192,8 +193,22 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
                 )
             self._trigger_layer.remove_cron_config(workflow_id)
 
+    async def _plans_in_workspace_locked(
+        self, plans: list[CronDispatchPlan], workspace_id: str | None
+    ) -> list[CronDispatchPlan]:
+        """Keep only ``workspace_id``'s plans; all of them when it is None."""
+        if workspace_id is None:
+            return plans
+        lookup = cast(_WorkflowWorkspaceLookup, self)
+        return [
+            plan
+            for plan in plans
+            if str(await lookup._get_workflow_workspace_id_locked(plan.workflow_id))
+            == workspace_id
+        ]
+
     async def dispatch_due_cron_runs(
-        self, *, now: datetime | None = None
+        self, *, now: datetime | None = None, workspace_id: str | None = None
     ) -> list[WorkflowRun]:
         await self._ensure_initialized()
         reference = now or datetime.now(tz=UTC)
@@ -206,6 +221,7 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
             # Sync cron triggers each dispatch to reflect updates from other processes.
             await self._refresh_cron_triggers()
             plans = self._trigger_layer.collect_due_cron_dispatches(now=reference)
+            plans = await self._plans_in_workspace_locked(plans, workspace_id)
             for plan in plans:
                 try:
                     workflow = await self._get_workflow_locked(plan.workflow_id)

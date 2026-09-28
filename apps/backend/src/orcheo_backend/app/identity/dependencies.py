@@ -31,6 +31,7 @@ __all__ = [
     "reset_identity_state",
     "set_identity_repository",
     "set_identity_service",
+    "trusted_proxy_enabled",
 ]
 
 
@@ -66,7 +67,11 @@ def get_identity_repository() -> IdentityRepository:
         backend = str(settings.get("WORKSPACE_BACKEND", "postgres")).lower()
         dsn = settings.get("POSTGRES_DSN")
         if backend == "postgres" and dsn:
-            repository = PostgresIdentityRepository(str(dsn))
+            repository = PostgresIdentityRepository(
+                str(dsn),
+                pool_min_size=int(settings.get("POSTGRES_POOL_MIN_SIZE", 1)),
+                pool_max_size=int(settings.get("POSTGRES_POOL_MAX_SIZE", 10)),
+            )
         else:
             repository = InMemoryIdentityRepository()
         _identity_repository_ref["repository"] = repository
@@ -113,7 +118,7 @@ def get_identity_service() -> IdentityService:
     return service
 
 
-def _trusted_proxy_enabled() -> bool:
+def trusted_proxy_enabled() -> bool:
     """Return whether reverse-proxy client IP headers are trusted."""
     value = get_settings().get("TRUSTED_PROXY")
     if isinstance(value, bool):
@@ -129,7 +134,7 @@ def get_client_ip(request: Request) -> str | None:
     ``X-Forwarded-For`` is honored only when ``ORCHEO_TRUSTED_PROXY`` is
     enabled, because clients can otherwise spoof that header directly.
     """
-    if _trusted_proxy_enabled():
+    if trusted_proxy_enabled():
         forwarded_for = request.headers.get("X-Forwarded-For")
         if forwarded_for:
             first = forwarded_for.split(",", 1)[0].strip()

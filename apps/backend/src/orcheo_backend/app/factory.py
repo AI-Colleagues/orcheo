@@ -69,6 +69,9 @@ from orcheo_backend.app.listener_runtime_service import ListenerRuntimeService
 from orcheo_backend.app.local_execution import drain_inprocess_runs
 from orcheo_backend.app.logging_config import configure_logging
 from orcheo_backend.app.managed_workflows import ensure_managed_vibe_workflow
+from orcheo_backend.app.mcp_server import mcp_lifespan
+from orcheo_backend.app.oauth import router as oauth_router
+from orcheo_backend.app.oauth import well_known_router as oauth_well_known_router
 from orcheo_backend.app.plugin_installation_store import PluginInstallationStore
 from orcheo_backend.app.repository import WorkflowRepository
 from orcheo_backend.app.routers import (
@@ -81,6 +84,7 @@ from orcheo_backend.app.routers import (
     credential_templates,
     credentials,
     listeners,
+    mcp,
     nodes,
     runs,
     system,
@@ -188,7 +192,8 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     if cron_scheduler is not None:
         await cron_scheduler.start()
     try:
-        yield
+        async with mcp_lifespan(app):
+            yield
     finally:
         # Stop dispatching before draining, so the drain is not racing a
         # scheduler that keeps handing it new runs.
@@ -233,6 +238,11 @@ def _build_api_router() -> APIRouter:
     router.include_router(auth.router)
     router.include_router(identity_api_router)
     router.include_router(system.public_router)
+    # Authenticates on its own route; tools re-enter the protected API above.
+    router.include_router(mcp.router)
+    # OAuth endpoints authenticate clients themselves; consent routes require
+    # the signed-in Studio user.
+    router.include_router(oauth_router)
     router.include_router(workspaces_router.self_service_router)
     # Public webhook invocation routes - external services (Slack, GitHub, etc.)
     # cannot provide Orcheo auth tokens. Security is enforced via webhook-level
@@ -326,6 +336,8 @@ def _configure_dependency_overrides(
 def _configure_application(application: FastAPI) -> None:
     """Install routes, handlers, and middleware on the FastAPI app."""
     application.include_router(api_router)
+    # RFC 8414 / RFC 9728 discovery documents live at the origin root.
+    application.include_router(oauth_well_known_router)
     application.include_router(hosted_apps_internal_router)
     # Workspace-slug-prefixed webhook routes at /hooks/{workspace_slug}/{trigger_id}.
     # Mounted at the application root (not under /api) so external services

@@ -102,9 +102,22 @@ on the same origin (port 2025), so there is no separate Studio container.
 `deploy/lean/docker-compose.yml` runs the lean image three times (backend,
 worker, and Beat) next to Redis, with in-process execution and cron turned off on the
 backend. PostgreSQL is not bundled: the stack uses a Supabase database through
-`ORCHEO_POSTGRES_DSN`, which must be set. Use the Supabase session pooler
-connection string (Project Settings > Database); the direct connection is
-IPv6-only, which Docker networks do not reach by default.
+`ORCHEO_POSTGRES_DSN`, which must be set. Use the Supabase transaction pooler
+connection string (Supavisor, `*.pooler.supabase.com` port 6543, from the
+project's Connect dialog). It works over IPv4 and lets the backend, worker, and
+Beat share a few server connections. The session pooler (port 5432) holds one
+server connection per client connection, so it fails with `EMAXCONNSESSION`
+once the project's pool size (15 on small projects) is used up; if you stay on
+it, lower `ORCHEO_POSTGRES_POOL_MAX_SIZE`. Orcheo disables server-side prepared
+statements, which transaction pooling does not support.
+
+The direct connection and the dedicated pooler (`db.<ref>.supabase.co`) are
+IPv6-only. The compose file enables IPv6 on its network
+(`ORCHEO_LEAN_ENABLE_IPV6`, default `true`), which needs Docker Engine 27 or
+newer and a host with outbound IPv6. On Docker Desktop, pick dual IPv4/IPv6
+networking under Settings > Resources > Network. Set
+`ORCHEO_LEAN_ENABLE_IPV6=false` on older engines, where creating an IPv6
+network without a configured subnet fails.
 
 From the repository root, create `deploy/lean/.env` from the template and fill
 it in, then start the stack:
@@ -120,7 +133,8 @@ widgets from `deploy/stack/chatkit_widgets`, so nothing is mounted. To run a pub
 image, set `ORCHEO_LEAN_IMAGE=ghcr.io/ai-colleagues/orcheo-lean:<version>` and
 use `--no-build`. `ORCHEO_POSTGRES_DSN` and `ORCHEO_VAULT_ENCRYPTION_KEY` must
 be set (the optional `.env` is read for them). Set `ORCHEO_LEAN_PUBLIC_URL` to the browser-facing origin used
-for sign-in links and CORS (default `http://localhost:2025`), and
+for invitation links, the MCP sign-in consent page and CORS (default
+`http://localhost:2025`), and
 `ORCHEO_LEAN_PORT` to change the host port.
 
 Without a checkout, `orcheo install --lean` downloads `docker-compose.yml` and

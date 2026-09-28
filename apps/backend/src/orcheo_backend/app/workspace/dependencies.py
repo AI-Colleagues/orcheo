@@ -92,7 +92,11 @@ def get_workspace_repository() -> WorkspaceRepository:
         if not dsn:
             msg = "ORCHEO_POSTGRES_DSN must be set when using the postgres backend."
             raise ValueError(msg)
-        repository = PostgresWorkspaceRepository(str(dsn))
+        repository = PostgresWorkspaceRepository(
+            str(dsn),
+            pool_min_size=int(settings.get("POSTGRES_POOL_MIN_SIZE", 1)),
+            pool_max_size=int(settings.get("POSTGRES_POOL_MAX_SIZE", 10)),
+        )
         _workspace_repository_ref["repository"] = repository
     return repository
 

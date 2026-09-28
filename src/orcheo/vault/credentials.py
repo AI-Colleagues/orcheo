@@ -12,7 +12,11 @@ from orcheo.models import (
     CredentialScope,
     OAuthTokenSecrets,
 )
-from orcheo.vault.errors import RotationPolicyError, WorkflowScopeError
+from orcheo.vault.errors import (
+    CredentialWorkspaceMismatchError,
+    RotationPolicyError,
+    WorkflowScopeError,
+)
 
 
 if TYPE_CHECKING:
@@ -270,7 +274,7 @@ class CredentialOperationsMixin:
             str(access_context.workspace_id),
         }:
             msg = "Credential cannot be accessed with the provided context."
-            raise WorkflowScopeError(msg)
+            raise CredentialWorkspaceMismatchError(msg)
         if not metadata.scope.allows(access_context):
             msg = "Credential cannot be accessed with the provided context."
             raise WorkflowScopeError(msg)

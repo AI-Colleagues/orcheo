@@ -24,6 +24,7 @@ class _FakeHistoryStore:
         record = RunHistoryRecord(
             workflow_id=workflow_id,
             execution_id=execution_id,
+            workspace_id=kwargs.get("workspace_id"),
             inputs=dict(inputs) if inputs else {},
         )
         self._records[execution_id] = record
@@ -101,7 +102,10 @@ def test_execution_history_endpoints_return_steps(
 
     async def seed_history() -> None:
         await history_store.start_run(
-            workflow_id="wf-1", execution_id=execution_id, inputs={"foo": "bar"}
+            workflow_id="wf-1",
+            execution_id=execution_id,
+            inputs={"foo": "bar"},
+            workspace_id=str(_TEST_WORKSPACE.workspace_id),
         )
         await history_store.append_step(execution_id, {"node": "first"})
         await history_store.append_step(execution_id, {"node": "second"})

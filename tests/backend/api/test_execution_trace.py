@@ -12,7 +12,9 @@ def test_execution_trace_endpoint(api_client: TestClient) -> None:
 
     history_store = get_history_store()
     execution_id = "exec-trace"
-    workflow_id = "wf-trace"
+    workflow_id = api_client.post(
+        "/api/workflows", json={"name": "Trace Flow", "actor": "tester"}
+    ).json()["id"]
     trace_id = "0af7651916cd43dd8448eb211c80319c"
 
     async def _prepare() -> None:

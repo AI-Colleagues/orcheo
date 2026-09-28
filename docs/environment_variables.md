@@ -11,6 +11,10 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_CHECKPOINT_BACKEND` | `postgres` | `postgres` | Selects the checkpoint persistence backend consumed by `config/loader.py`. |
 | `ORCHEO_GRAPH_STORE_BACKEND` | `postgres` | `postgres` | Selects the LangGraph store backend used for graph memory/state storage (`config/loader.py`, `persistence.py`). |
 | `ORCHEO_POSTGRES_DSN` | _none_ | PostgreSQL DSN (e.g. `postgresql://user:pass@host:port/db`) | Connection string required when any backend is set to `postgres` (checkpoint, graph store, repository, workspace, auth service tokens, chatkit, or vault; see `config/loader.py`). |
+| `ORCHEO_POSTGRES_POOL_MIN_SIZE` | `1` | Integer ≥ 1 | Connections each pool keeps open. A process holds one shared pool for workflow, history, ChatKit, token, plugin, and Agentensor stores, one each for LangGraph checkpoints and the graph store, one for workspace and identity, and one for the vault. |
+| `ORCHEO_POSTGRES_POOL_MAX_SIZE` | `10` | Integer ≥ 1 | Upper bound for each of those pools. Keep the total across the backend and every worker process within a session-mode pooler's client limit. |
+| `ORCHEO_POSTGRES_POOL_TIMEOUT` | `30.0` | Float > 0 | Seconds to wait for a free pooled connection before failing. |
+| `ORCHEO_POSTGRES_POOL_MAX_IDLE` | `300.0` | Float > 0 | Seconds an idle connection above the minimum stays open. |
 | `ORCHEO_REPOSITORY_BACKEND` | `postgres` | `postgres` | Chooses the workflow repository implementation (`config/loader.py`). |
 | `ORCHEO_WORKSPACE_BACKEND` | `postgres` | `postgres` | Chooses the workspace repository implementation used for workspaces and memberships (`config/loader.py`, `app/workspace/dependencies.py`). |
 | `ORCHEO_CHATKIT_BACKEND` | `postgres` | `postgres` | Selects the ChatKit persistence backend used by `chatkit/server.py`. |
@@ -23,6 +27,8 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_HOST` | `0.0.0.0` | Hostname or IP string | Network interface to bind the FastAPI app (`config/loader.py`). |
 | `ORCHEO_PORT` | `2025` | Integer (1‑65535) | TCP port exposed by the FastAPI service (`config/loader.py`). |
 | `ORCHEO_CORS_ALLOW_ORIGINS` | `["http://localhost:2026","http://127.0.0.1:2026"]` | JSON array or comma-separated list of origins | CORS allow-list used when constructing the FastAPI middleware (`factory.py`). `orcheo install --public-ingress` sets this to the shared public HTTPS origin and keeps localhost origins when local access ports remain enabled. Tunnel or split-origin installs should set this to the public Studio/browser origin instead of the backend API origin. |
+| `ORCHEO_MCP_ENABLED` | `true` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Serves the built-in MCP server at `/api/mcp` (Streamable HTTP, stateless) so MCP clients can remote-control workflows, runs, credentials and workspaces with the caller's own token (`app/mcp_server/server.py`). Clients sign in with OAuth through the Studio login, or send a service token. Set to `false` to return 404 on that path. See [MCP Server](mcp_server.md). |
+| `ORCHEO_PUBLIC_URL` | _none_ | HTTP(S) origin | Public origin where the backend's `/api` is reachable, used for the MCP server's OAuth issuer, resource and discovery URLs (`app/oauth/urls.py`). When unset, `X-Forwarded-Proto`/`X-Forwarded-Host` are used behind a trusted proxy (`ORCHEO_TRUSTED_PROXY`), otherwise the request origin. OAuth sign-in needs an HTTPS origin (plain HTTP only on `localhost`); otherwise MCP clients must use service tokens. `orcheo install` sets it for the bundled stack when public ingress is enabled; otherwise set it to the same value as `ORCHEO_STUDIO_URL`. |
 | `ORCHEO_UPDATE_CHECK_TIMEOUT_SECONDS` | `3.0` | Float > 0 | Timeout for backend package registry lookups used by `/api/system/info` (`app/versioning.py`). |
 | `ORCHEO_UPDATE_CHECK_RETRIES` | `1` | Integer ≥ 0 | Retry count for backend package registry lookups used by `/api/system/info` (`app/versioning.py`). |
 | `ORCHEO_STUDIO_VERSION` | _none_ | Version string (for example `0.8.1`) | Optional current Studio version reported by `/api/system/info` to compare with npm latest (`app/versioning.py`). |
@@ -109,7 +115,7 @@ not prompted: CLI options or existing values win, followed by the fixed
 | `ORCHEO_AUTH_MODE` | `optional` | `disabled`, `optional`, `required` | Controls whether authentication is disabled, allowed, or enforced (`authentication/settings.py`). |
 | `ORCHEO_AUTH_JWT_SECRET` | _none_ | Arbitrary string | First-party HS256 signing key for the passwordless email IdP — signs and verifies access tokens. **Required when `ORCHEO_AUTH_MODE=required`.** `orcheo install` auto-generates it for required-auth stacks; otherwise generate with e.g. `openssl rand -hex 32` (`authentication/settings.py`). |
 | `ORCHEO_AUTH_ACCESS_TOKEN_TTL_SECONDS` | `900` | Integer > 0 | Lifetime of issued first-party access tokens (identity service). |
-| `ORCHEO_AUTH_CHALLENGE_TTL_MINUTES` | `15` | Integer > 0 | Lifetime of a magic-link/OTP email challenge (identity service). |
+| `ORCHEO_AUTH_CHALLENGE_TTL_MINUTES` | `15` | Integer > 0 | Lifetime of an emailed sign-in code (identity service). |
 | `ORCHEO_AUTH_SESSION_TTL_DAYS` | `30` | Integer > 0 | Lifetime of a refresh-token session (identity service). |
 | `ORCHEO_AUTH_OTP_DIGITS` | `6` | Integer ≥ 4 | Number of digits in the emailed OTP code (identity service). |
 | `ORCHEO_AUTH_ALLOWED_EMAIL_DOMAINS` | _unset_ (any domain) | Comma-separated domains (for example `example.com,b.org`) | Email domains allowed to sign in through the first-party IdP. Matching is exact, so subdomains must be listed separately. Requests from other domains get HTTP 403 at `/api/auth/email/start` and `/api/auth/email/verify`, and existing sessions for them stop refreshing (identity service). |
@@ -137,8 +143,9 @@ not prompted: CLI options or existing values win, followed by the fixed
 ## Transactional email (SMTP)
 
 SMTP is the sole production transport for both passwordless auth challenges
-(sign-in links/codes) and workspace invitation emails. When `ORCHEO_SMTP_HOST`
-is unset, the backend logs the link/code instead of delivering email (the
+(sign-in codes) and workspace invitation emails. When `ORCHEO_SMTP_HOST`
+is unset, the backend logs the invitation link or sign-in code instead of
+delivering email (the
 self-host/dev default).
 
 | Variable | Default | Valid values | Purpose |
@@ -212,7 +219,8 @@ self-host/dev default).
 | `ORCHEO_LEAN_DIR` | `~/.orcheo/lean` | Directory path | Target directory for `orcheo install --lean` assets and its generated `.env` (`cli/lean_setup.py`). `orcheo stack` and stack-runtime `orcheo plugin` commands fall back to this directory when no full stack is installed; setting it (without `ORCHEO_STACK_DIR`) makes them use the lean stack even if a full stack exists. |
 | `ORCHEO_LEAN_VERSION` | _unset_ | Lean release version string (for example `0.1.0` or `0.2.0-rc.1`) | Pins `orcheo install --lean` to a specific `lean-v*` release when `--stack-version` is not provided. |
 | `ORCHEO_LEAN_ASSET_BASE_URL` | _unset_ | HTTP(S) URL | Optional mirror of the `deploy/lean` directory used by `orcheo install --lean` to download `docker-compose.yml` and `.env.example` (`cli/lean_setup.py`). |
-| `ORCHEO_POSTGRES_DSN` (lean stack) | _required_ | PostgreSQL URL | Supabase connection string for `deploy/lean/docker-compose.yml`, which does not bundle PostgreSQL. `orcheo install --lean` prompts for it and writes it single-quoted so `$` and `#` in the password survive Compose parsing. |
+| `ORCHEO_POSTGRES_DSN` (lean stack) | _required_ | PostgreSQL URL | Supabase connection string for `deploy/lean/docker-compose.yml`, which does not bundle PostgreSQL. Prefer the transaction pooler (`*.pooler.supabase.com:6543`); the session pooler caps client connections at the project's pool size. `orcheo install --lean` prompts for it and writes it single-quoted so `$` and `#` in the password survive Compose parsing. |
+| `ORCHEO_LEAN_ENABLE_IPV6` | `true` | Boolean (`true`/`false`) | Enables IPv6 on the lean compose network so containers can reach IPv6-only Supabase hosts (`db.<ref>.supabase.co`). Needs Docker Engine 27+ and outbound IPv6 on the host; set `false` on older engines. |
 | `ORCHEO_LEAN_IMAGE` | `orcheo-lean:local` | Container image reference | Image used by `deploy/lean/docker-compose.yml`. `orcheo install --lean` pins it to `ghcr.io/ai-colleagues/orcheo-lean:<version>`. |
 | `ORCHEO_STACK_ASSET_BASE_URL` | _unset_ | HTTP(S) URL | Optional custom mirror base URL for per-file stack asset downloads. When set, `orcheo install` skips GitHub tag discovery and downloads stack assets from this mirror (`cli/setup.py`). |
 | `ORCHEO_SETUP_HEALTH_POLL_TIMEOUT_SECONDS` | `60` | Integer ≥ 0 | Timeout window used by `orcheo install` when waiting for `docker compose` backend health checks (`cli/setup.py`). |

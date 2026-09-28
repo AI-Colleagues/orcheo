@@ -138,8 +138,11 @@ async def test_resolve_optional_workflow_ref_id_delegates(
     async def fake_resolve_workflow_ref_id(
         repository: object,
         workflow_ref: str,
+        *,
+        workspace_id: str | None = None,
     ) -> UUID:
         assert workflow_ref == "flow-2"
+        assert workspace_id == "ws-1"
         return expected
 
     monkeypatch.setattr(
@@ -148,6 +151,8 @@ async def test_resolve_optional_workflow_ref_id_delegates(
         fake_resolve_workflow_ref_id,
     )
 
-    result = await dependencies.resolve_optional_workflow_ref_id(object(), "flow-2")
+    result = await dependencies.resolve_optional_workflow_ref_id(
+        object(), "flow-2", workspace_id="ws-1"
+    )
 
     assert result is expected

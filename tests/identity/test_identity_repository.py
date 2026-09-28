@@ -76,7 +76,6 @@ def test_challenge_roundtrip_and_active_lookup() -> None:
     now = _utcnow()
 
     assert repo.get_challenge(challenge.id) == challenge
-    assert repo.get_challenge_by_token_hash("token-hash") == challenge
     assert repo.find_active_challenge_for_email("alice@example.com", now=now) == (
         challenge
     )
@@ -108,7 +107,7 @@ def test_expired_challenge_is_not_active() -> None:
 def test_missing_challenge_lookups_raise() -> None:
     repo = InMemoryIdentityRepository()
     with pytest.raises(IdentityChallengeNotFoundError):
-        repo.get_challenge_by_token_hash("nope")
+        repo.get_challenge(uuid4())
 
 
 def test_session_roundtrip_and_revoke_for_user() -> None:
@@ -152,7 +151,7 @@ def test_challenge_and_session_lookup_update_paths() -> None:
         )
     )
 
-    assert repo.get_challenge_by_token_hash("second-token") == second_challenge
+    assert repo.get_challenge(second_challenge.id) == second_challenge
     consumed = repo.consume_challenge(second_challenge, consumed_at=_utcnow())
     assert consumed.consumed_at is not None
 

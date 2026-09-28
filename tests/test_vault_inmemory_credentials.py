@@ -19,7 +19,12 @@ from orcheo.vault import (
     DuplicateCredentialNameError,
     InMemoryCredentialVault,
 )
-from orcheo.vault.errors import RotationPolicyError, WorkflowScopeError
+from orcheo.vault.errors import (
+    CredentialNotFoundError,
+    CredentialWorkspaceMismatchError,
+    RotationPolicyError,
+    WorkflowScopeError,
+)
 
 
 def test_vault_updates_oauth_tokens_and_health() -> None:
@@ -268,7 +273,7 @@ def test_get_metadata_rejects_workspace_mismatch() -> None:
         workspace_id="workspace-a",
     )
 
-    with pytest.raises(WorkflowScopeError, match="provided context"):
+    with pytest.raises(CredentialWorkspaceMismatchError, match="provided context"):
         vault.reveal_secret(
             credential_id=metadata.id,
             context=CredentialAccessContext(workspace_id=uuid4()),
@@ -374,3 +379,12 @@ def test_inmemory_load_missing_credential_raises() -> None:
 
     with pytest.raises(CredentialNotFoundError):
         vault._load_metadata(uuid4())
+
+
+def test_workspace_mismatch_is_both_not_found_and_a_scope_error() -> None:
+    # Credential routes report it as not found; alert and template routes,
+    # which only handle scope errors, keep returning 403.
+    error = CredentialWorkspaceMismatchError("x")
+
+    assert isinstance(error, CredentialNotFoundError)
+    assert isinstance(error, WorkflowScopeError)

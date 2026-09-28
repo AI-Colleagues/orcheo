@@ -3,6 +3,8 @@
 from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 from uuid import uuid4
 import pytest
@@ -53,7 +55,7 @@ class FakeConnection:
         self.queries: list[tuple[str, Any | None]] = []
         self.commits = 0
         self.rollbacks = 0
-        self.closed = 0
+        self.returned = 0
 
     def execute(self, query: str, params: Any | None = None) -> FakeCursor:
         statement = query.strip()
@@ -79,15 +81,35 @@ class FakeConnection:
     def rollback(self) -> None:
         self.rollbacks += 1
 
-    def close(self) -> None:
-        self.closed += 1
+
+def fake_pool_class(connection: FakeConnection) -> type:
+    """Build a stand-in for `ConnectionPool` that always lends `connection`."""
+
+    class FakePool:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.args = args
+            self.kwargs = kwargs
+
+        @contextmanager
+        def connection(self) -> Iterator[FakeConnection]:
+            try:
+                yield connection
+            except Exception:
+                connection.rollback()
+                raise
+            else:
+                connection.commit()
+            finally:
+                connection.returned += 1
+
+    return FakePool
 
 
 @pytest.fixture
 def fake_connect(monkeypatch: pytest.MonkeyPatch) -> tuple[FakeConnection, str]:
-    """Patch psycopg connect and return the fake connection plus DSN."""
+    """Patch the connection pool and return the fake connection plus DSN."""
     connection = FakeConnection([])
-    monkeypatch.setattr(pg_store, "connect", lambda dsn, row_factory=None: connection)
+    monkeypatch.setattr(pg_store, "ConnectionPool", fake_pool_class(connection))
     return connection, "postgresql://test"
 
 
@@ -214,7 +236,7 @@ def test_postgres_workspace_repository_roundtrip(
     repo.record_audit_event(event)
     assert repo.list_audit_events(workspace.id)[0].action == "workspace.created"
     assert connection.commits >= 2
-    assert connection.closed >= 1
+    assert connection.returned >= 1
 
 
 def test_postgres_workspace_repository_update_and_delete(
@@ -285,6 +307,28 @@ def test_postgres_workspace_repository_raises_on_duplicate_slug(
     workspace = Workspace(slug="acme", name="Acme")
     with pytest.raises(WorkspaceSlugConflictError, match="acme"):
         repo.create_workspace(workspace)
+
+
+def test_postgres_workspace_repository_get_workspaces_batches_lookup(
+    fake_connect: tuple[FakeConnection, str],
+) -> None:
+    connection, dsn = fake_connect
+    repo = PostgresWorkspaceRepository(dsn)
+    connection.queries.clear()
+
+    assert repo.get_workspaces([]) == []
+    assert connection.queries == []
+
+    acme = Workspace(slug="acme", name="Acme")
+    missing_id = uuid4()
+    connection._responses.append({"rows": [_db_workspace_row(acme)]})
+
+    workspaces = repo.get_workspaces([acme.id, missing_id, acme.id])
+
+    assert [workspace.id for workspace in workspaces] == [acme.id]
+    [(query, params)] = connection.queries
+    assert query == "SELECT * FROM workspaces WHERE id = ANY(%s)"
+    assert params == ([acme.id, missing_id],)
 
 
 def test_postgres_workspace_repository_lists_and_parses_rows(

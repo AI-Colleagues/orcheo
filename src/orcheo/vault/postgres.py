@@ -16,6 +16,7 @@ from orcheo.models import (
     CredentialTemplate,
     SecretGovernanceAlert,
 )
+from orcheo.postgres_pools import connection_kwargs
 from orcheo.vault.base import BaseCredentialVault
 from orcheo.vault.errors import (
     CredentialNotFoundError,
@@ -84,7 +85,7 @@ class PostgresCredentialVault(BaseCredentialVault):
             min_size=pool_min_size,
             max_size=pool_max_size,
             open=True,
-            kwargs={"row_factory": dict_row, "autocommit": True},
+            kwargs=connection_kwargs(autocommit=True, row_factory=dict_row),
         )
         self._initialized = False
         self._init_lock = threading.Lock()

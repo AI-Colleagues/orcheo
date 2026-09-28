@@ -47,7 +47,7 @@ async def list_credential_templates(
 ) -> list[CredentialTemplateResponse]:
     """List credential templates visible to the caller."""
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
-        repository, workflow_id
+        repository, workflow_id, workspace_id=str(workspace.workspace_id)
     )
     context = credential_context_from_workflow(
         resolved_workflow_id, workspace_id=str(workspace.workspace_id)
@@ -98,7 +98,7 @@ async def get_credential_template(
 ) -> CredentialTemplateResponse:
     """Return a single credential template."""
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
-        repository, workflow_id
+        repository, workflow_id, workspace_id=str(workspace.workspace_id)
     )
     context = credential_context_from_workflow(
         resolved_workflow_id, workspace_id=str(workspace.workspace_id)
@@ -126,7 +126,7 @@ async def update_credential_template(
 ) -> CredentialTemplateResponse:
     """Update credential template metadata."""
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
-        repository, workflow_id
+        repository, workflow_id, workspace_id=str(workspace.workspace_id)
     )
     context = credential_context_from_workflow(
         resolved_workflow_id, workspace_id=str(workspace.workspace_id)
@@ -168,7 +168,7 @@ async def delete_credential_template(
 ) -> Response:
     """Delete a credential template."""
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
-        repository, workflow_id
+        repository, workflow_id, workspace_id=str(workspace.workspace_id)
     )
     context = credential_context_from_workflow(
         resolved_workflow_id, workspace_id=str(workspace.workspace_id)
@@ -202,7 +202,7 @@ async def issue_credential_from_template(
         )
 
     workflow_id = await resolve_optional_workflow_ref_id(
-        repository, request.workflow_id
+        repository, request.workflow_id, workspace_id=str(workspace.workspace_id)
     )
     context = credential_context_from_workflow(
         workflow_id, workspace_id=str(workspace.workspace_id)

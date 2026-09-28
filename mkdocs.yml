@@ -62,6 +62,7 @@ nav:
       - CLI Coding-Agent Nodes: cli_agent_nodes.md
       - Workflow Config Annotations: workflow_config_annotations.md
       - CLI Reference: cli_reference.md
+      - MCP Server: mcp_server.md
       - SDK Reference: sdk_reference.md
       - OpenTelemetry Tracing: otel_tracing/README.md
       - Agentensor Runbook: agentensor/runbook.md

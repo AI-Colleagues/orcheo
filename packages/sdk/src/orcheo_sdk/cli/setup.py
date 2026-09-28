@@ -1993,6 +1993,10 @@ def _build_env_updates(
         "ORCHEO_APP_TLS_CERT_FILE": config.app_tls_cert_file or "",
         "ORCHEO_APP_TLS_KEY_FILE": config.app_tls_key_file or "",
     }
+    if config.public_ingress_enabled and config.public_host is not None:
+        # Caddy reaches the backend over plain HTTP, so the backend needs its
+        # public HTTPS origin to serve MCP OAuth discovery and sign-in.
+        updates["ORCHEO_PUBLIC_URL"] = f"https://{config.public_host}"
     if config.auth_mode == "api-key" and config.api_key:
         updates["ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN"] = config.api_key
     elif config.auth_mode == "oauth":

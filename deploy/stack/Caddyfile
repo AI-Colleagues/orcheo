@@ -1,7 +1,7 @@
 {$ORCHEO_CADDY_SITE_ADDRESS} {
 	encode zstd gzip
 
-	@backend path /api/* /ws/*
+	@backend path /api/* /ws/* /.well-known/oauth-* /.well-known/openid-configuration*
 	reverse_proxy @backend {$ORCHEO_CADDY_BACKEND_UPSTREAMS:backend:2025} {
 		lb_policy round_robin
 		health_uri /api/system/health

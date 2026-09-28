@@ -66,10 +66,7 @@ def test_smtp_sends_auth_challenge_with_tls_and_login() -> None:
     sender = SmtpEmailSender(_settings())
     sender.send_auth_challenge(
         AuthChallengeEmail(
-            to="alice@example.com",
-            magic_link_url="https://studio.test/auth/verify?token=abc",
-            otp_code="123456",
-            expires_at=datetime(2026, 1, 1, tzinfo=UTC),
+            to="alice@example.com", otp_code="123456", expires_in_minutes=15
         )
     )
     smtp = FakeSMTP.instances[-1]
@@ -77,7 +74,14 @@ def test_smtp_sends_auth_challenge_with_tls_and_login() -> None:
     assert smtp.logged_in == ("user", "pass")
     assert smtp.sent is not None
     assert smtp.sent["To"] == "alice@example.com"
-    assert "123456" in smtp.sent.get_body(("html",)).get_content()
+    assert smtp.sent["Subject"] == "123456 is your Orcheo sign-in code"
+    html_body = smtp.sent.get_body(("html",)).get_content()
+    text_body = smtp.sent.get_body(("plain",)).get_content()
+    assert "letter-spacing:8px" in html_body
+    assert ">123456</td>" in html_body
+    assert "href" not in html_body
+    assert text_body.startswith("Your Orcheo sign-in code is 123456.")
+    assert "expires in 15 minutes" in text_body
 
 
 def test_smtp_sends_invitation() -> None:

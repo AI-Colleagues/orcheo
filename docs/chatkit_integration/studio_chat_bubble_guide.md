@@ -29,7 +29,7 @@ context without leaving Studio.
 5. **Login (local or hosted)** – authentication is a first-party passwordless
   email IdP. The backend mints and validates HS256 access tokens signed with
   `ORCHEO_AUTH_JWT_SECRET` (sole accepted issuer = `ORCHEO_AUTH_ISSUER`); the
-  Studio login screen sends a magic link + OTP. Set `VITE_ORCHEO_AUTH_DISABLED=true`
+  Studio login screen emails a one-time sign-in code. Set `VITE_ORCHEO_AUTH_DISABLED=true`
   to bypass the login gate for local dev.
 6. **ChatKit signing key** – set `ORCHEO_CHATKIT_TOKEN_SIGNING_KEY` (HS or RSA
    private key material) so the backend can mint workflow-scoped ChatKit

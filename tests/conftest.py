@@ -1,5 +1,6 @@
 """Configure test environment for Orcheo."""
 
+from collections.abc import Iterator
 from functools import lru_cache
 import os
 import sys
@@ -18,6 +19,7 @@ os.environ["ORCHEO_WORKFLOW_DEFINITION_MODE"] = "unrestricted"
 
 from orcheo.models import AesGcmCredentialCipher
 from orcheo.hosted_apps import InMemoryHostedAppsRepository
+from orcheo.postgres_pools import reset_shared_pools
 from orcheo.vault import InMemoryCredentialVault
 from orcheo.workspace import InMemoryWorkspaceRepository
 from orcheo_backend.app import chatkit_runtime
@@ -98,6 +100,14 @@ def _requires_backend_state(test_file: str) -> bool:
             "resolve_workspace_context",
         )
     )
+
+
+@pytest.fixture(autouse=True)
+def _reset_shared_postgres_pools() -> Iterator[None]:
+    """Keep the process-wide Postgres pool registry from leaking across tests."""
+    reset_shared_pools()
+    yield
+    reset_shared_pools()
 
 
 @pytest.fixture(autouse=True)

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 from uuid import uuid4
 
@@ -51,7 +53,7 @@ class FakeConnection:
         self.queries: list[tuple[str, Any | None]] = []
         self.commits = 0
         self.rollbacks = 0
-        self.closed = 0
+        self.returned = 0
 
     def execute(self, query: str, params: Any | None = None) -> FakeCursor:
         statement = query.strip()
@@ -79,15 +81,35 @@ class FakeConnection:
     def rollback(self) -> None:
         self.rollbacks += 1
 
-    def close(self) -> None:
-        self.closed += 1
+
+def fake_pool_class(connection: FakeConnection) -> type:
+    """Build a stand-in for `ConnectionPool` that always lends `connection`."""
+
+    class FakePool:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.args = args
+            self.kwargs = kwargs
+
+        @contextmanager
+        def connection(self) -> Iterator[FakeConnection]:
+            try:
+                yield connection
+            except Exception:
+                connection.rollback()
+                raise
+            else:
+                connection.commit()
+            finally:
+                connection.returned += 1
+
+    return FakePool
 
 
 @pytest.fixture
 def fake_connect(monkeypatch: pytest.MonkeyPatch) -> tuple[FakeConnection, str]:
-    """Patch psycopg connect and return the fake connection plus DSN."""
+    """Patch the connection pool and return the fake connection plus DSN."""
     connection = FakeConnection([])
-    monkeypatch.setattr(pg_store, "connect", lambda dsn, row_factory=None: connection)
+    monkeypatch.setattr(pg_store, "ConnectionPool", fake_pool_class(connection))
     return connection, "postgresql://test"
 
 
@@ -179,7 +201,6 @@ def test_postgres_identity_repository_roundtrip(
             {},  # add_challenge
             {"row": _challenge_row(challenge, consumed_at=challenge.consumed_at)},
             {"row": _challenge_row(challenge, consumed_at=challenge.consumed_at)},
-            {"row": _challenge_row(challenge, consumed_at=challenge.consumed_at)},
             {"rowcount": 1},  # update_challenge
             {"rowcount": 1},  # consume_challenge
             {},  # add_session
@@ -211,7 +232,6 @@ def test_postgres_identity_repository_roundtrip(
 
     assert repo.add_challenge(challenge) == challenge
     assert repo.get_challenge(challenge.id) == challenge
-    assert repo.get_challenge_by_token_hash("token-hash") == challenge
     assert (
         repo.find_active_challenge_for_email(
             user.email, now=datetime(2026, 1, 1, tzinfo=UTC)
@@ -229,7 +249,7 @@ def test_postgres_identity_repository_roundtrip(
     assert repo.update_session(session) == session
     assert repo.revoke_sessions_for_user(user.id) == 2
     assert connection.commits >= 1
-    assert connection.closed >= 1
+    assert connection.returned >= 1
 
 
 def test_postgres_identity_repository_duplicate_and_missing_paths(
@@ -270,7 +290,6 @@ def test_postgres_identity_repository_duplicate_and_missing_paths(
             None,  # get_user -> not found
             {"rowcount": 0},  # update_user -> not found
             None,  # get_challenge -> not found
-            None,  # get_challenge_by_token_hash -> not found
             {"rowcount": 0},  # update_challenge -> not found
             {"rowcount": 0},  # consume_challenge -> not found
             None,  # get_session -> not found
@@ -293,8 +312,6 @@ def test_postgres_identity_repository_duplicate_and_missing_paths(
     with pytest.raises(IdentityChallengeNotFoundError):
         repo.get_challenge(uuid4())
     with pytest.raises(IdentityChallengeNotFoundError):
-        repo.get_challenge_by_token_hash("missing-token")
-    with pytest.raises(IdentityChallengeNotFoundError):
         repo.update_challenge(missing_challenge)
     with pytest.raises(IdentityChallengeNotFoundError):
         repo.consume_challenge(
@@ -313,7 +330,6 @@ def test_postgres_identity_repository_row_mappers_handle_nulls() -> None:
     user = User(email="carol@example.com")
     challenge = AuthEmailChallenge(
         email="carol@example.com",
-        token_hash="token",
         code_hash="code",
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
         expires_at=datetime(2026, 1, 2, tzinfo=UTC),
@@ -338,6 +354,7 @@ def test_postgres_identity_repository_row_mappers_handle_nulls() -> None:
     assert mapped_user.name is None
     assert mapped_user.last_login_at is None
     assert mapped_challenge.consumed_at is None
+    assert mapped_challenge.token_hash is None
     assert mapped_session.revoked_at is None
     assert mapped_session.user_agent is None
     assert mapped_session.ip is None

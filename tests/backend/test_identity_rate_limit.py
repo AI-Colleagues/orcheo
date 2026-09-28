@@ -64,13 +64,16 @@ def test_email_start_is_rate_limited_per_ip(client: TestClient) -> None:
     assert throttled.status_code == 429
 
 
+_BAD_CODE = {"email": "alice@example.com", "code": "000000"}
+
+
 def test_email_verify_is_rate_limited_per_ip(client: TestClient) -> None:
-    first = client.post("/api/auth/email/verify", json={})
-    second = client.post("/api/auth/email/verify", json={})
+    first = client.post("/api/auth/email/verify", json=_BAD_CODE)
+    second = client.post("/api/auth/email/verify", json=_BAD_CODE)
     assert first.status_code == 400
     assert second.status_code == 400
 
-    throttled = client.post("/api/auth/email/verify", json={})
+    throttled = client.post("/api/auth/email/verify", json=_BAD_CODE)
     assert throttled.status_code == 429
 
 

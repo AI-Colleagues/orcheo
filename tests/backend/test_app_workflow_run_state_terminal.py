@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import uuid4
 import pytest
 from fastapi import HTTPException
@@ -11,6 +12,16 @@ from orcheo_backend.app.repository import WorkflowRunNotFoundError
 from orcheo_backend.app.schemas.runs import RunCancelRequest, RunFailRequest
 
 
+_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
+
+
+class _RunLookup:
+    """Stub the workspace ownership check the lifecycle routes perform."""
+
+    async def get_run(self, run_id, workspace_id=None):
+        return None
+
+
 @pytest.mark.asyncio()
 async def test_mark_run_failed_success() -> None:
     """Mark run failed endpoint records failure details."""
@@ -18,7 +29,7 @@ async def test_mark_run_failed_success() -> None:
     run_id = uuid4()
     version_id = uuid4()
 
-    class Repository:
+    class Repository(_RunLookup):
         async def mark_run_failed(self, run_id, actor, error):
             return WorkflowRun(
                 id=run_id,
@@ -32,7 +43,7 @@ async def test_mark_run_failed_success() -> None:
             )
 
     request = RunFailRequest(actor="system", error="Test error")
-    result = await mark_run_failed(run_id, request, Repository())
+    result = await mark_run_failed(run_id, request, Repository(), _WORKSPACE)
 
     assert result.id == run_id
     assert result.status == "failed"
@@ -44,14 +55,14 @@ async def test_mark_run_failed_not_found() -> None:
 
     run_id = uuid4()
 
-    class Repository:
+    class Repository(_RunLookup):
         async def mark_run_failed(self, run_id, actor, error):
             raise WorkflowRunNotFoundError("not found")
 
     request = RunFailRequest(actor="system", error="Test error")
 
     with pytest.raises(HTTPException) as exc_info:
-        await mark_run_failed(run_id, request, Repository())
+        await mark_run_failed(run_id, request, Repository(), _WORKSPACE)
 
     assert exc_info.value.status_code == 404
 
@@ -62,14 +73,14 @@ async def test_mark_run_failed_conflict() -> None:
 
     run_id = uuid4()
 
-    class Repository:
+    class Repository(_RunLookup):
         async def mark_run_failed(self, run_id, actor, error):
             raise ValueError("Invalid state transition")
 
     request = RunFailRequest(actor="system", error="Test error")
 
     with pytest.raises(HTTPException) as exc_info:
-        await mark_run_failed(run_id, request, Repository())
+        await mark_run_failed(run_id, request, Repository(), _WORKSPACE)
 
     assert exc_info.value.status_code == 409
 
@@ -81,7 +92,7 @@ async def test_mark_run_cancelled_success() -> None:
     run_id = uuid4()
     version_id = uuid4()
 
-    class Repository:
+    class Repository(_RunLookup):
         async def mark_run_cancelled(self, run_id, actor, reason):
             return WorkflowRun(
                 id=run_id,
@@ -94,7 +105,7 @@ async def test_mark_run_cancelled_success() -> None:
             )
 
     request = RunCancelRequest(actor="system", reason="User requested")
-    result = await mark_run_cancelled(run_id, request, Repository())
+    result = await mark_run_cancelled(run_id, request, Repository(), _WORKSPACE)
 
     assert result.id == run_id
     assert result.status == "cancelled"
@@ -106,14 +117,14 @@ async def test_mark_run_cancelled_not_found() -> None:
 
     run_id = uuid4()
 
-    class Repository:
+    class Repository(_RunLookup):
         async def mark_run_cancelled(self, run_id, actor, reason):
             raise WorkflowRunNotFoundError("not found")
 
     request = RunCancelRequest(actor="system")
 
     with pytest.raises(HTTPException) as exc_info:
-        await mark_run_cancelled(run_id, request, Repository())
+        await mark_run_cancelled(run_id, request, Repository(), _WORKSPACE)
 
     assert exc_info.value.status_code == 404
 
@@ -124,13 +135,13 @@ async def test_mark_run_cancelled_conflict() -> None:
 
     run_id = uuid4()
 
-    class Repository:
+    class Repository(_RunLookup):
         async def mark_run_cancelled(self, run_id, actor, reason):
             raise ValueError("Invalid state transition")
 
     request = RunCancelRequest(actor="system")
 
     with pytest.raises(HTTPException) as exc_info:
-        await mark_run_cancelled(run_id, request, Repository())
+        await mark_run_cancelled(run_id, request, Repository(), _WORKSPACE)
 
     assert exc_info.value.status_code == 409

@@ -325,9 +325,12 @@ class WorkflowRepository(Protocol):
         """Remove cron trigger configuration for a workflow."""
 
     async def dispatch_due_cron_runs(
-        self, *, now: datetime | None = None
+        self, *, now: datetime | None = None, workspace_id: str | None = None
     ) -> list[WorkflowRun]:
-        """Dispatch runs for cron triggers that are due at the given time."""
+        """Dispatch runs for cron triggers that are due at the given time.
+
+        When ``workspace_id`` is given, only that workspace's schedules fire.
+        """
 
     async def dispatch_manual_runs(
         self, request: ManualDispatchRequest
