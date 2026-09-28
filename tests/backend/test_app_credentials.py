@@ -404,6 +404,27 @@ async def test_reveal_credential_secret_scope_error() -> None:
 
 
 @pytest.mark.asyncio()
+async def test_reveal_credential_secret_refuses_oauth_clients() -> None:
+    """In-process MCP calls carry OAuth contexts past authentication."""
+    from orcheo_backend.app import reveal_credential_secret
+
+    class Vault:
+        def reveal_secret(self, credential_id, context=None):
+            raise AssertionError("secret must not be read")
+
+    oauth_client = RequestContext(
+        subject=str(uuid4()), identity_type="user", claims={"client_id": "mcp"}
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await reveal_credential_secret(
+            uuid4(), Vault(), _Repository(), _MOCK_WORKSPACE, oauth_client
+        )
+
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio()
 async def test_update_credential_duplicate_name_error() -> None:
     from orcheo_backend.app import update_credential
     from orcheo_backend.app.schemas.credentials import CredentialUpdateRequest
