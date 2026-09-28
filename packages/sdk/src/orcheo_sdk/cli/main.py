@@ -498,7 +498,7 @@ def install_command(
             "--supabase-connection-string",
             help=(
                 "With --lean, the Supabase PostgreSQL connection string (sets "
-                "ORCHEO_POSTGRES_DSN); use the session pooler string."
+                "ORCHEO_POSTGRES_DSN); use the transaction pooler string."
             ),
         ),
     ] = None,

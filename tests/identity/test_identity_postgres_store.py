@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 from uuid import uuid4
 
@@ -51,7 +53,7 @@ class FakeConnection:
         self.queries: list[tuple[str, Any | None]] = []
         self.commits = 0
         self.rollbacks = 0
-        self.closed = 0
+        self.returned = 0
 
     def execute(self, query: str, params: Any | None = None) -> FakeCursor:
         statement = query.strip()
@@ -79,15 +81,35 @@ class FakeConnection:
     def rollback(self) -> None:
         self.rollbacks += 1
 
-    def close(self) -> None:
-        self.closed += 1
+
+def fake_pool_class(connection: FakeConnection) -> type:
+    """Build a stand-in for `ConnectionPool` that always lends `connection`."""
+
+    class FakePool:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.args = args
+            self.kwargs = kwargs
+
+        @contextmanager
+        def connection(self) -> Iterator[FakeConnection]:
+            try:
+                yield connection
+            except Exception:
+                connection.rollback()
+                raise
+            else:
+                connection.commit()
+            finally:
+                connection.returned += 1
+
+    return FakePool
 
 
 @pytest.fixture
 def fake_connect(monkeypatch: pytest.MonkeyPatch) -> tuple[FakeConnection, str]:
-    """Patch psycopg connect and return the fake connection plus DSN."""
+    """Patch the connection pool and return the fake connection plus DSN."""
     connection = FakeConnection([])
-    monkeypatch.setattr(pg_store, "connect", lambda dsn, row_factory=None: connection)
+    monkeypatch.setattr(pg_store, "ConnectionPool", fake_pool_class(connection))
     return connection, "postgresql://test"
 
 
@@ -227,7 +249,7 @@ def test_postgres_identity_repository_roundtrip(
     assert repo.update_session(session) == session
     assert repo.revoke_sessions_for_user(user.id) == 2
     assert connection.commits >= 1
-    assert connection.closed >= 1
+    assert connection.returned >= 1
 
 
 def test_postgres_identity_repository_duplicate_and_missing_paths(

@@ -24,8 +24,8 @@ def test_get_workspace_repository_selects_all_backends(
     created: list[tuple[str, tuple[object, ...]]] = []
 
     class _PostgresRepo:
-        def __init__(self, dsn: str) -> None:
-            created.append(("postgres", (dsn,)))
+        def __init__(self, dsn: str, *, pool_min_size: int, pool_max_size: int) -> None:
+            created.append(("postgres", (dsn, pool_min_size, pool_max_size)))
 
     monkeypatch.setattr(
         workspace_dependencies, "PostgresWorkspaceRepository", _PostgresRepo
@@ -36,11 +36,12 @@ def test_get_workspace_repository_selects_all_backends(
         lambda refresh=False: {  # noqa: ARG005
             "WORKSPACE_BACKEND": "postgres",
             "POSTGRES_DSN": "postgres://dsn",
+            "POSTGRES_POOL_MAX_SIZE": "4",
         },
     )
     workspace_dependencies.reset_workspace_state()
     workspace_dependencies.get_workspace_repository()
-    assert created[-1][0] == "postgres"
+    assert created[-1] == ("postgres", ("postgres://dsn", 1, 4))
 
     workspace_dependencies.reset_workspace_state()
     monkeypatch.setattr(

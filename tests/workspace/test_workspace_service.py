@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 import pytest
 from orcheo.workspace import (
     InMemoryWorkspaceRepository,
     Role,
     WorkspaceMembershipError,
     WorkspaceMembershipLimitError,
+    WorkspaceNotFoundError,
     WorkspacePermissionError,
     WorkspaceService,
     WorkspaceStatus,
@@ -174,6 +176,58 @@ def test_list_members_and_memberships_for_use_workspace_lookup() -> None:
     pairs = svc.memberships_for("bob", workspaces=[acme])
     assert [workspace.slug for workspace, _ in pairs] == ["acme", "globex"]
     assert [membership.role for _, membership in pairs] == [Role.VIEWER, Role.ADMIN]
+
+
+def test_memberships_for_fetches_missing_workspaces_in_one_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc = _service()
+    acme, _ = svc.create_workspace(slug="acme", name="Acme", owner_user_id="alice")
+    globex, _ = svc.create_workspace(
+        slug="globex", name="Globex", owner_user_id="alice"
+    )
+    repository = svc.repository
+    batches: list[list[object]] = []
+    get_workspaces = repository.get_workspaces
+
+    def _record_batch(workspace_ids):  # noqa: ANN001, ANN202
+        ids = list(workspace_ids)
+        batches.append(ids)
+        return get_workspaces(ids)
+
+    def _fail_single_lookup(workspace_id):  # noqa: ANN001, ANN202
+        raise AssertionError(f"unexpected single lookup of {workspace_id}")
+
+    monkeypatch.setattr(repository, "get_workspaces", _record_batch)
+    monkeypatch.setattr(repository, "get_workspace", _fail_single_lookup)
+
+    pairs = svc.memberships_for("alice")
+
+    assert [workspace.slug for workspace, _ in pairs] == ["acme", "globex"]
+    assert batches == [[acme.id, globex.id]]
+
+    batches.clear()
+    svc.memberships_for("alice", workspaces=[acme, globex])
+    assert batches == []
+
+
+def test_memberships_for_raises_when_workspace_is_missing() -> None:
+    repository = InMemoryWorkspaceRepository()
+    svc = WorkspaceService(repository)
+    workspace, _ = svc.create_workspace(slug="acme", name="Acme", owner_user_id="alice")
+    del repository._workspaces[workspace.id]
+
+    with pytest.raises(WorkspaceNotFoundError):
+        svc.memberships_for("alice")
+
+
+def test_in_memory_get_workspaces_dedupes_and_skips_unknown_ids() -> None:
+    svc = _service()
+    acme, _ = svc.create_workspace(slug="acme", name="Acme", owner_user_id="alice")
+
+    workspaces = svc.repository.get_workspaces([acme.id, uuid4(), acme.id])
+
+    assert workspaces == [acme]
 
 
 def test_purge_deleted_workspaces_skips_recent_deletes() -> None:

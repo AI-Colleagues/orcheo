@@ -38,7 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_auth_email_challenges_email
 CREATE INDEX IF NOT EXISTS idx_auth_email_challenges_expires_at
     ON auth_email_challenges(expires_at);
 
--- Sign-in is code-only; the magic-link token column is kept for old rows.
+-- Sign-in is code-only, but the magic-link token column is kept for old rows.
 ALTER TABLE auth_email_challenges ALTER COLUMN token_hash DROP NOT NULL;
 
 CREATE TABLE IF NOT EXISTS auth_sessions (

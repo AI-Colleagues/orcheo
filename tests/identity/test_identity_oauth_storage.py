@@ -14,7 +14,7 @@ from orcheo.identity import (
     OAuthClientNotFoundError,
     PostgresIdentityRepository,
 )
-from tests.identity.test_identity_postgres_store import FakeConnection
+from tests.identity.test_identity_postgres_store import FakeConnection, fake_pool_class
 
 
 NOW = datetime(2026, 9, 28, 12, 0, tzinfo=UTC)
@@ -82,7 +82,7 @@ def pg(monkeypatch: pytest.MonkeyPatch) -> tuple[FakeConnection, Any]:
     from orcheo.identity import postgres_store as pg_store
 
     connection = FakeConnection([])
-    monkeypatch.setattr(pg_store, "connect", lambda dsn, row_factory=None: connection)
+    monkeypatch.setattr(pg_store, "ConnectionPool", fake_pool_class(connection))
     return connection, PostgresIdentityRepository("postgresql://test")
 
 

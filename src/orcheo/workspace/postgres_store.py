@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
-from psycopg import Connection, connect
+from psycopg import Connection
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
+from orcheo.postgres_pools import get_shared_sync_pool
 from orcheo.workspace.errors import (
     WorkspaceInvitationError,
     WorkspaceInvitationNotFoundError,
@@ -51,22 +53,25 @@ def _workspace_quotas_from_payload(payload: dict[str, Any]) -> WorkspaceQuotas:
 class PostgresWorkspaceRepository:
     """Persistent workspace store backed by PostgreSQL."""
 
-    def __init__(self, dsn: str) -> None:
+    def __init__(
+        self, dsn: str, *, pool_min_size: int = 1, pool_max_size: int = 10
+    ) -> None:
         """Open or create a PostgreSQL database for workspace storage."""
         self._dsn = dsn
+        self._pool = get_shared_sync_pool(
+            ConnectionPool,
+            dsn,
+            min_size=pool_min_size,
+            max_size=pool_max_size,
+            row_factory=dict_row,
+        )
         self._ensure_schema()
 
     @contextmanager
     def _connect(self) -> Iterator[Connection[Any]]:
-        connection = connect(self._dsn, row_factory=dict_row)
-        try:
+        # The pool commits on a clean exit and rolls back on an exception.
+        with self._pool.connection() as connection:
             yield connection
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
 
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
@@ -114,6 +119,18 @@ class PostgresWorkspaceRepository:
         if row is None:
             raise WorkspaceNotFoundError(str(workspace_id))
         return self._row_to_workspace(row)
+
+    def get_workspaces(self, workspace_ids: Iterable[UUID]) -> list[Workspace]:
+        """Return the workspaces identified by `workspace_ids`, skipping unknowns."""
+        ids = list(dict.fromkeys(workspace_ids))
+        if not ids:
+            return []
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM workspaces WHERE id = ANY(%s)",
+                (ids,),
+            ).fetchall()
+        return [self._row_to_workspace(row) for row in rows]
 
     def get_workspace_by_slug(self, slug: str) -> Workspace:
         """Return the workspace identified by `slug`."""

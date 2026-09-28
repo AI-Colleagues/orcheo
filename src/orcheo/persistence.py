@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 import asyncio
-import contextlib
 import importlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, cast
 from dynaconf import Dynaconf
 from orcheo.config import CheckpointBackend, GraphStoreBackend
+from orcheo.postgres_pools import connection_kwargs
 
 
 AsyncPostgresSaver: Any | None
@@ -41,7 +41,6 @@ class _State:
 
     checkpointer_pool: Any = None
     graph_store: Any = None
-    graph_store_exit_stack: contextlib.AsyncExitStack | None = None
 
 
 _state = _State()
@@ -53,7 +52,36 @@ def _reset_persistence_singletons() -> None:
     """Reset module-level singletons. Intended for test isolation only."""
     _state.checkpointer_pool = None
     _state.graph_store = None
-    _state.graph_store_exit_stack = None
+
+
+def _require_postgres_dsn(settings: Dynaconf) -> str:
+    dsn = settings.postgres_dsn
+    if dsn is None:  # pragma: no cover - defensive, validated earlier
+        msg = "Postgres backend requires ORCHEO_POSTGRES_DSN to be set."
+        raise RuntimeError(msg)
+    return str(dsn)
+
+
+async def _open_langgraph_pool(settings: Dynaconf) -> Any:
+    """Open a pool configured for LangGraph's Postgres checkpointer or store.
+
+    LangGraph expects autocommit connections that return dict rows. Prepared
+    statements stay off so the pool also works behind a transaction pooler.
+    The checkpointer and store get separate pools because a checkpointer holds
+    its connection for a whole run, which would starve store lookups.
+    """
+    assert AsyncConnectionPool is not None  # mypy
+    pool = AsyncConnectionPool(
+        _require_postgres_dsn(settings),
+        open=False,
+        min_size=int(settings.postgres_pool_min_size),
+        max_size=int(settings.postgres_pool_max_size),
+        timeout=float(settings.postgres_pool_timeout),
+        max_idle=float(settings.postgres_pool_max_idle),
+        kwargs=connection_kwargs(autocommit=True, row_factory=DictRowFactory),
+    )
+    await pool.open()
+    return pool
 
 
 @asynccontextmanager
@@ -78,31 +106,12 @@ async def create_checkpointer(settings: Dynaconf) -> AsyncIterator[Any]:
         msg = "Postgres backend requires psycopg_pool and langgraph postgres extras."
         raise RuntimeError(msg)
 
-    dsn = settings.postgres_dsn
-    if dsn is None:  # pragma: no cover - defensive, validated earlier
-        msg = "Postgres backend requires ORCHEO_POSTGRES_DSN to be set."
-        raise RuntimeError(msg)
-
     if _state.checkpointer_pool is None:
         async with _checkpointer_pool_lock:
             if _state.checkpointer_pool is None:
-                pool = AsyncConnectionPool(
-                    dsn,
-                    open=False,
-                    min_size=int(settings.postgres_pool_min_size),
-                    max_size=int(settings.postgres_pool_max_size),
-                    timeout=float(settings.postgres_pool_timeout),
-                    max_idle=float(settings.postgres_pool_max_idle),
-                    kwargs={
-                        "autocommit": True,
-                        "prepare_threshold": 0,
-                        "row_factory": DictRowFactory,
-                    },
-                )
-                await pool.open()
-                _state.checkpointer_pool = pool
+                _state.checkpointer_pool = await _open_langgraph_pool(settings)
 
-    async with _state.checkpointer_pool.connection() as conn:  # type: ignore[attr-defined]
+    async with _state.checkpointer_pool.connection() as conn:
         checkpointer = AsyncPostgresSaver(cast(Any, conn))
         await checkpointer.setup()
         yield checkpointer
@@ -112,43 +121,28 @@ async def create_checkpointer(settings: Dynaconf) -> AsyncIterator[Any]:
 async def create_graph_store(settings: Dynaconf) -> AsyncIterator[Any]:
     """Create a LangGraph store based on the configured backend.
 
-    The underlying store (and its internal connection pool) is a
-    process-lifetime singleton.  It is opened on the first call and reused on
-    every subsequent call via an AsyncExitStack that keeps the context manager
-    alive for the lifetime of the process.
+    The store and its connection pool are a process-lifetime singleton, opened
+    on the first call and reused on every subsequent call.
     """
     backend = cast(GraphStoreBackend, settings.graph_store_backend)
     if backend != "postgres":
         msg = "Graph store backend must be 'postgres'."
         raise ValueError(msg)
 
-    if AsyncPostgresStore is None:  # pragma: no cover
+    if (
+        AsyncPostgresStore is None
+        or AsyncConnectionPool is None
+        or DictRowFactory is None
+    ):  # pragma: no cover
         msg = "Postgres graph store requires langgraph postgres extras."
-        raise RuntimeError(msg)
-
-    dsn = settings.postgres_dsn
-    if dsn is None:  # pragma: no cover - defensive, validated earlier
-        msg = "Postgres backend requires ORCHEO_POSTGRES_DSN to be set."
         raise RuntimeError(msg)
 
     if _state.graph_store is None:
         async with _graph_store_lock:
             if _state.graph_store is None:
-                pool_config = {
-                    "min_size": int(settings.postgres_pool_min_size),
-                    "max_size": int(settings.postgres_pool_max_size),
-                    "timeout": float(settings.postgres_pool_timeout),
-                    "max_idle": float(settings.postgres_pool_max_idle),
-                }
-                exit_stack = contextlib.AsyncExitStack()
-                store = await exit_stack.enter_async_context(
-                    AsyncPostgresStore.from_conn_string(
-                        dsn,
-                        pool_config=pool_config,
-                    )
-                )
+                pool = await _open_langgraph_pool(settings)
+                store = AsyncPostgresStore(conn=pool)
                 await store.setup()
-                _state.graph_store_exit_stack = exit_stack
                 _state.graph_store = store
 
     yield _state.graph_store

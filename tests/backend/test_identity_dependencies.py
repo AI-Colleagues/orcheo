@@ -58,8 +58,9 @@ def test_get_identity_repository_covers_backend_branches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class FakePostgresRepository:
-        def __init__(self, dsn: str) -> None:
+        def __init__(self, dsn: str, *, pool_min_size: int, pool_max_size: int) -> None:
             self.dsn = dsn
+            self.pool_sizes = (pool_min_size, pool_max_size)
 
     class FakeMemoryRepository:
         def __init__(self) -> None:
@@ -74,12 +75,17 @@ def test_get_identity_repository_covers_backend_branches(
     monkeypatch.setattr(
         dependencies,
         "get_settings",
-        lambda: {"WORKSPACE_BACKEND": "postgres", "POSTGRES_DSN": "postgresql://db"},
+        lambda: {
+            "WORKSPACE_BACKEND": "postgres",
+            "POSTGRES_DSN": "postgresql://db",
+            "POSTGRES_POOL_MIN_SIZE": 2,
+        },
     )
 
     repository = dependencies.get_identity_repository()
     assert isinstance(repository, FakePostgresRepository)
     assert repository.dsn == "postgresql://db"
+    assert repository.pool_sizes == (2, 10)
 
     dependencies.set_identity_repository(None)
     monkeypatch.setattr(

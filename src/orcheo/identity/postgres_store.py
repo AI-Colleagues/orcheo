@@ -6,10 +6,11 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
-from psycopg import Connection, connect
+from psycopg import Connection
 from psycopg.errors import UniqueViolation
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
+from psycopg_pool import ConnectionPool
 from orcheo.identity.errors import (
     IdentityChallengeNotFoundError,
     IdentitySessionNotFoundError,
@@ -28,6 +29,7 @@ from orcheo.identity.models import (
     normalize_email,
 )
 from orcheo.identity.postgres_schema import POSTGRES_IDENTITY_SCHEMA
+from orcheo.postgres_pools import get_shared_sync_pool
 
 
 __all__ = ["PostgresIdentityRepository"]
@@ -40,22 +42,25 @@ def _utc_now() -> datetime:
 class PostgresIdentityRepository:
     """Persistent identity store backed by PostgreSQL."""
 
-    def __init__(self, dsn: str) -> None:
+    def __init__(
+        self, dsn: str, *, pool_min_size: int = 1, pool_max_size: int = 10
+    ) -> None:
         """Open or create a PostgreSQL database for identity storage."""
         self._dsn = dsn
+        self._pool = get_shared_sync_pool(
+            ConnectionPool,
+            dsn,
+            min_size=pool_min_size,
+            max_size=pool_max_size,
+            row_factory=dict_row,
+        )
         self._ensure_schema()
 
     @contextmanager
     def _connect(self) -> Iterator[Connection[Any]]:
-        connection = connect(self._dsn, row_factory=dict_row)
-        try:
+        # The pool commits on a clean exit and rolls back on an exception.
+        with self._pool.connection() as connection:
             yield connection
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
 
     def _ensure_schema(self) -> None:
         with self._connect() as conn:

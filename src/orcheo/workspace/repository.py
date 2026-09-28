@@ -1,6 +1,7 @@
 """Workspace repository protocol and an in-memory reference implementation."""
 
 from __future__ import annotations
+from collections.abc import Iterable
 from typing import Protocol
 from uuid import UUID
 from orcheo.models.base import _utcnow
@@ -38,6 +39,9 @@ class WorkspaceRepository(Protocol):
 
     def get_workspace(self, workspace_id: UUID) -> Workspace:
         """Return the workspace identified by `workspace_id`."""
+
+    def get_workspaces(self, workspace_ids: Iterable[UUID]) -> list[Workspace]:
+        """Return the workspaces identified by `workspace_ids`, skipping unknowns."""
 
     def get_workspace_by_slug(self, slug: str) -> Workspace:
         """Return the workspace identified by `slug`."""
@@ -168,6 +172,14 @@ class InMemoryWorkspaceRepository:
         if workspace is None:
             raise WorkspaceNotFoundError(str(workspace_id))
         return workspace
+
+    def get_workspaces(self, workspace_ids: Iterable[UUID]) -> list[Workspace]:
+        """Return the workspaces identified by `workspace_ids`, skipping unknowns."""
+        return [
+            self._workspaces[workspace_id]
+            for workspace_id in dict.fromkeys(workspace_ids)
+            if workspace_id in self._workspaces
+        ]
 
     def get_workspace_by_slug(self, slug: str) -> Workspace:
         """Return the workspace identified by `slug`."""

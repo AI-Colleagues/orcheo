@@ -25,6 +25,7 @@ from orcheo.hosted_apps.runtime import (
     _validate_schema,
 )
 from orcheo.models.base import _utcnow
+from orcheo.postgres_pools import connection_kwargs
 
 
 __all__ = ["PostgresAppRuntimeService"]
@@ -50,7 +51,7 @@ class PostgresAppRuntimeService:  # pragma: no cover
             conninfo=dsn,
             min_size=0,
             max_size=10,
-            kwargs={"row_factory": dict_row},
+            kwargs=connection_kwargs(autocommit=False, row_factory=dict_row),
             open=True,
         )
 

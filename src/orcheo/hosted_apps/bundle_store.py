@@ -12,6 +12,7 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from orcheo.hosted_apps.postgres_schema import POSTGRES_BUNDLE_OBJECTS_SCHEMA
+from orcheo.postgres_pools import connection_kwargs
 
 
 __all__ = [
@@ -156,7 +157,7 @@ class PostgresBundleStore:
             conninfo=dsn,
             min_size=0,
             max_size=10,
-            kwargs={"row_factory": dict_row},
+            kwargs=connection_kwargs(autocommit=False, row_factory=dict_row),
             open=True,
         )
         self._owns_pool = pool is None

@@ -67,7 +67,11 @@ def get_identity_repository() -> IdentityRepository:
         backend = str(settings.get("WORKSPACE_BACKEND", "postgres")).lower()
         dsn = settings.get("POSTGRES_DSN")
         if backend == "postgres" and dsn:
-            repository = PostgresIdentityRepository(str(dsn))
+            repository = PostgresIdentityRepository(
+                str(dsn),
+                pool_min_size=int(settings.get("POSTGRES_POOL_MIN_SIZE", 1)),
+                pool_max_size=int(settings.get("POSTGRES_POOL_MAX_SIZE", 10)),
+            )
         else:
             repository = InMemoryIdentityRepository()
         _identity_repository_ref["repository"] = repository

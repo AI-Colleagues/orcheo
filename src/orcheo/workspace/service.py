@@ -17,6 +17,7 @@ from orcheo.workspace.errors import (
     WorkspaceInvitationExpiredError,
     WorkspaceInvitationNotFoundError,
     WorkspaceMembershipLimitError,
+    WorkspaceNotFoundError,
     WorkspacePermissionError,
 )
 from orcheo.workspace.models import (
@@ -540,11 +541,21 @@ class WorkspaceService:
             if workspaces is not None
             else {}
         )
+        missing = [
+            membership.workspace_id
+            for membership in memberships
+            if membership.workspace_id not in workspace_lookup
+        ]
+        if missing:
+            workspace_lookup.update(
+                (workspace.id, workspace)
+                for workspace in self._repository.get_workspaces(missing)
+            )
         result: list[tuple[Workspace, WorkspaceMembership]] = []
         for membership in memberships:
             workspace = workspace_lookup.get(membership.workspace_id)
             if workspace is None:
-                workspace = self._repository.get_workspace(membership.workspace_id)
+                raise WorkspaceNotFoundError(str(membership.workspace_id))
             result.append((workspace, membership))
         return result
 

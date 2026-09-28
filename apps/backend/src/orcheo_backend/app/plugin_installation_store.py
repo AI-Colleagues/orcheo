@@ -5,6 +5,7 @@ import asyncio
 import importlib
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
+from orcheo.postgres_pools import acquire_async_pool
 
 
 _AsyncConnectionPool: Any | None
@@ -96,20 +97,15 @@ class PostgresPluginInstallationStore:
                 return self._pool
             pool_class = _AsyncConnectionPool
             assert pool_class is not None
-            self._pool = pool_class(
+            self._pool = await acquire_async_pool(
+                pool_class,
                 self._dsn,
                 min_size=self._pool_min_size,
                 max_size=self._pool_max_size,
                 timeout=self._pool_timeout,
                 max_idle=self._pool_max_idle,
-                open=False,
-                kwargs={
-                    "autocommit": False,
-                    "prepare_threshold": 0,
-                    "row_factory": _DictRowFactory,
-                },
+                row_factory=_DictRowFactory,
             )
-            await self._pool.open()
             return self._pool
 
     async def _ensure_initialized(self) -> None:

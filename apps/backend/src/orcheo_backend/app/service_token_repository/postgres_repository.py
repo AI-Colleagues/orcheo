@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
+from orcheo.postgres_pools import acquire_async_pool, release_async_pool
 from orcheo_backend.app.authentication import ServiceTokenRecord
 from orcheo_backend.app.service_token_repository.protocol import ServiceTokenRepository
 from orcheo_backend.app.service_token_repository.serialization import (
@@ -165,20 +166,15 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
 
             pool_class = _AsyncConnectionPool
             assert pool_class is not None  # mypy
-            self._pool = pool_class(
+            self._pool = await acquire_async_pool(
+                pool_class,
                 self._dsn,
                 min_size=self._pool_min_size,
                 max_size=self._pool_max_size,
                 timeout=self._pool_timeout,
                 max_idle=self._pool_max_idle,
-                open=False,
-                kwargs={
-                    "autocommit": False,
-                    "prepare_threshold": 0,
-                    "row_factory": _DictRowFactory,
-                },
+                row_factory=_DictRowFactory,
             )
-            await self._pool.open()
             return self._pool
 
     @asynccontextmanager
@@ -468,9 +464,9 @@ class PostgresServiceTokenRepository(ServiceTokenRepository):
             )
 
     async def close(self) -> None:
-        """Close the connection pool."""
+        """Release this store's hold on the shared connection pool."""
         if self._pool is not None:
-            await self._pool.close()
+            await release_async_pool(self._pool)
             self._pool = None
 
 

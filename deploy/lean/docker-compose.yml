@@ -127,6 +127,15 @@ services:
     command: >
       sh -c 'python -m celery -A orcheo_backend.worker.celery_app beat --loglevel=info -s "$$ORCHEO_CELERY_BEAT_SCHEDULE_FILE"'
 
+networks:
+  default:
+    # Supabase's direct connection and dedicated pooler (db.<ref>.supabase.co)
+    # are IPv6-only, so give the containers an IPv6 route out. Docker Engine
+    # 27+ picks an IPv6 subnet automatically; the host itself also needs
+    # outbound IPv6. Set ORCHEO_LEAN_ENABLE_IPV6=false on older engines or
+    # IPv4-only hosts that connect through Supavisor (pooler.supabase.com).
+    enable_ipv6: ${ORCHEO_LEAN_ENABLE_IPV6:-true}
+
 volumes:
   redis_data:
   orcheo_data:
