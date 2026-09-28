@@ -381,11 +381,14 @@ async def test_dispatch_cron_triggers_wraps_health_error() -> None:
     workflow_id = uuid4()
 
     class Repository:
-        async def dispatch_due_cron_runs(self, now=None):
+        async def dispatch_due_cron_runs(self, now=None, workspace_id=None):
             raise _health_error(workflow_id)
 
     with pytest.raises(HTTPException) as exc_info:
-        await dispatch_cron_triggers(repository=Repository(), _admin=None)
+        await dispatch_cron_triggers(
+            repository=Repository(),
+            admin=SimpleNamespace(workspace_id=uuid4()),  # type: ignore[arg-type]
+        )
 
     assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 

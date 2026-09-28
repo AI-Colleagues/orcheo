@@ -242,3 +242,26 @@ def test_form_tokens_fall_back_to_a_process_key(
     token = issue_form_token(form)
 
     assert form_tokens.verify_form_token(token, subject="u") == form
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [{"sub": "u"}, {"sub": "u", "ws": None, "cid": None, "exp": None}],
+    ids=["missing-fields", "bad-expiry"],
+)
+def test_form_tokens_reject_signed_tokens_of_another_shape(
+    monkeypatch: pytest.MonkeyPatch, payload: dict
+) -> None:
+    import base64
+    import hashlib
+    import hmac
+    import json
+    from orcheo_backend.app.mcp_server import form_tokens
+
+    monkeypatch.setattr(form_tokens, "_key", lambda: b"k")
+    body = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+    signature = hmac.new(b"k", body.encode(), hashlib.sha256).digest()
+    token = f"{body}.{base64.urlsafe_b64encode(signature).decode().rstrip('=')}"
+
+    with pytest.raises(Exception, match="invalid"):
+        form_tokens.verify_form_token(token, subject="u")

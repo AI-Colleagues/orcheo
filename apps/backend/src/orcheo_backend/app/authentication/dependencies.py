@@ -7,7 +7,7 @@ from fastapi import Request, WebSocket
 from orcheo.config import get_settings
 from .authenticator import Authenticator
 from .context import RequestContext
-from .errors import AuthenticationError
+from .errors import AuthenticationError, AuthorizationError
 from .rate_limit import AuthRateLimiter
 from .service_tokens import ServiceTokenManager
 from .settings import _DEV_DEFAULT_SCOPES, AuthSettings, load_auth_settings
@@ -20,6 +20,8 @@ _auth_rate_limiter_cache: dict[str, AuthRateLimiter | None] = {"limiter": None}
 # ASGI scope key carrying a RequestContext that was already authenticated by an
 # in-process caller. See ``authenticate_request``.
 PREAUTHENTICATED_SCOPE_KEY = "orcheo.preauthenticated_context"
+# Claim that marks access tokens granted to an OAuth client (an MCP client).
+OAUTH_CLIENT_CLAIM = "client_id"
 _token_manager_cache: dict[str, ServiceTokenManager | None] = {"manager": None}
 
 
@@ -215,8 +217,41 @@ def _try_dev_login_session(
     return _build_dev_context(identity, settings)
 
 
+def is_oauth_client_context(context: RequestContext) -> bool:
+    """Return True when ``context`` comes from a token granted to an OAuth client."""
+    return bool(context.claims.get(OAUTH_CLIENT_CLAIM))
+
+
+def _reject_oauth_client_token(context: RequestContext) -> None:
+    """Refuse OAuth-client tokens outside the MCP endpoint they were issued for.
+
+    Consent only covers the MCP server's tools, so these tokens must not reach
+    the rest of the API (minting service tokens, approving consent, etc.).
+    """
+    if is_oauth_client_context(context):
+        raise AuthorizationError(
+            "Tokens granted to OAuth applications are only valid for the MCP endpoint.",
+            code="auth.oauth_client_token",
+        )
+
+
 async def authenticate_request(request: Request) -> RequestContext:
-    """FastAPI dependency that enforces authentication on HTTP requests."""
+    """FastAPI dependency that enforces authentication on HTTP requests.
+
+    Tokens granted to OAuth clients are rejected; the MCP endpoint accepts them
+    through ``authenticate_oauth_resource_request`` instead.
+    """
+    return await _authenticate_http(request, allow_oauth_clients=False)
+
+
+async def authenticate_oauth_resource_request(request: Request) -> RequestContext:
+    """Authenticate a request to the MCP endpoint, accepting OAuth-client tokens."""
+    return await _authenticate_http(request, allow_oauth_clients=True)
+
+
+async def _authenticate_http(
+    request: Request, *, allow_oauth_clients: bool
+) -> RequestContext:
     preauthenticated = request.scope.get(PREAUTHENTICATED_SCOPE_KEY)
     if isinstance(preauthenticated, RequestContext):
         # Set only by in-process callers (the MCP server) that authenticated
@@ -235,7 +270,12 @@ async def authenticate_request(request: Request) -> RequestContext:
     token, auth_error = _parse_authorization_header(auth_header)
 
     context = await _attempt_bearer_auth_optional(
-        authenticator, limiter, token, ip, now
+        authenticator,
+        limiter,
+        token,
+        ip,
+        now,
+        allow_oauth_clients=allow_oauth_clients,
     )
     if context is not None:
         request.state.auth = context
@@ -305,6 +345,8 @@ async def _attempt_bearer_auth_optional(
     token: str | None,
     ip: str | None,
     now: datetime,
+    *,
+    allow_oauth_clients: bool = False,
 ) -> RequestContext | None:
     if not token:
         return None
@@ -317,6 +359,8 @@ async def _attempt_bearer_auth_optional(
         return None
     try:
         limiter.check_identity(context.token_id or context.subject, now=now)
+        if not allow_oauth_clients:
+            _reject_oauth_client_token(context)
     except AuthenticationError as exc:
         raise exc.as_http_exception() from exc
     auth_telemetry.record_auth_success(context, ip=ip)
@@ -363,6 +407,7 @@ async def authenticate_websocket(websocket: WebSocket) -> RequestContext:  # noq
 
     try:
         context = await authenticator.authenticate(token)
+        _reject_oauth_client_token(context)
     except AuthenticationError as exc:
         auth_telemetry.record_auth_failure(reason=exc.code, ip=ip)
         await websocket.close(code=exc.websocket_code, reason=exc.message)

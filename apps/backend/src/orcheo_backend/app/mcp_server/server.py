@@ -11,6 +11,7 @@ from orcheo_backend.app.mcp_server.account_tools import register_account_tools
 from orcheo_backend.app.mcp_server.app_tools import register_app_tools
 from orcheo_backend.app.mcp_server.catalog_tools import register_catalog_tools
 from orcheo_backend.app.mcp_server.run_tools import register_run_tools
+from orcheo_backend.app.mcp_server.scopes import OAuthScopeMiddleware
 from orcheo_backend.app.mcp_server.workflow_tools import register_workflow_tools
 
 
@@ -49,6 +50,7 @@ def mcp_enabled() -> bool:
 def build_mcp_server() -> FastMCP:
     """Return a FastMCP server with every Orcheo tool registered."""
     server = FastMCP(name="orcheo", instructions=_INSTRUCTIONS)
+    server.add_middleware(OAuthScopeMiddleware(server))
     register_workflow_tools(server)
     register_run_tools(server)
     register_catalog_tools(server)

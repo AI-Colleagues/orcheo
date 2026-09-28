@@ -140,3 +140,42 @@ def test_cron_dispatch_requires_workspace_admin(api_client: TestClient) -> None:
 
     assert denied.status_code == 403
     assert allowed.status_code == 200
+
+
+def test_node_execution_cannot_resolve_foreign_credentials(
+    api_client: TestClient, foreign_resources: dict[str, str]
+) -> None:
+    body = {
+        "node_config": {
+            "type": "SetVariableNode",
+            "name": "probe",
+            "variables": {"key": "[[foreign_key]]"},
+        }
+    }
+    own = api_client.post("/api/nodes/execute", json=body)
+    _switch_workspace(api_client)
+    foreign = api_client.post("/api/nodes/execute", json=body)
+
+    assert own.json()["result"] == {"key": "sk-foreign"}
+    assert "sk-foreign" not in foreign.text
+
+
+def test_cron_dispatch_only_fires_the_admins_workspace(
+    api_client: TestClient, foreign_resources: dict[str, str]
+) -> None:
+    workflow_id = foreign_resources["workflow_id"]
+    configured = api_client.put(
+        f"/api/workflows/{workflow_id}/triggers/cron/config",
+        json={"expression": "0 * * * *", "timezone": "UTC"},
+    )
+    assert configured.status_code == 200, configured.text
+    due = {"now": "2099-01-01T00:00:00Z"}
+
+    _switch_workspace(api_client, role=Role.ADMIN)
+    foreign = api_client.post("/api/triggers/cron/dispatch", json=due)
+    api_client.app.dependency_overrides.pop(resolve_workspace_context)
+    own = api_client.post("/api/triggers/cron/dispatch", json=due)
+
+    assert foreign.status_code == 200
+    assert foreign.json() == []
+    assert [run["workflow_id"] for run in own.json()] == [workflow_id]

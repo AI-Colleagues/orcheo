@@ -114,8 +114,10 @@ class OAuthHarness:
         assert decision.status_code == 200, decision.text
         return decision.json()["redirect_url"]
 
-    async def authorize(self, client_id: str, verifier: str) -> str:
-        started = await self.start(client_id, verifier, resource=f"{ORIGIN}/api/mcp")
+    async def authorize(self, client_id: str, verifier: str, **params: str) -> str:
+        started = await self.start(
+            client_id, verifier, resource=f"{ORIGIN}/api/mcp", **params
+        )
         assert started.status_code == 302
         redirect = await self.consent(started.headers["location"])
         query = parse_qs(urlparse(redirect).query)
@@ -124,6 +126,21 @@ class OAuthHarness:
 
     async def token(self, **form: str) -> httpx.Response:
         return await self.client.post("/api/oauth/token", data=form)
+
+    async def grant(self, **params: str) -> dict:
+        """Run the whole flow for a new client and return its tokens."""
+        client = await self.register()
+        verifier = _verifier()
+        code = await self.authorize(client["client_id"], verifier, **params)
+        issued = await self.token(
+            grant_type="authorization_code",
+            code=code,
+            redirect_uri=REDIRECT_URI,
+            client_id=client["client_id"],
+            code_verifier=verifier,
+        )
+        assert issued.status_code == 200, issued.text
+        return issued.json()
 
 
 @pytest.fixture()
@@ -486,3 +503,95 @@ async def test_consent_requires_a_user_account(
         anonymous = await oauth.client.get(f"/api/oauth/requests/{request_id}")
 
         assert anonymous.status_code == 401
+
+
+@pytest.mark.asyncio()
+async def test_oauth_tokens_only_reach_the_mcp_endpoint(
+    oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+) -> None:
+    async with oauth_session(oauth_env) as oauth:
+        tokens = await oauth.grant(scope="workflows:read")
+        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+
+        # The grant can't mint an unrestricted service token...
+        minted = await oauth.client.post(
+            "/api/admin/service-tokens", json={"scopes": []}, headers=headers
+        )
+        # ...call the REST API directly...
+        listed = await oauth.client.get("/api/workflows", headers=headers)
+        # ...or approve its own request for wider scopes.
+        client = await oauth.register()
+        started = await oauth.start(client["client_id"], _verifier())
+        request_id = parse_qs(urlparse(started.headers["location"]).query)["request"][0]
+        self_approved = await oauth.client.post(
+            f"/api/oauth/requests/{request_id}/decision",
+            json={"approve": True},
+            headers=headers,
+        )
+        via_mcp = await _mcp(
+            oauth.client,
+            "tools/call",
+            {"name": "list_workflows", "arguments": {}},
+            token=tokens["access_token"],
+        )
+
+        for response in (minted, listed, self_approved):
+            assert response.status_code == 403
+            assert response.json()["detail"]["code"] == "auth.oauth_client_token"
+        assert not via_mcp.json()["result"].get("isError"), via_mcp.text
+
+
+@pytest.mark.asyncio()
+async def test_mcp_tools_follow_the_approved_scopes(
+    oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+) -> None:
+    async with oauth_session(oauth_env) as oauth:
+        read_only = (await oauth.grant(scope="workflows:read"))["access_token"]
+        full = (await oauth.grant())["access_token"]
+
+        listed = await _mcp(oauth.client, "tools/list", {}, token=read_only)
+        names = {tool["name"] for tool in listed.json()["result"]["tools"]}
+        everything = await _mcp(oauth.client, "tools/list", {}, token=full)
+        all_names = {tool["name"] for tool in everything.json()["result"]["tools"]}
+        upload = await _mcp(
+            oauth.client,
+            "tools/call",
+            {
+                "name": "upload_workflow",
+                "arguments": {"script": "x", "name": "Blocked"},
+            },
+            token=read_only,
+        )
+        unknown = await _mcp(
+            oauth.client,
+            "tools/call",
+            {"name": "no_such_tool", "arguments": {}},
+            token=read_only,
+        )
+
+        assert "no_such_tool" in unknown.text
+        assert {"list_workflows", "get_server_info"} <= names
+        assert names.isdisjoint({"upload_workflow", "run_workflow", "list_credentials"})
+        assert "upload_workflow" in all_names
+        result = upload.json()["result"]
+        assert result["isError"]
+        assert "workflows:write" in result["content"][0]["text"]
+
+
+@pytest.mark.asyncio()
+async def test_consent_names_custom_redirect_schemes(
+    oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+) -> None:
+    async with oauth_session(oauth_env) as oauth:
+        native = "evilapp://claude.ai/callback"
+        client = await oauth.register(redirect_uris=[native])
+        started = await oauth.start(
+            client["client_id"], _verifier(), redirect_uri=native
+        )
+        request_id = parse_qs(urlparse(started.headers["location"]).query)["request"][0]
+        view = await oauth.client.get(
+            f"/api/oauth/requests/{request_id}",
+            headers={"Authorization": f"Bearer {oauth.studio_token()}"},
+        )
+
+        assert view.json()["redirect_host"] == "evilapp://claude.ai"

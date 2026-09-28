@@ -20,7 +20,11 @@ from starlette.applications import Starlette
 from starlette.routing import Mount
 from orcheo.identity import OAuthAuthorizationRequestNotFoundError
 from orcheo_backend.app.asgi_delegate import ASGIDelegateResponse
-from orcheo_backend.app.authentication import RequestContext, authenticate_request
+from orcheo_backend.app.authentication import (
+    RequestContext,
+    authenticate_request,
+    is_oauth_client_context,
+)
 from orcheo_backend.app.identity.dependencies import (
     get_identity_config,
     get_identity_service,
@@ -143,7 +147,9 @@ class AuthorizationDecisionResponse(BaseModel):
 
 
 def _consenting_user(auth: RequestContext) -> UUID:
-    if auth.identity_type == "user":
+    # Only a first-party Studio session may consent: an OAuth client must never
+    # approve its own (possibly wider) authorization request.
+    if auth.identity_type == "user" and not is_oauth_client_context(auth):
         try:
             return UUID(auth.subject)
         except ValueError:
@@ -152,6 +158,18 @@ def _consenting_user(auth: RequestContext) -> UUID:
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Sign in with an Orcheo user account to authorize applications.",
     )
+
+
+def _redirect_target(redirect_uri: str) -> str:
+    """Name where approval sends the user, keeping any custom app scheme.
+
+    A native-app redirect such as ``myapp://claude.ai/cb`` opens ``myapp``,
+    not claude.ai, so its scheme is shown rather than just the host.
+    """
+    parsed = urlparse(redirect_uri)
+    if parsed.scheme in {"http", "https"}:
+        return parsed.netloc
+    return f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else parsed.scheme
 
 
 def _request_gone() -> HTTPException:
@@ -179,8 +197,7 @@ async def get_authorization_request(
         client_name=client.client_name,
         client_uri=None if client.client_uri is None else str(client.client_uri),
         redirect_uri=request.redirect_uri,
-        redirect_host=urlparse(request.redirect_uri).netloc
-        or urlparse(request.redirect_uri).scheme,
+        redirect_host=_redirect_target(request.redirect_uri),
         scopes=request.scopes,
         expires_at=request.expires_at,
     )

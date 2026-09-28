@@ -36,7 +36,7 @@ from orcheo_backend.app.routers import triggers as triggers_router
 @pytest.mark.asyncio
 async def test_dispatch_cron_triggers_quota_exceeded_raises_http() -> None:
     class Repository:
-        async def dispatch_due_cron_runs(self, *, now=None):
+        async def dispatch_due_cron_runs(self, *, now=None, workspace_id=None):
             raise WorkspaceQuotaExceededError(
                 "Quota exceeded",
                 code="workspace.quota.concurrent_runs",
@@ -46,7 +46,7 @@ async def test_dispatch_cron_triggers_quota_exceeded_raises_http() -> None:
     with pytest.raises(HTTPException) as exc_info:
         await triggers_router.dispatch_cron_triggers(
             repository=Repository(),  # type: ignore[arg-type]
-            _admin=None,  # type: ignore[arg-type]
+            admin=SimpleNamespace(workspace_id=uuid4()),  # type: ignore[arg-type]
         )
 
     assert exc_info.value.status_code == 429

@@ -10,6 +10,7 @@ from orcheo_backend.app.mcp_server._shared import (
     WorkspaceArg,
     api_client,
 )
+from orcheo_backend.app.mcp_server.scopes import requires
 
 
 OptionalWorkflowArg = Annotated[
@@ -25,7 +26,7 @@ def register_account_tools(server: FastMCP) -> None:
     ``app_tools``) so secrets never pass through the model.
     """
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(annotations=READ_ONLY, tags=requires("vault:read"))
     async def list_credentials(
         workflow: OptionalWorkflowArg = None,
         workspace: WorkspaceArg = None,
@@ -37,7 +38,7 @@ def register_account_tools(server: FastMCP) -> None:
             )
         return {"credentials": credentials}
 
-    @server.tool(annotations=DESTRUCTIVE)
+    @server.tool(annotations=DESTRUCTIVE, tags=requires("vault:write"))
     async def delete_credential(
         credential_id: Annotated[str, Field(description="Credential ID.")],
         workflow: OptionalWorkflowArg = None,

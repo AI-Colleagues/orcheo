@@ -31,6 +31,7 @@ from orcheo_backend.app.mcp_server.form_tokens import (
     issue_form_token,
     verify_form_token,
 )
+from orcheo_backend.app.mcp_server.scopes import requires
 
 
 CREDENTIAL_FORM_URI = "ui://orcheo/credential-form"
@@ -96,7 +97,11 @@ def _register_views(server: FastMCP) -> None:
 
 
 def _register_credential_tools(server: FastMCP) -> None:
-    @server.tool(annotations=READ_ONLY, app=AppConfig(resource_uri=CREDENTIAL_FORM_URI))
+    @server.tool(
+        annotations=READ_ONLY,
+        app=AppConfig(resource_uri=CREDENTIAL_FORM_URI),
+        tags=requires("vault:write"),
+    )
     async def open_credential_form(
         name: Annotated[
             str | None, Field(description="Suggested name, referenced as [[name]].")
@@ -162,6 +167,7 @@ def _register_credential_tools(server: FastMCP) -> None:
     @server.tool(
         annotations=WRITE,
         app=AppConfig(resource_uri=CREDENTIAL_FORM_URI, visibility=["app"]),
+        tags=requires("vault:write"),
     )
     async def save_credential(
         form_token: str,
@@ -206,7 +212,9 @@ def _register_credential_tools(server: FastMCP) -> None:
 
 def _register_diagram_tool(server: FastMCP) -> None:
     @server.tool(
-        annotations=READ_ONLY, app=AppConfig(resource_uri=WORKFLOW_DIAGRAM_URI)
+        annotations=READ_ONLY,
+        app=AppConfig(resource_uri=WORKFLOW_DIAGRAM_URI),
+        tags=requires("workflows:read"),
     )
     async def show_workflow_diagram(
         workflow: WorkflowArg,

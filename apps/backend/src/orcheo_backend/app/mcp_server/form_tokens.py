@@ -51,7 +51,11 @@ def _unb64(data: str) -> bytes:
 
 
 def issue_form_token(form: CredentialForm, *, now: float | None = None) -> str:
-    """Return a token authorizing one credential form submission."""
+    """Return a token authorizing credential form submissions until it expires.
+
+    Tokens are stateless, so one can be replayed within its TTL; it only ever
+    reaches the form, and binds the caller, workspace and credential.
+    """
     payload: dict[str, Any] = {
         "sub": form.subject,
         "ws": form.workspace,
@@ -78,17 +82,19 @@ def verify_form_token(
         if not hmac.compare_digest(signature, expected):
             raise ValueError("bad signature")
         payload = json.loads(_unb64(body))
-    except ValueError as exc:
+        expires_at = float(payload["exp"])
+        form = CredentialForm(
+            subject=payload["sub"],
+            workspace=payload["ws"],
+            credential_id=payload["cid"],
+        )
+    except (ValueError, KeyError, TypeError) as exc:
         raise ToolError("This credential form is invalid. Open a new one.") from exc
-    if payload["exp"] < (now if now is not None else time.time()):
+    if expires_at < (now if now is not None else time.time()):
         raise ToolError("This credential form has expired. Open a new one.")
-    if payload["sub"] != subject:
+    if form.subject != subject:
         raise ToolError("This credential form was opened by a different user.")
-    return CredentialForm(
-        subject=payload["sub"],
-        workspace=payload["ws"],
-        credential_id=payload["cid"],
-    )
+    return form
 
 
 __all__ = [

@@ -9,7 +9,11 @@ from orcheo.vault import (
     DuplicateCredentialNameError,
     WorkflowScopeError,
 )
-from orcheo_backend.app.authentication import RequestContext, get_request_context
+from orcheo_backend.app.authentication import (
+    RequestContext,
+    get_request_context,
+    is_oauth_client_context,
+)
 from orcheo_backend.app.credential_utils import (
     credential_to_response,
     scope_from_access,
@@ -124,7 +128,7 @@ async def reveal_credential_secret(
     workflow_id: WorkflowRefQuery = None,
 ) -> CredentialSecretResponse:
     """Reveal and return the decrypted credential secret."""
-    if auth.claims.get("client_id"):
+    if is_oauth_client_context(auth):
         # Tokens granted to OAuth clients (e.g. MCP clients) never read secrets;
         # those apps only collect them through the credential form.
         raise HTTPException(

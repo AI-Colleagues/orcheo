@@ -179,3 +179,42 @@ def test_postgres_sessions_persist_oauth_grant(pg: tuple[FakeConnection, Any]) -
     assert insert[9].obj == ["workflows:read"]
     assert loaded.oauth_client_id == "client-1"
     assert loaded.scopes == ["workflows:read"]
+
+
+def test_in_memory_decisions_and_revocations_are_final() -> None:
+    repo = InMemoryIdentityRepository()
+    request = repo.add_authorization_request(_request())
+    repo.update_authorization_request(request.model_copy(update={"decided_at": NOW}))
+    session = repo.add_session(
+        AuthSession(user_id=uuid4(), refresh_token_hash="h", expires_at=NOW)
+    )
+    repo.update_session(session.model_copy(update={"revoked_at": NOW}))
+
+    # A racing second decision loses, and a stale rotation keeps the revocation.
+    with pytest.raises(OAuthAuthorizationRequestNotFoundError):
+        repo.update_authorization_request(
+            request.model_copy(update={"decided_at": NOW, "code_hash": "late"})
+        )
+    rotated = repo.update_session(
+        session.model_copy(update={"refresh_token_hash": "n"})
+    )
+
+    assert rotated.revoked_at == NOW
+    assert repo.get_session(session.id).refresh_token_hash == "n"
+    assert repo.get_session(session.id).revoked_at == NOW
+
+
+def test_postgres_decisions_and_revocations_are_final(
+    pg: tuple[FakeConnection, Any],
+) -> None:
+    connection, repo = pg
+    connection._responses = [{"rowcount": 1}, {"rowcount": 1}]
+
+    repo.update_authorization_request(_request())
+    repo.update_session(
+        AuthSession(user_id=uuid4(), refresh_token_hash="h", expires_at=NOW)
+    )
+
+    decide, rotate = (query for query, _ in connection.queries[-2:])
+    assert "AND decided_at IS NULL" in decide
+    assert "revoked_at = COALESCE(revoked_at, %s)" in rotate

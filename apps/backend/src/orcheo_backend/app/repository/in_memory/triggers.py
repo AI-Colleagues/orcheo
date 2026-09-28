@@ -126,7 +126,7 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
             self._trigger_layer.remove_cron_config(workflow_id)
 
     async def dispatch_due_cron_runs(
-        self, *, now: datetime | None = None
+        self, *, now: datetime | None = None, workspace_id: str | None = None
     ) -> list[WorkflowRun]:
         """Evaluate cron schedules and enqueue runs that are due."""
         reference = now or datetime.now(tz=UTC)
@@ -136,6 +136,7 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
         async with self._lock:
             runs: list[WorkflowRun] = []
             plans = self._trigger_layer.collect_due_cron_dispatches(now=reference)
+            only_workspace = workspace_id
             for plan in plans:
                 workflow_id = plan.workflow_id
                 workflow = self._workflows.get(workflow_id)
@@ -146,6 +147,8 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
                     self._trigger_layer.remove_cron_config(workflow_id)
                     continue
                 workspace_id = self._workflow_workspaces.get(workflow_id)
+                if only_workspace is not None and str(workspace_id) != only_workspace:
+                    continue
                 try:
                     await self._ensure_workflow_health(
                         workflow_id,

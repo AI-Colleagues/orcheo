@@ -86,7 +86,24 @@ a FastMCP `OAuthProvider` on top of the first-party passwordless login:
    rotate on use, are bound to the client, and are revoked by
    `/api/oauth/revoke` or by logging out everywhere.
 
-Tokens granted this way cannot read credential secrets through the API.
+Tokens granted this way are only accepted at `/api/mcp`; every other API route
+and WebSocket rejects them with `403` (`auth.oauth_client_token`), so a client
+cannot mint service tokens, approve its own consent requests, or read
+credential secrets.
+
+The client only sees and can call the tools its approved scopes cover:
+
+| Scope | Tools |
+|-------|-------|
+| `workflows:read` | Listing and reading workflows, versions, runs, traces, listeners and diagrams |
+| `workflows:write` | Uploading, updating, deleting, publishing and scheduling workflows; saving configs; pausing and resuming listeners |
+| `workflows:execute` | `run_workflow`, `cancel_run` |
+| `vault:read` | `list_credentials`, `check_workflow_credentials` (with `workflows:read`) |
+| `vault:write` | `open_credential_form`, `save_credential`, `delete_credential` |
+
+The component catalog, workspace and server-info tools need no scope. Service
+tokens and Studio sessions are not narrowed by these scopes; the API routes the
+tools call authorize them as usual.
 
 **Deployment requirements**
 

@@ -249,8 +249,13 @@ def test_public_origin_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     [
         RequestContext(subject="svc", identity_type="service", scopes=frozenset()),
         RequestContext(subject="not-a-uuid", identity_type="user", scopes=frozenset()),
+        RequestContext(
+            subject=str(uuid4()),
+            identity_type="user",
+            claims={"client_id": "mcp-client"},
+        ),
     ],
-    ids=["service-token", "non-uuid-subject"],
+    ids=["service-token", "non-uuid-subject", "oauth-client-token"],
 )
 def test_consent_requires_first_party_users(context: RequestContext) -> None:
     with pytest.raises(HTTPException) as exc_info:
@@ -306,9 +311,10 @@ async def test_mcp_challenge_only_advertises_configured_oauth(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    monkeypatch.setattr(mcp_router, "authenticate_request", _reject)
+    monkeypatch.setattr(mcp_router, "authenticate_oauth_resource_request", _reject)
     monkeypatch.setattr(mcp_router, "oauth_server", lambda _request: provider)
     app = FastAPI()
+    app.state.mcp_http_app = object()
     app.include_router(mcp_router.router, prefix="/api")
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
@@ -392,3 +398,34 @@ async def test_oauth_needs_an_https_origin(
 
     assert response.status_code == 404
     assert "must be served over HTTPS" in caplog.text
+
+
+@pytest.mark.asyncio()
+async def test_websockets_refuse_oauth_client_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import AsyncMock, Mock
+    from starlette.websockets import WebSocket
+    from orcheo_backend.app import authentication
+    from orcheo_backend.app.authentication import AuthenticationError
+
+    context = RequestContext(
+        subject=str(uuid4()), identity_type="user", claims={"client_id": "c"}
+    )
+    authenticator = Mock()
+    authenticator.settings.enforce = True
+    authenticator.authenticate = AsyncMock(return_value=context)
+    monkeypatch.setattr(authentication, "get_authenticator", lambda: authenticator)
+    monkeypatch.setattr(authentication, "get_auth_rate_limiter", lambda: Mock())
+    websocket = Mock(spec=WebSocket)
+    websocket.headers = {"authorization": "Bearer token"}
+    websocket.query_params = {}
+    websocket.client = Mock(host="127.0.0.1")
+    websocket.state = Mock()
+    websocket.close = AsyncMock()
+
+    with pytest.raises(AuthenticationError) as exc_info:
+        await authentication.authenticate_websocket(websocket)
+
+    assert exc_info.value.code == "auth.oauth_client_token"
+    websocket.close.assert_awaited_once()

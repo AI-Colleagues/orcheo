@@ -3332,3 +3332,37 @@ async def test_teams_delete_team_not_empty_raises(
 
     with pytest.raises(TeamNotEmptyError, match="Sales"):
         await repo.delete_team(team_id, workspace_id="ws-a")
+
+
+@pytest.mark.asyncio
+async def test_triggers_dispatch_due_cron_runs_filters_by_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dispatch limited to a workspace skips other workspaces' schedules."""
+    workflow_id = uuid4()
+    config = CronTriggerConfig(expression="0 9 * * *", timezone="UTC")
+    responses = [
+        {
+            "rows": [
+                {
+                    "workflow_id": str(workflow_id),
+                    "config": config.model_dump(mode="json"),
+                    "last_dispatched_at": None,
+                }
+            ]
+        },
+    ]
+    repo = make_repository(monkeypatch, responses)
+    monkeypatch.setattr(
+        repo,
+        "_get_workflow_workspace_id_locked",
+        AsyncMock(return_value="workspace-a"),
+    )
+    get_workflow = AsyncMock()
+    monkeypatch.setattr(repo, "_get_workflow_locked", get_workflow)
+
+    now = datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+    runs = await repo.dispatch_due_cron_runs(now=now, workspace_id="workspace-b")
+
+    assert runs == []
+    get_workflow.assert_not_called()

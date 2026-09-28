@@ -484,18 +484,20 @@ async def delete_cron_trigger(
 )
 async def dispatch_cron_triggers(
     repository: RepositoryDep,
-    _admin: Annotated[WorkspaceContext, Depends(require_role(Role.ADMIN))],
+    admin: Annotated[WorkspaceContext, Depends(require_role(Role.ADMIN))],
     request: CronDispatchRequest | None = None,
 ) -> list[WorkflowRun]:
-    """Evaluate cron schedules and enqueue any due runs.
+    """Evaluate the caller's workspace's cron schedules and enqueue due runs.
 
-    Dispatch spans every workspace's schedules, so it is limited to workspace
-    admins; the in-process scheduler and Celery Beat call the repository
-    directly and do not use this route.
+    Limited to workspace admins and to their own workspace; the in-process
+    scheduler and Celery Beat call the repository directly for every
+    workspace and do not use this route.
     """
     now = request.now if request else None
     try:
-        runs = await repository.dispatch_due_cron_runs(now=now)
+        runs = await repository.dispatch_due_cron_runs(
+            now=now, workspace_id=str(admin.workspace_id)
+        )
         return runs
     except CredentialHealthError as exc:
         raise HTTPException(

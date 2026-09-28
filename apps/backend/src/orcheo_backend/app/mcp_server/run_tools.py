@@ -14,6 +14,7 @@ from orcheo_backend.app.mcp_server._shared import (
     api_client,
     fetch_version,
 )
+from orcheo_backend.app.mcp_server.scopes import requires
 
 
 RunIdArg = Annotated[str, Field(description="Workflow run ID.")]
@@ -22,7 +23,7 @@ RunIdArg = Annotated[str, Field(description="Workflow run ID.")]
 def register_run_tools(server: FastMCP) -> None:
     """Register run execution and monitoring tools on ``server``."""
 
-    @server.tool(annotations=WRITE)
+    @server.tool(annotations=WRITE, tags=requires("workflows:execute"))
     async def run_workflow(
         workflow: WorkflowArg,
         inputs: Annotated[
@@ -59,7 +60,7 @@ def register_run_tools(server: FastMCP) -> None:
             }
         return runs[0]
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(annotations=READ_ONLY, tags=requires("workflows:read"))
     async def list_workflow_runs(
         workflow: WorkflowArg,
         limit: Annotated[int, Field(ge=1, le=200)] = 20,
@@ -72,7 +73,7 @@ def register_run_tools(server: FastMCP) -> None:
             )
         return {"runs": runs}
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(annotations=READ_ONLY, tags=requires("workflows:read"))
     async def get_run(
         run_id: RunIdArg,
         workspace: WorkspaceArg = None,
@@ -81,7 +82,7 @@ def register_run_tools(server: FastMCP) -> None:
         async with api_client(workspace) as api:
             return await api.get(f"/api/runs/{run_id}")
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(annotations=READ_ONLY, tags=requires("workflows:read"))
     async def get_run_trace(
         run_id: RunIdArg,
         workspace: WorkspaceArg = None,
@@ -90,7 +91,7 @@ def register_run_tools(server: FastMCP) -> None:
         async with api_client(workspace) as api:
             return await api.get(f"/api/executions/{run_id}/trace")
 
-    @server.tool(annotations=WRITE)
+    @server.tool(annotations=WRITE, tags=requires("workflows:execute"))
     async def cancel_run(
         run_id: RunIdArg,
         reason: Annotated[

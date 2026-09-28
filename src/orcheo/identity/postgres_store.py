@@ -292,14 +292,14 @@ class PostgresIdentityRepository:
         return self._row_to_session(row)
 
     def update_session(self, session: AuthSession) -> AuthSession:
-        """Persist rotation/revocation changes for an existing session."""
+        """Persist rotation/revocation changes; revocation is permanent."""
         with self._connect() as conn:
             cursor = conn.execute(
                 """
                 UPDATE auth_sessions
                    SET refresh_token_hash = %s,
                        expires_at = %s,
-                       revoked_at = %s,
+                       revoked_at = COALESCE(revoked_at, %s),
                        scopes = %s
                  WHERE id = %s
                 """,
@@ -418,7 +418,7 @@ class PostgresIdentityRepository:
     def update_authorization_request(
         self, request: OAuthAuthorizationRequest
     ) -> OAuthAuthorizationRequest:
-        """Persist the user's decision on an authorization request."""
+        """Persist the user's decision on a still-undecided authorization request."""
         with self._connect() as conn:
             cursor = conn.execute(
                 """
@@ -428,6 +428,7 @@ class PostgresIdentityRepository:
                        code_hash = %s,
                        code_expires_at = %s
                  WHERE id = %s
+                   AND decided_at IS NULL
                 """,
                 (
                     None if request.user_id is None else str(request.user_id),

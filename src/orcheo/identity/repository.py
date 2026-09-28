@@ -72,7 +72,11 @@ class IdentityRepository(Protocol):
         """Return the session matching a refresh-token hash."""
 
     def update_session(self, session: AuthSession) -> AuthSession:
-        """Persist rotation/revocation changes for an existing session."""
+        """Persist rotation/revocation changes for an existing session.
+
+        Revocation is permanent: a stale copy written by a racing refresh
+        cannot clear ``revoked_at``.
+        """
 
     def revoke_sessions_for_user(self, user_id: UUID) -> int:
         """Revoke every active session for a user; return the count revoked."""
@@ -99,7 +103,12 @@ class IdentityRepository(Protocol):
     def update_authorization_request(
         self, request: OAuthAuthorizationRequest
     ) -> OAuthAuthorizationRequest:
-        """Persist the user's decision on an authorization request."""
+        """Persist the user's decision on a still-undecided authorization request.
+
+        Raises:
+            OAuthAuthorizationRequestNotFoundError: If the request is unknown
+                or already decided.
+        """
 
     def consume_authorization_code(
         self, request_id: str, *, consumed_at: datetime
@@ -218,9 +227,12 @@ class InMemoryIdentityRepository:
         raise IdentitySessionNotFoundError(refresh_token_hash)
 
     def update_session(self, session: AuthSession) -> AuthSession:
-        """Persist rotation/revocation changes for an existing session."""
-        if session.id not in self._sessions:
+        """Persist rotation/revocation changes; revocation is permanent."""
+        current = self._sessions.get(session.id)
+        if current is None:
             raise IdentitySessionNotFoundError(str(session.id))
+        if current.revoked_at is not None:
+            session = session.model_copy(update={"revoked_at": current.revoked_at})
         self._sessions[session.id] = session
         return session
 
@@ -274,8 +286,9 @@ class InMemoryIdentityRepository:
     def update_authorization_request(
         self, request: OAuthAuthorizationRequest
     ) -> OAuthAuthorizationRequest:
-        """Persist the user's decision on an authorization request."""
-        if request.id not in self._authorization_requests:
+        """Persist the user's decision on a still-undecided authorization request."""
+        current = self._authorization_requests.get(request.id)
+        if current is None or current.decided_at is not None:
             raise OAuthAuthorizationRequestNotFoundError(request.id)
         self._authorization_requests[request.id] = request
         return request

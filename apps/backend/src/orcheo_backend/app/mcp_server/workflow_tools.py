@@ -27,6 +27,7 @@ from orcheo_backend.app.mcp_server._shared import (
     version_summary,
 )
 from orcheo_backend.app.mcp_server.api_client import InProcessApiClient, McpApiError
+from orcheo_backend.app.mcp_server.scopes import requires
 
 
 logger = logging.getLogger(__name__)
@@ -146,7 +147,7 @@ def register_workflow_tools(server: FastMCP) -> None:
 def _register_read_tools(server: FastMCP) -> None:
     """Register workflow listing, detail and download tools."""
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(annotations=READ_ONLY, tags=requires("workflows:read"))
     async def list_workflows(
         include_archived: bool = False,
         workspace: WorkspaceArg = None,
@@ -161,7 +162,7 @@ def _register_read_tools(server: FastMCP) -> None:
                 item["latest_version"] = version_summary(item["latest_version"])
         return {"workflows": items}
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(annotations=READ_ONLY, tags=requires("workflows:read"))
     async def get_workflow(
         workflow: WorkflowArg,
         version: VersionArg = None,
@@ -182,7 +183,7 @@ def _register_read_tools(server: FastMCP) -> None:
             runs = await api.get(f"/api/workflows/{workflow}/runs", params={"limit": 5})
         return {"workflow": record, "version": selected, "recent_runs": runs}
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(annotations=READ_ONLY, tags=requires("workflows:read"))
     async def list_workflow_versions(
         workflow: WorkflowArg,
         workspace: WorkspaceArg = None,
@@ -192,7 +193,7 @@ def _register_read_tools(server: FastMCP) -> None:
             versions = await api.get(f"/api/workflows/{workflow}/versions")
         return {"versions": [version_summary(entry) for entry in versions]}
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(annotations=READ_ONLY, tags=requires("workflows:read"))
     async def download_workflow(
         workflow: WorkflowArg,
         version: VersionArg = None,
@@ -219,7 +220,7 @@ def _register_read_tools(server: FastMCP) -> None:
 def _register_authoring_tools(server: FastMCP) -> None:
     """Register upload, update and delete tools."""
 
-    @server.tool(annotations=WRITE)
+    @server.tool(annotations=WRITE, tags=requires("workflows:write"))
     async def upload_workflow(
         script: Annotated[
             str,
@@ -297,7 +298,7 @@ def _register_authoring_tools(server: FastMCP) -> None:
             result["cron_schedule"] = schedule
         return result
 
-    @server.tool(annotations=IDEMPOTENT_WRITE)
+    @server.tool(annotations=IDEMPOTENT_WRITE, tags=requires("workflows:write"))
     async def update_workflow(
         workflow: WorkflowArg,
         name: Annotated[str | None, Field(description="New name.")] = None,
@@ -325,7 +326,7 @@ def _register_authoring_tools(server: FastMCP) -> None:
                 json_body={**changes, "actor": MCP_ACTOR},
             )
 
-    @server.tool(annotations=DESTRUCTIVE)
+    @server.tool(annotations=DESTRUCTIVE, tags=requires("workflows:write"))
     async def delete_workflow(
         workflow: WorkflowArg,
         workspace: WorkspaceArg = None,
@@ -340,7 +341,7 @@ def _register_authoring_tools(server: FastMCP) -> None:
 def _register_lifecycle_tools(server: FastMCP) -> None:
     """Register publish, schedule and runnable-config tools."""
 
-    @server.tool(annotations=IDEMPOTENT_WRITE)
+    @server.tool(annotations=IDEMPOTENT_WRITE, tags=requires("workflows:write"))
     async def publish_workflow(
         workflow: WorkflowArg,
         require_login: Annotated[
@@ -355,7 +356,7 @@ def _register_lifecycle_tools(server: FastMCP) -> None:
                 json_body={"require_login": require_login, "actor": MCP_ACTOR},
             )
 
-    @server.tool(annotations=IDEMPOTENT_WRITE)
+    @server.tool(annotations=IDEMPOTENT_WRITE, tags=requires("workflows:write"))
     async def unpublish_workflow(
         workflow: WorkflowArg,
         workspace: WorkspaceArg = None,
@@ -367,7 +368,7 @@ def _register_lifecycle_tools(server: FastMCP) -> None:
                 json_body={"actor": MCP_ACTOR},
             )
 
-    @server.tool(annotations=IDEMPOTENT_WRITE)
+    @server.tool(annotations=IDEMPOTENT_WRITE, tags=requires("workflows:write"))
     async def schedule_workflow(
         workflow: WorkflowArg,
         workspace: WorkspaceArg = None,
@@ -390,7 +391,7 @@ def _register_lifecycle_tools(server: FastMCP) -> None:
             )
         return {"status": "scheduled", "config": applied}
 
-    @server.tool(annotations=IDEMPOTENT_WRITE)
+    @server.tool(annotations=IDEMPOTENT_WRITE, tags=requires("workflows:write"))
     async def unschedule_workflow(
         workflow: WorkflowArg,
         workspace: WorkspaceArg = None,
@@ -400,7 +401,7 @@ def _register_lifecycle_tools(server: FastMCP) -> None:
             await api.delete(f"/api/workflows/{workflow}/triggers/cron/config")
         return {"status": "unscheduled"}
 
-    @server.tool(annotations=IDEMPOTENT_WRITE)
+    @server.tool(annotations=IDEMPOTENT_WRITE, tags=requires("workflows:write"))
     async def save_workflow_config(
         workflow: WorkflowArg,
         runnable_config: Annotated[
@@ -430,7 +431,7 @@ def _register_lifecycle_tools(server: FastMCP) -> None:
 def _register_monitoring_tools(server: FastMCP) -> None:
     """Register credential readiness and listener tools."""
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(annotations=READ_ONLY, tags=requires("workflows:read", "vault:read"))
     async def check_workflow_credentials(
         workflow: WorkflowArg,
         workspace: WorkspaceArg = None,
@@ -439,7 +440,7 @@ def _register_monitoring_tools(server: FastMCP) -> None:
         async with api_client(workspace) as api:
             return await api.get(f"/api/workflows/{workflow}/credentials/readiness")
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(annotations=READ_ONLY, tags=requires("workflows:read"))
     async def list_workflow_listeners(
         workflow: WorkflowArg,
         workspace: WorkspaceArg = None,
@@ -461,7 +462,7 @@ def _register_monitoring_tools(server: FastMCP) -> None:
                 json_body={"actor": MCP_ACTOR},
             )
 
-    @server.tool(annotations=IDEMPOTENT_WRITE)
+    @server.tool(annotations=IDEMPOTENT_WRITE, tags=requires("workflows:write"))
     async def pause_workflow_listener(
         workflow: WorkflowArg,
         subscription_id: Annotated[str, Field(description="Listener subscription ID.")],
@@ -470,7 +471,7 @@ def _register_monitoring_tools(server: FastMCP) -> None:
         """Pause one listener subscription (e.g. a Telegram or Slack listener)."""
         return await _set_listener_status(workflow, subscription_id, "pause", workspace)
 
-    @server.tool(annotations=IDEMPOTENT_WRITE)
+    @server.tool(annotations=IDEMPOTENT_WRITE, tags=requires("workflows:write"))
     async def resume_workflow_listener(
         workflow: WorkflowArg,
         subscription_id: Annotated[str, Field(description="Listener subscription ID.")],

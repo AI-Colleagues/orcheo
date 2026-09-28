@@ -7,7 +7,7 @@ from orcheo_backend.app.asgi_delegate import ASGIDelegateResponse
 from orcheo_backend.app.authentication import (
     PREAUTHENTICATED_SCOPE_KEY,
     RequestContext,
-    authenticate_request,
+    authenticate_oauth_resource_request,
 )
 from orcheo_backend.app.mcp_server.api_client import API_APP_SCOPE_KEY
 from orcheo_backend.app.oauth import (
@@ -25,10 +25,17 @@ async def authenticate_mcp_request(request: Request) -> RequestContext:
 
     Per the MCP authorization spec, the ``WWW-Authenticate`` challenge names
     the protected resource metadata so clients can find the authorization
-    server and start the Studio sign-in flow on their own.
+    server and start the Studio sign-in flow on their own. When the MCP server
+    is disabled the endpoint 404s before authenticating, so clients are not
+    sent through a sign-in they cannot use.
     """
+    if getattr(request.app.state, "mcp_http_app", None) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The MCP server is disabled on this backend.",
+        )
     try:
-        return await authenticate_request(request)
+        return await authenticate_oauth_resource_request(request)
     except HTTPException as exc:
         if exc.status_code == status.HTTP_401_UNAUTHORIZED and oauth_server(request):
             metadata_url = resource_metadata_url(public_origin(request))
@@ -54,15 +61,9 @@ async def mcp_endpoint(
     in-process carrying this context, so they are authorized per workspace by
     the routes they proxy to without validating the token again.
     """
-    mcp_app = getattr(request.app.state, "mcp_http_app", None)
-    if mcp_app is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="The MCP server is disabled on this backend.",
-        )
     request.scope[PREAUTHENTICATED_SCOPE_KEY] = auth
     request.scope[API_APP_SCOPE_KEY] = request.app
-    return ASGIDelegateResponse(mcp_app)
+    return ASGIDelegateResponse(request.app.state.mcp_http_app)
 
 
 __all__ = ["authenticate_mcp_request", "router"]

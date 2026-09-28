@@ -55,11 +55,14 @@ async def execute_node_endpoint(
     try:
         node_params = {k: v for k, v in node_config.items() if k != "type"}
 
+        # Always pin credential resolution to the caller's workspace, so a
+        # request without a workflow cannot reach other workspaces' secrets.
         result = await execute_node(
             node_class,
             node_params,
             inputs,
             workflow_id=workflow_id,
+            workspace_id=str(workspace.workspace_id),
         )
 
         node_name = node_params.get("name", "node")

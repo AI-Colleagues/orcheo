@@ -83,8 +83,8 @@ async def test_endpoint_returns_404_when_disabled(
 ) -> None:
     monkeypatch.setenv(MCP_ENABLED_ENV_VAR, "false")
     app = _mcp_app()
-    app.dependency_overrides[mcp_router.authenticate_mcp_request] = lambda: None
 
+    # No credentials: a disabled server 404s before asking for sign-in.
     async with mcp_lifespan(app):
         response = await _post_initialize(app)
 
@@ -229,3 +229,21 @@ async def test_client_carries_the_gate_identity() -> None:
         echoed = await api.get("/echo")
 
     assert echoed["preauthenticated"] is True
+
+
+@pytest.mark.asyncio()
+async def test_every_tool_declares_its_oauth_scopes() -> None:
+    from orcheo_backend.app.mcp_server import build_mcp_server
+    from orcheo_backend.app.mcp_server.scopes import required_scopes
+
+    tools = await build_mcp_server().list_tools()
+    unscoped = {tool.name for tool in tools if not required_scopes(tool)}
+
+    # Only tools that touch no workspace data may skip a scope.
+    assert unscoped == {
+        "describe_component",
+        "get_active_workspace",
+        "get_server_info",
+        "list_components",
+        "list_my_workspaces",
+    }
