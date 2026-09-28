@@ -1,13 +1,15 @@
 """Credential metadata routes."""
 
 from __future__ import annotations
+from typing import Annotated
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from orcheo.vault import (
     CredentialNotFoundError,
     DuplicateCredentialNameError,
     WorkflowScopeError,
 )
+from orcheo_backend.app.authentication import RequestContext, get_request_context
 from orcheo_backend.app.credential_utils import (
     credential_to_response,
     scope_from_access,
@@ -50,7 +52,7 @@ async def list_credentials(
     """Return credential metadata visible to the caller."""
     tid = str(workspace.workspace_id)
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
-        repository, workflow_id
+        repository, workflow_id, workspace_id=str(workspace.workspace_id)
     )
     if resolved_workflow_id is None:
         credentials = vault.list_all_credentials(workspace_id=tid)
@@ -73,7 +75,7 @@ async def create_credential(
 ) -> CredentialVaultEntryResponse:
     """Persist a new credential in the vault."""
     workflow_id = await resolve_optional_workflow_ref_id(
-        repository, request.workflow_id
+        repository, request.workflow_id, workspace_id=str(workspace.workspace_id)
     )
     if request.access == "scoped" and workflow_id is None:
         raise HTTPException(
@@ -118,13 +120,23 @@ async def reveal_credential_secret(
     vault: VaultDep,
     repository: RepositoryDep,
     workspace: WorkspaceContextDep,
+    auth: Annotated[RequestContext, Depends(get_request_context)],
     workflow_id: WorkflowRefQuery = None,
 ) -> CredentialSecretResponse:
     """Reveal and return the decrypted credential secret."""
+    if auth.claims.get("client_id"):
+        # Tokens granted to OAuth clients (e.g. MCP clients) never read secrets;
+        # those apps only collect them through the credential form.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Applications authorized through OAuth cannot read secrets.",
+        )
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
-        repository, workflow_id
+        repository, workflow_id, workspace_id=str(workspace.workspace_id)
     )
-    context = credential_context_from_workflow(resolved_workflow_id)
+    context = credential_context_from_workflow(
+        resolved_workflow_id, workspace_id=str(workspace.workspace_id)
+    )
     try:
         secret = vault.reveal_secret(credential_id=credential_id, context=context)
     except CredentialNotFoundError as exc:
@@ -159,12 +171,15 @@ async def update_credential(
     request: CredentialUpdateRequest,
     repository: RepositoryDep,
     vault: VaultDep,
+    workspace: WorkspaceContextDep,
     workflow_id: WorkflowRefQuery = None,
 ) -> CredentialVaultEntryResponse:
     """Update credential metadata and optionally rotate the secret."""
-    query_workflow_id = await resolve_optional_workflow_ref_id(repository, workflow_id)
+    query_workflow_id = await resolve_optional_workflow_ref_id(
+        repository, workflow_id, workspace_id=str(workspace.workspace_id)
+    )
     body_workflow_id = await resolve_optional_workflow_ref_id(
-        repository, request.workflow_id
+        repository, request.workflow_id, workspace_id=str(workspace.workspace_id)
     )
     effective_workflow_id = query_workflow_id or body_workflow_id
     if request.access == "scoped" and effective_workflow_id is None:
@@ -172,7 +187,9 @@ async def update_credential(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="workflow_id is required when access is set to scoped",
         )
-    context = credential_context_from_workflow(effective_workflow_id)
+    context = credential_context_from_workflow(
+        effective_workflow_id, workspace_id=str(workspace.workspace_id)
+    )
     scope = (
         scope_from_access(request.access, effective_workflow_id)
         if request.access is not None
@@ -216,13 +233,16 @@ async def delete_credential(
     credential_id: UUID,
     vault: VaultDep,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
     workflow_id: WorkflowRefQuery = None,
 ) -> Response:
     """Delete a credential."""
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
-        repository, workflow_id
+        repository, workflow_id, workspace_id=str(workspace.workspace_id)
     )
-    context = credential_context_from_workflow(resolved_workflow_id)
+    context = credential_context_from_workflow(
+        resolved_workflow_id, workspace_id=str(workspace.workspace_id)
+    )
     try:
         vault.delete_credential(credential_id, context=context)
     except CredentialNotFoundError as exc:

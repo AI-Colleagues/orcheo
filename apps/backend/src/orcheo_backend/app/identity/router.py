@@ -1,9 +1,9 @@
 """First-party passwordless auth endpoints.
 
-Exposes the email entry point (``/auth/email/start``), challenge verification
-(``/auth/email/verify``), session refresh/logout, and the current-user probe
-(``/auth/me``). The start endpoint is constant-response and rate limited to
-avoid acting as an account-existence or email-abuse oracle.
+Exposes the email entry point (``/auth/email/start``), sign-in code
+verification (``/auth/email/verify``), session refresh/logout, and the
+current-user probe (``/auth/me``). The start endpoint is constant-response and
+rate limited to avoid acting as an account-existence or email-abuse oracle.
 """
 
 from __future__ import annotations
@@ -42,7 +42,6 @@ class EmailStartRequest(BaseModel):
 
     email: str
     intent: Literal["login", "signup"] = "login"
-    redirect_to: str | None = None
 
 
 class EmailStartResponse(BaseModel):
@@ -52,11 +51,10 @@ class EmailStartResponse(BaseModel):
 
 
 class EmailVerifyRequest(BaseModel):
-    """Verify a magic-link token or an email+OTP pair."""
+    """Verify the sign-in code emailed to an address."""
 
-    token: str | None = None
-    email: str | None = None
-    code: str | None = None
+    email: str
+    code: str
 
 
 class UserProfile(BaseModel):
@@ -128,7 +126,7 @@ async def email_start(
         ip, f"auth-email:{payload.email.strip().lower()}", now=service.now()
     )
     try:
-        service.start_challenge(payload.email, redirect_to=payload.redirect_to)
+        service.start_challenge(payload.email)
     except IdentityEmailDomainNotAllowedError as exc:
         # The domain allowlist is deployment policy, not account existence,
         # so rejecting it explicitly does not create an enumeration oracle.
@@ -149,21 +147,13 @@ async def email_verify(
     request: Request,
     ip: Annotated[str | None, Depends(get_client_ip)],
 ) -> SessionResponse:
-    """Verify a magic-link token or OTP code and start a session."""
+    """Verify an emailed sign-in code and start a session."""
     get_auth_rate_limiter().check_ip(ip, now=service.now())
     user_agent = request.headers.get("User-Agent")
     try:
-        if payload.token:
-            result = service.verify_token(payload.token, user_agent=user_agent, ip=ip)
-        elif payload.email and payload.code:
-            result = service.verify_code(
-                payload.email, payload.code, user_agent=user_agent, ip=ip
-            )
-        else:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail={"message": "Provide a token or an email and code."},
-            )
+        result = service.verify_code(
+            payload.email, payload.code, user_agent=user_agent, ip=ip
+        )
     except IdentityChallengeLockedError as exc:
         raise HTTPException(
             status.HTTP_423_LOCKED, detail={"message": str(exc)}

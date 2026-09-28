@@ -12,6 +12,8 @@ __all__ = [
     "IdentityError",
     "IdentitySessionError",
     "IdentitySessionNotFoundError",
+    "OAuthAuthorizationRequestNotFoundError",
+    "OAuthClientNotFoundError",
     "UserNotFoundError",
 ]
 
@@ -55,3 +57,11 @@ class IdentitySessionError(IdentityError):
 
 class IdentitySessionNotFoundError(IdentitySessionError):
     """Raised when a session cannot be located or is revoked/expired."""
+
+
+class OAuthClientNotFoundError(IdentityError):
+    """Raised when a registered OAuth client cannot be located."""
+
+
+class OAuthAuthorizationRequestNotFoundError(IdentityError):
+    """Raised when an OAuth authorization request or code cannot be located."""

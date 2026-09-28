@@ -49,8 +49,7 @@ def test_start_challenge_is_anti_enumerative() -> None:
     # Unknown email.
     service.start_challenge("new@example.com")
     # Known email (create via a first verify).
-    token = sender.sent[-1].magic_link_url.split("token=", 1)[1]
-    service.verify_token(token)
+    service.verify_code("new@example.com", sender.sent[-1].otp_code)
     assert repo.get_user_by_email("new@example.com") is not None
 
     before = len(sender.sent)
@@ -78,8 +77,7 @@ def test_telemetry_records_signup_and_login() -> None:
     service, _ = _service(sender, telemetry=telemetry)
 
     service.start_challenge("alice@example.com")
-    token = sender.sent[-1].magic_link_url.split("token=", 1)[1]
-    service.verify_token(token)
+    service.verify_code("alice@example.com", sender.sent[-1].otp_code)
 
     metrics = telemetry.metrics()
     assert metrics.get("auth.signup:success") == 1
@@ -88,8 +86,7 @@ def test_telemetry_records_signup_and_login() -> None:
 
     # A returning login records a login but not another signup.
     service.start_challenge("alice@example.com")
-    token2 = sender.sent[-1].magic_link_url.split("token=", 1)[1]
-    service.verify_token(token2)
+    service.verify_code("alice@example.com", sender.sent[-1].otp_code)
     metrics = telemetry.metrics()
     assert metrics.get("auth.signup:success") == 1
     assert metrics.get("auth.login:success") == 2

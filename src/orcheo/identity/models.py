@@ -3,13 +3,14 @@
 These mirror the workspace models in shape and conventions. A ``User`` is the
 stable internal identity keyed by a verified, normalized email; workspace
 memberships are re-keyed onto ``User.id`` by the cutover backfill. An
-``AuthEmailChallenge`` is a single-use magic-link/OTP pending record, and an
+``AuthEmailChallenge`` is a single-use emailed sign-in code, and an
 ``AuthSession`` is a rotating refresh-token record backing a logged-in session.
 """
 
 from __future__ import annotations
 from datetime import datetime
 from enum import Enum
+from typing import Any
 from uuid import UUID, uuid4
 from pydantic import Field, field_validator
 from orcheo.models.base import OrcheoBaseModel, _utcnow
@@ -20,6 +21,8 @@ __all__ = [
     "AuthEmailChallenge",
     "AuthSession",
     "ChallengePurpose",
+    "OAuthAuthorizationRequest",
+    "OAuthClient",
     "User",
     "UserStatus",
     "normalize_email",
@@ -62,15 +65,15 @@ class User(OrcheoBaseModel):
 
 
 class AuthEmailChallenge(OrcheoBaseModel):
-    """Single-use, short-TTL magic-link + OTP pending record.
+    """Single-use, short-TTL sign-in code sent by email.
 
-    The raw magic-link token and OTP code are never stored; only their hashes
-    are persisted. Both the link and the code verify the same record.
+    The raw code is never stored; only its hash is persisted. ``token_hash``
+    belonged to the retired magic-link flow and is unset for new challenges.
     """
 
     id: UUID = Field(default_factory=uuid4)
     email: str
-    token_hash: str
+    token_hash: str | None = None
     code_hash: str
     purpose: ChallengePurpose = ChallengePurpose.LOGIN_OR_SIGNUP
     attempts: int = 0
@@ -93,7 +96,12 @@ class AuthEmailChallenge(OrcheoBaseModel):
 
 
 class AuthSession(OrcheoBaseModel):
-    """Rotating refresh-token record backing a logged-in session."""
+    """Rotating refresh-token record backing a logged-in session.
+
+    Studio sessions leave ``oauth_client_id`` unset. Sessions granted to an
+    OAuth client (e.g. an MCP client) record the client and the scopes the
+    user approved, and can only be refreshed by that client.
+    """
 
     id: UUID = Field(default_factory=uuid4)
     user_id: UUID
@@ -103,6 +111,8 @@ class AuthSession(OrcheoBaseModel):
     revoked_at: datetime | None = None
     user_agent: str | None = None
     ip: str | None = None
+    oauth_client_id: str | None = None
+    scopes: list[str] | None = None
 
     def is_expired(self, *, now: datetime) -> bool:
         """Return True when the session has passed its TTL."""
@@ -111,3 +121,45 @@ class AuthSession(OrcheoBaseModel):
     def is_active(self, *, now: datetime) -> bool:
         """Return True when the session is neither revoked nor expired."""
         return self.revoked_at is None and not self.is_expired(now=now)
+
+
+class OAuthClient(OrcheoBaseModel):
+    """An OAuth client registered through dynamic client registration.
+
+    ``metadata`` holds the RFC 7591 registration document as returned to the
+    client, minus any client secret: confidential clients' secrets are derived
+    from the client ID and never stored.
+    """
+
+    client_id: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class OAuthAuthorizationRequest(OrcheoBaseModel):
+    """A pending OAuth authorization awaiting the user's consent.
+
+    The record is created when a client starts the authorization-code flow,
+    bound to a user when they approve it in Studio (which issues a single-use
+    code, stored only as a hash), and consumed when the code is exchanged.
+    """
+
+    id: str
+    client_id: str
+    redirect_uri: str
+    redirect_uri_provided_explicitly: bool
+    code_challenge: str
+    state: str | None = None
+    scopes: list[str] = Field(default_factory=list)
+    resource: str | None = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    expires_at: datetime
+    user_id: UUID | None = None
+    decided_at: datetime | None = None
+    code_hash: str | None = None
+    code_expires_at: datetime | None = None
+    consumed_at: datetime | None = None
+
+    def is_pending(self, *, now: datetime) -> bool:
+        """Return True while the request still awaits the user's decision."""
+        return self.decided_at is None and now < self.expires_at

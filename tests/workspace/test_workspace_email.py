@@ -83,14 +83,11 @@ def test_logging_sender_logs_auth_challenge(caplog) -> None:
     with caplog.at_level(logging.INFO):
         LoggingInvitationEmailSender().send_auth_challenge(
             AuthChallengeEmail(
-                to="invitee@example.com",
-                magic_link_url="https://studio.example.com/auth/verify?token=abc123",
-                otp_code="654321",
-                expires_at=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
+                to="invitee@example.com", otp_code="654321", expires_in_minutes=15
             )
         )
     assert "654321" in caplog.text
-    assert "auth/verify?token=abc123" in caplog.text
+    assert "expires in 15 minutes" in caplog.text
 
 
 def test_smtp_sender_covers_renderers_and_tls_branches() -> None:
@@ -106,10 +103,7 @@ def test_smtp_sender_covers_renderers_and_tls_branches() -> None:
     sender.send_invitation(_email())
     sender.send_auth_challenge(
         AuthChallengeEmail(
-            to="invitee@example.com",
-            magic_link_url="https://studio.example.com/auth/verify?token=abc123",
-            otp_code="654321",
-            expires_at=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
+            to="invitee@example.com", otp_code="654321", expires_in_minutes=15
         )
     )
     smtp = FakeSMTP.instances[-1]
@@ -131,3 +125,14 @@ def test_smtp_sender_skips_tls_and_login_when_disabled() -> None:
     smtp = FakeSMTP.instances[-1]
     assert smtp.started_tls is False
     assert smtp.logged_in is None
+
+
+def test_sign_in_code_is_escaped_in_html() -> None:
+    from orcheo.workspace.email import render_sign_in_code_email
+
+    rendered = render_sign_in_code_email(
+        AuthChallengeEmail(to="a@example.com", otp_code="<b>", expires_in_minutes=5)
+    )
+
+    assert "&lt;b&gt;" in rendered.html
+    assert "<b>" not in rendered.html

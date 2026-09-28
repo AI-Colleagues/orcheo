@@ -71,13 +71,8 @@ def client(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, CapturingSender
         reset_authentication_state()
 
 
-def _start(
-    client: TestClient, email: str = "alice@example.com", redirect_to: str | None = None
-) -> None:
-    payload = {"email": email}
-    if redirect_to is not None:
-        payload["redirect_to"] = redirect_to
-    response = client.post("/api/auth/email/start", json=payload)
+def _start(client: TestClient, email: str = "alice@example.com") -> None:
+    response = client.post("/api/auth/email/start", json={"email": email})
     assert response.status_code == 200
     assert response.json() == {"status": "sent"}
 
@@ -91,18 +86,26 @@ def test_email_start_is_constant_response(client) -> None:
     assert bad.json() == {"status": "sent"}
 
 
-def test_email_start_threads_redirect_to_magic_link(client) -> None:
+def test_email_start_sends_only_a_code(client) -> None:
     test_client, sender = client
-    _start(test_client, redirect_to="/workflows/abc?tab=runs")
-    assert "redirect=%2Fworkflows%2Fabc%3Ftab%3Druns" in sender.sent[-1].magic_link_url
+    # Older Studio builds still send ``redirect_to``; it is ignored.
+    response = test_client.post(
+        "/api/auth/email/start",
+        json={"email": "alice@example.com", "redirect_to": "/workflows/abc"},
+    )
+    assert response.status_code == 200
+    assert sender.sent[-1].otp_code.isdigit()
+    assert not hasattr(sender.sent[-1], "magic_link_url")
 
 
-def test_full_magic_link_login_and_me(client) -> None:
+def test_code_login_and_me(client) -> None:
     test_client, sender = client
     _start(test_client)
-    token = sender.sent[-1].magic_link_url.split("token=", 1)[1]
 
-    verified = test_client.post("/api/auth/email/verify", json={"token": token})
+    verified = test_client.post(
+        "/api/auth/email/verify",
+        json={"email": "alice@example.com", "code": sender.sent[-1].otp_code},
+    )
     assert verified.status_code == 200
     body = verified.json()
     assert body["user"]["email"] == "alice@example.com"
@@ -148,16 +151,20 @@ def test_otp_verify_and_refresh_and_logout(client) -> None:
     assert after.status_code == 401
 
 
-def test_verify_invalid_token_rejected(client) -> None:
+def test_verify_invalid_code_rejected(client) -> None:
     test_client, _ = client
-    response = test_client.post("/api/auth/email/verify", json={"token": "bogus-token"})
+    _start(test_client)
+    response = test_client.post(
+        "/api/auth/email/verify",
+        json={"email": "alice@example.com", "code": "not-the-code"},
+    )
     assert response.status_code == 400
 
 
-def test_verify_requires_token_or_code(client) -> None:
+def test_verify_requires_email_and_code(client) -> None:
     test_client, _ = client
-    response = test_client.post("/api/auth/email/verify", json={})
-    assert response.status_code == 400
+    response = test_client.post("/api/auth/email/verify", json={"token": "legacy"})
+    assert response.status_code == 422
 
 
 def test_get_client_ip_ignores_forwarded_for_without_trusted_proxy(
@@ -294,18 +301,17 @@ async def test_email_verify_handles_domain_errors(
         (ValueError("bad code"), 400, "bad code"),
         (RuntimeError("boom"), 400, "Invalid or expired challenge."),
     ]:
-        if isinstance(exc, IdentityChallengeLockedError):
-            service.verify_token = lambda *a, **k: (_ for _ in ()).throw(exc)  # type: ignore[attr-defined]
-        elif isinstance(exc, IdentityChallengeExpiredError):
-            service.verify_token = lambda *a, **k: (_ for _ in ()).throw(exc)  # type: ignore[attr-defined]
-        elif isinstance(exc, ValueError):
-            service.verify_token = lambda *a, **k: (_ for _ in ()).throw(exc)  # type: ignore[attr-defined]
-        else:
-            service.verify_token = lambda *a, **k: (_ for _ in ()).throw(exc)  # type: ignore[attr-defined]
+
+        def _raise(*_args: object, _exc: Exception = exc, **_kwargs: object):
+            raise _exc
+
+        service.verify_code = _raise  # type: ignore[attr-defined]
 
         with pytest.raises(Exception) as raised:
             await identity_router.email_verify(
-                identity_router.EmailVerifyRequest(token="token"),
+                identity_router.EmailVerifyRequest(
+                    email="alice@example.com", code="123456"
+                ),
                 service,  # type: ignore[arg-type]
                 request,  # type: ignore[arg-type]
                 ip="127.0.0.1",

@@ -14,6 +14,7 @@ from orcheo_backend.app.schemas.nodes import (
     NodeExecutionResponse,
 )
 from orcheo_backend.app.workflow_execution import execute_node
+from orcheo_backend.app.workspace import WorkspaceContextDep
 
 
 router = APIRouter()
@@ -28,12 +29,13 @@ logger = logging.getLogger(__name__)
 async def execute_node_endpoint(
     request: NodeExecutionRequest,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
 ) -> NodeExecutionResponse:
     """Execute a single node in isolation for testing/preview purposes."""
     node_config = request.node_config
     inputs = request.inputs
     workflow_id = await resolve_optional_workflow_ref_id(
-        repository, request.workflow_id
+        repository, request.workflow_id, workspace_id=str(workspace.workspace_id)
     )
 
     node_type = node_config.get("type")

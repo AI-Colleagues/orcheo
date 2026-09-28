@@ -21,11 +21,9 @@ def test_create_app_returns_fastapi_instance() -> None:
     module = import_module("orcheo_backend.app")
     app = module.create_app()
     assert isinstance(app, FastAPI)
-    websocket_routes = [
-        route for route in app.router.routes if isinstance(route, WebSocketRoute)
-    ]
-    websocket_paths = {route.path for route in websocket_routes}
-    assert "/ws/workflow/{workflow_ref}" in websocket_paths
+    # FastAPI keeps included routers nested, so resolve the route by name.
+    path = app.url_path_for("workflow_websocket", workflow_ref="demo")
+    assert path == "/ws/workflow/demo"
 
 
 def test_get_app_matches_module_level_app() -> None:

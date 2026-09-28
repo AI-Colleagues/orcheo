@@ -210,6 +210,9 @@ async def test_dispatch_manual_runs_returns_runs_on_success() -> None:
         ) -> list[WorkflowRun]:
             return [run]
 
+        async def resolve_workflow_ref(self, workflow_ref, **_kwargs):
+            return UUID(workflow_ref)
+
     request = ManualDispatchRequest(
         workflow_id=workflow_id,
         runs=[ManualDispatchItem(input_payload={})],
@@ -218,6 +221,7 @@ async def test_dispatch_manual_runs_returns_runs_on_success() -> None:
     result = await triggers_router.dispatch_manual_runs(
         request=request,
         repository=_SuccessRepo(),  # type: ignore[arg-type]
+        workspace=SimpleNamespace(workspace_id=uuid4()),  # type: ignore[arg-type]
     )
 
     assert result == [run]

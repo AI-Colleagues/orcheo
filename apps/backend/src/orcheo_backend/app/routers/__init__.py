@@ -12,6 +12,7 @@ __all__ = [
     "credentials",
     "agentensor",
     "listeners",
+    "mcp",
     "nodes",
     "runs",
     "teams",

@@ -9,10 +9,12 @@ from orcheo_backend.app import (
     list_workflow_execution_histories,
 )
 from orcheo_backend.app.history import RunHistoryNotFoundError, RunHistoryRecord
+from orcheo_backend.app.repository import WorkflowNotFoundError
 from orcheo_backend.app.schemas.runs import RunReplayRequest
 
 
 _MOCK_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
+_WORKSPACE_WORKFLOW_ID = uuid4()
 
 
 class _Repository:
@@ -25,6 +27,11 @@ class _Repository:
     ) -> UUID:
         del include_archived
         return UUID(str(workflow_ref))
+
+    async def get_workflow(self, workflow_id: UUID, *, workspace_id: str | None = None):
+        if workflow_id != _WORKSPACE_WORKFLOW_ID:
+            raise WorkflowNotFoundError(str(workflow_id))
+        return object()
 
 
 @pytest.mark.asyncio()
@@ -103,10 +110,13 @@ async def test_get_execution_history_success() -> None:
             return RunHistoryRecord(
                 workflow_id=str(uuid4()),
                 execution_id=exec_id,
+                workspace_id=str(_MOCK_WORKSPACE.workspace_id),
                 inputs={"test": "data"},
             )
 
-    result = await get_execution_history(execution_id, HistoryStore())
+    result = await get_execution_history(
+        execution_id, HistoryStore(), _Repository(), _MOCK_WORKSPACE
+    )
 
     assert result.execution_id == execution_id
 
@@ -123,7 +133,9 @@ async def test_get_execution_history_not_found() -> None:
             raise RunHistoryNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await get_execution_history(execution_id, HistoryStore())
+        await get_execution_history(
+            execution_id, HistoryStore(), _Repository(), _MOCK_WORKSPACE
+        )
 
     assert exc_info.value.status_code == 404
 
@@ -139,7 +151,7 @@ async def test_replay_execution_success() -> None:
     class HistoryStore:
         async def get_history(self, exec_id):
             record = RunHistoryRecord(
-                workflow_id=str(uuid4()),
+                workflow_id=str(_WORKSPACE_WORKFLOW_ID),
                 execution_id=exec_id,
                 inputs={"test": "data"},
             )
@@ -151,7 +163,9 @@ async def test_replay_execution_success() -> None:
             return record
 
     request = RunReplayRequest(from_step=1)
-    result = await replay_execution(execution_id, request, HistoryStore())
+    result = await replay_execution(
+        execution_id, request, HistoryStore(), _Repository(), _MOCK_WORKSPACE
+    )
 
     assert result.execution_id == execution_id
     assert len(result.steps) == 2
@@ -172,6 +186,40 @@ async def test_replay_execution_not_found() -> None:
     request = RunReplayRequest(from_step=0)
 
     with pytest.raises(HTTPException) as exc_info:
-        await replay_execution(execution_id, request, HistoryStore())
+        await replay_execution(
+            execution_id, request, HistoryStore(), _Repository(), _MOCK_WORKSPACE
+        )
+
+    assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize(
+    ("workflow_id", "workspace_id"),
+    [
+        (str(_WORKSPACE_WORKFLOW_ID), str(uuid4())),
+        (str(uuid4()), None),
+        ("not-a-uuid", None),
+    ],
+    ids=["stamped-elsewhere", "legacy-foreign-workflow", "legacy-invalid-id"],
+)
+async def test_execution_history_hidden_from_other_workspaces(
+    workflow_id: str, workspace_id: str | None
+) -> None:
+    """Histories stamped with, or belonging to, another workspace 404."""
+    from orcheo_backend.app.routers.runs import get_execution_trace
+
+    class HistoryStore:
+        async def get_history(self, exec_id):
+            return RunHistoryRecord(
+                workflow_id=workflow_id,
+                execution_id=exec_id,
+                workspace_id=workspace_id,
+            )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_execution_trace(
+            "exec-1", HistoryStore(), _Repository(), _MOCK_WORKSPACE
+        )
 
     assert exc_info.value.status_code == 404

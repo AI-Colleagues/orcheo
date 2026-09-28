@@ -1,10 +1,10 @@
 """Transactional email ports, a logging default, and an SMTP sender.
 
 The transactional email abstraction is shared by two callers: workspace
-invitations and first-party auth challenges (magic link + OTP). Production
-deployments use the :class:`SmtpEmailSender`; local/self-host setups fall back
-to the :class:`LoggingInvitationEmailSender`, which logs the link/code instead
-of delivering email. SMTP is the sole production transport.
+invitations and first-party sign-in codes. Production deployments use the
+:class:`SmtpEmailSender`; local/self-host setups fall back to the
+:class:`LoggingInvitationEmailSender`, which logs the link/code instead of
+delivering email. SMTP is the sole production transport.
 """
 
 from __future__ import annotations
@@ -24,10 +24,12 @@ __all__ = [
     "InvitationEmail",
     "InvitationEmailSender",
     "LoggingInvitationEmailSender",
+    "RenderedEmail",
     "SmtpEmailSender",
     "SmtpSettings",
     "TransactionalEmailSender",
     "build_email_sender",
+    "render_sign_in_code_email",
 ]
 
 logger = logging.getLogger(__name__)
@@ -49,12 +51,11 @@ class InvitationEmail:
 
 @dataclass(frozen=True)
 class AuthChallengeEmail:
-    """Rendered passwordless auth challenge (magic link + OTP code)."""
+    """A one-time sign-in code to deliver to a recipient."""
 
     to: str
-    magic_link_url: str
     otp_code: str
-    expires_at: datetime
+    expires_in_minutes: int
 
 
 class InvitationEmailSender(Protocol):
@@ -68,7 +69,7 @@ class AuthChallengeEmailSender(Protocol):
     """Port for delivering passwordless auth challenge emails."""
 
     def send_auth_challenge(self, email: AuthChallengeEmail) -> None:
-        """Deliver a single auth challenge email (magic link + OTP)."""
+        """Deliver a single sign-in code email."""
 
 
 class TransactionalEmailSender(
@@ -97,13 +98,12 @@ class LoggingInvitationEmailSender:
         )
 
     def send_auth_challenge(self, email: AuthChallengeEmail) -> None:
-        """Log the magic link and OTP code."""
+        """Log the sign-in code."""
         logger.info(
-            "Auth challenge for %s — expires %s — code %s: %s",
+            "Sign-in code for %s (expires in %d minutes): %s",
             email.to,
-            email.expires_at.isoformat(),
+            email.expires_in_minutes,
             email.otp_code,
-            email.magic_link_url,
         )
 
 
@@ -122,17 +122,64 @@ def _render_invitation_html(email: InvitationEmail) -> str:
     )
 
 
-def _render_auth_challenge_html(email: AuthChallengeEmail) -> str:
-    """Render a minimal, provider-agnostic HTML body for an auth challenge."""
-    url = html.escape(email.magic_link_url, quote=True)
+# Mail clients strip stylesheets and custom properties, so the sign-in email's
+# colours are literal and inline (the GatherEasy transactional style).
+_EMAIL_INK = "#1c1c1a"
+_EMAIL_MUTED = "#6b6b66"
+_EMAIL_SURFACE = "#faf9f6"
+_EMAIL_FONT = "'IBM Plex Sans',Helvetica,Arial,sans-serif"
+
+
+@dataclass(frozen=True)
+class RenderedEmail:
+    """Subject plus plain-text and HTML bodies of one email."""
+
+    subject: str
+    text: str
+    html: str
+
+
+def render_sign_in_code_email(email: AuthChallengeEmail) -> RenderedEmail:
+    """Build the mail carrying one sign-in code.
+
+    Transactional auth mail: no link, button or unsubscribe footer. The code
+    is set large and letter-spaced because the only thing anyone does with
+    this mail is read the digits off it, often on a phone, with the sign-in
+    form already open.
+    """
+    lead = "Your Orcheo sign-in code is"
+    expiry = (
+        f"It expires in {email.expires_in_minutes} minutes. If you did not try "
+        "to sign in, you can ignore this email."
+    )
     code = html.escape(email.otp_code)
-    expires = html.escape(email.expires_at.strftime("%Y-%m-%d %H:%M UTC"))
-    return (
-        "<p>Use the link below to sign in to Orcheo:</p>"
-        f'<p><a href="{url}">Sign in to Orcheo</a></p>'
-        f"<p>Or enter this code: <strong>{code}</strong></p>"
-        f"<p>This link and code expire on {expires}. If you didn't request this, "
-        f"you can ignore this email.</p>"
+    body = f"""<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:0;background:{_EMAIL_SURFACE};">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_EMAIL_SURFACE};padding:24px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;padding:32px;font-family:{_EMAIL_FONT};color:{_EMAIL_INK};">
+            <tr>
+              <td style="font-size:16px;line-height:1.5;">{lead}</td>
+            </tr>
+            <tr>
+              <td style="font-size:32px;font-weight:700;letter-spacing:8px;padding:12px 0 20px;">{code}</td>
+            </tr>
+            <tr>
+              <td style="font-size:13px;line-height:1.6;color:{_EMAIL_MUTED};">{html.escape(expiry)}</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+"""  # noqa: E501 - inline email markup
+    return RenderedEmail(
+        subject=f"{email.otp_code} is your Orcheo sign-in code",
+        text=f"{lead} {email.otp_code}.\n\n{expiry}",
+        html=body,
     )
 
 
@@ -167,14 +214,22 @@ class SmtpEmailSender:
 
     def send_auth_challenge(self, email: AuthChallengeEmail) -> None:
         """Send a passwordless auth challenge email over SMTP."""
-        self._send(email.to, "Sign in to Orcheo", _render_auth_challenge_html(email))
+        rendered = render_sign_in_code_email(email)
+        self._send(email.to, rendered.subject, rendered.html, text_body=rendered.text)
 
-    def _send(self, to: str, subject: str, html_body: str) -> None:
+    def _send(
+        self,
+        to: str,
+        subject: str,
+        html_body: str,
+        *,
+        text_body: str = "This message requires an HTML-capable email client.",
+    ) -> None:
         message = EmailMessage()
         message["From"] = self._settings.from_email
         message["To"] = to
         message["Subject"] = subject
-        message.set_content("This message requires an HTML-capable email client.")
+        message.set_content(text_body)
         message.add_alternative(html_body, subtype="html")
 
         settings = self._settings

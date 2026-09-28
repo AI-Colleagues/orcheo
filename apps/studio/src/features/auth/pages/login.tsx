@@ -69,7 +69,7 @@ export default function Login() {
     setError(null);
     setBusy(true);
     try {
-      await startEmailChallenge(email.trim(), "login", redirectTo);
+      await startEmailChallenge(email.trim(), "login");
       setStage("sent");
     } catch (err) {
       setError(
@@ -111,8 +111,8 @@ export default function Login() {
           <CardTitle className="text-xl">Sign in to Orcheo</CardTitle>
           <CardDescription>
             {stage === "email"
-              ? "Enter your email and we'll send you a sign-in link and code."
-              : `We sent a sign-in link and code to ${email}.`}
+              ? "Enter your email and we'll send you a sign-in code."
+              : `We sent a sign-in code to ${email}.`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -145,9 +145,6 @@ export default function Login() {
             </form>
           ) : (
             <form className="flex flex-col gap-4" onSubmit={handleVerifyCode}>
-              <p className="text-sm text-muted-foreground">
-                Click the link in your email, or enter the code below.
-              </p>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="code">Sign-in code</Label>
                 <Input

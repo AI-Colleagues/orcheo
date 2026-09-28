@@ -8,6 +8,7 @@ from .authenticator import (
 )
 from .context import RequestContext
 from .dependencies import (
+    PREAUTHENTICATED_SCOPE_KEY,
     _auth_rate_limiter_cache,
     _authenticator_cache,
     _extract_bearer_token,
@@ -70,6 +71,7 @@ _parse_string_items = parse_string_items
 
 
 __all__ = [
+    "PREAUTHENTICATED_SCOPE_KEY",
     "AuthEvent",
     "AuthRateLimiter",
     "AuthTelemetry",

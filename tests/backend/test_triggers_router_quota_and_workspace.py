@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -46,6 +46,7 @@ async def test_dispatch_cron_triggers_quota_exceeded_raises_http() -> None:
     with pytest.raises(HTTPException) as exc_info:
         await triggers_router.dispatch_cron_triggers(
             repository=Repository(),  # type: ignore[arg-type]
+            _admin=None,  # type: ignore[arg-type]
         )
 
     assert exc_info.value.status_code == 429
@@ -68,12 +69,16 @@ async def test_dispatch_manual_runs_quota_exceeded_raises_http() -> None:
                 details={"limit": 1, "current": 1},
             )
 
+        async def resolve_workflow_ref(self, workflow_ref, **_kwargs):
+            return UUID(workflow_ref)
+
     request = ManualDispatchRequest(workflow_id=uuid4(), runs=[ManualDispatchItem()])
 
     with pytest.raises(HTTPException) as exc_info:
         await triggers_router.dispatch_manual_runs(
             request=request,
             repository=Repository(),  # type: ignore[arg-type]
+            workspace=SimpleNamespace(workspace_id=uuid4()),  # type: ignore[arg-type]
         )
 
     assert exc_info.value.status_code == 429

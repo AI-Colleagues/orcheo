@@ -1,7 +1,7 @@
 """Token primitives for the first-party identity service.
 
-Magic-link tokens, OTP codes, and refresh tokens are random secrets that are
-emailed/returned to the user once and only ever persisted as SHA-256 hashes.
+Sign-in codes and refresh tokens are random secrets that are emailed or
+returned to the user once and only ever persisted as SHA-256 hashes.
 Access tokens are short-lived HS256 JWTs carrying the existing Orcheo claim
 contract validated by ``authentication/``.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -20,7 +20,6 @@ from orcheo.identity.models import User
 
 __all__ = [
     "DEFAULT_USER_SCOPES",
-    "generate_magic_link_token",
     "generate_otp_code",
     "generate_refresh_token",
     "hash_secret",
@@ -28,7 +27,6 @@ __all__ = [
     "secrets_match",
 ]
 
-_MAGIC_LINK_BYTES = 32
 _REFRESH_TOKEN_BYTES = 32
 DEFAULT_USER_SCOPES: tuple[str, ...] = (
     "workflows:read",
@@ -37,11 +35,6 @@ DEFAULT_USER_SCOPES: tuple[str, ...] = (
     "vault:read",
     "vault:write",
 )
-
-
-def generate_magic_link_token() -> str:
-    """Return a URL-safe single-use magic-link token."""
-    return secrets.token_urlsafe(_MAGIC_LINK_BYTES)
 
 
 def generate_refresh_token() -> str:
@@ -76,6 +69,7 @@ def mint_access_token(
     audience: str | None,
     ttl_seconds: int,
     now: datetime,
+    scopes: Sequence[str] = DEFAULT_USER_SCOPES,
     extra_claims: Mapping[str, Any] | None = None,
 ) -> tuple[str, int]:
     """Mint an HS256 access token for ``user`` and return ``(token, expires_in)``.
@@ -90,8 +84,8 @@ def mint_access_token(
         "email": user.email,
         "email_verified": user.email_verified,
         "name": user.name,
-        "scope": " ".join(DEFAULT_USER_SCOPES),
-        "scopes": list(DEFAULT_USER_SCOPES),
+        "scope": " ".join(scopes),
+        "scopes": list(scopes),
         "iss": issuer,
         "iat": int(now.timestamp()),
         "exp": int(expires_at.timestamp()),

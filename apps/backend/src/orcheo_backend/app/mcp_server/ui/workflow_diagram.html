@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orcheo workflow</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #1a1a1a;
+        --muted: #6b6b6b;
+        --border: #d9d9d9;
+        --danger: #c92a2a;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --bg: #1c1c1e;
+          --fg: #f1f1f1;
+          --muted: #a0a0a5;
+          --border: #3a3a3c;
+          --danger: #ff8787;
+        }
+      }
+      :root[data-theme="dark"] {
+        --bg: #1c1c1e;
+        --fg: #f1f1f1;
+        --muted: #a0a0a5;
+        --border: #3a3a3c;
+        --danger: #ff8787;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+      h1 { font-size: 16px; margin: 0; }
+      #version { color: var(--muted); }
+      #diagram { overflow-x: auto; text-align: center; }
+      #diagram svg { max-width: 100%; height: auto; }
+      pre {
+        margin: 0;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow-x: auto;
+        font-size: 12px;
+      }
+      #status { color: var(--muted); margin: 8px 0 0; }
+      #status.error { color: var(--danger); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1 id="name">Workflow</h1>
+      <span id="version"></span>
+    </header>
+    <div id="diagram"></div>
+    <p id="status">Loading diagram…</p>
+    <script>
+      /* ORCHEO_BRIDGE */
+    </script>
+    <script type="module">
+      const $ = (id) => document.getElementById(id);
+      let mermaid = null;
+      let source = null;
+      let theme = "default";
+
+      const showSource = (message) => {
+        const pre = document.createElement("pre");
+        pre.textContent = source || "";
+        $("diagram").replaceChildren(pre);
+        $("status").textContent = message;
+        $("status").className = "error";
+      };
+
+      const render = async () => {
+        if (!source) return;
+        if (!mermaid) {
+          showSource("The diagram renderer could not be loaded; showing its source.");
+          return;
+        }
+        try {
+          mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme });
+          const { svg } = await mermaid.render(`graph-${Date.now()}`, source);
+          $("diagram").innerHTML = svg;
+          $("status").textContent = "";
+        } catch (error) {
+          showSource(`The diagram could not be rendered: ${error.message}`);
+        }
+      };
+
+      orcheoBridge.on("ui/notifications/tool-result", (result) => {
+        const data = result.structuredContent || {};
+        $("name").textContent = data.name || "Workflow";
+        $("version").textContent = data.version ? `v${data.version}` : "";
+        source = data.mermaid;
+        render();
+      });
+      orcheoBridge.on("ui/notifications/host-context-changed", (context) => {
+        if (!context.theme) return;
+        theme = context.theme === "dark" ? "dark" : "default";
+        render();
+      });
+
+      try {
+        ({ default: mermaid } = await import(
+          "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"
+        ));
+      } catch {
+        mermaid = null;
+      }
+      const init = await orcheoBridge.connect("orcheo-workflow-diagram");
+      if (init && init.hostContext && init.hostContext.theme === "dark") {
+        theme = "dark";
+      }
+      render();
+    </script>
+  </body>
+</html>

@@ -179,7 +179,6 @@ def test_postgres_identity_repository_roundtrip(
             {},  # add_challenge
             {"row": _challenge_row(challenge, consumed_at=challenge.consumed_at)},
             {"row": _challenge_row(challenge, consumed_at=challenge.consumed_at)},
-            {"row": _challenge_row(challenge, consumed_at=challenge.consumed_at)},
             {"rowcount": 1},  # update_challenge
             {"rowcount": 1},  # consume_challenge
             {},  # add_session
@@ -211,7 +210,6 @@ def test_postgres_identity_repository_roundtrip(
 
     assert repo.add_challenge(challenge) == challenge
     assert repo.get_challenge(challenge.id) == challenge
-    assert repo.get_challenge_by_token_hash("token-hash") == challenge
     assert (
         repo.find_active_challenge_for_email(
             user.email, now=datetime(2026, 1, 1, tzinfo=UTC)
@@ -270,7 +268,6 @@ def test_postgres_identity_repository_duplicate_and_missing_paths(
             None,  # get_user -> not found
             {"rowcount": 0},  # update_user -> not found
             None,  # get_challenge -> not found
-            None,  # get_challenge_by_token_hash -> not found
             {"rowcount": 0},  # update_challenge -> not found
             {"rowcount": 0},  # consume_challenge -> not found
             None,  # get_session -> not found
@@ -293,8 +290,6 @@ def test_postgres_identity_repository_duplicate_and_missing_paths(
     with pytest.raises(IdentityChallengeNotFoundError):
         repo.get_challenge(uuid4())
     with pytest.raises(IdentityChallengeNotFoundError):
-        repo.get_challenge_by_token_hash("missing-token")
-    with pytest.raises(IdentityChallengeNotFoundError):
         repo.update_challenge(missing_challenge)
     with pytest.raises(IdentityChallengeNotFoundError):
         repo.consume_challenge(
@@ -313,7 +308,6 @@ def test_postgres_identity_repository_row_mappers_handle_nulls() -> None:
     user = User(email="carol@example.com")
     challenge = AuthEmailChallenge(
         email="carol@example.com",
-        token_hash="token",
         code_hash="code",
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
         expires_at=datetime(2026, 1, 2, tzinfo=UTC),
@@ -338,6 +332,7 @@ def test_postgres_identity_repository_row_mappers_handle_nulls() -> None:
     assert mapped_user.name is None
     assert mapped_user.last_login_at is None
     assert mapped_challenge.consumed_at is None
+    assert mapped_challenge.token_hash is None
     assert mapped_session.revoked_at is None
     assert mapped_session.user_agent is None
     assert mapped_session.ip is None

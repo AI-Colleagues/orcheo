@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import uuid4
 import pytest
 from fastapi import HTTPException
@@ -11,6 +12,16 @@ from orcheo_backend.app.repository import WorkflowRunNotFoundError
 from orcheo_backend.app.schemas.runs import RunActionRequest, RunSucceedRequest
 
 
+_WORKSPACE = SimpleNamespace(workspace_id=uuid4())
+
+
+class _RunLookup:
+    """Stub the workspace ownership check the lifecycle routes perform."""
+
+    async def get_run(self, run_id, workspace_id=None):
+        return None
+
+
 @pytest.mark.asyncio()
 async def test_mark_run_started_success() -> None:
     """Mark run started endpoint transitions run to running state."""
@@ -18,7 +29,7 @@ async def test_mark_run_started_success() -> None:
     run_id = uuid4()
     version_id = uuid4()
 
-    class Repository:
+    class Repository(_RunLookup):
         async def mark_run_started(self, run_id, actor):
             return WorkflowRun(
                 id=run_id,
@@ -31,7 +42,7 @@ async def test_mark_run_started_success() -> None:
             )
 
     request = RunActionRequest(actor="system")
-    result = await mark_run_started(run_id, request, Repository())
+    result = await mark_run_started(run_id, request, Repository(), _WORKSPACE)
 
     assert result.id == run_id
     assert result.status == "running"
@@ -43,14 +54,14 @@ async def test_mark_run_started_not_found() -> None:
 
     run_id = uuid4()
 
-    class Repository:
+    class Repository(_RunLookup):
         async def mark_run_started(self, run_id, actor):
             raise WorkflowRunNotFoundError("not found")
 
     request = RunActionRequest(actor="system")
 
     with pytest.raises(HTTPException) as exc_info:
-        await mark_run_started(run_id, request, Repository())
+        await mark_run_started(run_id, request, Repository(), _WORKSPACE)
 
     assert exc_info.value.status_code == 404
 
@@ -61,14 +72,14 @@ async def test_mark_run_started_conflict() -> None:
 
     run_id = uuid4()
 
-    class Repository:
+    class Repository(_RunLookup):
         async def mark_run_started(self, run_id, actor):
             raise ValueError("Invalid state transition")
 
     request = RunActionRequest(actor="system")
 
     with pytest.raises(HTTPException) as exc_info:
-        await mark_run_started(run_id, request, Repository())
+        await mark_run_started(run_id, request, Repository(), _WORKSPACE)
 
     assert exc_info.value.status_code == 409
 
@@ -80,7 +91,7 @@ async def test_mark_run_succeeded_success() -> None:
     run_id = uuid4()
     version_id = uuid4()
 
-    class Repository:
+    class Repository(_RunLookup):
         async def mark_run_succeeded(self, run_id, actor, output):
             return WorkflowRun(
                 id=run_id,
@@ -94,7 +105,7 @@ async def test_mark_run_succeeded_success() -> None:
             )
 
     request = RunSucceedRequest(actor="system", output={"result": "ok"})
-    result = await mark_run_succeeded(run_id, request, Repository())
+    result = await mark_run_succeeded(run_id, request, Repository(), _WORKSPACE)
 
     assert result.id == run_id
     assert result.status == "succeeded"
@@ -106,14 +117,14 @@ async def test_mark_run_succeeded_not_found() -> None:
 
     run_id = uuid4()
 
-    class Repository:
+    class Repository(_RunLookup):
         async def mark_run_succeeded(self, run_id, actor, output):
             raise WorkflowRunNotFoundError("not found")
 
     request = RunSucceedRequest(actor="system")
 
     with pytest.raises(HTTPException) as exc_info:
-        await mark_run_succeeded(run_id, request, Repository())
+        await mark_run_succeeded(run_id, request, Repository(), _WORKSPACE)
 
     assert exc_info.value.status_code == 404
 
@@ -124,13 +135,13 @@ async def test_mark_run_succeeded_conflict() -> None:
 
     run_id = uuid4()
 
-    class Repository:
+    class Repository(_RunLookup):
         async def mark_run_succeeded(self, run_id, actor, output):
             raise ValueError("Invalid state transition")
 
     request = RunSucceedRequest(actor="system")
 
     with pytest.raises(HTTPException) as exc_info:
-        await mark_run_succeeded(run_id, request, Repository())
+        await mark_run_succeeded(run_id, request, Repository(), _WORKSPACE)
 
     assert exc_info.value.status_code == 409

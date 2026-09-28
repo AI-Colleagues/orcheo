@@ -13,7 +13,8 @@ name: orcheo-lean
 # Set ORCHEO_LEAN_IMAGE (e.g. ghcr.io/ai-colleagues/orcheo-lean:0.1.0) and run
 # with --no-build to use a published image instead of building from source;
 # `orcheo install --lean` does this in ~/.orcheo/lean.
-# ORCHEO_LEAN_PUBLIC_URL is the browser-facing origin (magic links, CORS).
+# ORCHEO_LEAN_PUBLIC_URL is the browser-facing origin (invitation links, MCP
+# OAuth discovery and consent, CORS).
 #
 # Compose and the containers read the .env next to this file; values under
 # `environment` take precedence over it.
@@ -49,6 +50,7 @@ x-orcheo-env: &orcheo-env
   ORCHEO_SMTP_FROM_EMAIL: ${ORCHEO_SMTP_FROM_EMAIL:-no-reply@orcheo.cloud}
   ORCHEO_SMTP_USE_TLS: ${ORCHEO_SMTP_USE_TLS:-true}
   ORCHEO_STUDIO_URL: ${ORCHEO_LEAN_PUBLIC_URL:-http://localhost:2025}
+  ORCHEO_PUBLIC_URL: ${ORCHEO_LEAN_PUBLIC_URL:-http://localhost:2025}
   ORCHEO_CANDIDATES_REPO: ${ORCHEO_CANDIDATES_REPO:-}
   ORCHEO_CANDIDATES_REPO_REF: ${ORCHEO_CANDIDATES_REPO_REF:-}
   ORCHEO_CANDIDATES_GITHUB_TOKEN: ${ORCHEO_CANDIDATES_GITHUB_TOKEN:-}

@@ -9,15 +9,20 @@ from uuid import UUID
 from psycopg import Connection, connect
 from psycopg.errors import UniqueViolation
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from orcheo.identity.errors import (
     IdentityChallengeNotFoundError,
     IdentitySessionNotFoundError,
+    OAuthAuthorizationRequestNotFoundError,
+    OAuthClientNotFoundError,
     UserNotFoundError,
 )
 from orcheo.identity.models import (
     AuthEmailChallenge,
     AuthSession,
     ChallengePurpose,
+    OAuthAuthorizationRequest,
+    OAuthClient,
     User,
     UserStatus,
     normalize_email,
@@ -176,17 +181,6 @@ class PostgresIdentityRepository:
             raise IdentityChallengeNotFoundError(str(challenge_id))
         return self._row_to_challenge(row)
 
-    def get_challenge_by_token_hash(self, token_hash: str) -> AuthEmailChallenge:
-        """Return the challenge matching a magic-link token hash."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM auth_email_challenges WHERE token_hash = %s",
-                (token_hash,),
-            ).fetchone()
-        if row is None:
-            raise IdentityChallengeNotFoundError(token_hash)
-        return self._row_to_challenge(row)
-
     def find_active_challenge_for_email(
         self, email: str, *, now: datetime
     ) -> AuthEmailChallenge | None:
@@ -250,9 +244,10 @@ class PostgresIdentityRepository:
                 """
                 INSERT INTO auth_sessions (
                     id, user_id, refresh_token_hash, created_at,
-                    expires_at, revoked_at, user_agent, ip
+                    expires_at, revoked_at, user_agent, ip,
+                    oauth_client_id, scopes
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     str(session.id),
@@ -263,6 +258,8 @@ class PostgresIdentityRepository:
                     session.revoked_at,
                     session.user_agent,
                     session.ip,
+                    session.oauth_client_id,
+                    None if session.scopes is None else Jsonb(session.scopes),
                 ),
             )
         return session
@@ -297,13 +294,15 @@ class PostgresIdentityRepository:
                 UPDATE auth_sessions
                    SET refresh_token_hash = %s,
                        expires_at = %s,
-                       revoked_at = %s
+                       revoked_at = %s,
+                       scopes = %s
                  WHERE id = %s
                 """,
                 (
                     session.refresh_token_hash,
                     session.expires_at,
                     session.revoked_at,
+                    None if session.scopes is None else Jsonb(session.scopes),
                     str(session.id),
                 ),
             )
@@ -324,6 +323,137 @@ class PostgresIdentityRepository:
                 (_utc_now(), str(user_id)),
             )
             return cursor.rowcount
+
+    # -- oauth clients & authorization requests ------------------------------
+
+    def add_oauth_client(self, client: OAuthClient) -> OAuthClient:
+        """Persist a dynamically registered OAuth client."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO oauth_clients (client_id, metadata, created_at)
+                VALUES (%s, %s, %s)
+                """,
+                (client.client_id, Jsonb(client.metadata), client.created_at),
+            )
+        return client
+
+    def get_oauth_client(self, client_id: str) -> OAuthClient:
+        """Return the OAuth client identified by `client_id`."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM oauth_clients WHERE client_id = %s",
+                (client_id,),
+            ).fetchone()
+        if row is None:
+            raise OAuthClientNotFoundError(client_id)
+        return OAuthClient(
+            client_id=str(row["client_id"]),
+            metadata=dict(cast(dict[str, Any], row["metadata"])),
+            created_at=cast(datetime, row["created_at"]),
+        )
+
+    def add_authorization_request(
+        self, request: OAuthAuthorizationRequest
+    ) -> OAuthAuthorizationRequest:
+        """Persist a pending OAuth authorization request."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO oauth_authorization_requests (
+                    id, client_id, redirect_uri, redirect_uri_provided_explicitly,
+                    code_challenge, state, scopes, resource, created_at,
+                    expires_at, user_id, decided_at, code_hash, code_expires_at,
+                    consumed_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    request.id,
+                    request.client_id,
+                    request.redirect_uri,
+                    request.redirect_uri_provided_explicitly,
+                    request.code_challenge,
+                    request.state,
+                    Jsonb(request.scopes),
+                    request.resource,
+                    request.created_at,
+                    request.expires_at,
+                    None if request.user_id is None else str(request.user_id),
+                    request.decided_at,
+                    request.code_hash,
+                    request.code_expires_at,
+                    request.consumed_at,
+                ),
+            )
+        return request
+
+    def get_authorization_request(self, request_id: str) -> OAuthAuthorizationRequest:
+        """Return the authorization request identified by `request_id`."""
+        return self._fetch_authorization_request("id", request_id)
+
+    def get_authorization_request_by_code_hash(
+        self, code_hash: str
+    ) -> OAuthAuthorizationRequest:
+        """Return the authorization request that issued a code hash."""
+        return self._fetch_authorization_request("code_hash", code_hash)
+
+    def _fetch_authorization_request(
+        self, column: str, value: str
+    ) -> OAuthAuthorizationRequest:
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT * FROM oauth_authorization_requests WHERE {column} = %s",  # noqa: S608 - fixed column names
+                (value,),
+            ).fetchone()
+        if row is None:
+            raise OAuthAuthorizationRequestNotFoundError(value)
+        return self._row_to_authorization_request(row)
+
+    def update_authorization_request(
+        self, request: OAuthAuthorizationRequest
+    ) -> OAuthAuthorizationRequest:
+        """Persist the user's decision on an authorization request."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE oauth_authorization_requests
+                   SET user_id = %s,
+                       decided_at = %s,
+                       code_hash = %s,
+                       code_expires_at = %s
+                 WHERE id = %s
+                """,
+                (
+                    None if request.user_id is None else str(request.user_id),
+                    request.decided_at,
+                    request.code_hash,
+                    request.code_expires_at,
+                    request.id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise OAuthAuthorizationRequestNotFoundError(request.id)
+        return request
+
+    def consume_authorization_code(
+        self, request_id: str, *, consumed_at: datetime
+    ) -> OAuthAuthorizationRequest:
+        """Atomically mark an unconsumed authorization code as consumed."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                UPDATE oauth_authorization_requests
+                   SET consumed_at = %s
+                 WHERE id = %s
+                   AND consumed_at IS NULL
+                RETURNING *
+                """,
+                (consumed_at, request_id),
+            ).fetchone()
+        if row is None:
+            raise OAuthAuthorizationRequestNotFoundError(request_id)
+        return self._row_to_authorization_request(row)
 
     # -- row mappers ---------------------------------------------------------
 
@@ -346,7 +476,9 @@ class PostgresIdentityRepository:
         return AuthEmailChallenge(
             id=UUID(str(row["id"])),
             email=str(row["email"]),
-            token_hash=str(row["token_hash"]),
+            token_hash=(
+                None if row.get("token_hash") is None else str(row["token_hash"])
+            ),
             code_hash=str(row["code_hash"]),
             purpose=ChallengePurpose(str(row["purpose"])),
             attempts=int(cast(int, row["attempts"])),
@@ -369,4 +501,43 @@ class PostgresIdentityRepository:
                 None if row.get("user_agent") is None else str(row["user_agent"])
             ),
             ip=None if row.get("ip") is None else str(row["ip"]),
+            oauth_client_id=(
+                None
+                if row.get("oauth_client_id") is None
+                else str(row["oauth_client_id"])
+            ),
+            scopes=(
+                None
+                if row.get("scopes") is None
+                else [str(item) for item in cast(list[Any], row["scopes"])]
+            ),
+        )
+
+    @staticmethod
+    def _row_to_authorization_request(
+        row: dict[str, object],
+    ) -> OAuthAuthorizationRequest:
+        def _optional_time(key: str) -> datetime | None:
+            value = row.get(key)
+            return cast(datetime, value) if value else None
+
+        user_id = row.get("user_id")
+        return OAuthAuthorizationRequest(
+            id=str(row["id"]),
+            client_id=str(row["client_id"]),
+            redirect_uri=str(row["redirect_uri"]),
+            redirect_uri_provided_explicitly=bool(
+                row["redirect_uri_provided_explicitly"]
+            ),
+            code_challenge=str(row["code_challenge"]),
+            state=None if row.get("state") is None else str(row["state"]),
+            scopes=[str(item) for item in cast(list[Any], row["scopes"])],
+            resource=None if row.get("resource") is None else str(row["resource"]),
+            created_at=cast(datetime, row["created_at"]),
+            expires_at=cast(datetime, row["expires_at"]),
+            user_id=None if user_id is None else UUID(str(user_id)),
+            decided_at=_optional_time("decided_at"),
+            code_hash=None if row.get("code_hash") is None else str(row["code_hash"]),
+            code_expires_at=_optional_time("code_expires_at"),
+            consumed_at=_optional_time("consumed_at"),
         )

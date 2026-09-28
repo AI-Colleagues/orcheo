@@ -198,21 +198,21 @@ def test_trusted_proxy_enabled_and_client_ip_branches(
         "get_settings",
         lambda: {"TRUSTED_PROXY": "yes"},
     )
-    assert dependencies._trusted_proxy_enabled() is True
+    assert dependencies.trusted_proxy_enabled() is True
 
     monkeypatch.setattr(
         dependencies,
         "get_settings",
         lambda: {"TRUSTED_PROXY": True},
     )
-    assert dependencies._trusted_proxy_enabled() is True
+    assert dependencies.trusted_proxy_enabled() is True
 
     monkeypatch.setattr(
         dependencies,
         "get_settings",
         lambda: {"TRUSTED_PROXY": None},
     )
-    assert dependencies._trusted_proxy_enabled() is False
+    assert dependencies.trusted_proxy_enabled() is False
 
     monkeypatch.setattr(
         dependencies,

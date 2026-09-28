@@ -64,23 +64,18 @@ const readErrorMessage = async (
 };
 
 /**
- * Request a passwordless challenge for an email. The backend responds
- * identically whether or not the account exists, so a resolved promise only
- * means the request was accepted — never that an email was definitely sent.
+ * Email a one-time sign-in code. The backend responds identically whether or
+ * not the account exists, so a resolved promise only means the request was
+ * accepted — never that an email was definitely sent.
  */
 export const startEmailChallenge = async (
   email: string,
   intent: "login" | "signup" = "login",
-  redirectTo?: string,
 ): Promise<void> => {
   const response = await fetch(authUrl("/email/start"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      email,
-      intent,
-      ...(redirectTo ? { redirect_to: redirectTo } : {}),
-    }),
+    body: JSON.stringify({ email, intent }),
   });
   if (response.status === 429) {
     throw new Error("Too many attempts. Please wait a moment and try again.");
@@ -92,19 +87,21 @@ export const startEmailChallenge = async (
   }
 };
 
-const verify = async (
-  body: Record<string, string>,
+/** Verify an emailed sign-in code and start an authenticated session. */
+export const verifyEmailCode = async (
+  email: string,
+  code: string,
 ): Promise<AuthUserProfile | undefined> => {
   const response = await fetch(authUrl("/email/verify"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ email, code }),
   });
   if (!response.ok) {
     throw new Error(
       await readErrorMessage(
         response,
-        "This sign-in link or code is invalid or has expired.",
+        "This sign-in code is invalid or has expired.",
       ),
     );
   }
@@ -112,17 +109,6 @@ const verify = async (
   persistTokens(payload);
   return payload.user;
 };
-
-/** Verify a magic-link token and start an authenticated session. */
-export const verifyEmailToken = (
-  token: string,
-): Promise<AuthUserProfile | undefined> => verify({ token });
-
-/** Verify an OTP code for an email and start an authenticated session. */
-export const verifyEmailCode = (
-  email: string,
-  code: string,
-): Promise<AuthUserProfile | undefined> => verify({ email, code });
 
 /**
  * Rotate the stored refresh token into a fresh access token. Returns true on

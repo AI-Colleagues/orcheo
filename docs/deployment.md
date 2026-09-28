@@ -120,7 +120,8 @@ widgets from `deploy/stack/chatkit_widgets`, so nothing is mounted. To run a pub
 image, set `ORCHEO_LEAN_IMAGE=ghcr.io/ai-colleagues/orcheo-lean:<version>` and
 use `--no-build`. `ORCHEO_POSTGRES_DSN` and `ORCHEO_VAULT_ENCRYPTION_KEY` must
 be set (the optional `.env` is read for them). Set `ORCHEO_LEAN_PUBLIC_URL` to the browser-facing origin used
-for sign-in links and CORS (default `http://localhost:2025`), and
+for invitation links, the MCP sign-in consent page and CORS (default
+`http://localhost:2025`), and
 `ORCHEO_LEAN_PORT` to change the host port.
 
 Without a checkout, `orcheo install --lean` downloads `docker-compose.yml` and

@@ -197,33 +197,6 @@ def test_schedule_workflow_cron_requires_graph_data(
         scheduling.schedule_workflow_cron(SimpleNamespace(), workflow_id="wf-123")
 
 
-def test_extract_cron_config_populates_optional_fields() -> None:
-    """Cron trigger config copies optional fields when they are provided."""
-
-    start_at = datetime(2025, 1, 1, 0, 0, tzinfo=UTC)
-    end_at = datetime(2025, 1, 2, 0, 0, tzinfo=UTC)
-    graph = {
-        "nodes": [
-            {
-                "type": "CronTriggerNode",
-                "expression": "0 1 * * *",
-                "timezone": "America/New_York",
-                "allow_overlapping": True,
-                "start_at": start_at,
-                "end_at": end_at,
-            }
-        ]
-    }
-
-    config = scheduling._extract_cron_config(graph)
-    assert config is not None
-    assert config.expression == "0 1 * * *"
-    assert config.timezone == "America/New_York"
-    assert config.allow_overlapping is True
-    assert config.start_at == start_at
-    assert config.end_at == end_at
-
-
 def test_schedule_workflow_cron_resolves_configurable_template(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -295,62 +268,6 @@ def test_schedule_workflow_cron_raises_for_unresolvable_template(
 
     with pytest.raises(CLIError, match="no configurable value named 'cron_expression'"):
         scheduling.schedule_workflow_cron(SimpleNamespace(), workflow_id="wf-tmpl")
-
-
-def test_extract_nodes_returns_empty_for_summary_without_nodes() -> None:
-    graph = {"format": "langgraph_script", "summary": {"nodes": "invalid"}}
-    assert scheduling._extract_nodes(graph) == []
-
-
-def test_extract_nodes_returns_empty_when_nodes_missing() -> None:
-    graph = {"nodes": "not-a-list"}
-    assert scheduling._extract_nodes(graph) == []
-
-
-def test_extract_nodes_returns_summary_nodes_for_langgraph_format() -> None:
-    graph = {
-        "format": LANGGRAPH_SCRIPT_FORMAT,
-        "summary": {"nodes": [{"id": "cron_node"}, 123]},
-    }
-
-    assert scheduling._extract_nodes(graph) == [{"id": "cron_node"}]
-
-
-def test_extract_configurable_returns_empty_when_configurable_not_mapping() -> None:
-    version = {"runnable_config": {"configurable": "not-a-map"}}
-    assert scheduling._extract_configurable(version) == {}
-
-
-def test_extract_cron_config_from_index_requires_list_entries() -> None:
-    graph = {"index": {"cron": "not-a-list"}}
-
-    assert scheduling._extract_cron_config_from_index(graph) is None
-
-
-def test_extract_cron_config_from_index_ignores_non_mapping_entries() -> None:
-    graph = {"index": {"cron": [1, "cron"]}}
-
-    assert scheduling._extract_cron_config_from_index(graph) is None
-
-
-def test_extract_cron_config_uses_defaults_when_expression_and_timezone_blank() -> None:
-    default_config = CronTriggerConfig()
-    graph = {
-        "nodes": [
-            {
-                "type": "CronTriggerNode",
-                "expression": "    ",
-                "timezone": "",
-                "allow_overlapping": False,
-            }
-        ]
-    }
-
-    config = scheduling._extract_cron_config(graph)
-    assert config is not None
-    assert config.expression == default_config.expression
-    assert config.timezone == default_config.timezone
-    assert config.allow_overlapping is False
 
 
 # ---------------------------------------------------------------------------

@@ -37,7 +37,7 @@ async def list_governance_alerts(
 ) -> list[GovernanceAlertResponse]:
     """List governance alerts for the caller."""
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
-        repository, workflow_id
+        repository, workflow_id, workspace_id=str(workspace.workspace_id)
     )
     context = credential_context_from_workflow(
         resolved_workflow_id, workspace_id=str(workspace.workspace_id)
@@ -63,7 +63,7 @@ async def acknowledge_governance_alert(
 ) -> GovernanceAlertResponse:
     """Acknowledge an outstanding governance alert."""
     resolved_workflow_id = await resolve_optional_workflow_ref_id(
-        repository, workflow_id
+        repository, workflow_id, workspace_id=str(workspace.workspace_id)
     )
     context = credential_context_from_workflow(
         resolved_workflow_id, workspace_id=str(workspace.workspace_id)

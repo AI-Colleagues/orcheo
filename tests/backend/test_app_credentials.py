@@ -12,6 +12,7 @@ from orcheo.vault import (
     DuplicateCredentialNameError,
     WorkflowScopeError,
 )
+from orcheo_backend.app.authentication import RequestContext
 from orcheo_backend.app.errors import WorkspaceQuotaExceededError
 
 
@@ -325,7 +326,7 @@ async def test_delete_credential_success() -> None:
             nonlocal deleted_id
             deleted_id = credential_id
 
-    response = await delete_credential(cred_id, Vault(), _Repository())
+    response = await delete_credential(cred_id, Vault(), _Repository(), _MOCK_WORKSPACE)
 
     assert response.status_code == 204
     assert deleted_id == cred_id
@@ -344,7 +345,7 @@ async def test_delete_credential_not_found() -> None:
             raise CredentialNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await delete_credential(cred_id, Vault(), _Repository())
+        await delete_credential(cred_id, Vault(), _Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 404
 
@@ -361,7 +362,7 @@ async def test_delete_credential_scope_error() -> None:
             raise WorkflowScopeError("Access denied")
 
     with pytest.raises(HTTPException) as exc_info:
-        await delete_credential(cred_id, Vault(), _Repository())
+        await delete_credential(cred_id, Vault(), _Repository(), _MOCK_WORKSPACE)
 
     assert exc_info.value.status_code == 403
 
@@ -377,7 +378,9 @@ async def test_reveal_credential_secret_not_found() -> None:
             raise CredentialNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
-        await reveal_credential_secret(cred_id, Vault(), _Repository(), _MOCK_WORKSPACE)
+        await reveal_credential_secret(
+            cred_id, Vault(), _Repository(), _MOCK_WORKSPACE, RequestContext.anonymous()
+        )
 
     assert exc_info.value.status_code == 404
 
@@ -393,7 +396,9 @@ async def test_reveal_credential_secret_scope_error() -> None:
             raise WorkflowScopeError("denied")
 
     with pytest.raises(HTTPException) as exc_info:
-        await reveal_credential_secret(cred_id, Vault(), _Repository(), _MOCK_WORKSPACE)
+        await reveal_credential_secret(
+            cred_id, Vault(), _Repository(), _MOCK_WORKSPACE, RequestContext.anonymous()
+        )
 
     assert exc_info.value.status_code == 403
 
@@ -411,7 +416,9 @@ async def test_update_credential_duplicate_name_error() -> None:
 
     request = CredentialUpdateRequest(actor="tester", name="duplicate")
     with pytest.raises(HTTPException) as exc_info:
-        await update_credential(cred_id, request, _Repository(), Vault())
+        await update_credential(
+            cred_id, request, _Repository(), Vault(), _MOCK_WORKSPACE
+        )
 
     assert exc_info.value.status_code == 409
 
@@ -429,7 +436,9 @@ async def test_update_credential_validation_error() -> None:
 
     request = CredentialUpdateRequest(actor="tester", name="bad")
     with pytest.raises(HTTPException) as exc_info:
-        await update_credential(cred_id, request, _Repository(), Vault())
+        await update_credential(
+            cred_id, request, _Repository(), Vault(), _MOCK_WORKSPACE
+        )
 
     assert exc_info.value.status_code == 422
 
@@ -447,7 +456,9 @@ async def test_update_credential_scoped_access_requires_workflow_id() -> None:
             raise AssertionError("update_credential should not be called")
 
     with pytest.raises(HTTPException) as exc_info:
-        await update_credential(cred_id, request, _Repository(), Vault())
+        await update_credential(
+            cred_id, request, _Repository(), Vault(), _MOCK_WORKSPACE
+        )
 
     assert exc_info.value.status_code == 422
     assert exc_info.value.detail == (
@@ -487,6 +498,7 @@ async def test_update_credential_returns_inferred_access() -> None:
         request,
         _Repository(),
         Vault(),
+        _MOCK_WORKSPACE,
         workflow_id=str(workflow_id),
     )
     assert result.access == "scoped"

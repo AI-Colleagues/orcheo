@@ -16,6 +16,10 @@ from .telemetry import auth_telemetry
 
 _authenticator_cache: dict[str, Authenticator | None] = {"authenticator": None}
 _auth_rate_limiter_cache: dict[str, AuthRateLimiter | None] = {"limiter": None}
+
+# ASGI scope key carrying a RequestContext that was already authenticated by an
+# in-process caller. See ``authenticate_request``.
+PREAUTHENTICATED_SCOPE_KEY = "orcheo.preauthenticated_context"
 _token_manager_cache: dict[str, ServiceTokenManager | None] = {"manager": None}
 
 
@@ -213,6 +217,13 @@ def _try_dev_login_session(
 
 async def authenticate_request(request: Request) -> RequestContext:
     """FastAPI dependency that enforces authentication on HTTP requests."""
+    preauthenticated = request.scope.get(PREAUTHENTICATED_SCOPE_KEY)
+    if isinstance(preauthenticated, RequestContext):
+        # Set only by in-process callers (the MCP server) that authenticated
+        # the originating request already; HTTP clients cannot set ASGI scope
+        # keys, so this cannot be forged from the network.
+        request.state.auth = preauthenticated
+        return preauthenticated
     api = modules["orcheo_backend.app.authentication"]
     authenticator = api.get_authenticator()
     limiter = api.get_auth_rate_limiter()

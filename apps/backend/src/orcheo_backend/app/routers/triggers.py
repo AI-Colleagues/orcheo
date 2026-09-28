@@ -4,9 +4,17 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID, uuid4
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import JSONResponse, PlainTextResponse
 from langchain_core.runnables import RunnableConfig
 from orcheo.config import get_settings
@@ -20,7 +28,8 @@ from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchRequest
 from orcheo.triggers.webhook import WebhookTriggerConfig, WebhookValidationError
 from orcheo.vault.oauth import CredentialHealthError
-from orcheo.workspace import WorkspaceNotFoundError
+from orcheo.workspace import Role, WorkspaceNotFoundError
+from orcheo.workspace.models import WorkspaceContext
 from orcheo_backend.app.dependencies import (
     RepositoryDep,
     VaultDep,
@@ -39,7 +48,11 @@ from orcheo_backend.app.repository import (
     WorkflowVersionNotFoundError,
 )
 from orcheo_backend.app.schemas.runs import CronDispatchRequest
-from orcheo_backend.app.workspace import WorkspaceContextDep, WorkspaceServiceDep
+from orcheo_backend.app.workspace import (
+    WorkspaceContextDep,
+    WorkspaceServiceDep,
+    require_role,
+)
 from orcheo_backend.app.workspace_governance import get_workspace_governance
 
 
@@ -471,9 +484,15 @@ async def delete_cron_trigger(
 )
 async def dispatch_cron_triggers(
     repository: RepositoryDep,
+    _admin: Annotated[WorkspaceContext, Depends(require_role(Role.ADMIN))],
     request: CronDispatchRequest | None = None,
 ) -> list[WorkflowRun]:
-    """Evaluate cron schedules and enqueue any due runs."""
+    """Evaluate cron schedules and enqueue any due runs.
+
+    Dispatch spans every workspace's schedules, so it is limited to workspace
+    admins; the in-process scheduler and Celery Beat call the repository
+    directly and do not use this route.
+    """
     now = request.now if request else None
     try:
         runs = await repository.dispatch_due_cron_runs(now=now)
@@ -494,8 +513,16 @@ async def dispatch_cron_triggers(
 async def dispatch_manual_runs(
     request: ManualDispatchRequest,
     repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
 ) -> list[WorkflowRun]:
     """Dispatch one or more manual workflow runs."""
+    # The request names a bare workflow UUID; only dispatch within the
+    # caller's workspace.
+    await resolve_workflow_ref_id(
+        repository,
+        str(request.workflow_id),
+        workspace_id=str(workspace.workspace_id),
+    )
     try:
         runs = await repository.dispatch_manual_runs(request)
         return runs

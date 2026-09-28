@@ -23,6 +23,8 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_HOST` | `0.0.0.0` | Hostname or IP string | Network interface to bind the FastAPI app (`config/loader.py`). |
 | `ORCHEO_PORT` | `2025` | Integer (1‑65535) | TCP port exposed by the FastAPI service (`config/loader.py`). |
 | `ORCHEO_CORS_ALLOW_ORIGINS` | `["http://localhost:2026","http://127.0.0.1:2026"]` | JSON array or comma-separated list of origins | CORS allow-list used when constructing the FastAPI middleware (`factory.py`). `orcheo install --public-ingress` sets this to the shared public HTTPS origin and keeps localhost origins when local access ports remain enabled. Tunnel or split-origin installs should set this to the public Studio/browser origin instead of the backend API origin. |
+| `ORCHEO_MCP_ENABLED` | `true` | Boolean (`1/0`, `true/false`, `yes/no`, `on/off`) | Serves the built-in MCP server at `/api/mcp` (Streamable HTTP, stateless) so MCP clients can remote-control workflows, runs, credentials and workspaces with the caller's own token (`app/mcp_server/server.py`). Clients sign in with OAuth through the Studio login, or send a service token. Set to `false` to return 404 on that path. See [MCP Server](mcp_server.md). |
+| `ORCHEO_PUBLIC_URL` | _none_ | HTTP(S) origin | Public origin where the backend's `/api` is reachable, used for the MCP server's OAuth issuer, resource and discovery URLs (`app/oauth/urls.py`). When unset, `X-Forwarded-Proto`/`X-Forwarded-Host` are used behind a trusted proxy (`ORCHEO_TRUSTED_PROXY`), otherwise the request origin. OAuth sign-in needs an HTTPS origin (plain HTTP only on `localhost`); otherwise MCP clients must use service tokens. For the bundled stack, set it to the same value as `ORCHEO_STUDIO_URL`. |
 | `ORCHEO_UPDATE_CHECK_TIMEOUT_SECONDS` | `3.0` | Float > 0 | Timeout for backend package registry lookups used by `/api/system/info` (`app/versioning.py`). |
 | `ORCHEO_UPDATE_CHECK_RETRIES` | `1` | Integer ≥ 0 | Retry count for backend package registry lookups used by `/api/system/info` (`app/versioning.py`). |
 | `ORCHEO_STUDIO_VERSION` | _none_ | Version string (for example `0.8.1`) | Optional current Studio version reported by `/api/system/info` to compare with npm latest (`app/versioning.py`). |
@@ -109,7 +111,7 @@ not prompted: CLI options or existing values win, followed by the fixed
 | `ORCHEO_AUTH_MODE` | `optional` | `disabled`, `optional`, `required` | Controls whether authentication is disabled, allowed, or enforced (`authentication/settings.py`). |
 | `ORCHEO_AUTH_JWT_SECRET` | _none_ | Arbitrary string | First-party HS256 signing key for the passwordless email IdP — signs and verifies access tokens. **Required when `ORCHEO_AUTH_MODE=required`.** `orcheo install` auto-generates it for required-auth stacks; otherwise generate with e.g. `openssl rand -hex 32` (`authentication/settings.py`). |
 | `ORCHEO_AUTH_ACCESS_TOKEN_TTL_SECONDS` | `900` | Integer > 0 | Lifetime of issued first-party access tokens (identity service). |
-| `ORCHEO_AUTH_CHALLENGE_TTL_MINUTES` | `15` | Integer > 0 | Lifetime of a magic-link/OTP email challenge (identity service). |
+| `ORCHEO_AUTH_CHALLENGE_TTL_MINUTES` | `15` | Integer > 0 | Lifetime of an emailed sign-in code (identity service). |
 | `ORCHEO_AUTH_SESSION_TTL_DAYS` | `30` | Integer > 0 | Lifetime of a refresh-token session (identity service). |
 | `ORCHEO_AUTH_OTP_DIGITS` | `6` | Integer ≥ 4 | Number of digits in the emailed OTP code (identity service). |
 | `ORCHEO_AUTH_ALLOWED_EMAIL_DOMAINS` | _unset_ (any domain) | Comma-separated domains (for example `example.com,b.org`) | Email domains allowed to sign in through the first-party IdP. Matching is exact, so subdomains must be listed separately. Requests from other domains get HTTP 403 at `/api/auth/email/start` and `/api/auth/email/verify`, and existing sessions for them stop refreshing (identity service). |
@@ -137,8 +139,9 @@ not prompted: CLI options or existing values win, followed by the fixed
 ## Transactional email (SMTP)
 
 SMTP is the sole production transport for both passwordless auth challenges
-(sign-in links/codes) and workspace invitation emails. When `ORCHEO_SMTP_HOST`
-is unset, the backend logs the link/code instead of delivering email (the
+(sign-in codes) and workspace invitation emails. When `ORCHEO_SMTP_HOST`
+is unset, the backend logs the invitation link or sign-in code instead of
+delivering email (the
 self-host/dev default).
 
 | Variable | Default | Valid values | Purpose |
