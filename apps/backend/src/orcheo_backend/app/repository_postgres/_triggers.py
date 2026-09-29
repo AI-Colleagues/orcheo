@@ -336,6 +336,7 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
                         str(resolved.workflow_version_id)
                     )
 
+            quota_error: WorkspaceQuotaExceededError | None = None
             for resolved in plan.runs:
                 try:
                     run = await self._create_run_locked(
@@ -347,14 +348,19 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
                         workspace_id=workspace_id,
                         dispatch_requested=True,
                     )
-                except WorkspaceQuotaExceededError:
+                except WorkspaceQuotaExceededError as exc:
                     logger.warning(
                         "Skipping manual dispatch for workflow %s because workspace "
                         "quota was exceeded",
                         request.workflow_id,
                     )
+                    quota_error = exc
                     continue
                 runs.append(run.model_copy(deep=True))
+            # Refusing every run is a quota response, not an empty success;
+            # a batch that partly fit still returns the runs it created.
+            if not runs and quota_error is not None:
+                raise quota_error
         # Enqueue AFTER lock is released to ensure commits are fully visible
         for run in runs:
             _enqueue_run_for_execution(run)

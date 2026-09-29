@@ -53,11 +53,7 @@ def register_run_tools(server: FastMCP) -> None:
                     "runs": [item],
                 },
             )
-        if not runs:
-            return {
-                "status": "skipped",
-                "message": "No run was created; the workspace run quota is exhausted.",
-            }
+        # A run the workspace quota refuses comes back as HTTP 429, not [].
         return runs[0]
 
     @server.tool(annotations=READ_ONLY, tags=requires("workflows:read"))

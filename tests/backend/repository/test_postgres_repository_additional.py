@@ -948,56 +948,81 @@ async def test_persistence_create_run_locked_with_pydantic_config(
     assert "pydantic-tag" in run.tags
 
 
-@pytest.mark.asyncio
-async def test_persistence_create_run_locked_releases_workspace_slot_on_error(
-    monkeypatch: pytest.MonkeyPatch,
+def _patch_workspace_limit(
+    monkeypatch: pytest.MonkeyPatch, workspace_id: str, limit: int
 ) -> None:
-    """Run slot reservations are released if persistence fails after reserving."""
-
-    workflow_id = uuid4()
-    version_id = uuid4()
-    workspace_id = str(uuid4())
-    version_payload = _version_payload(version_id, workflow_id)
-    responses: list[Any] = [
-        {"row": {"payload": version_payload}},
-        {},
-    ]
-    repo = make_repository(monkeypatch, responses)
-
-    reserve_calls: list[tuple[str, int]] = []
-    release_calls: list[str] = []
-
     class _WorkspaceRepo:
         def get_workspace(self, workspace_uuid: UUID) -> SimpleNamespace:
             assert str(workspace_uuid) == workspace_id
             return SimpleNamespace(
-                quotas=SimpleNamespace(max_concurrent_runs=4),
+                quotas=SimpleNamespace(max_concurrent_runs=limit),
             )
-
-    class _Governance:
-        def reserve_run_slot(self, workspace: str, *, limit: int) -> None:
-            reserve_calls.append((workspace, limit))
-
-        def release_run_slot(self, workspace: str) -> None:
-            release_calls.append(workspace)
 
     monkeypatch.setattr(
         pg_persistence,
         "get_workspace_repository",
         lambda: _WorkspaceRepo(),
     )
-    monkeypatch.setattr(
-        pg_persistence,
-        "get_workspace_governance",
-        lambda: _Governance(),
+
+
+@pytest.mark.asyncio
+async def test_persistence_create_run_locked_counts_active_runs_before_insert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A workspace below its limit gets the run, counted under an advisory lock."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    workspace_id = str(uuid4())
+    responses: list[Any] = [
+        {"row": {"payload": _version_payload(version_id, workflow_id)}},
+        {},  # pg_advisory_xact_lock
+        {"row": {"active": 3}},
+        {},  # INSERT
+    ]
+    repo = make_repository(monkeypatch, responses)
+    _patch_workspace_limit(monkeypatch, workspace_id, 4)
+
+    run = await repo._create_run_locked(
+        workflow_id=workflow_id,
+        workflow_version_id=version_id,
+        triggered_by="manual",
+        input_payload={},
+        actor="tester",
+        workspace_id=workspace_id,
     )
 
-    def _boom(*_: object, **__: object) -> None:
-        raise RuntimeError("track failed")
+    queries = repo._pool._connection.queries  # type: ignore[union-attr]
+    assert "pg_advisory_xact_lock" in queries[1][0]
+    assert queries[1][1] == (pg_base._RUN_QUOTA_LOCK_NAMESPACE, workspace_id)
+    assert "COUNT(*)" in queries[2][0]
+    assert queries[2][1] == (workspace_id, ["pending", "running"])
+    assert "INSERT INTO workflow_runs" in queries[3][0]
+    assert run.workspace_id == workspace_id
 
-    repo._trigger_layer.track_run = _boom  # type: ignore[method-assign]
 
-    with pytest.raises(RuntimeError, match="track failed"):
+@pytest.mark.asyncio
+async def test_persistence_create_run_locked_refuses_run_at_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A workspace with ``limit`` active runs is refused without inserting."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    workspace_id = str(uuid4())
+    responses: list[Any] = [
+        {"row": {"payload": _version_payload(version_id, workflow_id)}},
+        {},  # pg_advisory_xact_lock
+        {"row": {"active": 4}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+    _patch_workspace_limit(monkeypatch, workspace_id, 4)
+    tracked: list[UUID] = []
+    repo._trigger_layer.track_run = (  # type: ignore[method-assign]
+        lambda _workflow_id, run_id: tracked.append(run_id)
+    )
+
+    with pytest.raises(WorkspaceQuotaExceededError) as excinfo:
         await repo._create_run_locked(
             workflow_id=workflow_id,
             workflow_version_id=version_id,
@@ -1007,8 +1032,12 @@ async def test_persistence_create_run_locked_releases_workspace_slot_on_error(
             workspace_id=workspace_id,
         )
 
-    assert reserve_calls == [(workspace_id, 4)]
-    assert release_calls == [workspace_id]
+    connection = repo._pool._connection  # type: ignore[union-attr]
+    assert excinfo.value.code == "workspace.quota.concurrent_runs"
+    assert excinfo.value.details == {"limit": 4, "current": 4}
+    assert not any("INSERT" in query for query, _ in connection.queries)
+    assert connection.rollbacks == 1
+    assert tracked == []
 
 
 @pytest.mark.asyncio
@@ -1385,10 +1414,10 @@ async def test_triggers_dispatch_manual_runs_version_mismatch(
 
 
 @pytest.mark.asyncio
-async def test_triggers_dispatch_manual_runs_skip_quota_exceeded(
+async def test_triggers_dispatch_manual_runs_raises_when_quota_refuses_all(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Manual dispatch skips runs that exceed workspace quotas."""
+    """Manual dispatch reports the quota error when no run could be created."""
 
     workflow_id = uuid4()
     version_id = uuid4()
@@ -1407,6 +1436,8 @@ async def test_triggers_dispatch_manual_runs_skip_quota_exceeded(
         raise WorkspaceQuotaExceededError("quota", code="workspace.quota.runs")
 
     monkeypatch.setattr(repo, "_create_run_locked", _raise_quota)
+    # The repository conftest replaces the enqueue helper with a mock.
+    enqueue = pg_triggers._enqueue_run_for_execution
 
     from orcheo.triggers.manual import ManualDispatchRequest
 
@@ -1415,9 +1446,66 @@ async def test_triggers_dispatch_manual_runs_skip_quota_exceeded(
         runs=[{"workflow_version_id": version_id, "input_payload": {}}],
     )
 
+    with pytest.raises(WorkspaceQuotaExceededError, match="quota"):
+        await repo.dispatch_manual_runs(request)
+    enqueue.assert_not_called()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_triggers_dispatch_manual_runs_returns_partial_batch_on_quota(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A batch that partly fits returns and enqueues the runs it created."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    workflow_payload = _workflow_payload(workflow_id)
+    version_payload = _version_payload(version_id, workflow_id)
+
+    responses = [
+        {"row": {"payload": workflow_payload}},
+        {"row": {"payload": version_payload}},
+        {"row": {"payload": version_payload}},
+        {"row": {"payload": version_payload}},
+        {"row": {"payload": version_payload}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+    created = WorkflowRun(
+        workflow_id=workflow_id,
+        workflow_version_id=version_id,
+        triggered_by="manual",
+        input_payload={},
+    )
+    outcomes: list[WorkflowRun | Exception] = [
+        created,
+        WorkspaceQuotaExceededError("quota", code="workspace.quota.runs"),
+    ]
+
+    async def _create(*_: object, **__: object) -> WorkflowRun:
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(repo, "_create_run_locked", _create)
+    # The repository conftest replaces the enqueue helper with a mock.
+    enqueue = pg_triggers._enqueue_run_for_execution
+
+    from orcheo.triggers.manual import ManualDispatchRequest
+
+    request = ManualDispatchRequest(
+        workflow_id=workflow_id,
+        runs=[
+            {"workflow_version_id": version_id, "input_payload": {}},
+            {"workflow_version_id": version_id, "input_payload": {}},
+        ],
+    )
+
     runs = await repo.dispatch_manual_runs(request)
 
-    assert runs == []
+    assert [run.id for run in runs] == [created.id]
+    enqueue.assert_called_once()  # type: ignore[attr-defined]
+    assert enqueue.call_args.args[0].id == created.id  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
