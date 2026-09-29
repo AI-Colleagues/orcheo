@@ -73,7 +73,11 @@ async def test_endpoint_serves_initialize(monkeypatch: pytest.MonkeyPatch) -> No
         response = await _post_initialize(app)
 
     assert response.status_code == 200
-    assert response.json()["result"]["serverInfo"]["name"] == "orcheo"
+    server_info = response.json()["result"]["serverInfo"]
+    assert server_info["name"] == "orcheo"
+    [icon] = server_info["icons"]
+    assert icon["mimeType"] == "image/png"
+    assert icon["src"].startswith("data:image/png;base64,iVBORw0KGgo")
     assert app.state.mcp_http_app is None
 
 

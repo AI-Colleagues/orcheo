@@ -1,12 +1,15 @@
 """Construct and run the Orcheo MCP server hosted by the backend."""
 
 from __future__ import annotations
+import base64
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from importlib.resources import files
 from fastapi import FastAPI
 from fastmcp import FastMCP
 from fastmcp.server.http import StarletteWithLifespan
+from mcp.types import Icon
 from orcheo_backend.app.mcp_server.account_tools import register_account_tools
 from orcheo_backend.app.mcp_server.app_tools import register_app_tools
 from orcheo_backend.app.mcp_server.catalog_tools import register_catalog_tools
@@ -47,9 +50,35 @@ def mcp_enabled() -> bool:
     return DEFAULT_MCP_ENABLED
 
 
+def server_icons() -> list[Icon]:
+    """Return the Orcheo mark advertised in ``serverInfo.icons``.
+
+    MCP hosts show this in their connector lists; without it they fall back to
+    a letter avatar. The icon is inlined as a data URI because the backend is
+    served under arbitrary public hostnames, so no absolute URL is known when
+    the server is built.
+    """
+    png = (
+        files("orcheo_backend.app.mcp_server") / "ui" / "orcheo-icon.png"
+    ).read_bytes()
+    encoded = base64.b64encode(png).decode("ascii")
+    return [
+        Icon(
+            src=f"data:image/png;base64,{encoded}",
+            mimeType="image/png",
+            sizes=["128x128"],
+        )
+    ]
+
+
 def build_mcp_server() -> FastMCP:
     """Return a FastMCP server with every Orcheo tool registered."""
-    server = FastMCP(name="orcheo", instructions=_INSTRUCTIONS)
+    server = FastMCP(
+        name="orcheo",
+        instructions=_INSTRUCTIONS,
+        website_url="https://github.com/AI-Colleagues/orcheo",
+        icons=server_icons(),
+    )
     server.add_middleware(OAuthScopeMiddleware(server))
     register_workflow_tools(server)
     register_run_tools(server)
@@ -103,4 +132,5 @@ __all__ = [
     "build_mcp_server",
     "mcp_enabled",
     "mcp_lifespan",
+    "server_icons",
 ]
