@@ -148,6 +148,63 @@ required; otherwise set `ORCHEO_AUTH_MODE=required` before exposing it.
 `ORCHEO_AUTH_ALLOWED_EMAIL_DOMAINS` limits sign-in to the listed domains once
 sign-in is required.
 
+The lean services use `restart: unless-stopped`. The backend's Docker health
+check calls `/api/system/ready`, which tests Redis from the backend container;
+worker and Beat health checks also connect to Redis. The installer waits for all
+services to become healthy. `/api/system/health` remains a lightweight process
+check. Docker does not automatically restart a container merely because its
+health check becomes unhealthy, so monitor Compose health and alert on an
+unhealthy service or a stopped worker or Beat.
+
+After a Redis or Docker network incident, recreate the lean containers if the
+`redis` service name does not resolve from the backend:
+
+```bash
+cd ~/.orcheo/lean
+docker compose up -d --no-build --force-recreate --wait --wait-timeout 120
+docker compose exec backend python -m orcheo_backend.app.broker_healthcheck
+docker compose ps
+```
+
+Recreation retains the named `redis_data` and `orcheo_data` volumes. Do not use
+`down -v` during recovery. Record `docker compose version` and
+`docker network inspect orcheo-lean_default` if a service alias disappears.
+Use Docker's maintained Compose plugin rather than an outdated distribution
+package when diagnosing a repeat network issue.
+
+Trigger-created runs carry a persisted dispatch flag. While the backend is up,
+it checks PostgreSQL once per minute and republishes up to 20 flagged runs that
+have remained pending for at least two minutes. Each run is claimed across
+backend processes and retried no more than once every five minutes. Worker
+start transitions lock the PostgreSQL row so duplicate queue messages cannot
+start the same run twice. Monitor the count and age of pending runs where
+`dispatch_requested = TRUE`; sustained growth means execution is stalled.
+
+```sql
+SELECT COUNT(*) AS pending_dispatches, MIN(created_at) AS oldest_created_at
+  FROM workflow_runs
+ WHERE status = 'pending' AND dispatch_requested = TRUE;
+```
+
+Runs created before this dispatch flag was added need operator review before
+replay because some API-created pending runs are deliberately idle. After
+checking which run IDs were meant to execute and that they have not already
+started, mark only those IDs for reconciliation in PostgreSQL:
+
+```sql
+UPDATE workflow_runs
+   SET dispatch_requested = TRUE
+ WHERE id IN ('reviewed-run-id-1', 'reviewed-run-id-2')
+   AND status = 'pending';
+```
+
+Cron state retains its last dispatched occurrence. After an outage, the cron
+dispatcher creates at most one due occurrence per workflow per pass; schedules
+with overlap protection wait for that run to finish before another is created.
+If a schedule has never dispatched and has no `start_at`, it uses the current
+time as its baseline, so occurrences from before recovery are not created.
+Review the outage window for missed occurrences and the resulting backlog.
+
 ### Single container
 
 Without a worker or Beat, the backend runs executions and cron triggers

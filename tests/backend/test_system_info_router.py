@@ -3,6 +3,8 @@
 from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from importlib.metadata import PackageNotFoundError
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 import httpx
 import pytest
 from orcheo.plugins import PluginLoadReport, PluginLoadResult
@@ -133,6 +135,37 @@ def test_system_health_is_public_when_auth_required(
     health_response = client.get("/api/system/health")
     assert health_response.status_code == 200
     assert health_response.json() == {"status": "ok"}
+
+
+def test_system_readiness_checks_redis_from_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Readiness must fail when the backend cannot reach the broker."""
+    monkeypatch.setenv("ORCHEO_INPROCESS_EXECUTION", "false")
+    redis = SimpleNamespace(ping=AsyncMock(return_value=True), aclose=AsyncMock())
+    monkeypatch.setattr(system_router.Redis, "from_url", lambda *args, **kwargs: redis)
+    client = create_test_client()
+
+    assert client.get("/api/system/ready").json() == {"status": "ok"}
+    redis.ping.side_effect = OSError("redis DNS unavailable")
+    response = client.get("/api/system/ready")
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Redis unavailable"}
+    assert redis.aclose.await_count == 2
+
+
+def test_system_readiness_skips_broker_for_inprocess_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The single-container image has no Redis broker to check."""
+    monkeypatch.setenv("ORCHEO_INPROCESS_EXECUTION", "true")
+    monkeypatch.setattr(
+        system_router.Redis,
+        "from_url",
+        lambda *args, **kwargs: pytest.fail("Redis should not be contacted"),
+    )
+
+    assert create_test_client().get("/api/system/ready").json() == {"status": "ok"}
 
 
 def test_system_features_follow_hosted_apps_configuration(

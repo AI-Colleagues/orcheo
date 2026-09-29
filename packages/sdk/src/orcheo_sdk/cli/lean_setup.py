@@ -468,7 +468,10 @@ def _start_lean_stack(
     command_runner([*compose_args, "pull"], console=console)
     # The published image replaces the source build declared in the compose
     # file, which needs a full checkout.
-    command_runner([*compose_args, "up", "-d", "--no-build"], console=console)
+    command_runner(
+        [*compose_args, "up", "-d", "--no-build", "--wait", "--wait-timeout", "120"],
+        console=console,
+    )
     if _poll_backend_health(_lean_backend_url(env_file), console=console):
         return
     console.print(
@@ -495,7 +498,10 @@ def _plan_lean_start(
         [*(docker_command or ["docker"]), *_lean_compose_base_args(lean_dir)]
     )
     console.print(f"[yellow]Would run: {compose_command} pull[/yellow]")
-    console.print(f"[yellow]Would run: {compose_command} up -d --no-build[/yellow]")
+    console.print(
+        f"[yellow]Would run: {compose_command} "
+        "up -d --no-build --wait --wait-timeout 120[/yellow]"
+    )
     console.print(
         "[yellow]Would wait for backend health at "
         f"{backend_url}/api/system/health[/yellow]"

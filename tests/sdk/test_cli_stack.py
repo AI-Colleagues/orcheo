@@ -153,6 +153,9 @@ def test_stack_start_uses_lean_install_without_building(
         "up",
         "-d",
         "--no-build",
+        "--wait",
+        "--wait-timeout",
+        "120",
     ]
 
 

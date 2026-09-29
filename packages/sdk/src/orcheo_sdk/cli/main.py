@@ -1103,7 +1103,11 @@ def stack_command(
     compose_base_args = _stack_compose_base_args(project)
     # The lean compose file also declares a source build that needs a full
     # checkout, so start it from the published image only.
-    up_args = ["up", "-d", *(["--no-build"] if project.lean else [])]
+    up_args = [
+        "up",
+        "-d",
+        *(["--no-build", "--wait", "--wait-timeout", "120"] if project.lean else []),
+    ]
     command_by_action = {
         "logs": [*compose_base_args, "logs", "-f"],
         "start": [*compose_base_args, *up_args],

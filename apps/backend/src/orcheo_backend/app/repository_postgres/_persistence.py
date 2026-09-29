@@ -360,6 +360,7 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
         actor: str | None,
         runnable_config: Mapping[str, Any] | None = None,
         workspace_id: str | None = None,
+        dispatch_requested: bool = False,
     ) -> WorkflowRun:
         version = await self._get_version_locked(workflow_version_id)
         if version.workflow_id != workflow_id:
@@ -437,9 +438,10 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
                         payload,
                         created_at,
                         updated_at,
-                        workspace_id
+                        workspace_id,
+                        dispatch_requested
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         str(run.id),
@@ -451,6 +453,7 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
                         run.created_at,
                         run.updated_at,
                         workspace_id,
+                        dispatch_requested,
                     ),
                 )
 

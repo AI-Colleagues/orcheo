@@ -138,6 +138,48 @@ def make_repository(
     return repo
 
 
+@pytest.mark.asyncio
+async def test_claim_stale_pending_runs_only_claims_dispatch_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The recovery query excludes deliberately idle API-created runs."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    repo = make_repository(
+        monkeypatch, [{"rows": [{"payload": run.model_dump(mode="json")}]}]
+    )
+
+    claimed = await repo.claim_stale_pending_runs(limit=4)
+
+    assert [item.id for item in claimed] == [run.id]
+    conn = repo._pool._connection
+    assert "dispatch_requested = TRUE" in conn.queries[0][0]
+    assert "FOR UPDATE SKIP LOCKED" in conn.queries[0][0]
+    assert conn.queries[0][1][2] == 4
+
+
+@pytest.mark.asyncio
+async def test_run_start_holds_database_row_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second worker must observe the first worker's committed transition."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    repo = make_repository(
+        monkeypatch, [{"row": {"payload": run.model_dump(mode="json")}}]
+    )
+
+    started = await repo.mark_run_started(run.id, actor="worker")
+
+    assert started.status.value == "running"
+    conn = repo._pool._connection
+    assert conn.queries[0][0].endswith("FOR UPDATE")
+    assert conn.queries[1][0].startswith("UPDATE workflow_runs")
+    assert conn.commits == 1
+
+
 def _workflow_payload(workflow_id: UUID, **overrides: Any) -> dict[str, Any]:
     """Generate a fake workflow payload dictionary."""
     now = datetime.now(tz=UTC).isoformat()

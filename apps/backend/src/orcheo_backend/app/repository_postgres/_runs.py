@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 from orcheo.models import WorkflowRun
@@ -189,9 +190,21 @@ class WorkflowRunMixin(PostgresPersistenceMixin):
     ) -> WorkflowRun:
         await self._ensure_initialized()
         async with self._lock:
-            run = await self._get_run_locked(run_id)
-            updater(run)
             async with self._connection() as conn:
+                cursor = await conn.execute(
+                    "SELECT payload FROM workflow_runs WHERE id = %s FOR UPDATE",
+                    (str(run_id),),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    raise WorkflowRunNotFoundError(str(run_id))
+                payload = row["payload"]
+                run = (
+                    WorkflowRun.model_validate_json(payload)
+                    if isinstance(payload, str)
+                    else WorkflowRun.model_validate(payload)
+                )
+                updater(run)
                 await conn.execute(
                     """
                     UPDATE workflow_runs
@@ -206,6 +219,46 @@ class WorkflowRunMixin(PostgresPersistenceMixin):
                     ),
                 )
             return run.model_copy(deep=True)
+
+    async def claim_stale_pending_runs(
+        self,
+        *,
+        min_age: timedelta = timedelta(minutes=2),
+        retry_interval: timedelta = timedelta(minutes=5),
+        limit: int = 20,
+    ) -> list[WorkflowRun]:
+        """Claim old pending runs for bounded, cross-process safe republishing."""
+        await self._ensure_initialized()
+        now = datetime.now(UTC)
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                """
+                WITH candidates AS (
+                    SELECT id FROM workflow_runs
+                    WHERE status = 'pending'
+                      AND dispatch_requested = TRUE
+                      AND created_at <= %s
+                      AND (last_enqueue_attempt_at IS NULL
+                           OR last_enqueue_attempt_at <= %s)
+                    ORDER BY created_at
+                    LIMIT %s
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE workflow_runs AS runs
+                   SET last_enqueue_attempt_at = %s
+                  FROM candidates
+                 WHERE runs.id = candidates.id
+                RETURNING runs.payload
+                """,
+                (now - min_age, now - retry_interval, limit, now),
+            )
+            rows = await cursor.fetchall()
+        return [
+            WorkflowRun.model_validate_json(row["payload"])
+            if isinstance(row["payload"], str)
+            else WorkflowRun.model_validate(row["payload"])
+            for row in rows
+        ]
 
 
 __all__ = ["WorkflowRunMixin"]

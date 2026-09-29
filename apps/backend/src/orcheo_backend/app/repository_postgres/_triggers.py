@@ -27,22 +27,22 @@ class _WorkflowWorkspaceLookup(Protocol):
     ) -> str | None: ...  # pragma: no cover
 
 
-def _enqueue_run_for_execution(run: WorkflowRun) -> None:
+def _enqueue_run_for_execution(run: WorkflowRun) -> bool:
     """Enqueue the workflow run for execution.
 
     Single-process deployments (the desktop app) have no Celery broker, so with
     ``ORCHEO_INPROCESS_EXECUTION`` enabled the run is executed on the backend
     event loop instead. Otherwise the run is published to Celery.
 
-    This function is best-effort: if Celery/Redis is unavailable,
-    the run remains pending and can be retried manually.
+    This function is best-effort: if Celery/Redis is unavailable, flagged
+    trigger runs remain pending for the background reconciler to republish.
 
     NOTE: This must only be called AFTER the run has been committed to the database.
     """
     from orcheo_backend.app.local_execution import schedule_run_inprocess
 
     if schedule_run_inprocess(run):
-        return
+        return True
 
     try:
         from orcheo_backend.worker.tasks import execute_run
@@ -56,13 +56,15 @@ def _enqueue_run_for_execution(run: WorkflowRun) -> None:
         else:
             enqueue(args=(str(run.id),), headers=headers or None)
         logger.info("Enqueued run %s for execution", run.id)
+        return True
     except Exception as exc:
         logger.warning(
             "Failed to enqueue run %s for execution: %s. "
-            "Run will remain pending until manually retried.",
+            "Run remains pending for reconciliation.",
             run.id,
             exc,
         )
+        return False
 
 
 class TriggerRepositoryMixin(PostgresPersistenceMixin):
@@ -140,6 +142,7 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
                 input_payload=dispatch.input_payload,
                 actor=dispatch.actor,
                 workspace_id=workspace_id,
+                dispatch_requested=True,
             )
             run_copy = run.model_copy(deep=True)
         # Enqueue AFTER lock is released to ensure commit is fully visible
@@ -266,6 +269,7 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
                         },
                         actor="cron",
                         workspace_id=workspace_id,
+                        dispatch_requested=True,
                     )
                 except WorkspaceQuotaExceededError:
                     logger.warning(
@@ -341,6 +345,7 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
                         input_payload=resolved.input_payload,
                         actor=plan.actor,
                         workspace_id=workspace_id,
+                        dispatch_requested=True,
                     )
                 except WorkspaceQuotaExceededError:
                     logger.warning(

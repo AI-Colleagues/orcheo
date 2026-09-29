@@ -72,6 +72,7 @@ from orcheo_backend.app.managed_workflows import ensure_managed_vibe_workflow
 from orcheo_backend.app.mcp_server import mcp_lifespan
 from orcheo_backend.app.oauth import router as oauth_router
 from orcheo_backend.app.oauth import well_known_router as oauth_well_known_router
+from orcheo_backend.app.pending_run_reconciler import pending_run_reconciliation
 from orcheo_backend.app.plugin_installation_store import PluginInstallationStore
 from orcheo_backend.app.repository import WorkflowRepository
 from orcheo_backend.app.routers import (
@@ -192,8 +193,9 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     if cron_scheduler is not None:
         await cron_scheduler.start()
     try:
-        async with mcp_lifespan(app):
-            yield
+        async with pending_run_reconciliation(get_repository()):
+            async with mcp_lifespan(app):
+                yield
     finally:
         # Stop dispatching before draining, so the drain is not racing a
         # scheduler that keeps handing it new runs.

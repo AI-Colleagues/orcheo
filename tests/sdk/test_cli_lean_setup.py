@@ -311,7 +311,7 @@ def test_start_lean_stack_pulls_and_starts_without_build(
     runner = "sudo" if privileged else "plain"
     assert commands == [
         (runner, [*base, "pull"]),
-        (runner, [*base, "up", "-d", "--no-build"]),
+        (runner, [*base, "up", "-d", "--no-build", "--wait", "--wait-timeout", "120"]),
     ]
 
 

@@ -455,6 +455,7 @@ class ListenerRepositoryMixin(PostgresPersistenceMixin):
                 ).to_input_payload(),
                 actor="listener",
                 workspace_id=workspace_id,
+                dispatch_requested=True,
             )
             run_copy = run.model_copy(deep=True)
         trigger_module._enqueue_run_for_execution(run_copy)

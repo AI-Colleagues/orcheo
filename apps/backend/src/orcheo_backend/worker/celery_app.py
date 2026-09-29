@@ -28,6 +28,10 @@ celery_app.conf.update(
     task_track_started=True,
     task_acks_late=True,  # Acknowledge after execution completes
     worker_prefetch_multiplier=1,  # Fetch one task at a time for fairness
+    # Persisted pending runs are republished by the backend reconciler. Fail a
+    # publish promptly so request handlers do not wait on broker retry backoff.
+    task_publish_retry=False,
+    broker_transport_options={"socket_connect_timeout": 2, "socket_timeout": 2},
 )
 
 # Celery Beat schedule for cron dispatch

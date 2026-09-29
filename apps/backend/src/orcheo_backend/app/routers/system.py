@@ -1,10 +1,13 @@
 """System metadata routes."""
 
 from __future__ import annotations
-from fastapi import APIRouter
+import os
+from fastapi import APIRouter, HTTPException
+from redis.asyncio import Redis
 from orcheo.graph.ingestion.sandbox import uploads_allowed
 from orcheo.hosted_apps.config import HostedAppsSettings, HostedAppsSettingsError
 from orcheo_backend.app.dependencies import PluginInstallationStoreDep
+from orcheo_backend.app.local_execution import inprocess_execution_enabled
 from orcheo_backend.app.plugin_inventory import list_runtime_plugins
 from orcheo_backend.app.schemas.system import (
     SystemFeaturesResponse,
@@ -22,6 +25,27 @@ router = APIRouter()
 @public_router.get("/system/health")
 def get_system_health() -> dict[str, str]:
     """Return a lightweight unauthenticated health status."""
+    return {"status": "ok"}
+
+
+@public_router.get("/system/ready")
+async def get_system_readiness() -> dict[str, str]:
+    """Report whether the backend can reach its configured Redis broker."""
+    if inprocess_execution_enabled():
+        return {"status": "ok"}
+    try:
+        redis = Redis.from_url(
+            os.getenv("REDIS_URL", "redis://localhost:6379/0"),
+            socket_connect_timeout=2,
+            socket_timeout=2,
+        )
+        try:
+            if not await redis.ping():
+                raise ConnectionError("Redis ping failed")
+        finally:
+            await redis.aclose()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Redis unavailable") from exc
     return {"status": "ok"}
 
 

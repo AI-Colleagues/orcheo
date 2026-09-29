@@ -66,6 +66,7 @@ x-orcheo-env: &orcheo-env
 services:
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --appendfsync everysec
@@ -77,6 +78,7 @@ services:
 
   backend:
     <<: *orcheo-image
+    restart: unless-stopped
     ports:
       - "127.0.0.1:${ORCHEO_LEAN_PORT:-2025}:2025"
     volumes:
@@ -94,9 +96,16 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:2025/api/system/ready"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
 
   worker:
     <<: *orcheo-image
+    restart: unless-stopped
     volumes:
       - orcheo_data:/data
     environment:
@@ -108,11 +117,15 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      disable: true
+      test: ["CMD", "python", "-m", "orcheo_backend.app.broker_healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     command: python -m celery -A orcheo_backend.worker.celery_app worker --loglevel=info
 
   celery-beat:
     <<: *orcheo-image
+    restart: unless-stopped
     volumes:
       - orcheo_data:/data
     environment:
@@ -123,7 +136,10 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      disable: true
+      test: ["CMD", "python", "-m", "orcheo_backend.app.broker_healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     command: >
       sh -c 'python -m celery -A orcheo_backend.worker.celery_app beat --loglevel=info -s "$$ORCHEO_CELERY_BEAT_SCHEDULE_FILE"'
 

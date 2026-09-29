@@ -132,7 +132,7 @@ instead. It downloads `docker-compose.yml` and `.env.example` from
 ship inside the image), creates `.env`
 from the template with generated secrets (an existing `.env` is kept and only
 backfilled), pins `ORCHEO_LEAN_IMAGE`, and runs `docker compose pull` and
-`up -d --no-build`. `--stack-version` (or `ORCHEO_LEAN_VERSION`) pins a
+`up -d --no-build --wait --wait-timeout 120`. `--stack-version` (or `ORCHEO_LEAN_VERSION`) pins a
 `lean-v*` release and `--staging` picks the newest prerelease; otherwise the
 newest stable `lean-v*` tag is used. Studio and the API are served at
 `http://localhost:2025`. It prompts only for the backend URL (the
