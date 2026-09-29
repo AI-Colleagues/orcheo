@@ -291,10 +291,6 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:  # noqa: PLR0915
             execution_id=execution_id,
             history_error_cls=RunHistoryError,
         )
-        if workspace_id is not None:
-            from orcheo_backend.app.workspace_governance import get_workspace_governance
-
-            get_workspace_governance().release_run_slot(str(workspace_id))
         logger.info("Run %s completed successfully", run_id)
         return {"status": "succeeded"}
 
@@ -448,11 +444,6 @@ async def _handle_execution_failure(
                 run_id,
                 history_exc,
             )
-    workspace_id = getattr(run, "workspace_id", None)
-    if workspace_id is not None:
-        from orcheo_backend.app.workspace_governance import get_workspace_governance
-
-        get_workspace_governance().release_run_slot(str(workspace_id))
 
     return {"status": "failed", "error": error_message}
 

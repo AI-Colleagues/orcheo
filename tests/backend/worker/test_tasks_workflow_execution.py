@@ -486,10 +486,10 @@ class TestWorkspaceIdNonePaths:
     """Cover the workspace_id is None branches in task helpers."""
 
     @pytest.mark.asyncio
-    async def test_handle_execution_failure_with_none_workspace_skips_release_slot(
+    async def test_handle_execution_failure_with_none_workspace(
         self,
     ) -> None:
-        """Lines 458->463: workspace_id is None → release_run_slot not called."""
+        """A run without a workspace is still marked failed."""
         from orcheo_backend.worker.tasks import _handle_execution_failure
 
         run = MagicMock()
@@ -509,10 +509,10 @@ class TestWorkspaceIdNonePaths:
         assert "boom" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_execute_workflow_with_none_workspace_skips_release_slot(
+    async def test_execute_workflow_with_none_workspace(
         self, mock_version: MagicMock
     ) -> None:
-        """Lines 305->309: workspace_id is None → release_run_slot branch not taken."""
+        """A run without a workspace still executes to completion."""
         from orcheo_backend.worker.tasks import _execute_workflow
 
         run = MagicMock()

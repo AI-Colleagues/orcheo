@@ -5,7 +5,7 @@ import secrets
 from collections import deque
 from datetime import UTC, datetime, timedelta
 from threading import RLock
-from typing import Any, cast
+from typing import Any
 import redis
 from orcheo.config import get_settings
 from orcheo.workspace import WorkspaceQuotas
@@ -67,7 +67,6 @@ class WorkspaceGovernance:
         self._api_rate_interval_seconds = max(api_rate_interval_seconds, 1)
         self._lock = RLock()
         self._api_events: dict[str, deque[datetime]] = {}
-        self._run_counts: dict[str, int] = {}
         self._redis: redis.Redis | None = None
         resolved_redis_url = redis_url or str(
             get_settings().get("REDIS_URL", "redis://localhost:6379/0")
@@ -117,65 +116,32 @@ class WorkspaceGovernance:
                 )
             bucket.append(now)
 
-    def reserve_run_slot(self, workspace_id: str, *, limit: int) -> None:
-        """Reserve one concurrent run slot for a workspace."""
-        if limit <= 0 or not workspace_id:
-            return
-
-        if self._redis is not None:
-            try:
-                key = self._run_key(workspace_id)
-                current = cast(int, self._redis.incr(key))
-                if current == 1:
-                    self._redis.expire(key, 24 * 60 * 60)
-                if current > limit:
-                    self._redis.decr(key)
-                    raise WorkspaceQuotaExceededError(
-                        f"Workspace {workspace_id} reached its concurrent run limit",
-                        code="workspace.quota.concurrent_runs",
-                        details={"limit": limit, "current": current - 1},
-                    )
-                return
-            except redis.RedisError:
-                pass
-
-        with self._lock:
-            current = self._run_counts.get(workspace_id, 0) + 1
-            if current > limit:
-                raise WorkspaceQuotaExceededError(
-                    f"Workspace {workspace_id} reached its concurrent run limit",
-                    code="workspace.quota.concurrent_runs",
-                    details={"limit": limit, "current": current - 1},
-                )
-            self._run_counts[workspace_id] = current
-
-    def release_run_slot(self, workspace_id: str) -> None:
-        """Release one concurrent run slot for a workspace."""
-        if not workspace_id:
-            return
-
-        if self._redis is not None:
-            try:
-                key = self._run_key(workspace_id)
-                current = cast(int, self._redis.decr(key))
-                if current <= 0:
-                    self._redis.delete(key)
-                return
-            except redis.RedisError:
-                pass
-
-        with self._lock:
-            current = self._run_counts.get(workspace_id, 0) - 1
-            if current <= 0:
-                self._run_counts.pop(workspace_id, None)
-            else:
-                self._run_counts[workspace_id] = current
-
     def _api_key(self, workspace_id: str) -> str:
         return f"orcheo:workspace:rate:{workspace_id}"
 
-    def _run_key(self, workspace_id: str) -> str:
-        return f"orcheo:workspace:runs:{workspace_id}"
+
+# How long a caller should wait before retrying a run refused for concurrency.
+CONCURRENT_RUN_RETRY_AFTER_SECONDS = 30
+
+
+def ensure_concurrent_run_capacity(
+    workspace_id: str, *, active_runs: int, limit: int
+) -> None:
+    """Refuse a new run when the workspace already has ``limit`` active runs.
+
+    ``active_runs`` is the number of pending or running runs the repository
+    holds for the workspace. Counting stored runs rather than keeping a
+    separate counter means a run frees its slot however it ends: success,
+    failure, cancellation, or a skip in the worker.
+    """
+    if limit <= 0 or active_runs < limit:
+        return
+    raise WorkspaceQuotaExceededError(
+        f"Workspace {workspace_id} reached its concurrent run limit",
+        code="workspace.quota.concurrent_runs",
+        details={"limit": limit, "current": active_runs},
+        retry_after=CONCURRENT_RUN_RETRY_AFTER_SECONDS,
+    )
 
 
 def get_workspace_governance(*, refresh: bool = False) -> WorkspaceGovernance:

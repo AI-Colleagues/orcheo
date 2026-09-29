@@ -31,25 +31,25 @@ def test_workspace_rate_limit_falls_back_to_memory(
         limiter.check_api_rate_limit("workspace-a")
 
 
-def test_workspace_run_slot_reservation_and_release(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Concurrent run slots should reserve and release cleanly in memory."""
-    monkeypatch.setattr(
-        redis,
-        "from_url",
-        lambda *args, **kwargs: (_ for _ in ()).throw(redis.RedisError("boom")),
-    )
-    limiter = WorkspaceGovernance(
-        api_rate_limit=10,
-        api_rate_interval_seconds=60,
-        redis_url="redis://broken",
-    )
-    limiter.reserve_run_slot("workspace-a", limit=1)
-    with pytest.raises(WorkspaceQuotaExceededError):
-        limiter.reserve_run_slot("workspace-a", limit=1)
-    limiter.release_run_slot("workspace-a")
-    limiter.reserve_run_slot("workspace-a", limit=1)
+def test_ensure_concurrent_run_capacity_counts_active_runs() -> None:
+    """A workspace may start runs until its active runs reach the limit."""
+    governance_mod.ensure_concurrent_run_capacity("ws", active_runs=0, limit=1)
+    governance_mod.ensure_concurrent_run_capacity("ws", active_runs=24, limit=25)
+
+    with pytest.raises(WorkspaceQuotaExceededError) as excinfo:
+        governance_mod.ensure_concurrent_run_capacity("ws", active_runs=25, limit=25)
+
+    error = excinfo.value
+    assert error.code == "workspace.quota.concurrent_runs"
+    assert error.details == {"limit": 25, "current": 25}
+    assert error.status_code == 429
+    assert error.retry_after == governance_mod.CONCURRENT_RUN_RETRY_AFTER_SECONDS
+
+
+def test_ensure_concurrent_run_capacity_ignores_non_positive_limits() -> None:
+    """A limit of zero or less means the workspace is not capped."""
+    governance_mod.ensure_concurrent_run_capacity("ws", active_runs=99, limit=0)
+    governance_mod.ensure_concurrent_run_capacity("ws", active_runs=99, limit=-1)
 
 
 def test_workspace_governance_helper_branch_coverage() -> None:
@@ -104,27 +104,12 @@ def test_workspace_governance_redis_paths_and_quota_helpers(
     class FakeRedis:
         def __init__(self) -> None:
             self.rate_pipe = FakePipe(2)
-            self.current = 0
 
         def pipeline(self):
             return self.rate_pipe
 
         def zrem(self, *args, **kwargs):
             return None
-
-        def incr(self, key):
-            self.current += 1
-            return self.current
-
-        def expire(self, *args, **kwargs):
-            return None
-
-        def decr(self, key):
-            self.current -= 1
-            return self.current
-
-        def delete(self, key):
-            self.current = 0
 
     fake_redis = FakeRedis()
     monkeypatch.setattr(redis, "from_url", lambda *args, **kwargs: fake_redis)
@@ -138,11 +123,6 @@ def test_workspace_governance_redis_paths_and_quota_helpers(
     with pytest.raises(WorkspaceRateLimitError):
         limiter.check_api_rate_limit("workspace-a")
 
-    limiter.reserve_run_slot("workspace-a", limit=1)
-    with pytest.raises(WorkspaceQuotaExceededError):
-        limiter.reserve_run_slot("workspace-a", limit=1)
-    limiter.release_run_slot("workspace-a")
-    limiter.release_run_slot("")
     limiter.check_api_rate_limit("")
 
 
@@ -249,121 +229,6 @@ def test_check_api_rate_limit_evicts_stale_bucket_entries(
         limiter._api_events["ws-stale"].append(old_time)
 
     limiter.check_api_rate_limit("ws-stale")
-
-
-def test_reserve_run_slot_returns_early_for_zero_or_negative_limit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Line 123: early return when limit <= 0 in reserve_run_slot."""
-    monkeypatch.setattr(
-        redis,
-        "from_url",
-        lambda *a, **k: (_ for _ in ()).throw(redis.RedisError("no redis")),
-    )
-    limiter = WorkspaceGovernance(
-        api_rate_limit=10, api_rate_interval_seconds=60, redis_url="redis://broken"
-    )
-
-    limiter.reserve_run_slot("ws-z", limit=0)
-    limiter.reserve_run_slot("ws-z", limit=-1)
-
-
-def test_reserve_run_slot_redis_error_falls_back_to_memory(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Line 140: redis.RedisError during incr() falls back to in-memory slot tracking."""
-
-    class _FakeRedisIncError:
-        def incr(self, key):
-            raise redis.RedisError("incr down")
-
-        def expire(self, *a, **k):
-            pass
-
-    monkeypatch.setattr(redis, "from_url", lambda *a, **k: _FakeRedisIncError())
-    limiter = WorkspaceGovernance(
-        api_rate_limit=10, api_rate_interval_seconds=60, redis_url="redis://ok"
-    )
-
-    limiter.reserve_run_slot("ws-incr-err", limit=5)
-    assert limiter._run_counts.get("ws-incr-err") == 1
-
-
-def test_release_run_slot_redis_skips_delete_when_count_stays_positive(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Line 161->163: decr returns positive → skip delete and return directly."""
-
-    class _FakeRedis:
-        def __init__(self) -> None:
-            self.current = 0
-            self.deleted = False
-
-        def incr(self, key):
-            self.current += 1
-            return self.current
-
-        def expire(self, *a, **k):
-            pass
-
-        def decr(self, key):
-            self.current -= 1
-            return self.current
-
-        def delete(self, key):
-            self.deleted = True
-
-    fake = _FakeRedis()
-    monkeypatch.setattr(redis, "from_url", lambda *a, **k: fake)
-    limiter = WorkspaceGovernance(
-        api_rate_limit=10, api_rate_interval_seconds=60, redis_url="redis://ok"
-    )
-
-    limiter.reserve_run_slot("ws-pos", limit=5)
-    limiter.reserve_run_slot("ws-pos", limit=5)
-
-    limiter.release_run_slot("ws-pos")
-    assert not fake.deleted
-    assert fake.current == 1
-
-
-def test_release_run_slot_redis_error_falls_back_to_memory(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Lines 164-165: redis.RedisError during decr() is caught and in-memory path used."""
-
-    class _FakeRedisDecrError:
-        def decr(self, key):
-            raise redis.RedisError("decr down")
-
-    monkeypatch.setattr(redis, "from_url", lambda *a, **k: _FakeRedisDecrError())
-    limiter = WorkspaceGovernance(
-        api_rate_limit=10, api_rate_interval_seconds=60, redis_url="redis://ok"
-    )
-    limiter._run_counts["ws-decr-err"] = 1
-
-    limiter.release_run_slot("ws-decr-err")
-    assert "ws-decr-err" not in limiter._run_counts
-
-
-def test_release_run_slot_memory_keeps_count_when_still_positive(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Line 172: in-memory else branch - run_counts updated when current > 0."""
-    monkeypatch.setattr(
-        redis,
-        "from_url",
-        lambda *a, **k: (_ for _ in ()).throw(redis.RedisError("no redis")),
-    )
-    limiter = WorkspaceGovernance(
-        api_rate_limit=10, api_rate_interval_seconds=60, redis_url="redis://broken"
-    )
-
-    limiter.reserve_run_slot("ws-mem", limit=5)
-    limiter.reserve_run_slot("ws-mem", limit=5)
-
-    limiter.release_run_slot("ws-mem")
-    assert limiter._run_counts.get("ws-mem") == 1
 
 
 @pytest.mark.asyncio()

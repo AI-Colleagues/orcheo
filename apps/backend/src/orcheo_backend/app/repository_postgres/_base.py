@@ -34,6 +34,8 @@ DictRowFactory: Any | None
 
 _INIT_LOCK_NAMESPACE = 0x4F524348
 _INIT_LOCK_KEY = 1
+# Serializes the concurrent-run check and insert per workspace across processes.
+_RUN_QUOTA_LOCK_NAMESPACE = 0x4F525155
 
 try:  # pragma: no cover - optional dependency
     AsyncConnectionPool = importlib.import_module("psycopg_pool").AsyncConnectionPool
@@ -316,6 +318,10 @@ class PostgresRepositoryBase:
                 await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_runs_workspace_id "
                     "ON workflow_runs(workspace_id)"
+                )
+                await conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_runs_workspace_status "
+                    "ON workflow_runs(workspace_id, status)"
                 )
                 await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_versions_workspace_id "

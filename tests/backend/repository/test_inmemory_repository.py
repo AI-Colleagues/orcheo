@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 import pytest
 from orcheo.listeners import (
@@ -151,11 +152,9 @@ async def test_inmemory_cron_dispatch_normalizes_naive_now() -> None:
     assert captured_now[0].tzinfo == UTC
 
 
-@pytest.mark.asyncio()
-async def test_inmemory_manual_dispatch_skips_quota_exceeded_run() -> None:
-    """Manual dispatch skips runs that hit the workspace quota."""
-
-    repository = InMemoryWorkflowRepository()
+async def _quota_workflow(
+    repository: InMemoryWorkflowRepository,
+) -> tuple[UUID, UUID]:
     workflow = await repository.create_workflow(
         name="Quota",
         slug=None,
@@ -171,6 +170,15 @@ async def test_inmemory_manual_dispatch_skips_quota_exceeded_run() -> None:
         notes=None,
         created_by="tester",
     )
+    return workflow.id, version.id
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_manual_dispatch_raises_when_quota_refuses_all() -> None:
+    """Manual dispatch reports the quota error when no run could be created."""
+
+    repository = InMemoryWorkflowRepository()
+    workflow_id, version_id = await _quota_workflow(repository)
 
     def _raise_quota(**_: object) -> None:
         raise WorkspaceQuotaExceededError(
@@ -182,14 +190,48 @@ async def test_inmemory_manual_dispatch_skips_quota_exceeded_run() -> None:
 
     from orcheo.triggers.manual import ManualDispatchRequest
 
+    with pytest.raises(WorkspaceQuotaExceededError, match="quota exceeded"):
+        await repository.dispatch_manual_runs(
+            ManualDispatchRequest(
+                workflow_id=workflow_id,
+                runs=[{"workflow_version_id": version_id, "input_payload": {}}],
+            )
+        )
+
+
+@pytest.mark.asyncio()
+async def test_inmemory_manual_dispatch_returns_partial_batch_on_quota() -> None:
+    """A batch that partly fits returns the runs it created."""
+
+    repository = InMemoryWorkflowRepository()
+    workflow_id, version_id = await _quota_workflow(repository)
+    create_run = repository._create_run_locked
+    calls = 0
+
+    def _second_refused(**kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise WorkspaceQuotaExceededError(
+                "quota exceeded", code="workspace.quota.runs"
+            )
+        return create_run(**kwargs)
+
+    repository._create_run_locked = _second_refused  # type: ignore[method-assign]
+
+    from orcheo.triggers.manual import ManualDispatchRequest
+
     runs = await repository.dispatch_manual_runs(
         ManualDispatchRequest(
-            workflow_id=workflow.id,
-            runs=[{"workflow_version_id": version.id, "input_payload": {}}],
+            workflow_id=workflow_id,
+            runs=[
+                {"workflow_version_id": version_id, "input_payload": {}},
+                {"workflow_version_id": version_id, "input_payload": {}},
+            ],
         )
     )
 
-    assert runs == []
+    assert len(runs) == 1
 
 
 @pytest.mark.asyncio()

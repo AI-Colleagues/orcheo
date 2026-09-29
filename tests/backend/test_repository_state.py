@@ -5,8 +5,9 @@ from collections.abc import Mapping
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 import pytest
-from orcheo.models import Workflow, WorkflowVersion
+from orcheo.models import Workflow, WorkflowRun, WorkflowRunStatus, WorkflowVersion
 from orcheo.vault.oauth.models import CredentialHealthError
+from orcheo_backend.app.errors import WorkspaceQuotaExceededError
 from orcheo_backend.app.repository.errors import WorkflowRunNotFoundError
 from orcheo_backend.app.repository.in_memory.state import InMemoryRepositoryState
 
@@ -202,69 +203,46 @@ def test_release_cron_run_delegates_to_trigger_layer() -> None:
     assert stub.released == [run_id]
 
 
-@pytest.mark.asyncio()
-async def test_create_run_locked_releases_workspace_slot_on_failure(
+def test_create_run_locked_counts_only_active_runs_in_workspace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Workspace reservations are released if run creation fails mid-flight."""
+    """A run frees its slot however it ends, including cancellation."""
 
     state, workflow_id, version_id = _build_state()
     workspace_id = str(uuid4())
-    reserve_calls: list[tuple[str, int]] = []
-    release_calls: list[str] = []
 
     class _WorkspaceRepo:
         def get_workspace(self, workspace_uuid: UUID) -> SimpleNamespace:
-            assert str(workspace_uuid) == workspace_id
-            return SimpleNamespace(
-                quotas=SimpleNamespace(max_concurrent_runs=3),
-            )
-
-    class _Governance:
-        def reserve_run_slot(self, workspace: str, *, limit: int) -> None:
-            reserve_calls.append((workspace, limit))
-
-        def release_run_slot(self, workspace: str) -> None:
-            release_calls.append(workspace)
+            return SimpleNamespace(quotas=SimpleNamespace(max_concurrent_runs=2))
 
     from importlib import import_module
 
     workspace_module = import_module("orcheo_backend.app.workspace")
-    workspace_dependencies = import_module("orcheo_backend.app.workspace.dependencies")
-    governance_module = import_module("orcheo_backend.app.workspace_governance")
     monkeypatch.setattr(
-        workspace_module,
-        "get_workspace_repository",
-        lambda: _WorkspaceRepo(),
-    )
-    monkeypatch.setattr(
-        workspace_dependencies,
-        "get_workspace_repository",
-        lambda: _WorkspaceRepo(),
-    )
-    monkeypatch.setattr(
-        governance_module,
-        "get_workspace_governance",
-        lambda: _Governance(),
+        workspace_module, "get_workspace_repository", lambda: _WorkspaceRepo()
     )
 
-    def _boom(*_: object, **__: object) -> None:
-        raise RuntimeError("track failed")
-
-    state._trigger_layer.track_run = _boom  # type: ignore[method-assign]
-
-    with pytest.raises(RuntimeError, match="track failed"):
-        state._create_run_locked(
+    def _create(workspace: str) -> WorkflowRun:
+        return state._create_run_locked(
             workflow_id=workflow_id,
             workflow_version_id=version_id,
             triggered_by="manual",
             input_payload={},
             actor="tester",
-            workspace_id=workspace_id,
+            workspace_id=workspace,
         )
 
-    assert reserve_calls == [(workspace_id, 3)]
-    assert release_calls == [workspace_id]
+    first = _create(workspace_id)
+    _create(workspace_id)
+    # Another workspace's runs do not count against this one.
+    _create(str(uuid4()))
+
+    with pytest.raises(WorkspaceQuotaExceededError) as excinfo:
+        _create(workspace_id)
+    assert excinfo.value.details == {"limit": 2, "current": 2}
+
+    first.status = WorkflowRunStatus.CANCELLED
+    _create(workspace_id)
 
 
 @pytest.mark.asyncio()
