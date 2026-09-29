@@ -42,6 +42,9 @@ from orcheo_sdk.cli.setup import (
     report_env_preview,
 )
 from orcheo_sdk.cli.stack_project import (
+    LEAN_COMPOSE_WAIT_TIMEOUT,
+)
+from orcheo_sdk.cli.stack_project import (
     resolve_lean_project_dir as _resolve_lean_project_dir,
 )
 
@@ -469,7 +472,15 @@ def _start_lean_stack(
     # The published image replaces the source build declared in the compose
     # file, which needs a full checkout.
     command_runner(
-        [*compose_args, "up", "-d", "--no-build", "--wait", "--wait-timeout", "120"],
+        [
+            *compose_args,
+            "up",
+            "-d",
+            "--no-build",
+            "--wait",
+            "--wait-timeout",
+            LEAN_COMPOSE_WAIT_TIMEOUT,
+        ],
         console=console,
     )
     if _poll_backend_health(_lean_backend_url(env_file), console=console):
@@ -500,7 +511,7 @@ def _plan_lean_start(
     console.print(f"[yellow]Would run: {compose_command} pull[/yellow]")
     console.print(
         f"[yellow]Would run: {compose_command} "
-        "up -d --no-build --wait --wait-timeout 120[/yellow]"
+        f"up -d --no-build --wait --wait-timeout {LEAN_COMPOSE_WAIT_TIMEOUT}[/yellow]"
     )
     console.print(
         "[yellow]Would wait for backend health at "

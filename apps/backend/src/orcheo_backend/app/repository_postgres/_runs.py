@@ -13,6 +13,13 @@ from orcheo_backend.app.repository import (
 from orcheo_backend.app.repository_postgres._persistence import PostgresPersistenceMixin
 
 
+def _load_run(payload: dict[str, Any] | str) -> WorkflowRun:
+    """Decode a run from either JSON text or a PostgreSQL JSONB mapping."""
+    if isinstance(payload, str):
+        return WorkflowRun.model_validate_json(payload)
+    return WorkflowRun.model_validate(payload)
+
+
 class WorkflowRunMixin(PostgresPersistenceMixin):
     """Create and update workflow runs."""
 
@@ -83,11 +90,7 @@ class WorkflowRunMixin(PostgresPersistenceMixin):
                 rows = await cursor.fetchall()
             result = []
             for row in rows:
-                payload = row["payload"]
-                if isinstance(payload, str):
-                    run = WorkflowRun.model_validate_json(payload)
-                else:
-                    run = WorkflowRun.model_validate(payload)
+                run = _load_run(row["payload"])
                 result.append(run.model_copy(deep=True))
             return result
 
@@ -199,11 +202,7 @@ class WorkflowRunMixin(PostgresPersistenceMixin):
                 if row is None:
                     raise WorkflowRunNotFoundError(str(run_id))
                 payload = row["payload"]
-                run = (
-                    WorkflowRun.model_validate_json(payload)
-                    if isinstance(payload, str)
-                    else WorkflowRun.model_validate(payload)
-                )
+                run = _load_run(payload)
                 updater(run)
                 await conn.execute(
                     """
@@ -254,12 +253,7 @@ class WorkflowRunMixin(PostgresPersistenceMixin):
                 (now - min_age, now - retry_interval, limit, now),
             )
             rows = await cursor.fetchall()
-        return [
-            WorkflowRun.model_validate_json(row["payload"])
-            if isinstance(row["payload"], str)
-            else WorkflowRun.model_validate(row["payload"])
-            for row in rows
-        ]
+        return [_load_run(row["payload"]) for row in rows]
 
 
 __all__ = ["WorkflowRunMixin"]

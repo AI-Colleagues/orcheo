@@ -150,9 +150,13 @@ sign-in is required.
 
 The lean services use `restart: unless-stopped`. The backend's Docker health
 check calls `/api/system/ready`, which tests Redis from the backend container;
-worker and Beat health checks also connect to Redis. The installer waits for all
-services to become healthy. `/api/system/health` remains a lightweight process
-check. Docker does not automatically restart a container merely because its
+worker and Beat health checks also connect to Redis. These checks verify broker
+reachability, not that the worker is executing or Beat is scheduling. The
+installer waits for all services to become healthy. Redis availability is an
+intentional part of the lean backend container's health status; use
+`/api/system/health` as the backend liveness probe and `/api/system/ready` as
+the readiness probe in an orchestrator that restarts unhealthy containers.
+Docker Compose does not automatically restart a container merely because its
 health check becomes unhealthy, so monitor Compose health and alert on an
 unhealthy service or a stopped worker or Beat.
 
@@ -189,16 +193,21 @@ SELECT COUNT(*) AS pending_dispatches, MIN(created_at) AS oldest_created_at
 ```
 
 If Redis loses a message after acknowledging a publish, the run will still be
-marked as enqueued. Verify that it is absent from the worker queue before
-setting `enqueue_confirmed = FALSE` for that run to request replay. This avoids
-creating duplicate queue messages during a normal backlog.
+marked as enqueued. Automatic recovery of broker data loss after acceptance is
+outside the reconciler's scope. The lean Compose service enables Redis AOF
+persistence and keeps it in the `redis_data` volume; preserve and back up that
+volume. If the broker data is lost, verify that the run is absent from the
+worker queue before setting `enqueue_confirmed = FALSE` for that run to request
+replay. This avoids creating duplicate queue messages during a normal backlog.
 
 The concurrency quota also counts pending runs deliberately created through
 the API and runs marked `running`. A crashed worker can leave a run in
 `running`, which needs operator review: age alone cannot prove that execution
 has stopped. Inspect the worker and run history before marking an orphaned run
 failed through `POST /api/runs/{run_id}/fail`. Mark or cancel abandoned pending
-API runs through the run API as well. To find candidates:
+API runs through the run API as well. Automatic recovery requires execution
+ownership and liveness tracking ([issue #449](https://github.com/AI-Colleagues/orcheo/issues/449)).
+To find candidates:
 
 ```sql
 SELECT id, workspace_id, status, created_at, updated_at

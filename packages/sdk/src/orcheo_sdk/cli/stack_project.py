@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 _COMPOSE_FILE = "docker-compose.yml"
+LEAN_COMPOSE_WAIT_TIMEOUT = "120"
 
 STACK_NOT_FOUND_MESSAGE = (
     "Stack docker-compose file not found. Run 'orcheo install --yes' or "
@@ -56,6 +57,7 @@ def resolve_installed_stack(stack_dir: Path) -> StackProject | None:
 
 
 __all__ = [
+    "LEAN_COMPOSE_WAIT_TIMEOUT",
     "STACK_NOT_FOUND_MESSAGE",
     "StackProject",
     "resolve_installed_stack",
