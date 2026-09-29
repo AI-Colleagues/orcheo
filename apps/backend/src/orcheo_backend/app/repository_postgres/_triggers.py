@@ -67,6 +67,18 @@ def _enqueue_run_for_execution(run: WorkflowRun) -> bool:
         return False
 
 
+async def _enqueue_run_and_confirm(
+    repository: PostgresPersistenceMixin, run: WorkflowRun
+) -> None:
+    """Publish a committed run and record acceptance by the broker."""
+    if not _enqueue_run_for_execution(run):
+        return
+    try:
+        await repository.mark_run_enqueued(run.id)
+    except Exception:
+        logger.exception("Could not confirm enqueue for run %s", run.id)
+
+
 class TriggerRepositoryMixin(PostgresPersistenceMixin):
     """Coordinate trigger configuration and dispatch flows."""
 
@@ -146,7 +158,7 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
             )
             run_copy = run.model_copy(deep=True)
         # Enqueue AFTER lock is released to ensure commit is fully visible
-        _enqueue_run_for_execution(run_copy)
+        await _enqueue_run_and_confirm(self, run_copy)
         return run_copy
 
     async def configure_cron_trigger(
@@ -296,7 +308,7 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
                 runs.append(run.model_copy(deep=True))
         # Enqueue AFTER lock is released to ensure commits are fully visible
         for run in runs:
-            _enqueue_run_for_execution(run)
+            await _enqueue_run_and_confirm(self, run)
         return runs
 
     async def dispatch_manual_runs(
@@ -363,7 +375,7 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
                 raise quota_error
         # Enqueue AFTER lock is released to ensure commits are fully visible
         for run in runs:
-            _enqueue_run_for_execution(run)
+            await _enqueue_run_and_confirm(self, run)
         return runs
 
 

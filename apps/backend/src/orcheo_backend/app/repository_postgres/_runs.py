@@ -237,6 +237,7 @@ class WorkflowRunMixin(PostgresPersistenceMixin):
                     SELECT id FROM workflow_runs
                     WHERE status = 'pending'
                       AND dispatch_requested = TRUE
+                      AND enqueue_confirmed = FALSE
                       AND created_at <= %s
                       AND (last_enqueue_attempt_at IS NULL
                            OR last_enqueue_attempt_at <= %s)

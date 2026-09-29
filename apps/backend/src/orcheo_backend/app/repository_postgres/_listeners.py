@@ -458,7 +458,7 @@ class ListenerRepositoryMixin(PostgresPersistenceMixin):
                 dispatch_requested=True,
             )
             run_copy = run.model_copy(deep=True)
-        trigger_module._enqueue_run_for_execution(run_copy)
+        await trigger_module._enqueue_run_and_confirm(self, run_copy)
         return run_copy
 
     async def update_listener_subscription_status(

@@ -155,8 +155,48 @@ async def test_claim_stale_pending_runs_only_claims_dispatch_requests(
     assert [item.id for item in claimed] == [run.id]
     conn = repo._pool._connection
     assert "dispatch_requested = TRUE" in conn.queries[0][0]
+    assert "enqueue_confirmed = FALSE" in conn.queries[0][0]
     assert "FOR UPDATE SKIP LOCKED" in conn.queries[0][0]
     assert conn.queries[0][1][2] == 4
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_mock_celery
+async def test_successful_enqueue_is_confirmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Accepted queue messages are excluded from later reconciliation."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    repo = make_repository(monkeypatch, [])
+    monkeypatch.setattr(pg_triggers, "_enqueue_run_for_execution", lambda _: True)
+
+    await pg_triggers._enqueue_run_and_confirm(repo, run)
+
+    assert repo._pool._connection.queries == [
+        (
+            "UPDATE workflow_runs SET enqueue_confirmed = TRUE WHERE id = %s",
+            (str(run.id),),
+        )
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_mock_celery
+async def test_failed_enqueue_remains_eligible_for_reconciliation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A broker failure must not set the confirmation marker."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    repo = make_repository(monkeypatch, [])
+    monkeypatch.setattr(pg_triggers, "_enqueue_run_for_execution", lambda _: False)
+
+    await pg_triggers._enqueue_run_and_confirm(repo, run)
+
+    assert repo._pool._connection.queries == []
 
 
 @pytest.mark.asyncio

@@ -18,7 +18,7 @@ async def test_reconciler_stops_publishing_when_broker_fails(
         for _ in range(3)
     ]
     repository = AsyncMock()
-    repository.claim_stale_pending_runs.return_value = runs
+    repository.claim_stale_pending_runs.side_effect = [[runs[0]], [runs[1]]]
     attempted: list[WorkflowRun] = []
 
     def publish(run: WorkflowRun) -> bool:
@@ -31,3 +31,6 @@ async def test_reconciler_stops_publishing_when_broker_fails(
 
     assert published == 1
     assert attempted == runs[:2]
+    assert repository.claim_stale_pending_runs.await_count == 2
+    repository.claim_stale_pending_runs.assert_any_await(limit=1)
+    repository.mark_run_enqueued.assert_awaited_once_with(runs[0].id)

@@ -468,6 +468,15 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
             self._trigger_layer.register_cron_run(run.id)
         return run
 
+    async def mark_run_enqueued(self, run_id: UUID) -> None:
+        """Record broker acceptance so queued work is not published again."""
+        await self._ensure_initialized()
+        async with self._connection() as conn:
+            await conn.execute(
+                "UPDATE workflow_runs SET enqueue_confirmed = TRUE WHERE id = %s",
+                (str(run_id),),
+            )
+
     async def _ensure_run_capacity_locked(
         self, conn: Any, workspace_id: str, *, limit: int
     ) -> None:

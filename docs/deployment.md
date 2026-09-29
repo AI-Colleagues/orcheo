@@ -174,16 +174,37 @@ package when diagnosing a repeat network issue.
 
 Trigger-created runs carry a persisted dispatch flag. While the backend is up,
 it checks PostgreSQL once per minute and republishes up to 20 flagged runs that
-have remained pending for at least two minutes. Each run is claimed across
-backend processes and retried no more than once every five minutes. Worker
-start transitions lock the PostgreSQL row so duplicate queue messages cannot
-start the same run twice. Monitor the count and age of pending runs where
+have remained pending for at least two minutes **without a confirmed enqueue**.
+Each run is claimed across backend processes and retried no more than once
+every five minutes after a failed attempt. Runs already accepted by Redis are
+not republished simply because the worker queue is busy. Worker start
+transitions lock the PostgreSQL row so duplicate queue messages cannot start
+the same run twice. Monitor the count and age of pending runs where
 `dispatch_requested = TRUE`; sustained growth means execution is stalled.
 
 ```sql
 SELECT COUNT(*) AS pending_dispatches, MIN(created_at) AS oldest_created_at
   FROM workflow_runs
  WHERE status = 'pending' AND dispatch_requested = TRUE;
+```
+
+If Redis loses a message after acknowledging a publish, the run will still be
+marked as enqueued. Verify that it is absent from the worker queue before
+setting `enqueue_confirmed = FALSE` for that run to request replay. This avoids
+creating duplicate queue messages during a normal backlog.
+
+The concurrency quota also counts pending runs deliberately created through
+the API and runs marked `running`. A crashed worker can leave a run in
+`running`, which needs operator review: age alone cannot prove that execution
+has stopped. Inspect the worker and run history before marking an orphaned run
+failed through `POST /api/runs/{run_id}/fail`. Mark or cancel abandoned pending
+API runs through the run API as well. To find candidates:
+
+```sql
+SELECT id, workspace_id, status, created_at, updated_at
+  FROM workflow_runs
+ WHERE status IN ('pending', 'running')
+ ORDER BY updated_at;
 ```
 
 Runs created before this dispatch flag was added need operator review before

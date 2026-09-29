@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     workspace_id TEXT,
     dispatch_requested BOOLEAN NOT NULL DEFAULT FALSE,
+    enqueue_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
     last_enqueue_attempt_at TIMESTAMP WITH TIME ZONE
 );
 CREATE INDEX IF NOT EXISTS idx_runs_workflow ON workflow_runs(workflow_id);
@@ -295,12 +296,18 @@ class PostgresRepositoryBase:
                 )
                 await conn.execute(
                     "ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS "
-                    "last_enqueue_attempt_at TIMESTAMPTZ"
+                    "enqueue_confirmed BOOLEAN NOT NULL DEFAULT FALSE"
                 )
                 await conn.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_runs_pending_enqueue "
+                    "ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS "
+                    "last_enqueue_attempt_at TIMESTAMPTZ"
+                )
+                await conn.execute("DROP INDEX IF EXISTS idx_runs_pending_enqueue")
+                await conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_runs_pending_unconfirmed "
                     "ON workflow_runs(created_at, last_enqueue_attempt_at) "
-                    "WHERE status = 'pending' AND dispatch_requested = TRUE"
+                    "WHERE status = 'pending' AND dispatch_requested = TRUE "
+                    "AND enqueue_confirmed = FALSE"
                 )
                 await conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_workflows_handle "
