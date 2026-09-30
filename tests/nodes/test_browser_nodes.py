@@ -965,6 +965,57 @@ async def test_isolated_browser_failure_never_falls_back_locally(
     assert fake_browser_runtime.chromium.launch_calls == []
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "options", [{"headless": False}, {"launch_args": ["--disable-quic"]}]
+)
+async def test_remote_browser_rejects_custom_launch_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_browser_runtime: FakePlaywright,
+    options: dict[str, Any],
+) -> None:
+    """Reject launch overrides before starting the configured remote browser."""
+    monkeypatch.setenv("ORCHEO_PUBLIC_BROWSER_WS_ENDPOINT", "ws://reader:3000")
+    with pytest.raises(ValueError, match="fixed headless launch settings"):
+        await BrowserNavigateNode(
+            name="guarded",
+            url="https://example.com",
+            public_https_only=True,
+            **options,
+        )({}, {})
+    assert fake_browser_runtime.chromium.launch_calls == []
+    assert fake_browser_runtime.browser.context_kwargs is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("remote", [False, True])
+async def test_browser_closes_when_context_creation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_browser_runtime: FakePlaywright,
+    remote: bool,
+) -> None:
+    """Close a launched or connected browser when it cannot create a context."""
+    if remote:
+        monkeypatch.setenv("ORCHEO_PUBLIC_BROWSER_WS_ENDPOINT", "ws://reader:3000")
+        monkeypatch.setattr(
+            fake_browser_runtime.chromium,
+            "connect",
+            AsyncMock(return_value=fake_browser_runtime.browser),
+            raising=False,
+        )
+    monkeypatch.setattr(
+        fake_browser_runtime.browser,
+        "new_context",
+        AsyncMock(side_effect=RuntimeError("context creation failed")),
+    )
+    with pytest.raises(RuntimeError, match="context creation failed"):
+        await BrowserNavigateNode(
+            name="guarded", url="https://example.com", public_https_only=True
+        )({}, {})
+    assert fake_browser_runtime.browser.closed
+    assert fake_browser_runtime.stopped
+
+
 def test_browser_session_rejects_a_changed_egress_policy() -> None:
     """An unguarded node cannot reuse a guarded session."""
     session = _session_stub("chromium")
@@ -1046,6 +1097,27 @@ async def test_guarded_browser_closes_proxy_when_playwright_fails(
     with pytest.raises(RuntimeError, match="Playwright unavailable"):
         await _create_guarded_session()
     assert _ProbeProxy.instances[-1].closed
+
+
+@pytest.mark.asyncio
+async def test_remote_browser_startup_failure_does_not_create_local_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Propagate Playwright startup failure without creating a worker listener."""
+    monkeypatch.setenv("ORCHEO_PUBLIC_BROWSER_WS_ENDPOINT", "ws://reader:3000")
+    _ProbeProxy.instances.clear()
+
+    class FailingContext:
+        async def start(self) -> None:
+            raise RuntimeError("Playwright unavailable")
+
+    monkeypatch.setattr(browser_nodes, "PublicHttpsProxy", _ProbeProxy)
+    monkeypatch.setattr(
+        browser_nodes, "_async_playwright_factory", lambda: FailingContext
+    )
+    with pytest.raises(RuntimeError, match="Playwright unavailable"):
+        await _create_guarded_session()
+    assert _ProbeProxy.instances == []
 
 
 @pytest.mark.asyncio

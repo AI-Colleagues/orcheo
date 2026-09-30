@@ -216,3 +216,46 @@ async def test_proxy_handles_a_disconnected_client_during_refusal() -> None:
 
     writer.write.assert_called_once()
     writer.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_proxy_can_close_before_start_and_after_shutdown() -> None:
+    """Treat closing an inactive listener as an idempotent operation."""
+    proxy = PublicHttpsProxy()
+    await proxy.close()
+    await proxy.start()
+    await proxy.close()
+    await proxy.close()
+    with pytest.raises(RuntimeError, match="not running"):
+        _ = proxy.url
+
+
+@pytest.mark.asyncio
+async def test_proxy_tunnel_failure_closes_both_sides_without_http_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Do not inject an HTTP error into an already established CONNECT tunnel."""
+    reader = Mock(
+        readuntil=AsyncMock(return_value=b"CONNECT example.com:443 HTTP/1.1\r\n\r\n"),
+        read=AsyncMock(side_effect=OSError("client disconnected")),
+    )
+    writer = Mock(drain=AsyncMock(), wait_closed=AsyncMock())
+    upstream_reader = Mock(read=AsyncMock(return_value=b""))
+    upstream_writer = Mock(wait_closed=AsyncMock())
+    monkeypatch.setattr(
+        "orcheo.nodes.browser_proxy._public_addresses",
+        AsyncMock(
+            return_value=[(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("8.8.8.8", 443))]
+        ),
+    )
+    monkeypatch.setattr(
+        asyncio,
+        "open_connection",
+        AsyncMock(return_value=(upstream_reader, upstream_writer)),
+    )
+    await PublicHttpsProxy()._handle(reader, writer)
+    writer.write.assert_called_once_with(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+    writer.close.assert_called_once()
+    writer.wait_closed.assert_awaited_once()
+    upstream_writer.close.assert_called_once()
+    upstream_writer.wait_closed.assert_awaited_once()

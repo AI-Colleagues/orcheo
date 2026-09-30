@@ -5,6 +5,7 @@ import asyncio
 import socket
 import ssl
 from typing import Any
+from unittest.mock import AsyncMock
 import httpcore
 import httpx
 import pytest
@@ -146,3 +147,94 @@ async def test_special_addresses_cannot_bypass_connection_guard(
 def test_unverified_tls_is_not_an_option() -> None:
     with pytest.raises(ValueError, match="verification"):
         SSRFGuardAsyncTransport(ssl_context=ssl._create_unverified_context())
+
+
+@pytest.mark.asyncio
+async def test_connection_dns_failure_preserves_cause(monkeypatch: Any) -> None:
+    """Fail closed when connection-time DNS cannot resolve a hostname."""
+    error = socket.gaierror("DNS unavailable")
+    monkeypatch.setattr(
+        asyncio.get_running_loop(), "getaddrinfo", AsyncMock(side_effect=error)
+    )
+    connect = AsyncMock()
+    monkeypatch.setattr(httpcore.AnyIOBackend, "connect_tcp", connect)
+    with pytest.raises(SSRFError, match="did not resolve") as exc:
+        await PublicNetworkBackend().connect_tcp("missing.example", 443)
+    assert exc.value.__cause__ is error
+    connect.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("all_fail", [False, True])
+async def test_connection_tries_each_distinct_public_address(
+    monkeypatch: Any, all_fail: bool
+) -> None:
+    """Retry vetted addresses and preserve the last error if none connects."""
+    monkeypatch.setattr(
+        asyncio.get_running_loop(),
+        "getaddrinfo",
+        AsyncMock(return_value=_answer("8.8.8.8", 443) * 2 + _answer("1.1.1.1", 443)),
+    )
+    stream = httpcore.AsyncMockStream([])
+    last_error = httpcore.ConnectTimeout("second address timed out")
+    connect = AsyncMock(
+        side_effect=[
+            httpcore.ConnectError("refused"),
+            last_error if all_fail else stream,
+        ]
+    )
+    monkeypatch.setattr(httpcore.AnyIOBackend, "connect_tcp", connect)
+    backend = PublicNetworkBackend()
+    if all_fail:
+        with pytest.raises(httpcore.ConnectError, match="no public address") as exc:
+            await backend.connect_tcp("public.example", 443)
+        assert exc.value.__cause__ is last_error
+    else:
+        assert await backend.connect_tcp("public.example", 443) is stream
+    assert [call.args for call in connect.await_args_list] == [
+        ("8.8.8.8", 443),
+        ("1.1.1.1", 443),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_connection_timeout_includes_dns_lookup(monkeypatch: Any) -> None:
+    """Apply the connection deadline to DNS as well as socket operations."""
+
+    async def resolve(*args: Any, **kwargs: Any) -> list[Any]:
+        await asyncio.Event().wait()
+        return []
+
+    monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", resolve)
+    with pytest.raises(httpcore.ConnectTimeout, match="public connection timed out"):
+        await PublicNetworkBackend().connect_tcp("slow.example", 443, timeout=0.01)
+
+
+@pytest.mark.asyncio
+async def test_public_backend_rejects_unix_sockets() -> None:
+    """Prevent public clients from contacting local services via Unix sockets."""
+    with pytest.raises(SSRFError, match="Unix sockets"):
+        await PublicNetworkBackend().connect_unix_socket("/tmp/service.sock")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("url", "extensions", "message"),
+    [
+        ("https://user@example.com/", {}, "credentials"),
+        ("https://:password@example.com/", {}, "credentials"),
+        ("https://example.com/", {"sni_hostname": "other.example"}, "TLS hostname"),
+    ],
+)
+async def test_public_transport_rejects_identity_overrides(
+    url: str, extensions: dict[str, Any], message: str
+) -> None:
+    """Reject URL credentials and TLS hostname overrides before making requests."""
+    transport = SSRFGuardAsyncTransport()
+    try:
+        with pytest.raises(SSRFError, match=message):
+            await transport.handle_async_request(
+                httpx.Request("GET", url, extensions=extensions)
+            )
+    finally:
+        await transport.aclose()
