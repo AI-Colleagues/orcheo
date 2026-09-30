@@ -32,6 +32,7 @@ from orcheo_backend.app.repository_postgres import PostgresWorkflowRepository
 from orcheo_backend.app.repository_postgres import _base as pg_base
 from orcheo_backend.app.repository_postgres import _persistence as pg_persistence
 from orcheo_backend.app.repository_postgres import _triggers as pg_triggers
+from orcheo_backend.app.run_ownership import ORPHANED_WORKER_RUN_ERROR
 
 
 class FakeRow(dict[str, Any]):
@@ -192,6 +193,150 @@ async def test_list_stale_active_runs_groups_quota_slots_by_workspace_and_status
     assert "status IN ('pending', 'running')" in query
     assert "GROUP BY workspace_id, status" in query
     assert params == (cutoff,)
+
+
+@pytest.mark.asyncio
+async def test_worker_claim_is_atomic_and_redelivery_cannot_restart_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only one delivery can turn a pending run into an owned running run."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    running = run.model_copy(deep=True)
+    running.mark_started(actor="worker")
+    repo = make_repository(
+        monkeypatch,
+        [
+            {"row": {"payload": run.model_dump(mode="json")}},
+            {},
+            {"row": {"payload": running.model_dump(mode="json")}},
+        ],
+    )
+
+    claimed = await repo.claim_worker_run(run.id, owner_token="first", actor="worker")
+    duplicate = await repo.claim_worker_run(
+        run.id, owner_token="second", actor="worker"
+    )
+
+    assert claimed is not None and claimed.status.value == "running"
+    assert duplicate is None
+    queries = repo._pool._connection.queries
+    assert "FOR UPDATE" in queries[0][0]
+    assert "worker_owner_token = %s" in queries[1][0]
+    assert queries[1][1][3] == "first"
+    assert len(queries) == 3
+
+
+@pytest.mark.asyncio
+async def test_expired_owned_run_fails_once_under_row_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Recovery releases a slot while excluding legacy unowned runs."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    run.mark_started(actor="worker")
+    repo = make_repository(
+        monkeypatch,
+        [{"rows": [{"payload": run.model_dump(mode="json")}]}, {}, {"rows": []}],
+    )
+
+    failed = await repo.fail_orphaned_worker_runs()
+    again = await repo.fail_orphaned_worker_runs()
+
+    assert len(failed) == 1
+    assert failed[0].status.value == "failed"
+    assert failed[0].error == ORPHANED_WORKER_RUN_ERROR
+    assert again == []
+    queries = repo._pool._connection.queries
+    assert "worker_owner_token IS NOT NULL" in queries[0][0]
+    assert "FOR UPDATE SKIP LOCKED" in queries[0][0]
+    assert "worker_owner_token = NULL" in queries[1][0]
+
+
+@pytest.mark.asyncio
+async def test_late_worker_result_cannot_overwrite_recovered_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The owner token fences a worker after an operator or sweeper transition."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    run.mark_started(actor="worker")
+    repo = make_repository(
+        monkeypatch,
+        [{"row": {"payload": run.model_dump(mode="json"), "worker_owner_token": None}}],
+    )
+
+    with pytest.raises(ValueError, match="no longer owns"):
+        await repo.mark_worker_run_succeeded(
+            run.id, owner_token="expired", actor="worker", output={}
+        )
+
+    assert len(repo._pool._connection.queries) == 1
+
+
+@pytest.mark.asyncio
+async def test_current_worker_can_commit_result_and_release_lease(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A matching token permits success and revokes the lease atomically."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    run.mark_started(actor="worker")
+    repo = make_repository(
+        monkeypatch,
+        [
+            {
+                "row": {
+                    "payload": run.model_dump(mode="json"),
+                    "worker_owner_token": "owner",
+                }
+            },
+            {},
+        ],
+    )
+
+    succeeded = await repo.mark_worker_run_succeeded(
+        run.id, owner_token="owner", actor="worker", output={"ok": True}
+    )
+
+    assert succeeded.status.value == "succeeded"
+    query, params = repo._pool._connection.queries[1]
+    assert "worker_lease_expires_at = CASE WHEN %s THEN NULL" in query
+    assert params[3:5] == (True, True)
+
+
+@pytest.mark.asyncio
+async def test_operator_terminal_transition_revokes_worker_ownership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An operator failure also fences any still-running worker."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    run.mark_started(actor="worker")
+    repo = make_repository(
+        monkeypatch,
+        [
+            {
+                "row": {
+                    "payload": run.model_dump(mode="json"),
+                    "worker_owner_token": "old",
+                }
+            },
+            {},
+        ],
+    )
+
+    failed = await repo.mark_run_failed(run.id, actor="operator", error="Stopped")
+
+    assert failed.status.value == "failed"
+    query, params = repo._pool._connection.queries[1]
+    assert "worker_owner_token = CASE WHEN %s THEN NULL" in query
+    assert params[3:5] == (True, True)
 
 
 @pytest.mark.asyncio

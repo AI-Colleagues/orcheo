@@ -268,6 +268,31 @@ class TestExecuteRunTask:
         mock_loop.run_until_complete.assert_called_once()
         mock_execute_async.assert_called_once_with(run_id, "workspace-1")
 
+    def test_task_retries_when_postgres_is_unavailable(self) -> None:
+        """A confirmed queue message survives a temporary database outage."""
+        import psycopg
+        from orcheo_backend.worker.tasks import execute_run
+
+        assert execute_run.max_retries is None
+        assert execute_run.reject_on_worker_lost is True
+        run_id = str(uuid4())
+        fake_self = SimpleNamespace(
+            request=SimpleNamespace(headers={"workspace_id": "workspace-1"}, retries=0),
+            retry=MagicMock(return_value=RuntimeError("retry scheduled")),
+        )
+        with patch("orcheo_backend.worker.tasks._get_event_loop") as get_loop:
+            get_loop.return_value.run_until_complete.side_effect = (
+                psycopg.OperationalError("database unavailable")
+            )
+            with patch(
+                "orcheo_backend.worker.tasks.execute_run_async",
+                new=MagicMock(return_value=MagicMock()),
+            ):
+                with pytest.raises(RuntimeError, match="retry scheduled"):
+                    execute_run.__wrapped__.__func__(fake_self, run_id)
+
+        assert fake_self.retry.call_args.kwargs["countdown"] == 1
+
 
 class TestDispatchCronTriggers:
     """Tests for the dispatch_cron_triggers Celery task."""

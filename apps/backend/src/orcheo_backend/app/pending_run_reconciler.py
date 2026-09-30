@@ -47,6 +47,19 @@ async def run_pending_reconciler(repository: PostgresWorkflowRepository) -> None
         except Exception:
             logger.exception("Pending run reconciliation failed")
         try:
+            recovered = await repository.fail_orphaned_worker_runs()
+            for run in recovered:
+                logger.error(
+                    "Failed orphaned worker run %s in workspace %s after its "
+                    "heartbeat lease expired",
+                    run.id,
+                    run.workspace_id,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Orphaned worker run recovery failed")
+        try:
             if passes % STALE_ACTIVE_RUN_CHECK_INTERVAL == 0:
                 await log_stale_active_runs(repository)
         except asyncio.CancelledError:

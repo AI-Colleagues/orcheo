@@ -201,13 +201,24 @@ worker queue before setting `enqueue_confirmed = FALSE` for that run to request
 replay. This avoids creating duplicate queue messages during a normal backlog.
 
 The concurrency quota also counts pending runs deliberately created through
-the API and runs marked `running`. A crashed worker can leave a run in
-`running`, which needs operator review: age alone cannot prove that execution
-has stopped. Inspect the worker and run history before marking an orphaned run
-failed through `POST /api/runs/{run_id}/fail`. Mark or cancel abandoned pending
-API runs through the run API as well. Automatic recovery requires execution
-ownership and liveness tracking ([issue #449](https://github.com/AI-Colleagues/orcheo/issues/449)).
-To find candidates:
+the API and runs marked `running`. PostgreSQL-backed Celery workers now claim a
+run with a unique owner token and renew its database lease every 20 seconds
+from a separate thread, including while a long workflow node is running. The
+lease lasts two minutes; a backend reconciler atomically fails an owned run
+only after another three minutes without renewal. Lease decisions use the
+PostgreSQL clock across all backend and worker processes. A worker that loses
+its lease cancels its execution. If a blocking node does not stop within 30
+seconds, the worker process exits so it cannot keep executing when the quota
+slot is released. Its token cannot commit a late result. There is no maximum
+workflow execution duration: a live worker can keep renewing its lease. If
+PostgreSQL is unavailable long enough for the lease to expire, the worker
+stops and recovery resumes when the database is available.
+
+Runs already `running` before this ownership mechanism was deployed have no
+owner token and are **not** automatically failed. Inspect their worker and run
+history before marking them failed through `POST /api/runs/{run_id}/fail`.
+Deliberately idle or abandoned API-created pending runs also require operator
+review; mark or cancel them through the run API. To find candidates:
 
 ```sql
 SELECT id, workspace_id, status, created_at, updated_at
@@ -216,12 +227,22 @@ SELECT id, workspace_id, status, created_at, updated_at
  ORDER BY updated_at;
 ```
 
+To inspect suspected worker orphans, query the lease columns:
+
+```sql
+SELECT id, workspace_id, worker_heartbeat_at, worker_lease_expires_at
+  FROM workflow_runs
+ WHERE status = 'running' AND worker_owner_token IS NOT NULL
+   AND worker_lease_expires_at < now();
+```
+
 Every five minutes the backend logs a warning for each workspace and status
-with pending or running runs that have not changed for at least one hour. The
-warning includes the count and oldest update time. Alert on
-`Stale active workflow runs` in backend logs, then inspect the worker and run
-history before changing run status. Long-running workflows can also trigger
-this warning; it does not automatically release quota slots.
+with pending or running runs that have neither a state update nor a worker
+heartbeat for at least one hour. The warning includes the count and oldest
+update time. Alert on `Stale active workflow runs` in backend logs, then
+inspect the worker and run history before changing run status. Long-running
+runs without worker heartbeats can also trigger this warning; it does not
+automatically release quota slots.
 
 Runs created before this dispatch flag was added need operator review before
 replay because some API-created pending runs are deliberately idle. After

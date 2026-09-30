@@ -127,7 +127,10 @@ async def test_stale_monitor_runs_even_when_reconciliation_fails(
         AsyncMock(side_effect=asyncio.CancelledError),
     )
 
+    repository = AsyncMock()
+    repository.fail_orphaned_worker_runs.return_value = []
     with pytest.raises(asyncio.CancelledError):
-        await pending_run_reconciler.run_pending_reconciler(AsyncMock())
+        await pending_run_reconciler.run_pending_reconciler(repository)
 
     monitor.assert_awaited_once()
+    repository.fail_orphaned_worker_runs.assert_awaited_once()

@@ -4,11 +4,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any
-from uuid import UUID
+from typing import Any, cast
+from uuid import UUID, uuid4
+import psycopg
 from celery import Task
 from celery.signals import task_failure, task_postrun, task_prerun
+from psycopg_pool import PoolTimeout
 from orcheo_backend.worker.celery_app import celery_app
+from orcheo_backend.worker.run_heartbeat import worker_run_heartbeat
 
 
 logger = logging.getLogger(__name__)
@@ -172,22 +175,34 @@ async def _load_and_validate_run(
     return run, None
 
 
-async def _mark_run_started(run: Any, run_id: str) -> dict[str, Any] | None:
+async def _mark_run_started(
+    run: Any, run_id: str, *, owner_token: str | None = None
+) -> dict[str, Any] | None:
     """Mark run as started in the repository.
 
     Args:
         run: The workflow run object
         run_id: UUID string of the run
+        owner_token: PostgreSQL worker ownership token, when applicable.
 
     Returns:
         Error dict if marking failed, None on success
     """
     from orcheo_backend.app.dependencies import get_repository
+    from orcheo_backend.app.repository_postgres import PostgresWorkflowRepository
 
     repository = get_repository()
 
     try:
-        await repository.mark_run_started(run.id, actor=WORKER_ACTOR)
+        if owner_token is not None:
+            worker_repository = cast(PostgresWorkflowRepository, repository)
+            claimed = await worker_repository.claim_worker_run(
+                run.id, owner_token=owner_token, actor=WORKER_ACTOR
+            )
+            if claimed is None:
+                return {"status": "skipped", "reason": "Run already started"}
+        else:
+            await repository.mark_run_started(run.id, actor=WORKER_ACTOR)
         logger.info("Run %s marked as started", run_id)
         return None
     except ValueError as exc:
@@ -195,11 +210,14 @@ async def _mark_run_started(run: Any, run_id: str) -> dict[str, Any] | None:
         return {"status": "skipped", "reason": str(exc)}
 
 
-async def _execute_workflow(run: Any) -> dict[str, Any]:  # noqa: PLR0915
+async def _execute_workflow(
+    run: Any, *, owner_token: str | None = None
+) -> dict[str, Any]:  # noqa: PLR0915
     """Execute the workflow for the given run.
 
     Args:
         run: The workflow run object
+        owner_token: PostgreSQL worker ownership token, when applicable.
 
     Returns:
         Result dict with status and optional error
@@ -217,6 +235,7 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:  # noqa: PLR0915
         get_vault,
     )
     from orcheo_backend.app.history import RunHistoryError
+    from orcheo_backend.app.repository_postgres import PostgresWorkflowRepository
     from orcheo_backend.app.workflow_execution import (
         _build_initial_state,
     )
@@ -281,11 +300,15 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:  # noqa: PLR0915
                     final_state = getattr(final_state, "values", final_state)
 
         output = _extract_output(final_state)
-        await repository.mark_run_succeeded(
-            run.id,
-            actor=WORKER_ACTOR,
-            output=output,
-        )
+        if owner_token is not None:
+            worker_repository = cast(PostgresWorkflowRepository, repository)
+            await worker_repository.mark_worker_run_succeeded(
+                run.id, owner_token=owner_token, actor=WORKER_ACTOR, output=output
+            )
+        else:
+            await repository.mark_run_succeeded(
+                run.id, actor=WORKER_ACTOR, output=output
+            )
         await _mark_history_completed(
             history_store=history_store,
             execution_id=execution_id,
@@ -299,6 +322,7 @@ async def _execute_workflow(run: Any) -> dict[str, Any]:  # noqa: PLR0915
             run,
             exc,
             history_store=history_store,
+            owner_token=owner_token,
         )
 
 
@@ -401,6 +425,7 @@ async def _handle_execution_failure(
     exc: Exception,
     *,
     history_store: Any | None = None,
+    owner_token: str | None = None,
 ) -> dict[str, Any]:
     """Handle workflow execution failure.
 
@@ -408,11 +433,13 @@ async def _handle_execution_failure(
         run: The workflow run object
         exc: The exception that occurred
         history_store: Optional run history store for failure persistence.
+        owner_token: PostgreSQL worker ownership token, when applicable.
 
     Returns:
         Error result dict
     """
     from orcheo_backend.app.dependencies import get_repository
+    from orcheo_backend.app.repository_postgres import PostgresWorkflowRepository
 
     repository = get_repository()
     run_id = str(run.id)
@@ -421,11 +448,18 @@ async def _handle_execution_failure(
     logger.exception("Run %s failed: %s", run_id, error_message)
 
     try:
-        await repository.mark_run_failed(
-            run.id,
-            actor=WORKER_ACTOR,
-            error=error_message,
-        )
+        if owner_token is not None:
+            worker_repository = cast(PostgresWorkflowRepository, repository)
+            await worker_repository.mark_worker_run_failed(
+                run.id,
+                owner_token=owner_token,
+                actor=WORKER_ACTOR,
+                error=error_message,
+            )
+        else:
+            await repository.mark_run_failed(
+                run.id, actor=WORKER_ACTOR, error=error_message
+            )
     except Exception as mark_exc:
         logger.exception(
             "Failed to mark run %s as failed: %s",
@@ -462,6 +496,27 @@ async def execute_run_async(run_id: str, workspace_id: str | None) -> dict[str, 
     if error:
         return error
 
+    from orcheo_backend.app.dependencies import get_repository
+    from orcheo_backend.app.repository_postgres import PostgresWorkflowRepository
+
+    repository = get_repository()
+    if isinstance(repository, PostgresWorkflowRepository):
+        owner_token = uuid4().hex
+        start_error = await _mark_run_started(run, run_id, owner_token=owner_token)
+        if start_error:
+            return start_error
+        task = asyncio.current_task()
+        loop = asyncio.get_running_loop()
+
+        def cancel_lost_run() -> None:
+            if task is not None:
+                loop.call_soon_threadsafe(task.cancel)
+
+        with worker_run_heartbeat(
+            repository._dsn, run.id, owner_token, on_lease_lost=cancel_lost_run
+        ):
+            return await _execute_workflow(run, owner_token=owner_token)
+
     start_error = await _mark_run_started(run, run_id)
     if start_error:
         return start_error
@@ -469,7 +524,7 @@ async def execute_run_async(run_id: str, workspace_id: str | None) -> dict[str, 
     return await _execute_workflow(run)
 
 
-@celery_app.task(bind=True, max_retries=0)
+@celery_app.task(bind=True, max_retries=None, reject_on_worker_lost=True)
 def execute_run(self: Task, run_id: str) -> dict[str, Any]:
     """Execute a workflow run by ID.
 
@@ -484,7 +539,13 @@ def execute_run(self: Task, run_id: str) -> dict[str, Any]:
     headers = getattr(getattr(self, "request", None), "headers", None) or {}
     workspace_id = headers.get("workspace_id") or headers.get("x-orcheo-workspace-id")
     loop = _get_event_loop()
-    return loop.run_until_complete(execute_run_async(run_id, workspace_id))
+    try:
+        return loop.run_until_complete(execute_run_async(run_id, workspace_id))
+    except (psycopg.OperationalError, PoolTimeout) as exc:
+        # Keep an accepted queue message alive while PostgreSQL is unavailable.
+        retries = getattr(self.request, "retries", 0)
+        delay = min(300, 2 ** min(retries, 8))
+        raise self.retry(exc=exc, countdown=delay) from exc
 
 
 async def _dispatch_cron_triggers_async() -> list[str]:

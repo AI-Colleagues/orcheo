@@ -93,7 +93,10 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
     workspace_id TEXT,
     dispatch_requested BOOLEAN NOT NULL DEFAULT FALSE,
     enqueue_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
-    last_enqueue_attempt_at TIMESTAMP WITH TIME ZONE
+    last_enqueue_attempt_at TIMESTAMP WITH TIME ZONE,
+    worker_owner_token TEXT,
+    worker_heartbeat_at TIMESTAMP WITH TIME ZONE,
+    worker_lease_expires_at TIMESTAMP WITH TIME ZONE
 );
 CREATE INDEX IF NOT EXISTS idx_runs_workflow ON workflow_runs(workflow_id);
 CREATE INDEX IF NOT EXISTS idx_runs_version ON workflow_runs(workflow_version_id);
@@ -301,6 +304,19 @@ class PostgresRepositoryBase:
                 await conn.execute(
                     "ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS "
                     "last_enqueue_attempt_at TIMESTAMPTZ"
+                )
+                for column in (
+                    "worker_owner_token TEXT",
+                    "worker_heartbeat_at TIMESTAMPTZ",
+                    "worker_lease_expires_at TIMESTAMPTZ",
+                ):
+                    await conn.execute(
+                        "ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS " + column
+                    )
+                await conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_runs_worker_lease "
+                    "ON workflow_runs(worker_lease_expires_at) "
+                    "WHERE status = 'running' AND worker_owner_token IS NOT NULL"
                 )
                 await conn.execute("DROP INDEX IF EXISTS idx_runs_pending_enqueue")
                 await conn.execute(

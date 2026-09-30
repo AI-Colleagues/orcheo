@@ -1,6 +1,7 @@
 """Tests for workflow execution functions in tasks.py."""
 
 from __future__ import annotations
+from contextlib import nullcontext
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -464,9 +465,15 @@ class TestExecuteRunAsync:
         """Test that _execute_workflow is called when validation succeeds."""
         from orcheo_backend.worker.tasks import execute_run_async
 
-        with patch(
-            "orcheo_backend.worker.tasks._load_and_validate_run",
-            return_value=(mock_run, None),
+        with (
+            patch(
+                "orcheo_backend.app.dependencies.get_repository",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "orcheo_backend.worker.tasks._load_and_validate_run",
+                return_value=(mock_run, None),
+            ),
         ):
             with patch(
                 "orcheo_backend.worker.tasks._mark_run_started",
@@ -479,7 +486,46 @@ class TestExecuteRunAsync:
                     result = await execute_run_async(str(mock_run.id), "workspace-1")
 
         assert result["status"] == "succeeded"
-        mock_execute.assert_called_once_with(mock_run)
+        mock_execute.assert_awaited_once_with(mock_run)
+
+    @pytest.mark.asyncio
+    async def test_postgres_worker_uses_owned_execution(
+        self, mock_run: MagicMock
+    ) -> None:
+        """A PostgreSQL worker starts a heartbeat and fences its result."""
+        from orcheo_backend.app.repository_postgres import PostgresWorkflowRepository
+        from orcheo_backend.worker.tasks import execute_run_async
+
+        repository = PostgresWorkflowRepository("postgresql://test")
+        with (
+            patch(
+                "orcheo_backend.app.dependencies.get_repository",
+                return_value=repository,
+            ),
+            patch(
+                "orcheo_backend.worker.tasks._load_and_validate_run",
+                return_value=(mock_run, None),
+            ),
+            patch(
+                "orcheo_backend.worker.tasks._mark_run_started", new_callable=AsyncMock
+            ) as start,
+            patch(
+                "orcheo_backend.worker.tasks._execute_workflow", new_callable=AsyncMock
+            ) as execute,
+            patch(
+                "orcheo_backend.worker.tasks.worker_run_heartbeat",
+                return_value=nullcontext(),
+            ) as heartbeat,
+        ):
+            start.return_value = None
+            execute.return_value = {"status": "succeeded"}
+            result = await execute_run_async(str(mock_run.id), "workspace-1")
+
+        assert result["status"] == "succeeded"
+        token = start.await_args.kwargs["owner_token"]
+        assert isinstance(token, str)
+        execute.assert_awaited_once_with(mock_run, owner_token=token)
+        assert heartbeat.call_args.args == (repository._dsn, mock_run.id, token)
 
 
 class TestWorkspaceIdNonePaths:
