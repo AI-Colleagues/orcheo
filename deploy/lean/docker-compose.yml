@@ -111,17 +111,81 @@ services:
     environment:
       <<: *orcheo-env
       ORCHEO_BACKEND_INTERNAL_URL: http://backend:2025
+      ORCHEO_PUBLIC_BROWSER_WS_ENDPOINT: ws://public-browser:3000/public-browser
       # Workers do not serve Studio.
       ORCHEO_STUDIO_DIST_DIR: ""
     depends_on:
       backend:
         condition: service_healthy
+      public-browser:
+        condition: service_healthy
+    networks:
+      - default
+      - reader-control
     healthcheck:
       test: ["CMD", "python", "-m", "orcheo_backend.app.broker_healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 5
     command: python -m celery -A orcheo_backend.worker.celery_app worker --loglevel=info
+
+  # These two services deliberately do not inherit x-orcheo-image's env_file
+  # or mount orcheo_data. They have no vault, DB/R2 keys, or coding-agent home.
+  public-browser:
+    image: ${ORCHEO_LEAN_IMAGE:-orcheo-lean:local}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.lean
+    entrypoint: ["python", "-m", "orcheo.security.browser_worker"]
+    user: "1000:1000"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    environment:
+      HOME: /tmp
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    shm_size: 256mb
+    networks:
+      - reader-control
+      - reader-egress
+    depends_on:
+      public-egress:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 3000), 2).close()"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  public-egress:
+    image: ${ORCHEO_LEAN_IMAGE:-orcheo-lean:local}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.lean
+    entrypoint: ["python", "-m", "orcheo.security.egress_worker"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    # Only startup needs these. gosu drops privileges before serving requests.
+    cap_add: [NET_ADMIN, SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      HOME: /tmp
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /run:size=1m
+    networks:
+      - reader-egress
+      - public-egress
+    healthcheck:
+      test: ["CMD", "python", "-c", "from pathlib import Path; assert any(row.split()[1].endswith(':1F90') and row.split()[3] == '0A' for row in Path('/proc/net/tcp').read_text().splitlines()[1:])"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   celery-beat:
     <<: *orcheo-image
@@ -144,6 +208,12 @@ services:
       sh -c 'python -m celery -A orcheo_backend.worker.celery_app beat --loglevel=info -s "$$ORCHEO_CELERY_BEAT_SCHEDULE_FILE"'
 
 networks:
+  reader-control:
+    internal: true
+  reader-egress:
+    internal: true
+  public-egress:
+    enable_ipv6: ${ORCHEO_LEAN_ENABLE_IPV6:-true}
   default:
     # Supabase's direct connection and dedicated pooler (db.<ref>.supabase.co)
     # are IPv6-only, so give the containers an IPv6 route out. Docker Engine

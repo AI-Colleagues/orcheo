@@ -22,20 +22,21 @@ check for every hop of an httpx redirect chain, closing redirect-based bypasses;
 httpx invokes the transport once per hop and an exception raised there aborts the
 chain before the disallowed host is contacted.
 
-Callers gate on :func:`~orcheo.graph.ir.definition_mode.is_restricted_mode`, so
-trusted/self-hosted deployments keep unrestricted egress. The residual
-DNS-rebinding window (a resolver returning a public address to the guard and a
-private one to the connecting socket) is not closed here; pin resolution upstream
-if that threat is in scope.
+The network backend resolves and validates again at connection time, then opens
+the socket using the checked numeric IP. TLS still uses the original hostname.
+Restricted-mode callers install this automatically; trusted workflows handling
+untrusted URLs can opt in with ``public_https_client_kwargs`` in either mode.
 """
 
 from __future__ import annotations
 import asyncio
 import ipaddress
 import socket
+import ssl
 from collections.abc import Sequence
 from typing import Any
 from urllib.parse import urlsplit
+import httpcore
 import httpx
 
 
@@ -44,6 +45,10 @@ _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 # Default ports assumed when a URL omits one, keyed by scheme.
 _DEFAULT_PORTS = {"http": 80, "https": 443}
+_IPV6_TRANSITION_NETWORKS = tuple(
+    ipaddress.ip_network(prefix)
+    for prefix in ("64:ff9b::/96", "64:ff9b:1::/48", "2001::/32", "2002::/16")
+)
 
 
 class SSRFError(ValueError):
@@ -101,6 +106,11 @@ def _blocked_reason(address: str) -> str | None:
 
     # Ordered most-specific first so the error names the tightest category; the
     # generic non-global check is the catch-all backstop (e.g. carrier-grade NAT).
+    if isinstance(ip_obj, ipaddress.IPv6Address) and any(
+        ip_obj in network for network in _IPV6_TRANSITION_NETWORKS
+    ):
+        return f"{ip_obj} is an IPv6 translation or tunnel address"
+
     checks = (
         (ip_obj.is_loopback, "a loopback"),
         (ip_obj.is_link_local, "a link-local"),
@@ -193,6 +203,56 @@ async def validate_restricted_egress_host_async(host: str, port: int) -> None:
         await validate_public_host_async(host, port)
 
 
+class PublicNetworkBackend(httpcore.AnyIOBackend):
+    """Connect only to vetted numeric IPs without a second hostname lookup."""
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Any = None,
+    ) -> httpcore.AsyncNetworkStream:
+        """Resolve once, reject mixed answers, and pin the connection."""
+        try:
+            async with asyncio.timeout(timeout):
+                loop = asyncio.get_running_loop()
+                try:
+                    resolved = await loop.getaddrinfo(
+                        host, port, type=socket.SOCK_STREAM
+                    )
+                except socket.gaierror as exc:
+                    raise SSRFError("request hostname did not resolve") from exc
+                _check_resolved(host, resolved)
+                last_error: Exception | None = None
+                for address in dict.fromkeys(str(info[4][0]) for info in resolved):
+                    try:
+                        return await super().connect_tcp(
+                            address,
+                            port,
+                            timeout=timeout,
+                            local_address=local_address,
+                            socket_options=socket_options,
+                        )
+                    except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
+                        last_error = exc
+                raise httpcore.ConnectError(
+                    "no public address accepted the connection"
+                ) from last_error
+        except TimeoutError as exc:
+            raise httpcore.ConnectTimeout("public connection timed out") from exc
+
+    async def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,
+        socket_options: Any = None,
+    ) -> httpcore.AsyncNetworkStream:
+        """Disallow local sockets in public-only clients."""
+        raise SSRFError("Unix sockets are not public request targets")
+
+
 class SSRFGuardAsyncTransport(httpx.AsyncHTTPTransport):
     """httpx transport that validates every request (and redirect hop) target.
 
@@ -201,10 +261,44 @@ class SSRFGuardAsyncTransport(httpx.AsyncHTTPTransport):
     before the connection to it is made.
     """
 
+    def __init__(
+        self, *, https_only: bool = False, ssl_context: ssl.SSLContext | None = None
+    ) -> None:
+        """Install a pinned backend and require verified TLS for HTTPS."""
+        context = ssl_context or httpcore.default_ssl_context()
+        if not context.check_hostname or context.verify_mode != ssl.CERT_REQUIRED:
+            raise ValueError("public requests require TLS certificate verification")
+        super().__init__(trust_env=False)
+        # HTTPX's transport adapter owns this pool. Keep its request/response and
+        # error translation, replacing only the pool through httpcore's public
+        # network_backend API; no process-wide resolver monkeypatch is needed.
+        self._pool = httpcore.AsyncConnectionPool(
+            ssl_context=context, network_backend=PublicNetworkBackend()
+        )
+        self._https_only = https_only
+
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         """Validate the request URL, then delegate to the base transport."""
+        _split_target(str(request.url))
+        if self._https_only and (
+            request.url.scheme != "https" or request.url.port not in (None, 443)
+        ):
+            raise SSRFError("public HTTPS requests require HTTPS on port 443")
+        if request.url.username or request.url.password:
+            raise SSRFError("public request URLs cannot contain credentials")
+        if "sni_hostname" in request.extensions:
+            raise SSRFError("public requests cannot override the TLS hostname")
         await validate_public_url_async(str(request.url))
         return await super().handle_async_request(request)
+
+
+def public_https_client_kwargs() -> dict[str, Any]:
+    """Return an always-on public HTTPS client, independent of workflow mode.
+
+    Environment proxy mounts must be disabled: otherwise HTTPX can select an
+    unguarded proxy transport instead of the pinned transport.
+    """
+    return {"transport": SSRFGuardAsyncTransport(https_only=True), "trust_env": False}
 
 
 def restricted_egress_client_kwargs() -> dict[str, Any]:
@@ -220,13 +314,15 @@ def restricted_egress_client_kwargs() -> dict[str, Any]:
     from orcheo.graph.ir.definition_mode import is_restricted_mode
 
     if is_restricted_mode():
-        return {"transport": SSRFGuardAsyncTransport()}
+        return {"transport": SSRFGuardAsyncTransport(), "trust_env": False}
     return {}
 
 
 __all__ = [
     "SSRFError",
     "SSRFGuardAsyncTransport",
+    "PublicNetworkBackend",
+    "public_https_client_kwargs",
     "restricted_egress_client_kwargs",
     "validate_public_host_async",
     "validate_public_url",

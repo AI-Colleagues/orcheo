@@ -6,6 +6,7 @@ import ipaddress
 import socket
 from typing import Any
 from urllib.parse import urlsplit
+from orcheo.security.ssrf import _blocked_reason
 
 
 _HEADER_LIMIT = 16_384
@@ -38,7 +39,7 @@ async def _public_addresses(host: str) -> list[tuple[Any, ...]]:
         address = ipaddress.ip_address(info[4][0].split("%", 1)[0])
         if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
             address = address.ipv4_mapped
-        if not address.is_global:
+        if _blocked_reason(str(address)) is not None:
             raise ValueError("CONNECT hostname resolved to a non-public address")
     return infos
 
@@ -70,10 +71,10 @@ class PublicHttpsProxy:
             raise RuntimeError("public HTTPS proxy is not running")
         return f"http://127.0.0.1:{self._server.sockets[0].getsockname()[1]}"
 
-    async def start(self) -> None:
+    async def start(self, host: str = "127.0.0.1", port: int = 0) -> None:
         """Bind a private listener used by one browser session."""
         self._server = await asyncio.start_server(
-            self._handle, host="127.0.0.1", port=0, limit=_HEADER_LIMIT
+            self._handle, host=host, port=port, limit=_HEADER_LIMIT
         )
 
     async def close(self) -> None:
@@ -135,3 +136,17 @@ class PublicHttpsProxy:
                 await upstream.wait_closed()
             writer.close()
             await writer.wait_closed()
+
+
+async def _serve() -> None:
+    """Run the credential-free proxy sidecar (no host port is published)."""
+    proxy = PublicHttpsProxy()
+    await proxy.start(host="0.0.0.0", port=8080)
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await proxy.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(_serve())

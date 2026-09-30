@@ -185,6 +185,15 @@ self-host/dev default).
 
 ## Workflow execution
 
+`ORCHEO_PUBLIC_BROWSER_WS_ENDPOINT` selects the isolated Playwright server for
+`BrowserNavigateNode(public_https_only=True)`. The lean stack sets it to
+`ws://public-browser:3000/public-browser`. The browser must share the worker's
+Playwright version and run without worker credentials or private/internet
+network routes, using the public HTTPS proxy. Connection failures never fall
+back locally. Without this setting, development uses the existing local proxy.
+See [Public event reader security](public_reader_security.md) for deployment
+boundaries and the installed-image preflight.
+
 | Variable | Default | Valid values | Purpose |
 | --- | --- | --- | --- |
 | `ORCHEO_WORKFLOW_TRUST_MODE` | `managed` (set to `allow_client_uploads` by `orcheo install` for local hosting and trusted HTTPS backends) | `allow_client_uploads` or `managed` | Controls whether client-supplied workflow scripts may be ingested. When set to `allow_client_uploads`, the Upload and Update buttons are enabled in Studio and the CLI `workflow upload` command is accepted by the backend. When set to `managed` (or any other value, which is the backend's built-in default when the variable is unset), client uploads are rejected with HTTP 403 and the upload/update UI is hidden; only server-side candidate onboarding via `POST /candidates/onboard` is permitted. `orcheo install` writes this variable into the stack `.env` based on the deployment topology: a local-hosting install (no bundled public ingress and a loopback `http://` backend) gets `allow_client_uploads` with `unrestricted` definition mode; a trusted HTTPS backend gets `allow_client_uploads` paired with `restricted` definition mode (uploads compile to the sandboxed IR); any other (untrusted non-loopback `http://`) deployment is pinned to `managed`. Set to `allow_client_uploads` with `unrestricted` definition mode only on instances where every workflow author is trusted (`graph/ingestion/sandbox.py`, `app/routers/workflows.py`, `cli/setup.py`). |
