@@ -170,6 +170,41 @@ def test_http_executor_recovers_from_transport_error() -> None:
     assert payload["status"] == "pending"
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"not-json",
+        b"[]",
+        b'{"detail": null}',
+        b'{"detail": {"error": null}}',
+        b'{"detail": {"error": {"message": 42}}}',
+        b"{}",
+    ],
+)
+def test_http_executor_handles_malformed_quota_responses(content: bytes) -> None:
+    """Malformed quota details preserve the status error without retrying."""
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(429, content=content)
+
+    executor = HttpWorkflowExecutor(
+        client=OrcheoClient(base_url="http://localhost"),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: pytest.fail("Quota rejection must not be retried"),
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        executor.trigger_run(
+            "workflow", workflow_version_id="version", triggered_by="tester"
+        )
+
+    assert str(exc_info.value) == "Failed to trigger workflow run (status 429)"
+    assert isinstance(exc_info.value.__cause__, httpx.HTTPStatusError)
+    assert len(requests) == 1
+
+
 def test_http_executor_raises_on_persistent_transport_error() -> None:
     transport = httpx.MockTransport(
         lambda request: (_ for _ in ()).throw(

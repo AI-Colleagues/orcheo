@@ -379,6 +379,46 @@ async def test_failed_enqueue_remains_eligible_for_reconciliation(
 
 
 @pytest.mark.asyncio
+@pytest.mark.no_mock_celery
+async def test_enqueue_confirmation_failure_is_logged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A database outage after publication does not fail the trigger request."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    repo = make_repository(monkeypatch, [])
+    confirm = AsyncMock(side_effect=OSError("database unavailable"))
+    monkeypatch.setattr(repo, "mark_run_enqueued", confirm)
+    monkeypatch.setattr(pg_triggers, "_enqueue_run_for_execution", lambda _: True)
+
+    await pg_triggers._enqueue_run_and_confirm(repo, run)
+
+    confirm.assert_awaited_once_with(run.id)
+    assert f"Could not confirm enqueue for run {run.id}" in caplog.text
+    assert "database unavailable" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_run_start_rejects_missing_run_without_writing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A worker cannot update a run that is absent from the locked lookup."""
+    repo = make_repository(monkeypatch, [{"row": None}])
+    run_id = uuid4()
+
+    with pytest.raises(WorkflowRunNotFoundError, match=str(run_id)):
+        await repo.mark_run_started(run_id, actor="worker")
+
+    conn = repo._pool._connection
+    assert len(conn.queries) == 1
+    assert conn.queries[0][0].endswith("FOR UPDATE")
+    assert conn.queries[0][1] == (str(run_id),)
+    assert conn.commits == 0
+    assert conn.rollbacks == 1
+
+
+@pytest.mark.asyncio
 async def test_run_start_holds_database_row_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

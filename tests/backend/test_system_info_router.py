@@ -154,6 +154,22 @@ def test_system_readiness_checks_redis_from_backend(
     assert redis.aclose.await_count == 2
 
 
+def test_system_readiness_rejects_unsuccessful_ping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A false ping result is unhealthy and still closes the connection."""
+    monkeypatch.setenv("ORCHEO_INPROCESS_EXECUTION", "false")
+    redis = SimpleNamespace(ping=AsyncMock(return_value=False), aclose=AsyncMock())
+    monkeypatch.setattr(system_router.Redis, "from_url", lambda *args, **kwargs: redis)
+
+    response = create_test_client().get("/api/system/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Redis unavailable"}
+    redis.ping.assert_awaited_once()
+    redis.aclose.assert_awaited_once()
+
+
 def test_system_readiness_skips_broker_for_inprocess_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
