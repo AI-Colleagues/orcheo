@@ -178,7 +178,8 @@ async def test_reconciler_bounds_each_pass_to_twenty_runs(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "cancel_during", ["reconcile_pending_runs", "log_stale_active_runs"]
+    "cancel_during",
+    ["reconcile_pending_runs", "fail_orphaned_worker_runs", "log_stale_active_runs"],
 )
 async def test_reconciler_propagates_cancellation(
     monkeypatch: pytest.MonkeyPatch, cancel_during: str
@@ -190,14 +191,60 @@ async def test_reconciler_propagates_cancellation(
     monkeypatch.setattr(pending_run_reconciler, "reconcile_pending_runs", reconcile)
     monkeypatch.setattr(pending_run_reconciler, "log_stale_active_runs", monitor)
     monkeypatch.setattr(pending_run_reconciler.asyncio, "sleep", sleep)
-    getattr(pending_run_reconciler, cancel_during).side_effect = asyncio.CancelledError
+    repository = AsyncMock()
+    repository.fail_orphaned_worker_runs.return_value = []
+    operation = (
+        repository.fail_orphaned_worker_runs
+        if cancel_during == "fail_orphaned_worker_runs"
+        else getattr(pending_run_reconciler, cancel_during)
+    )
+    operation.side_effect = asyncio.CancelledError
 
     with pytest.raises(asyncio.CancelledError):
-        await pending_run_reconciler.run_pending_reconciler(AsyncMock())
+        await pending_run_reconciler.run_pending_reconciler(repository)
 
     reconcile.assert_awaited_once()
     assert monitor.await_count == (1 if cancel_during == "log_stale_active_runs" else 0)
     sleep.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("recovery_fails", [False, True])
+async def test_orphan_recovery_reports_results_and_preserves_monitoring(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    recovery_fails: bool,
+) -> None:
+    """Recovered runs and database errors are visible without stopping monitoring."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", workspace_id="workspace-1"
+    )
+    repository = AsyncMock()
+    repository.fail_orphaned_worker_runs.return_value = [run]
+    if recovery_fails:
+        repository.fail_orphaned_worker_runs.side_effect = OSError("database offline")
+    monitor = AsyncMock()
+    monkeypatch.setattr(pending_run_reconciler, "reconcile_pending_runs", AsyncMock())
+    monkeypatch.setattr(pending_run_reconciler, "log_stale_active_runs", monitor)
+    monkeypatch.setattr(
+        pending_run_reconciler.asyncio,
+        "sleep",
+        AsyncMock(side_effect=asyncio.CancelledError),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await pending_run_reconciler.run_pending_reconciler(repository)
+
+    repository.fail_orphaned_worker_runs.assert_awaited_once_with()
+    monitor.assert_awaited_once_with(repository)
+    if recovery_fails:
+        assert "Orphaned worker run recovery failed" in caplog.text
+        assert "database offline" in caplog.text
+    else:
+        assert (
+            f"Failed orphaned worker run {run.id} in workspace workspace-1"
+            in caplog.text
+        )
 
 
 @pytest.mark.asyncio

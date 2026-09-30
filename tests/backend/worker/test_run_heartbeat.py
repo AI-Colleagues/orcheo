@@ -3,25 +3,32 @@
 from __future__ import annotations
 from datetime import timedelta
 from threading import Event
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, Mock
 from uuid import uuid4
 import psycopg
 import pytest
 from orcheo_backend.worker import run_heartbeat
 
 
+@pytest.mark.parametrize("owns_run", [True, False])
 def test_renew_worker_run_lease_uses_owned_running_row(
     monkeypatch: pytest.MonkeyPatch,
+    owns_run: bool,
 ) -> None:
     """A heartbeat updates only its own running row."""
     run_id = uuid4()
     connection = MagicMock()
     connection.__enter__.return_value = connection
-    connection.execute.return_value.fetchone.return_value = (str(run_id),)
+    connection.execute.return_value.fetchone.return_value = (
+        (str(run_id),) if owns_run else None
+    )
     connect = MagicMock(return_value=connection)
     monkeypatch.setattr(run_heartbeat.psycopg, "connect", connect)
 
-    assert run_heartbeat.renew_worker_run_lease("postgresql://test", run_id, "owner")
+    assert (
+        run_heartbeat.renew_worker_run_lease("postgresql://test", run_id, "owner")
+        is owns_run
+    )
 
     connect.assert_called_once_with(
         "postgresql://test", connect_timeout=5, options="-c statement_timeout=5000"
@@ -96,3 +103,80 @@ def test_unresponsive_workflow_process_is_terminated_after_lease_loss(
 
     with run_heartbeat.worker_run_heartbeat("postgresql://test", uuid4(), "owner"):
         assert terminated.wait(1)
+
+
+def test_worker_termination_exits_with_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Forced shutdown uses a failing process exit status."""
+    exit_process = Mock()
+    monkeypatch.setattr(run_heartbeat.os, "_exit", exit_process)
+
+    run_heartbeat._terminate_unresponsive_worker()
+
+    exit_process.assert_called_once_with(1)
+
+
+def test_lease_loss_after_shutdown_does_not_cancel_or_terminate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A heartbeat finishing after context shutdown leaves the worker alone."""
+    stop = Event()
+    stop.set()
+    lost = Event()
+    cancel = Mock()
+    terminate = Mock()
+    monkeypatch.setattr(run_heartbeat, "_terminate_unresponsive_worker", terminate)
+
+    run_heartbeat._signal_lease_loss(stop, lost, uuid4(), cancel)
+
+    assert not lost.is_set()
+    cancel.assert_not_called()
+    terminate.assert_not_called()
+
+
+def test_cancellation_callback_failure_still_enforces_shutdown(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A broken cancellation callback cannot let a worker outlive its lease."""
+    stop = Event()
+    lost = Event()
+    cancel = Mock(side_effect=RuntimeError("cancel failed"))
+    terminate = Mock()
+    run_id = uuid4()
+    monkeypatch.setattr(run_heartbeat, "WORKER_LEASE_LOSS_SHUTDOWN_SECONDS", 0)
+    monkeypatch.setattr(run_heartbeat, "_terminate_unresponsive_worker", terminate)
+
+    run_heartbeat._signal_lease_loss(stop, lost, run_id, cancel)
+
+    assert lost.is_set()
+    cancel.assert_called_once_with()
+    terminate.assert_called_once_with()
+    assert f"Could not cancel run {run_id} after lease loss" in caplog.text
+    assert "cancel failed" in caplog.text
+
+
+def test_heartbeat_recovers_from_transient_database_outage(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A brief renewal failure allows another heartbeat before lease expiry."""
+    renewed = Event()
+    attempts = 0
+
+    def renew(*_args: object) -> bool:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise psycopg.OperationalError("temporary outage")
+        renewed.set()
+        return True
+
+    monkeypatch.setattr(run_heartbeat, "WORKER_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(run_heartbeat, "renew_worker_run_lease", renew)
+    monkeypatch.setattr(run_heartbeat, "WORKER_LEASE_DURATION", timedelta(hours=1))
+    with run_heartbeat.worker_run_heartbeat(
+        "postgresql://test", uuid4(), "owner"
+    ) as lost:
+        assert renewed.wait(1)
+        assert not lost.is_set()
+
+    assert attempts >= 2
+    assert "temporary outage" in caplog.text

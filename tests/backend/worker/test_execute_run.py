@@ -202,6 +202,38 @@ class TestMarkRunStarted:
     """Tests for _mark_run_started function."""
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("claim_result", ["claimed", "duplicate", "error"])
+    async def test_owned_worker_claim_handles_redelivery_and_errors(
+        self, mock_run: MagicMock, claim_result: str
+    ) -> None:
+        """Owned claims skip duplicate or rejected deliveries before execution."""
+        from orcheo_backend.worker.tasks import _mark_run_started
+
+        repository = AsyncMock()
+        repository.claim_worker_run.return_value = (
+            mock_run if claim_result == "claimed" else None
+        )
+        if claim_result == "error":
+            repository.claim_worker_run.side_effect = ValueError("claim rejected")
+        with patch(
+            "orcheo_backend.app.dependencies.get_repository", return_value=repository
+        ):
+            result = await _mark_run_started(
+                mock_run, str(mock_run.id), owner_token="owner"
+            )
+
+        expected = {
+            "claimed": None,
+            "duplicate": {"status": "skipped", "reason": "Run already started"},
+            "error": {"status": "skipped", "reason": "claim rejected"},
+        }
+        assert result == expected[claim_result]
+        repository.claim_worker_run.assert_awaited_once_with(
+            mock_run.id, owner_token="owner", actor="worker"
+        )
+        repository.mark_run_started.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_mark_started_failure_returns_error(
         self, mock_run: MagicMock
     ) -> None:

@@ -9,7 +9,7 @@ import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from uuid import UUID, uuid4
 import pytest
 from orcheo.models import WorkflowRun, WorkflowVersion
@@ -278,8 +278,10 @@ async def test_late_worker_result_cannot_overwrite_recovered_run(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("succeeds", [True, False])
 async def test_current_worker_can_commit_result_and_release_lease(
     monkeypatch: pytest.MonkeyPatch,
+    succeeds: bool,
 ) -> None:
     """A matching token permits success and revokes the lease atomically."""
     run = WorkflowRun(
@@ -299,14 +301,42 @@ async def test_current_worker_can_commit_result_and_release_lease(
         ],
     )
 
-    succeeded = await repo.mark_worker_run_succeeded(
-        run.id, owner_token="owner", actor="worker", output={"ok": True}
-    )
-
-    assert succeeded.status.value == "succeeded"
+    release = Mock()
+    monkeypatch.setattr(repo, "_release_cron_run", release)
+    if succeeds:
+        completed = await repo.mark_worker_run_succeeded(
+            run.id, owner_token="owner", actor="worker", output={"ok": True}
+        )
+        assert completed.status.value == "succeeded"
+        assert completed.output_payload == {"ok": True}
+    else:
+        completed = await repo.mark_worker_run_failed(
+            run.id, owner_token="owner", actor="worker", error="Workflow crashed"
+        )
+        assert completed.status.value == "failed"
+        assert completed.error == "Workflow crashed"
+    release.assert_called_once_with(run.id)
     query, params = repo._pool._connection.queries[1]
     assert "worker_lease_expires_at = CASE WHEN %s THEN NULL" in query
     assert params[3:5] == (True, True)
+
+
+@pytest.mark.asyncio
+async def test_worker_claim_rejects_missing_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A delivery for a deleted run cannot create ownership or mutate state."""
+    repo = make_repository(monkeypatch, [{"row": None}])
+    run_id = uuid4()
+
+    with pytest.raises(WorkflowRunNotFoundError, match=str(run_id)):
+        await repo.claim_worker_run(run_id, owner_token="owner", actor="worker")
+
+    conn = repo._pool._connection
+    assert len(conn.queries) == 1
+    assert conn.queries[0][1] == (str(run_id),)
+    assert conn.commits == 0
+    assert conn.rollbacks == 1
 
 
 @pytest.mark.asyncio

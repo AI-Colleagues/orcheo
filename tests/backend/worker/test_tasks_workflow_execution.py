@@ -1,7 +1,9 @@
 """Tests for workflow execution functions in tasks.py."""
 
 from __future__ import annotations
-from contextlib import nullcontext
+import asyncio
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -101,7 +103,10 @@ class TestHandleExecutionFailure:
     """Tests for _handle_execution_failure function."""
 
     @pytest.mark.asyncio
-    async def test_marks_run_as_failed(self, mock_run: MagicMock) -> None:
+    @pytest.mark.parametrize("owner_token", [None, "owner"])
+    async def test_marks_run_as_failed(
+        self, mock_run: MagicMock, owner_token: str | None
+    ) -> None:
         """Test that run is marked as failed."""
         from orcheo_backend.worker.tasks import _handle_execution_failure
 
@@ -112,13 +117,25 @@ class TestHandleExecutionFailure:
             "orcheo_backend.app.dependencies.get_repository", return_value=mock_repo
         ):
             with patch("orcheo_backend.worker.tasks.logger"):
-                result = await _handle_execution_failure(mock_run, exception)
+                result = await _handle_execution_failure(
+                    mock_run, exception, owner_token=owner_token
+                )
 
         assert result["status"] == "failed"
         assert "Workflow crashed" in result["error"]
-        mock_repo.mark_run_failed.assert_called_once_with(
-            mock_run.id, actor="worker", error="Workflow crashed"
-        )
+        if owner_token is None:
+            mock_repo.mark_run_failed.assert_awaited_once_with(
+                mock_run.id, actor="worker", error="Workflow crashed"
+            )
+            mock_repo.mark_worker_run_failed.assert_not_awaited()
+        else:
+            mock_repo.mark_worker_run_failed.assert_awaited_once_with(
+                mock_run.id,
+                owner_token=owner_token,
+                actor="worker",
+                error="Workflow crashed",
+            )
+            mock_repo.mark_run_failed.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_logs_exception_when_mark_failed_fails(
@@ -197,8 +214,9 @@ class TestExecuteWorkflow:
     """Tests for _execute_workflow function."""
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("owner_token", [None, "owner"])
     async def test_successful_execution(
-        self, mock_run: MagicMock, mock_version: MagicMock
+        self, mock_run: MagicMock, mock_version: MagicMock, owner_token: str | None
     ) -> None:
         """Test successful workflow execution."""
         from orcheo_backend.worker.tasks import _execute_workflow
@@ -271,11 +289,23 @@ class TestExecuteWorkflow:
                                                 "orcheo.runtime.credentials.credential_resolution"
                                             ):
                                                 result = await _execute_workflow(
-                                                    mock_run
+                                                    mock_run, owner_token=owner_token
                                                 )
 
         assert result["status"] == "succeeded"
-        mock_repo.mark_run_succeeded.assert_called_once()
+        if owner_token is None:
+            mock_repo.mark_run_succeeded.assert_awaited_once_with(
+                mock_run.id, actor="worker", output={"final_state": {}}
+            )
+            mock_repo.mark_worker_run_succeeded.assert_not_awaited()
+        else:
+            mock_repo.mark_worker_run_succeeded.assert_awaited_once_with(
+                mock_run.id,
+                owner_token=owner_token,
+                actor="worker",
+                output={"final_state": {}},
+            )
+            mock_repo.mark_run_succeeded.assert_not_awaited()
         mock_graph.compile.assert_called_once_with(
             checkpointer=mock_checkpointer,
             store=mock_checkpointer,
@@ -448,9 +478,15 @@ class TestExecuteRunAsync:
         """Test that mark_started failure returns error."""
         from orcheo_backend.worker.tasks import execute_run_async
 
-        with patch(
-            "orcheo_backend.worker.tasks._load_and_validate_run",
-            return_value=(mock_run, None),
+        with (
+            patch(
+                "orcheo_backend.worker.tasks._load_and_validate_run",
+                return_value=(mock_run, None),
+            ),
+            patch(
+                "orcheo_backend.app.dependencies.get_repository",
+                return_value=MagicMock(),
+            ),
         ):
             with patch(
                 "orcheo_backend.worker.tasks._mark_run_started",
@@ -489,8 +525,9 @@ class TestExecuteRunAsync:
         mock_execute.assert_awaited_once_with(mock_run)
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("claim_rejected", [False, True])
     async def test_postgres_worker_uses_owned_execution(
-        self, mock_run: MagicMock
+        self, mock_run: MagicMock, claim_rejected: bool
     ) -> None:
         """A PostgreSQL worker starts a heartbeat and fences its result."""
         from orcheo_backend.app.repository_postgres import PostgresWorkflowRepository
@@ -517,15 +554,77 @@ class TestExecuteRunAsync:
                 return_value=nullcontext(),
             ) as heartbeat,
         ):
-            start.return_value = None
+            start.return_value = (
+                {"status": "skipped", "reason": "Run already started"}
+                if claim_rejected
+                else None
+            )
             execute.return_value = {"status": "succeeded"}
             result = await execute_run_async(str(mock_run.id), "workspace-1")
 
-        assert result["status"] == "succeeded"
         token = start.await_args.kwargs["owner_token"]
         assert isinstance(token, str)
+        if claim_rejected:
+            assert result == start.return_value
+            execute.assert_not_awaited()
+            heartbeat.assert_not_called()
+            return
+        assert result["status"] == "succeeded"
         execute.assert_awaited_once_with(mock_run, owner_token=token)
         assert heartbeat.call_args.args == (repository._dsn, mock_run.id, token)
+
+    @pytest.mark.asyncio
+    async def test_postgres_lease_loss_cancels_execution_and_closes_heartbeat(
+        self, mock_run: MagicMock
+    ) -> None:
+        """The heartbeat callback cancels its execution task and releases the context."""
+        from orcheo_backend.app.repository_postgres import PostgresWorkflowRepository
+        from orcheo_backend.worker.tasks import execute_run_async
+
+        started = asyncio.Event()
+        stopped = asyncio.Event()
+        callbacks = []
+
+        @contextmanager
+        def heartbeat(*_args: object, on_lease_lost: Any) -> Iterator[None]:
+            callbacks.append(on_lease_lost)
+            try:
+                yield
+            finally:
+                stopped.set()
+
+        async def execute(*_args: object, **_kwargs: object) -> dict[str, Any]:
+            started.set()
+            await asyncio.Event().wait()
+            pytest.fail("Execution must be cancelled after lease loss")
+
+        with (
+            patch(
+                "orcheo_backend.app.dependencies.get_repository",
+                return_value=PostgresWorkflowRepository("postgresql://test"),
+            ),
+            patch(
+                "orcheo_backend.worker.tasks._load_and_validate_run",
+                return_value=(mock_run, None),
+            ),
+            patch("orcheo_backend.worker.tasks._mark_run_started", return_value=None),
+            patch("orcheo_backend.worker.tasks.worker_run_heartbeat", heartbeat),
+            patch("orcheo_backend.worker.tasks._execute_workflow", side_effect=execute),
+        ):
+            task = asyncio.create_task(
+                execute_run_async(str(mock_run.id), "workspace-1")
+            )
+            try:
+                await asyncio.wait_for(started.wait(), timeout=1)
+                callbacks[0]()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+        assert task.cancelled()
+        assert stopped.is_set()
 
 
 class TestWorkspaceIdNonePaths:
