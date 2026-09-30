@@ -3513,7 +3513,7 @@ wheels = [
 
 [[package]]
 name = "orcheo"
-version = "0.45.4"
+version = "0.45.5"
 source = { editable = "." }
 dependencies = [
     { name = "agentensor" },
