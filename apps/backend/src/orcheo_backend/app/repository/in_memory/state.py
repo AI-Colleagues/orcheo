@@ -103,84 +103,82 @@ class InMemoryRepositoryState:
             raise WorkflowVersionNotFoundError(str(workflow_version_id))
 
         from orcheo_backend.app.workspace import get_workspace_repository
-        from orcheo_backend.app.workspace_governance import get_workspace_governance
+        from orcheo_backend.app.workspace_governance import (
+            ensure_concurrent_run_capacity,
+        )
 
-        workspace_record = None
         if workspace_id is not None:
             workspace_record = get_workspace_repository().get_workspace(
                 UUID(workspace_id)
             )
-            get_workspace_governance().reserve_run_slot(
+            ensure_concurrent_run_capacity(
                 workspace_id,
+                active_runs=self._count_active_runs_locked(workspace_id),
                 limit=workspace_record.quotas.max_concurrent_runs,
             )
 
-        try:
-            config_payload: dict[str, Any] | None = None
-            if runnable_config:
-                if hasattr(runnable_config, "model_dump"):
-                    config_payload = runnable_config.model_dump(mode="json")  # type: ignore[arg-type]
-                elif isinstance(runnable_config, Mapping):  # pragma: no branch
-                    config_payload = dict(runnable_config)
-            merged_config = merge_runnable_configs(
-                version.runnable_config, config_payload
-            )
-            config_payload = merged_config.model_dump(
-                mode="json",
-                exclude_defaults=True,
-                exclude_none=True,
-            )
-            tags = (
-                list(config_payload.get("tags", []))
-                if isinstance(config_payload, dict)
-                else []
-            )
-            callbacks = (
-                list(config_payload.get("callbacks", []))
-                if isinstance(config_payload, dict)
-                else []
-            )
-            metadata = (
-                dict(config_payload.get("metadata", {}))
-                if isinstance(config_payload, Mapping)
-                else {}
-            )
-            run_name = (
-                config_payload.get("run_name")
-                if isinstance(config_payload, Mapping)
-                else None
-            )
-            run = WorkflowRun(
-                workspace_id=workspace_id,
-                workflow_id=workflow_id,
-                workflow_version_id=workflow_version_id,
-                triggered_by=triggered_by,
-                input_payload=dict(input_payload),
-                runnable_config=config_payload
-                if isinstance(config_payload, dict)
-                else {},
-                tags=tags,
-                callbacks=callbacks,
-                metadata=metadata,
-                run_name=run_name,
-            )
-            run.record_event(actor=actor or triggered_by, action="run_created")
-            self._runs[run.id] = run
-            if workspace_id is not None:
-                self._run_workspaces[run.id] = workspace_id
-            self._version_runs.setdefault(workflow_version_id, []).append(run.id)
-            self._trigger_layer.track_run(workflow_id, run.id)
-            if triggered_by == "cron":
-                self._trigger_layer.register_cron_run(run.id)
-            return run
-        except Exception:
-            if workspace_id is not None:
-                from orcheo_backend.app.workspace_governance import (
-                    get_workspace_governance,
-                )
+        config_payload: dict[str, Any] | None = None
+        if runnable_config:
+            if hasattr(runnable_config, "model_dump"):
+                config_payload = runnable_config.model_dump(mode="json")  # type: ignore[arg-type]
+            elif isinstance(runnable_config, Mapping):  # pragma: no branch
+                config_payload = dict(runnable_config)
+        merged_config = merge_runnable_configs(version.runnable_config, config_payload)
+        config_payload = merged_config.model_dump(
+            mode="json",
+            exclude_defaults=True,
+            exclude_none=True,
+        )
+        tags = (
+            list(config_payload.get("tags", []))
+            if isinstance(config_payload, dict)
+            else []
+        )
+        callbacks = (
+            list(config_payload.get("callbacks", []))
+            if isinstance(config_payload, dict)
+            else []
+        )
+        metadata = (
+            dict(config_payload.get("metadata", {}))
+            if isinstance(config_payload, Mapping)
+            else {}
+        )
+        run_name = (
+            config_payload.get("run_name")
+            if isinstance(config_payload, Mapping)
+            else None
+        )
+        run = WorkflowRun(
+            workspace_id=workspace_id,
+            workflow_id=workflow_id,
+            workflow_version_id=workflow_version_id,
+            triggered_by=triggered_by,
+            input_payload=dict(input_payload),
+            runnable_config=config_payload if isinstance(config_payload, dict) else {},
+            tags=tags,
+            callbacks=callbacks,
+            metadata=metadata,
+            run_name=run_name,
+        )
+        run.record_event(actor=actor or triggered_by, action="run_created")
+        self._runs[run.id] = run
+        if workspace_id is not None:
+            self._run_workspaces[run.id] = workspace_id
+        self._version_runs.setdefault(workflow_version_id, []).append(run.id)
+        self._trigger_layer.track_run(workflow_id, run.id)
+        if triggered_by == "cron":
+            self._trigger_layer.register_cron_run(run.id)
+        return run
 
-                get_workspace_governance().release_run_slot(workspace_id)
-            raise
+    def _count_active_runs_locked(self, workspace_id: str) -> int:
+        """Return the workspace's pending and running runs. Caller holds the lock."""
+        return sum(
+            1
+            for run_id, run_workspace_id in self._run_workspaces.items()
+            if run_workspace_id == workspace_id
+            and not self._runs[run_id].status.is_terminal
+        )
 
     async def _update_run(
         self, run_id: UUID, updater: Callable[[WorkflowRun], None]

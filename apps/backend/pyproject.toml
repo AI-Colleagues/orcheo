@@ -42,7 +42,7 @@ Source = "https://github.com/AI-Colleagues/orcheo/tree/main/apps/backend"
 package-dir = {"" = "src"}
 
 [tool.setuptools.package-data]
-"orcheo_backend.app.mcp_server" = ["ui/*.html", "ui/*.js"]
+"orcheo_backend.app.mcp_server" = ["ui/*.html", "ui/*.js", "ui/*.png"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

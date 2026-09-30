@@ -39,6 +39,7 @@ from orcheo_sdk.cli.setup import (
     run_setup,
 )
 from orcheo_sdk.cli.stack_project import (
+    LEAN_COMPOSE_WAIT_TIMEOUT,
     STACK_NOT_FOUND_MESSAGE,
     StackProject,
     resolve_installed_stack,
@@ -1103,7 +1104,15 @@ def stack_command(
     compose_base_args = _stack_compose_base_args(project)
     # The lean compose file also declares a source build that needs a full
     # checkout, so start it from the published image only.
-    up_args = ["up", "-d", *(["--no-build"] if project.lean else [])]
+    up_args = [
+        "up",
+        "-d",
+        *(
+            ["--no-build", "--wait", "--wait-timeout", LEAN_COMPOSE_WAIT_TIMEOUT]
+            if project.lean
+            else []
+        ),
+    ]
     command_by_action = {
         "logs": [*compose_base_args, "logs", "-f"],
         "start": [*compose_base_args, *up_args],

@@ -148,6 +148,121 @@ required; otherwise set `ORCHEO_AUTH_MODE=required` before exposing it.
 `ORCHEO_AUTH_ALLOWED_EMAIL_DOMAINS` limits sign-in to the listed domains once
 sign-in is required.
 
+The lean services use `restart: unless-stopped`. The backend's Docker health
+check calls `/api/system/ready`, which tests Redis from the backend container;
+worker and Beat health checks also connect to Redis. These checks verify broker
+reachability, not that the worker is executing or Beat is scheduling. The
+installer waits for all services to become healthy. Redis availability is an
+intentional part of the lean backend container's health status; use
+`/api/system/health` as the backend liveness probe and `/api/system/ready` as
+the readiness probe in an orchestrator that restarts unhealthy containers.
+Docker Compose does not automatically restart a container merely because its
+health check becomes unhealthy, so monitor Compose health and alert on an
+unhealthy service or a stopped worker or Beat.
+
+After a Redis or Docker network incident, recreate the lean containers if the
+`redis` service name does not resolve from the backend:
+
+```bash
+cd ~/.orcheo/lean
+docker compose up -d --no-build --force-recreate --wait --wait-timeout 120
+docker compose exec backend python -m orcheo_backend.app.broker_healthcheck
+docker compose ps
+```
+
+Recreation retains the named `redis_data` and `orcheo_data` volumes. Do not use
+`down -v` during recovery. Record `docker compose version` and
+`docker network inspect orcheo-lean_default` if a service alias disappears.
+Use Docker's maintained Compose plugin rather than an outdated distribution
+package when diagnosing a repeat network issue.
+
+Trigger-created runs carry a persisted dispatch flag. While the backend is up,
+it checks PostgreSQL once per minute and republishes up to 20 flagged runs that
+have remained pending for at least two minutes **without a confirmed enqueue**.
+Each run is claimed across backend processes and retried no more than once
+every five minutes after a failed attempt. Runs already accepted by Redis are
+not republished simply because the worker queue is busy. Worker start
+transitions lock the PostgreSQL row so duplicate queue messages cannot start
+the same run twice. Monitor the count and age of pending runs where
+`dispatch_requested = TRUE`; sustained growth means execution is stalled.
+
+```sql
+SELECT COUNT(*) AS pending_dispatches, MIN(created_at) AS oldest_created_at
+  FROM workflow_runs
+ WHERE status = 'pending' AND dispatch_requested = TRUE;
+```
+
+If Redis loses a message after acknowledging a publish, the run will still be
+marked as enqueued. Automatic recovery of broker data loss after acceptance is
+outside the reconciler's scope. The lean Compose service enables Redis AOF
+persistence and keeps it in the `redis_data` volume; preserve and back up that
+volume. If the broker data is lost, verify that the run is absent from the
+worker queue before setting `enqueue_confirmed = FALSE` for that run to request
+replay. This avoids creating duplicate queue messages during a normal backlog.
+
+The concurrency quota also counts pending runs deliberately created through
+the API and runs marked `running`. PostgreSQL-backed Celery workers now claim a
+run with a unique owner token and renew its database lease every 20 seconds
+from a separate thread, including while a long workflow node is running. The
+lease lasts two minutes; a backend reconciler atomically fails an owned run
+only after another three minutes without renewal. Lease decisions use the
+PostgreSQL clock across all backend and worker processes. A worker that loses
+its lease cancels its execution. If a blocking node does not stop within 30
+seconds, the worker process exits so it cannot keep executing when the quota
+slot is released. Its token cannot commit a late result. There is no maximum
+workflow execution duration: a live worker can keep renewing its lease. If
+PostgreSQL is unavailable long enough for the lease to expire, the worker
+stops and recovery resumes when the database is available.
+
+Runs already `running` before this ownership mechanism was deployed have no
+owner token and are **not** automatically failed. Inspect their worker and run
+history before marking them failed through `POST /api/runs/{run_id}/fail`.
+Deliberately idle or abandoned API-created pending runs also require operator
+review; mark or cancel them through the run API. To find candidates:
+
+```sql
+SELECT id, workspace_id, status, created_at, updated_at
+  FROM workflow_runs
+ WHERE status IN ('pending', 'running')
+ ORDER BY updated_at;
+```
+
+To inspect suspected worker orphans, query the lease columns:
+
+```sql
+SELECT id, workspace_id, worker_heartbeat_at, worker_lease_expires_at
+  FROM workflow_runs
+ WHERE status = 'running' AND worker_owner_token IS NOT NULL
+   AND worker_lease_expires_at < now();
+```
+
+Every five minutes the backend logs a warning for each workspace and status
+with pending or running runs that have neither a state update nor a worker
+heartbeat for at least one hour. The warning includes the count and oldest
+update time. Alert on `Stale active workflow runs` in backend logs, then
+inspect the worker and run history before changing run status. Long-running
+runs without worker heartbeats can also trigger this warning; it does not
+automatically release quota slots.
+
+Runs created before this dispatch flag was added need operator review before
+replay because some API-created pending runs are deliberately idle. After
+checking which run IDs were meant to execute and that they have not already
+started, mark only those IDs for reconciliation in PostgreSQL:
+
+```sql
+UPDATE workflow_runs
+   SET dispatch_requested = TRUE
+ WHERE id IN ('reviewed-run-id-1', 'reviewed-run-id-2')
+   AND status = 'pending';
+```
+
+Cron state retains its last dispatched occurrence. After an outage, the cron
+dispatcher creates at most one due occurrence per workflow per pass; schedules
+with overlap protection wait for that run to finish before another is created.
+If a schedule has never dispatched and has no `start_at`, it uses the current
+time as its baseline, so occurrences from before recovery are not created.
+Review the outage window for missed occurrences and the resulting backlog.
+
 ### Single container
 
 Without a worker or Beat, the backend runs executions and cron triggers

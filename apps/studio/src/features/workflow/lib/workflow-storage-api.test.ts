@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ApiRequestError,
   extractCronConfigFromVersionGraph,
   extractErrorMessage,
   fetchWorkflowPageData,
@@ -45,6 +46,29 @@ describe("workflow-storage-api helpers", () => {
     expect(extractErrorMessage(body)).toBe(
       "Candidate script failed to build: ImportError: ...",
     );
+  });
+
+  it("surfaces a quota rejection instead of treating it as an empty run list", async () => {
+    queueResponses([
+      jsonResponse([{ id: "v1", workflow_id: "wf-1", version: 1 }]),
+      jsonResponse(
+        {
+          detail: {
+            error: {
+              code: "workspace.quota.concurrent_runs",
+              message: "Workspace reached its concurrent run limit",
+            },
+          },
+        },
+        { status: 429 },
+      ),
+    ]);
+
+    await expect(triggerWorkflowRun("wf-1")).rejects.toMatchObject({
+      name: "ApiRequestError",
+      status: 429,
+      message: "Workspace reached its concurrent run limit",
+    } satisfies Partial<ApiRequestError>);
   });
 
   it("extracts a plain string FastAPI detail", () => {

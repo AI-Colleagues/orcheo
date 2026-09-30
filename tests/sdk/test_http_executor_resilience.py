@@ -92,6 +92,44 @@ def test_http_executor_raises_after_exhausting_retries() -> None:
     assert "status 503" in str(exc_info.value)
 
 
+def test_http_executor_surfaces_quota_rejection_without_retrying() -> None:
+    """A 429 reports the quota error and retry delay to SDK callers."""
+    attempts = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(
+            429,
+            headers={"Retry-After": "30"},
+            json={
+                "detail": {
+                    "error": {
+                        "code": "workspace.quota.concurrent_runs",
+                        "message": "Workspace reached its concurrent run limit",
+                    }
+                }
+            },
+        )
+
+    executor = HttpWorkflowExecutor(
+        client=OrcheoClient(base_url="http://localhost"),
+        transport=httpx.MockTransport(handler),
+        max_retries=3,
+        backoff_factor=0,
+    )
+
+    with pytest.raises(
+        RuntimeError, match="Workspace reached its concurrent run limit"
+    ) as exc_info:
+        executor.trigger_run(
+            "workflow", workflow_version_id="version", triggered_by="tester"
+        )
+
+    assert "Retry after 30 seconds" in str(exc_info.value)
+    assert attempts == 1
+
+
 def test_http_executor_recovers_from_transport_error() -> None:
     attempts = 0
 
@@ -130,6 +168,41 @@ def test_http_executor_recovers_from_transport_error() -> None:
 
     assert attempts == 2
     assert payload["status"] == "pending"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"not-json",
+        b"[]",
+        b'{"detail": null}',
+        b'{"detail": {"error": null}}',
+        b'{"detail": {"error": {"message": 42}}}',
+        b"{}",
+    ],
+)
+def test_http_executor_handles_malformed_quota_responses(content: bytes) -> None:
+    """Malformed quota details preserve the status error without retrying."""
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(429, content=content)
+
+    executor = HttpWorkflowExecutor(
+        client=OrcheoClient(base_url="http://localhost"),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: pytest.fail("Quota rejection must not be retried"),
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        executor.trigger_run(
+            "workflow", workflow_version_id="version", triggered_by="tester"
+        )
+
+    assert str(exc_info.value) == "Failed to trigger workflow run (status 429)"
+    assert isinstance(exc_info.value.__cause__, httpx.HTTPStatusError)
+    assert len(requests) == 1
 
 
 def test_http_executor_raises_on_persistent_transport_error() -> None:

@@ -9,7 +9,7 @@ import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from uuid import UUID, uuid4
 import pytest
 from orcheo.models import WorkflowRun, WorkflowVersion
@@ -32,6 +32,7 @@ from orcheo_backend.app.repository_postgres import PostgresWorkflowRepository
 from orcheo_backend.app.repository_postgres import _base as pg_base
 from orcheo_backend.app.repository_postgres import _persistence as pg_persistence
 from orcheo_backend.app.repository_postgres import _triggers as pg_triggers
+from orcheo_backend.app.run_ownership import ORPHANED_WORKER_RUN_ERROR
 
 
 class FakeRow(dict[str, Any]):
@@ -136,6 +137,336 @@ def make_repository(
     repo._pool = FakePool(FakeConnection(responses))
     repo._initialized = initialized
     return repo
+
+
+@pytest.mark.asyncio
+async def test_claim_stale_pending_runs_only_claims_dispatch_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The recovery query excludes deliberately idle API-created runs."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    repo = make_repository(
+        monkeypatch, [{"rows": [{"payload": run.model_dump(mode="json")}]}]
+    )
+
+    claimed = await repo.claim_stale_pending_runs(limit=4)
+
+    assert [item.id for item in claimed] == [run.id]
+    conn = repo._pool._connection
+    assert "dispatch_requested = TRUE" in conn.queries[0][0]
+    assert "enqueue_confirmed = FALSE" in conn.queries[0][0]
+    assert "FOR UPDATE SKIP LOCKED" in conn.queries[0][0]
+    assert conn.queries[0][1][2] == 4
+
+
+@pytest.mark.asyncio
+async def test_list_stale_active_runs_groups_quota_slots_by_workspace_and_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Monitoring reads only aged active runs without mutating their state."""
+    cutoff = datetime(2026, 9, 30, tzinfo=UTC)
+    repo = make_repository(
+        monkeypatch,
+        [
+            {
+                "rows": [
+                    {
+                        "workspace_id": "workspace-1",
+                        "status": "running",
+                        "count": 2,
+                        "oldest_updated_at": cutoff,
+                    }
+                ]
+            }
+        ],
+    )
+
+    groups = await repo.list_stale_active_runs(older_than=cutoff)
+
+    assert len(groups) == 1
+    assert groups[0].workspace_id == "workspace-1"
+    assert groups[0].status == "running"
+    assert groups[0].count == 2
+    query, params = repo._pool._connection.queries[0]
+    assert "status IN ('pending', 'running')" in query
+    assert "GROUP BY workspace_id, status" in query
+    assert params == (cutoff,)
+
+
+@pytest.mark.asyncio
+async def test_worker_claim_is_atomic_and_redelivery_cannot_restart_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only one delivery can turn a pending run into an owned running run."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    running = run.model_copy(deep=True)
+    running.mark_started(actor="worker")
+    repo = make_repository(
+        monkeypatch,
+        [
+            {"row": {"payload": run.model_dump(mode="json")}},
+            {},
+            {"row": {"payload": running.model_dump(mode="json")}},
+        ],
+    )
+
+    claimed = await repo.claim_worker_run(run.id, owner_token="first", actor="worker")
+    duplicate = await repo.claim_worker_run(
+        run.id, owner_token="second", actor="worker"
+    )
+
+    assert claimed is not None and claimed.status.value == "running"
+    assert duplicate is None
+    queries = repo._pool._connection.queries
+    assert "FOR UPDATE" in queries[0][0]
+    assert "worker_owner_token = %s" in queries[1][0]
+    assert queries[1][1][3] == "first"
+    assert len(queries) == 3
+
+
+@pytest.mark.asyncio
+async def test_expired_owned_run_fails_once_under_row_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Recovery releases a slot while excluding legacy unowned runs."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    run.mark_started(actor="worker")
+    repo = make_repository(
+        monkeypatch,
+        [{"rows": [{"payload": run.model_dump(mode="json")}]}, {}, {"rows": []}],
+    )
+
+    failed = await repo.fail_orphaned_worker_runs()
+    again = await repo.fail_orphaned_worker_runs()
+
+    assert len(failed) == 1
+    assert failed[0].status.value == "failed"
+    assert failed[0].error == ORPHANED_WORKER_RUN_ERROR
+    assert again == []
+    queries = repo._pool._connection.queries
+    assert "worker_owner_token IS NOT NULL" in queries[0][0]
+    assert "FOR UPDATE SKIP LOCKED" in queries[0][0]
+    assert "worker_owner_token = NULL" in queries[1][0]
+
+
+@pytest.mark.asyncio
+async def test_late_worker_result_cannot_overwrite_recovered_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The owner token fences a worker after an operator or sweeper transition."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    run.mark_started(actor="worker")
+    repo = make_repository(
+        monkeypatch,
+        [{"row": {"payload": run.model_dump(mode="json"), "worker_owner_token": None}}],
+    )
+
+    with pytest.raises(ValueError, match="no longer owns"):
+        await repo.mark_worker_run_succeeded(
+            run.id, owner_token="expired", actor="worker", output={}
+        )
+
+    assert len(repo._pool._connection.queries) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("succeeds", [True, False])
+async def test_current_worker_can_commit_result_and_release_lease(
+    monkeypatch: pytest.MonkeyPatch,
+    succeeds: bool,
+) -> None:
+    """A matching token permits success and revokes the lease atomically."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    run.mark_started(actor="worker")
+    repo = make_repository(
+        monkeypatch,
+        [
+            {
+                "row": {
+                    "payload": run.model_dump(mode="json"),
+                    "worker_owner_token": "owner",
+                }
+            },
+            {},
+        ],
+    )
+
+    release = Mock()
+    monkeypatch.setattr(repo, "_release_cron_run", release)
+    if succeeds:
+        completed = await repo.mark_worker_run_succeeded(
+            run.id, owner_token="owner", actor="worker", output={"ok": True}
+        )
+        assert completed.status.value == "succeeded"
+        assert completed.output_payload == {"ok": True}
+    else:
+        completed = await repo.mark_worker_run_failed(
+            run.id, owner_token="owner", actor="worker", error="Workflow crashed"
+        )
+        assert completed.status.value == "failed"
+        assert completed.error == "Workflow crashed"
+    release.assert_called_once_with(run.id)
+    query, params = repo._pool._connection.queries[1]
+    assert "worker_lease_expires_at = CASE WHEN %s THEN NULL" in query
+    assert params[3:5] == (True, True)
+
+
+@pytest.mark.asyncio
+async def test_worker_claim_rejects_missing_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A delivery for a deleted run cannot create ownership or mutate state."""
+    repo = make_repository(monkeypatch, [{"row": None}])
+    run_id = uuid4()
+
+    with pytest.raises(WorkflowRunNotFoundError, match=str(run_id)):
+        await repo.claim_worker_run(run_id, owner_token="owner", actor="worker")
+
+    conn = repo._pool._connection
+    assert len(conn.queries) == 1
+    assert conn.queries[0][1] == (str(run_id),)
+    assert conn.commits == 0
+    assert conn.rollbacks == 1
+
+
+@pytest.mark.asyncio
+async def test_operator_terminal_transition_revokes_worker_ownership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An operator failure also fences any still-running worker."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    run.mark_started(actor="worker")
+    repo = make_repository(
+        monkeypatch,
+        [
+            {
+                "row": {
+                    "payload": run.model_dump(mode="json"),
+                    "worker_owner_token": "old",
+                }
+            },
+            {},
+        ],
+    )
+
+    failed = await repo.mark_run_failed(run.id, actor="operator", error="Stopped")
+
+    assert failed.status.value == "failed"
+    query, params = repo._pool._connection.queries[1]
+    assert "worker_owner_token = CASE WHEN %s THEN NULL" in query
+    assert params[3:5] == (True, True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_mock_celery
+async def test_successful_enqueue_is_confirmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Accepted queue messages are excluded from later reconciliation."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    repo = make_repository(monkeypatch, [])
+    monkeypatch.setattr(pg_triggers, "_enqueue_run_for_execution", lambda _: True)
+
+    await pg_triggers._enqueue_run_and_confirm(repo, run)
+
+    assert repo._pool._connection.queries == [
+        (
+            "UPDATE workflow_runs SET enqueue_confirmed = TRUE WHERE id = %s",
+            (str(run.id),),
+        )
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_mock_celery
+async def test_failed_enqueue_remains_eligible_for_reconciliation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A broker failure must not set the confirmation marker."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    repo = make_repository(monkeypatch, [])
+    monkeypatch.setattr(pg_triggers, "_enqueue_run_for_execution", lambda _: False)
+
+    await pg_triggers._enqueue_run_and_confirm(repo, run)
+
+    assert repo._pool._connection.queries == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_mock_celery
+async def test_enqueue_confirmation_failure_is_logged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A database outage after publication does not fail the trigger request."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    repo = make_repository(monkeypatch, [])
+    confirm = AsyncMock(side_effect=OSError("database unavailable"))
+    monkeypatch.setattr(repo, "mark_run_enqueued", confirm)
+    monkeypatch.setattr(pg_triggers, "_enqueue_run_for_execution", lambda _: True)
+
+    await pg_triggers._enqueue_run_and_confirm(repo, run)
+
+    confirm.assert_awaited_once_with(run.id)
+    assert f"Could not confirm enqueue for run {run.id}" in caplog.text
+    assert "database unavailable" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_run_start_rejects_missing_run_without_writing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A worker cannot update a run that is absent from the locked lookup."""
+    repo = make_repository(monkeypatch, [{"row": None}])
+    run_id = uuid4()
+
+    with pytest.raises(WorkflowRunNotFoundError, match=str(run_id)):
+        await repo.mark_run_started(run_id, actor="worker")
+
+    conn = repo._pool._connection
+    assert len(conn.queries) == 1
+    assert conn.queries[0][0].endswith("FOR UPDATE")
+    assert conn.queries[0][1] == (str(run_id),)
+    assert conn.commits == 0
+    assert conn.rollbacks == 1
+
+
+@pytest.mark.asyncio
+async def test_run_start_holds_database_row_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second worker must observe the first worker's committed transition."""
+    run = WorkflowRun(
+        workflow_version_id=uuid4(), triggered_by="cron", input_payload={}
+    )
+    repo = make_repository(
+        monkeypatch, [{"row": {"payload": run.model_dump(mode="json")}}]
+    )
+
+    started = await repo.mark_run_started(run.id, actor="worker")
+
+    assert started.status.value == "running"
+    conn = repo._pool._connection
+    assert conn.queries[0][0].endswith("FOR UPDATE")
+    assert conn.queries[1][0].startswith("UPDATE workflow_runs")
+    assert conn.commits == 1
 
 
 def _workflow_payload(workflow_id: UUID, **overrides: Any) -> dict[str, Any]:
@@ -906,56 +1237,81 @@ async def test_persistence_create_run_locked_with_pydantic_config(
     assert "pydantic-tag" in run.tags
 
 
-@pytest.mark.asyncio
-async def test_persistence_create_run_locked_releases_workspace_slot_on_error(
-    monkeypatch: pytest.MonkeyPatch,
+def _patch_workspace_limit(
+    monkeypatch: pytest.MonkeyPatch, workspace_id: str, limit: int
 ) -> None:
-    """Run slot reservations are released if persistence fails after reserving."""
-
-    workflow_id = uuid4()
-    version_id = uuid4()
-    workspace_id = str(uuid4())
-    version_payload = _version_payload(version_id, workflow_id)
-    responses: list[Any] = [
-        {"row": {"payload": version_payload}},
-        {},
-    ]
-    repo = make_repository(monkeypatch, responses)
-
-    reserve_calls: list[tuple[str, int]] = []
-    release_calls: list[str] = []
-
     class _WorkspaceRepo:
         def get_workspace(self, workspace_uuid: UUID) -> SimpleNamespace:
             assert str(workspace_uuid) == workspace_id
             return SimpleNamespace(
-                quotas=SimpleNamespace(max_concurrent_runs=4),
+                quotas=SimpleNamespace(max_concurrent_runs=limit),
             )
-
-    class _Governance:
-        def reserve_run_slot(self, workspace: str, *, limit: int) -> None:
-            reserve_calls.append((workspace, limit))
-
-        def release_run_slot(self, workspace: str) -> None:
-            release_calls.append(workspace)
 
     monkeypatch.setattr(
         pg_persistence,
         "get_workspace_repository",
         lambda: _WorkspaceRepo(),
     )
-    monkeypatch.setattr(
-        pg_persistence,
-        "get_workspace_governance",
-        lambda: _Governance(),
+
+
+@pytest.mark.asyncio
+async def test_persistence_create_run_locked_counts_active_runs_before_insert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A workspace below its limit gets the run, counted under an advisory lock."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    workspace_id = str(uuid4())
+    responses: list[Any] = [
+        {"row": {"payload": _version_payload(version_id, workflow_id)}},
+        {},  # pg_advisory_xact_lock
+        {"row": {"active": 3}},
+        {},  # INSERT
+    ]
+    repo = make_repository(monkeypatch, responses)
+    _patch_workspace_limit(monkeypatch, workspace_id, 4)
+
+    run = await repo._create_run_locked(
+        workflow_id=workflow_id,
+        workflow_version_id=version_id,
+        triggered_by="manual",
+        input_payload={},
+        actor="tester",
+        workspace_id=workspace_id,
     )
 
-    def _boom(*_: object, **__: object) -> None:
-        raise RuntimeError("track failed")
+    queries = repo._pool._connection.queries  # type: ignore[union-attr]
+    assert "pg_advisory_xact_lock" in queries[1][0]
+    assert queries[1][1] == (pg_base._RUN_QUOTA_LOCK_NAMESPACE, workspace_id)
+    assert "COUNT(*)" in queries[2][0]
+    assert queries[2][1] == (workspace_id, ["pending", "running"])
+    assert "INSERT INTO workflow_runs" in queries[3][0]
+    assert run.workspace_id == workspace_id
 
-    repo._trigger_layer.track_run = _boom  # type: ignore[method-assign]
 
-    with pytest.raises(RuntimeError, match="track failed"):
+@pytest.mark.asyncio
+async def test_persistence_create_run_locked_refuses_run_at_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A workspace with ``limit`` active runs is refused without inserting."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    workspace_id = str(uuid4())
+    responses: list[Any] = [
+        {"row": {"payload": _version_payload(version_id, workflow_id)}},
+        {},  # pg_advisory_xact_lock
+        {"row": {"active": 4}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+    _patch_workspace_limit(monkeypatch, workspace_id, 4)
+    tracked: list[UUID] = []
+    repo._trigger_layer.track_run = (  # type: ignore[method-assign]
+        lambda _workflow_id, run_id: tracked.append(run_id)
+    )
+
+    with pytest.raises(WorkspaceQuotaExceededError) as excinfo:
         await repo._create_run_locked(
             workflow_id=workflow_id,
             workflow_version_id=version_id,
@@ -965,8 +1321,12 @@ async def test_persistence_create_run_locked_releases_workspace_slot_on_error(
             workspace_id=workspace_id,
         )
 
-    assert reserve_calls == [(workspace_id, 4)]
-    assert release_calls == [workspace_id]
+    connection = repo._pool._connection  # type: ignore[union-attr]
+    assert excinfo.value.code == "workspace.quota.concurrent_runs"
+    assert excinfo.value.details == {"limit": 4, "current": 4}
+    assert not any("INSERT" in query for query, _ in connection.queries)
+    assert connection.rollbacks == 1
+    assert tracked == []
 
 
 @pytest.mark.asyncio
@@ -1343,10 +1703,10 @@ async def test_triggers_dispatch_manual_runs_version_mismatch(
 
 
 @pytest.mark.asyncio
-async def test_triggers_dispatch_manual_runs_skip_quota_exceeded(
+async def test_triggers_dispatch_manual_runs_raises_when_quota_refuses_all(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Manual dispatch skips runs that exceed workspace quotas."""
+    """Manual dispatch reports the quota error when no run could be created."""
 
     workflow_id = uuid4()
     version_id = uuid4()
@@ -1365,6 +1725,8 @@ async def test_triggers_dispatch_manual_runs_skip_quota_exceeded(
         raise WorkspaceQuotaExceededError("quota", code="workspace.quota.runs")
 
     monkeypatch.setattr(repo, "_create_run_locked", _raise_quota)
+    # The repository conftest replaces the enqueue helper with a mock.
+    enqueue = pg_triggers._enqueue_run_for_execution
 
     from orcheo.triggers.manual import ManualDispatchRequest
 
@@ -1373,9 +1735,66 @@ async def test_triggers_dispatch_manual_runs_skip_quota_exceeded(
         runs=[{"workflow_version_id": version_id, "input_payload": {}}],
     )
 
+    with pytest.raises(WorkspaceQuotaExceededError, match="quota"):
+        await repo.dispatch_manual_runs(request)
+    enqueue.assert_not_called()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_triggers_dispatch_manual_runs_returns_partial_batch_on_quota(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A batch that partly fits returns and enqueues the runs it created."""
+
+    workflow_id = uuid4()
+    version_id = uuid4()
+    workflow_payload = _workflow_payload(workflow_id)
+    version_payload = _version_payload(version_id, workflow_id)
+
+    responses = [
+        {"row": {"payload": workflow_payload}},
+        {"row": {"payload": version_payload}},
+        {"row": {"payload": version_payload}},
+        {"row": {"payload": version_payload}},
+        {"row": {"payload": version_payload}},
+    ]
+    repo = make_repository(monkeypatch, responses)
+    created = WorkflowRun(
+        workflow_id=workflow_id,
+        workflow_version_id=version_id,
+        triggered_by="manual",
+        input_payload={},
+    )
+    outcomes: list[WorkflowRun | Exception] = [
+        created,
+        WorkspaceQuotaExceededError("quota", code="workspace.quota.runs"),
+    ]
+
+    async def _create(*_: object, **__: object) -> WorkflowRun:
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(repo, "_create_run_locked", _create)
+    # The repository conftest replaces the enqueue helper with a mock.
+    enqueue = pg_triggers._enqueue_run_for_execution
+
+    from orcheo.triggers.manual import ManualDispatchRequest
+
+    request = ManualDispatchRequest(
+        workflow_id=workflow_id,
+        runs=[
+            {"workflow_version_id": version_id, "input_payload": {}},
+            {"workflow_version_id": version_id, "input_payload": {}},
+        ],
+    )
+
     runs = await repo.dispatch_manual_runs(request)
 
-    assert runs == []
+    assert [run.id for run in runs] == [created.id]
+    enqueue.assert_called_once()  # type: ignore[attr-defined]
+    assert enqueue.call_args.args[0].id == created.id  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio

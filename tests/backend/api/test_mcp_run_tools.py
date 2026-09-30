@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from orcheo_backend.app.dependencies import get_history_store, get_repository
+from orcheo_backend.app.errors import WorkspaceQuotaExceededError
 from tests.backend.api.mcp_support import SIMPLE_SCRIPT, McpCaller, mcp_session
 
 
@@ -53,15 +54,19 @@ async def test_run_reports_exhausted_quota(
 ) -> None:
     repository = api_client.app.dependency_overrides[get_repository]()
 
-    async def _no_runs(_request: object) -> list:
-        return []
+    async def _quota_exceeded(_request: object) -> list:
+        raise WorkspaceQuotaExceededError(
+            "Workspace ws reached its concurrent run limit",
+            code="workspace.quota.concurrent_runs",
+        )
 
     async with mcp_session(api_client.app) as mcp:
         workflow_id = await _workflow_with_two_versions(mcp)
-        monkeypatch.setattr(repository, "dispatch_manual_runs", _no_runs)
-        result = await mcp.call("run_workflow", {"workflow": workflow_id})
+        monkeypatch.setattr(repository, "dispatch_manual_runs", _quota_exceeded)
+        error = await mcp.call_error("run_workflow", {"workflow": workflow_id})
 
-    assert result["status"] == "skipped"
+    assert "HTTP 429" in error
+    assert "concurrent run limit" in error
 
 
 @pytest.mark.asyncio()

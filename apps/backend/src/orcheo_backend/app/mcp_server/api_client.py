@@ -57,6 +57,10 @@ def _render_detail(detail: Any) -> str:
         return detail
     if isinstance(detail, Mapping) and isinstance(detail.get("message"), str):
         return str(detail["message"])
+    # Workspace quota and rate-limit errors nest theirs under "error".
+    error = detail.get("error") if isinstance(detail, Mapping) else None
+    if isinstance(error, Mapping) and isinstance(error.get("message"), str):
+        return str(error["message"])
     return json.dumps(detail, default=str)
 
 

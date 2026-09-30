@@ -866,7 +866,9 @@ async def test_get_or_create_race_condition_returns_existing_in_lock(
         *,
         key: str,
         browser_type: browser_nodes.BrowserEngine,
+        public_https_only: bool = False,
     ) -> browser_nodes.BrowserSession | None:
+        del public_https_only
         nonlocal call_count
         call_count += 1
         if call_count == 1:
@@ -894,6 +896,132 @@ async def test_get_or_create_race_condition_returns_existing_in_lock(
     )
     assert session is placeholder
     assert created is False
+
+
+@pytest.mark.asyncio
+async def test_guarded_browser_uses_public_https_proxy(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """The opt-in browser routes all traffic through its per-session proxy."""
+    node = BrowserNavigateNode(
+        name="guarded", url="https://example.com", public_https_only=True
+    )
+    config: RunnableConfig = {"configurable": {"run_id": "guarded-run"}}
+
+    await node({}, config)
+
+    context_kwargs = fake_browser_runtime.browser.context_kwargs or {}
+    assert context_kwargs["proxy"]["server"].startswith("http://127.0.0.1:")
+    assert context_kwargs["service_workers"] == "block"
+    assert (
+        "--proxy-bypass-list=<-loopback>"
+        in (fake_browser_runtime.chromium.launch_calls[0]["args"])
+    )
+    assert await browser_nodes._browser_session_manager.close_scope("guarded-run") == 1
+
+
+def test_browser_session_rejects_a_changed_egress_policy() -> None:
+    """An unguarded node cannot reuse a guarded session."""
+    session = _session_stub("chromium")
+    with pytest.raises(ValueError, match="different egress policy"):
+        browser_nodes.BrowserSessionManager._validate_existing_session(
+            session, key="guarded", browser_type="chromium", public_https_only=True
+        )
+
+
+@pytest.mark.asyncio
+async def test_guarded_browser_rejects_bypass_configurations() -> None:
+    """Unsupported engines, profiles, and proxy flags cannot bypass the guard."""
+    manager = browser_nodes.BrowserSessionManager()
+    for browser_type, user_data_dir, launch_args in (
+        ("firefox", None, []),
+        ("chromium", "/tmp/persistent-profile", []),
+        ("chromium", None, ["--no-proxy-server"]),
+    ):
+        with pytest.raises(ValueError, match="public|Public|override"):
+            await manager._guarded_proxy(browser_type, user_data_dir, launch_args, True)
+
+
+class _ProbeProxy:
+    """Observe cleanup without opening a real listener."""
+
+    instances: list[_ProbeProxy] = []
+
+    def __init__(self) -> None:
+        self.closed = False
+        self.instances.append(self)
+
+    @property
+    def url(self) -> str:
+        return "http://127.0.0.1:9000"
+
+    async def start(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+async def _create_guarded_session() -> browser_nodes.BrowserSession:
+    """Launch a guarded test session with default browser options."""
+    return await browser_nodes.BrowserSessionManager()._create_session(
+        browser_type="chromium",
+        headless=True,
+        launch_args=[],
+        user_data_dir=None,
+        viewport_width=None,
+        viewport_height=None,
+        user_agent=None,
+        locale=None,
+        timezone_id=None,
+        storage_state=None,
+        extra_http_headers=None,
+        ignore_https_errors=False,
+        java_script_enabled=True,
+        trace_path=None,
+        public_https_only=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_guarded_browser_closes_proxy_when_playwright_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The local proxy is not left listening after Playwright startup fails."""
+    _ProbeProxy.instances.clear()
+
+    class FailingContext:
+        async def start(self) -> None:
+            raise RuntimeError("Playwright unavailable")
+
+    monkeypatch.setattr(browser_nodes, "PublicHttpsProxy", _ProbeProxy)
+    monkeypatch.setattr(
+        browser_nodes, "_async_playwright_factory", lambda: FailingContext
+    )
+    with pytest.raises(RuntimeError, match="Playwright unavailable"):
+        await _create_guarded_session()
+    assert _ProbeProxy.instances[-1].closed
+
+
+@pytest.mark.asyncio
+async def test_guarded_browser_closes_partial_session_after_page_failure(
+    fake_browser_runtime: FakePlaywright,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed page creation closes context, browser, runtime, and proxy."""
+    _ProbeProxy.instances.clear()
+    monkeypatch.setattr(browser_nodes, "PublicHttpsProxy", _ProbeProxy)
+
+    async def failed_page() -> FakePage:
+        raise RuntimeError("page unavailable")
+
+    monkeypatch.setattr(fake_browser_runtime.context, "new_page", failed_page)
+    with pytest.raises(RuntimeError, match="page unavailable"):
+        await _create_guarded_session()
+    assert fake_browser_runtime.context.closed
+    assert fake_browser_runtime.browser.closed
+    assert fake_browser_runtime.stopped
+    assert _ProbeProxy.instances[-1].closed
 
 
 @pytest.mark.asyncio
