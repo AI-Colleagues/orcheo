@@ -61,7 +61,7 @@ class PublicHttpsProxy:
 
     def __init__(self) -> None:
         """Initialize a listener that starts on demand."""
-        self._server: asyncio.AbstractServer | None = None
+        self._server: asyncio.Server | None = None
 
     @property
     def url(self) -> str:
