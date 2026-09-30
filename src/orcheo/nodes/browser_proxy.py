@@ -92,8 +92,6 @@ class PublicHttpsProxy:
             header = await asyncio.wait_for(
                 reader.readuntil(b"\r\n\r\n"), _CONNECT_TIMEOUT
             )
-            if len(header) > _HEADER_LIMIT:
-                raise ValueError("CONNECT headers too large")
             request_line = header.split(b"\r\n", 1)[0].decode("ascii")
             method, authority, version = request_line.split(" ")
             if method != "CONNECT" or version != "HTTP/1.1":
