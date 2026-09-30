@@ -161,6 +161,40 @@ async def test_claim_stale_pending_runs_only_claims_dispatch_requests(
 
 
 @pytest.mark.asyncio
+async def test_list_stale_active_runs_groups_quota_slots_by_workspace_and_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Monitoring reads only aged active runs without mutating their state."""
+    cutoff = datetime(2026, 9, 30, tzinfo=UTC)
+    repo = make_repository(
+        monkeypatch,
+        [
+            {
+                "rows": [
+                    {
+                        "workspace_id": "workspace-1",
+                        "status": "running",
+                        "count": 2,
+                        "oldest_updated_at": cutoff,
+                    }
+                ]
+            }
+        ],
+    )
+
+    groups = await repo.list_stale_active_runs(older_than=cutoff)
+
+    assert len(groups) == 1
+    assert groups[0].workspace_id == "workspace-1"
+    assert groups[0].status == "running"
+    assert groups[0].count == 2
+    query, params = repo._pool._connection.queries[0]
+    assert "status IN ('pending', 'running')" in query
+    assert "GROUP BY workspace_id, status" in query
+    assert params == (cutoff,)
+
+
+@pytest.mark.asyncio
 @pytest.mark.no_mock_celery
 async def test_successful_enqueue_is_confirmed(
     monkeypatch: pytest.MonkeyPatch,

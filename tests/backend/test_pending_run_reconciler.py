@@ -1,6 +1,10 @@
 """Recovery behavior for runs left pending after broker outages."""
 
 from __future__ import annotations
+import asyncio
+import logging
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 import pytest
@@ -79,3 +83,51 @@ async def test_reconciliation_skips_in_memory_and_inprocess_deployments(
         )
         async with pending_run_reconciler.pending_run_reconciliation(repository):
             pass
+
+
+@pytest.mark.asyncio
+async def test_stale_active_runs_are_logged_for_operator_review(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Old quota slots become visible without an automatic status change."""
+    oldest = datetime(2026, 9, 29, tzinfo=UTC)
+    repository = AsyncMock()
+    repository.list_stale_active_runs.return_value = [
+        SimpleNamespace(
+            workspace_id="workspace-1",
+            status="running",
+            count=2,
+            oldest_updated_at=oldest,
+        )
+    ]
+
+    with caplog.at_level(logging.WARNING):
+        await pending_run_reconciler.log_stale_active_runs(repository)
+
+    assert "workspace_id=workspace-1 status=running count=2" in caplog.text
+    assert oldest.isoformat() in caplog.text
+    repository.list_stale_active_runs.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_stale_monitor_runs_even_when_reconciliation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed publish pass must not suppress the quota warning check."""
+    monitor = AsyncMock()
+    monkeypatch.setattr(
+        pending_run_reconciler,
+        "reconcile_pending_runs",
+        AsyncMock(side_effect=RuntimeError("broker unavailable")),
+    )
+    monkeypatch.setattr(pending_run_reconciler, "log_stale_active_runs", monitor)
+    monkeypatch.setattr(
+        pending_run_reconciler.asyncio,
+        "sleep",
+        AsyncMock(side_effect=asyncio.CancelledError),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await pending_run_reconciler.run_pending_reconciler(AsyncMock())
+
+    monitor.assert_awaited_once()

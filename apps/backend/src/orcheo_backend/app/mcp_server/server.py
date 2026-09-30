@@ -66,7 +66,7 @@ def server_icons() -> list[Icon]:
         Icon(
             src=f"data:image/png;base64,{encoded}",
             mimeType="image/png",
-            sizes=["128x128"],
+            sizes=["64x64"],
         )
     ]
 

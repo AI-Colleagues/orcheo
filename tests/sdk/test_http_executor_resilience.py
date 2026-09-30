@@ -92,6 +92,44 @@ def test_http_executor_raises_after_exhausting_retries() -> None:
     assert "status 503" in str(exc_info.value)
 
 
+def test_http_executor_surfaces_quota_rejection_without_retrying() -> None:
+    """A 429 reports the quota error and retry delay to SDK callers."""
+    attempts = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(
+            429,
+            headers={"Retry-After": "30"},
+            json={
+                "detail": {
+                    "error": {
+                        "code": "workspace.quota.concurrent_runs",
+                        "message": "Workspace reached its concurrent run limit",
+                    }
+                }
+            },
+        )
+
+    executor = HttpWorkflowExecutor(
+        client=OrcheoClient(base_url="http://localhost"),
+        transport=httpx.MockTransport(handler),
+        max_retries=3,
+        backoff_factor=0,
+    )
+
+    with pytest.raises(
+        RuntimeError, match="Workspace reached its concurrent run limit"
+    ) as exc_info:
+        executor.trigger_run(
+            "workflow", workflow_version_id="version", triggered_by="tester"
+        )
+
+    assert "Retry after 30 seconds" in str(exc_info.value)
+    assert attempts == 1
+
+
 def test_http_executor_recovers_from_transport_error() -> None:
     attempts = 0
 

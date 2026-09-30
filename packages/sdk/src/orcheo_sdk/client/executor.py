@@ -15,6 +15,24 @@ def _default_sleep(delay: float) -> None:
     sleep(delay)  # pragma: no cover - simple delegation to time.sleep
 
 
+def _trigger_error_message(response: Response) -> str:
+    """Explain a failed trigger, including quota details when available."""
+    message = f"Failed to trigger workflow run (status {response.status_code})"
+    if response.status_code != 429:
+        return message
+    try:
+        detail = response.json().get("detail", {})
+        quota_message = detail.get("error", {}).get("message")
+    except (AttributeError, ValueError, TypeError):
+        quota_message = None
+    if isinstance(quota_message, str):
+        message = f"{message}: {quota_message}"
+    retry_after = response.headers.get("Retry-After")
+    if retry_after:
+        message = f"{message}. Retry after {retry_after} seconds"
+    return message
+
+
 @dataclass(slots=True)
 class HttpWorkflowExecutor:
     """Synchronous helper that executes workflows via the HTTP API."""
@@ -64,8 +82,7 @@ class HttpWorkflowExecutor:
                 last_exception = exc
                 status_code = exc.response.status_code
                 if not self._should_retry(status_code) or attempt == self.max_retries:
-                    msg = f"Failed to trigger workflow run (status {status_code})"
-                    raise RuntimeError(msg) from exc
+                    raise RuntimeError(_trigger_error_message(exc.response)) from exc
             except httpx.HTTPError as exc:
                 last_exception = exc
                 if attempt == self.max_retries:

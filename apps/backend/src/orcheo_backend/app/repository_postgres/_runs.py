@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -18,6 +19,16 @@ def _load_run(payload: dict[str, Any] | str) -> WorkflowRun:
     if isinstance(payload, str):
         return WorkflowRun.model_validate_json(payload)
     return WorkflowRun.model_validate(payload)
+
+
+@dataclass(frozen=True)
+class StaleActiveRuns:
+    """Oldest active run and count for one workspace and status."""
+
+    workspace_id: str
+    status: str
+    count: int
+    oldest_updated_at: datetime
 
 
 class WorkflowRunMixin(PostgresPersistenceMixin):
@@ -254,6 +265,35 @@ class WorkflowRunMixin(PostgresPersistenceMixin):
             )
             rows = await cursor.fetchall()
         return [_load_run(row["payload"]) for row in rows]
+
+    async def list_stale_active_runs(
+        self, *, older_than: datetime
+    ) -> list[StaleActiveRuns]:
+        """Find active quota slots that have not changed since the cutoff."""
+        await self._ensure_initialized()
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT workspace_id, status, COUNT(*) AS count,
+                       MIN(updated_at) AS oldest_updated_at
+                  FROM workflow_runs
+                 WHERE workspace_id IS NOT NULL
+                   AND status IN ('pending', 'running')
+                   AND updated_at <= %s
+              GROUP BY workspace_id, status
+                """,
+                (older_than,),
+            )
+            rows = await cursor.fetchall()
+        return [
+            StaleActiveRuns(
+                workspace_id=row["workspace_id"],
+                status=row["status"],
+                count=row["count"],
+                oldest_updated_at=row["oldest_updated_at"],
+            )
+            for row in rows
+        ]
 
 
 __all__ = ["WorkflowRunMixin"]

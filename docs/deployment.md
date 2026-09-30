@@ -216,6 +216,13 @@ SELECT id, workspace_id, status, created_at, updated_at
  ORDER BY updated_at;
 ```
 
+Every five minutes the backend logs a warning for each workspace and status
+with pending or running runs that have not changed for at least one hour. The
+warning includes the count and oldest update time. Alert on
+`Stale active workflow runs` in backend logs, then inspect the worker and run
+history before changing run status. Long-running workflows can also trigger
+this warning; it does not automatically release quota slots.
+
 Runs created before this dispatch flag was added need operator review before
 replay because some API-created pending runs are deliberately idle. After
 checking which run IDs were meant to execute and that they have not already

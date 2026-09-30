@@ -65,6 +65,13 @@ export const extractErrorMessage = (body: string): string => {
       if (typeof message === "string") {
         return message;
       }
+      const nestedError = (detail as { error?: unknown }).error;
+      if (nestedError && typeof nestedError === "object") {
+        const nestedMessage = (nestedError as { message?: unknown }).message;
+        if (typeof nestedMessage === "string") {
+          return nestedMessage;
+        }
+      }
       if (Array.isArray(detail)) {
         const messages = detail
           .map((item) =>
