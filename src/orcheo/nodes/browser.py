@@ -170,6 +170,7 @@ class BrowserSession:
     trace_path: str | None = None
     tracing_started: bool = False
     public_https_proxy: PublicHttpsProxy | None = None
+    public_https_remote: bool = False
 
 
 class BrowserSessionManager:
@@ -197,7 +198,9 @@ class BrowserSessionManager:
                 f"{session.browser_type!r}, not {browser_type!r}."
             )
             raise ValueError(msg)
-        if (session.public_https_proxy is not None) != public_https_only:
+        if (
+            session.public_https_proxy is not None or session.public_https_remote
+        ) != public_https_only:
             raise ValueError(f"Browser session '{key}' has a different egress policy.")
         return session
 
@@ -256,10 +259,25 @@ class BrowserSessionManager:
         public_https_only: bool = False,
     ) -> BrowserSession:
         """Create one Playwright session with a single active page."""
+        remote_endpoint = (
+            os.getenv("ORCHEO_PUBLIC_BROWSER_WS_ENDPOINT", "").strip()
+            if public_https_only
+            else ""
+        )
+        if remote_endpoint:
+            self._validate_public_session(browser_type, user_data_dir, launch_args)
+            if not headless or launch_args:
+                raise ValueError(
+                    "Remote public browsers use fixed headless launch settings."
+                )
         _configure_playwright_browser_path(browser_type)
         playwright_context = _async_playwright_factory()()
-        proxy = await self._guarded_proxy(
-            browser_type, user_data_dir, launch_args, public_https_only
+        proxy = (
+            None
+            if remote_endpoint
+            else await self._guarded_proxy(
+                browser_type, user_data_dir, launch_args, public_https_only
+            )
         )
         try:
             playwright = await playwright_context.start()
@@ -291,23 +309,16 @@ class BrowserSessionManager:
             )
             if proxy is not None:
                 context_kwargs["proxy"] = {"server": proxy.url, "bypass": ""}
+            if public_https_only:
                 context_kwargs["service_workers"] = "block"
-            if user_data_dir:
-                if storage_state is not None:
-                    msg = (
-                        "BrowserNavigateNode.user_data_dir cannot be used with "
-                        "storage_state."
-                    )
-                    raise ValueError(msg)
-                context_kwargs.pop("storage_state", None)
-                context = await launcher.launch_persistent_context(
-                    user_data_dir,
-                    **launch_kwargs,
-                    **context_kwargs,
-                )
-            else:
-                browser = await launcher.launch(**launch_kwargs)
-                context = await browser.new_context(**context_kwargs)
+            browser, context = await self._open_context(
+                launcher,
+                launch_kwargs,
+                context_kwargs,
+                user_data_dir,
+                storage_state,
+                remote_endpoint,
+            )
             tracing_started = trace_path is not None
             if tracing_started:
                 await context.tracing.start(
@@ -325,9 +336,43 @@ class BrowserSessionManager:
                 trace_path=trace_path,
                 tracing_started=tracing_started,
                 public_https_proxy=proxy,
+                public_https_remote=bool(remote_endpoint),
             )
         except BaseException:
             await self._discard_failed_session(context, browser, playwright, proxy)
+            raise
+
+    @staticmethod
+    async def _open_context(
+        launcher: Any,
+        launch_kwargs: dict[str, Any],
+        context_kwargs: dict[str, Any],
+        user_data_dir: str | None,
+        storage_state: dict[str, Any] | str | None,
+        remote_endpoint: str,
+    ) -> tuple[Any, Any]:
+        """Open a persistent, local, or isolated remote browser context."""
+        if user_data_dir:
+            if storage_state is not None:
+                raise ValueError(
+                    "BrowserNavigateNode.user_data_dir cannot be used with "
+                    "storage_state."
+                )
+            context_kwargs.pop("storage_state", None)
+            context = await launcher.launch_persistent_context(
+                user_data_dir, **launch_kwargs, **context_kwargs
+            )
+            return None, context
+        if remote_endpoint:
+            # Do not set expose_network: page traffic must never use the
+            # credentialed client's network or loopback interfaces.
+            browser = await launcher.connect(remote_endpoint, timeout=30000)
+        else:
+            browser = await launcher.launch(**launch_kwargs)
+        try:
+            return browser, await browser.new_context(**context_kwargs)
+        except BaseException:
+            await browser.close()
             raise
 
     @staticmethod
@@ -368,15 +413,12 @@ class BrowserSessionManager:
                 await proxy.close()
 
     @staticmethod
-    async def _guarded_proxy(
+    def _validate_public_session(
         browser_type: BrowserEngine,
         user_data_dir: str | None,
         launch_args: list[str],
-        public_https_only: bool,
-    ) -> PublicHttpsProxy | None:
-        """Start a locked-down proxy when the browser reads untrusted pages."""
-        if not public_https_only:
-            return None
+    ) -> None:
+        """Refuse profiles and launch settings that can bypass public egress."""
         if browser_type != "chromium" or user_data_dir:
             raise ValueError(
                 "Public HTTPS sessions require chromium and a temporary profile."
@@ -386,6 +428,20 @@ class BrowserSessionManager:
             for arg in launch_args
         ):
             raise ValueError("Launch arguments cannot override guarded browser egress.")
+
+    @staticmethod
+    async def _guarded_proxy(
+        browser_type: BrowserEngine,
+        user_data_dir: str | None,
+        launch_args: list[str],
+        public_https_only: bool,
+    ) -> PublicHttpsProxy | None:
+        """Start a locked-down proxy when the browser reads untrusted pages."""
+        if not public_https_only:
+            return None
+        BrowserSessionManager._validate_public_session(
+            browser_type, user_data_dir, launch_args
+        )
         proxy = PublicHttpsProxy()
         await proxy.start()
         return proxy

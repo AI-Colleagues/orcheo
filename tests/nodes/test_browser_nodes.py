@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 import pytest
+from unittest.mock import AsyncMock
 from langchain_core.runnables import RunnableConfig
 from orcheo.graph.state import State
 from orcheo.nodes import browser as browser_nodes
@@ -918,6 +919,50 @@ async def test_guarded_browser_uses_public_https_proxy(
         in (fake_browser_runtime.chromium.launch_calls[0]["args"])
     )
     assert await browser_nodes._browser_session_manager.close_scope("guarded-run") == 1
+
+
+@pytest.mark.asyncio
+async def test_public_browser_uses_isolated_server_without_exposing_worker_network(
+    monkeypatch: pytest.MonkeyPatch, fake_browser_runtime: FakePlaywright
+) -> None:
+    """Guarded nodes never launch locally when an isolated reader is configured."""
+    endpoint = "ws://public-browser:3000/public-browser"
+    monkeypatch.setenv("ORCHEO_PUBLIC_BROWSER_WS_ENDPOINT", endpoint)
+    connect = AsyncMock(return_value=fake_browser_runtime.browser)
+    monkeypatch.setattr(
+        fake_browser_runtime.chromium, "connect", connect, raising=False
+    )
+    node = BrowserNavigateNode(
+        name="guarded", url="https://example.com", public_https_only=True
+    )
+    await node({}, {"configurable": {"run_id": "remote-run"}})
+    connect.assert_awaited_once_with(endpoint, timeout=30000)
+    assert fake_browser_runtime.chromium.launch_calls == []
+    context = fake_browser_runtime.browser.context_kwargs or {}
+    assert context["service_workers"] == "block"
+    assert "proxy" not in context
+    assert await browser_nodes._browser_session_manager.close_scope("remote-run") == 1
+
+
+@pytest.mark.asyncio
+async def test_isolated_browser_failure_never_falls_back_locally(
+    monkeypatch: pytest.MonkeyPatch, fake_browser_runtime: FakePlaywright
+) -> None:
+    """A missing reader must fail closed rather than render beside credentials."""
+    monkeypatch.setenv(
+        "ORCHEO_PUBLIC_BROWSER_WS_ENDPOINT", "ws://public-browser:3000/public-browser"
+    )
+    monkeypatch.setattr(
+        fake_browser_runtime.chromium,
+        "connect",
+        AsyncMock(side_effect=RuntimeError("reader unavailable")),
+        raising=False,
+    )
+    with pytest.raises(RuntimeError, match="reader unavailable"):
+        await BrowserNavigateNode(
+            name="guarded", url="https://example.com", public_https_only=True
+        )({}, {})
+    assert fake_browser_runtime.chromium.launch_calls == []
 
 
 def test_browser_session_rejects_a_changed_egress_policy() -> None:
