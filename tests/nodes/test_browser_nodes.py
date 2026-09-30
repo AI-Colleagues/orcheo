@@ -866,7 +866,9 @@ async def test_get_or_create_race_condition_returns_existing_in_lock(
         *,
         key: str,
         browser_type: browser_nodes.BrowserEngine,
+        public_https_only: bool = False,
     ) -> browser_nodes.BrowserSession | None:
+        del public_https_only
         nonlocal call_count
         call_count += 1
         if call_count == 1:
@@ -894,6 +896,28 @@ async def test_get_or_create_race_condition_returns_existing_in_lock(
     )
     assert session is placeholder
     assert created is False
+
+
+@pytest.mark.asyncio
+async def test_guarded_browser_uses_public_https_proxy(
+    fake_browser_runtime: FakePlaywright,
+) -> None:
+    """The opt-in browser routes all traffic through its per-session proxy."""
+    node = BrowserNavigateNode(
+        name="guarded", url="https://example.com", public_https_only=True
+    )
+    config: RunnableConfig = {"configurable": {"run_id": "guarded-run"}}
+
+    await node({}, config)
+
+    context_kwargs = fake_browser_runtime.browser.context_kwargs or {}
+    assert context_kwargs["proxy"]["server"].startswith("http://127.0.0.1:")
+    assert context_kwargs["service_workers"] == "block"
+    assert (
+        "--proxy-bypass-list=<-loopback>"
+        in (fake_browser_runtime.chromium.launch_calls[0]["args"])
+    )
+    assert await browser_nodes._browser_session_manager.close_scope("guarded-run") == 1
 
 
 @pytest.mark.asyncio

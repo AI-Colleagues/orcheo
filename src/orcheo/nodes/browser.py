@@ -10,6 +10,7 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
+from orcheo.nodes.browser_proxy import PublicHttpsProxy
 from orcheo.nodes.registry import NodeMetadata, registry
 
 
@@ -168,6 +169,7 @@ class BrowserSession:
     playwright: Any
     trace_path: str | None = None
     tracing_started: bool = False
+    public_https_proxy: PublicHttpsProxy | None = None
 
 
 class BrowserSessionManager:
@@ -184,6 +186,7 @@ class BrowserSessionManager:
         *,
         key: str,
         browser_type: BrowserEngine,
+        public_https_only: bool = False,
     ) -> BrowserSession | None:
         """Return an existing session or raise on incompatible browser reuse."""
         if session is None:
@@ -194,6 +197,8 @@ class BrowserSessionManager:
                 f"{session.browser_type!r}, not {browser_type!r}."
             )
             raise ValueError(msg)
+        if (session.public_https_proxy is not None) != public_https_only:
+            raise ValueError(f"Browser session '{key}' has a different egress policy.")
         return session
 
     @staticmethod
@@ -248,64 +253,142 @@ class BrowserSessionManager:
         ignore_https_errors: bool,
         java_script_enabled: bool,
         trace_path: str | None,
+        public_https_only: bool = False,
     ) -> BrowserSession:
         """Create one Playwright session with a single active page."""
         _configure_playwright_browser_path(browser_type)
         playwright_context = _async_playwright_factory()()
-        playwright = await playwright_context.start()
-        launcher = getattr(playwright, browser_type, None)
-        if launcher is None:
-            msg = f"Unsupported browser engine {browser_type!r}."
-            raise ValueError(msg)
-
-        launch_kwargs: dict[str, Any] = {"headless": headless}
-        if launch_args:
-            launch_kwargs["args"] = launch_args
-        context_kwargs = self._context_kwargs(
-            viewport_width=viewport_width,
-            viewport_height=viewport_height,
-            user_agent=user_agent,
-            locale=locale,
-            timezone_id=timezone_id,
-            storage_state=storage_state,
-            extra_http_headers=extra_http_headers,
-            ignore_https_errors=ignore_https_errors,
-            java_script_enabled=java_script_enabled,
+        proxy = await self._guarded_proxy(
+            browser_type, user_data_dir, launch_args, public_https_only
         )
+        try:
+            playwright = await playwright_context.start()
+        except Exception:
+            if proxy is not None:
+                await proxy.close()
+            raise
         browser = None
-        if user_data_dir:
-            if storage_state is not None:
-                msg = (
-                    "BrowserNavigateNode.user_data_dir cannot be used with "
-                    "storage_state."
-                )
+        context = None
+        try:
+            launcher = getattr(playwright, browser_type, None)
+            if launcher is None:
+                msg = f"Unsupported browser engine {browser_type!r}."
                 raise ValueError(msg)
-            context_kwargs.pop("storage_state", None)
-            context = await launcher.launch_persistent_context(
-                user_data_dir,
-                **launch_kwargs,
-                **context_kwargs,
+
+            launch_kwargs = self._browser_launch_kwargs(
+                headless, launch_args, public_https_only
             )
-        else:
-            browser = await launcher.launch(**launch_kwargs)
-            context = await browser.new_context(**context_kwargs)
-        tracing_started = trace_path is not None
-        if tracing_started:
-            await context.tracing.start(
-                screenshots=True,
-                snapshots=True,
-                sources=True,
+            context_kwargs = self._context_kwargs(
+                viewport_width=viewport_width,
+                viewport_height=viewport_height,
+                user_agent=user_agent,
+                locale=locale,
+                timezone_id=timezone_id,
+                storage_state=storage_state,
+                extra_http_headers=extra_http_headers,
+                ignore_https_errors=ignore_https_errors,
+                java_script_enabled=java_script_enabled,
             )
-        page = context.pages[0] if context.pages else await context.new_page()
-        return BrowserSession(
-            browser_type=browser_type,
-            context=context,
-            browser=browser,
-            page=page,
-            playwright=playwright,
-            trace_path=trace_path,
-            tracing_started=tracing_started,
-        )
+            if proxy is not None:
+                context_kwargs["proxy"] = {"server": proxy.url, "bypass": ""}
+                context_kwargs["service_workers"] = "block"
+            if user_data_dir:
+                if storage_state is not None:
+                    msg = (
+                        "BrowserNavigateNode.user_data_dir cannot be used with "
+                        "storage_state."
+                    )
+                    raise ValueError(msg)
+                context_kwargs.pop("storage_state", None)
+                context = await launcher.launch_persistent_context(
+                    user_data_dir,
+                    **launch_kwargs,
+                    **context_kwargs,
+                )
+            else:
+                browser = await launcher.launch(**launch_kwargs)
+                context = await browser.new_context(**context_kwargs)
+            tracing_started = trace_path is not None
+            if tracing_started:
+                await context.tracing.start(
+                    screenshots=True,
+                    snapshots=True,
+                    sources=True,
+                )
+            page = context.pages[0] if context.pages else await context.new_page()
+            return BrowserSession(
+                browser_type=browser_type,
+                context=context,
+                browser=browser,
+                page=page,
+                playwright=playwright,
+                trace_path=trace_path,
+                tracing_started=tracing_started,
+                public_https_proxy=proxy,
+            )
+        except BaseException:
+            await self._discard_failed_session(context, browser, playwright, proxy)
+            raise
+
+    @staticmethod
+    def _browser_launch_kwargs(
+        headless: bool, launch_args: list[str], public_https_only: bool
+    ) -> dict[str, Any]:
+        """Apply proxy bypass protections to guarded Chromium launches."""
+        browser_args = list(launch_args)
+        if public_https_only:
+            browser_args.extend(
+                [
+                    "--proxy-bypass-list=<-loopback>",
+                    "--disable-quic",
+                    "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+                ]
+            )
+        return {
+            "headless": headless,
+            **({"args": browser_args} if browser_args else {}),
+        }
+
+    @staticmethod
+    async def _discard_failed_session(
+        context: Any,
+        browser: Any,
+        playwright: Any,
+        proxy: PublicHttpsProxy | None,
+    ) -> None:
+        """Release a partial browser session when launch or tracing fails."""
+        try:
+            if context is not None:
+                await context.close()
+            if browser is not None:
+                await browser.close()
+            await playwright.stop()
+        finally:
+            if proxy is not None:
+                await proxy.close()
+
+    @staticmethod
+    async def _guarded_proxy(
+        browser_type: BrowserEngine,
+        user_data_dir: str | None,
+        launch_args: list[str],
+        public_https_only: bool,
+    ) -> PublicHttpsProxy | None:
+        """Start a locked-down proxy when the browser reads untrusted pages."""
+        if not public_https_only:
+            return None
+        if browser_type != "chromium" or user_data_dir:
+            raise ValueError(
+                "Public HTTPS sessions require chromium and a temporary profile."
+            )
+        if any(
+            arg.startswith(("--proxy-", "--no-proxy-server", "--host-resolver-rules"))
+            for arg in launch_args
+        ):
+            raise ValueError("Launch arguments cannot override guarded browser egress.")
+        proxy = PublicHttpsProxy()
+        await proxy.start()
+        return proxy
 
     async def get(self, key: str) -> BrowserSession | None:
         """Return an existing session when available."""
@@ -329,12 +412,14 @@ class BrowserSessionManager:
         ignore_https_errors: bool,
         java_script_enabled: bool,
         trace_path: str | None,
+        public_https_only: bool = False,
     ) -> tuple[BrowserSession, bool]:
         """Return an existing session or create a new Playwright browser."""
         existing = self._validate_existing_session(
             self._sessions.get(key),
             key=key,
             browser_type=browser_type,
+            public_https_only=public_https_only,
         )
         if existing is not None:
             return existing, False
@@ -344,6 +429,7 @@ class BrowserSessionManager:
                 self._sessions.get(key),
                 key=key,
                 browser_type=browser_type,
+                public_https_only=public_https_only,
             )
             if existing is not None:
                 return existing, False
@@ -363,6 +449,7 @@ class BrowserSessionManager:
                 ignore_https_errors=ignore_https_errors,
                 java_script_enabled=java_script_enabled,
                 trace_path=trace_path,
+                public_https_only=public_https_only,
             )
             self._sessions[key] = session
             return session, True
@@ -398,16 +485,20 @@ class BrowserSessionManager:
         trace_path: str | None,
     ) -> None:
         """Close all Playwright runtime resources for one browser session."""
-        if session.tracing_started:
-            final_trace_path = trace_path or session.trace_path
-            if final_trace_path is not None:
-                await session.context.tracing.stop(path=final_trace_path)
-            else:
-                await session.context.tracing.stop()
-        await session.context.close()
-        if session.browser is not None:
-            await session.browser.close()
-        await session.playwright.stop()
+        try:
+            if session.tracing_started:
+                final_trace_path = trace_path or session.trace_path
+                if final_trace_path is not None:
+                    await session.context.tracing.stop(path=final_trace_path)
+                else:
+                    await session.context.tracing.stop()
+            await session.context.close()
+            if session.browser is not None:
+                await session.browser.close()
+            await session.playwright.stop()
+        finally:
+            if session.public_https_proxy is not None:
+                await session.public_https_proxy.close()
 
 
 _browser_session_manager = BrowserSessionManager()
@@ -546,6 +637,13 @@ class BrowserNavigateNode(BrowserNode):
         default=None,
         description="Optional trace archive path recorded for the session.",
     )
+    public_https_only: bool = Field(
+        default=False,
+        description=(
+            "Route every browser connection through a public-IP-only HTTPS proxy. "
+            "Use for untrusted pages; requires Chromium and a temporary profile."
+        ),
+    )
 
     async def run(self, state: State, config: RunnableConfig) -> dict[str, Any]:
         """Create or reuse a browser session and navigate to the configured URL."""
@@ -567,6 +665,7 @@ class BrowserNavigateNode(BrowserNode):
             ignore_https_errors=self.ignore_https_errors,
             java_script_enabled=self.java_script_enabled,
             trace_path=self.trace_path,
+            public_https_only=self.public_https_only,
         )
         response = await session.page.goto(
             self.url,
