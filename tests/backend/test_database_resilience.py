@@ -132,24 +132,43 @@ async def test_database_failures_are_503_not_invalid_credentials(
             },
         )
     assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "database.unavailable"
     assert "private database diagnostic" not in response.text
 
 
 @pytest.mark.asyncio
-async def test_dependency_database_failure_is_sanitized_503(app: FastAPI) -> None:
+@pytest.mark.parametrize("error_type", DATABASE_UNAVAILABLE_ERRORS)
+@pytest.mark.parametrize("path", ["refresh", "email/start"])
+async def test_dependency_database_failure_is_sanitized_503(
+    app: FastAPI, error_type: type[Exception], path: str
+) -> None:
     """Pool failures during lazy schema initialization bypass route catches."""
 
     def fail() -> None:
-        raise PoolTimeout("private connection details")
+        raise error_type("private connection details")
 
     app.dependency_overrides[get_identity_service] = fail
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        response = await client.post("/auth/refresh", json={"refresh_token": "token"})
+        response = await client.post(
+            f"/auth/{path}",
+            json={"refresh_token": "token", "email": "user@example.com"},
+        )
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "database.unavailable"
     assert "private connection details" not in response.text
+
+
+def test_application_registers_all_database_unavailable_handlers() -> None:
+    """The actual application factory must protect dependency initialization."""
+    from orcheo_backend.app.factory import create_app
+
+    application = create_app()
+    for error_type in DATABASE_UNAVAILABLE_ERRORS:
+        assert (
+            application.exception_handlers[error_type] is database_unavailable_handler
+        )
 
 
 @pytest.mark.asyncio

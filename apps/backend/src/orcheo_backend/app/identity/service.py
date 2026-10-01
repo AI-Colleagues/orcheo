@@ -193,8 +193,9 @@ class IdentityService:
         self._ensure_not_locked(challenge)
 
         if not secrets_match(code, challenge.code_hash):
-            updated = challenge.model_copy(update={"attempts": challenge.attempts + 1})
-            self._repository.update_challenge(updated)
+            updated = self._repository.increment_challenge_attempts(
+                challenge.id, now=now, max_attempts=self._config.otp_max_attempts
+            )
             self._ensure_not_locked(updated)
             raise IdentityChallengeError("Invalid or expired code.")
 
@@ -216,7 +217,9 @@ class IdentityService:
         self._ensure_email_allowed(challenge.email, ip=ip)
         now = self._clock()
         try:
-            consumed = self._repository.consume_challenge(challenge, consumed_at=now)
+            consumed = self._repository.consume_challenge(
+                challenge, consumed_at=now, max_attempts=self._config.otp_max_attempts
+            )
         except IdentityChallengeNotFoundError as exc:
             self._record("auth.verify_expired", "failure", ip=ip)
             raise IdentityChallengeExpiredError(
@@ -336,7 +339,9 @@ class IdentityService:
         if scopes is not None:
             update["scopes"] = scopes
         rotated = session.model_copy(update=update)
-        self._repository.update_session(rotated)
+        self._repository.rotate_session(
+            rotated, previous_refresh_hash=session.refresh_token_hash, now=now
+        )
         access_token, expires_in = self._mint_access(user, now=now, session=rotated)
         return IssuedTokens(
             access_token=access_token,

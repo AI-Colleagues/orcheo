@@ -3,7 +3,7 @@ import {
   getAuthTokens,
   getDevAuthSessionHeaderValue,
 } from "@features/auth/lib/auth-session";
-import { refreshSession } from "@features/auth/lib/auth-api";
+import { refreshSessionResult } from "@features/auth/lib/auth-api";
 import { getWorkspaceSelectionHeaders } from "./workspace-session";
 
 const temporaryAuthFailure = (): Response =>
@@ -76,8 +76,9 @@ export const authFetch = async (
   // getAccessToken includes the shared 60-second expiry skew, so nearly expired
   // tokens are treated as missing and refreshed before protected requests.
   if (shouldAttachAuth && !getAccessToken() && getAuthTokens()?.refreshToken) {
-    if (!(await refreshSession()) && getAuthTokens()?.refreshToken) {
-      return temporaryAuthFailure();
+    const refresh = await refreshSessionResult();
+    if (!refresh.ok && getAuthTokens()?.refreshToken) {
+      return refresh.response?.clone() ?? temporaryAuthFailure();
     }
   }
 
@@ -104,8 +105,11 @@ export const authFetch = async (
   }
 
   if (!getAuthTokens()?.refreshToken) return response;
-  if (!(await refreshSession())) {
-    return getAuthTokens()?.refreshToken ? temporaryAuthFailure() : response;
+  const refresh = await refreshSessionResult();
+  if (!refresh.ok) {
+    return getAuthTokens()?.refreshToken
+      ? (refresh.response?.clone() ?? temporaryAuthFailure())
+      : response;
   }
 
   const { headers: retryHeaders } = buildRequestHeaders(

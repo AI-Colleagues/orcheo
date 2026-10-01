@@ -17,7 +17,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 from psycopg_pool import AsyncConnectionPool, ConnectionPool
-from orcheo.config import get_settings
+from orcheo.config import _DEFAULTS, get_settings
 
 
 __all__ = [
@@ -36,12 +36,34 @@ def connection_kwargs(
     """Return psycopg connection arguments safe behind a transaction pooler."""
     settings = settings if settings is not None else get_settings()
     return {
-        "connect_timeout": int(settings.get("POSTGRES_CONNECT_TIMEOUT", 10)),
+        "connect_timeout": int(
+            settings.get(
+                "POSTGRES_CONNECT_TIMEOUT", _DEFAULTS["POSTGRES_CONNECT_TIMEOUT"]
+            )
+        ),
         "keepalives": 1,
-        "keepalives_idle": int(settings.get("POSTGRES_KEEPALIVES_IDLE", 30)),
-        "keepalives_interval": int(settings.get("POSTGRES_KEEPALIVES_INTERVAL", 10)),
-        "keepalives_count": int(settings.get("POSTGRES_KEEPALIVES_COUNT", 3)),
-        "tcp_user_timeout": int(settings.get("POSTGRES_TCP_USER_TIMEOUT_MS", 30_000)),
+        "keepalives_idle": int(
+            settings.get(
+                "POSTGRES_KEEPALIVES_IDLE", _DEFAULTS["POSTGRES_KEEPALIVES_IDLE"]
+            )
+        ),
+        "keepalives_interval": int(
+            settings.get(
+                "POSTGRES_KEEPALIVES_INTERVAL",
+                _DEFAULTS["POSTGRES_KEEPALIVES_INTERVAL"],
+            )
+        ),
+        "keepalives_count": int(
+            settings.get(
+                "POSTGRES_KEEPALIVES_COUNT", _DEFAULTS["POSTGRES_KEEPALIVES_COUNT"]
+            )
+        ),
+        "tcp_user_timeout": int(
+            settings.get(
+                "POSTGRES_TCP_USER_TIMEOUT_MS",
+                _DEFAULTS["POSTGRES_TCP_USER_TIMEOUT_MS"],
+            )
+        ),
         "autocommit": autocommit,
         # None disables prepared statements; 0 would prepare every query.
         "prepare_threshold": None,
@@ -62,8 +84,12 @@ def pool_kwargs(*, async_pool: bool = False) -> dict[str, Any]:
             if async_pool
             else ConnectionPool.check_connection
         ),
-        "timeout": float(settings.get("POSTGRES_POOL_TIMEOUT", 5.0)),
-        "max_idle": float(settings.get("POSTGRES_POOL_MAX_IDLE", 240.0)),
+        "timeout": float(
+            settings.get("POSTGRES_POOL_TIMEOUT", _DEFAULTS["POSTGRES_POOL_TIMEOUT"])
+        ),
+        "max_idle": float(
+            settings.get("POSTGRES_POOL_MAX_IDLE", _DEFAULTS["POSTGRES_POOL_MAX_IDLE"])
+        ),
     }
 
 

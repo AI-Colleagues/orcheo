@@ -17,6 +17,14 @@ DATABASE_UNAVAILABLE_ERRORS = (
 logger = logging.getLogger(__name__)
 
 
+def database_unavailable_detail() -> dict[str, str]:
+    """Return the shared public error for database outages."""
+    return {
+        "code": "database.unavailable",
+        "message": "Service temporarily unavailable. Please try again later.",
+    }
+
+
 async def database_unavailable_handler(
     request: Request, exc: Exception
 ) -> JSONResponse:
@@ -26,10 +34,5 @@ async def database_unavailable_handler(
     )
     return JSONResponse(
         status_code=503,
-        content={
-            "detail": {
-                "code": "database.unavailable",
-                "message": "Service temporarily unavailable. Please try again later.",
-            }
-        },
+        content={"detail": database_unavailable_detail()},
     )

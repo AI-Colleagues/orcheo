@@ -15,7 +15,7 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_POSTGRES_POOL_MAX_SIZE` | `10` | Integer ≥ 1 | Upper bound for each of those pools. Keep the total across the backend and every worker process within a session-mode pooler's client limit. |
 | `ORCHEO_POSTGRES_POOL_TIMEOUT` | `5.0` | Float > 0 | Seconds to wait for a free pooled connection before failing. |
 | `ORCHEO_POSTGRES_POOL_MAX_IDLE` | `240.0` | Float > 0 | Seconds an idle connection above the minimum stays open. |
-| `ORCHEO_POSTGRES_CONNECT_TIMEOUT` | `10` | Integer ≥ 2 | Seconds allowed for each new PostgreSQL connection attempt. |
+| `ORCHEO_POSTGRES_CONNECT_TIMEOUT` | `10` | Integer ≥ 2 | Seconds allowed for each new PostgreSQL connection attempt; libpq interprets a 1-second timeout as 2 seconds. |
 | `ORCHEO_POSTGRES_KEEPALIVES_IDLE` | `30` | Integer ≥ 1 | Seconds of TCP inactivity before keepalive probes begin. TCP keepalives are enabled for all PostgreSQL pools. |
 | `ORCHEO_POSTGRES_KEEPALIVES_INTERVAL` | `10` | Integer ≥ 1 | Seconds between TCP keepalive probes. |
 | `ORCHEO_POSTGRES_KEEPALIVES_COUNT` | `3` | Integer ≥ 1 | Unanswered TCP keepalive probes before the connection is considered dead. |

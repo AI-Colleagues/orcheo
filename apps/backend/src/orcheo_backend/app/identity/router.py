@@ -26,7 +26,10 @@ from orcheo_backend.app.authentication import (
     get_auth_rate_limiter,
     get_request_context,
 )
-from orcheo_backend.app.database_errors import DATABASE_UNAVAILABLE_ERRORS
+from orcheo_backend.app.database_errors import (
+    DATABASE_UNAVAILABLE_ERRORS,
+    database_unavailable_detail,
+)
 from orcheo_backend.app.identity.dependencies import (
     IdentityServiceDep,
     get_client_ip,
@@ -40,10 +43,7 @@ logger = logging.getLogger(__name__)
 def _database_unavailable() -> HTTPException:
     return HTTPException(
         status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail={
-            "code": "auth.service_unavailable",
-            "message": "Sign-in is temporarily unavailable. Please try again later.",
-        },
+        detail=database_unavailable_detail(),
     )
 
 

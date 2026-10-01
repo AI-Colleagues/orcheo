@@ -12,6 +12,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 from orcheo.identity.errors import (
+    IdentityChallengeLockedError,
     IdentityChallengeNotFoundError,
     IdentitySessionNotFoundError,
     OAuthAuthorizationRequestNotFoundError,
@@ -244,9 +245,13 @@ class PostgresIdentityRepository:
         return challenge
 
     def consume_challenge(
-        self, challenge: AuthEmailChallenge, *, consumed_at: datetime
+        self,
+        challenge: AuthEmailChallenge,
+        *,
+        consumed_at: datetime,
+        max_attempts: int | None = None,
     ) -> AuthEmailChallenge:
-        """Atomically mark an unconsumed challenge as consumed."""
+        """Atomically consume an unexpired challenge below the attempt limit."""
         with self._connect() as conn:
             cursor = conn.execute(
                 """
@@ -254,12 +259,41 @@ class PostgresIdentityRepository:
                    SET consumed_at = %s
                  WHERE id = %s
                    AND consumed_at IS NULL
+                   AND expires_at > %s
+                   AND (%s::integer IS NULL OR attempts < %s)
                 """,
-                (consumed_at, str(challenge.id)),
+                (
+                    consumed_at,
+                    str(challenge.id),
+                    consumed_at,
+                    max_attempts,
+                    max_attempts,
+                ),
             )
             if cursor.rowcount == 0:
                 raise IdentityChallengeNotFoundError(str(challenge.id))
         return challenge.model_copy(update={"consumed_at": consumed_at})
+
+    def increment_challenge_attempts(
+        self, challenge_id: UUID, *, now: datetime, max_attempts: int
+    ) -> AuthEmailChallenge:
+        """Count a failed guess without losing concurrent increments."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                UPDATE auth_email_challenges
+                   SET attempts = attempts + 1
+                 WHERE id = %s
+                   AND consumed_at IS NULL
+                   AND expires_at > %s
+                   AND attempts < %s
+                RETURNING *
+                """,
+                (str(challenge_id), now, max_attempts),
+            ).fetchone()
+        if row is None:
+            raise IdentityChallengeLockedError("Challenge is unavailable or locked.")
+        return self._row_to_challenge(row)
 
     # -- sessions ------------------------------------------------------------
 
@@ -349,6 +383,35 @@ class PostgresIdentityRepository:
                 (_utc_now(), str(user_id)),
             )
             return cursor.rowcount
+
+    def rotate_session(
+        self, session: AuthSession, *, previous_refresh_hash: str, now: datetime
+    ) -> AuthSession:
+        """Rotate only the matching active hash, including across processes."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE auth_sessions
+                   SET refresh_token_hash = %s,
+                       expires_at = %s,
+                       scopes = %s
+                 WHERE id = %s
+                   AND refresh_token_hash = %s
+                   AND revoked_at IS NULL
+                   AND expires_at > %s
+                """,
+                (
+                    session.refresh_token_hash,
+                    session.expires_at,
+                    None if session.scopes is None else Jsonb(session.scopes),
+                    str(session.id),
+                    previous_refresh_hash,
+                    now,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise IdentitySessionNotFoundError(str(session.id))
+        return session
 
     # -- oauth clients & authorization requests ------------------------------
 
