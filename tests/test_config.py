@@ -58,8 +58,8 @@ def test_settings_defaults(
     assert settings.vault_backend == "postgres"
     assert settings.postgres_pool_min_size == 1
     assert settings.postgres_pool_max_size == 10
-    assert settings.postgres_pool_timeout == 30.0
-    assert settings.postgres_pool_max_idle == 300.0
+    assert settings.postgres_pool_timeout == 5.0
+    assert settings.postgres_pool_max_idle == 240.0
     assert settings.host == "0.0.0.0"
     assert settings.port == 2025
     assert settings.vault_encryption_key == "test-vault-encryption-key"
@@ -631,3 +631,43 @@ def test_app_settings_validator_restores_tracing_defaults() -> None:
     assert (
         validated.tracing_preview_max_length == _DEFAULTS["TRACING_PREVIEW_MAX_LENGTH"]
     )
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("POSTGRES_CONNECT_TIMEOUT", 12),
+        ("POSTGRES_KEEPALIVES_IDLE", 20),
+        ("POSTGRES_KEEPALIVES_INTERVAL", 8),
+        ("POSTGRES_KEEPALIVES_COUNT", 2),
+        ("POSTGRES_TCP_USER_TIMEOUT_MS", 15000),
+        ("IDENTITY_POSTGRES_STATEMENT_TIMEOUT_MS", 8000),
+        ("IDENTITY_POSTGRES_LOCK_TIMEOUT_MS", 2000),
+    ],
+)
+def test_database_resilience_settings_are_loaded(
+    monkeypatch: pytest.MonkeyPatch, key: str, value: int
+) -> None:
+    monkeypatch.setenv(f"ORCHEO_{key}", str(value))
+    settings = config.get_settings(refresh=True)
+    assert settings.get(key) == value
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "POSTGRES_CONNECT_TIMEOUT",
+        "POSTGRES_KEEPALIVES_IDLE",
+        "POSTGRES_KEEPALIVES_INTERVAL",
+        "POSTGRES_KEEPALIVES_COUNT",
+        "POSTGRES_TCP_USER_TIMEOUT_MS",
+        "IDENTITY_POSTGRES_STATEMENT_TIMEOUT_MS",
+        "IDENTITY_POSTGRES_LOCK_TIMEOUT_MS",
+    ],
+)
+def test_database_resilience_settings_reject_zero(
+    monkeypatch: pytest.MonkeyPatch, key: str
+) -> None:
+    monkeypatch.setenv(f"ORCHEO_{key}", "0")
+    with pytest.raises(ValueError):
+        config.get_settings(refresh=True)

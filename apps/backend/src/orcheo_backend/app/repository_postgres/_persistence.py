@@ -5,6 +5,7 @@ import json
 from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
+from starlette.concurrency import run_in_threadpool
 from orcheo.models import Workflow, WorkflowRun, WorkflowRunStatus, WorkflowVersion
 from orcheo.models.workflow_refs import workflow_ref_is_uuid
 from orcheo.runtime.runnable_config import merge_runnable_configs
@@ -376,8 +377,8 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
             raise WorkflowVersionNotFoundError(str(workflow_version_id))
         workspace_record = None
         if workspace_id is not None:
-            workspace_record = get_workspace_repository().get_workspace(
-                UUID(workspace_id)
+            workspace_record = await run_in_threadpool(
+                lambda: get_workspace_repository().get_workspace(UUID(workspace_id))
             )
 
         config_payload: dict[str, Any] | None = None

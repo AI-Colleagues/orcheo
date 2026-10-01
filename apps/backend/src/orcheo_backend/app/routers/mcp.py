@@ -3,6 +3,7 @@
 from __future__ import annotations
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from starlette.concurrency import run_in_threadpool
 from orcheo_backend.app.asgi_delegate import ASGIDelegateResponse
 from orcheo_backend.app.authentication import (
     PREAUTHENTICATED_SCOPE_KEY,
@@ -37,7 +38,12 @@ async def authenticate_mcp_request(request: Request) -> RequestContext:
     try:
         return await authenticate_oauth_resource_request(request)
     except HTTPException as exc:
-        if exc.status_code == status.HTTP_401_UNAUTHORIZED and oauth_server(request):
+        server = (
+            await run_in_threadpool(oauth_server, request)
+            if exc.status_code == status.HTTP_401_UNAUTHORIZED
+            else None
+        )
+        if server is not None:
             metadata_url = resource_metadata_url(public_origin(request))
             exc.headers = {
                 **(exc.headers or {}),

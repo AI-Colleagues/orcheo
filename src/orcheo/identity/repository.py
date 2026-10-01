@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 from datetime import datetime
+from threading import RLock
 from typing import Protocol
 from uuid import UUID
 from orcheo.identity.errors import (
+    IdentityChallengeLockedError,
     IdentityChallengeNotFoundError,
     IdentitySessionNotFoundError,
     OAuthAuthorizationRequestNotFoundError,
@@ -58,9 +60,18 @@ class IdentityRepository(Protocol):
         """Persist attempt/consumption changes for an existing challenge."""
 
     def consume_challenge(
-        self, challenge: AuthEmailChallenge, *, consumed_at: datetime
+        self,
+        challenge: AuthEmailChallenge,
+        *,
+        consumed_at: datetime,
+        max_attempts: int | None = None,
     ) -> AuthEmailChallenge:
-        """Atomically mark an unconsumed challenge as consumed."""
+        """Atomically consume an unexpired challenge below the attempt limit."""
+
+    def increment_challenge_attempts(
+        self, challenge_id: UUID, *, now: datetime, max_attempts: int
+    ) -> AuthEmailChallenge:
+        """Atomically count a failed guess on an active, unlocked challenge."""
 
     def add_session(self, session: AuthSession) -> AuthSession:
         """Persist a new refresh-token session."""
@@ -80,6 +91,11 @@ class IdentityRepository(Protocol):
 
     def revoke_sessions_for_user(self, user_id: UUID) -> int:
         """Revoke every active session for a user; return the count revoked."""
+
+    def rotate_session(
+        self, session: AuthSession, *, previous_refresh_hash: str, now: datetime
+    ) -> AuthSession:
+        """Replace a matching, unrevoked, unexpired refresh hash atomically."""
 
     def add_oauth_client(self, client: OAuthClient) -> OAuthClient:
         """Persist a dynamically registered OAuth client."""
@@ -121,6 +137,7 @@ class InMemoryIdentityRepository:
 
     def __init__(self) -> None:
         """Initialize empty in-memory storage."""
+        self._lock = RLock()
         self._users: dict[UUID, User] = {}
         self._email_index: dict[str, UUID] = {}
         self._challenges: dict[UUID, AuthEmailChallenge] = {}
@@ -163,8 +180,9 @@ class InMemoryIdentityRepository:
 
     def add_challenge(self, challenge: AuthEmailChallenge) -> AuthEmailChallenge:
         """Persist a new email challenge."""
-        self._challenges[challenge.id] = challenge
-        return challenge
+        with self._lock:
+            self._challenges[challenge.id] = challenge
+            return challenge
 
     def get_challenge(self, challenge_id: UUID) -> AuthEmailChallenge:
         """Return the challenge identified by `challenge_id`."""
@@ -177,40 +195,72 @@ class InMemoryIdentityRepository:
         self, email: str, *, now: datetime
     ) -> AuthEmailChallenge | None:
         """Return the newest unconsumed, unexpired challenge for an email."""
-        normalized = normalize_email(email)
-        candidates = [
-            challenge
-            for challenge in self._challenges.values()
-            if challenge.email == normalized
-            and not challenge.is_consumed()
-            and not challenge.is_expired(now=now)
-        ]
-        if not candidates:
-            return None
-        return max(candidates, key=lambda c: c.created_at)
+        with self._lock:
+            normalized = normalize_email(email)
+            candidates = [
+                challenge
+                for challenge in self._challenges.values()
+                if challenge.email == normalized
+                and not challenge.is_consumed()
+                and not challenge.is_expired(now=now)
+            ]
+            if not candidates:
+                return None
+            return max(candidates, key=lambda c: c.created_at)
 
     def update_challenge(self, challenge: AuthEmailChallenge) -> AuthEmailChallenge:
         """Persist attempt/consumption changes for an existing challenge."""
-        if challenge.id not in self._challenges:
-            raise IdentityChallengeNotFoundError(str(challenge.id))
-        self._challenges[challenge.id] = challenge
-        return challenge
+        with self._lock:
+            if challenge.id not in self._challenges:
+                raise IdentityChallengeNotFoundError(str(challenge.id))
+            self._challenges[challenge.id] = challenge
+            return challenge
 
     def consume_challenge(
-        self, challenge: AuthEmailChallenge, *, consumed_at: datetime
+        self,
+        challenge: AuthEmailChallenge,
+        *,
+        consumed_at: datetime,
+        max_attempts: int | None = None,
     ) -> AuthEmailChallenge:
-        """Atomically mark an unconsumed challenge as consumed."""
-        current = self._challenges.get(challenge.id)
-        if current is None or current.consumed_at is not None:
-            raise IdentityChallengeNotFoundError(str(challenge.id))
-        consumed = current.model_copy(update={"consumed_at": consumed_at})
-        self._challenges[challenge.id] = consumed
-        return consumed
+        """Atomically consume an unexpired challenge below the attempt limit."""
+        with self._lock:
+            current = self._challenges.get(challenge.id)
+            if (
+                current is None
+                or current.is_consumed()
+                or current.is_expired(now=consumed_at)
+            ):
+                raise IdentityChallengeNotFoundError(str(challenge.id))
+            if max_attempts is not None and current.attempts >= max_attempts:
+                raise IdentityChallengeLockedError(
+                    "Too many attempts; request a new code."
+                )
+            consumed = current.model_copy(update={"consumed_at": consumed_at})
+            self._challenges[challenge.id] = consumed
+            return consumed
+
+    def increment_challenge_attempts(
+        self, challenge_id: UUID, *, now: datetime, max_attempts: int
+    ) -> AuthEmailChallenge:
+        """Atomically count a failed guess on an active, unlocked challenge."""
+        with self._lock:
+            current = self._challenges.get(challenge_id)
+            if current is None or current.is_consumed() or current.is_expired(now=now):
+                raise IdentityChallengeNotFoundError(str(challenge_id))
+            if current.attempts >= max_attempts:
+                raise IdentityChallengeLockedError(
+                    "Too many attempts; request a new code."
+                )
+            updated = current.model_copy(update={"attempts": current.attempts + 1})
+            self._challenges[challenge_id] = updated
+            return updated
 
     def add_session(self, session: AuthSession) -> AuthSession:
         """Persist a new refresh-token session."""
-        self._sessions[session.id] = session
-        return session
+        with self._lock:
+            self._sessions[session.id] = session
+            return session
 
     def get_session(self, session_id: UUID) -> AuthSession:
         """Return the session identified by `session_id`."""
@@ -221,32 +271,50 @@ class InMemoryIdentityRepository:
 
     def get_session_by_refresh_hash(self, refresh_token_hash: str) -> AuthSession:
         """Return the session matching a refresh-token hash."""
-        for session in self._sessions.values():
-            if session.refresh_token_hash == refresh_token_hash:
-                return session
-        raise IdentitySessionNotFoundError(refresh_token_hash)
+        with self._lock:
+            for session in self._sessions.values():
+                if session.refresh_token_hash == refresh_token_hash:
+                    return session
+            raise IdentitySessionNotFoundError(refresh_token_hash)
 
     def update_session(self, session: AuthSession) -> AuthSession:
         """Persist rotation/revocation changes; revocation is permanent."""
-        current = self._sessions.get(session.id)
-        if current is None:
-            raise IdentitySessionNotFoundError(str(session.id))
-        if current.revoked_at is not None:
-            session = session.model_copy(update={"revoked_at": current.revoked_at})
-        self._sessions[session.id] = session
-        return session
+        with self._lock:
+            current = self._sessions.get(session.id)
+            if current is None:
+                raise IdentitySessionNotFoundError(str(session.id))
+            if current.revoked_at is not None:
+                session = session.model_copy(update={"revoked_at": current.revoked_at})
+            self._sessions[session.id] = session
+            return session
+
+    def rotate_session(
+        self, session: AuthSession, *, previous_refresh_hash: str, now: datetime
+    ) -> AuthSession:
+        """Replace an active session's refresh hash exactly once."""
+        with self._lock:
+            current = self._sessions.get(session.id)
+            if (
+                current is None
+                or current.refresh_token_hash != previous_refresh_hash
+                or not current.is_active(now=now)
+            ):
+                raise IdentitySessionNotFoundError(str(session.id))
+            self._sessions[session.id] = session
+            return session
 
     def revoke_sessions_for_user(self, user_id: UUID) -> int:
         """Revoke every active session for a user; return the count revoked."""
-        now = _utcnow()
-        revoked = 0
-        for session_id, session in self._sessions.items():
-            if session.user_id == user_id and session.revoked_at is None:
-                self._sessions[session_id] = session.model_copy(
-                    update={"revoked_at": now}
-                )
-                revoked += 1
-        return revoked
+        with self._lock:
+            now = _utcnow()
+            revoked = 0
+            for session_id, session in self._sessions.items():
+                if session.user_id == user_id and session.revoked_at is None:
+                    self._sessions[session_id] = session.model_copy(
+                        update={"revoked_at": now}
+                    )
+                    revoked += 1
+            return revoked
 
     def add_oauth_client(self, client: OAuthClient) -> OAuthClient:
         """Persist a dynamically registered OAuth client."""

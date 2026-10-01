@@ -6,6 +6,7 @@ import logging
 from typing import Annotated, Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from starlette.concurrency import run_in_threadpool
 from orcheo.config import get_settings
 from orcheo.graph.ingestion import ScriptIngestionError, ingest_workflow
 from orcheo.graph.ingestion.sandbox import uploads_allowed
@@ -632,7 +633,11 @@ async def get_public_workflow(
     workspace_slug_resolved: str | None = None
     if workflow.workspace_id:
         try:
-            ws = get_workspace_repository().get_workspace(UUID(workflow.workspace_id))
+            ws = await run_in_threadpool(
+                lambda: get_workspace_repository().get_workspace(
+                    UUID(workflow.workspace_id)
+                )
+            )
             workspace_slug_resolved = ws.slug
         except Exception:  # noqa: BLE001
             pass
@@ -651,7 +656,9 @@ async def list_workflows(
     include_archived: bool = False,
 ) -> list[WorkflowListItem]:
     """Return workflows with latest-version and schedule summaries."""
-    workspace_record = get_workspace_repository().get_workspace(workspace.workspace_id)
+    workspace_record = await run_in_threadpool(
+        lambda: get_workspace_repository().get_workspace(workspace.workspace_id)
+    )
     managed_workflow = None
     try:
         managed_workflow = await ensure_managed_vibe_workflow(

@@ -10,6 +10,17 @@ from orcheo.config.defaults import _DEFAULTS
 from orcheo.config.vault_settings import VaultSettings
 
 
+_POSTGRES_CONNECTION_SETTINGS = (
+    "POSTGRES_CONNECT_TIMEOUT",
+    "POSTGRES_KEEPALIVES_IDLE",
+    "POSTGRES_KEEPALIVES_INTERVAL",
+    "POSTGRES_KEEPALIVES_COUNT",
+    "POSTGRES_TCP_USER_TIMEOUT_MS",
+    "IDENTITY_POSTGRES_STATEMENT_TIMEOUT_MS",
+    "IDENTITY_POSTGRES_LOCK_TIMEOUT_MS",
+)
+
+
 def _build_loader() -> Dynaconf:
     """Create a Dynaconf loader wired to environment variables only."""
     return Dynaconf(
@@ -73,6 +84,10 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
             postgres_pool_max_idle=source.get(
                 "POSTGRES_POOL_MAX_IDLE", _DEFAULTS["POSTGRES_POOL_MAX_IDLE"]
             ),
+            **{
+                key.lower(): source.get(key, _DEFAULTS[key])
+                for key in _POSTGRES_CONNECTION_SETTINGS
+            },
             host=source.get("HOST", _DEFAULTS["HOST"]),
             port=source.get("PORT", _DEFAULTS["PORT"]),
             vault=VaultSettings(
@@ -157,6 +172,8 @@ def _normalize_settings(source: Dynaconf) -> Dynaconf:
         "CHATKIT_WIDGET_ACTION_TYPES", sorted(settings.chatkit_widget_action_types)
     )
     normalized.set("POSTGRES_DSN", settings.postgres_dsn)
+    for key in _POSTGRES_CONNECTION_SETTINGS:
+        normalized.set(key, getattr(settings, key.lower()))
     normalized.set("POSTGRES_POOL_MIN_SIZE", settings.postgres_pool_min_size)
     normalized.set("POSTGRES_POOL_MAX_SIZE", settings.postgres_pool_max_size)
     normalized.set("POSTGRES_POOL_TIMEOUT", settings.postgres_pool_timeout)

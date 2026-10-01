@@ -1,6 +1,7 @@
 """OAuth credential refresh and health validation service."""
 
 from __future__ import annotations
+import asyncio
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -128,7 +129,8 @@ class OAuthCredentialService(CredentialHealthGuard):
             workflow_id=workflow_id,
             workspace_id=UUID(workspace_id) if workspace_id else None,
         )
-        credentials = self._vault.list_credentials(
+        credentials = await asyncio.to_thread(
+            self._vault.list_credentials,
             context=context,
             workspace_id=workspace_id,
         )
@@ -137,7 +139,8 @@ class OAuthCredentialService(CredentialHealthGuard):
 
         for metadata in credentials:
             if metadata.kind is not CredentialKind.OAUTH:
-                updated = self._vault.mark_health(
+                updated = await asyncio.to_thread(
+                    self._vault.mark_health,
                     credential_id=metadata.id,
                     status=CredentialHealthStatus.HEALTHY,
                     reason=None,

@@ -48,17 +48,20 @@ local public-IP proxy for development; that is not process isolation.
 
 ## Tool-free extraction
 
-The generic crawler path makes a structured model call using captured text,
-HTML and metadata. It has no agent loop, shell, browser tools, or filesystem
-access. Captured content is a user message; instructions are a system message.
+The generic crawler path uses Orcheo's `LLMNode` for structured extraction from
+captured text, HTML and metadata. The node has no configured tools, shell,
+browser access, or filesystem access. Captured content is a user message;
+instructions are a system message. Page content is passed literally without
+expanding credential placeholders or workflow templates.
 Only the model API credential is used for this request, never the DB/R2 keys.
 Schema validation and the existing full-description/agenda checks run before
 facts are uploaded or stored. Provider errors return their type without error
 messages that could disclose credentials. User confirmation is still required
 before publishing.
 
-The workflow now needs `openai_api_key` in the Orcheo vault (or the provider's
-normal API configuration). Coding-agent subscription login is no longer used.
+The workflow declares `[[openai_api_key]]` explicitly in its model configuration,
+so upload readiness checks report a missing key. Add `openai_api_key` to the
+Orcheo vault. Coding-agent subscription login is no longer used.
 Its settings are `extraction_model` and `extraction_timeout_seconds`, replacing
 `codex_model` and `codex_timeout_seconds`. Re-upload the workflow and its updated
 configuration; migrate any saved overrides to the new names.

@@ -52,11 +52,9 @@ def test_coerce_postgres_pool_int_defaults_and_valid_values() -> None:
 
 def test_coerce_postgres_pool_float_defaults_and_valid_values() -> None:
     """Test _coerce_postgres_pool_float handles various input types."""
+    assert AppSettings._coerce_postgres_pool_float(None, "POSTGRES_POOL_TIMEOUT") == 5.0
     assert (
-        AppSettings._coerce_postgres_pool_float(None, "POSTGRES_POOL_TIMEOUT") == 30.0
-    )
-    assert (
-        AppSettings._coerce_postgres_pool_float(None, "POSTGRES_POOL_MAX_IDLE") == 300.0
+        AppSettings._coerce_postgres_pool_float(None, "POSTGRES_POOL_MAX_IDLE") == 240.0
     )
     assert AppSettings._coerce_postgres_pool_float(60, "POSTGRES_POOL_TIMEOUT") == 60.0
     assert (

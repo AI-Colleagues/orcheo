@@ -13,6 +13,7 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
 from orcheo.agentensor.checkpoints import AgentensorCheckpointStore
@@ -32,6 +33,10 @@ from orcheo_backend.app.chatkit_runtime import (
 from orcheo_backend.app.cron_scheduler import (
     CronSchedulerService,
     inprocess_cron_enabled,
+)
+from orcheo_backend.app.database_errors import (
+    DATABASE_UNAVAILABLE_ERRORS,
+    database_unavailable_handler,
 )
 from orcheo_backend.app.dependencies import (
     ListenerRuntimeStore,
@@ -165,8 +170,11 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
     log_active_definition_mode(force=True)
     load_auth_settings(refresh=True)
     load_enabled_plugins(force=True)
-    workspace_service = get_workspace_service()
-    for workspace in workspace_service.list_workspaces(include_inactive=False):
+    workspace_service = await run_in_threadpool(get_workspace_service)
+    workspaces = await run_in_threadpool(
+        workspace_service.list_workspaces, include_inactive=False
+    )
+    for workspace in workspaces:
         try:
             await ensure_managed_vibe_workflow(get_repository(), workspace)
         except (RuntimeError, Exception):
@@ -350,6 +358,8 @@ def _configure_application(application: FastAPI) -> None:
     application.add_exception_handler(
         AuthenticationError, _authentication_error_handler
     )
+    for error_type in DATABASE_UNAVAILABLE_ERRORS:
+        application.add_exception_handler(error_type, database_unavailable_handler)
     _configure_studio_static(application)
 
 

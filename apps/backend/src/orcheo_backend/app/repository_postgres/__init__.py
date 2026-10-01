@@ -29,8 +29,8 @@ class PostgresWorkflowRepository(
         credential_service: OAuthCredentialService | None = None,
         pool_min_size: int = 1,
         pool_max_size: int = 10,
-        pool_timeout: float = 30.0,
-        pool_max_idle: float = 300.0,
+        pool_timeout: float = 5.0,
+        pool_max_idle: float = 240.0,
     ) -> None:
         """Configure repository dependencies and initialize trigger layer."""
         super().__init__(

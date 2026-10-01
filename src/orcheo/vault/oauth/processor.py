@@ -1,6 +1,7 @@
 """Processing helpers for OAuth credential health checks."""
 
 from __future__ import annotations
+import asyncio
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from orcheo.models import (
@@ -46,14 +47,16 @@ class OAuthCredentialProcessor:
         """Refresh and validate a single OAuth credential."""
         provider = self._providers.get(metadata.provider)
         if provider is None:
-            updated = self._vault.mark_health(
+            updated = await asyncio.to_thread(
+                self._vault.mark_health,
                 credential_id=metadata.id,
                 status=CredentialHealthStatus.UNHEALTHY,
                 reason=f"No OAuth provider registered for '{metadata.provider}'",
                 actor=actor_name,
                 context=context,
             )
-            self._record_validation_failure(
+            await asyncio.to_thread(
+                self._record_validation_failure,
                 metadata=metadata,
                 actor_name=actor_name,
                 context=context,
@@ -64,8 +67,11 @@ class OAuthCredentialProcessor:
         metadata_copy = metadata
         tokens = metadata_copy.reveal_oauth_tokens(cipher=self._vault.cipher)
         alerts_triggered: set[GovernanceAlertKind] = set()
-        template = self.load_template_for_metadata(metadata, context)
-        self.apply_rotation_policy(
+        template = await asyncio.to_thread(
+            self.load_template_for_metadata, metadata, context
+        )
+        await asyncio.to_thread(
+            self.apply_rotation_policy,
             template,
             metadata,
             alerts_triggered,
@@ -77,7 +83,8 @@ class OAuthCredentialProcessor:
             if should_refresh_tokens(tokens, refresh_margin=self._refresh_margin):
                 refreshed = await provider.refresh_tokens(metadata_copy, tokens)
                 if refreshed is not None:
-                    metadata_copy = self._vault.update_oauth_tokens(
+                    metadata_copy = await asyncio.to_thread(
+                        self._vault.update_oauth_tokens,
                         credential_id=metadata.id,
                         tokens=refreshed,
                         actor=actor_name,
@@ -87,7 +94,8 @@ class OAuthCredentialProcessor:
                         cipher=self._vault.cipher
                     )
         except Exception as exc:  # pragma: no cover - provider errors handled
-            updated = self._vault.mark_health(
+            updated = await asyncio.to_thread(
+                self._vault.mark_health,
                 credential_id=metadata.id,
                 status=CredentialHealthStatus.UNHEALTHY,
                 reason=str(exc),
@@ -95,7 +103,8 @@ class OAuthCredentialProcessor:
                 context=context,
             )
             alerts_triggered.add(GovernanceAlertKind.VALIDATION_FAILED)
-            self._record_validation_failure(
+            await asyncio.to_thread(
+                self._record_validation_failure,
                 metadata=metadata,
                 actor_name=actor_name,
                 context=context,
@@ -111,7 +120,8 @@ class OAuthCredentialProcessor:
                 failure_reason=str(exc),
             )
 
-        updated = self._vault.mark_health(
+        updated = await asyncio.to_thread(
+            self._vault.mark_health,
             credential_id=metadata.id,
             status=validation.status,
             reason=validation.failure_reason,
@@ -119,7 +129,8 @@ class OAuthCredentialProcessor:
             context=context,
         )
 
-        self._apply_token_expiry_alert(
+        await asyncio.to_thread(
+            self._apply_token_expiry_alert,
             metadata,
             tokens,
             alerts_triggered,
@@ -131,14 +142,17 @@ class OAuthCredentialProcessor:
 
         if validation.status is CredentialHealthStatus.UNHEALTHY:
             alerts_triggered.add(GovernanceAlertKind.VALIDATION_FAILED)
-            self._record_validation_failure(
+            await asyncio.to_thread(
+                self._record_validation_failure,
                 metadata=metadata,
                 actor_name=actor_name,
                 context=context,
                 message=validation.failure_reason or "Credential validation failed",
             )
         elif not alerts_triggered:
-            self._vault.resolve_alerts_for_credential(updated.id, actor=actor_name)
+            await asyncio.to_thread(
+                self._vault.resolve_alerts_for_credential, updated.id, actor=actor_name
+            )
 
         return result
 

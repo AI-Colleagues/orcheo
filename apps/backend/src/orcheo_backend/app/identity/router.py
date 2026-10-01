@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 from orcheo.identity.errors import (
     IdentityChallengeExpiredError,
     IdentityChallengeLockedError,
@@ -25,6 +26,10 @@ from orcheo_backend.app.authentication import (
     get_auth_rate_limiter,
     get_request_context,
 )
+from orcheo_backend.app.database_errors import (
+    DATABASE_UNAVAILABLE_ERRORS,
+    database_unavailable_detail,
+)
 from orcheo_backend.app.identity.dependencies import (
     IdentityServiceDep,
     get_client_ip,
@@ -33,6 +38,14 @@ from orcheo_backend.app.identity.service import IssuedTokens
 
 
 logger = logging.getLogger(__name__)
+
+
+def _database_unavailable() -> HTTPException:
+    return HTTPException(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=database_unavailable_detail(),
+    )
+
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -126,7 +139,7 @@ async def email_start(
         ip, f"auth-email:{payload.email.strip().lower()}", now=service.now()
     )
     try:
-        service.start_challenge(payload.email)
+        await run_in_threadpool(service.start_challenge, payload.email)
     except IdentityEmailDomainNotAllowedError as exc:
         # The domain allowlist is deployment policy, not account existence,
         # so rejecting it explicitly does not create an enumeration oracle.
@@ -151,9 +164,16 @@ async def email_verify(
     get_auth_rate_limiter().check_ip(ip, now=service.now())
     user_agent = request.headers.get("User-Agent")
     try:
-        result = service.verify_code(
-            payload.email, payload.code, user_agent=user_agent, ip=ip
+        result = await run_in_threadpool(
+            service.verify_code,
+            payload.email,
+            payload.code,
+            user_agent=user_agent,
+            ip=ip,
         )
+    except DATABASE_UNAVAILABLE_ERRORS as exc:
+        logger.warning("Identity database operation unavailable", exc_info=True)
+        raise _database_unavailable() from exc
     except IdentityChallengeLockedError as exc:
         raise HTTPException(
             status.HTTP_423_LOCKED, detail={"message": str(exc)}
@@ -185,7 +205,10 @@ async def refresh(
     """Rotate a refresh token and mint a new access token."""
     get_auth_rate_limiter().check_ip(ip, now=service.now())
     try:
-        tokens = service.refresh(payload.refresh_token)
+        tokens = await run_in_threadpool(service.refresh, payload.refresh_token)
+    except DATABASE_UNAVAILABLE_ERRORS as exc:
+        logger.warning("Identity database operation unavailable", exc_info=True)
+        raise _database_unavailable() from exc
     except IdentitySessionNotFoundError as exc:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
@@ -205,7 +228,10 @@ async def logout(
 ) -> Response:
     """Revoke the authenticated user's sessions (log out everywhere)."""
     try:
-        service.logout(auth.subject)
+        await run_in_threadpool(service.logout, auth.subject)
+    except DATABASE_UNAVAILABLE_ERRORS as exc:
+        logger.warning("Identity database operation unavailable", exc_info=True)
+        raise _database_unavailable() from exc
     except (ValueError, UserNotFoundError):
         # Idempotent: an unknown/odd subject still yields a clean logout.
         logger.info("Logout for unresolved subject; clearing client session")
@@ -219,7 +245,10 @@ async def me(
 ) -> UserProfile:
     """Return the authenticated user's profile."""
     try:
-        user = service.get_user(auth.subject)
+        user = await run_in_threadpool(service.get_user, auth.subject)
+    except DATABASE_UNAVAILABLE_ERRORS as exc:
+        logger.warning("Identity database operation unavailable", exc_info=True)
+        raise _database_unavailable() from exc
     except (ValueError, UserNotFoundError) as exc:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, detail={"message": "User not found."}

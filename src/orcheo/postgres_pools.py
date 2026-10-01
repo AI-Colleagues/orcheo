@@ -16,24 +16,80 @@ import asyncio
 import threading
 from dataclasses import dataclass
 from typing import Any
+from psycopg_pool import AsyncConnectionPool, ConnectionPool
+from orcheo.config import _DEFAULTS, get_settings
 
 
 __all__ = [
     "acquire_async_pool",
     "connection_kwargs",
+    "pool_kwargs",
     "get_shared_sync_pool",
     "release_async_pool",
     "reset_shared_pools",
 ]
 
 
-def connection_kwargs(*, autocommit: bool, row_factory: Any) -> dict[str, Any]:
+def connection_kwargs(
+    *, autocommit: bool, row_factory: Any, settings: Any = None
+) -> dict[str, Any]:
     """Return psycopg connection arguments safe behind a transaction pooler."""
+    settings = settings if settings is not None else get_settings()
     return {
+        "connect_timeout": int(
+            settings.get(
+                "POSTGRES_CONNECT_TIMEOUT", _DEFAULTS["POSTGRES_CONNECT_TIMEOUT"]
+            )
+        ),
+        "keepalives": 1,
+        "keepalives_idle": int(
+            settings.get(
+                "POSTGRES_KEEPALIVES_IDLE", _DEFAULTS["POSTGRES_KEEPALIVES_IDLE"]
+            )
+        ),
+        "keepalives_interval": int(
+            settings.get(
+                "POSTGRES_KEEPALIVES_INTERVAL",
+                _DEFAULTS["POSTGRES_KEEPALIVES_INTERVAL"],
+            )
+        ),
+        "keepalives_count": int(
+            settings.get(
+                "POSTGRES_KEEPALIVES_COUNT", _DEFAULTS["POSTGRES_KEEPALIVES_COUNT"]
+            )
+        ),
+        "tcp_user_timeout": int(
+            settings.get(
+                "POSTGRES_TCP_USER_TIMEOUT_MS",
+                _DEFAULTS["POSTGRES_TCP_USER_TIMEOUT_MS"],
+            )
+        ),
         "autocommit": autocommit,
         # None disables prepared statements; 0 would prepare every query.
         "prepare_threshold": None,
         "row_factory": row_factory,
+    }
+
+
+def pool_kwargs(*, async_pool: bool = False) -> dict[str, Any]:
+    """Return checkout checks and bounded waits for every PostgreSQL pool.
+
+    A checkout check itself performs network I/O, so connection_kwargs must
+    also be used. max_idle only retires connections above the pool minimum.
+    """
+    settings = get_settings()
+    return {
+        "check": (
+            AsyncConnectionPool.check_connection
+            if async_pool
+            else ConnectionPool.check_connection
+        ),
+        "timeout": float(
+            settings.get("POSTGRES_POOL_TIMEOUT", _DEFAULTS["POSTGRES_POOL_TIMEOUT"])
+        ),
+        "max_idle": float(
+            settings.get("POSTGRES_POOL_MAX_IDLE", _DEFAULTS["POSTGRES_POOL_MAX_IDLE"])
+        ),
     }
 
 
@@ -74,6 +130,7 @@ async def acquire_async_pool(
                 dsn,
                 min_size=min_size,
                 max_size=max_size,
+                check=AsyncConnectionPool.check_connection,
                 timeout=timeout,
                 max_idle=max_idle,
                 open=False,
@@ -124,6 +181,7 @@ def get_shared_sync_pool(
                 min_size=min_size,
                 max_size=max_size,
                 open=True,
+                **pool_kwargs(),
                 kwargs=connection_kwargs(autocommit=False, row_factory=row_factory),
             )
             _sync_pools[key] = pool

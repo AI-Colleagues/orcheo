@@ -29,6 +29,15 @@ const authUrl = (path: string): string =>
   buildBackendHttpUrl(`/api/auth${path}`);
 
 const persistTokens = (payload: TokenPayload): void => {
+  if (
+    !payload ||
+    typeof payload.access_token !== "string" ||
+    !payload.access_token.trim() ||
+    typeof payload.refresh_token !== "string" ||
+    !payload.refresh_token.trim()
+  ) {
+    throw new Error("Incomplete sign-in response.");
+  }
   setAuthTokens({
     accessToken: payload.access_token,
     refreshToken: payload.refresh_token,
@@ -39,7 +48,12 @@ const persistTokens = (payload: TokenPayload): void => {
   });
 };
 
-let refreshInFlight: Promise<boolean> | null = null;
+export interface RefreshResult {
+  ok: boolean;
+  response?: Response;
+}
+
+let refreshInFlight: Promise<RefreshResult> | null = null;
 
 const readErrorMessage = async (
   response: Response,
@@ -116,6 +130,11 @@ export const verifyEmailCode = async (
  * is missing, invalid, or revoked.
  */
 export const refreshSession = async (): Promise<boolean> => {
+  return (await refreshSessionResult()).ok;
+};
+
+/** Refresh once, retaining the backend failure response for API callers. */
+export const refreshSessionResult = async (): Promise<RefreshResult> => {
   if (refreshInFlight) {
     return refreshInFlight;
   }
@@ -126,10 +145,10 @@ export const refreshSession = async (): Promise<boolean> => {
   return refreshInFlight;
 };
 
-const refreshSessionOnce = async (): Promise<boolean> => {
+const refreshSessionOnce = async (): Promise<RefreshResult> => {
   const tokens = getAuthTokens();
   if (!tokens?.refreshToken) {
-    return false;
+    return { ok: false };
   }
   const refreshToken = tokens.refreshToken;
   let response: Response;
@@ -140,23 +159,37 @@ const refreshSessionOnce = async (): Promise<boolean> => {
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
   } catch {
-    return false;
+    return { ok: false };
   }
   if (!response.ok) {
-    if (getAuthTokens()?.refreshToken === refreshToken) {
+    // Only a definitive token rejection invalidates the stored session.
+    // Outages, rate limits, and ambiguous failures must preserve it.
+    if (
+      response.status === 401 &&
+      getAuthTokens()?.refreshToken === refreshToken
+    ) {
       clearAuthSession();
     }
-    return false;
+    return { ok: false, response };
   }
   try {
     persistTokens((await response.json()) as TokenPayload);
   } catch {
-    if (getAuthTokens()?.refreshToken === refreshToken) {
-      clearAuthSession();
-    }
-    return false;
+    // A lost or malformed response can follow a committed token rotation.
+    // Preserve the session and do not automatically repeat the operation.
+    return {
+      ok: false,
+      response: new Response(
+        JSON.stringify({
+          detail: {
+            message: "Invalid sign-in response. Please try again later.",
+          },
+        }),
+        { status: 502, headers: { "Content-Type": "application/json" } },
+      ),
+    };
   }
-  return true;
+  return { ok: true };
 };
 
 /**

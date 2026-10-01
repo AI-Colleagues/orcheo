@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 from uuid import UUID
 from psycopg import Connection
 from psycopg.errors import UniqueViolation
@@ -12,6 +12,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 from orcheo.identity.errors import (
+    IdentityChallengeLockedError,
     IdentityChallengeNotFoundError,
     IdentitySessionNotFoundError,
     OAuthAuthorizationRequestNotFoundError,
@@ -43,9 +44,19 @@ class PostgresIdentityRepository:
     """Persistent identity store backed by PostgreSQL."""
 
     def __init__(
-        self, dsn: str, *, pool_min_size: int = 1, pool_max_size: int = 10
+        self,
+        dsn: str,
+        *,
+        pool_min_size: int = 1,
+        pool_max_size: int = 10,
+        statement_timeout_ms: int = 10_000,
+        lock_timeout_ms: int = 3_000,
     ) -> None:
         """Open or create a PostgreSQL database for identity storage."""
+        if statement_timeout_ms <= 0 or lock_timeout_ms <= 0:
+            raise ValueError("Identity PostgreSQL timeouts must be positive.")
+        self._statement_timeout_ms = statement_timeout_ms
+        self._lock_timeout_ms = lock_timeout_ms
         self._dsn = dsn
         self._pool = get_shared_sync_pool(
             ConnectionPool,
@@ -57,13 +68,24 @@ class PostgresIdentityRepository:
         self._ensure_schema()
 
     @contextmanager
-    def _connect(self) -> Iterator[Connection[Any]]:
+    def _connect(self, *, apply_timeouts: bool = True) -> Iterator[Connection[Any]]:
         # The pool commits on a clean exit and rolls back on an exception.
         with self._pool.connection() as connection:
+            if apply_timeouts:
+                # SET LOCAL semantics survive transaction pooling and do not
+                # leak identity budgets to other users of the shared pool.
+                connection.execute(
+                    "SELECT set_config('statement_timeout', %s, true), "
+                    "set_config('lock_timeout', %s, true)",
+                    (
+                        f"{self._statement_timeout_ms}ms",
+                        f"{self._lock_timeout_ms}ms",
+                    ),
+                )
             yield connection
 
     def _ensure_schema(self) -> None:
-        with self._connect() as conn:
+        with self._connect(apply_timeouts=False) as conn:
             for statement in POSTGRES_IDENTITY_SCHEMA.strip().split(";"):
                 sql = statement.strip()
                 if sql:
@@ -223,9 +245,13 @@ class PostgresIdentityRepository:
         return challenge
 
     def consume_challenge(
-        self, challenge: AuthEmailChallenge, *, consumed_at: datetime
+        self,
+        challenge: AuthEmailChallenge,
+        *,
+        consumed_at: datetime,
+        max_attempts: int | None = None,
     ) -> AuthEmailChallenge:
-        """Atomically mark an unconsumed challenge as consumed."""
+        """Atomically consume an unexpired challenge below the attempt limit."""
         with self._connect() as conn:
             cursor = conn.execute(
                 """
@@ -233,12 +259,68 @@ class PostgresIdentityRepository:
                    SET consumed_at = %s
                  WHERE id = %s
                    AND consumed_at IS NULL
+                   AND expires_at > %s
+                   AND (%s::integer IS NULL OR attempts < %s)
                 """,
-                (consumed_at, str(challenge.id)),
+                (
+                    consumed_at,
+                    str(challenge.id),
+                    consumed_at,
+                    max_attempts,
+                    max_attempts,
+                ),
             )
             if cursor.rowcount == 0:
-                raise IdentityChallengeNotFoundError(str(challenge.id))
+                self._raise_challenge_update_error(
+                    conn, challenge.id, now=consumed_at, max_attempts=max_attempts
+                )
         return challenge.model_copy(update={"consumed_at": consumed_at})
+
+    def increment_challenge_attempts(
+        self, challenge_id: UUID, *, now: datetime, max_attempts: int
+    ) -> AuthEmailChallenge:
+        """Count a failed guess without losing concurrent increments."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                UPDATE auth_email_challenges
+                   SET attempts = attempts + 1
+                 WHERE id = %s
+                   AND consumed_at IS NULL
+                   AND expires_at > %s
+                   AND attempts < %s
+                RETURNING *
+                """,
+                (str(challenge_id), now, max_attempts),
+            ).fetchone()
+            if row is None:
+                self._raise_challenge_update_error(
+                    conn, challenge_id, now=now, max_attempts=max_attempts
+                )
+        return self._row_to_challenge(row)
+
+    def _raise_challenge_update_error(
+        self,
+        conn: Connection[Any],
+        challenge_id: UUID,
+        *,
+        now: datetime,
+        max_attempts: int | None,
+    ) -> NoReturn:
+        """Distinguish active lockout from a missing, expired or consumed challenge."""
+        locked = conn.execute(
+            """
+            SELECT id FROM auth_email_challenges
+             WHERE id = %s
+               AND consumed_at IS NULL
+               AND expires_at > %s
+               AND attempts >= %s
+            """,
+            (str(challenge_id), now, max_attempts),
+        ).fetchone()
+        if locked is not None:
+            raise IdentityChallengeLockedError("Too many attempts; request a new code.")
+        raise IdentityChallengeNotFoundError(str(challenge_id))
 
     # -- sessions ------------------------------------------------------------
 
@@ -328,6 +410,35 @@ class PostgresIdentityRepository:
                 (_utc_now(), str(user_id)),
             )
             return cursor.rowcount
+
+    def rotate_session(
+        self, session: AuthSession, *, previous_refresh_hash: str, now: datetime
+    ) -> AuthSession:
+        """Rotate only the matching active hash, including across processes."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE auth_sessions
+                   SET refresh_token_hash = %s,
+                       expires_at = %s,
+                       scopes = %s
+                 WHERE id = %s
+                   AND refresh_token_hash = %s
+                   AND revoked_at IS NULL
+                   AND expires_at > %s
+                """,
+                (
+                    session.refresh_token_hash,
+                    session.expires_at,
+                    None if session.scopes is None else Jsonb(session.scopes),
+                    str(session.id),
+                    previous_refresh_hash,
+                    now,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise IdentitySessionNotFoundError(str(session.id))
+        return session
 
     # -- oauth clients & authorization requests ------------------------------
 

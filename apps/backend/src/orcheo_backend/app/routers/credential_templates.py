@@ -3,6 +3,7 @@
 from __future__ import annotations
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Response, status
+from starlette.concurrency import run_in_threadpool
 from orcheo.vault import (
     CredentialTemplateNotFoundError,
     WorkflowScopeError,
@@ -52,8 +53,10 @@ async def list_credential_templates(
     context = credential_context_from_workflow(
         resolved_workflow_id, workspace_id=str(workspace.workspace_id)
     )
-    templates = vault.list_templates(
-        context=context, workspace_id=str(workspace.workspace_id)
+    templates = await run_in_threadpool(
+        lambda: vault.list_templates(
+            context=context, workspace_id=str(workspace.workspace_id)
+        )
     )
     return [template_to_response(template) for template in templates]
 
@@ -104,7 +107,9 @@ async def get_credential_template(
         resolved_workflow_id, workspace_id=str(workspace.workspace_id)
     )
     try:
-        template = vault.get_template(template_id=template_id, context=context)
+        template = await run_in_threadpool(
+            lambda: vault.get_template(template_id=template_id, context=context)
+        )
         return template_to_response(template)
     except CredentialTemplateNotFoundError as exc:
         raise_not_found("Credential template not found", exc)
@@ -135,16 +140,18 @@ async def update_credential_template(
     policy = build_policy(request.issuance_policy)
 
     try:
-        template = vault.update_template(
-            template_id=template_id,
-            actor=request.actor,
-            name=request.name,
-            description=request.description,
-            scopes=request.scopes,
-            scope=scope,
-            kind=request.kind,
-            issuance_policy=policy,
-            context=context,
+        template = await run_in_threadpool(
+            lambda: vault.update_template(
+                template_id=template_id,
+                actor=request.actor,
+                name=request.name,
+                description=request.description,
+                scopes=request.scopes,
+                scope=scope,
+                kind=request.kind,
+                issuance_policy=policy,
+                context=context,
+            )
         )
         return template_to_response(template)
     except CredentialTemplateNotFoundError as exc:
@@ -174,7 +181,9 @@ async def delete_credential_template(
         resolved_workflow_id, workspace_id=str(workspace.workspace_id)
     )
     try:
-        vault.delete_template(template_id, context=context)
+        await run_in_threadpool(
+            lambda: vault.delete_template(template_id, context=context)
+        )
     except CredentialTemplateNotFoundError as exc:
         raise_not_found("Credential template not found", exc)
     except WorkflowScopeError as exc:
@@ -209,7 +218,8 @@ async def issue_credential_from_template(
     )
     tokens = build_oauth_tokens(request.oauth_tokens)
     try:
-        metadata = service.issue_from_template(
+        metadata = await run_in_threadpool(
+            service.issue_from_template,
             template_id=template_id,
             secret=request.secret,
             actor=request.actor,

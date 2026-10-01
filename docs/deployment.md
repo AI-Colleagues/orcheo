@@ -111,6 +111,58 @@ once the project's pool size (15 on small projects) is used up; if you stay on
 it, lower `ORCHEO_POSTGRES_POOL_MAX_SIZE`. Orcheo disables server-side prepared
 statements, which transaction pooling does not support.
 
+All PostgreSQL pools check connections on checkout and enable TCP keepalives.
+New connections have a 10-second connection timeout (minimum 2 seconds, matching
+libpq); Linux connections also limit unacknowledged TCP data to 30 seconds. The
+default pool acquisition wait is 5 seconds. `max_idle` is 240 seconds but only
+retires connections above the pool minimum; it is not the dead-connection
+safeguard. These settings are configurable through the PostgreSQL variables in
+[Environment Variables](environment_variables.md).
+
+Identity SQL uses transaction-local statement (10 seconds) and lock (3 seconds)
+timeouts so Supabase transaction pooling preserves the budgets. Identity calls
+and workspace resolution run outside the backend event loop. They share
+Starlette/AnyIO's default worker limiter (40 concurrent calls) with other synchronous
+routes and dependencies. During an outage those slots can fill and delay unrelated
+worker calls; pool and SQL timeouts bound individual database waits, but do not
+bound time queued for a worker. Monitor worker saturation and request latency
+under concurrent outage load before increasing the limiter: more threads can
+increase database contention. Checkout validation also adds one database round
+trip per acquisition. Orcheo requires `psycopg-pool>=3.2.1` for checkout checks and
+the acquisition timeout fix; `psycopg[binary]` supplies a supported libpq, while
+source builds need libpq 12+ for `tcp_user_timeout`.
+
+Database connection and timeout errors return a sanitized 503 response; email
+challenge issuance retains its constant response to protect account privacy.
+Studio preserves its session on transient refresh failures and offers an explicit
+retry when sign-in is unavailable. API calls retain the refresh error status and
+body for diagnostics;
+only a definitive 401 refresh rejection clears the stored session. The backend
+uses 401 for missing, expired, revoked, or already-rotated refresh tokens. Other
+statuses can come from a proxy, rate limiter, or service failure and do not prove
+the token is invalid. Refresh rotation is not automatically repeated after an
+ambiguous failure.
+
+![Studio retains the session during a sign-in outage](assets/auth-service-unavailable.png)
+
+These limits cover different failure modes, not a single end-to-end request
+deadline. A statement timeout cannot repair a network blackhole, and TCP user
+timeout only bounds unacknowledged data. Validate network failure behavior on the
+Linux production stack before rollout. The Linux PostgreSQL CI job also tests
+packet loss using a one-second TCP user timeout and a rule restricted to the
+test connection. It checks that the request fails promptly and the pool recovers.
+Opt-in PostgreSQL regression tests can run against a disposable database with
+`ORCHEO_TEST_POSTGRES_DSN`:
+
+```bash
+ORCHEO_TEST_POSTGRES_DSN=postgresql://localhost/orcheo_test uv run pytest \
+  tests/integration/test_postgres_resilience.py tests/identity/test_identity_concurrency.py
+```
+
+Set `ORCHEO_TEST_TCP_PACKET_DROP=1` only on an isolated Linux runner with a local
+IPv4 PostgreSQL service, `iptables`, and passwordless `sudo` to include the
+packet-drop check. The test removes its connection-specific rule in `finally`.
+
 The direct connection and the dedicated pooler (`db.<ref>.supabase.co`) are
 IPv6-only. The compose file enables IPv6 on its network
 (`ORCHEO_LEAN_ENABLE_IPV6`, default `true`), which needs Docker Engine 27 or

@@ -13,8 +13,15 @@ services read configuration via Dynaconf with the `ORCHEO_` prefix.
 | `ORCHEO_POSTGRES_DSN` | _none_ | PostgreSQL DSN (e.g. `postgresql://user:pass@host:port/db`) | Connection string required when any backend is set to `postgres` (checkpoint, graph store, repository, workspace, auth service tokens, chatkit, or vault; see `config/loader.py`). |
 | `ORCHEO_POSTGRES_POOL_MIN_SIZE` | `1` | Integer ≥ 1 | Connections each pool keeps open. A process holds one shared pool for workflow, history, ChatKit, token, plugin, and Agentensor stores, one each for LangGraph checkpoints and the graph store, one for workspace and identity, and one for the vault. |
 | `ORCHEO_POSTGRES_POOL_MAX_SIZE` | `10` | Integer ≥ 1 | Upper bound for each of those pools. Keep the total across the backend and every worker process within a session-mode pooler's client limit. |
-| `ORCHEO_POSTGRES_POOL_TIMEOUT` | `30.0` | Float > 0 | Seconds to wait for a free pooled connection before failing. |
-| `ORCHEO_POSTGRES_POOL_MAX_IDLE` | `300.0` | Float > 0 | Seconds an idle connection above the minimum stays open. |
+| `ORCHEO_POSTGRES_POOL_TIMEOUT` | `5.0` | Float > 0 | Seconds to wait for a free pooled connection before failing. |
+| `ORCHEO_POSTGRES_POOL_MAX_IDLE` | `240.0` | Float > 0 | Seconds an idle connection above the minimum stays open. |
+| `ORCHEO_POSTGRES_CONNECT_TIMEOUT` | `10` | Integer ≥ 2 | Seconds allowed for each new PostgreSQL connection attempt; libpq interprets a 1-second timeout as 2 seconds. |
+| `ORCHEO_POSTGRES_KEEPALIVES_IDLE` | `30` | Integer ≥ 1 | Seconds of TCP inactivity before keepalive probes begin. TCP keepalives are enabled for all PostgreSQL pools. |
+| `ORCHEO_POSTGRES_KEEPALIVES_INTERVAL` | `10` | Integer ≥ 1 | Seconds between TCP keepalive probes. |
+| `ORCHEO_POSTGRES_KEEPALIVES_COUNT` | `3` | Integer ≥ 1 | Unanswered TCP keepalive probes before the connection is considered dead. |
+| `ORCHEO_POSTGRES_TCP_USER_TIMEOUT_MS` | `30000` | Integer ≥ 1 | Milliseconds transmitted TCP data may remain unacknowledged before closing the connection. Applies where the OS supports TCP_USER_TIMEOUT (including Linux); ignored on unsupported systems. |
+| `ORCHEO_IDENTITY_POSTGRES_STATEMENT_TIMEOUT_MS` | `10000` | Integer ≥ 1 | Per-statement identity query budget, in milliseconds. Applied transaction-locally; excludes schema initialization and other stores. |
+| `ORCHEO_IDENTITY_POSTGRES_LOCK_TIMEOUT_MS` | `3000` | Integer ≥ 1 | Identity lock acquisition budget, in milliseconds. Applied transaction-locally. |
 | `ORCHEO_REPOSITORY_BACKEND` | `postgres` | `postgres` | Chooses the workflow repository implementation (`config/loader.py`). |
 | `ORCHEO_WORKSPACE_BACKEND` | `postgres` | `postgres` | Chooses the workspace repository implementation used for workspaces and memberships (`config/loader.py`, `app/workspace/dependencies.py`). |
 | `ORCHEO_CHATKIT_BACKEND` | `postgres` | `postgres` | Selects the ChatKit persistence backend used by `chatkit/server.py`. |

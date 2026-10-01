@@ -71,6 +71,12 @@ def get_identity_repository() -> IdentityRepository:
                 str(dsn),
                 pool_min_size=int(settings.get("POSTGRES_POOL_MIN_SIZE", 1)),
                 pool_max_size=int(settings.get("POSTGRES_POOL_MAX_SIZE", 10)),
+                statement_timeout_ms=int(
+                    settings.get("IDENTITY_POSTGRES_STATEMENT_TIMEOUT_MS", 10_000)
+                ),
+                lock_timeout_ms=int(
+                    settings.get("IDENTITY_POSTGRES_LOCK_TIMEOUT_MS", 3_000)
+                ),
             )
         else:
             repository = InMemoryIdentityRepository()

@@ -206,9 +206,13 @@ jobs:
           ORCHEO_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/postgres
           ORCHEO_CHECKPOINT_BACKEND: postgres
           ORCHEO_TEST_POSTGRES_PERSISTENCE: "1"
+          ORCHEO_TEST_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          ORCHEO_TEST_TCP_PACKET_DROP: "1"
         run: |
           uv run pytest \
             tests/integration/test_postgres_persistence.py \
+            tests/integration/test_postgres_resilience.py \
+            tests/identity/test_identity_concurrency.py \
             tests/hosted_apps/test_postgres_store.py \
             -vv \
             -o faulthandler_timeout=60

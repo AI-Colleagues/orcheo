@@ -5,6 +5,7 @@ from collections.abc import Callable, Coroutine
 from typing import Annotated, Any
 from uuid import UUID
 from fastapi import Depends, Request
+from starlette.concurrency import run_in_threadpool
 from orcheo.config import get_settings
 from orcheo.workspace import (
     PostgresWorkspaceRepository,
@@ -146,6 +147,13 @@ async def resolve_workspace_context(
     ``authenticate_request`` yields an anonymous context that resolves via the
     membership-based path using ``anonymous`` as the subject.
     """
+    return await run_in_threadpool(_resolve_workspace_context, request, auth)
+
+
+def _resolve_workspace_context(
+    request: Request, auth: RequestContext
+) -> WorkspaceContext:
+    """Resolve synchronous workspace storage away from the event loop."""
     service = get_workspace_service()
     requested_slug = _read_workspace_header(request)
 
