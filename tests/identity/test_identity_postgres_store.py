@@ -294,6 +294,7 @@ def test_postgres_identity_repository_duplicate_and_missing_paths(
             None,  # get_challenge -> not found
             {"rowcount": 0},  # update_challenge -> not found
             {"rowcount": 0},  # consume_challenge -> not found
+            None,  # failed consume has no active locked challenge
             None,  # get_session -> not found
             None,  # get_session_by_refresh_hash -> not found
             {"rowcount": 0},  # update_session -> not found
@@ -383,3 +384,114 @@ def test_identity_timeout_settings_are_transaction_local(fake_connect) -> None:
 def test_identity_rejects_unbounded_query_timeouts(setting: str) -> None:
     with pytest.raises(ValueError, match="timeouts must be positive"):
         PostgresIdentityRepository("postgresql://test", **{setting: 0})
+
+
+def test_postgres_increment_returns_the_persisted_attempt_count(fake_connect) -> None:
+    """Verification must use the database count, rather than a stale lookup copy."""
+    connection, dsn = fake_connect
+    repo = PostgresIdentityRepository(dsn)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    challenge = AuthEmailChallenge(
+        email="race@example.com",
+        code_hash="code",
+        attempts=3,
+        expires_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    connection._responses = [{"row": _challenge_row(challenge, consumed_at=None)}]
+
+    updated = repo.increment_challenge_attempts(challenge.id, now=now, max_attempts=5)
+
+    assert updated == challenge
+    assert updated.attempts == 3
+    query, params = connection.queries[-1]
+    assert "SET attempts = attempts + 1" in query
+    assert "AND attempts < %s" in query
+    assert params == (str(challenge.id), now, 5)
+
+
+@pytest.mark.parametrize("operation", ["consume", "increment"])
+@pytest.mark.parametrize("locked", [False, True])
+def test_postgres_failed_challenge_updates_distinguish_lockout(
+    fake_connect, operation: str, locked: bool
+) -> None:
+    """A failed conditional update reports lockout only for an active locked row."""
+    from orcheo.identity import IdentityChallengeLockedError
+
+    connection, dsn = fake_connect
+    repo = PostgresIdentityRepository(dsn)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    challenge = AuthEmailChallenge(
+        email="race@example.com",
+        code_hash="code",
+        attempts=0,
+        expires_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    connection._responses = [
+        {"rowcount": 0, "row": None},
+        {"row": {"id": challenge.id} if locked else None},
+    ]
+    error = IdentityChallengeLockedError if locked else IdentityChallengeNotFoundError
+    rollbacks = connection.rollbacks
+
+    with pytest.raises(error):
+        if operation == "consume":
+            repo.consume_challenge(challenge, consumed_at=now, max_attempts=3)
+        else:
+            repo.increment_challenge_attempts(challenge.id, now=now, max_attempts=3)
+
+    assert connection.rollbacks == rollbacks + 1
+    query, params = connection.queries[-1]
+    assert "AND consumed_at IS NULL" in query
+    assert "AND expires_at > %s" in query
+    assert "AND attempts >= %s" in query
+    assert params == (str(challenge.id), now, 3)
+
+
+@pytest.mark.parametrize("scopes", [None, ["workflows:read"]])
+def test_postgres_rotate_session_compares_the_previous_active_hash(
+    fake_connect, scopes: list[str] | None
+) -> None:
+    """Only an active matching token can rotate, including a scoped OAuth grant."""
+    connection, dsn = fake_connect
+    repo = PostgresIdentityRepository(dsn)
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    session = AuthSession(
+        user_id=uuid4(),
+        refresh_token_hash="new-hash",
+        scopes=scopes,
+        expires_at=datetime(2026, 2, 1, tzinfo=UTC),
+    )
+    connection._responses = [{"rowcount": 1}]
+
+    assert (
+        repo.rotate_session(session, previous_refresh_hash="old-hash", now=now)
+        == session
+    )
+    query, params = connection.queries[-1]
+    assert "AND refresh_token_hash = %s" in query
+    assert "AND revoked_at IS NULL" in query
+    assert "AND expires_at > %s" in query
+    assert params[0] == "new-hash"
+    assert params[2] is None if scopes is None else params[2].obj == scopes
+    assert params[3:] == (str(session.id), "old-hash", now)
+
+
+def test_postgres_rotate_session_rejects_a_lost_compare_and_swap(fake_connect) -> None:
+    """A concurrent refresh or logout must prevent returning a rotated token."""
+    connection, dsn = fake_connect
+    repo = PostgresIdentityRepository(dsn)
+    session = AuthSession(
+        user_id=uuid4(),
+        refresh_token_hash="new-hash",
+        expires_at=datetime(2026, 2, 1, tzinfo=UTC),
+    )
+    connection._responses = [{"rowcount": 0}]
+    rollbacks = connection.rollbacks
+
+    with pytest.raises(IdentitySessionNotFoundError):
+        repo.rotate_session(
+            session,
+            previous_refresh_hash="old-hash",
+            now=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+    assert connection.rollbacks == rollbacks + 1

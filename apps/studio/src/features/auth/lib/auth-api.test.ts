@@ -137,7 +137,7 @@ describe("auth-api", () => {
     expect(getAuthTokens()).toBeNull();
   });
 
-  it.each([429, 500, 502, 503, 504, 524])(
+  it.each([400, 403, 429, 500, 502, 503, 504, 524])(
     "preserves the session when refresh returns %s",
     async (status) => {
       setAuthTokens({ accessToken: "old", refreshToken: "r-old" });

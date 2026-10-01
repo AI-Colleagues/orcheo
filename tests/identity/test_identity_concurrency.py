@@ -25,6 +25,7 @@ from orcheo.identity import (
     AuthSession,
     IdentityChallengeError,
     IdentityChallengeLockedError,
+    IdentityChallengeNotFoundError,
     IdentitySessionNotFoundError,
     InMemoryIdentityRepository,
     PostgresIdentityRepository,
@@ -241,7 +242,7 @@ def test_correct_code_cannot_redeem_after_concurrent_lockout(
                     service.verify_code(challenge.email, "wrong")
         finally:
             release.set()
-        with pytest.raises(IdentityChallengeError):
+        with pytest.raises(IdentityChallengeLockedError):
             correct.result(timeout=5)
     assert repository.get_challenge(challenge.id).consumed_at is None
     assert repository.get_user_by_email(challenge.email) is None
@@ -258,3 +259,39 @@ def test_challenge_cannot_redeem_after_expiring_between_lookup_and_consume(
             max_attempts=MAX_ATTEMPTS,
         )
     assert repository.get_challenge(challenge.id).consumed_at is None
+
+
+@pytest.mark.parametrize("operation", ["consume", "increment"])
+@pytest.mark.parametrize("state", ["missing", "consumed", "expired", "locked"])
+def test_unavailable_challenge_errors_match_between_stores(
+    repository: IdentityRepository, operation: str, state: str
+) -> None:
+    """A stale verification must distinguish lockout from expiry or consumption."""
+    challenge = _challenge(repository)
+    now = NOW
+    challenge_id = challenge.id
+    if state == "missing":
+        challenge_id = uuid4()
+        challenge = challenge.model_copy(update={"id": challenge_id})
+    elif state == "consumed":
+        repository.consume_challenge(challenge, consumed_at=NOW)
+    elif state == "expired":
+        now = challenge.expires_at
+    else:
+        repository.update_challenge(
+            challenge.model_copy(update={"attempts": MAX_ATTEMPTS})
+        )
+    expected = (
+        IdentityChallengeLockedError
+        if state == "locked"
+        else IdentityChallengeNotFoundError
+    )
+    with pytest.raises(expected):
+        if operation == "consume":
+            repository.consume_challenge(
+                challenge, consumed_at=now, max_attempts=MAX_ATTEMPTS
+            )
+        else:
+            repository.increment_challenge_attempts(
+                challenge_id, now=now, max_attempts=MAX_ATTEMPTS
+            )

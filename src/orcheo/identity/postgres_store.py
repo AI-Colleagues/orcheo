@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 from uuid import UUID
 from psycopg import Connection
 from psycopg.errors import UniqueViolation
@@ -271,7 +271,9 @@ class PostgresIdentityRepository:
                 ),
             )
             if cursor.rowcount == 0:
-                raise IdentityChallengeNotFoundError(str(challenge.id))
+                self._raise_challenge_update_error(
+                    conn, challenge.id, now=consumed_at, max_attempts=max_attempts
+                )
         return challenge.model_copy(update={"consumed_at": consumed_at})
 
     def increment_challenge_attempts(
@@ -291,9 +293,34 @@ class PostgresIdentityRepository:
                 """,
                 (str(challenge_id), now, max_attempts),
             ).fetchone()
-        if row is None:
-            raise IdentityChallengeLockedError("Challenge is unavailable or locked.")
+            if row is None:
+                self._raise_challenge_update_error(
+                    conn, challenge_id, now=now, max_attempts=max_attempts
+                )
         return self._row_to_challenge(row)
+
+    def _raise_challenge_update_error(
+        self,
+        conn: Connection[Any],
+        challenge_id: UUID,
+        *,
+        now: datetime,
+        max_attempts: int | None,
+    ) -> NoReturn:
+        """Distinguish active lockout from a missing, expired or consumed challenge."""
+        locked = conn.execute(
+            """
+            SELECT id FROM auth_email_challenges
+             WHERE id = %s
+               AND consumed_at IS NULL
+               AND expires_at > %s
+               AND attempts >= %s
+            """,
+            (str(challenge_id), now, max_attempts),
+        ).fetchone()
+        if locked is not None:
+            raise IdentityChallengeLockedError("Too many attempts; request a new code.")
+        raise IdentityChallengeNotFoundError(str(challenge_id))
 
     # -- sessions ------------------------------------------------------------
 

@@ -90,3 +90,95 @@ def test_pool_exhaustion_fails_within_acquisition_budget(pool: ConnectionPool) -
                     "Single-connection pool unexpectedly lent another connection"
                 )
         assert time.monotonic() - started < 1
+
+
+def test_linux_tcp_user_timeout_bounds_packet_drop() -> None:
+    """Unacknowledged data must fail promptly and the pool must recover.
+
+    Explicitly opt in on a disposable Linux runner with passwordless sudo and
+    iptables. The rule matches only this test connection's original TCP tuple,
+    including when Docker rewrites the destination for a published service port.
+    """
+    import socket
+    import subprocess
+    import sys
+    from threading import Timer
+
+    if sys.platform != "linux" or os.environ.get("ORCHEO_TEST_TCP_PACKET_DROP") != "1":
+        pytest.skip(
+            "Packet-drop validation requires an explicitly opted-in Linux runner."
+        )
+    dsn = os.environ.get("ORCHEO_TEST_POSTGRES_DSN")
+    assert dsn, "Set ORCHEO_TEST_POSTGRES_DSN to a disposable PostgreSQL database."
+    kwargs = connection_kwargs(
+        autocommit=False,
+        row_factory=dict_row,
+        settings={"POSTGRES_TCP_USER_TIMEOUT_MS": 1000},
+    )
+    with ConnectionPool(
+        dsn, min_size=1, max_size=1, kwargs=kwargs, **pool_kwargs()
+    ) as pool:
+        pool.wait(timeout=5)
+        with pool.connection() as connection:
+            row = connection.execute("SELECT pg_backend_pid() AS pid").fetchone()
+            assert row is not None
+            original_pid = row["pid"]
+            with socket.fromfd(
+                connection.pgconn.socket, socket.AF_INET, socket.SOCK_STREAM
+            ) as peer:
+                assert (
+                    peer.getsockopt(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT) == 1000
+                )
+                client_host, client_port = peer.getsockname()
+                server_host, server_port = peer.getpeername()
+                assert client_host == server_host == "127.0.0.1", (
+                    "Use a local IPv4 test service."
+                )
+                rule = [
+                    "OUTPUT",
+                    "-p",
+                    "tcp",
+                    "--sport",
+                    str(client_port),
+                    "-m",
+                    "conntrack",
+                    "--ctorigsrc",
+                    client_host,
+                    "--ctorigdst",
+                    server_host,
+                    "--ctorigdstport",
+                    str(server_port),
+                    "--ctdir",
+                    "ORIGINAL",
+                    "-j",
+                    "DROP",
+                ]
+                subprocess.run(
+                    ["sudo", "-n", "iptables", "-w", "5", "-I", *rule],
+                    check=True,
+                    timeout=10,
+                    capture_output=True,
+                )
+                # A broken timeout implementation must fail the assertion,
+                # rather than hang the entire CI job. Shutdown also unblocks libpq.
+                watchdog = Timer(8, peer.shutdown, args=(socket.SHUT_RDWR,))
+                watchdog.daemon = True
+                try:
+                    watchdog.start()
+                    started = time.monotonic()
+                    with pytest.raises(psycopg.OperationalError):
+                        connection.execute("SELECT 1 AS alive")
+                    assert time.monotonic() - started < 5
+                finally:
+                    watchdog.cancel()
+                    subprocess.run(
+                        ["sudo", "-n", "iptables", "-w", "5", "-D", *rule],
+                        check=True,
+                        timeout=10,
+                        capture_output=True,
+                    )
+        with pool.connection(timeout=5) as connection:
+            recovered = connection.execute("SELECT pg_backend_pid() AS pid").fetchone()
+            assert recovered is not None
+            assert recovered["pid"] != original_pid
+            assert connection.execute("SELECT 1 AS alive").fetchone() == {"alive": 1}
