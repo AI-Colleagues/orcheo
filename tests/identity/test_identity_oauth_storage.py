@@ -215,6 +215,8 @@ def test_postgres_decisions_and_revocations_are_final(
         AuthSession(user_id=uuid4(), refresh_token_hash="h", expires_at=NOW)
     )
 
-    decide, rotate = (query for query, _ in connection.queries[-2:])
+    decide, rotate = (
+        query for query, _ in connection.queries if query.startswith("UPDATE")
+    )
     assert "AND decided_at IS NULL" in decide
     assert "revoked_at = COALESCE(revoked_at, %s)" in rotate

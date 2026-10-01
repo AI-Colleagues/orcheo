@@ -4,6 +4,7 @@ from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 from dynaconf import Dynaconf
+from orcheo.postgres_pools import pool_kwargs
 from orcheo import config, persistence
 from orcheo.persistence import create_checkpointer, create_graph_store
 
@@ -71,8 +72,15 @@ async def test_create_checkpointer_postgres(monkeypatch: pytest.MonkeyPatch) -> 
         max_size=9,
         timeout=12.0,
         max_idle=60.0,
+        check=pool_kwargs(async_pool=True)["check"],
         kwargs={
             "autocommit": True,
+            "connect_timeout": 10,
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 3,
+            "tcp_user_timeout": 30_000,
             "prepare_threshold": None,
             "row_factory": persistence.DictRowFactory,
         },
@@ -194,8 +202,15 @@ async def test_create_graph_store_postgres(monkeypatch: pytest.MonkeyPatch) -> N
         max_size=9,
         timeout=12.0,
         max_idle=60.0,
+        check=pool_kwargs(async_pool=True)["check"],
         kwargs={
             "autocommit": True,
+            "connect_timeout": 10,
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 3,
+            "tcp_user_timeout": 30_000,
             "prepare_threshold": None,
             "row_factory": persistence.DictRowFactory,
         },

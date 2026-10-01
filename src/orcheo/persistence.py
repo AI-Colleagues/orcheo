@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from typing import Any, cast
 from dynaconf import Dynaconf
 from orcheo.config import CheckpointBackend, GraphStoreBackend
-from orcheo.postgres_pools import connection_kwargs
+from orcheo.postgres_pools import connection_kwargs, pool_kwargs
 
 
 AsyncPostgresSaver: Any | None
@@ -76,9 +76,12 @@ async def _open_langgraph_pool(settings: Dynaconf) -> Any:
         open=False,
         min_size=int(settings.postgres_pool_min_size),
         max_size=int(settings.postgres_pool_max_size),
+        check=pool_kwargs(async_pool=True)["check"],
         timeout=float(settings.postgres_pool_timeout),
         max_idle=float(settings.postgres_pool_max_idle),
-        kwargs=connection_kwargs(autocommit=True, row_factory=DictRowFactory),
+        kwargs=connection_kwargs(
+            autocommit=True, row_factory=DictRowFactory, settings=settings
+        ),
     )
     await pool.open()
     return pool

@@ -58,7 +58,15 @@ def test_get_identity_repository_covers_backend_branches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class FakePostgresRepository:
-        def __init__(self, dsn: str, *, pool_min_size: int, pool_max_size: int) -> None:
+        def __init__(
+            self,
+            dsn: str,
+            *,
+            pool_min_size: int,
+            pool_max_size: int,
+            statement_timeout_ms: int,
+            lock_timeout_ms: int,
+        ) -> None:
             self.dsn = dsn
             self.pool_sizes = (pool_min_size, pool_max_size)
 

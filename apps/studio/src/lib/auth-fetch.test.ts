@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearAuthSession,
+  getAuthTokens,
   setAuthTokens,
 } from "@features/auth/lib/auth-session";
 import { authFetch } from "./auth-fetch";
@@ -49,6 +50,34 @@ describe("authFetch", () => {
     expect(
       (fetchMock.mock.calls[1][1].headers as Headers).get("Authorization"),
     ).toBe("Bearer fresh-access");
+  });
+
+  it("does not repeat a failed preflight refresh or send an unauthenticated request", async () => {
+    setAuthTokens({
+      accessToken: "expired",
+      refreshToken: "r-old",
+      expiresAt: Date.now() - 1000,
+    });
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 503));
+    const response = await authFetch("/api/protected");
+    expect(response.status).toBe(503);
+    expect(getAuthTokens()?.refreshToken).toBe("r-old");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a temporary failure after a 401 if refresh is unavailable", async () => {
+    setAuthTokens({
+      accessToken: "stale",
+      refreshToken: "r-old",
+      expiresAt: Date.now() + 120_000,
+    });
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}, 401))
+      .mockResolvedValueOnce(jsonResponse({}, 503));
+    const response = await authFetch("/api/protected");
+    expect(response.status).toBe(503);
+    expect(getAuthTokens()?.refreshToken).toBe("r-old");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("retries once with a fresh token after a 401", async () => {

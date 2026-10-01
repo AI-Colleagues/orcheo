@@ -3,6 +3,7 @@
 from __future__ import annotations
 from typing import Literal
 from fastapi import APIRouter, HTTPException, status
+from starlette.concurrency import run_in_threadpool
 from orcheo.models import CredentialHealthStatus
 from orcheo_backend.app.credential_readiness import (
     collect_workflow_credential_placeholders,
@@ -77,7 +78,9 @@ async def get_workflow_credential_readiness(
         repository, workflow_uuid, workspace_id=tid
     )
     context = credential_context_from_workflow(workflow_uuid, workspace_id=workspace_id)
-    credentials = vault.list_credentials(context=context, workspace_id=tid)
+    credentials = await run_in_threadpool(
+        lambda: vault.list_credentials(context=context, workspace_id=tid)
+    )
     credentials_by_name = {
         metadata.name.strip().lower(): metadata for metadata in credentials
     }

@@ -1,6 +1,7 @@
 """Helpers for resolving and provisioning workspace teams."""
 
 from __future__ import annotations
+from starlette.concurrency import run_in_threadpool
 from orcheo.models import Team
 from orcheo.workspace.models import WorkspaceContext
 from orcheo_backend.app.repository import WorkflowRepository
@@ -20,7 +21,9 @@ async def ensure_default_team(
     slug = getattr(workspace, "workspace_slug", None) or workspace_id
     name = slug
     try:
-        record = get_workspace_repository().get_workspace(workspace.workspace_id)
+        record = await run_in_threadpool(
+            lambda: get_workspace_repository().get_workspace(workspace.workspace_id)
+        )
         name = record.name
     except Exception:  # noqa: BLE001 - fall back to the slug as the team name
         name = slug

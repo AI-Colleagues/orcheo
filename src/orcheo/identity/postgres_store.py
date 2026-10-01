@@ -43,9 +43,19 @@ class PostgresIdentityRepository:
     """Persistent identity store backed by PostgreSQL."""
 
     def __init__(
-        self, dsn: str, *, pool_min_size: int = 1, pool_max_size: int = 10
+        self,
+        dsn: str,
+        *,
+        pool_min_size: int = 1,
+        pool_max_size: int = 10,
+        statement_timeout_ms: int = 10_000,
+        lock_timeout_ms: int = 3_000,
     ) -> None:
         """Open or create a PostgreSQL database for identity storage."""
+        if statement_timeout_ms <= 0 or lock_timeout_ms <= 0:
+            raise ValueError("Identity PostgreSQL timeouts must be positive.")
+        self._statement_timeout_ms = statement_timeout_ms
+        self._lock_timeout_ms = lock_timeout_ms
         self._dsn = dsn
         self._pool = get_shared_sync_pool(
             ConnectionPool,
@@ -57,13 +67,24 @@ class PostgresIdentityRepository:
         self._ensure_schema()
 
     @contextmanager
-    def _connect(self) -> Iterator[Connection[Any]]:
+    def _connect(self, *, apply_timeouts: bool = True) -> Iterator[Connection[Any]]:
         # The pool commits on a clean exit and rolls back on an exception.
         with self._pool.connection() as connection:
+            if apply_timeouts:
+                # SET LOCAL semantics survive transaction pooling and do not
+                # leak identity budgets to other users of the shared pool.
+                connection.execute(
+                    "SELECT set_config('statement_timeout', %s, true), "
+                    "set_config('lock_timeout', %s, true)",
+                    (
+                        f"{self._statement_timeout_ms}ms",
+                        f"{self._lock_timeout_ms}ms",
+                    ),
+                )
             yield connection
 
     def _ensure_schema(self) -> None:
-        with self._connect() as conn:
+        with self._connect(apply_timeouts=False) as conn:
             for statement in POSTGRES_IDENTITY_SCHEMA.strip().split(";"):
                 sql = statement.strip()
                 if sql:

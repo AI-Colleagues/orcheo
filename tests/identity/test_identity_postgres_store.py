@@ -58,6 +58,8 @@ class FakeConnection:
     def execute(self, query: str, params: Any | None = None) -> FakeCursor:
         statement = query.strip()
         self.queries.append((statement, params))
+        if statement.startswith("SELECT set_config"):
+            return FakeCursor()
         if statement.startswith("CREATE") or statement.startswith("ALTER"):
             return FakeCursor()
         response = self._responses.pop(0) if self._responses else {}
@@ -358,3 +360,26 @@ def test_postgres_identity_repository_row_mappers_handle_nulls() -> None:
     assert mapped_session.revoked_at is None
     assert mapped_session.user_agent is None
     assert mapped_session.ip is None
+
+
+def test_identity_timeout_settings_are_transaction_local(fake_connect) -> None:
+    """Apply identity budgets at each checkout, not on shared server sessions."""
+    connection, dsn = fake_connect
+    repo = PostgresIdentityRepository(
+        dsn, statement_timeout_ms=1200, lock_timeout_ms=300
+    )
+    # Schema initialization has no short application query budget.
+    assert not any("set_config" in query for query, _ in connection.queries)
+    with repo._connect():
+        pass
+    assert connection.queries[-1] == (
+        "SELECT set_config('statement_timeout', %s, true), "
+        "set_config('lock_timeout', %s, true)",
+        ("1200ms", "300ms"),
+    )
+
+
+@pytest.mark.parametrize("setting", ["statement_timeout_ms", "lock_timeout_ms"])
+def test_identity_rejects_unbounded_query_timeouts(setting: str) -> None:
+    with pytest.raises(ValueError, match="timeouts must be positive"):
+        PostgresIdentityRepository("postgresql://test", **{setting: 0})

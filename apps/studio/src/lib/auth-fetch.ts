@@ -6,6 +6,19 @@ import {
 import { refreshSession } from "@features/auth/lib/auth-api";
 import { getWorkspaceSelectionHeaders } from "./workspace-session";
 
+const temporaryAuthFailure = (): Response =>
+  new Response(
+    JSON.stringify({
+      detail: {
+        message: "Sign-in is temporarily unavailable. Please try again later.",
+      },
+    }),
+    {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+
 const buildAuthHeaders = (
   headers: Headers,
   shouldAttachAuth: boolean,
@@ -63,7 +76,9 @@ export const authFetch = async (
   // getAccessToken includes the shared 60-second expiry skew, so nearly expired
   // tokens are treated as missing and refreshed before protected requests.
   if (shouldAttachAuth && !getAccessToken() && getAuthTokens()?.refreshToken) {
-    await refreshSession();
+    if (!(await refreshSession()) && getAuthTokens()?.refreshToken) {
+      return temporaryAuthFailure();
+    }
   }
 
   const includeWorkspaceHeaders = options.includeWorkspaceHeaders ?? true;
@@ -88,8 +103,9 @@ export const authFetch = async (
     return fetchWithHeaders(input, init, retryHeaders);
   }
 
-  if (!getAuthTokens()?.refreshToken || !(await refreshSession())) {
-    return response;
+  if (!getAuthTokens()?.refreshToken) return response;
+  if (!(await refreshSession())) {
+    return getAuthTokens()?.refreshToken ? temporaryAuthFailure() : response;
   }
 
   const { headers: retryHeaders } = buildRequestHeaders(

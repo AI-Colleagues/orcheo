@@ -8,6 +8,7 @@ belonging to other workspaces are never listed or addressable here.
 from __future__ import annotations
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
+from starlette.concurrency import run_in_threadpool
 from orcheo.workspace import WorkspaceAuditEvent, WorkspaceContext
 from orcheo_backend.app.authentication import (
     AuthorizationPolicy,
@@ -103,15 +104,17 @@ async def create_service_token(
         workspace_id=workspace_id,
     )
     try:
-        get_workspace_repository().record_audit_event(
-            WorkspaceAuditEvent(
-                workspace_id=workspace.workspace_id,
-                action="service_token.created",
-                actor=policy.context.subject,
-                subject=record.identifier,
-                resource_type="service_token",
-                resource_id=record.identifier,
-                details={"scopes": sorted(record.scopes)},
+        await run_in_threadpool(
+            lambda: get_workspace_repository().record_audit_event(
+                WorkspaceAuditEvent(
+                    workspace_id=workspace.workspace_id,
+                    action="service_token.created",
+                    actor=policy.context.subject,
+                    subject=record.identifier,
+                    resource_type="service_token",
+                    resource_id=record.identifier,
+                    details={"scopes": sorted(record.scopes)},
+                )
             )
         )
     except Exception:  # pragma: no cover - audit is best effort
@@ -178,15 +181,17 @@ async def revoke_service_token(
 
     await token_manager.revoke(token_id, reason=request.reason)
     try:
-        get_workspace_repository().record_audit_event(
-            WorkspaceAuditEvent(
-                workspace_id=workspace.workspace_id,
-                action="service_token.revoked",
-                actor=policy.context.subject,
-                subject=token_id,
-                resource_type="service_token",
-                resource_id=token_id,
-                details={"reason": request.reason},
+        await run_in_threadpool(
+            lambda: get_workspace_repository().record_audit_event(
+                WorkspaceAuditEvent(
+                    workspace_id=workspace.workspace_id,
+                    action="service_token.revoked",
+                    actor=policy.context.subject,
+                    subject=token_id,
+                    resource_type="service_token",
+                    resource_id=token_id,
+                    details={"reason": request.reason},
+                )
             )
         )
     except Exception:  # pragma: no cover - audit is best effort

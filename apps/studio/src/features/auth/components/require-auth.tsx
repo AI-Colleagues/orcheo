@@ -7,7 +7,8 @@ import {
 } from "@features/auth/lib/auth-session";
 import { refreshSession } from "@features/auth/lib/auth-api";
 
-type AuthState = "authenticated" | "refreshing" | "unauthenticated";
+type AuthState =
+  "authenticated" | "refreshing" | "unauthenticated" | "unavailable";
 
 // Self-host/dev deployments that run the backend with auth disabled opt out of
 // the login gate via VITE_ORCHEO_AUTH_DISABLED=true. Hosted deployments leave
@@ -33,7 +34,13 @@ export default function RequireAuth() {
   useEffect(() => {
     if (authState !== "refreshing") return;
     void refreshSession().then((refreshed) => {
-      setAuthState(refreshed ? "authenticated" : "unauthenticated");
+      setAuthState(
+        refreshed
+          ? "authenticated"
+          : getAuthTokens()?.refreshToken
+            ? "unavailable"
+            : "unauthenticated",
+      );
     });
   }, [authState]);
 
@@ -43,6 +50,20 @@ export default function RequireAuth() {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (authState === "unavailable") {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4">
+        <p>Sign-in is temporarily unavailable. Please try again later.</p>
+        <button
+          className="rounded-md border px-4 py-2"
+          onClick={() => setAuthState("refreshing")}
+        >
+          Try again
+        </button>
       </div>
     );
   }

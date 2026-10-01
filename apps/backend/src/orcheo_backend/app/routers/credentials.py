@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from starlette.concurrency import run_in_threadpool
 from orcheo.vault import (
     CredentialNotFoundError,
     DuplicateCredentialNameError,
@@ -59,10 +60,14 @@ async def list_credentials(
         repository, workflow_id, workspace_id=str(workspace.workspace_id)
     )
     if resolved_workflow_id is None:
-        credentials = vault.list_all_credentials(workspace_id=tid)
+        credentials = await run_in_threadpool(
+            lambda: vault.list_all_credentials(workspace_id=tid)
+        )
     else:
         context = credential_context_from_workflow(resolved_workflow_id)
-        credentials = vault.list_credentials(context=context, workspace_id=tid)
+        credentials = await run_in_threadpool(
+            lambda: vault.list_credentials(context=context, workspace_id=tid)
+        )
     return [credential_to_response(metadata) for metadata in credentials]
 
 
@@ -89,15 +94,17 @@ async def create_credential(
     scope = scope_from_access(request.access, workflow_id)
     try:
         await ensure_workspace_credential_quota(vault, workspace)
-        metadata = vault.create_credential(
-            name=request.name,
-            provider=request.provider,
-            scopes=request.scopes,
-            secret=request.secret,
-            actor=request.actor,
-            scope=scope,
-            kind=request.kind,
-            workspace_id=str(workspace.workspace_id),
+        metadata = await run_in_threadpool(
+            lambda: vault.create_credential(
+                name=request.name,
+                provider=request.provider,
+                scopes=request.scopes,
+                secret=request.secret,
+                actor=request.actor,
+                scope=scope,
+                kind=request.kind,
+                workspace_id=str(workspace.workspace_id),
+            )
         )
     except DuplicateCredentialNameError as exc:
         raise HTTPException(
@@ -142,7 +149,9 @@ async def reveal_credential_secret(
         resolved_workflow_id, workspace_id=str(workspace.workspace_id)
     )
     try:
-        secret = vault.reveal_secret(credential_id=credential_id, context=context)
+        secret = await run_in_threadpool(
+            lambda: vault.reveal_secret(credential_id=credential_id, context=context)
+        )
     except CredentialNotFoundError as exc:
         raise_not_found("Credential not found", exc)
     except WorkflowScopeError as exc:
@@ -151,14 +160,16 @@ async def reveal_credential_secret(
     from orcheo_backend.app.workspace import get_workspace_repository
 
     try:
-        get_workspace_repository().record_audit_event(
-            WorkspaceAuditEvent(
-                workspace_id=workspace.workspace_id,
-                action="vault.read",
-                actor=workspace.user_id,
-                subject=str(credential_id),
-                resource_type="credential",
-                resource_id=str(credential_id),
+        await run_in_threadpool(
+            lambda: get_workspace_repository().record_audit_event(
+                WorkspaceAuditEvent(
+                    workspace_id=workspace.workspace_id,
+                    action="vault.read",
+                    actor=workspace.user_id,
+                    subject=str(credential_id),
+                    resource_type="credential",
+                    resource_id=str(credential_id),
+                )
             )
         )
     except Exception:  # pragma: no cover - audit is best effort
@@ -200,14 +211,16 @@ async def update_credential(
         else None
     )
     try:
-        metadata = vault.update_credential(
-            credential_id=credential_id,
-            actor=request.actor,
-            name=request.name,
-            provider=request.provider,
-            secret=request.secret,
-            scope=scope,
-            context=context,
+        metadata = await run_in_threadpool(
+            lambda: vault.update_credential(
+                credential_id=credential_id,
+                actor=request.actor,
+                name=request.name,
+                provider=request.provider,
+                secret=request.secret,
+                scope=scope,
+                context=context,
+            )
         )
     except CredentialNotFoundError as exc:
         raise_not_found("Credential not found", exc)
@@ -248,7 +261,9 @@ async def delete_credential(
         resolved_workflow_id, workspace_id=str(workspace.workspace_id)
     )
     try:
-        vault.delete_credential(credential_id, context=context)
+        await run_in_threadpool(
+            lambda: vault.delete_credential(credential_id, context=context)
+        )
     except CredentialNotFoundError as exc:
         raise_not_found("Credential not found", exc)
     except WorkflowScopeError as exc:

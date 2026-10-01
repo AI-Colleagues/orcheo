@@ -63,8 +63,8 @@ class PostgresAgentensorCheckpointStore(AgentensorCheckpointStore):
         *,
         pool_min_size: int = 1,
         pool_max_size: int = 10,
-        pool_timeout: float = 30.0,
-        pool_max_idle: float = 300.0,
+        pool_timeout: float = 5.0,
+        pool_max_idle: float = 240.0,
     ) -> None:
         """Initialize the PostgreSQL checkpoint store."""
         if _AsyncConnectionPool is None or _DictRowFactory is None:

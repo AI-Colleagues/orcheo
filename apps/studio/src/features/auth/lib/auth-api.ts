@@ -29,6 +29,15 @@ const authUrl = (path: string): string =>
   buildBackendHttpUrl(`/api/auth${path}`);
 
 const persistTokens = (payload: TokenPayload): void => {
+  if (
+    !payload ||
+    typeof payload.access_token !== "string" ||
+    !payload.access_token.trim() ||
+    typeof payload.refresh_token !== "string" ||
+    !payload.refresh_token.trim()
+  ) {
+    throw new Error("Incomplete sign-in response.");
+  }
   setAuthTokens({
     accessToken: payload.access_token,
     refreshToken: payload.refresh_token,
@@ -143,7 +152,12 @@ const refreshSessionOnce = async (): Promise<boolean> => {
     return false;
   }
   if (!response.ok) {
-    if (getAuthTokens()?.refreshToken === refreshToken) {
+    // Only a definitive token rejection invalidates the stored session.
+    // Outages, rate limits, and ambiguous failures must preserve it.
+    if (
+      response.status === 401 &&
+      getAuthTokens()?.refreshToken === refreshToken
+    ) {
       clearAuthSession();
     }
     return false;
@@ -151,9 +165,8 @@ const refreshSessionOnce = async (): Promise<boolean> => {
   try {
     persistTokens((await response.json()) as TokenPayload);
   } catch {
-    if (getAuthTokens()?.refreshToken === refreshToken) {
-      clearAuthSession();
-    }
+    // A lost or malformed response can follow a committed token rotation.
+    // Preserve the session and do not automatically repeat the operation.
     return false;
   }
   return true;

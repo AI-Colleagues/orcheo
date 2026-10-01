@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from threading import RLock
 from typing import Any
 import redis
+from starlette.concurrency import run_in_threadpool
 from orcheo.config import get_settings
 from orcheo.workspace import WorkspaceQuotas
 from orcheo_backend.app.errors import (
@@ -220,7 +221,9 @@ async def ensure_workspace_credential_quota(
     """Validate the credential quota for a workspace."""
     workspace_id = _workspace_context_id(workspace)
     workspace_slug = _workspace_context_slug(workspace)
-    credentials = vault.list_all_credentials(workspace_id=workspace_id)
+    credentials = await run_in_threadpool(
+        lambda: vault.list_all_credentials(workspace_id=workspace_id)
+    )
     if len(credentials) >= workspace.quotas.max_credentials:
         raise WorkspaceQuotaExceededError(
             f"Workspace {workspace_slug} reached its credential quota",

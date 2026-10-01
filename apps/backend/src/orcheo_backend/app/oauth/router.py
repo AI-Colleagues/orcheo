@@ -17,6 +17,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.routing import Mount
 from orcheo.identity import OAuthAuthorizationRequestNotFoundError
 from orcheo_backend.app.asgi_delegate import ASGIDelegateResponse
@@ -232,7 +233,8 @@ _METHODS = ["GET", "POST", "OPTIONS"]
 @router.api_route("/{path:path}", methods=_METHODS, include_in_schema=False)
 async def oauth_endpoint(request: Request) -> Response:
     """Serve authorize, token, register and revoke via FastMCP's routes."""
-    return ASGIDelegateResponse(_require_server(request)[1])
+    server = await run_in_threadpool(_require_server, request)
+    return ASGIDelegateResponse(server[1])
 
 
 @well_known_router.api_route("/.well-known/oauth-{document:path}", methods=_METHODS)
@@ -241,7 +243,8 @@ async def oauth_endpoint(request: Request) -> Response:
 )
 async def oauth_discovery(request: Request) -> Response:
     """Serve RFC 8414 and RFC 9728 discovery documents."""
-    return ASGIDelegateResponse(_require_server(request)[1])
+    server = await run_in_threadpool(_require_server, request)
+    return ASGIDelegateResponse(server[1])
 
 
 __all__ = ["oauth_server", "router", "well_known_router"]

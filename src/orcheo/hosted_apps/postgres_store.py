@@ -34,7 +34,7 @@ from orcheo.hosted_apps.models import (
 )
 from orcheo.hosted_apps.postgres_schema import POSTGRES_HOSTED_APPS_SCHEMA
 from orcheo.models.base import _utcnow
-from orcheo.postgres_pools import connection_kwargs
+from orcheo.postgres_pools import connection_kwargs, pool_kwargs
 
 
 __all__ = ["PostgresHostedAppsRepository"]
@@ -64,6 +64,7 @@ class PostgresHostedAppsRepository:  # pragma: no cover
             conninfo=dsn,
             min_size=0,
             max_size=10,
+            **pool_kwargs(),
             kwargs=connection_kwargs(autocommit=False, row_factory=dict_row),
             open=True,
         )

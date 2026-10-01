@@ -13,7 +13,7 @@ from psycopg_pool import ConnectionPool
 from orcheo.hosted_apps.auth import AppAuthError, IssuedAppSession, _hash
 from orcheo.hosted_apps.models import AppSession
 from orcheo.models.base import _utcnow
-from orcheo.postgres_pools import connection_kwargs
+from orcheo.postgres_pools import connection_kwargs, pool_kwargs
 
 
 __all__ = ["PostgresAppAuthService"]
@@ -38,6 +38,7 @@ class PostgresAppAuthService:  # pragma: no cover
             conninfo=dsn,
             min_size=0,
             max_size=10,
+            **pool_kwargs(),
             kwargs=connection_kwargs(autocommit=False, row_factory=dict_row),
             open=True,
         )

@@ -137,6 +137,45 @@ describe("auth-api", () => {
     expect(getAuthTokens()).toBeNull();
   });
 
+  it.each([429, 500, 502, 503, 504, 524])(
+    "preserves the session when refresh returns %s",
+    async (status) => {
+      setAuthTokens({ accessToken: "old", refreshToken: "r-old" });
+      fetchMock.mockResolvedValueOnce(jsonResponse({}, status));
+      expect(await refreshSession()).toBe(false);
+      expect(getAuthTokens()?.refreshToken).toBe("r-old");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("preserves the session after a lost or malformed refresh response", async () => {
+    setAuthTokens({ accessToken: "old", refreshToken: "r-old" });
+    fetchMock.mockResolvedValueOnce(
+      new Response("incomplete JSON", { status: 200 }),
+    );
+    expect(await refreshSession()).toBe(false);
+    expect(getAuthTokens()?.refreshToken).toBe("r-old");
+  });
+
+  it.each([{}, { access_token: "new" }, null])(
+    "preserves the session when the token response is incomplete: %s",
+    async (payload) => {
+      setAuthTokens({ accessToken: "old", refreshToken: "r-old" });
+      fetchMock.mockResolvedValueOnce(jsonResponse(payload));
+      expect(await refreshSession()).toBe(false);
+      expect(getAuthTokens()?.refreshToken).toBe("r-old");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("preserves the session on a network failure", async () => {
+    setAuthTokens({ accessToken: "old", refreshToken: "r-old" });
+    fetchMock.mockRejectedValueOnce(new TypeError("network error"));
+    expect(await refreshSession()).toBe(false);
+    expect(getAuthTokens()?.refreshToken).toBe("r-old");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("returns false without a stored refresh token", async () => {
     expect(await refreshSession()).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();

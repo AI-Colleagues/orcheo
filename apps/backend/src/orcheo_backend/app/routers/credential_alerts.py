@@ -3,6 +3,7 @@
 from __future__ import annotations
 from uuid import UUID
 from fastapi import APIRouter
+from starlette.concurrency import run_in_threadpool
 from orcheo.vault import GovernanceAlertNotFoundError, WorkflowScopeError
 from orcheo_backend.app.credential_utils import alert_to_response
 from orcheo_backend.app.dependencies import (
@@ -42,9 +43,11 @@ async def list_governance_alerts(
     context = credential_context_from_workflow(
         resolved_workflow_id, workspace_id=str(workspace.workspace_id)
     )
-    alerts = vault.list_alerts(
-        context=context,
-        include_acknowledged=include_acknowledged,
+    alerts = await run_in_threadpool(
+        lambda: vault.list_alerts(
+            context=context,
+            include_acknowledged=include_acknowledged,
+        )
     )
     return [alert_to_response(alert) for alert in alerts]
 
@@ -69,7 +72,11 @@ async def acknowledge_governance_alert(
         resolved_workflow_id, workspace_id=str(workspace.workspace_id)
     )
     try:
-        alert = vault.acknowledge_alert(alert_id, actor=request.actor, context=context)
+        alert = await run_in_threadpool(
+            lambda: vault.acknowledge_alert(
+                alert_id, actor=request.actor, context=context
+            )
+        )
         return alert_to_response(alert)
     except GovernanceAlertNotFoundError as exc:
         raise_not_found("Governance alert not found", exc)

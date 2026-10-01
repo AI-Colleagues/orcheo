@@ -83,8 +83,8 @@ class PostgresRunHistoryStore:
         *,
         pool_min_size: int = 1,
         pool_max_size: int = 10,
-        pool_timeout: float = 30.0,
-        pool_max_idle: float = 300.0,
+        pool_timeout: float = 5.0,
+        pool_max_idle: float = 240.0,
     ) -> None:
         """Initialize the PostgreSQL history store."""
         if AsyncConnectionPool is None or DictRowFactory is None:

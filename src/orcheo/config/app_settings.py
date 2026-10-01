@@ -82,6 +82,27 @@ class AppSettings(BaseModel):
     postgres_pool_max_idle: float = Field(
         default=cast(float, _DEFAULTS["POSTGRES_POOL_MAX_IDLE"]), gt=0.0
     )
+    postgres_connect_timeout: int = Field(
+        default=cast(int, _DEFAULTS["POSTGRES_CONNECT_TIMEOUT"]), ge=2
+    )
+    postgres_keepalives_idle: int = Field(
+        default=cast(int, _DEFAULTS["POSTGRES_KEEPALIVES_IDLE"]), ge=1
+    )
+    postgres_keepalives_interval: int = Field(
+        default=cast(int, _DEFAULTS["POSTGRES_KEEPALIVES_INTERVAL"]), ge=1
+    )
+    postgres_keepalives_count: int = Field(
+        default=cast(int, _DEFAULTS["POSTGRES_KEEPALIVES_COUNT"]), ge=1
+    )
+    postgres_tcp_user_timeout_ms: int = Field(
+        default=cast(int, _DEFAULTS["POSTGRES_TCP_USER_TIMEOUT_MS"]), ge=1
+    )
+    identity_postgres_statement_timeout_ms: int = Field(
+        default=cast(int, _DEFAULTS["IDENTITY_POSTGRES_STATEMENT_TIMEOUT_MS"]), ge=1
+    )
+    identity_postgres_lock_timeout_ms: int = Field(
+        default=cast(int, _DEFAULTS["IDENTITY_POSTGRES_LOCK_TIMEOUT_MS"]), ge=1
+    )
     host: str = Field(default=cast(str, _DEFAULTS["HOST"]))
     port: int = Field(default=cast(int, _DEFAULTS["PORT"]))
     vault: VaultSettings = Field(default_factory=VaultSettings)
