@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import hashlib
 import hmac
 import secrets
@@ -68,16 +69,21 @@ class ServiceTokenManager:
         self._cache: dict[str, ServiceTokenRecord] = {}
         self._cache_expires_at: datetime | None = None
         self._cache_ttl = timedelta(seconds=30)
+        self._cache_lock = asyncio.Lock()
 
     async def _get_cache(self) -> dict[str, ServiceTokenRecord]:
         """Return cached active tokens, refreshing if stale."""
         now = self._clock()
-        if self._cache and self._cache_expires_at and now < self._cache_expires_at:
+        if self._cache_expires_at and now < self._cache_expires_at:
             return self._cache
 
-        active_records = await self._repository.list_active(now=now)
-        self._cache = {record.identifier: record for record in active_records}
-        self._cache_expires_at = now + self._cache_ttl
+        async with self._cache_lock:
+            now = self._clock()
+            if self._cache_expires_at and now < self._cache_expires_at:
+                return self._cache
+            active_records = await self._repository.list_active(now=now)
+            self._cache = {record.identifier: record for record in active_records}
+            self._cache_expires_at = now + self._cache_ttl
         return self._cache
 
     def _invalidate_cache(self) -> None:

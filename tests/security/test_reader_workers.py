@@ -8,7 +8,7 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock
 import pytest
 from playwright._impl import _driver
-from orcheo.nodes import browser_proxy
+from orcheo.security import https_proxy as browser_proxy
 from orcheo.security import browser_worker, egress_worker, https_proxy_worker
 
 

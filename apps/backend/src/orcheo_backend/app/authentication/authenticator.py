@@ -35,9 +35,20 @@ class Authenticator:
         if not token:
             raise AuthenticationError("Missing bearer token", code="auth.missing_token")
 
+        jwt_error: AuthenticationError | None = None
+        if self._jwt_authenticator.configured and token.count(".") == 2:
+            try:
+                return await self._jwt_authenticator.authenticate(token)
+            except AuthenticationError as exc:
+                # An operator-supplied service or bootstrap token may contain dots.
+                jwt_error = exc
+
         identity = await self._service_token_auth.authenticate(token)
         if identity is not None:
             return identity
+
+        if jwt_error is not None:
+            raise jwt_error
 
         if self._jwt_authenticator.configured:
             return await self._jwt_authenticator.authenticate(token)

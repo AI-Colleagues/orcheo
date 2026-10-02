@@ -3,7 +3,7 @@
 # The backend serves the Studio bundle itself (ORCHEO_STUDIO_DIST_DIR). By
 # default it also runs executions and cron triggers in-process, so a single
 # container plus PostgreSQL is enough; deploy/lean/docker-compose.yml instead
-# runs the same image as backend, Celery worker, and Celery Beat with Redis.
+# runs the same image as backend, Celery worker, and cron scheduler with Redis.
 
 # Stage 1: build Studio with placeholder values. The entrypoint replaces them
 # with runtime environment variable values at container startup.

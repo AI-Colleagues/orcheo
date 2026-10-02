@@ -4,7 +4,7 @@ from __future__ import annotations
 import runpy
 from unittest.mock import Mock
 import pytest
-from orcheo_backend.app import broker_healthcheck
+from orcheo import broker_healthcheck
 
 
 @pytest.mark.parametrize(

@@ -117,13 +117,9 @@ async def test_list_workflows_returns_all() -> None:
             del workspace_id
             return []
 
-        async def get_latest_version(self, workflow_id):
-            del workflow_id
-            raise WorkflowVersionNotFoundError("No versions")
-
-        async def get_cron_trigger_config(self, workflow_id):
-            del workflow_id
-            raise CronTriggerNotFoundError("No cron trigger configured")
+        async def get_workflow_summaries(self, workflow_ids, *, workspace_id):
+            assert workspace_id == str(_MOCK_WORKSPACE.workspace_id)
+            return {workflow_id: (None, False) for workflow_id in workflow_ids}
 
     result = await list_workflows(Repository(), _MOCK_WORKSPACE, include_archived=False)
 
@@ -137,8 +133,8 @@ async def test_list_workflows_returns_all() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_list_workflows_fetches_metadata_concurrently() -> None:
-    """List workflow metadata lookups should run concurrently across workflows."""
+async def test_list_workflows_fetches_metadata_in_one_batch() -> None:
+    """The gallery requests all metadata in one workspace-scoped batch."""
     workflow1 = Workflow(
         id=uuid4(),
         name="Workflow 1",
@@ -153,8 +149,7 @@ async def test_list_workflows_fetches_metadata_concurrently() -> None:
         created_at=datetime.now(tz=UTC),
         updated_at=datetime.now(tz=UTC),
     )
-    all_latest_started = asyncio.Event()
-    latest_started = 0
+    batch_calls = []
 
     class Repository:
         async def list_workflows(
@@ -167,24 +162,21 @@ async def test_list_workflows_fetches_metadata_concurrently() -> None:
             del workspace_id
             return []
 
-        async def get_latest_version(self, workflow_id):
-            del workflow_id
-            nonlocal latest_started
-            latest_started += 1
-            if latest_started == 2:
-                all_latest_started.set()
-            await asyncio.wait_for(all_latest_started.wait(), timeout=0.5)
-            raise WorkflowVersionNotFoundError("No versions")
-
-        async def get_cron_trigger_config(self, workflow_id):
-            del workflow_id
-            raise CronTriggerNotFoundError("No cron trigger configured")
+        async def get_workflow_summaries(self, workflow_ids, *, workspace_id):
+            ids = list(workflow_ids)
+            batch_calls.append((ids, workspace_id))
+            return {workflow_id: (None, False) for workflow_id in ids}
 
     result = await list_workflows(Repository(), _MOCK_WORKSPACE, include_archived=False)
 
     result_ids = {item.id for item in result}
     assert workflow1.id in result_ids
     assert workflow2.id in result_ids
+
+    assert len(batch_calls) == 1
+    ids, workspace_id = batch_calls[0]
+    assert workflow1.id in ids and workflow2.id in ids
+    assert workspace_id == str(_MOCK_WORKSPACE.workspace_id)
 
 
 @pytest.mark.asyncio()
@@ -871,13 +863,9 @@ async def test_list_workflows_excludes_archived_managed_workflow_by_default(
             del workspace_id
             return []
 
-        async def get_latest_version(self, workflow_id):
-            del workflow_id
-            raise WorkflowVersionNotFoundError("No versions")
-
-        async def get_cron_trigger_config(self, workflow_id):
-            del workflow_id
-            raise CronTriggerNotFoundError("No cron trigger configured")
+        async def get_workflow_summaries(self, workflow_ids, *, workspace_id):
+            assert workspace_id == str(_MOCK_WORKSPACE.workspace_id)
+            return {workflow_id: (None, False) for workflow_id in workflow_ids}
 
     result = await list_workflows(Repository(), _MOCK_WORKSPACE, include_archived=False)
 
@@ -915,13 +903,9 @@ async def test_list_workflows_includes_archived_managed_workflow_when_requested(
             del workspace_id
             return []
 
-        async def get_latest_version(self, workflow_id):
-            del workflow_id
-            raise WorkflowVersionNotFoundError("No versions")
-
-        async def get_cron_trigger_config(self, workflow_id):
-            del workflow_id
-            raise CronTriggerNotFoundError("No cron trigger configured")
+        async def get_workflow_summaries(self, workflow_ids, *, workspace_id):
+            assert workspace_id == str(_MOCK_WORKSPACE.workspace_id)
+            return {workflow_id: (None, False) for workflow_id in workflow_ids}
 
     result = await list_workflows(Repository(), _MOCK_WORKSPACE, include_archived=True)
 

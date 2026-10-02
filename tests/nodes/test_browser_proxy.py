@@ -6,7 +6,7 @@ import socket
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 import pytest
-from orcheo.nodes.browser_proxy import (
+from orcheo.security.https_proxy import (
     PublicHttpsProxy,
     _connect_host,
     _pipe,
@@ -156,7 +156,7 @@ async def test_proxy_connects_to_the_checked_ip(
             return await real_open("127.0.0.1", upstream_port)
 
         monkeypatch.setattr(
-            "orcheo.nodes.browser_proxy._public_addresses", public_addresses
+            "orcheo.security.https_proxy._public_addresses", public_addresses
         )
         monkeypatch.setattr(asyncio, "open_connection", pinned_open)
         writer.write(b"CONNECT example.com:443 HTTP/1.1\r\n\r\n")
@@ -193,7 +193,7 @@ async def test_proxy_refuses_when_public_upstream_cannot_connect(
             raise OSError("connection refused")
 
         monkeypatch.setattr(
-            "orcheo.nodes.browser_proxy._public_addresses", public_addresses
+            "orcheo.security.https_proxy._public_addresses", public_addresses
         )
         monkeypatch.setattr(asyncio, "open_connection", unavailable)
         writer.write(b"CONNECT example.com:443 HTTP/1.1\r\n\r\n")
@@ -243,7 +243,7 @@ async def test_proxy_tunnel_failure_closes_both_sides_without_http_refusal(
     upstream_reader = Mock(read=AsyncMock(return_value=b""))
     upstream_writer = Mock(wait_closed=AsyncMock())
     monkeypatch.setattr(
-        "orcheo.nodes.browser_proxy._public_addresses",
+        "orcheo.security.https_proxy._public_addresses",
         AsyncMock(
             return_value=[(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("8.8.8.8", 443))]
         ),

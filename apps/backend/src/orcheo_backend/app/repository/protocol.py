@@ -40,6 +40,14 @@ class VersionDiff:
 class WorkflowRepository(Protocol):
     """Protocol describing workflow repository behaviour."""
 
+    async def get_workflow_summaries(
+        self,
+        workflow_ids: Iterable[UUID],
+        *,
+        workspace_id: str,
+    ) -> dict[UUID, tuple[WorkflowVersion | None, bool]]:
+        """Return latest versions and schedule flags for workspace workflows."""
+
     async def list_workflows(
         self,
         *,

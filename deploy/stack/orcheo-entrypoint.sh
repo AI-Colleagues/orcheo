@@ -25,6 +25,8 @@ uv_cache_dir="${UV_CACHE_DIR:-/data/cache/uv}"
 app_bundle_dir="${ORCHEO_APP_BUNDLE_FILESYSTEM_ROOT:-}"
 workspace_root="/workspace/agents"
 skill_ref="${ORCHEO_AGENT_SKILL_REF:-AI-Colleagues/agent-skills/orcheo}"
+ownership_stamp="/data/.orcheo-volume-ownership"
+ownership_initialized=false
 
 ensure_dir() {
   dir_path="$1"
@@ -33,6 +35,13 @@ ensure_dir() {
     return
   fi
   mkdir -p "$dir_path"
+  case "$dir_path" in
+    /data/*)
+      if [ "$ownership_initialized" = "true" ]; then
+        recursive=false
+      fi
+      ;;
+  esac
   if [ "$recursive" = "true" ]; then
     chown -R "$runtime_user:$runtime_group" "$dir_path"
   else
@@ -109,6 +118,12 @@ install_agent_skills_as_runtime_user() {
 }
 
 if [ "$(id -u)" -eq 0 ]; then
+  ownership_fingerprint="$(id -u "$runtime_user"):$(getent group "$runtime_group" | cut -d: -f3):$home_dir:$codex_home:$claude_home:$gemini_home:$cache_dir:$plugin_dir"
+  if [ "${ORCHEO_REPAIR_VOLUME_OWNERSHIP:-false}" != "true" ] \
+    && [ -f "$ownership_stamp" ] \
+    && [ "$(cat "$ownership_stamp")" = "$ownership_fingerprint" ]; then
+    ownership_initialized=true
+  fi
   ensure_dir /data
   ensure_dir "$HOME" true
   ensure_dir "$codex_home" true
@@ -136,6 +151,8 @@ if [ "$(id -u)" -eq 0 ]; then
   if [ -d /app/.venv ] || [ ! -e /app/.venv ]; then
     ensure_dir /app/.venv true
   fi
+
+  printf '%s\n' "$ownership_fingerprint" > "$ownership_stamp"
 
   install_agent_skills_as_runtime_user
 

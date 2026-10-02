@@ -10,6 +10,7 @@ from orcheo.models import (
     ChatKitSupportedModel,
     Workflow,
     WorkflowDraftAccess,
+    WorkflowVersion,
 )
 from orcheo.models.workflow_refs import normalize_workflow_handle
 from orcheo_backend.app.repository.chatkit import (
@@ -25,6 +26,27 @@ from orcheo_backend.app.repository.in_memory.state import InMemoryRepositoryStat
 
 class WorkflowCrudMixin(InMemoryRepositoryState):
     """Implements workflow management helpers."""
+
+    async def get_workflow_summaries(
+        self,
+        workflow_ids: Iterable[UUID],
+        *,
+        workspace_id: str,
+    ) -> dict[UUID, tuple[WorkflowVersion | None, bool]]:
+        """Return copied summaries for workflows in the requested workspace."""
+        summaries: dict[UUID, tuple[WorkflowVersion | None, bool]] = {}
+        async with self._lock:
+            for workflow_id in workflow_ids:
+                workflow = self._workflows.get(workflow_id)
+                if workflow is None or workflow.workspace_id != workspace_id:
+                    continue
+                version_ids = self._workflow_versions.get(workflow_id, [])
+                version = self._versions.get(version_ids[-1]) if version_ids else None
+                summaries[workflow_id] = (
+                    version.model_copy(deep=True) if version is not None else None,
+                    self._trigger_layer.get_cron_config(workflow_id) is not None,
+                )
+        return summaries
 
     def _remove_cron_config_if_archiving(
         self, workflow_id: UUID, *, is_archived: bool

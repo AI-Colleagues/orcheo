@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID
 from orcheo.listeners import (
@@ -155,6 +156,14 @@ class ListenerSupervisor:
             return await self._recover_blocked_subscription(subscription)
         if subscription.status != ListenerSubscriptionStatus.ACTIVE:
             return None, None
+        if (
+            subscription.id in self._tasks
+            and subscription.assigned_runtime == self._runtime_id
+            and subscription.lease_expires_at is not None
+            and subscription.lease_expires_at
+            > datetime.now(UTC) + timedelta(seconds=self._lease_seconds / 2)
+        ):
+            return subscription, None
         claimed = await self._repository.claim_listener_subscription(
             subscription.id,
             runtime_id=self._runtime_id,

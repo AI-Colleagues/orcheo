@@ -1,7 +1,8 @@
 """Service token tests split from the extended suite."""
 
 from __future__ import annotations
-from datetime import UTC, datetime
+import asyncio
+from datetime import UTC, datetime, timedelta
 import pytest
 from orcheo_backend.app.authentication import ServiceTokenManager, ServiceTokenRecord
 from orcheo_backend.app.service_token_repository import InMemoryServiceTokenRepository
@@ -59,3 +60,16 @@ async def test_service_token_manager_all_uses_cache_on_repeated_calls() -> None:
 
     assert first == second
     assert repository.list_active_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_empty_token_cache_is_shared_until_expiry() -> None:
+    """An empty cache avoids repeat queries and refreshes after its TTL."""
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    repository = _CountingServiceTokenRepository()
+    manager = ServiceTokenManager(repository, clock=lambda: now)
+    assert await asyncio.gather(*(manager.all() for _ in range(20))) == [()] * 20
+    assert repository.list_active_calls == 1
+    now += timedelta(seconds=31)
+    assert await manager.all() == ()
+    assert repository.list_active_calls == 2

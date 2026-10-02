@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import json
+import mimetypes
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -14,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
 from orcheo.agentensor.checkpoints import AgentensorCheckpointStore
@@ -146,16 +148,50 @@ def _is_reserved_backend_path(path: str) -> bool:
     return path == "robots.txt" or path.startswith(_RESERVED_BACKEND_PREFIXES)
 
 
+def _accepts_gzip(scope: Scope) -> bool:
+    """Honor explicit gzip quality values before a wildcard encoding."""
+    encodings: dict[str, float] = {}
+    for entry in Headers(scope=scope).get("accept-encoding", "").split(","):
+        name, *parameters = entry.strip().lower().split(";")
+        quality = 1.0
+        for parameter in parameters:
+            if parameter.strip().startswith("q="):
+                try:
+                    quality = float(parameter.strip()[2:])
+                except ValueError:
+                    quality = 0.0
+        encodings[name] = quality
+    return encodings.get("gzip", encodings.get("*", 0.0)) > 0
+
+
 class _StudioStaticFiles(StaticFiles):
     """Serve a Vite SPA bundle and fall back to index.html for app routes."""
 
     async def get_response(self, path: str, scope: Scope) -> Response:
+        if _accepts_gzip(scope):
+            try:
+                response = await super().get_response(path + ".gz", scope)
+            except StarletteHTTPException as exc:
+                if exc.status_code != 404:
+                    raise
+            else:
+                response.headers["Content-Encoding"] = "gzip"
+                response.headers["Content-Type"] = (
+                    mimetypes.guess_type(path)[0] or "application/octet-stream"
+                )
+                response.headers["Vary"] = "Accept-Encoding"
+                response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+                return response
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except StarletteHTTPException as exc:
             if exc.status_code != 404 or _is_reserved_backend_path(path):
                 raise
-        return await super().get_response("index.html", scope)
+            response = await super().get_response("index.html", scope)
+        # Runtime substitutions can change JS content while retaining Vite names.
+        response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+        response.headers["Vary"] = "Accept-Encoding"
+        return response
 
 
 @asynccontextmanager

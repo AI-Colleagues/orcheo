@@ -10,8 +10,8 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import Field
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
-from orcheo.nodes.browser_proxy import PublicHttpsProxy
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.security.https_proxy import PublicHttpsProxy
 
 
 BrowserEngine = Literal["chromium", "firefox", "webkit"]
@@ -57,6 +57,17 @@ _PLAYWRIGHT_BROWSER_ROOT_CANDIDATES = (
     Path("/data/home/.cache/ms-playwright"),
     Path("/home/orcheo/.cache/ms-playwright"),
 )
+
+
+def _ensure_browser_enabled() -> None:
+    """Reject browser workflows when an operator disables the reader capability."""
+    if os.getenv("ORCHEO_BROWSER_DISABLED", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        raise ValueError("Browser nodes are disabled in this deployment.")
 
 
 def _playwright_browser_root_candidates() -> tuple[Path, ...]:
@@ -259,6 +270,7 @@ class BrowserSessionManager:
         public_https_only: bool = False,
     ) -> BrowserSession:
         """Create one Playwright session with a single active page."""
+        _ensure_browser_enabled()
         remote_endpoint = (
             os.getenv("ORCHEO_PUBLIC_BROWSER_WS_ENDPOINT", "").strip()
             if public_https_only

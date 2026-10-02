@@ -39,6 +39,32 @@ def test_renew_worker_run_lease_uses_owned_running_row(
     assert params == (run_heartbeat.WORKER_LEASE_DURATION, str(run_id), "owner")
 
 
+def test_heartbeat_connection_reuses_and_reconnects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Renewals reuse one connection; discarding it allows bounded reconnection."""
+    first, second = MagicMock(), MagicMock()
+    first.execute.return_value.fetchone.return_value = ("run",)
+    second.execute.return_value.fetchone.return_value = ("run",)
+    connect = Mock(side_effect=[first, second])
+    monkeypatch.setattr(run_heartbeat.psycopg, "connect", connect)
+    connection = run_heartbeat._HeartbeatConnection("postgresql://test")
+    run_id = uuid4()
+    for _ in range(2):
+        assert run_heartbeat.renew_worker_run_lease(
+            "postgresql://test", run_id, "owner", connection
+        )
+    assert connect.call_count == 1
+    connection.close()
+    first.close.assert_called_once()
+    assert run_heartbeat.renew_worker_run_lease(
+        "postgresql://test", run_id, "owner", connection
+    )
+    assert connect.call_count == 2
+    connection.close()
+    second.close.assert_called_once()
+
+
 def test_heartbeat_stops_execution_when_ownership_is_lost(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
