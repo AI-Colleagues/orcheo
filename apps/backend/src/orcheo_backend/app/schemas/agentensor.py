@@ -3,8 +3,28 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from orcheo.agentensor.checkpoints import AgentensorCheckpoint
+from orcheo.agentensor.evaluation import EvaluationRequest
+from orcheo.runtime.runnable_config import RunnableConfigModel
+
+
+class WorkflowEvaluationRequest(BaseModel):
+    """Evaluate a stored workflow version within a bounded request lifetime."""
+
+    evaluation: EvaluationRequest
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    version: int | None = Field(default=None, ge=1)
+    runnable_config: RunnableConfigModel | None = None
+    timeout_seconds: int = Field(default=60, ge=1, le=300)
+
+
+class WorkflowEvaluationResponse(BaseModel):
+    """Summary of an evaluation whose full events are stored in run history."""
+
+    execution_id: str
+    status: str
+    result: dict[str, Any] | None = None
 
 
 class AgentensorCheckpointResponse(BaseModel):

@@ -120,6 +120,12 @@ async def test_fastmcp_client_round_trip(api_client: TestClient) -> None:
     assert init is not None
     assert init.serverInfo.name == "orcheo"
     assert init.instructions is not None
-    assert len(tools) == 31
+    assert {
+        "run_workflow",
+        "evaluate_workflow",
+        "get_execution_history",
+        "configure_webhook",
+        "list_hosted_apps",
+    } <= {tool.name for tool in tools}
     assert run.structured_content is not None
     assert run.structured_content["status"] == "pending"

@@ -29,6 +29,9 @@ const SCOPE_LABELS: Record<string, string> = {
   "workflows:execute": "Run workflows",
   "vault:read": "See which credentials exist",
   "vault:write": "Add, change and delete credentials",
+  "apps:read": "View hosted apps, bindings and deployments",
+  "apps:write": "Create and change hosted apps and deployments",
+  "apps:publish": "Publish and unpublish hosted apps",
 };
 
 const readError = async (response: Response, fallback: string) => {

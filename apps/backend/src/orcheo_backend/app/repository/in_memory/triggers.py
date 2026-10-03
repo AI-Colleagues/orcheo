@@ -237,6 +237,7 @@ class TriggerDispatchMixin(InMemoryRepositoryState):
                         workflow_version_id=resolved.workflow_version_id,
                         triggered_by=triggered_by,
                         input_payload=resolved.input_payload,
+                        runnable_config=resolved.runnable_config,
                         actor=plan.actor,
                         workspace_id=workspace_id,
                     )
