@@ -97,15 +97,15 @@ _Vault note_: Rotate `ORCHEO_VAULT_ENCRYPTION_KEY` regularly and back up the Pos
 from source at the tagged revision, into one image. The backend serves Studio
 on the same origin (port 2025), so there is no separate Studio container.
 
-### With Celery worker, Celery Beat, and Redis
+### With Celery worker, a cron scheduler, and Redis
 
 `deploy/lean/docker-compose.yml` runs the lean image three times (backend,
-worker, and Beat) next to Redis, with in-process execution and cron turned off on the
-backend. PostgreSQL is not bundled: the stack uses a Supabase database through
+worker, and a cron scheduler) next to Redis, with in-process execution and cron
+turned off on the backend. PostgreSQL is not bundled: the stack uses a Supabase database through
 `ORCHEO_POSTGRES_DSN`, which must be set. Use the Supabase transaction pooler
 connection string (Supavisor, `*.pooler.supabase.com` port 6543, from the
 project's Connect dialog). It works over IPv4 and lets the backend, worker, and
-Beat share a few server connections. The session pooler (port 5432) holds one
+scheduler share a few server connections. The session pooler (port 5432) holds one
 server connection per client connection, so it fails with `EMAXCONNSESSION`
 once the project's pool size (15 on small projects) is used up; if you stay on
 it, lower `ORCHEO_POSTGRES_POOL_MAX_SIZE`. Orcheo disables server-side prepared
@@ -200,12 +200,62 @@ required; otherwise set `ORCHEO_AUTH_MODE=required` before exposing it.
 `ORCHEO_AUTH_ALLOWED_EMAIL_DOMAINS` limits sign-in to the listed domains once
 sign-in is required.
 
+Lean workflow workers default to two execution processes. Set
+`ORCHEO_LEAN_WORKER_CONCURRENCY` to tune this against memory usage and queue
+latency. The service named `celery-beat` runs a singleton
+`orcheo_backend.worker.cron_scheduler` process, which checks schedules directly
+and publishes their runs to Celery. Schedule checks therefore do not wait for
+workflow execution slots. The lean worker ignores queued Celery cron-dispatch
+tasks left over from earlier deployments (`ORCHEO_CRON_DISPATCH_OWNER=scheduler`).
+Keep exactly one scheduler and leave
+`ORCHEO_INPROCESS_CRON=false` on every backend process to avoid redundant polling.
+PostgreSQL locks each schedule row while creating a run and advancing its
+dispatch timestamp in one transaction. If scheduler processes overlap during
+a restart, only one can create a run for that occurrence. The same guard covers
+standalone, Celery and backend dispatchers, including schedules that allow
+overlapping runs. Locks are released on commit or rollback and work through
+transaction poolers.
+
+Outside the lean Compose stack, migrating from Celery Beat to
+`python -m orcheo_backend.worker.cron_scheduler` requires stopping the old
+Beat process, disabling in-process cron on every backend, and setting
+`ORCHEO_CRON_DISPATCH_OWNER=scheduler` on **every Celery worker** sharing the
+database and queue. Restart those workers before starting the standalone
+scheduler so already queued Beat dispatch tasks are ignored. The standalone
+scheduler always publishes runs to Celery. Deployments retaining Celery Beat
+should keep the default `ORCHEO_CRON_DISPATCH_OWNER=celery` and run no standalone
+scheduler.
+
+The backend serves precompressed Studio assets prepared after runtime settings
+are substituted. Asset responses require revalidation because those substitutions
+can change content without changing Vite filenames. Studio pages load on demand.
+Shared volume ownership is initialized once per runtime user and directory
+configuration; set `ORCHEO_REPAIR_VOLUME_OWNERSHIP=true` for one restart if files
+were added as another user and need repair.
+
+Deployments without browser workflows can copy
+`deploy/lean/docker-compose.no-browser.yml` beside their Compose file and use:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.no-browser.yml up -d
+```
+
+This optional overlay requires Docker Compose 2.24.4 or newer. It scales both
+reader sidecars to zero and makes browser nodes fail with an explicit disabled
+message. The standard stack keeps isolated browser support enabled. Start again
+with the base Compose file to restore it.
+
 The lean services use `restart: unless-stopped`. The backend's Docker health
 check calls `/api/system/ready`, which tests Redis from the backend container;
-worker and Beat health checks also connect to Redis. These checks verify broker
-reachability, not that the worker is executing or Beat is scheduling. The
-installer waits for all services to become healthy. Redis availability is an
-intentional part of the lean backend container's health status; use
+workers use the lightweight `orcheo.broker_healthcheck` probe for broker
+reachability. The scheduler uses `orcheo.cron_healthcheck`, which also checks its
+process and a container-local heartbeat written after each successful schedule
+poll. Missing or stale progress fails the probe after the greater of 30 seconds
+or three dispatch intervals. Startup and shutdown clear the heartbeat; an
+unexpected dispatch-loop exit stops the scheduler process so its restart policy
+can recover it. The installer waits for all services to become healthy.
+Redis availability is an intentional part of the lean backend container's
+health status; use
 `/api/system/health` as the backend liveness probe and `/api/system/ready` as
 the readiness probe in an orchestrator that restarts unhealthy containers.
 Docker Compose does not automatically restart a container merely because its
@@ -218,7 +268,7 @@ After a Redis or Docker network incident, recreate the lean containers if the
 ```bash
 cd ~/.orcheo/lean
 docker compose up -d --no-build --force-recreate --wait --wait-timeout 120
-docker compose exec backend python -m orcheo_backend.app.broker_healthcheck
+docker compose exec backend python -m orcheo.broker_healthcheck
 docker compose ps
 ```
 

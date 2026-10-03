@@ -264,7 +264,11 @@ class PostgresRepositoryBase:
             return self._pool
 
     @asynccontextmanager
-    async def _connection(self) -> AsyncIterator[Any]:
+    async def _connection(self, existing: Any | None = None) -> AsyncIterator[Any]:
+        if existing is not None:
+            # The caller owns this transaction and commits the complete operation.
+            yield existing
+            return
         pool = await self._get_pool()
         async with pool.connection() as conn:
             try:

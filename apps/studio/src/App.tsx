@@ -1,4 +1,4 @@
-import { useLayoutEffect } from "react";
+import { lazy, Suspense, useLayoutEffect } from "react";
 import {
   BrowserRouter as Router,
   Navigate,
@@ -8,16 +8,7 @@ import {
   useParams,
 } from "react-router-dom";
 import { Toaster } from "@/design-system/ui/toaster";
-import WorkflowGallery from "@features/workflow/pages/workflow-gallery";
-import WorkflowPage from "@features/workflow/pages/workflow";
-import Login from "@features/auth/pages/login";
 import RequireAuth from "@features/auth/components/require-auth";
-import OAuthConsent from "@features/auth/pages/oauth-consent";
-import Profile from "@features/account/pages/profile";
-import Settings from "@features/account/pages/settings";
-import WorkspaceManagement from "@features/account/pages/workspace-management";
-import InvitationAccept from "@features/account/pages/invitation-accept";
-import PublicChatPage from "@features/chatkit/pages/public-chat";
 import {
   getSelectedWorkspaceSlug,
   setSelectedWorkspaceSlug,
@@ -25,10 +16,26 @@ import {
 import { getWorkspaceGalleryPath } from "@/lib/workspace-routing";
 import { WorkspaceBootstrapGate } from "@features/shared/components/workspace-bootstrap-gate";
 import AppShell from "@features/shell/components/app-shell";
-import Feedback from "@features/shell/pages/feedback";
-import AppsList from "@features/apps/pages/apps-list";
-import AppDetail from "@features/apps/pages/app-detail";
-import AppAuthorize from "@features/apps/pages/app-authorize";
+
+const WorkflowGallery = lazy(
+  () => import("@features/workflow/pages/workflow-gallery"),
+);
+const WorkflowPage = lazy(() => import("@features/workflow/pages/workflow"));
+const Login = lazy(() => import("@features/auth/pages/login"));
+const OAuthConsent = lazy(() => import("@features/auth/pages/oauth-consent"));
+const Profile = lazy(() => import("@features/account/pages/profile"));
+const Settings = lazy(() => import("@features/account/pages/settings"));
+const WorkspaceManagement = lazy(
+  () => import("@features/account/pages/workspace-management"),
+);
+const InvitationAccept = lazy(
+  () => import("@features/account/pages/invitation-accept"),
+);
+const PublicChatPage = lazy(() => import("@features/chatkit/pages/public-chat"));
+const Feedback = lazy(() => import("@features/shell/pages/feedback"));
+const AppsList = lazy(() => import("@features/apps/pages/apps-list"));
+const AppDetail = lazy(() => import("@features/apps/pages/app-detail"));
+const AppAuthorize = lazy(() => import("@features/apps/pages/app-authorize"));
 
 const syncWorkspaceSlug = (workspaceSlug?: string) => {
   if (!workspaceSlug) {
@@ -116,71 +123,79 @@ export default function OrcheoStudioApp() {
   return (
     <Router>
       <>
-        <Routes>
-          <Route path="/login" element={<Login />} />
+        <Suspense
+          fallback={
+            <div role="status" className="p-6">
+              Loading…
+            </div>
+          }
+        >
+          <Routes>
+            <Route path="/login" element={<Login />} />
 
-          <Route path="/chat/:workflowId" element={<PublicChatPage />} />
-          <Route
-            path="/chat/team/:teamSlug/:workflowId"
-            element={<PublicChatPage />}
-          />
-          <Route
-            path="/chat/:workspaceSlug/:workflowId"
-            element={<PublicChatPage />}
-          />
-          <Route
-            path="/chat/:workspaceSlug/team/:teamSlug/:workflowId"
-            element={<PublicChatPage />}
-          />
+            <Route path="/chat/:workflowId" element={<PublicChatPage />} />
+            <Route
+              path="/chat/team/:teamSlug/:workflowId"
+              element={<PublicChatPage />}
+            />
+            <Route
+              path="/chat/:workspaceSlug/:workflowId"
+              element={<PublicChatPage />}
+            />
+            <Route
+              path="/chat/:workspaceSlug/team/:teamSlug/:workflowId"
+              element={<PublicChatPage />}
+            />
 
-          <Route element={<RequireAuth />}>
-            <Route path="/invitations/accept" element={<InvitationAccept />} />
-            <Route path="/apps/authorize" element={<AppAuthorize />} />
-            <Route path="/oauth/consent" element={<OAuthConsent />} />
-            <Route element={<RequireWorkspace />}>
-              <Route element={<AppShellLayout />}>
-                <Route path="/" element={<WorkspaceHomeRedirect />} />
-                <Route
-                  path="/:workspaceSlug"
-                  element={<WorkspaceGalleryRoute />}
-                />
+            <Route element={<RequireAuth />}>
+              <Route path="/invitations/accept" element={<InvitationAccept />} />
+              <Route path="/apps/authorize" element={<AppAuthorize />} />
+              <Route path="/oauth/consent" element={<OAuthConsent />} />
+              <Route element={<RequireWorkspace />}>
+                <Route element={<AppShellLayout />}>
+                  <Route path="/" element={<WorkspaceHomeRedirect />} />
+                  <Route
+                    path="/:workspaceSlug"
+                    element={<WorkspaceGalleryRoute />}
+                  />
 
-                <Route
-                  path="/:workspaceSlug/apps"
-                  element={<WorkspaceAppsRoute />}
-                />
-                <Route
-                  path="/:workspaceSlug/apps/:appId"
-                  element={<WorkspaceAppDetailRoute />}
-                />
+                  <Route
+                    path="/:workspaceSlug/apps"
+                    element={<WorkspaceAppsRoute />}
+                  />
+                  <Route
+                    path="/:workspaceSlug/apps/:appId"
+                    element={<WorkspaceAppDetailRoute />}
+                  />
 
-                <Route
-                  path="/:workspaceSlug/workspace"
-                  element={<WorkspaceManagementRoute />}
-                />
+                  <Route
+                    path="/:workspaceSlug/workspace"
+                    element={<WorkspaceManagementRoute />}
+                  />
 
-                <Route
-                  path="/:workspaceSlug/new"
-                  element={<WorkspaceWorkflowRoute />}
-                />
-                <Route
-                  path="/:workspaceSlug/team/:teamSlug/:workflowId"
-                  element={<WorkspaceWorkflowRoute />}
-                />
-                <Route
-                  path="/:workspaceSlug/:workflowId"
-                  element={<WorkspaceWorkflowRoute />}
-                />
+                  <Route
+                    path="/:workspaceSlug/new"
+                    element={<WorkspaceWorkflowRoute />}
+                  />
+                  <Route
+                    path="/:workspaceSlug/team/:teamSlug/:workflowId"
+                    element={<WorkspaceWorkflowRoute />}
+                  />
+                  <Route
+                    path="/:workspaceSlug/:workflowId"
+                    element={<WorkspaceWorkflowRoute />}
+                  />
 
-                <Route path="/profile" element={<Profile />} />
+                  <Route path="/profile" element={<Profile />} />
 
-                <Route path="/settings" element={<Settings />} />
+                  <Route path="/settings" element={<Settings />} />
 
-                <Route path="/feedback" element={<Feedback />} />
+                  <Route path="/feedback" element={<Feedback />} />
+                </Route>
               </Route>
             </Route>
-          </Route>
-        </Routes>
+          </Routes>
+        </Suspense>
         <Toaster />
       </>
     </Router>

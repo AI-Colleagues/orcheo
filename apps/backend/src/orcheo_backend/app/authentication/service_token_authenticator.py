@@ -5,15 +5,15 @@ import hmac
 import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
-from .context import RequestContext
-from .errors import AuthenticationError
-from .service_tokens import ServiceTokenManager
-from .settings import AuthSettings
-from .telemetry import AuthEvent, auth_telemetry
+from orcheo_backend.app.authentication.context import RequestContext
+from orcheo_backend.app.authentication.errors import AuthenticationError
+from orcheo_backend.app.authentication.service_tokens import ServiceTokenManager
+from orcheo_backend.app.authentication.settings import AuthSettings
+from orcheo_backend.app.authentication.telemetry import AuthEvent, auth_telemetry
 
 
 if TYPE_CHECKING:
-    from .service_tokens import ServiceTokenRecord
+    from orcheo_backend.app.authentication.service_tokens import ServiceTokenRecord
 
 
 logger = logging.getLogger(__name__)
@@ -39,8 +39,6 @@ class ServiceTokenAuthenticator:
     async def _try_authenticate_service_token(
         self, token: str
     ) -> ServiceTokenRecord | None:
-        if not await self._token_manager.all():
-            return None
         try:
             return await self._token_manager.authenticate(token)
         except AuthenticationError as exc:

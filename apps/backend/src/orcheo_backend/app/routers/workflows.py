@@ -680,21 +680,33 @@ async def list_workflows(
     public_base_url = _resolve_studio_url()
     teams = await repository.list_teams(workspace_id=str(workspace.workspace_id))
     teams_by_id = {str(team.id): team.slug for team in teams}
-    return await asyncio.gather(
-        *[
-            _build_workflow_list_item(
-                repository,
-                workflow,
-                teams_by_id.get(workflow.team_id) if workflow.team_id else None,
-            )
-            for workflow in _apply_share_urls(
-                workflows,
-                public_base_url,
-                teams_by_id=teams_by_id,
-                workspace_slug=workspace.workspace_slug,
-            )
-        ]
+    summaries = await repository.get_workflow_summaries(
+        (workflow.id for workflow in workflows),
+        workspace_id=str(workspace.workspace_id),
     )
+    result: list[WorkflowListItem] = []
+    for workflow in _apply_share_urls(
+        workflows,
+        public_base_url,
+        teams_by_id=teams_by_id,
+        workspace_slug=workspace.workspace_slug,
+    ):
+        latest_version, is_scheduled = summaries.get(workflow.id, (None, False))
+        result.append(
+            WorkflowListItem(
+                **workflow.model_dump(),
+                team_slug=(
+                    teams_by_id.get(workflow.team_id) if workflow.team_id else None
+                ),
+                latest_version=(
+                    _attach_mermaid(latest_version)
+                    if latest_version is not None
+                    else None
+                ),
+                is_scheduled=is_scheduled,
+            )
+        )
+    return result
 
 
 @router.post(

@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import jwt
 import pytest
+from unittest.mock import AsyncMock
 from orcheo_backend.app.authentication import (
     AuthenticationError,
     Authenticator,
@@ -98,6 +99,42 @@ def test_authenticator_properties() -> None:
 
     assert authenticator.settings == settings
     assert isinstance(authenticator.service_token_manager, ServiceTokenManager)
+
+
+@pytest.mark.asyncio
+async def test_valid_jwt_skips_service_token_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A signed user token does not require service-token storage availability."""
+    monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", "test-key-for-jwt-fast-path-12345678")
+    settings = load_auth_settings(refresh=True)
+    repository = AsyncMock()
+    authenticator = Authenticator(settings, ServiceTokenManager(repository))
+    claims = {"sub": "user", "exp": datetime.now(UTC) + timedelta(minutes=5)}
+    if settings.issuer:
+        claims["iss"] = settings.issuer
+    if settings.audiences:
+        claims["aud"] = settings.audiences[0]
+    token = jwt.encode(claims, settings.jwt_secret, algorithm="HS256")
+    assert (await authenticator.authenticate(token)).subject == "user"
+    repository.list_active.assert_not_awaited()
+    repository.find_by_hash.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_dotted_bootstrap_token_still_authenticates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """JWT detection preserves operator-supplied opaque tokens containing dots."""
+    monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", "test-key-for-jwt-fast-path-12345678")
+    monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", "opaque.bootstrap.token")
+    repository = AsyncMock()
+    repository.find_by_hash.return_value = None
+    authenticator = Authenticator(
+        load_auth_settings(refresh=True), ServiceTokenManager(repository)
+    )
+    context = await authenticator.authenticate("opaque.bootstrap.token")
+    assert context.subject == "bootstrap"
 
 
 @pytest.mark.asyncio

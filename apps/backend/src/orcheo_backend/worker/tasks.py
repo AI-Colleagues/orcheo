@@ -3,6 +3,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+import os
 import time
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -573,6 +574,9 @@ def dispatch_cron_triggers(self: Task) -> dict[str, Any]:  # noqa: ARG001
     Returns:
         dict with keys: dispatched_runs (list of run IDs)
     """
+    if os.getenv("ORCHEO_CRON_DISPATCH_OWNER", "celery") == "scheduler":
+        logger.info("Skipping queued cron dispatch owned by the standalone scheduler")
+        return {"dispatched_runs": []}
     logger.info("Dispatching cron triggers")
     loop = _get_event_loop()
     run_ids = loop.run_until_complete(_dispatch_cron_triggers_async())

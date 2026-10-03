@@ -31,6 +31,7 @@ render_studio() {
     find "$studio_dir" -type f \( -name '*.js' -o -name '*.html' \) \
       -exec sed -i "s|__${var}__|${escaped_value}|g" {} +
   done
+  python -m orcheo.studio_assets "$studio_dir"
 }
 
 # Only render the bundled Studio; a custom ORCHEO_STUDIO_DIST_DIR is served

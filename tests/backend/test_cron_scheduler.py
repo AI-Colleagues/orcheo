@@ -195,3 +195,25 @@ async def test_stop_after_loop_exits_on_its_own() -> None:
     assert task.done()
     assert not task.cancelled()
     assert scheduler._task is None
+
+
+@pytest.mark.asyncio
+async def test_progress_callback_only_runs_after_success() -> None:
+    repository = MagicMock()
+    repository.dispatch_due_cron_runs = AsyncMock(
+        side_effect=[RuntimeError("offline"), []]
+    )
+    heartbeat = MagicMock()
+    scheduler = CronSchedulerService(repository=repository, on_dispatch=heartbeat)
+    with pytest.raises(RuntimeError, match="offline"):
+        await scheduler.dispatch_once()
+    heartbeat.assert_not_called()
+    assert await scheduler.dispatch_once() == 0
+    heartbeat.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_wait_requires_started_scheduler() -> None:
+    scheduler = CronSchedulerService(repository=MagicMock())
+    with pytest.raises(RuntimeError, match="has not started"):
+        await scheduler.wait()

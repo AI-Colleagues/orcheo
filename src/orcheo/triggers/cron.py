@@ -117,7 +117,7 @@ class CronTriggerConfig(BaseModel):
             raise CronValidationError(msg) from exc
         return value
 
-    @field_validator("start_at", "end_at", mode="before")
+    @field_validator("start_at", "end_at")
     @classmethod
     def _ensure_timezone_awareness(cls, value: datetime | None) -> datetime | None:
         if value is None:

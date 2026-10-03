@@ -1,8 +1,8 @@
 name: orcheo-lean
 # Lean image stack: one image (Dockerfile.lean: backend + Studio built from
 # source, with the ChatKit widgets baked in) runs the backend, the Celery
-# worker, and Celery Beat, alongside Redis. Studio is served by the backend on
-# the same origin. PostgreSQL is not bundled: set ORCHEO_POSTGRES_DSN to a
+# worker, and singleton cron scheduler, alongside Redis. Studio is served by
+# the backend on the same origin. PostgreSQL is not bundled: set ORCHEO_POSTGRES_DSN to a
 # Supabase connection string.
 #
 # From the repository root:
@@ -86,7 +86,7 @@ services:
     environment:
       <<: *orcheo-env
       ORCHEO_CORS_ALLOW_ORIGINS: ${ORCHEO_LEAN_PUBLIC_URL:-http://localhost:2025}
-      # Celery Beat and the worker own cron dispatch and run execution.
+      # The singleton scheduler and worker own cron dispatch and run execution.
       ORCHEO_INPROCESS_CRON: "false"
       ORCHEO_INPROCESS_EXECUTION: "false"
       # Studio calls the backend on its own origin.
@@ -111,6 +111,7 @@ services:
     environment:
       <<: *orcheo-env
       ORCHEO_BACKEND_INTERNAL_URL: http://backend:2025
+      ORCHEO_CRON_DISPATCH_OWNER: scheduler
       ORCHEO_PUBLIC_BROWSER_WS_ENDPOINT: ws://public-browser:3000/public-browser
       # Workers do not serve Studio.
       ORCHEO_STUDIO_DIST_DIR: ""
@@ -123,11 +124,13 @@ services:
       - default
       - reader-control
     healthcheck:
-      test: ["CMD", "python", "-m", "orcheo_backend.app.broker_healthcheck"]
+      test: ["CMD", "python", "-m", "orcheo.broker_healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 5
-    command: python -m celery -A orcheo_backend.worker.celery_app worker --loglevel=info
+    command: >
+      python -m celery -A orcheo_backend.worker.celery_app worker --loglevel=info
+      --concurrency=${ORCHEO_LEAN_WORKER_CONCURRENCY:-2}
 
   # These two services deliberately do not inherit x-orcheo-image's env_file
   # or mount orcheo_data. They have no vault, DB/R2 keys, or coding-agent home.
@@ -195,17 +198,18 @@ services:
     environment:
       <<: *orcheo-env
       ORCHEO_STUDIO_DIST_DIR: ""
-      ORCHEO_CELERY_BEAT_SCHEDULE_FILE: /data/celerybeat-schedule
+      ORCHEO_INPROCESS_EXECUTION: "false"
     depends_on:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-m", "orcheo_backend.app.broker_healthcheck"]
+      test: ["CMD", "python", "-m", "orcheo.cron_healthcheck"]
       interval: 10s
       timeout: 5s
+      start_period: 30s
       retries: 5
-    command: >
-      sh -c 'python -m celery -A orcheo_backend.worker.celery_app beat --loglevel=info -s "$$ORCHEO_CELERY_BEAT_SCHEDULE_FILE"'
+    # A singleton scheduler dispatches directly; execution still goes to Celery.
+    command: python -m orcheo_backend.worker.cron_scheduler
 
 networks:
   reader-control:

@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 import pytest
 from orcheo.listeners import (
@@ -113,6 +114,57 @@ class BlockingAdapter:
             status="healthy",
             platform=self.subscription.platform,
         )
+
+
+@pytest.mark.parametrize("lease_seconds", [0, -1])
+def test_listener_rejects_nonpositive_lease(lease_seconds: int) -> None:
+    with pytest.raises(ValueError, match="lease_seconds must be positive"):
+        ListenerSupervisor(
+            repository=StubRepository([]),
+            runtime_id="runtime",
+            adapter_factory=BlockingAdapter,
+            lease_seconds=lease_seconds,
+        )
+
+
+@pytest.mark.parametrize("interval", [0, -1, 30, 60, float("inf"), float("nan")])
+def test_listener_rejects_unsafe_reconcile_interval(interval: float) -> None:
+    with pytest.raises(ValueError, match="less than half of lease_seconds"):
+        ListenerSupervisor(
+            repository=StubRepository([]),
+            runtime_id="runtime",
+            adapter_factory=BlockingAdapter,
+            reconcile_interval_seconds=interval,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("interval", [5.0, 29.0])
+async def test_listener_renews_only_near_expiry_and_detects_disabled_status(
+    interval: float,
+) -> None:
+    """A warm lease skips writes while discovery still observes status changes."""
+    subscription = create_subscription(ListenerSubscriptionStatus.ACTIVE)
+    subscription.assigned_runtime = "runtime"
+    subscription.lease_expires_at = datetime.now(UTC) + timedelta(seconds=60)
+    repository = StubRepository([subscription])
+    supervisor = ListenerSupervisor(
+        repository=repository,
+        runtime_id="runtime",
+        adapter_factory=BlockingAdapter,
+        reconcile_interval_seconds=interval,
+    )
+    await supervisor.run_once()
+    await asyncio.sleep(0)
+    await supervisor.run_once()
+    assert repository.claim_calls == [subscription.id]
+    subscription.lease_expires_at = datetime.now(UTC) + timedelta(seconds=20)
+    await supervisor.run_once()
+    assert repository.claim_calls == [subscription.id, subscription.id]
+    subscription.status = ListenerSubscriptionStatus.DISABLED
+    await supervisor.run_once()
+    assert supervisor.health() == []
+    assert repository.release_calls == [subscription.id]
 
 
 @pytest.mark.asyncio

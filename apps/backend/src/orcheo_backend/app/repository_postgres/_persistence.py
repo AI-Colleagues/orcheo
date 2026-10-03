@@ -313,8 +313,10 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
 
         raise WorkflowNotFoundError(normalized_ref)
 
-    async def _get_version_locked(self, version_id: UUID) -> WorkflowVersion:
-        async with self._connection() as conn:
+    async def _get_version_locked(
+        self, version_id: UUID, *, connection: Any | None = None
+    ) -> WorkflowVersion:
+        async with self._connection(connection) as conn:
             cursor = await conn.execute(
                 "SELECT payload FROM workflow_versions WHERE id = %s",
                 (str(version_id),),
@@ -371,8 +373,11 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
         runnable_config: Mapping[str, Any] | None = None,
         workspace_id: str | None = None,
         dispatch_requested: bool = False,
+        connection: Any | None = None,
     ) -> WorkflowRun:
-        version = await self._get_version_locked(workflow_version_id)
+        version = await self._get_version_locked(
+            workflow_version_id, connection=connection
+        )
         if version.workflow_id != workflow_id:
             raise WorkflowVersionNotFoundError(str(workflow_version_id))
         workspace_record = None
@@ -427,7 +432,7 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
         )
         run.record_event(actor=actor or triggered_by, action="run_created")
 
-        async with self._connection() as conn:
+        async with self._connection(connection) as conn:
             if workspace_id is not None and workspace_record is not None:
                 await self._ensure_run_capacity_locked(
                     conn,
@@ -464,9 +469,11 @@ class PostgresPersistenceMixin(PostgresRepositoryBase):
                 ),
             )
 
-        self._trigger_layer.track_run(workflow_id, run.id)
-        if triggered_by == "cron":
-            self._trigger_layer.register_cron_run(run.id)
+        # Caller-owned transactions must finish before updating process-local state.
+        if connection is None:
+            self._trigger_layer.track_run(workflow_id, run.id)
+            if triggered_by == "cron":
+                self._trigger_layer.register_cron_run(run.id)
         return run
 
     async def mark_run_enqueued(self, run_id: UUID) -> None:

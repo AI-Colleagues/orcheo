@@ -10,6 +10,7 @@ from orcheo.models import (
     ChatKitSupportedModel,
     Workflow,
     WorkflowDraftAccess,
+    WorkflowVersion,
 )
 from orcheo.models.workflow_refs import normalize_workflow_handle
 from orcheo_backend.app.repository.chatkit import (
@@ -25,6 +26,44 @@ from orcheo_backend.app.repository_postgres._persistence import PostgresPersiste
 
 class WorkflowRepositoryMixin(PostgresPersistenceMixin):
     """Helpers for managing workflow metadata."""
+
+    async def get_workflow_summaries(
+        self,
+        workflow_ids: Iterable[UUID],
+        *,
+        workspace_id: str,
+    ) -> dict[UUID, tuple[WorkflowVersion | None, bool]]:
+        """Read workspace-scoped gallery summaries in one database query."""
+        ids = [str(workflow_id) for workflow_id in workflow_ids]
+        if not ids:
+            return {}
+        await self._ensure_initialized()
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT w.id, v.payload AS version_payload,
+                       EXISTS (SELECT 1 FROM cron_triggers c
+                                WHERE c.workflow_id = w.id) AS is_scheduled
+                  FROM workflows w
+                  LEFT JOIN LATERAL (
+                    SELECT payload FROM workflow_versions
+                     WHERE workflow_id = w.id
+                     ORDER BY version DESC LIMIT 1
+                  ) v ON true
+                 WHERE w.id = ANY(%s) AND w.workspace_id = %s
+                """,
+                (ids, workspace_id),
+            )
+            rows = await cursor.fetchall()
+        return {
+            UUID(str(row["id"])): (
+                self._deserialize_workflow_version(row["version_payload"])
+                if row["version_payload"] is not None
+                else None,
+                bool(row["is_scheduled"]),
+            )
+            for row in rows
+        }
 
     def _remove_cron_config_if_archiving(
         self, workflow_id: UUID, *, is_archived: bool

@@ -1,0 +1,16 @@
+# Optional overlay for stacks whose workflows do not use browser nodes.
+# docker compose -f docker-compose.yml -f docker-compose.no-browser.yml up -d
+# Requires Docker Compose 2.24.4+ for !override.
+services:
+  worker:
+    environment:
+      ORCHEO_BROWSER_DISABLED: "true"
+    depends_on: !override
+      backend:
+        condition: service_healthy
+    networks: !override
+      - default
+  public-browser:
+    scale: 0
+  public-egress:
+    scale: 0

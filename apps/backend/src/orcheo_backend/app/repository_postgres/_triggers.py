@@ -271,17 +271,8 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
                     continue
 
                 try:
-                    run = await self._create_run_locked(
-                        workflow_id=plan.workflow_id,
-                        workflow_version_id=version.id,
-                        triggered_by="cron",
-                        input_payload={
-                            "scheduled_for": plan.scheduled_for.isoformat(),
-                            "timezone": plan.timezone,
-                        },
-                        actor="cron",
-                        workspace_id=workspace_id,
-                        dispatch_requested=True,
+                    run = await self._create_cron_run_once(
+                        plan, version_id=version.id, workspace_id=workspace_id
                     )
                 except WorkspaceQuotaExceededError:
                     logger.warning(
@@ -290,26 +281,71 @@ class TriggerRepositoryMixin(PostgresPersistenceMixin):
                         plan.workflow_id,
                     )
                     continue
-                self._trigger_layer.commit_cron_dispatch(plan.workflow_id)
-                # Persist the last_dispatched_at to survive worker restarts
-                last_dispatched = self._trigger_layer.get_cron_last_dispatched_at(
-                    plan.workflow_id
-                )
-                if last_dispatched is not None:  # pragma: no branch
-                    async with self._connection() as conn:
-                        await conn.execute(
-                            """
-                            UPDATE cron_triggers
-                               SET last_dispatched_at = %s
-                             WHERE workflow_id = %s
-                            """,
-                            (last_dispatched, str(plan.workflow_id)),
-                        )
-                runs.append(run.model_copy(deep=True))
+                if run is not None:
+                    runs.append(run.model_copy(deep=True))
         # Enqueue AFTER lock is released to ensure commits are fully visible
         for run in runs:
             await _enqueue_run_and_confirm(self, run)
         return runs
+
+    async def _create_cron_run_once(
+        self,
+        plan: CronDispatchPlan,
+        *,
+        version_id: UUID,
+        workspace_id: str | None,
+    ) -> WorkflowRun | None:
+        """Create a run and advance its schedule in one row-locked transaction."""
+        async with self._connection() as conn:
+            cursor = await conn.execute(
+                """
+                SELECT config, last_dispatched_at FROM cron_triggers
+                 WHERE workflow_id = %s FOR UPDATE SKIP LOCKED
+                """,
+                (str(plan.workflow_id),),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+            config = CronTriggerConfig.model_validate(row["config"])
+            if config != self._trigger_layer.get_cron_config(plan.workflow_id):
+                return None
+            last_dispatched = row["last_dispatched_at"]
+            if last_dispatched is not None and last_dispatched >= plan.scheduled_for:
+                return None
+            if not config.allow_overlapping:
+                cursor = await conn.execute(
+                    """
+                    SELECT 1 FROM workflow_runs
+                     WHERE workflow_id = %s AND triggered_by = 'cron'
+                       AND status IN ('pending', 'running') LIMIT 1
+                    """,
+                    (str(plan.workflow_id),),
+                )
+                if await cursor.fetchone() is not None:
+                    return None
+            run = await self._create_run_locked(
+                workflow_id=plan.workflow_id,
+                workflow_version_id=version_id,
+                triggered_by="cron",
+                input_payload={
+                    "scheduled_for": plan.scheduled_for.isoformat(),
+                    "timezone": plan.timezone,
+                },
+                actor="cron",
+                workspace_id=workspace_id,
+                dispatch_requested=True,
+                connection=conn,
+            )
+            await conn.execute(
+                "UPDATE cron_triggers SET last_dispatched_at = %s "
+                "WHERE workflow_id = %s",
+                (plan.scheduled_for, str(plan.workflow_id)),
+            )
+        self._trigger_layer.track_run(plan.workflow_id, run.id)
+        self._trigger_layer.register_cron_run(run.id)
+        self._trigger_layer.commit_cron_dispatch(plan.workflow_id)
+        return run
 
     async def dispatch_manual_runs(
         self, request: ManualDispatchRequest

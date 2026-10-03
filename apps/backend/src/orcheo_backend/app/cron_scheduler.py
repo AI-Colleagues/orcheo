@@ -3,15 +3,13 @@
 Cron triggers can also be dispatched by Celery Beat, which requires Redis and a
 separate scheduler process. Since neither is guaranteed to be running, the
 backend polls for due cron triggers on its own event loop by default. Set
-``ORCHEO_INPROCESS_CRON=false`` wherever Celery Beat runs, so a schedule is not
-dispatched twice.
+``ORCHEO_INPROCESS_CRON=false`` wherever Celery Beat runs to avoid redundant
+polling.
 
-The loop is only safe in a single-process backend. Its lock is process-local
-and ``dispatch_due_cron_runs`` reads ``last_dispatched_at``, creates the run,
-and writes the timestamp back over separate transactions, so two backend
-processes sharing a database can both see one occurrence as due and dispatch
-it. Turn the flag off for multi-worker or replicated deployments and let Beat,
-which is a singleton, own dispatch.
+PostgreSQL dispatch locks each schedule row while creating a run and advancing
+its timestamp, preventing duplicate occurrences from concurrent dispatchers.
+Keep one scheduler to avoid redundant polling, and disable this loop wherever
+Beat or the standalone scheduler owns dispatch.
 """
 
 from __future__ import annotations
@@ -19,6 +17,7 @@ import asyncio
 import logging
 import math
 import os
+from collections.abc import Callable
 from orcheo_backend.app.repository import WorkflowRepository
 
 
@@ -83,6 +82,7 @@ class CronSchedulerService:
         *,
         repository: WorkflowRepository,
         interval_seconds: float | None = None,
+        on_dispatch: Callable[[], None] | None = None,
     ) -> None:
         """Initialize the scheduler bound to one repository."""
         self._repository = repository
@@ -93,6 +93,7 @@ class CronSchedulerService:
         )
         self._stop_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
+        self._on_dispatch = on_dispatch
 
     async def start(self) -> None:
         """Start the dispatch loop."""
@@ -125,7 +126,15 @@ class CronSchedulerService:
         runs = await self._repository.dispatch_due_cron_runs()
         if runs:
             logger.info("Dispatched %d cron run(s)", len(runs))
+        if self._on_dispatch is not None:
+            self._on_dispatch()
         return len(runs)
+
+    async def wait(self) -> None:
+        """Wait for the dispatch loop to exit without cancelling it on timeout."""
+        if self._task is None:
+            raise RuntimeError("Cron scheduler has not started")
+        await asyncio.shield(self._task)
 
     async def _dispatch_loop(self) -> None:
         while not self._stop_event.is_set():

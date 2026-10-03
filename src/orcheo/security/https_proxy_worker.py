@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 import asyncio
-from orcheo.nodes.browser_proxy import _serve
+from orcheo.security.https_proxy import _serve
 
 
 if __name__ == "__main__":

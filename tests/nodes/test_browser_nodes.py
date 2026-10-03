@@ -1080,6 +1080,16 @@ async def _create_guarded_session() -> browser_nodes.BrowserSession:
 
 
 @pytest.mark.asyncio
+async def test_disabled_browser_refuses_before_playwright_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The no-browser deployment cannot silently launch a privileged local browser."""
+    monkeypatch.setenv("ORCHEO_BROWSER_DISABLED", "true")
+    with pytest.raises(ValueError, match="Browser nodes are disabled"):
+        await _create_guarded_session()
+
+
+@pytest.mark.asyncio
 async def test_guarded_browser_closes_proxy_when_playwright_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
