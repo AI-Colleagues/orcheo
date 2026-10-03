@@ -1,9 +1,11 @@
 """Standalone scheduler health probes check recent successful progress."""
 
 from __future__ import annotations
+import runpy
 from pathlib import Path
 from unittest.mock import Mock
 import pytest
+from orcheo import broker_healthcheck as broker_healthcheck_module
 from orcheo import cron_healthcheck
 
 
@@ -55,3 +57,18 @@ def test_probe_requires_progress_and_redis(
     assert cron_healthcheck.main() == 0
     broker.return_value = 1
     assert cron_healthcheck.main() == 1
+
+
+def test_cron_healthcheck_module_exits_with_probe_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The executable probe returns its health status as the process status."""
+    path = tmp_path / "heartbeat"
+    monkeypatch.setenv("ORCHEO_CRON_HEALTH_FILE", str(path))
+    cron_healthcheck.record_heartbeat(path, 60)
+    monkeypatch.setattr(broker_healthcheck_module, "main", Mock(return_value=0))
+
+    with pytest.raises(SystemExit) as exc_info:
+        runpy.run_path(cron_healthcheck.__file__, run_name="__main__")
+
+    assert exc_info.value.code == 0

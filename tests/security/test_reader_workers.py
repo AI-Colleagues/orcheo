@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock
 import pytest
 from playwright._impl import _driver
+from orcheo.nodes import browser_proxy as legacy_browser_proxy
 from orcheo.security import https_proxy as browser_proxy
 from orcheo.security import browser_worker, egress_worker, https_proxy_worker
 
@@ -74,7 +75,9 @@ async def test_proxy_sidecar_closes_listener_on_cancellation(
     proxy.close.assert_awaited_once()
 
 
-@pytest.mark.parametrize("module", [browser_proxy, https_proxy_worker])
+@pytest.mark.parametrize(
+    "module", [browser_proxy, https_proxy_worker, legacy_browser_proxy]
+)
 def test_proxy_module_entry_points_start_server(
     monkeypatch: pytest.MonkeyPatch, module: Any
 ) -> None:

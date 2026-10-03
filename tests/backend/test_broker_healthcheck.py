@@ -5,6 +5,7 @@ import runpy
 from unittest.mock import Mock
 import pytest
 from orcheo import broker_healthcheck
+from orcheo_backend.app import broker_healthcheck as backend_broker_healthcheck
 
 
 @pytest.mark.parametrize(
@@ -53,4 +54,21 @@ def test_healthcheck_module_exits_with_broker_status(
         runpy.run_path(broker_healthcheck.__file__, run_name="__main__")
 
     assert exc_info.value.code == (0 if reachable else 1)
+    redis.close.assert_called_once_with()
+
+
+def test_backend_compatibility_entrypoint_exits_with_broker_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The backend's legacy command delegates to the shared lightweight probe."""
+    redis = Mock()
+    redis.ping.return_value = True
+    monkeypatch.setattr(
+        backend_broker_healthcheck.Redis, "from_url", Mock(return_value=redis)
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        runpy.run_path(backend_broker_healthcheck.__file__, run_name="__main__")
+
+    assert exc_info.value.code == 0
     redis.close.assert_called_once_with()

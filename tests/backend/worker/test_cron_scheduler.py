@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import asyncio
+import runpy
 from pathlib import Path
 from unittest.mock import ANY, AsyncMock, Mock
 from uuid import uuid4
@@ -113,3 +114,51 @@ async def test_scheduler_exits_when_background_loop_stops(
         await asyncio.wait_for(cron_scheduler.run_scheduler(asyncio.Event()), timeout=1)
     service.stop.assert_awaited_once()
     assert not cron_scheduler.heartbeat_path().exists()
+
+
+@pytest.mark.asyncio
+async def test_standalone_scheduler_registers_and_removes_shutdown_signals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The standalone process turns SIGINT and SIGTERM into clean shutdowns."""
+    loop = asyncio.get_running_loop()
+    registered: dict[object, object] = {}
+    removed: list[object] = []
+
+    def register(signal_number: object, callback: object) -> None:
+        registered[signal_number] = callback
+        callback()  # type: ignore[operator]
+
+    monkeypatch.setattr(loop, "add_signal_handler", register)
+    monkeypatch.setattr(loop, "remove_signal_handler", removed.append)
+    monkeypatch.setattr(cron_scheduler.asyncio, "get_running_loop", lambda: loop)
+    service = Mock(start=AsyncMock(), stop=AsyncMock(), wait=AsyncMock())
+    monkeypatch.setattr(
+        cron_scheduler, "CronSchedulerService", Mock(return_value=service)
+    )
+    monkeypatch.setattr(cron_scheduler, "get_repository", Mock())
+
+    await cron_scheduler.run_scheduler()
+
+    assert set(registered) == {
+        cron_scheduler.signal.SIGINT,
+        cron_scheduler.signal.SIGTERM,
+    }
+    assert removed == [cron_scheduler.signal.SIGINT, cron_scheduler.signal.SIGTERM]
+    service.stop.assert_awaited_once()
+
+
+def test_scheduler_module_entrypoint_starts_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The container command delegates to the async standalone scheduler."""
+    executed: list[str] = []
+
+    def run(coroutine: object) -> None:
+        executed.append(coroutine.cr_code.co_name)  # type: ignore[attr-defined]
+        coroutine.close()  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(asyncio, "run", run)
+    runpy.run_path(cron_scheduler.__file__, run_name="__main__")
+
+    assert executed == ["run_scheduler"]

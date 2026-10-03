@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 import gzip
+import runpy
 from pathlib import Path
+from random import Random
 import httpx
 import pytest
 from starlette.applications import Starlette
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import Mount
+from starlette.staticfiles import StaticFiles
+from orcheo import studio_assets
 from orcheo.studio_assets import compress_assets
 from orcheo_backend.app.factory import _StudioStaticFiles
 
@@ -223,3 +228,50 @@ async def test_studio_custom_404_is_not_labeled_gzip(tmp_path: Path) -> None:
         assert missing.status_code == 404
         assert missing.text == "<html>Not found</html>"
         assert "Content-Encoding" not in missing.headers
+
+
+def test_compress_assets_removes_sidecar_for_incompressible_content(
+    tmp_path: Path,
+) -> None:
+    """Large files that do not shrink lose any stale gzip sidecar."""
+    asset = tmp_path / "bundle.js"
+    asset.write_bytes(Random(42).randbytes(2048))
+    sidecar = tmp_path / "bundle.js.gz"
+    sidecar.write_bytes(b"stale compressed asset")
+
+    compress_assets(tmp_path)
+
+    assert not sidecar.exists()
+
+
+def test_compress_assets_command_uses_requested_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The module command compresses the directory passed on argv."""
+    (tmp_path / "bundle.js").write_text("const configured = true;\n" * 100)
+    monkeypatch.setattr(studio_assets.sys, "argv", ["studio_assets.py", str(tmp_path)])
+
+    runpy.run_path(studio_assets.__file__, run_name="__main__")
+
+    assert (tmp_path / "bundle.js.gz").exists()
+
+
+@pytest.mark.asyncio
+async def test_studio_static_gzip_propagates_non_not_found_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A forbidden gzip asset response is not hidden by identity fallback."""
+
+    async def forbidden_asset(
+        self: StaticFiles, path: str, scope: dict[str, object]
+    ) -> None:
+        raise StarletteHTTPException(status_code=403, detail="forbidden asset")
+
+    monkeypatch.setattr(StaticFiles, "get_response", forbidden_asset)
+    app = _StudioStaticFiles(directory=tmp_path, html=True)
+
+    with pytest.raises(StarletteHTTPException, match="forbidden asset"):
+        await app._get_asset_response(
+            "bundle.js",
+            {"type": "http", "headers": [(b"accept-encoding", b"gzip")]},
+        )

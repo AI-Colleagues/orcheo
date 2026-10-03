@@ -16,6 +16,7 @@ from orcheo.models import WorkflowRun, WorkflowVersion
 from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.manual import ManualDispatchItem, ManualDispatchRequest
+from orcheo.triggers.layer.models import CronDispatchPlan
 from orcheo.triggers.webhook import WebhookTriggerConfig
 from orcheo.vault.oauth import CredentialHealthError, CredentialHealthReport
 from orcheo_backend.app.errors import WorkspaceQuotaExceededError
@@ -2470,6 +2471,63 @@ async def test_base_repository_close_when_pool_is_none(
     # Should not raise
     await repo.close()
     assert repo._pool is None
+
+
+@pytest.mark.asyncio
+async def test_base_connection_reuses_caller_owned_transaction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nested repository work leaves commit ownership with its caller."""
+    repo = make_repository(monkeypatch, [])
+    get_pool = AsyncMock(side_effect=AssertionError("pool must not be opened"))
+    monkeypatch.setattr(repo, "_get_pool", get_pool)
+    existing = object()
+
+    async with repo._connection(existing) as connection:
+        assert connection is existing
+
+    get_pool.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "skip_reason", ["config_changed", "already_dispatched", "active_run"]
+)
+@pytest.mark.asyncio
+async def test_create_cron_run_once_skips_stale_or_overlapping_schedule(
+    monkeypatch: pytest.MonkeyPatch, skip_reason: str
+) -> None:
+    """Stale plans and active runs are rejected under the schedule row lock."""
+    workflow_id = uuid4()
+    scheduled_for = datetime(2025, 1, 1, 9, 0, tzinfo=UTC)
+    database_config = CronTriggerConfig(
+        expression="0 9 * * *", timezone="UTC", allow_overlapping=False
+    )
+    row = {
+        "config": database_config.model_dump(mode="json"),
+        "last_dispatched_at": (
+            scheduled_for if skip_reason == "already_dispatched" else None
+        ),
+    }
+    responses: list[Any] = [{"row": row}]
+    if skip_reason == "active_run":
+        responses.append({"row": {"id": str(uuid4())}})
+    repo = make_repository(monkeypatch, responses)
+    cached_config = database_config
+    if skip_reason == "config_changed":
+        cached_config = CronTriggerConfig(expression="0 10 * * *", timezone="UTC")
+    repo._trigger_layer.configure_cron(workflow_id, cached_config)
+    plan = CronDispatchPlan(
+        workflow_id=workflow_id,
+        scheduled_for=scheduled_for,
+        timezone="UTC",
+    )
+
+    run = await repo._create_cron_run_once(plan, version_id=uuid4(), workspace_id=None)
+
+    assert run is None
+    assert len(repo._pool._connection.queries) == (
+        2 if skip_reason == "active_run" else 1
+    )
 
 
 @pytest.mark.asyncio
