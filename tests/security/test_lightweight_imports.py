@@ -7,7 +7,12 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    "module", ["orcheo.broker_healthcheck", "orcheo.security.https_proxy_worker"]
+    "module",
+    [
+        "orcheo.broker_healthcheck",
+        "orcheo.cron_healthcheck",
+        "orcheo.security.https_proxy_worker",
+    ],
 )
 def test_service_entrypoints_do_not_import_backend_or_nodes(module: str) -> None:
     """Import in a fresh interpreter so the test suite cannot hide eager imports."""

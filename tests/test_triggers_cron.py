@@ -116,6 +116,31 @@ def test_cron_trigger_allows_missing_boundaries() -> None:
     assert config.end_at is None
 
 
+def test_cron_boundaries_round_trip_through_persisted_json() -> None:
+    """Database JSON and API payloads preserve valid schedule boundaries."""
+    config = CronTriggerConfig(
+        start_at=datetime(2026, 10, 3, 9, 0, tzinfo=UTC),
+        end_at=datetime(2026, 10, 4, 9, 0, tzinfo=UTC),
+    )
+    assert CronTriggerConfig.model_validate(config.model_dump(mode="json")) == config
+    assert CronTriggerConfig.model_validate_json(config.model_dump_json()) == config
+
+
+@pytest.mark.parametrize("boundary", ["start_at", "end_at"])
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("2026-10-03T09:00:00", "timezone-aware"),
+        ("2026-10-03T09:00:30Z", "align to whole minutes"),
+    ],
+)
+def test_invalid_serialized_cron_boundaries_are_rejected(
+    boundary: str, value: str, message: str
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        CronTriggerConfig.model_validate({boundary: value})
+
+
 @pytest.mark.parametrize("boundary", ["start_at", "end_at"])
 def test_cron_trigger_requires_timezone_aware_boundaries(boundary: str) -> None:
     """Boundary datetimes must include timezone information."""

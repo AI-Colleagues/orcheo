@@ -1,5 +1,4 @@
 from __future__ import annotations
-import asyncio
 import hashlib
 import hmac
 import secrets
@@ -9,8 +8,8 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from fastapi import status
-from .errors import AuthenticationError
-from .telemetry import auth_telemetry
+from orcheo_backend.app.authentication.errors import AuthenticationError
+from orcheo_backend.app.authentication.telemetry import auth_telemetry
 
 
 @dataclass(frozen=True)
@@ -66,35 +65,11 @@ class ServiceTokenManager:
         """Initialize the manager with a token repository."""
         self._repository = repository
         self._clock = clock or (lambda: datetime.now(tz=UTC))
-        self._cache: dict[str, ServiceTokenRecord] = {}
-        self._cache_expires_at: datetime | None = None
-        self._cache_ttl = timedelta(seconds=30)
-        self._cache_lock = asyncio.Lock()
-
-    async def _get_cache(self) -> dict[str, ServiceTokenRecord]:
-        """Return cached active tokens, refreshing if stale."""
-        now = self._clock()
-        if self._cache_expires_at and now < self._cache_expires_at:
-            return self._cache
-
-        async with self._cache_lock:
-            now = self._clock()
-            if self._cache_expires_at and now < self._cache_expires_at:
-                return self._cache
-            active_records = await self._repository.list_active(now=now)
-            self._cache = {record.identifier: record for record in active_records}
-            self._cache_expires_at = now + self._cache_ttl
-        return self._cache
-
-    def _invalidate_cache(self) -> None:
-        """Clear the token cache to force reload."""
-        self._cache.clear()
-        self._cache_expires_at = None
 
     async def all(self) -> tuple[ServiceTokenRecord, ...]:
         """Return all active service token records."""
-        cache = await self._get_cache()
-        return tuple(cache.values())
+        records = await self._repository.list_active(now=self._clock())
+        return tuple(records)
 
     async def authenticate(self, token: str) -> ServiceTokenRecord:
         """Return the record for ``token`` or raise an AuthenticationError."""
@@ -125,9 +100,6 @@ class ServiceTokenManager:
             last_used_at=usage_time,
             use_count=record.use_count + 1,
         )
-        if record.identifier in self._cache:  # pragma: no branch
-            self._cache[record.identifier] = updated_record
-
         return updated_record
 
     async def mint(
@@ -168,7 +140,6 @@ class ServiceTokenManager:
         )
         await self._repository.create(record)
         await self._repository.record_audit_event(record.identifier, "created")
-        self._invalidate_cache()
         auth_telemetry.record_service_token_event("mint", record)
         return secret, record
 
@@ -188,6 +159,5 @@ class ServiceTokenManager:
         await self._repository.record_audit_event(
             identifier, "revoked", details={"reason": reason} if reason else None
         )
-        self._invalidate_cache()
         auth_telemetry.record_service_token_event("revoke", updated)
         return updated

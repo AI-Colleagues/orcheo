@@ -2839,8 +2839,19 @@ async def test_triggers_dispatch_due_cron_runs_updates_last_dispatched(
     version_id = uuid4()
     version_payload = _version_payload(version_id, workflow_id)
 
-    repo = make_repository(monkeypatch, [])
     config = CronTriggerConfig(expression="0 9 * * *", timezone="UTC")
+    repo = make_repository(
+        monkeypatch,
+        [
+            {},  # workspace lookup
+            {
+                "row": {
+                    "config": config.model_dump(mode="json"),
+                    "last_dispatched_at": None,
+                }
+            },
+        ],
+    )
     repo._trigger_layer.configure_cron(workflow_id, config)
 
     from orcheo.models import WorkflowRun, WorkflowVersion

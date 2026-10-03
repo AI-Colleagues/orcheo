@@ -208,10 +208,13 @@ and publishes their runs to Celery. Schedule checks therefore do not wait for
 workflow execution slots. The lean worker ignores queued Celery cron-dispatch
 tasks left over from earlier deployments (`ORCHEO_CRON_DISPATCH_OWNER=scheduler`).
 Keep exactly one scheduler and leave
-`ORCHEO_INPROCESS_CRON=false` on every backend process. Cron dispatch uses
-process-local locking; the repository does not deduplicate an occurrence
-dispatched concurrently by separate processes. Do not scale `celery-beat`
-above one replica or run another scheduler against the same database.
+`ORCHEO_INPROCESS_CRON=false` on every backend process to avoid redundant polling.
+PostgreSQL locks each schedule row while creating a run and advancing its
+dispatch timestamp in one transaction. If scheduler processes overlap during
+a restart, only one can create a run for that occurrence. The same guard covers
+standalone, Celery and backend dispatchers, including schedules that allow
+overlapping runs. Locks are released on commit or rollback and work through
+transaction poolers.
 
 Outside the lean Compose stack, migrating from Celery Beat to
 `python -m orcheo_backend.worker.cron_scheduler` requires stopping the old
@@ -244,10 +247,15 @@ with the base Compose file to restore it.
 
 The lean services use `restart: unless-stopped`. The backend's Docker health
 check calls `/api/system/ready`, which tests Redis from the backend container;
-worker and scheduler health checks use the lightweight `orcheo.broker_healthcheck`
-probe. These checks verify broker reachability, not execution or scheduling progress. The
-installer waits for all services to become healthy. Redis availability is an
-intentional part of the lean backend container's health status; use
+workers use the lightweight `orcheo.broker_healthcheck` probe for broker
+reachability. The scheduler uses `orcheo.cron_healthcheck`, which also checks its
+process and a container-local heartbeat written after each successful schedule
+poll. Missing or stale progress fails the probe after the greater of 30 seconds
+or three dispatch intervals. Startup and shutdown clear the heartbeat; an
+unexpected dispatch-loop exit stops the scheduler process so its restart policy
+can recover it. The installer waits for all services to become healthy.
+Redis availability is an intentional part of the lean backend container's
+health status; use
 `/api/system/health` as the backend liveness probe and `/api/system/ready` as
 the readiness probe in an orchestrator that restarts unhealthy containers.
 Docker Compose does not automatically restart a container merely because its

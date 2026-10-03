@@ -1,7 +1,6 @@
 """Service token tests split from the extended suite."""
 
 from __future__ import annotations
-import asyncio
 from datetime import UTC, datetime, timedelta
 import pytest
 from orcheo_backend.app.authentication import (
@@ -22,7 +21,7 @@ def _reset_auth(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class _CountingServiceTokenRepository(InMemoryServiceTokenRepository):
-    """Track repository calls for cache behavior assertions."""
+    """Track repository calls for authentication query assertions."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -58,36 +57,36 @@ async def test_service_token_manager_with_custom_clock() -> None:
 
 
 @pytest.mark.asyncio
-async def test_service_token_manager_all_uses_cache_on_repeated_calls() -> None:
-    """all() should reuse the cached active token list while it is fresh."""
+async def test_service_token_manager_all_reflects_changes_from_other_managers() -> None:
+    """Listing active tokens immediately observes another worker's changes."""
+    repository = InMemoryServiceTokenRepository()
+    reader = ServiceTokenManager(repository)
+    writer = ServiceTokenManager(repository)
+    assert await reader.all() == ()
 
-    repository = _CountingServiceTokenRepository()
-    await repository.create(ServiceTokenRecord(identifier="token-1", secret_hash="h1"))
-    manager = ServiceTokenManager(repository, clock=lambda: datetime.now(tz=UTC))
+    _, record = await writer.mint()
+    assert await reader.all() == (record,)
 
-    first = await manager.all()
-    second = await manager.all()
-
-    assert first == second
-    assert repository.list_active_calls == 1
+    await writer.revoke(record.identifier)
+    assert await reader.all() == ()
 
 
 @pytest.mark.asyncio
-async def test_empty_token_cache_is_shared_until_expiry() -> None:
-    """An empty cache avoids repeat queries and refreshes after its TTL."""
+async def test_service_token_manager_all_excludes_newly_expired_tokens() -> None:
+    """Each listing filters expiry using the manager's current clock."""
     now = datetime(2026, 1, 1, tzinfo=UTC)
-    repository = _CountingServiceTokenRepository()
+    repository = InMemoryServiceTokenRepository()
     manager = ServiceTokenManager(repository, clock=lambda: now)
-    assert await asyncio.gather(*(manager.all() for _ in range(20))) == [()] * 20
-    assert repository.list_active_calls == 1
-    now += timedelta(seconds=31)
+    _, record = await manager.mint(expires_in=10)
+    assert await manager.all() == (record,)
+
+    now += timedelta(seconds=10)
     assert await manager.all() == ()
-    assert repository.list_active_calls == 2
 
 
 @pytest.mark.asyncio
-async def test_authenticate_token_minted_elsewhere_with_cached_empty_list() -> None:
-    """A worker accepts new tokens immediately despite its cached empty list."""
+async def test_authenticate_token_minted_elsewhere_after_empty_listing() -> None:
+    """A worker accepts new tokens immediately after observing an empty list."""
     now = datetime.now(tz=UTC)
     repository = _CountingServiceTokenRepository()
     receiving_manager = ServiceTokenManager(repository, clock=lambda: now)
